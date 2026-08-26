@@ -1,6 +1,48 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-26 (**TASK 021 OPENS. SLICE 1 IS THE MEASURED MAP OF `NSharpLang.Compiler`
+Last updated: 2026-08-26 (**TASK 021 SLICE 2 — THE DECLINE VOCABULARY AND THE TOKEN ORDINALS LEAVE
+C#.** Both censuses were re-verified BEFORE any production edit and both CORRECT slice 1 upward.
+**SLICE 1 REPORTED TWO RAW `TokenType` ORDINAL SITES; THERE ARE SIX** — `:406` `Ref`, `:867`
+`Class`/`Struct`/`Record`, and the four body-shape sites slice 1's narrower question missed (`:693`,
+`:834`, `:918`, `:937` over `LeftBrace` 129 / `Arrow` 120) — **plus a SECOND family of six
+`Modifiers` bits, THREE of which already had N# owners the C# simply did not call**
+(`ColumnarStructFieldFlagIsStatic`, `…MethodFlagIsStatic`, `…MethodFlagIsNativeImport`). **THE
+INHERITED "BOTH TABLES" FRAMING IS ALSO CORRECTED BY MEASUREMENT**: there is no C# `TokenType` —
+`enum TokenType` matches ZERO `.cs` files and `Token*.cs` does not exist (seven kernel comments still
+cite it) — so the two real tables are `Token.nl`'s enum and the columnar lexer's hand-written
+ordinals, and the C# literals were a THIRD copy. The decline census reads **49 literal call sites /
+40 site ids / 49 messages + 6 scan-stage names** in the builder (slice 1's 53 SENTENCES minus its
+four helper declarations reconciles exactly) and **101 `emit.*` sites in `ColumnarIlEmitter.cs`,
+measured and DEFERRED to 021/10** which deletes that file. **ZERO `.nl` FILES NAMED ANY OF IT.**
+Four N# owners gained the decisions: a new `ColumnarTokenKindFacts.nl` (69 lines, beside `Token.nl`),
+`ColumnarDeclineReasons.nl` (+119, 48 static rows + `DeclarationScan(code)` decoding the kernel's own
+`-2 … -6`), three sibling flag accessors in `ColumnarParserKernels.nl`, and the three existing ones
+now actually called. **ZERO NEW C#; THE ONLY C# TOUCHED SHRANK 1,062 → 1,051 / 991 → 981**, and its
+`Decline` helpers no longer accept a `string` site or message at all, so no site in that file can
+spell one. Slice 1's own sentence instrument now reads **53 → 0** over the builder; raw ordinal
+comparisons **6 → 0**; raw modifier-bit tests **5 → 0**. **THE STAGE BOUNDARY DID NOT BIND** — the
+pinned toolset compiled every new shape on the first build — but it took a probe to get there: `as
+int`, `int(x)`, `TokenType(78)`, `enum == int` and `Enum.GetNames(typeof(T))` all decline or fail
+analysis, and only **`Convert.ToInt32(enumValue)`** emits, which is the single form that makes the
+drift pin real. **19 NEW CONTRACT BLOCKS (6,778 → 6,797)** pin every ordinal against BOTH tables and
+every one of the 49 vocabulary rows by name; **FIVE MUTATIONS AGAINST THE VERIFIED-GREEN BASELINE ALL
+FAIL BY NAME**, and the ordinal swap `Ref` 78 → 79 fails **THREE** contracts including both table
+pins. The routing is proved non-vacuous at RUNTIME too: mutating one N# word changed the `NL103` a
+user reads. An exact comparator shows the moved vocabulary is byte-identical (**54 = 54, MISSING
+`[]`, EXTRA `[]`**). **ONE INHERITED DEFECT FOUND**: a `:=` declaration that FOLLOWS a bare member
+ACCESS (`print(c.Count)`) fails to parse — `NL101` + an `NL301` cascade + a false `NL001` about the
+receiver — with two controls (a member CALL is fine; declaring first is fine) and identical
+reproduction on the installed pre-branch `nlc`. **THE FIRST GATE RUN FAILED ON THE FORMAT CONTRACT
+GATE** over two hand-written N# shapes; that is recorded rather than quietly fixed, the formatter was
+applied, the comparator re-run (still 54 = 54), and run 2 taken fresh. Ratchet repinned two-key
+`head-v1:e65ccd3f8b930d04` → **`head-v1:f5a5d41c6d81202f`**, epoch triple UNCHANGED, audit **18/18**
+and PROVED non-vacuous (a one-line ceiling raise and a corrupted head each fail it). The fresh
+isolated `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` gate is **ALL TESTS PASSED, exit 0, 126
+steps, 0 failures** — units **606/606**, estate **6797/6797**, all **46** native projects, templates,
+examples, `nlc check`, ILVerify. NOT COMMITTED — the mandate reserves that; `tasks/README.md` is NOT
+edited. **NEXT: SLICE 3 — `SystemsAnalyzer`'s three ordering sites**)
+
+Last updated (prior): 2026-08-26 (**TASK 021 OPENS. SLICE 1 IS THE MEASURED MAP OF `NSharpLang.Compiler`
 OWNERSHIP, THE FREE DELETIONS, AND THE DEPENDENCY-ORDERED PLAN FOR THE REST.** The instrument is a
 TYPE-level receiver-typed IL census over **90 assemblies / 188,291 method bodies / 0 undecodable
 opcodes**, and **ITS FIRST PASS WAS WRONG AND FOUND ITS OWN ERROR**: `.WithHandler<T>()` hides its
@@ -4259,7 +4301,324 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 1 — THE OPENING INVENTORY OF THE FINAL COMPILER
+- Active sub-slice (021 arc, THIS TURN — **SLICE 2 — THE DECLINE VOCABULARY AND THE TOKEN
+  ORDINALS LEAVE C#. THE TWO CENSUSES, RECORDED BEFORE ANY PRODUCTION EDIT.**
+
+  ### CENSUS 1 — EVERY RAW ORDINAL COMPARISON IN `ColumnarProgramInputBuilder.cs`
+
+  **SLICE 1 REPORTED TWO. THE RE-VERIFICATION FINDS SIX, AND THEN A SECOND FAMILY OF SIX BESIDE
+  THEM.** Slice 1's finding 2 named `:406` and `:867` as "the two SHAPE decisions". That was the
+  answer to a narrower question — which comparisons decide a DECLARATION shape — not to the
+  question this slice must answer, which is *every* place C# reads the N# token table by ordinal.
+  Sweeping `== <int>` / `!= <int>` over `ck[...]` finds **six sites**, and all six ordinals decode
+  against `Token.nl:5`'s `enum TokenType`:
+
+  | site | comparison | ordinal decodes to | the decision it makes |
+  |---|---|---|---|
+  | `:406` | `ck[structIndex - 1] == 78` | `Ref` (`Token.nl:84`) | is this declaration a `ref struct`? |
+  | `:693` | `ck[bodyBrace] != 129 && != 120` | `LeftBrace` / `Arrow` | is a function body a supported block or expression body? |
+  | `:834` | `ck[bodyBrace] != 129` | `LeftBrace` | is a constructor body a supported block? |
+  | `:867` | `ck[ctorIndex] == 8 \|\| == 9 \|\| == 13` | `Class` / `Struct` / `Record` | is this constructor the SYNTHESIZED primary constructor (the ctor "token" is the declaration keyword itself)? |
+  | `:918` | `ck[getBodyBrace] != 129 && != 120` | `LeftBrace` / `Arrow` | is a property getter body supported? |
+  | `:937` | `ck[setBodyBrace] != 129` | `LeftBrace` | is a property setter body supported? |
+
+  Six sites, six ordinals, **four distinct decisions**. The four body-shape sites were the ones
+  slice 1's narrower question missed, and they are the same hazard in the same file: `120` and `129`
+  are positions in an enum this C# does not import, and a single inserted case moves both.
+
+  **THE "BOTH TABLES" OF THE HAZARD ARE NOT WHAT THE MEMORY NOTE SAYS THEY ARE, AND THAT IS
+  MEASURED.** `git grep -n 'enum TokenType' --include='*.cs'` over `src/` and `tests/` matches
+  **ZERO** files and `find src -name 'Token*.cs'` finds **none** — the C# `Token.cs` this repo's
+  kernel comments still cite (`ColumnarParserKernels.nl:154`, `:432`, `:545`, `:702`, `:720`,
+  `:1130`, `:1132` all say "see Token.cs") **no longer exists**. The two tables that really exist
+  are both N#: (1) `Token.nl:5`'s `enum TokenType`, which the tree lexer produces, and (2) the
+  ordinals the COLUMNAR lexer writes into `ck[]` — hand-written inside
+  `CompilerServices/ColumnarParserKernels.nl` (`KeywordKind:2863` returns `78` for `ref`, `8` for
+  `class`; `TokenizeMetadataCore` writes the punctuation kinds). The C# literals were a **THIRD**
+  copy, in a third language, that nothing checked. That is the correction this slice's contracts
+  must pin.
+
+  **THE SECOND FAMILY: SIX MODIFIER-BIT DECISIONS, AND THREE OF THEM ALREADY HAVE N# OWNERS THE C#
+  IGNORES.** The same sweep finds a second ordinal family in the same file — `Modifiers`
+  (`DeclarationEnums.nl:29`) bits, read as bare integers:
+
+  | site | comparison | means | N# owner |
+  |---|---|---|---|
+  | `:463` | `(fieldModifierFlags & 1) != 0` | field is `static` | **EXISTS** — `ColumnarStructFieldFlagIsStatic` (`ColumnarParserKernels.nl:12975`) |
+  | `:484` | `(methodModifierFlags & 16) != 0` | method is `static` (`Modifiers.Static`) | **EXISTS** — `ColumnarStructMethodFlagIsStatic` (`:13392`) |
+  | `:487` | `& NSharpModifierNativeImport` (`:9` = `131072`) | method is a bodyless `LibraryImport` | **EXISTS** — `ColumnarStructMethodFlagIsNativeImport` (`:9271`), over `ColumnarStructNativeImportModifierFlag()` (`:9267`) |
+  | `:464` | `(fieldModifierFlags & 2) != 0` | field is `readonly` | none |
+  | `:485` | `(methodModifierFlags & 2048) != 0` | method is `async` (`Modifiers.Async`) | none |
+  | `:10`/`:329` | `NSharpModifierGenerator = 4096` | `func*` (`Modifiers.Generator`) | none |
+
+  Three of the six are a **pure reroute to an owner that already ships** — the exact
+  "routes through N# but leaves the legacy owner required" shape `AGENTS.md` calls not-done. The
+  other three get sibling accessors next to the ones that exist. **`131072` is also a finding in its
+  own right: it is `1 << 17`, one bit past `Modifiers.Override = 65536`, and it is NOT a member of
+  the `Modifiers` enum at all** — the flag exists only as `ColumnarStructNativeImportModifierFlag()`
+  in the kernels and as two hand-copied C# constants (`ColumnarProgramInputBuilder.cs:9` and
+  `ColumnarIlEmitter.cs:150`; the second is slice 10's file).
+
+  ### CENSUS 2 — EVERY DECLINE SPELLING IN THE C#
+
+  Balanced-paren extraction of the first two arguments of every `Decline` / `DeclineAtToken` /
+  `DeclineStatic` call in the four C# files that mention `ColumnarDeclineTrace`:
+
+  | file | literal decline call sites | distinct site ids | distinct message expressions | prefix |
+  |---|---|---|---|---|
+  | `Columnar/ColumnarProgramInputBuilder.cs` | **49** | **40** | **49** (48 pure literals + 1 composed) | `parse.*` |
+  | `Columnar/ColumnarIlEmitter.cs` | **101** | **75** | 75 | `emit.*` |
+  | `MultiFileCompiler.cs` | **0** | — | — | — (it CONSUMES the N# renderer) |
+  | `Columnar/ColumnarDeclineTrace.cs` | **0** | — | — | — (a `[ThreadStatic]` store) |
+
+  Slice 1's SENTENCE metric read **53** for the builder; that metric counts sentence-shaped string
+  literals, which admits the four `Decline`/`DeclineAtToken` *declarations and internal forwards*
+  (`:12`, `:18`, `:28`, `:31`) whose "sentences" are the parameter names. **49 is the call-site
+  count and 53 − 4 = 49 reconciles it exactly.** The one composed message is `:106`, whose
+  `scanStage` switch (`:97–105`) spells **six more strings** — `"function scan"`,
+  `"declaration name spans mismatched the declaration count"`, `"duplicate top-level type names"`,
+  `"nominal (enum/union/interface) scan"`, `"struct-like scan"`, `"declaration scan"` — decoded from
+  the N# kernel's OWN negative return codes `-2 … -6`. So the builder's user-observable vocabulary
+  is **49 site ids + 49 messages + 6 stage names**, all of it resident in C#.
+
+  **DOES `ColumnarDeclineReasons.nl` ALREADY NAME ANY OF IT? NO — ZERO.** `git grep '"parse\.'` over
+  every tracked `.nl` matches **no file at all**. `ColumnarDeclineReasons.nl` owns the reason RECORD
+  (`ColumnarDeclineReason`) and the two RENDERINGS (`FormatDetail` writes the English sentence a
+  user reads out of `NL103`, `FormatTraceLine` writes the machine line) plus the merged-offset →
+  file/line/column walk. It owns how a decline is *said*, not *what* is said. **The pattern for
+  owning the words in N# already ships, though:** `ColumnarIteratorPlanner.nl` spells its own
+  `emit.iterator.*` site ids and sentences inline (`:197`, `:272`, `:292`, `:552`, …). So this slice
+  is not inventing a shape; it is extending an existing one across a boundary where the decline site
+  happens to be C#.
+
+  **`ColumnarIlEmitter.cs`'s 101 `emit.*` SITES ARE MEASURED AND DEFERRED, NOT FORGOTTEN.** The
+  slice plan puts that file in **021/10**, which retires up to 21,519 lines of it WHOLE behind the
+  four named 015 tasks. Moving its vocabulary out of a file that a later slice deletes buys nothing
+  and risks a 21K-line diff, so this slice records the number and leaves it. Slice 10 inherits it.
+
+  ### THE BASELINES, RE-MEASURED PRISTINE THIS TURN (all reproduce slice 1 exactly)
+
+  | baseline | slice 1 | this turn |
+  |---|---|---|
+  | ratchet head, from the file on disk before any edit | `head-v1:e65ccd3f8b930d04` | **reproduced** by an independent replica, together with `pathset-v1:8a26e1529863444b` and `epochfacts-v1:1b3090747e517fc1` |
+  | manifest | 391 lines / 381 rows, no BOM | **391 / 381, no BOM** (first bytes `7b 0a 20`) |
+  | `nlc test --project tests/native/ownership-audit` | 18/18 | **18/18, 0 failed** |
+  | live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 393 files / 246 diagnostics, `NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26`, 0 rows in any `.tests.nl` | **identical, row for row** |
+  | `src/NSharpLang.Cli/Program.Testing.cs` | 617 | **617** — untouched by this slice |
+  | `src/NSharpLang.Compiler` tracked `.cs` | 11 files / 27,992 lines | **11 / 27,992** |
+  | `ColumnarProgramInputBuilder.cs` | 1,062 / 991 `text-v1:af12c2b0678e433f` | **1,062 / 991 `text-v1:af12c2b0678e433f`** |
+
+  ### THE MOVE — FOUR N# OWNERS GAIN THE DECISIONS, THE C# ONLY LOSES CODE
+
+  **ZERO NEW C# FILES. THE ONLY C# TOUCHED IS `ColumnarProgramInputBuilder.cs`, AND IT ONLY
+  SHRINKS: 1,062 → 1,051 / 991 → 981, `+69 / −80`.** `ColumnarIlEmitter.cs`, `MultiFileCompiler.cs`
+  and `ColumnarDeclineTrace.cs` are byte-identical.
+
+  | what moved | to | shape |
+  |---|---|---|
+  | the six `TokenType` ordinals and the FOUR decisions over them | **NEW** `ColumnarTokenKindFacts.nl` (70 lines, `namespace NSharpLang.Compiler`, beside `Token.nl`) | `ClassKind`/`StructKind`/`RecordKind`/`RefKind`/`ArrowKind`/`LeftBraceKind` + `IsRefStructModifierKind`, `IsSynthesizedPrimaryConstructorKind`, `IsSupportedBodyStartKind`, `IsSupportedBlockBodyStartKind` |
+  | the 49 site ids, 49 sentences and 6 scan-stage names | `ColumnarDeclineReasons.nl` (170 → 290) | `ColumnarParseDecline` (a site/message pair) + `ColumnarParseDeclines`: 48 static properties, one per row, and `DeclarationScan(code)` which decodes the kernel's own `-2 … -6` |
+  | the three modifier bits with NO owner | `CompilerServices/ColumnarParserKernels.nl` (+24), beside the three that already existed | `ColumnarStructFieldFlagIsReadonly`, `ColumnarStructMethodFlagIsAsync`, `ColumnarFunctionModifierFlagsForGenerator` |
+  | the three modifier bits that ALREADY had owners | — | the C# now simply CALLS `ColumnarStructFieldFlagIsStatic`, `ColumnarStructMethodFlagIsStatic`, `ColumnarStructMethodFlagIsNativeImport` instead of re-deriving them |
+
+  The C#'s two private `Decline` helpers no longer take `(string siteId, string message)` — they take
+  a `ColumnarParseDecline`. **That is the wall, not a convention:** there is no longer a signature in
+  this file through which a site id or a sentence could be spelled.
+
+  **`ColumnarIlEmitter.cs`'s 101 `emit.*` SITES ARE NOT TOUCHED, ON PURPOSE.** They belong to
+  **021/10**, which retires that file wholesale. Moving vocabulary out of a file a later slice
+  deletes buys nothing and risks a 21K-line diff.
+
+  ### RESIDUE, MEASURED WITH SLICE 1's OWN INSTRUMENT
+
+  | measure over `ColumnarProgramInputBuilder.cs` | before | after |
+  |---|---|---|
+  | slice 1's SENTENCE sweep (≥20 chars, has a space and a lowercase word, not a dotted id/path/URL) | **53** | **0** |
+  | `"parse.*"` string literals | 49 | **0** |
+  | raw `ck[...] == <int>` / `!= <int>` comparisons | **6** | **0** |
+  | raw modifier-bit tests (`& 1`, `& 2`, `& 16`, `& 2048`, `& 131072`) | 5 | **0** |
+  | `NSharpModifier*` private constants | 2 | **0** |
+
+  Every surviving string literal in the file is a CLR member-name fragment the emitter needs —
+  `"constructor"`, `"void"`, `"get_"`, `"set_"`, `"value"`, `"Value"`, `"test "`, `"."` — and not one
+  of them is a sentence.
+
+  ### THE STAGE BOUNDARY WAS NOT HIT
+
+  The two-stage wall was priced and did not bind. Every N# shape this slice adds already ships in
+  the tree — static properties returning a constructed same-assembly class (`ColumnarDeclineDiagnostic.Empty`
+  is the precedent), static funcs over `int`/`bool`, `else if` chains, `new` of a same-assembly class
+  — so the PINNED toolset compiled all of it on the FIRST build (`dotnet build src/NSharpLang.Cli`
+  → `Build succeeded, 0 Error(s)`). **No commit-and-republish boundary; this slice completes in one
+  stage.**
+
+  **ONE CAPABILITY HAD TO BE PROBED BEFORE THE CONTRACTS COULD EXIST, AND FOUR OF FIVE FORMS
+  DECLINE.** Pinning an ordinal against the enum requires reading `TokenType`'s numeric value in N#.
+  `x as int` and `int(x)` decline at `emit.local.initializer` / `emit.call.bare-unresolved`;
+  `TokenType(78)` declines as a bare call; `enumValue == 78` fails analysis with **NL202**;
+  `Array.IndexOf(Enum.GetNames(typeof(T)), …)` declines at `emit.call.static-member-unresolved`.
+  **`Convert.ToInt32(enumValue)` EMITS AND IS CORRECT** (`Convert.ToInt32(Kind.C)` → `2`,
+  `Kind.A` → `0`, verified by running the probe, not by reading it). That one form is what makes the
+  drift pin a real pin instead of a restatement.
+
+  ### THE CONTRACTS — 19 NEW BLOCKS, 6,778 → 6,797
+
+  | file | blocks | what it pins |
+  |---|---|---|
+  | **NEW** `ColumnarTokenKindFacts.tests.nl` (155) | 5 | every ordinal against **BOTH** tables — `Convert.ToInt32(TokenType.X) == …Kind` for the enum, `TokenKindFactsColumnarKindOf("x") == …Kind` for the columnar lexer (through the real `TokenizeColumnarSourceInto`, not a copy of its table), and `…Kind == <literal>` so a swap fails here first — plus each decision's POSITIVE and NEGATIVE rows |
+  | **NEW** `ColumnarParseDeclineVocabulary.tests.nl` (321) | 11 | all 48 rows, BOTH halves each, by name; all six scan-stage decodes plus the three fall-through cases; three rows rendered through `ColumnarDeclineReasonFacts.FormatDetail` into the exact `NL103` sentence; and the nine DELIBERATELY SHARED site ids proved shared-yet-distinguishable |
+  | `ColumnarParserKernels.tests.nl` (+69) | 3 | the field flag word across its whole 0..3 domain; `static`/`async`/LibraryImport against `Convert.ToInt32(Modifiers.*)`; that `131072` is `Modifiers.Override × 2` and answers for no neighbour; the generator column's 0/1 domain |
+
+  **The negative rows are the load-bearing half.** `Ref` is 78 and `Out` is 79; `LeftBrace` is 129
+  and `RightBrace` 130; `Arrow` is 120 and `ColonAssign` 121; `Class`/`Struct`/`Record` (8/9/13) sit
+  between `Func` (7), `Interface` (10), `Duck` (11), `Union` (12) and `Enum` (14). An off-by-one in
+  any direction lands on a REAL token, so without the rejections a swap could satisfy every positive
+  row.
+
+  ### THE MUTATION MATRIX — FIVE MUTATIONS, EVERY ONE FAILS BY NAME
+
+  All five run against the **verified green 6,797/6,797 baseline**, one at a time, each reverted.
+
+  | # | mutation | verdict |
+  |---|---|---|
+  | **M1** | `RefKind: int => 78` → `79` (the adjacent `Out`) | **3 failures / 6,794 passed** — `refStructIsDecidedByTokenTypeRefAndByNothingBesideIt`, `EveryColumnarTokenOrdinalIsTheTokenTypeMemberItClaimsToBeAndIsTheLiteralItClaimsToBe` (table 1), `TheColumnarLexerWritesThoseSameSixOrdinalsForTheSpellingsTheyName` (table 2). **BOTH table pins fire, which is what proves neither is vacuous.** |
+  | **M2** | scan stage `"function scan"` → `"function scan MUTANT"` | **1 failure**, `TheDeclarationScanDeclineDecodesAllSixOfTheKernelsOwnNegativeReturnCodes` — AND the **RUNTIME** `NL103` a user reads changed to `…failed at function scan MUTANT…` against the rebuilt CLI. **That second half is the routing control: the C# genuinely consumes the N#-decided answer rather than a copy.** |
+  | **M3** | `IsSupportedBlockBodyStartKind` widened to accept `Arrow` | **1 failure**, `AFunctionOrGetterBodyOpensWithOrAConstructorOrSetterBodyOpensWithOnly` — the two body decisions are proved to be two decisions |
+  | **M4** | `ColumnarStructMethodFlagIsAsync` `& 2048` → `& 4096` (`Async` → `Generator`) | **1 failure**, `TheMethodFlagWordNamesstaticasyncAndTheLibraryImportBitRatherThanTheirNumbers` |
+  | **M5** | `"property setter node table was invalid"` → `"…was not valid"` | **2 failures**, `TheColumnarParseDeclineVocabularyPropertiesIsSpelledExactlyAsAUserReadsIt` and `AVocabularyRowRendersIntoTheSentenceNL103ShowsThroughTheOwnerThatAlreadyRendersDeclines` |
+
+  **THE M2 RUN ALSO REPRODUCED A KNOWN NON-VERDICT AND IT IS RECORDED RATHER THAN ABSORBED.** The
+  first M2 attempt reported `EXIT=0` with an **EMPTY LOG** — no `Passed:` line at all — because a
+  `dotnet build src/NSharpLang.Cli` had run between the restore and the test, which is exactly the
+  `NSharpExcludeTests` restore hazard. It was re-run behind
+  `dotnet restore … -p:NSharpExcludeTests=false --force-evaluate` and produced the real verdict
+  above. **Exit 0 with no `Passed:` line is a failure, not a pass**, and a mutation matrix that
+  accepted it would have recorded a vacuous wall.
+
+  ### THE EXACT COMPARATOR — THE VOCABULARY IS BYTE-IDENTICAL ACROSS THE MOVE
+
+  The pristine C# was parsed with a balanced-paren extractor into its `(siteId, message)` pairs, the
+  composed row expanded over its six stages; the N# owner was parsed the same way. **54 pairs on
+  each side; `MISSING = []`, `EXTRA = []`, sets IDENTICAL.** Not one character of user-visible
+  decline text changed.
+
+  ### THE PROBES
+
+  | probe | result |
+  |---|---|
+  | `ref struct` + `record` primary ctor + expression-bodied property + block get/set property + expression-bodied function + `static`/`readonly` fields + static method + `func*` generator, all in ONE program | **runs and prints `10 / (1,2) / 84 / 100 / 5 / 42 / 12`** — every one of the four token decisions and all six modifier bits exercised end to end |
+  | the emitted assembly | carries **`IsByRefLikeAttribute`** — the `:406` decision really produces a byref-like type through the N# owner |
+  | `setup { }` at top level | `NL103 … Declined at parse.declaration-scan: top-level declaration scan failed at function scan; the source may contain an unmodeled declaration shape such as setup or teardown (main.nl:1:1).` — the composed message renders through the N# owner exactly as before |
+
+  ### FINDING — A `:=` DECLARATION AFTER A BARE MEMBER-ACCESS STATEMENT FAILS TO PARSE
+
+  Probing the shapes above hit a defect that has nothing to do with this slice and everything to do
+  with the product. **A `:=` declaration that FOLLOWS a statement containing a bare member ACCESS on
+  a user-declared type does not parse.** It reports `NL101 Unexpected token ':=' in expression`, a
+  cascade of `NL301 Variable not found` for every later use, `NL313`, and — like slice 1's finding 3
+  — a FALSE `NL001 … declared but never read` about the receiver that the failing statement plainly
+  reads. `NL101` is an error, so `nlc build` stops.
+
+  ```
+  class Counter { Count: int   constructor() { Count = 0 } }
+  func main() { c := new Counter()   print(c.Count)   sum := 0   print(sum) }   →  NL101 + 3×NL301 + NL313 + NL001
+  func main() { c := new Counter()   print(c.Get())   sum := 0   print(sum) }   →  ok: true   (CONTROL — a CALL is fine)
+  func main() { sum := 0   c := new Counter()   print(c.Count)   print(sum) }   →  ok: true   (CONTROL — order matters)
+  ```
+
+  The two controls are what make it a finding rather than a cascade artefact: swapping the member
+  ACCESS for a member CALL fixes it, and moving the declaration ABOVE the access fixes it. It
+  reproduces on a FIELD and on a property (block-bodied and expression-bodied alike), and it
+  reproduces **IDENTICALLY on the installed `~/.nsharp/bin/nlc`**, which predates this branch tip —
+  so it is inherited, not introduced. It is not a 021 slice (the front end is `ColumnarParserRecovery`
+  territory) and it is recorded here for whoever owns the parser next.
+
+  ### THE COUNTS AND THE REPIN
+
+  | | before | after | delta |
+  |---|---|---|---|
+  | `src/NSharpLang.Compiler` tracked `.cs` files | 11 | **11** | 0 — **zero new C#** |
+  | `src/NSharpLang.Compiler` C# lines | 27,992 | **27,981** | **−11** |
+  | `ColumnarProgramInputBuilder.cs` | 1,062 / 991 `text-v1:af12c2b0678e433f` | **1,051 / 981 `text-v1:18809470a6a19d51`** | −11 / −10 |
+  | `src/NSharpLang.Cli/Program.Testing.cs` | 617 | **617** | 0 |
+  | compiler-service estate | 6,778 | **6,797** | +19 blocks |
+  | ratchet `reviewedHeadFingerprint` | `head-v1:e65ccd3f8b930d04` | **`head-v1:f5a5d41c6d81202f`** | two-key, repinned LAST |
+  | `epochFileCount` / `epochPathFingerprint` / `epochFactFingerprint` | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` | **UNCHANGED** | the epoch is immutable |
+  | manifest | 391 lines / 381 rows, no BOM | **391 / 381, no BOM** | 0 |
+  | live tree `nlc check --project …BootstrapServices` | 393 files / 246 diagnostics | **394 / 246** — the census is IDENTICAL row for row, 0 rows in any `.tests.nl`, **0 rows in any file this slice added** | +1 file (`ColumnarTokenKindFacts.nl`; the two new `.tests.nl` are excluded from the production check, as the 393 baseline also excluded its own) |
+
+  The repin raises no ceiling field by field (`1051 ≤ 1062`, `981 ≤ 991`, every other row asserted
+  unchanged against disk) and asserts the three epoch values are untouched before writing. Both keys
+  moved together: the manifest header AND `tests/native/ownership-audit/OwnershipAudit.nl:241`'s
+  `ReviewedHeadFingerprint`. **`nlc test --project tests/native/ownership-audit` → 18/18, 0 failed.**
+
+  **THE REPLICA FOUND ITS OWN BUG BEFORE IT WAS TRUSTED.** The first fingerprint replica hashed
+  Unicode CODE POINTS and read files without BOM handling, and reported THREE drifting rows where
+  only one had changed: `editors/vscode/test/suite/edgeCases.test.ts` (astral characters — .NET
+  hashes UTF-16 code units, so a surrogate pair is TWO units) and
+  `src/NSharpLang.LanguageServer/LanguageServer.csproj` (a UTF-8 BOM that `File.ReadAllText` strips
+  and Python does not). Corrected to UTF-16 units over `utf-8-sig`, it reproduces the pristine head
+  **and** isolates exactly one changed row. A repin computed by the first replica would have been
+  wrong.
+
+  **THE AUDIT IS PROVED NON-VACUOUS, NOT ASSUMED.** Against the repinned green 18/18: raising the
+  builder's `currentLines` by ONE → **17/18, 1 failed**; corrupting the head to
+  `head-v1:0000000000000000` → **17/18, 1 failed**; restoring → **18/18**.
+
+  ### THE FIRST GATE RUN FAILED, AND IT FAILED ON SOMETHING REAL
+
+  Run 1 of the fresh isolated `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` reported **125
+  PASSED and exactly ONE failure — the Format Contract Gate**, naming `ColumnarTokenKindFacts.nl`
+  and `ColumnarDeclineReasons.nl`. Two hand-written shapes were not what `nlc format` produces: a
+  `||` chain split across lines (the formatter joins it) and a `new …(…)` call split across lines
+  (likewise), plus two missing blank lines. **This is the format contract doing its job on
+  newly-authored N#, and it is recorded rather than quietly fixed**: a slice that writes new N# owes
+  the formatter, and the only way to know is to run the gate. `nlc format --project …` was applied,
+  the comparator was RE-RUN afterwards (**54 = 54, still IDENTICAL** — the formatter moves line
+  breaks, never string contents), and run 2 was taken fresh.
+
+  Everything else in run 1 was already green and is stated because it bounds the blast radius:
+  units **606/606**, estate **6797/6797**, `tests/native/ownership-audit` PASSED inside the isolated
+  tree, all **46** native projects, templates, examples, single-file examples, `nlc check`, ILVerify.
+
+  ### GATE
+
+  **THE FRESH ISOLATED NON-VS-CODE PRODUCT GATE IS GREEN END TO END.**
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` → **`ALL TESTS PASSED! ✓`, exit 0, 1,342 s**,
+  run in its own isolated byte-copy (`/tmp/nsharp-test-all.911be540f4e1.WGllT0`, key
+  `911be540f4e1921b`), with the gate log written OUTSIDE that copy. **126 PASSED steps and ZERO
+  failures.**
+
+  | step | verdict |
+  |---|---|
+  | Build N# Compiler | PASSED (4 m 43 s, 0 errors) |
+  | **Format Contract Gate** | **PASSED** — the step that failed run 1 |
+  | Unit Tests | **`Passed: 606, Failed: 0, Skipped: 0, Total: 606`** (4 m 44 s) — the inherited baseline exactly, so the routing costs ZERO C# tests |
+  | Native N# tests — compiler-service estate | **`Passed: 6797, Failed: 0, Skipped: 0, Total: 6797`** — the inherited 6,778 plus this slice's 19 blocks |
+  | Native N# tests — all **46** projects | PASSED, zero failures, including `tests/native/ownership-audit` (the repinned two-key head verified INSIDE the fresh tree, not only locally) |
+  | VS Code Integration Tests | correctly SKIPPED (`VSCODE_TESTS=skip`; this slice is backend-only, and the plan puts the IDE bar on slices 4, 5 and 12) |
+  | Pack + install SDK, Runtime, Templates | PASSED |
+  | `dotnet new` template creation + build | PASSED |
+  | Example projects + single-file examples + `nlc check` | PASSED |
+  | IL Verification Gate | PASSED |
+
+  **No failure group was inherited and none was created.**
+
+  **NOT COMMITTED — the mandate reserves that. `tasks/README.md` is NOT edited: 021/2 of 12 is
+  done, and the 021 box stays unchecked.** Documentation is untouched on purpose: this slice moves
+  ownership without changing one character of user-visible behaviour (the comparator proves it), and
+  the plan puts present-tense architecture documentation on the CLOSING slice. Scratch instruments
+  live outside the tree in the session scratchpad; no `TestResults/` was left behind. The working
+  tree carries exactly eight paths: the four modified sources, the three new `.nl` files, and the
+  two ratchet keys (manifest + `OwnershipAudit.nl`), plus this STATUS.
+
+  **NEXT IS SLICE 3 — `SystemsAnalyzer`'s THREE ORDERING SITES → THE N# REPORT OWNER**
+  (`SystemsAnalyzer.cs:86` file order, `:103` trusted-site order, `:244` per-function call-list
+  order; no blocker; backend gate). Slice 1 already measured that file at **1,160 lines carrying
+  ZERO sentences and ZERO `NL` codes** over twelve N# policy owners, so its whole product-decision
+  residue is those three orderings.
+
+- Active sub-slice (021 arc, PRIOR TURN — **SLICE 1 — THE OPENING INVENTORY OF THE FINAL COMPILER
   OWNERSHIP AUDIT. THE MAP IS MEASURED, THE FREE DELETIONS ARE TAKEN, AND THE REMAINDER IS
   SEQUENCED.**
 

@@ -1,6 +1,8 @@
 namespace NSharpLang.Compiler.Columnar
 
+import System
 import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 
 class ColumnarNumericLiteralParseProbe {
     Source: string
@@ -1207,3 +1209,70 @@ test "the case label names the plain description or the description plus its row
     assert secondCase.Label() == "adds (20, 30, 50)"
 }
 
+
+// ---- THE MODIFIER-BIT WORDS THIS FILE'S KERNELS WRITE -----------------------------------------
+//
+// The declaration scan writes two packed flag words — one per field, one per method — and a 0/1
+// generator column. Until this slice `ColumnarProgramInputBuilder.cs` unpacked all of them with
+// bare integer literals in C# (`& 1`, `& 2`, `& 16`, `& 2048`, `& 131072`, and a private
+// `NSharpModifierGenerator = 4096` whose comment said it "must mirror Modifiers.Generator"), even
+// though THREE of the accessors below already shipped here and the caller simply did not use them.
+//
+// `131072` deserves naming: it is `1 << 17`, one bit past `Modifiers.Override` (65536), and it is
+// NOT a member of `Modifiers` at all. It exists only as `ColumnarStructNativeImportModifierFlag()`,
+// which is why every caller must ask rather than remember.
+
+test "the field flag word separates `static` from `readonly` across its whole domain" {
+    // The scan writes bit 1 for `static` and adds 2 for `readonly`, so the domain is 0..3 and every
+    // one of the four combinations has to answer both questions independently.
+    assert !ColumnarStructFieldFlagIsStatic(0)
+    assert !ColumnarStructFieldFlagIsReadonly(0)
+
+    assert ColumnarStructFieldFlagIsStatic(1)
+    assert !ColumnarStructFieldFlagIsReadonly(1)
+
+    assert !ColumnarStructFieldFlagIsStatic(2)
+    assert ColumnarStructFieldFlagIsReadonly(2)
+
+    assert ColumnarStructFieldFlagIsStatic(3)
+    assert ColumnarStructFieldFlagIsReadonly(3)
+}
+
+test "the method flag word names `static`, `async` and the LibraryImport bit rather than their numbers" {
+    assert Convert.ToInt32(Modifiers.Static) == 16
+    assert Convert.ToInt32(Modifiers.Async) == 2048
+    assert Convert.ToInt32(Modifiers.Generator) == 4096
+
+    assert !ColumnarStructMethodFlagIsStatic(0)
+    assert ColumnarStructMethodFlagIsStatic(Convert.ToInt32(Modifiers.Static))
+    assert !ColumnarStructMethodFlagIsAsync(Convert.ToInt32(Modifiers.Static))
+
+    assert ColumnarStructMethodFlagIsAsync(Convert.ToInt32(Modifiers.Async))
+    assert !ColumnarStructMethodFlagIsStatic(Convert.ToInt32(Modifiers.Async))
+
+    // A static async method answers both, which is what makes these bit tests and not equality.
+    both := Convert.ToInt32(Modifiers.Static) + Convert.ToInt32(Modifiers.Async)
+    assert ColumnarStructMethodFlagIsStatic(both)
+    assert ColumnarStructMethodFlagIsAsync(both)
+
+    // `Modifiers.Override` is 65536 and the LibraryImport bit is the NEXT one up, 131072, which is
+    // not a `Modifiers` member at all. Neighbour bits must not answer for it.
+    assert ColumnarStructNativeImportModifierFlag() == 131072
+    assert ColumnarStructNativeImportModifierFlag() == Convert.ToInt32(Modifiers.Override) * 2
+    assert ColumnarStructMethodFlagIsNativeImport(ColumnarStructNativeImportModifierFlag())
+    assert !ColumnarStructMethodFlagIsNativeImport(Convert.ToInt32(Modifiers.Override))
+    assert !ColumnarStructMethodFlagIsNativeImport(both)
+    assert !ColumnarStructMethodFlagIsStatic(ColumnarStructNativeImportModifierFlag())
+}
+
+test "the generator column becomes the Modifiers.Generator word, and nothing else does" {
+    assert ColumnarFunctionModifierFlagsForGenerator(1) == Convert.ToInt32(Modifiers.Generator)
+    assert ColumnarFunctionModifierFlagsForGenerator(1) == 4096
+    assert ColumnarFunctionModifierFlagsForGenerator(0) == 0
+
+    // The column is 0/1. Anything else is not a generator, and answering 4096 for it would put a
+    // modifier on a function the source never marked `func*`.
+    assert ColumnarFunctionModifierFlagsForGenerator(-1) == 0
+    assert ColumnarFunctionModifierFlagsForGenerator(2) == 0
+    assert ColumnarFunctionModifierFlagsForGenerator(4096) == 0
+}

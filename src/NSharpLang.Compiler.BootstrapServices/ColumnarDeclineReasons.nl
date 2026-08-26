@@ -168,3 +168,122 @@ class ColumnarDeclineReasonFacts {
         return lineText
     }
 }
+
+// THE COLUMNAR PARSE-INPUT DECLINE VOCABULARY.
+//
+// `ColumnarProgramInputBuilder` turns a source file into the flat columnar inputs the emitter
+// consumes, and every shape it cannot model DECLINES. A decline is not an internal event: the
+// primary one is rendered by `ColumnarDeclineReasonFacts.FormatDetail` into the `NL103` a developer
+// reads — `Declined at parse.function.body: function body was not materialized as a supported block
+// or expression body in 'Main' (Program.nl:12:1).` — so both halves of every row below are PRODUCT
+// TEXT with a user on the other end.
+//
+// The builder is C# (it marshals arrays into sixteen N# parser kernels), so before this owner
+// existed the words themselves lived in C#: 49 site ids, 49 sentences and 6 scan-stage names,
+// spelled in a language that owns none of the decisions they describe. They are spelled HERE now
+// and the builder consumes them, which is the same shape `ColumnarIteratorPlanner.nl` already uses
+// for its own `emit.iterator.*` vocabulary. `ColumnarParseDeclineVocabulary.tests.nl` pins every
+// row, so changing a word a user can read is a contract change, not a silent edit.
+class ColumnarParseDecline {
+    siteIdValue: string
+    messageValue: string
+
+    SiteId: string => siteIdValue
+    Message: string => messageValue
+
+    constructor(siteId: string, message: string) {
+        siteIdValue = siteId
+        messageValue = message
+    }
+}
+
+class ColumnarParseDeclines {
+
+    // ---- tokenization ----
+    static Tokenize: ColumnarParseDecline => new ColumnarParseDecline("parse.tokenize", "columnar tokenization failed")
+    static TokenizeInvalidResult: ColumnarParseDecline => new ColumnarParseDecline("parse.tokenize.invalid-result", "columnar tokenizer returned invalid token counts")
+
+    // ---- top-level declaration scan ----
+    // The stage names decode the declaration kernel's OWN negative return codes, so the code and
+    // the word for it stay in one place. Anything outside -2 … -6 is the generic stage.
+    static func DeclarationScan(declarationScanResult: int): ColumnarParseDecline {
+        stage := "declaration scan"
+        if declarationScanResult == -2 {
+            stage = "function scan"
+        } else if declarationScanResult == -3 {
+            stage = "declaration name spans mismatched the declaration count"
+        } else if declarationScanResult == -4 {
+            stage = "duplicate top-level type names"
+        } else if declarationScanResult == -5 {
+            stage = "nominal (enum/union/interface) scan"
+        } else if declarationScanResult == -6 {
+            stage = "struct-like scan"
+        }
+
+        return new ColumnarParseDecline("parse.declaration-scan", "top-level declaration scan failed at " + stage + "; the source may contain an unmodeled declaration shape such as setup or teardown")
+    }
+
+    // ---- per-kind materialization (the whole pass for one declaration kind gave up) ----
+    static FunctionMaterialization: ColumnarParseDecline => new ColumnarParseDecline("parse.function", "function declaration materialization failed")
+    static EnumMaterialization: ColumnarParseDecline => new ColumnarParseDecline("parse.enum", "enum declaration materialization failed")
+    static StructMaterialization: ColumnarParseDecline => new ColumnarParseDecline("parse.struct", "struct/class/record declaration materialization failed")
+    static UnionMaterialization: ColumnarParseDecline => new ColumnarParseDecline("parse.union", "union declaration materialization failed")
+    static InterfaceMaterialization: ColumnarParseDecline => new ColumnarParseDecline("parse.interface", "interface declaration materialization failed")
+    static TestMaterialization: ColumnarParseDecline => new ColumnarParseDecline("parse.test", "test declaration materialization failed")
+    static NewtypeMaterialization: ColumnarParseDecline => new ColumnarParseDecline("parse.newtype", "newtype declaration materialization failed")
+
+    // ---- newtypes and tests ----
+    static NewtypeScan: ColumnarParseDecline => new ColumnarParseDecline("parse.newtype-scan", "newtype declaration scan failed (composed underlying types are not modeled)")
+    static TestScan: ColumnarParseDecline => new ColumnarParseDecline("parse.test-scan", "test declaration scan failed")
+    static TestDeclaration: ColumnarParseDecline => new ColumnarParseDecline("parse.test", "test declaration could not be parsed into columnar input")
+
+    // ---- functions ----
+    static FunctionDeclaration: ColumnarParseDecline => new ColumnarParseDecline("parse.function", "function declaration could not be parsed into columnar input")
+    static FunctionBodyOrSignature: ColumnarParseDecline => new ColumnarParseDecline("parse.function", "function body or signature could not be parsed into columnar input")
+    static FunctionParameterTupleNames: ColumnarParseDecline => new ColumnarParseDecline("parse.function.param-tuple-names", "function parameter tuple-name metadata was invalid")
+    static FunctionReturnTupleNames: ColumnarParseDecline => new ColumnarParseDecline("parse.function.return-tuple-names", "function return tuple-name metadata was invalid")
+    static FunctionBody: ColumnarParseDecline => new ColumnarParseDecline("parse.function.body", "function body was not materialized as a supported block or expression body")
+    static FunctionConstraintsWithoutTypeParameters: ColumnarParseDecline => new ColumnarParseDecline("parse.function.constraints", "function constraints were present without type parameters")
+    static FunctionConstraintMetadata: ColumnarParseDecline => new ColumnarParseDecline("parse.function.constraints", "function constraint metadata was invalid")
+    static FunctionBodyNodes: ColumnarParseDecline => new ColumnarParseDecline("parse.function.body-nodes", "function body node table was invalid")
+    static FunctionNativeImport: ColumnarParseDecline => new ColumnarParseDecline("parse.function.native-import", "LibraryImport metadata could not be parsed into columnar input")
+    static FunctionLocalFunctionMetadata: ColumnarParseDecline => new ColumnarParseDecline("parse.function.local-functions", "local-function metadata was invalid")
+    static LocalFunction: ColumnarParseDecline => new ColumnarParseDecline("parse.local-function", "local function could not be parsed into columnar input")
+
+    // ---- enums ----
+    static EnumDeclaration: ColumnarParseDecline => new ColumnarParseDecline("parse.enum", "enum declaration could not be parsed into columnar input")
+
+    // ---- structs, classes and records ----
+    static StructInvalidCount: ColumnarParseDecline => new ColumnarParseDecline("parse.struct.invalid-count", "struct/class/record declaration count was invalid")
+    static StructDeclaration: ColumnarParseDecline => new ColumnarParseDecline("parse.struct", "struct/class/record declaration could not be parsed into columnar input")
+    static StructMethod: ColumnarParseDecline => new ColumnarParseDecline("parse.struct.method", "struct/class/record method could not be parsed into columnar input")
+    static StructConstructor: ColumnarParseDecline => new ColumnarParseDecline("parse.struct.constructor", "constructor could not be parsed into columnar input")
+    static StructProperty: ColumnarParseDecline => new ColumnarParseDecline("parse.struct.property", "property could not be parsed into columnar input")
+
+    // ---- unions ----
+    static UnionDeclaration: ColumnarParseDecline => new ColumnarParseDecline("parse.union", "union declaration could not be parsed into columnar input")
+
+    // ---- constructors ----
+    static Constructor: ColumnarParseDecline => new ColumnarParseDecline("parse.constructor", "constructor body or signature could not be parsed into columnar input")
+    static ConstructorBody: ColumnarParseDecline => new ColumnarParseDecline("parse.constructor.body", "constructor body was not materialized as a supported block")
+    static ConstructorChain: ColumnarParseDecline => new ColumnarParseDecline("parse.constructor.chain", "constructor chain-argument metadata was invalid")
+    static ConstructorBodyNodes: ColumnarParseDecline => new ColumnarParseDecline("parse.constructor.body-nodes", "constructor body node table was invalid")
+
+    // ---- properties ----
+    static PropertyDeclaration: ColumnarParseDecline => new ColumnarParseDecline("parse.property", "property declaration could not be parsed into columnar input")
+    static PropertyGetter: ColumnarParseDecline => new ColumnarParseDecline("parse.property.getter", "property getter body was not materialized as a supported body")
+    static PropertyGetterNodes: ColumnarParseDecline => new ColumnarParseDecline("parse.property.getter-nodes", "property getter node table was invalid")
+    static PropertySetter: ColumnarParseDecline => new ColumnarParseDecline("parse.property.setter", "property setter body was not materialized as a supported block")
+    static PropertySetterNodes: ColumnarParseDecline => new ColumnarParseDecline("parse.property.setter-nodes", "property setter node table was invalid")
+    static PropertyAccessorKind: ColumnarParseDecline => new ColumnarParseDecline("parse.property.accessor-kind", "property accessor kind was invalid")
+
+    // ---- interfaces ----
+    static InterfaceDeclaration: ColumnarParseDecline => new ColumnarParseDecline("parse.interface", "interface declaration could not be parsed into columnar input")
+    static InterfaceTypeParameterMetadata: ColumnarParseDecline => new ColumnarParseDecline("parse.interface.type-params", "interface type parameter metadata was invalid")
+    static InterfaceTypeParameterName: ColumnarParseDecline => new ColumnarParseDecline("parse.interface.type-param", "interface type parameter name was invalid")
+    static InterfaceFlatParameterMetadata: ColumnarParseDecline => new ColumnarParseDecline("parse.interface.params", "interface flat parameter metadata was invalid")
+    static InterfaceParameterCount: ColumnarParseDecline => new ColumnarParseDecline("parse.interface.params", "interface parameter metadata did not consume the expected count")
+    static InterfaceMethodParameterMetadata: ColumnarParseDecline => new ColumnarParseDecline("parse.interface.method-params", "interface method parameter metadata was invalid")
+    static InterfaceMethodBody: ColumnarParseDecline => new ColumnarParseDecline("parse.interface.method-body", "default interface method body could not be parsed into columnar input")
+    static InterfaceMethodBodyFlag: ColumnarParseDecline => new ColumnarParseDecline("parse.interface.method-body-flag", "interface method body flag was invalid")
+}

@@ -9272,6 +9272,17 @@ func ColumnarStructMethodFlagIsNativeImport(flags: int): bool {
     return (flags & ColumnarStructNativeImportModifierFlag()) != 0
 }
 
+// The declaration scan reports `func*` as a 0/1 generator column; the MODIFIER word a generator
+// carries is `Modifiers.Generator` (4096, DeclarationEnums.nl). Turning the column into the word is
+// a decision about this file's own output, so it is answered here rather than mirrored by a caller.
+func ColumnarFunctionModifierFlagsForGenerator(generatorFlag: int): int {
+    if generatorFlag == 1 {
+        return 4096
+    }
+
+    return 0
+}
+
 func ParseDeclarationFunctionSignatureEndCore(tokens: ParserDeclarationTokenTable, count: int, funcIndex: int): int {
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
     typeStack := new ParserArgumentStack(new int[](count + 1))
@@ -12976,6 +12987,13 @@ func ColumnarStructFieldFlagIsStatic(flags: int): bool {
     return flags == 1 || flags == 3
 }
 
+// The other half of the field flag word this file writes: bit 1 is `static`, bit 2 is `readonly`
+// (set beside it at the FieldStaticFlags write). The columnar input builder used to test the bit
+// itself; the bit's meaning belongs to the kernel that sets it.
+func ColumnarStructFieldFlagIsReadonly(flags: int): bool {
+    return (flags & 2) != 0
+}
+
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
     cap := (tokens.Count + 1) * 4
@@ -13391,6 +13409,12 @@ func ColumnarStructMethodMemberNameText(source: string, tokens: ColumnarStructTo
 
 func ColumnarStructMethodFlagIsStatic(flags: int): bool {
     return (flags & 16) != 0
+}
+
+// `Modifiers.Async` (2048, DeclarationEnums.nl) in the method flag word this file writes, named
+// beside its `static` and `LibraryImport` siblings so no caller has to know the bit.
+func ColumnarStructMethodFlagIsAsync(flags: int): bool {
+    return (flags & 2048) != 0
 }
 
 func ColumnarStructMethodMemberNamesSupported(source: string, tokens: ColumnarStructTokenTable, scratch: ColumnarStructScratchTable, outputs: ColumnarStructOutputTable, fieldCount: int, methodCount: int): int {
