@@ -1642,3 +1642,36 @@ test "an annotated declaration and a deconstruction run through the SAME owner w
     assert annotated == "145"
     assert VdKinds(harness.Steps) == "64545"
 }
+
+
+// ── THE ERROR-CAPTURE CONVENTION, AS A NAMED FACT ──────────────────────────────────────────────
+//
+// `IsErrorCaptureForm` is the whole rule behind `state.ErrorForm`, lifted out of phase 10 so that
+// the two other places that decide the same thing — the columnar emitter's `v, err := <call>`
+// lowering and the editor's `catchResult` semantic-token modifier — ask ONE owner instead of each
+// spelling `== "err"` for itself. The contracts below are about the RULE; the phase-10 contracts
+// elsewhere in this file are about the walk that consults it.
+
+test "the error capture form is exactly two names whose second is err" {
+    assert AnalyzerVariableDeclaration.IsErrorCaptureForm(2, "err")
+}
+
+// THE `>= 2` MISREADING, REFUSED. A three-name deconstruction ending in `err` is an ORDINARY tuple
+// deconstruction: the walk counts its elements and types `err` from the source. Any consumer that
+// admits it is describing a form the language does not have.
+test "a longer deconstruction ending in err is not the error capture form" {
+    assert !AnalyzerVariableDeclaration.IsErrorCaptureForm(3, "err")
+    assert !AnalyzerVariableDeclaration.IsErrorCaptureForm(4, "err")
+}
+
+test "a two name deconstruction whose second name is not err is not the error capture form" {
+    assert !AnalyzerVariableDeclaration.IsErrorCaptureForm(2, "error")
+    assert !AnalyzerVariableDeclaration.IsErrorCaptureForm(2, "Err")
+    assert !AnalyzerVariableDeclaration.IsErrorCaptureForm(2, "e")
+    assert !AnalyzerVariableDeclaration.IsErrorCaptureForm(2, "")
+}
+
+test "a single name is never the error capture form" {
+    assert !AnalyzerVariableDeclaration.IsErrorCaptureForm(1, "err")
+    assert !AnalyzerVariableDeclaration.IsErrorCaptureForm(0, "err")
+}

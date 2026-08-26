@@ -104,6 +104,12 @@ which replaced `tests/LexerTests.cs` in 020 slice 7. They cover:
 - **Every keyword** — all 85 are lexed individually and crossed through `KeywordTypeForText` and
   back through `KeywordTextForType`; the remaining 63 `TokenType` members are proved reserved by
   neither, and the two tables are proved to partition the whole 148-member enum
+- The 148 members partition a second way, and `ParserTokenFacts.tests.nl` asserts it: 85 reserved
+  keywords (`Lexer.IsReservedKeyword`), 36 SYMBOLIC operators (`ParserTokenFacts.IsOperator`) and 27
+  that are neither — the seven literal kinds, eleven delimiters, `Eof`, `Newline`, `Unknown`,
+  `Lifetime`, `Test`, the preprocessor directive and the three comment kinds. The two memberships are
+  DISJOINT: `is`, `as`, `and`, `or` and `not` are operators spelled as words and belong to the keyword
+  table alone. A token type added to the enum and forgotten by all three fails the partition
 - All operators and delimiters, by kind *and* by spelling (which is what pins the longest-match order)
 - String, triple-quote, interpolated and interpolated-raw literals, terminated and unterminated
 - Numeric literals: hex, binary, exponent, every float and integer suffix, underscore stripping,

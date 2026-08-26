@@ -196,6 +196,25 @@ class AnalyzerVariableDeclaration {
         soaEscapeValue = soaEscape
     }
 
+    // ── THE ERROR-CAPTURE CONVENTION, NAMED ────────────────────────────────────────────────────
+    //
+    // `result, err := f()` is the Go-style error capture, and this predicate is the whole rule:
+    // EXACTLY TWO names whose SECOND is literally `err`. It is a language convention rather than a
+    // type rule — nothing about the initializer decides it, the spelling of the second name does —
+    // and it decides real behaviour in three places: the analyzer gives that name the type
+    // `Exception?` regardless of what the source says (phase 10 below), the columnar emitter lowers
+    // the call into a try/catch and binds `err` to the caught exception, and the editor paints the
+    // name with the `catchResult` semantic-token modifier.
+    //
+    // IT IS `== 2`, NOT `>= 2`, AND THE DIFFERENCE IS OBSERVABLE. A three-name deconstruction whose
+    // last name happens to be `err` — `(a, b, err) := f()` — is an ORDINARY tuple deconstruction:
+    // the analyzer counts its elements and types `err` from the source, and the emitter does not
+    // wrap anything in a catch. Any consumer that admits it is describing a form the language does
+    // not have.
+    static func IsErrorCaptureForm(nameCount: int, lastName: string): bool {
+        return nameCount == 2 && lastName == "err"
+    }
+
     func Begin(declaration: VariableDeclarationStatement): VariableDeclarationState {
         return new VariableDeclarationState(declaration, null)
     }
@@ -470,9 +489,8 @@ class AnalyzerVariableDeclaration {
     // target-type with, and it must not overwrite whatever target typing already surrounds it.
     func AdvanceTupleInitializer(state: VariableDeclarationState, tuple: TupleDeconstructionStatement): VariableDeclarationRequest? {
         names := tuple.Names
-        if names.Count == 2 {
-            secondName := names[1]
-            state.ErrorForm = secondName == "err"
+        if names.Count > 0 {
+            state.ErrorForm = IsErrorCaptureForm(names.Count, names[names.Count - 1])
         }
 
         state.Phase = 11

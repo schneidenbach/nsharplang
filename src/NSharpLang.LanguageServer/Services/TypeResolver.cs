@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
+using NSharpLang.Compiler;
 
 namespace NSharpLang.LanguageServer.Services;
 
@@ -19,26 +20,14 @@ public class TypeResolver
     private bool _assembliesLoaded = false;
     private readonly object _loadLock = new();
 
-    private static readonly Dictionary<string, string> AliasToFullName = new(StringComparer.Ordinal)
-    {
-        ["bool"] = "System.Boolean",
-        ["byte"] = "System.Byte",
-        ["sbyte"] = "System.SByte",
-        ["short"] = "System.Int16",
-        ["ushort"] = "System.UInt16",
-        ["int"] = "System.Int32",
-        ["uint"] = "System.UInt32",
-        ["long"] = "System.Int64",
-        ["ulong"] = "System.UInt64",
-        ["char"] = "System.Char",
-        ["float"] = "System.Single",
-        ["double"] = "System.Double",
-        ["decimal"] = "System.Decimal",
-        ["string"] = "System.String",
-        ["object"] = "System.Object",
-        ["void"] = "System.Void",
-    };
-
+    // The alias table is NOT here: which spellings are built-in and what CLR type each denotes is a
+    // language fact, and `AnalyzerTypeReferenceFacts` owns it. The three tables below are not —
+    // they are editor CURATION. None of them decides what a name MEANS: `CommonShortTypeToFullName`
+    // and `CommonNamespacePrefixes` are probe orders in front of the exported-type scan that would
+    // find the same type anyway, and `WellKnownNamespaces` seeds a suggestion list that is then
+    // unioned with every namespace of every loaded assembly. Changing any of them changes what the
+    // editor VOLUNTEERS and how fast it answers; none of them can change what a program compiles to,
+    // and no compiler decision reads them.
     private static readonly Dictionary<string, string> CommonShortTypeToFullName = new(StringComparer.Ordinal)
     {
         ["Console"] = "System.Console",
@@ -163,7 +152,8 @@ public class TypeResolver
             typeName = typeName.Substring(0, genericStart).TrimEnd();
         }
 
-        if (AliasToFullName.TryGetValue(typeName, out var aliasFullName))
+        var aliasFullName = AnalyzerTypeReferenceFacts.BuiltInClrTypeName(typeName);
+        if (aliasFullName != null)
         {
             typeName = aliasFullName;
         }

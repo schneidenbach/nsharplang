@@ -115,6 +115,16 @@ class DeclarationFacts {
                     return MaxItemLine(statements) + 1
                 }
             }
+
+            // An EXPRESSION-bodied function ends where its expression is, which is not always the
+            // line the `func` keyword is on:
+            //     func f(): int =>
+            //         compute()
+            // There is no closing brace to estimate past, so the expression's own line IS the end.
+            expressionBody := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "ExpressionBody")
+            if expressionBody != null {
+                return TypeInfoFactoryReflection.GetRequiredInt(expressionBody, "Line")
+            }
         }
 
         if typeName == "SoaRecordDeclaration" {

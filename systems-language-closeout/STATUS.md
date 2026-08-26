@@ -4399,7 +4399,457 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 5 — THE LSP'S SIX RE-IMPLEMENTATIONS, DECODED
+- Active sub-slice (021 arc, THIS TURN — **SLICE 5b — THE NINE REMAINING LSP DECISIONS. SEVEN ARE
+  TAKEN WHOLE, ONE IS TAKEN IN PART WITH ITS REMAINDER DECODED TO THREE NAMED BLOCKERS, ONE IS LEFT
+  TO 021/9 AS SEQUENCED — AND THE RE-VERIFICATION OVERTURNED THREE OF SLICE 5's OWN CENSUS CLAIMS.**
+
+  ### THE RE-VERIFICATION FIRST, BECAUSE IT MOVED THREE DECISIONS TO A DIFFERENT KIND OF WORK
+
+  The mandate says RE-VERIFY by decode rather than inherit. Three of slice 5's per-file findings do
+  not survive that, and each correction changes what the decision IS.
+
+  | # | slice 5 said | the decode at this tip |
+  |---|---|---|
+  | **`"err"`** | "**NONE.** `git grep '"err"'` over production `.nl` returns only `.tests.nl` fixtures; the convention has no N# owner" | **FALSE.** It returns `AnalyzerVariableDeclaration.nl:475`, inside phase 10 of the local-declaration walk, where the rule is `secondName == "err"` under `if names.Count == 2`. The owner EXISTED; it was unnamed and buried in a state machine. So the work is EXTRACTION, not invention — and the editor's `Names.Count >= 2` is a REAL DRIFT against a rule the language spells `== 2`, with a THIRD consumer (`ColumnarIlEmitter.cs:8229`, `nameCount == 2 && Text(Child(idx, 1)) == "err"`) siding with the analyzer, not the editor |
+  | **`PrimitiveTypeNames`** | "THREE N# answers exist at 16 / 14 / 18 and none is the editor's 18" | **THERE ARE FOUR**, and the fourth decides it: `ColumnarBindingScopeFacts.TryResolveExplicitBuiltin` (`:1100`) binds **SEVENTEEN** spellings — the editor's eighteen **minus `void`**. The two answers that are actually about SPELLINGS union to the editor's set EXACTLY: analyzer's 16 ∪ columnar's 17 = 18, member for member. The editor's table was never an invention; it is the language's own spelling set, split across the two halves of the compiler, each half dropping what it could not use |
+  | **the interpolated-hole SPAN half** | "the SPAN half has no owner" | **A THIRD COPY OF THE SCAN ALREADY SHIPS.** `ColumnarParserRecovery` (`:7547`–`:7700`) carries the parser's own hole walk with the SAME rules the editor re-implemented — brace depth, nested strings, the `\` escape, the raw-literal brace heuristic, position tracking, and even the sub-lexer position adjustment `AddEmbeddedExpressionTokens` duplicates. It is instance-bound and parses each hole into an `Expression`, so an editor that wants raw TOKENS cannot call it — but "no owner" was the wrong reading, and the right one is that the language had THREE copies of one scan |
+
+  ### THE EIGHT NON-SEQUENCED DECISIONS, EACH WITH ITS OWNER ACTION AND ITS MEASURED DELTA
+
+  | # | decision | owner action | delta on the wire |
+  |---|---|---|---|
+  | **1** | `SemanticTokensHandler.cs:91` `OperatorTokenTypes` (36) | **WRITTEN** — `ParserTokenFacts.IsOperator`, beside `IsAssignmentOperator`, which it ends by DELEGATING to rather than copying | **ZERO** |
+  | **2** | `SemanticTokensHandler.cs:107` `PrimitiveTypeNames` (18) | **DECIDED + WRITTEN** — `AnalyzerTypeReferenceFacts.IsBuiltInTypeName`, the union, DEFINED IN TERMS OF `BuiltInSimpleType` | **ZERO** |
+  | **3** | `SemanticTokensHandler.cs:277/:461` the hole-span arithmetic, 110 lines | **EXTENDED** — `LinterInterpolationScan.HoleSpans`; `HoleTexts` becomes a VIEW of it | **ZERO** |
+  | **4** | `SemanticTokensHandler.cs:275/:921` the `"err"` convention | **EXTRACTED** — `AnalyzerVariableDeclaration.IsErrorCaptureForm`, now called by the analyzer, the EMITTER and the editor | **ONE ROW — the correction** |
+  | **5** | `EditorUtilities.cs:24` the 275-line literal lexer | **WRITTEN** — `CodeIntelligenceTextUtilities.IsEditorPositionInsideStringLiteral` and its four scans | **ZERO** |
+  | **6** | `TypeResolver.cs:22` `AliasToFullName` (16) | **WRITTEN INTO THE SAME OWNER AS #2** — `BuiltInClrTypeName`, 18 entries over the same membership | **ZERO**, plus two resolutions where it answered null |
+  | **7** | `TypeResolver.cs:42/:58/:415` the three curation sets | **RECLASSIFIED** — editor presentation policy, proof below; they stay | none |
+  | **8** | `CallHierarchyHandler.cs` | **PART TAKEN** — the `+1 for closing brace estimate`, in all THREE of its copies, routes to `DeclarationFacts.EstimateDeclarationEndLine`; the outgoing-call walk decodes to three named blockers | **ZERO** |
+
+  **THE NINTH — `TypeResolver`'s reflection core — IS NOT TAKEN, AS SEQUENCED.** The alias table came
+  out of it and the three curation sets are classified in place, and the `MetadataLoadContext`-adjacent
+  assembly probing is untouched so that 021/9 moves it once rather than twice.
+
+  ### THE `PrimitiveTypeNames` DECISION, AND WHY THE UNION IS THE ANSWER
+
+  Four N# answers, and the first move is to notice that they answer TWO DIFFERENT QUESTIONS.
+
+  | owner | shape | members | the question |
+  |---|---|---|---|
+  | `AnalyzerTypeReferenceFacts.BuiltInSimpleType` (`:31`) | `string → TypeInfo?` | **16** | which SPELLINGS are built-in |
+  | `ColumnarBindingScopeFacts.TryResolveExplicitBuiltin` (`:1100`) | `string → Type` | **17** | the same, in the backend |
+  | `AnalyzerResourceStatements.IsPrimitiveValueTypeName` (`:773`) | `string → bool` | 14 | is this a primitive VALUE type |
+  | `SystemsTypePolicy.IsPrimitiveValueTypeName` (`:100`) | `string → bool`, instance | 18 | the same, plus three well-known structs |
+
+  **THE TWO VALUE-TYPE PREDICATES ARE NOT CANDIDATES, AND THE PROOF IS ONE MEMBER EACH.** Both
+  exclude `string` and `object` BY DESIGN — neither is a value type — so routing "may I colour this
+  as a built-in type" to either would silently stop colouring both. `SystemsTypePolicy` additionally
+  ADMITS `DateTime`, `Guid` and `TimeSpan`, which are not built-in spellings at all. A contract now
+  asserts that separation rather than leaving it to a reader.
+
+  **THE TWO SPELLING OWNERS UNION TO THE EDITOR'S SET EXACTLY.** 16 ∪ 17 = 18. The analyzer's 16 lack
+  `nint`/`nuint`; the columnar binder's 17 lack `void`. Nothing is in the editor's table that is not
+  in one of them, and nothing is in one of them that is not in the editor's table.
+
+  **THE DECISION: THE SPELLING SET IS ITS OWN QUESTION AND GETS ITS OWN SINGLE OWNER, IN THE FILE
+  WHOSE HEADER ALREADY CLAIMS THAT GROUND** — `AnalyzerTypeReferenceFacts`, which opens with "The
+  built-in spellings, resolved before the scope stack, file aliases, project types and external
+  metadata are consulted." And it is **DEFINED IN TERMS OF THE RESOLVER RATHER THAN COPIED**:
+
+  ```
+  static func IsBuiltInTypeName(name: string): bool {
+      if name == "nint" || name == "nuint" {
+          return true
+      }
+
+      return BuiltInSimpleType(name) != null
+  }
+  ```
+
+  **That is completeness WITHOUT duplication: sixteen of the eighteen members cannot drift, because
+  they are read from the resolver rather than restated, and the two that are restated are exactly the
+  two the resolver cannot answer.** An eighteen-arm string table would have been one more copy of a
+  list this repository already has too many of.
+
+  **THE TWO EXTRAS ARE A PINNED ANALYZER GAP, NOT A NEW FEATURE, AND THE PIN IS MEASURED.** One
+  contract sweeps all eighteen and asserts the ONLY names `BuiltInSimpleType` refuses are `nint` and
+  `nuint`; a second sweeps all eighteen against `TryResolveExplicitBuiltin` and asserts the only name
+  it refuses is `void`. The day `BuiltInTypes` grows an `NInt`, the first assertion fails and the
+  owner's comment gets corrected instead of quietly outliving the gap it describes.
+
+  **THE ALIAS TABLE IS THE SAME QUESTION AND GOES IN THE SAME OWNER.** `TypeResolver.AliasToFullName`
+  is `BuiltInSimpleType`'s sixteen names mapped to CLR names — same membership, different projection —
+  so `BuiltInClrTypeName` is written beside `IsBuiltInTypeName` over all eighteen, and a contract
+  asserts the two agree on every probe: a spelling can never be resolvable in one and unknown in the
+  other. `nint`/`nuint` map to `System.IntPtr`/`System.UIntPtr`, which is what `ColumnarBindingScopeFacts`
+  and `ColumnarTypeOfPlanner` already bind them to, so the editor GAINS two resolutions where it
+  previously answered null. `ColumnarExternalBindingPlans.PrimitiveLimitTypeName` is NOT folded in —
+  it answers the narrower "which type owns `MinValue`/`MaxValue`" over eight spellings and must keep
+  refusing `string` — but a contract asserts it never names a different CLR type than the spelling
+  owner does.
+
+  ### THE `"err"` DECISION — ONE RULE, THREE CONSUMERS, AND THE DRIFT WAS THE EDITOR'S
+
+  `IsErrorCaptureForm(nameCount, lastName)` is `nameCount == 2 && lastName == "err"`, lifted out of
+  phase 10 and now called from all three places that decide it. The analyzer's own call site was
+  rewritten to ask it; `ColumnarIlEmitter.cs:8229` was rewritten to ask it **LINE FOR LINE** —
+  `if (AnalyzerVariableDeclaration.IsErrorCaptureForm(nameCount, Text(Child(idx, nameCount - 1))))`
+  replacing one line with one line, in a file at a ceiling, with the index safe because the arm is
+  already guarded by `childCount >= 3`.
+
+  **THE EDITOR'S `>= 2` PAINTED A FORM THE LANGUAGE DOES NOT HAVE.** `(a, b, err) := f()` is an
+  ORDINARY tuple deconstruction: the analyzer counts its elements and types `err` from the source, and
+  the emitter wraps nothing in a catch. The editor was giving it the `catchResult` modifier anyway. It
+  no longer does, and that is the one row that moves in the whole comparator.
+
+  ### THE THREE CURATION SETS — THE VERDICT IS EDITOR POLICY, AND HERE IS THE PROOF
+
+  `TypeResolver` has exactly **two** consumers in the repository: `HoverHandler:223` (`ResolveType`,
+  for hover text) and `CompletionHandler:132/:427` (`GetNamespaceSuggestions`, `GetImportableTypes`).
+  Nothing in `NSharpLang.Compiler` constructs one; `Program.cs:46` registers it as an LSP singleton.
+  Every answer these three tables shape reaches exactly two places, and both are things the editor
+  SHOWS.
+
+  | set | where it is read | what it decides |
+  |---|---|---|
+  | `CommonShortTypeToFullName` (12) | `:170` a probe shortcut in `ResolveType`; `:337` seeds the importable list when NO prefix is typed | which types the editor volunteers before the user has typed enough to search |
+  | `CommonNamespacePrefixes` (7) | `:190` a probe ORDER before the exported-type scan | how fast a short name resolves, and which namespace wins a tie |
+  | `WellKnownNamespaces` (20) | `:437` seeds a set then UNIONED with every namespace of every loaded assembly | which namespaces are suggestable before an assembly containing one is loaded |
+
+  **AND THE SHARPEST PART OF THE VERDICT IS THAT THE ESTATE ALREADY OWNS THE COMPILER'S CURATION,
+  SEPARATELY.** `CompletionReflectionFacts.KnownReceiverType` (11), `KnownArgumentType` (15) and
+  `KnownReceiverGenericDefinition` (15) are the N#-owned curation for the COMPILER's completion path
+  and are read only from `.nl`. Two curations exist because there are two consumers with different
+  needs — not because one escaped its owner. Routing the editor's to the compiler's would not merge
+  two copies of one answer; it would give the editor the wrong answer.
+
+  **ONE HONEST CORRECTION TO THE OBVIOUS ARGUMENT.** It is tempting to call the first two sets
+  strictly redundant fast paths over `ResolveTypeBySimpleName` (`:256`). That is true for the eight
+  NON-generic entries and FALSE for the four generic ones: that scan matches `t.Name`, which for
+  `List<T>` is `` List`1 ``, so `List` resolves ONLY through the table. That makes the table a curated
+  convenience rather than a redundant one — and still not a language fact, because N# itself never
+  resolves `List` through this path.
+
+  ### `CallHierarchyHandler` — WHAT WAS TAKEN, AND THE THREE BLOCKERS THE REST DECODES TO
+
+  **TAKEN: the extent estimate, in all three of its copies.** `DeclarationFacts.EstimateDeclarationEndLine`
+  is the shipped N# owner of "how far does this declaration reach" — the document OUTLINE already uses
+  it — and the handler re-implemented it three times: `CallHierarchyPrepareHandler.GetFunctionEndLine`
+  (`:204`, the `+1 for closing brace estimate` the mandate names), `CallHierarchyIncomingHandler
+  .GetFunctionEndLine` (`:415`, a verbatim duplicate) and `IsPositionInsideFunction` (`:395`, the same
+  arithmetic in 1-based lines). All three now ask the owner, so "which function encloses this call" and
+  "how far does this function reach" can no longer disagree — and M6 proves it, by collapsing every
+  caller in the fixture into `Greet` when the owner is perturbed.
+
+  **THE OWNER WAS EXTENDED BY ONE ARM TO MAKE THAT REROUTE A ZERO-DELTA MOVE.** It had no
+  `ExpressionBody` arm, so an expression-bodied function whose expression sits on the NEXT line
+  answered its own declaration line where the handler answered the expression's. The arm is three
+  lines, it makes the owner strictly more accurate, and the document outline gets the correction too.
+
+  **NOT TAKEN: the outgoing-call walk, and it is three separate blockers rather than one big edit.**
+
+  | # | blocker | evidence |
+  |---|---|---|
+  | **1** | **The owner's walk is NARROWER than the handler's, in five shapes.** `CodeIntelligenceCallGraph.CollectStatement` covers seven statement shapes and its header says the gap is "inherited deliberately"; the handler additionally walks `ForStatement.Body`, `UnaryExpression.Operand`, `IndexAccessExpression`, `LambdaExpression` bodies and an assignment's TARGET. Routing today would DROP every call inside a `for` body or a lambda from the editor's outgoing list — a regression, not a reroute. (The owner is WIDER in one shape: it walks interpolated-string holes, which the handler misses) | source diff of the two walks |
+  | **2** | **The recorded call-site ANCHOR differs, and it lives in a versioned CLI schema.** `CallSiteResult` records `call.Line/Column`, and `ColumnarParserRecovery:6663` builds `new CallExpression(callee, args, typeArgs, parenToken.Line, parenToken.Column)` — the OPENING PAREN. The handler records `call.Callee.Line/Column` — the function NAME — and builds its `fromRanges` from it. Routing today would move every call-hierarchy highlight off the name and onto the parenthesis; fixing it changes what `nlc query call-graph` prints | the parser's own constructor call |
+  | **3** | **The query path needs a `DocumentManager` accessor the ratchet has ONE line of room for.** `CodeIntelligenceQueries.CallGraph` takes a `ProjectSnapshot`; `DocumentManager` caches one and exposes it through no public member, and its ratchet row is `epochLines 1450 / currentLines 1449`. A sixth CodeIntelligence query in the shape of the five it already exposes is about eight lines | the manifest row |
+
+  Blockers (1) and (2) are compiler and CLI BEHAVIOUR changes with their own blast radius and their
+  own before/after; (3) is the same ceiling wall slice 5 hit for editor coverage, now hit a second
+  time by a reroute that ownership requires. **They are named rather than half-done, and none of them
+  is a reason to leave the extent guess unowned — which is why that half IS taken.**
+
+  ### THE COMPARATOR — 108 ROWS BEFORE, 108 AFTER, AND EXACTLY ONE ROW MOVES
+
+  `lspseam.py` is slice 5's harness with its probe list grown to every surface this slice touches:
+  `initialize` → `initialized` → `didOpen` → **1 `textDocument/semanticTokens/full` + 4
+  `textDocument/prepareRename` + 2 `textDocument/prepareCallHierarchy` with their
+  `callHierarchy/incomingCalls` and `outgoingCalls` + 1 `textDocument/implementation` + 1
+  `typeHierarchy/subtypes`** → `shutdown` → `exit`, against a built `LanguageServer.dll`. The fixture
+  carries every operator kind the editor colours, `nint`/`nuint`/`double`, a normal AND a raw
+  interpolated literal with holes, a plain literal, a two-name error capture and a three-name
+  deconstruction ending in `err`.
+
+  **THE "BEFORE" IS A REAL RESTORE-AND-REBUILD.** All 17 changed paths were written back from `HEAD`
+  (the one untracked new file removed), the ESTATE and the language server were rebuilt from those
+  blobs, and the comparator ran against that build. The tree was then restored and rebuilt, and **the
+  post-restore rebuild reproduces `seam-after.txt` BYTE-IDENTICAL** — which is what makes the diff a
+  measurement of the slice rather than of the build.
+
+  ```
+  92c92
+  <     30:10+3 variable|catchResult 'err'
+  ---
+  >     30:10+3 variable 'err'
+  ```
+
+  **THAT IS THE ENTIRE DIFF.** 107 of 108 rows are byte-identical: the 36-member operator set, the
+  eighteen built-in spellings including `nint` and `nuint`, every interpolated-hole token in BOTH the
+  normal and the raw literal, all four `prepareRename` answers, every call-hierarchy range, and the
+  two controls. The row that moves is the one the decode predicted. **Six zero-delta reroutes and one
+  correction is the result the mandate asked for** — an ownership move is supposed to be invisible
+  except where the copy was wrong.
+
+  ### THE MUTATION MATRIX — SEVEN PERTURBATIONS, EACH MOVING ONLY ITS OWN SURFACE
+
+  Six of the seven reroutes produced a byte-identical before/after. **An identity is only a
+  measurement if the instrument could have seen a difference.** Every mutation asserts its anchor
+  before writing, every owner is restored in a `finally` and the `md5` checked back, so a failed run
+  cannot leave a mutant on disk.
+
+  | # | mutation to the N# owner | seam rows | surface | `LanguageServerTests` |
+  |---|---|---|---|---|
+  | **M1** | `ParserTokenFacts.IsOperator` refuses its DELEGATED tail | **10** | semanticTokens — the eight `=` spans, `tuples 94→86` | — |
+  | **M1b** | `IsOperator` refuses its thirty EXPLICIT arms | **9** | semanticTokens — `* + >= && != :=`, `tuples 94→87` | **133 / 133 — BLIND** |
+  | **M2** | `IsBuiltInTypeName` admits nothing | **15** | semanticTokens — all thirteen `type` spans | — |
+  | **M3** | `LinterInterpolationScan.HoleSpans` finds no holes | **6** | semanticTokens — the four hole tokens, in BOTH literals | — |
+  | **M4** | `IsErrorCaptureForm` never matches | **2** | semanticTokens — the `catchResult` modifier | **132 / 1 FAIL** |
+  | **M5** | `IsEditorPositionInsideStringLiteral` says every position is literal | **4** | prepareRename — both renameable probes collapse to `<none>` | **131 / 2 FAIL** |
+  | **M6** | `EstimateDeclarationEndLine` shifts every extent by 40 | **7** | call hierarchy — every range, and the caller grouping collapses into `Greet` | — |
+
+  **EACH MUTATION MOVES ITS OWN SURFACE AND NOTHING ELSE**, which is sharper than a bare non-vacuity
+  check: the reroutes are independent, and no surface is being answered by some other path that
+  happens to agree. **The post-restore rebuild reproduces the baseline BYTE-IDENTICAL and
+  `LanguageServerTests` returns to 133 / 133.**
+
+  **M1 MEASURED LESS THAN IT LOOKED LIKE, AND THAT IS RECORDED RATHER THAN ROUNDED UP.** It edited
+  only `IsOperator`'s last two arms — the `...` case and the `return IsAssignmentOperator(tokenType)`
+  tail — so it killed seven of the thirty-six members. The result is still a real and precise
+  measurement: it proves the DELEGATION is live on the wire, which is the relation the owner uses
+  instead of copying the six assignment forms. M1b then kills the thirty explicit arms, asserting it
+  found exactly thirty `return true` statements inside the function's own text region before writing.
+  **M1 and M1b are complements: 8 + 7 = every operator token in the fixture.**
+
+  ### `LanguageServerTests` RE-MEASURED, AND IT IS BLIND TO ONE OF THIS SLICE'S OWNERS
+
+  | owner destroyed | the suite's verdict |
+  |---|---|
+  | `ParserTokenFacts.IsOperator` (thirty arms) | **133 / 133 — the suite does not notice** |
+  | `AnalyzerVariableDeclaration.IsErrorCaptureForm` | 132 / 1 |
+  | `CodeIntelligenceTextUtilities.IsEditorPositionInsideStringLiteral` | 131 / 2 |
+
+  **THE OPERATOR SEAM IS PINNED BY NONE OF THE 133**, and the byte comparator is the only instrument
+  that saw it. That is the third distinct verdict this campaign has recorded for this suite — sharp on
+  the hover finder's owners (slice 5), blind on the finder itself (slice 4), and blind here — which
+  settles that "is `LanguageServerTests` sufficient" has no general answer and must be measured per
+  seam. It is measured per seam here.
+
+  ### THE CENSUS, OVER FRESHLY BUILT ASSEMBLIES ONLY
+
+  Taken at the mtime of the build (`cutoff 16:35:52`): **25 assemblies scanned, 2,434 skipped as
+  STALE, 86,830 method bodies, 0 undecodable opcodes.** The staleness gate is not decoration — a
+  date-blind census would have counted 2,434 pre-slice copies as evidence.
+
+  | receiver type | sites | distinct external callers | the NEW ones |
+  |---|---|---|---|
+  | `ParserTokenFacts` | 211 | **12** | `SemanticTokensHandler::ClassifyToken` |
+  | `AnalyzerTypeReferenceFacts` | 62 | **9** | `SemanticTokensHandler::ClassifyIdentifier`, `TypeResolver::ResolveType` |
+  | `LinterInterpolationScan` | 11 | **2** | `SemanticTokensHandler::GetInterpolatedStringExpressionTokens` |
+  | `AnalyzerVariableDeclaration` | 43 | **6** | `ColumnarIlEmitter::EmitStatement` **and** `SemanticTokensHandler::AddCatchResultBinding` |
+  | `DeclarationFacts` | 249 | **21** | `CallHierarchyPrepareHandler::GetFunctionEndLine`, `CallHierarchyIncomingHandler::GetFunctionEndLine`, `CallHierarchyIncomingHandler::IsPositionInsideFunction` |
+  | `CodeIntelligenceTextUtilities` | 67 | **10** | `EditorUtilities::IsPositionInsideStringLiteral` |
+  | `Lexer` | 139 | **13** | `SemanticTokensHandler::AddEmbeddedExpressionTokens` |
+  | control `ColumnarParserRecovery` | 55 | 11 | — **PASSED, non-zero** |
+
+  **THE THREE-CONSUMER CLAIM FOR THE `"err"` OWNER IS PROVED IN IL, NOT IN SOURCE.**
+  `AnalyzerVariableDeclaration`'s six external callers are four `Analyzer` methods, the columnar IL
+  emitter, and the semantic-token handler — the analyzer, the backend and the editor, all naming one
+  owner.
+
+  ### THE COUNTS
+
+  | | before | after |
+  |---|---|---|
+  | `SemanticTokensHandler.cs` | 1,021 / 871 | **842 / 714** (−179 / −157) |
+  | `CallHierarchyHandler.cs` | 768 / 650 | **734 / 624** (−34 / −26) |
+  | `TypeResolver.cs` | 536 / 468 | **526 / 459** (−10 / −9) |
+  | `EditorUtilities.cs` | 299 / 253 | **27 / 24** (−272 / −229) |
+  | `TypeHierarchyHandler.cs`, `GoToImplementationHandler.cs` | 402 / 341, 272 / 229 | untouched |
+  | **the six in-scope LSP files** | **3,298** | **2,803 — −495 lines, and NOT ONE LINE ADDED ANYWHERE** |
+  | `tests/LanguageServerTests.cs` | 4,201 / 3,411 / 606 assertions | **4,200 / 3,411 / 602** — one superseded body rewritten |
+  | compiler C# | 10 files / **27,966** | **10 files / 27,966** — `ColumnarIlEmitter.cs` holds at 21,519 / 20,457 LINE FOR LINE while gaining the owner call |
+  | unit suite | 606 | **`Passed: 606, Failed: 0, Skipped: 0, Total: 606`** |
+  | `LanguageServer*` suites | 273 | **`Passed: 273, Failed: 0`**, `LanguageServerTests` 133 / 133 |
+  | compiler-service estate | 6,821 | **`Passed: 6861, Failed: 0, Skipped: 0, Total: 6861`** — +40 contracts |
+  | live tree `nlc check --project …BootstrapServices --json` | 395 / 246 | **395 / 246** — census `NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26`, **IDENTICAL to slices 4 and 5**, 0 rows in any `.tests.nl`, 0 naming any owner |
+  | `nlc format --project …BootstrapServices --check` | | **All files are properly formatted** |
+
+  **THE `NL012:20` ROW IS THE MEASUREMENT THAT MATTERS MOST HERE, AND IT WAS NOT FREE.** Routing
+  `HoleTexts` through the new position-aware scanner CHANGED the linter's scan rules: `{{` is now a
+  literal brace pair rather than a depth-two hole, an escaped `\{` opens no hole, and a brace inside a
+  nested string is no longer counted. The unused-variable census over 395 real files is unchanged to
+  the digit, so the change is invisible on the corpus — and one estate contract that RECORDED the old
+  `{{` behaviour ("it is stated so a future change to it is a deliberate one") was rewritten to record
+  the fix, which is the deliberate change it asked for.
+
+  **ONE SUPERSEDED C# ASSERTION WAS REWRITTEN, NOT DELETED.**
+  `SemanticTokens_MarksOnlyFinalErrInMultiValueCatchDeconstruction` asserted the editor's `>= 2`
+  reading over a FOUR-name deconstruction. It is now
+  `SemanticTokens_MarksNoErrInMultiValueDeconstruction` and asserts the corrected answer, so the
+  coverage survives the correction instead of dying with it. The rewrite had to SHRINK: the file sits
+  at `epochLines 4201` with zero headroom, so the first draft's six-line comment was cut to three.
+
+  ### THE REPIN — SIX ROWS, NO CEILING RAISED, TWO KEYS MOVED LAST
+
+  Walked from a replica **validated against the PRISTINE manifest FIRST**: it reproduced all three
+  stored header fingerprints, the stored `epochFileCount`, AND the stored row of all six touched files
+  computed from `git show HEAD:<path>` — including `ColumnarIlEmitter.cs` at
+  `21519 / 20457 / text-v1:1f78435288abbbdb` — before predicting a single post-slice value.
+
+  | | before | after |
+  |---|---|---|
+  | `SemanticTokensHandler.cs` | 1021 / 871 / `text-v1:15e166d33ef880a8` | **842 / 714 / `text-v1:6c49569e9248ff51`** |
+  | `CallHierarchyHandler.cs` | 768 / 650 / `text-v1:046d2ac9a008af65` | **734 / 624 / `text-v1:884c2a94d7e2f503`** |
+  | `TypeResolver.cs` | 536 / 468 / `text-v1:10280a9f7812c441` | **526 / 459 / `text-v1:330c8bad2b1a94fa`** |
+  | `EditorUtilities.cs` | 299 / 253 / `text-v1:bbd678912869e4fe` | **27 / 24 / `text-v1:47c778e24bfa44ef`** |
+  | `LanguageServerTests.cs` | 4201 / 3411 / 606 / `text-v1:907914a9f167265e` | **4200 / 3411 / 602 / `text-v1:408b06d07f1cd663`** |
+  | `ColumnarIlEmitter.cs` | 21519 / 20457 / `text-v1:1f78435288abbbdb` | **21519 / 20457 / `text-v1:d86f36cb8b445e8f`** — metrics IDENTICAL, fingerprint only |
+  | `reviewedHeadFingerprint` | `head-v1:5e1cff210af7b0fd` | **`head-v1:fd8eef5f1a0fc1c6`** — two-key, repinned LAST |
+  | `epochPathFingerprint` / `epochFactFingerprint` / `epochFileCount` | | **UNCHANGED** `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` / **381** |
+
+  The repin refuses to raise any ceiling per field before it writes and asserts the epoch triple
+  unchanged after; both keys moved together — the manifest header AND
+  `OwnershipAudit.nl:241`'s `ReviewedHeadFingerprint` constant. **`nlc test --project
+  tests/native/ownership-audit` → 18 / 18**, and PROVED NON-VACUOUS TWICE: reverting the CONSTANT
+  alone (a one-key head) fails **17 / 18**, and a one-line ceiling bump on `TypeResolver.cs` fails
+  **17 / 18**; restored, **18 / 18**. Manifest **391 lines, no BOM** (first bytes `7b 0a 20`).
+
+  ### THE IDE BAR
+
+  This is the third 021 slice that changes code the developer experience runs through, so
+  `VSCODE_TESTS` is NOT set and the extension is rebuilt and reinstalled.
+
+  **THE EXTENSION WAS REBUILT, REPACKAGED AND REINSTALLED**, not assumed current:
+  `./scripts/reload-vscode-extension.sh` exited **0** — VS Code killed, the language server rebuilt,
+  **`editors/vscode/nsharp-0.6.0.vsix` packaged (289 files, 3.95 MB)**, `code --install-extension …
+  --force` reporting *"Extension 'nsharp-0.6.0.vsix' was successfully installed"*, and VS Code
+  reopened. **Eight `nsharp.nsharp-0.6.0/server/LanguageServer.dll --stdio` processes were observed
+  running under it**, so the installed extension is the rerouted one.
+
+  **THE GATE'S VS CODE SUITE COVERS NONE OF THIS SLICE'S FOUR SURFACES, AND THAT IS RE-MEASURED
+  RATHER THAN INHERITED.** `grep -rln "semanticTokens\|prepareRename\|prepareCallHierarchy\|
+  callHierarchy\|TypeHierarchy\|executeImplementationProvider" editors/vscode/test/suite/` returns
+  **NOTHING** across all **19** suites. The integration tests are evidence that this slice broke
+  nothing ELSE in the editor; they are **not** evidence about what it changed. The comparator, the
+  mutation matrix, the IL census and `LanguageServerTests` are.
+
+  **AN INTEGRATION SUITE IS NOT A SCREENSHOT, AND THIS RECORD DOES NOT PRETEND OTHERWISE.**
+  `AGENTS.md` requires computer-use visual verification for IDE-affecting changes and computer-use is
+  NOT available in this session. Every check above verifies the ANSWER, not the PICTURE: none proves
+  that the three-name `err` has stopped being painted amber in a real editor window, only that the
+  language server has stopped reporting `catchResult` for it over the protocol. **021/12 carries the
+  visual verification and now carries a second specific thing to look at** — an `a, b, err := f()`
+  line whose `err` must NOT be amber, beside slice 5's `public`/`private`.
+
+  ### DOCUMENTATION
+
+  Every `.md` outside this ledger was searched for a present-tense claim this slice falsifies. **Zero
+  files name `OperatorTokenTypes`, `PrimitiveTypeNames`, `AliasToFullName`, `CommonShortTypeToFullName`,
+  `CommonNamespacePrefixes`, `WellKnownNamespaces`, `IsCatchResultTupleDeconstruction`,
+  `GetInterpolatedStringExpressionTokens` or `EditorUtilities` at all.** Two documents were owed an
+  edit and got one:
+
+  - `memory/components/analyzer.md:459` listed `AnalyzerTypeReferenceFacts`'s members. It now names
+    `IsBuiltInTypeName` and `BuiltInClrTypeName`, states the eighteen-spelling membership, records the
+    `nint`/`nuint` gap as a PIN rather than a policy, and warns against confusing either with the two
+    primitive-VALUE-type predicates.
+  - `memory/components/lexer.md:105` documented the keyword/non-keyword partition of the 148-member
+    enum. It now documents the SECOND partition this slice asserts — 85 keywords, 36 symbolic
+    operators, 27 neither — and states the disjointness that makes `is`/`as`/`and`/`or`/`not` keyword
+    table members rather than operator table members.
+
+  `editors/vscode/README.md:20` and `SYNTAX-HIGHLIGHTING-IMPROVEMENTS.md:184` describe the
+  `catchResult` modifier using a TWO-name example, which is exactly the form the language has; both
+  remain true and are MORE accurate after the correction. The 021/3 debt stands unchanged: 021/12 must
+  add the systems report's row-order guarantee to `memory/components/cli-toolchain.md`.
+
+  ### `EditorUtilities.cs` — WHAT IS LEFT OF IT, AND WHY IT IS NOT DELETED
+
+  The file falls from 299 lines to 27 and holds two forwarders and nothing else. Slice 4's lesson says
+  delete a forwarder rather than keep it; that is the right end state here too, and it is **BLOCKED BY
+  THE RATCHET, measured rather than assumed**: the two members are named at ten call sites across nine
+  handlers, every one of those handlers sits at its epoch ceiling, and each would have to grow by the
+  `using NSharpLang.Compiler.CodeIntelligence;` line the longer owner name needs. The file's own header
+  now says so. **A third dead SECOND ANSWER went with the literal lexer**: `IsIdentifierChar`
+  (`char.IsLetterOrDigit(c) || c == '_'`) had ZERO consumers anywhere and duplicated
+  `CodeIntelligenceTextUtilities.IsCodeIntelligenceIdentifierChar`, which is the owner and is more
+  complete.
+
+  ### GATE — VS CODE ENABLED
+
+  One fresh isolated `./scripts/test-all.sh --commit` with **`VSCODE_TESTS` DELIBERATELY UNSET**
+  (`env -u VSCODE_TESTS`, so an inherited value could not leak in), from a `/tmp` byte-copy that
+  excludes `.claude/worktrees/` and `TestResults/`. **The nested-worktree hazard is REAL in this
+  checkout and was checked, not assumed**: three of the six worktrees under `.claude/worktrees/`
+  contain a `NSharpLang.Benchmarks.csproj`, and the tracked tree contains **zero** — the copy contains
+  **0**. Log `/tmp/nsharp-s021s5b-gate.log` **outside the copy**. `pgrep test-all-core.sh` ran BEFORE
+  launch and reported no competing gate. `--commit` disables both the whole-gate cache and per-step
+  skipping.
+
+  **`ALL TESTS PASSED! ✓`, exit 0, 25 m 16 s, 127 PASSED steps, ZERO failures.**
+
+  | step | verdict |
+  |---|---|
+  | Build N# Compiler (4 m 38 s) | PASSED |
+  | Format Contract Gate (0 m 01 s) | PASSED — `examples`, `templates`, `tests/fixtures/issue-tracker`, `…BootstrapServices`, all `All files are properly formatted` |
+  | Unit Tests (6 m 42 s) | **`Passed: 606, Failed: 0, Skipped: 0, Total: 606`** — the inherited baseline exactly, from the gate's own isolated run |
+  | Native N# — compiler-service estate | **`Passed: 6861, Failed: 0, Skipped: 0, Total: 6861`** |
+  | Native N# — all **46** projects (6 m 05 s) | PASSED, zero failures — including `tests/native/ownership-audit` at **18 / 18**, so the two-key repin verifies inside the fresh tree and not only locally |
+  | **VS Code Integration Tests** (3 m 07 s) | **PASSED — `36 passing (41s)`**, first attempt, no flake and no re-run |
+  | Pack + install SDK, Runtime, Templates | PASSED |
+  | `dotnet new` template creation + build | PASSED |
+  | Example projects + single-file examples | PASSED |
+  | `nlc check` on examples | PASSED |
+  | IL Verification Gate | PASSED — **all 67 N# assemblies pass, no new errors vs baseline** |
+
+  **NO INHERITED FAILURE GROUP AND NONE CREATED.** Nothing in this slice needed a new emit surface, so
+  no mid-slice repack was required and the toolset repin was not disturbed — the two-stage wall was
+  approached (six N# owners gained new public surface that C# calls) and NOT hit, because every new
+  member is spelled in constructs the packaged SDK already compiles.
+
+  ### CLEANUP AND WORKING TREE
+
+  **NOT COMMITTED — the mandate reserves that. `tasks/README.md` is NOT edited: 021/5b of 12 is done
+  and the 021 box stays unchecked.**
+
+  Every scratch instrument lives OUTSIDE the tree, in the session scratchpad and `/tmp`: the
+  comparator, the two mutation harnesses, the before/after restore script, the IL census tool (a
+  `System.Reflection.Metadata` walker in `/tmp/nsharp-s021s5b-census`), the ratchet replica and repin,
+  the seam captures and the gate log. **No `.bak`, no `TestResults/`, no generated fixture is left in
+  the tree**, and the `_*.nl` glob hazard was not touched at all — the VS Code fixture directory was
+  never written to. The packaged `nsharp-0.6.0.vsix` is `.gitignore`d and is not a tree change. The
+  nine background-task chips are untouched and stay pinned as measured.
+
+  **THE FIRST FULL UNIT-SUITE RUN OF THIS SLICE IS DISCARDED FROM THE RECORD, DELIBERATELY.** It was
+  started before the `ColumnarIlEmitter.cs` edit and was still running when that edit landed, which
+  makes it a measurement of a tree that never existed. It was killed and re-run from a settled tree
+  rather than reported. **A run whose inputs changed under it is not a result** — the same rule slice 5
+  applied to its contention episode, applied here to my own mistake.
+
+  The working tree carries exactly **twenty-two paths**: six grown `.nl` owners and one new
+  `.tests.nl`, four grown `.tests.nl` contract files, six `.cs` files (four LSP, the IL emitter, and
+  `LanguageServerTests.cs`), two `memory/components/*.md`, the two ratchet keys, and this STATUS.
+
+  ### WHAT REMAINS OF SLICE 5
+
+  | remaining | why |
+  |---|---|
+  | `TypeResolver.cs`'s reflection core | **021/9's `MetadataLoadContext` territory, as sequenced** — the alias table is out, the curation sets are classified, and the probing core is untouched so it moves once |
+  | `CallHierarchyHandler.cs`'s outgoing-call walk | the three blockers above: a narrower owner walk, a call-site anchor that is the paren and not the name and lives in a versioned CLI schema, and a `DocumentManager` accessor with one line of ratchet room |
+  | `GoToImplementationHandler`'s arm-structure bug | slice 5 pinned it (`implementation impl-IGreeter: <none>` while `typeHierarchy` answers `Greeter`) and this slice's comparator reproduces the pin UNCHANGED |
+  | editor-suite coverage for six protocol surfaces | none of the 19 `*.test.ts` covers semantic tokens, prepare-rename, call hierarchy, type hierarchy or go-to-implementation, and every one is at its epoch ceiling. **Three slices have now hit this wall**; it is a policy decision for 021/12, not a discovery |
+
+  **FOUR WARNINGS CARRY FORWARD.** (1) The editor-suite ceiling still blocks editor coverage for
+  surfaces the campaign is actively changing. (2) `dotnet test` is not trustworthy while a source edit
+  or another build is in flight — this slice proved it on itself. (3) `_*.nl` under
+  `editors/vscode/test/fixtures/simple/` mixes tracked and generated files; clean from `git status`,
+  never from the glob. (4) **`ColumnarParserRecovery` holds a THIRD copy of the interpolation scan.**
+  It is the parser's own, it is instance-bound, and it parses holes into `Expression` nodes rather
+  than returning spans — so it could not route here — but the language now has two scanners where it
+  should have one, and that is a named debt rather than an accident.
+
+- Active sub-slice (021 arc, PRIOR TURN — **SLICE 5 — THE LSP'S SIX RE-IMPLEMENTATIONS, DECODED
   DECISION BY DECISION; THE SLICE IS SPLIT AND THE FIRST CUT IS TAKEN. THE CENSUS, RECORDED
   BEFORE ANY PRODUCTION EDIT.**
 

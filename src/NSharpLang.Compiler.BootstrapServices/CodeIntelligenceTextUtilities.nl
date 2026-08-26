@@ -224,4 +224,311 @@ class CodeIntelligenceTextUtilities {
 
         return Char.IsLetterOrDigit(ch)
     }
+
+    // ── WHICH POSITIONS OF A BUFFER ARE INSIDE LITERAL TEXT ────────────────────────────────────
+    //
+    // "Is the cursor inside a string?" is the question an editor asks before it treats the word
+    // under the cursor as CODE. Rename must refuse a word inside `"…"`; a completion must not
+    // offer members for it. The answer has to be a scan of the WHOLE buffer rather than a lookup
+    // in the token stream, because it is asked exactly when the buffer does not parse — mid-edit,
+    // with an unterminated literal open — and the token stream is then not to be trusted.
+    //
+    // AN INTERPOLATION HOLE IS NOT INSIDE THE STRING. `$"hello {name}"` has `name` as real code,
+    // so the interpolated scans track brace DEPTH and answer false for a position inside a hole,
+    // and answer true again for a nested literal inside that hole (`$"{d["key"]}"` — `key` is a
+    // string, two levels down). That is why the four literal kinds get four scans instead of one:
+    // a raw string ends on `"""` and ignores backslashes, a normal string ends on the first
+    // unescaped `"` or at the end of the LINE, and the two interpolated forms differ in both.
+    //
+    // AN UNTERMINATED LITERAL SWALLOWS THE REST OF THE BUFFER, DELIBERATELY. Each scan's final
+    // fallthrough answers "inside" for any position at or after the opening delimiter. Half a
+    // literal is a literal, and treating the tail as code would offer completions inside a string
+    // the developer is still typing.
+    //
+    // THE SCANS SHARE ONE CONVENTION: each answers whether the target is inside the literal it
+    // just walked, and sets `end` to the index the outer walk should resume from. A `true` answer
+    // ends the whole question — the target has been placed — so the outer walk only resumes on
+    // false.
+    static func IsEditorPositionInsideStringLiteral(text: string, line: int, character: int): bool {
+        target := 0
+        if !TryGetEditorOffset(text, line, character, out target) {
+            return false
+        }
+
+        index := 0
+        while index < text.Length {
+            if text[index] == '$' && index + 1 < text.Length && text[index + 1] == '"' {
+                scanEnd := 0
+                if index + 3 < text.Length && text[index + 2] == '"' && text[index + 3] == '"' {
+                    if ScanEditorInterpolatedRawString(text, index, target, out scanEnd) {
+                        return true
+                    }
+
+                    index = scanEnd
+                    index = index + 1
+                    continue
+                }
+
+                if ScanEditorInterpolatedString(text, index, target, out scanEnd) {
+                    return true
+                }
+
+                index = scanEnd
+                index = index + 1
+                continue
+            }
+
+            if text[index] == '"' {
+                scanEnd := 0
+                if index + 2 < text.Length && text[index + 1] == '"' && text[index + 2] == '"' {
+                    if ScanEditorRawString(text, index, target, false, out scanEnd) {
+                        return true
+                    }
+
+                    index = scanEnd
+                    index = index + 1
+                    continue
+                }
+
+                if ScanEditorRegularString(text, index, target, out scanEnd) {
+                    return true
+                }
+
+                index = scanEnd
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    // The character offset of a 0-based (line, character) position, or false when the position is
+    // past the end of the buffer. The end-of-buffer offset itself IS addressable — a cursor sits
+    // after the last character — so the walk runs to `text.Length` inclusive.
+    static func TryGetEditorOffset(text: string, line: int, character: int, out offset: int): bool {
+        offset = 0
+        if line < 0 || character < 0 {
+            return false
+        }
+
+        currentLine := 0
+        currentColumn := 0
+        index := 0
+        while index <= text.Length {
+            if currentLine == line && currentColumn == character {
+                offset = index
+                return true
+            }
+
+            if index == text.Length {
+                return false
+            }
+
+            if text[index] == '\n' {
+                currentLine = currentLine + 1
+                currentColumn = 0
+            } else {
+                currentColumn = currentColumn + 1
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func ScanEditorRawString(text: string, start: int, target: int, hasDollarPrefix: bool, out end: int): bool {
+        end = 0
+        contentStart := start + 3
+        if hasDollarPrefix {
+            contentStart = start + 4
+        }
+
+        index := contentStart
+        while index < text.Length - 2 {
+            if target >= contentStart && target < index {
+                end = index
+                return true
+            }
+
+            if text[index] == '"' && text[index + 1] == '"' && text[index + 2] == '"' {
+                end = index + 2
+                return target >= contentStart && target < index
+            }
+
+            index = index + 1
+        }
+
+        end = text.Length - 1
+        return target >= contentStart
+    }
+
+    static func ScanEditorRegularString(text: string, start: int, target: int, out end: int): bool {
+        end = 0
+        index := start + 1
+        while index < text.Length {
+            if text[index] == '\n' {
+                end = index
+                return target > start && target < index
+            }
+
+            if text[index] == '"' && !IsEditorEscapedQuote(text, index) {
+                end = index
+                return target > start && target < index
+            }
+
+            index = index + 1
+        }
+
+        end = text.Length - 1
+        return target > start
+    }
+
+    static func ScanEditorInterpolatedRawString(text: string, start: int, target: int, out end: int): bool {
+        end = 0
+        contentStart := start + 4
+        interpolationDepth := 0
+        nestedStringDepth := 0
+
+        index := contentStart
+        while index < text.Length - 2 {
+            if target == index {
+                end = index
+                return interpolationDepth == 0 || nestedStringDepth > 0
+            }
+
+            if nestedStringDepth > 0 {
+                if text[index] == '"' {
+                    nestedStringDepth = nestedStringDepth - 1
+                }
+
+                index = index + 1
+                continue
+            }
+
+            if text[index] == '{' {
+                if index + 1 < text.Length && text[index + 1] == '{' {
+                    index = index + 1
+                    index = index + 1
+                    continue
+                }
+
+                interpolationDepth = interpolationDepth + 1
+                index = index + 1
+                continue
+            }
+
+            if text[index] == '}' && interpolationDepth > 0 {
+                interpolationDepth = interpolationDepth - 1
+                index = index + 1
+                continue
+            }
+
+            if text[index] == '"' {
+                if interpolationDepth > 0 {
+                    nestedStringDepth = nestedStringDepth + 1
+                    index = index + 1
+                    continue
+                }
+
+                if text[index + 1] == '"' && text[index + 2] == '"' {
+                    end = index + 2
+                    return false
+                }
+            }
+
+            index = index + 1
+        }
+
+        end = text.Length - 1
+        return target >= contentStart && interpolationDepth == 0
+    }
+
+    static func ScanEditorInterpolatedString(text: string, start: int, target: int, out end: int): bool {
+        end = 0
+        interpolationDepth := 0
+        nestedStringDepth := 0
+
+        index := start + 2
+        while index < text.Length {
+            if text[index] == '\n' {
+                end = index
+                return target > start + 1 && target < index && interpolationDepth == 0
+            }
+
+            if target == index {
+                end = index
+                return interpolationDepth == 0 || nestedStringDepth > 0
+            }
+
+            if text[index] == '\\' {
+                index = index + 1
+                index = index + 1
+                continue
+            }
+
+            if nestedStringDepth > 0 {
+                if text[index] == '"' {
+                    nestedStringDepth = nestedStringDepth - 1
+                }
+
+                index = index + 1
+                continue
+            }
+
+            if text[index] == '{' {
+                if interpolationDepth == 0 && index + 1 < text.Length && text[index + 1] == '{' {
+                    index = index + 1
+                    index = index + 1
+                    continue
+                }
+
+                interpolationDepth = interpolationDepth + 1
+                index = index + 1
+                continue
+            }
+
+            if text[index] == '}' && interpolationDepth > 0 {
+                interpolationDepth = interpolationDepth - 1
+                index = index + 1
+                continue
+            }
+
+            if text[index] == '}' && interpolationDepth == 0 && index + 1 < text.Length && text[index + 1] == '}' {
+                index = index + 1
+                index = index + 1
+                continue
+            }
+
+            if text[index] == '"' {
+                if interpolationDepth > 0 {
+                    nestedStringDepth = nestedStringDepth + 1
+                    index = index + 1
+                    continue
+                }
+
+                end = index
+                return false
+            }
+
+            index = index + 1
+        }
+
+        end = text.Length - 1
+        return target > start + 1 && interpolationDepth == 0
+    }
+
+    // A quote is escaped when an ODD number of backslashes precedes it. `"a\\"` closes; `"a\""`
+    // does not.
+    static func IsEditorEscapedQuote(text: string, quoteIndex: int): bool {
+        slashCount := 0
+        index := quoteIndex - 1
+        while index >= 0 && text[index] == '\\' {
+            slashCount = slashCount + 1
+            index = index - 1
+        }
+
+        return slashCount % 2 == 1
+    }
 }

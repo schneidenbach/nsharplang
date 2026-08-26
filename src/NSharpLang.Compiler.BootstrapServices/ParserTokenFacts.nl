@@ -107,6 +107,118 @@ class ParserTokenFacts {
         return false
     }
 
+    // THE SYMBOLIC OPERATORS — the tokens spelled in punctuation that combine or transform
+    // operands, as opposed to the ones spelled as words.
+    //
+    // The language's operators are written two ways and this predicate owns exactly one of them.
+    // `is`, `as`, `and`, `or`, `not` are operators too, but they are spelled as WORDS and are
+    // therefore reserved keywords, which `Lexer.IsReservedKeyword` already owns. The two answers are
+    // DISJOINT by construction and the contracts assert it: no token type is both.
+    //
+    // WHAT IS DELIBERATELY OUT. The grouping and separating punctuation — `( ) { } [ ] , ; : :: .`
+    // — is not here. Those tokens delimit; they do not compute. `.` is the closest call and it stays
+    // out: member access is resolved by the binder against a name, not applied to two operands, and
+    // an editor that painted every `.` as an operator would paint every qualified name.
+    //
+    // THE THREE ANSWERS PARTITION THE ENUM. Every one of the 148 `TokenType` members is a reserved
+    // keyword (85), a symbolic operator (36), or neither (27: the seven literal kinds, eleven
+    // delimiters, `Eof`, `Newline`, `Unknown`, `Lifetime`, `Test`, the preprocessor directive and
+    // the three comment kinds). The contracts sweep that arithmetic, so a token type added to the
+    // enum and forgotten here is caught by the partition rather than by a consumer noticing later.
+    static func IsOperator(tokenType: TokenType): bool {
+        if tokenType == TokenType.Plus {
+            return true
+        }
+        if tokenType == TokenType.Minus {
+            return true
+        }
+        if tokenType == TokenType.Star {
+            return true
+        }
+        if tokenType == TokenType.Slash {
+            return true
+        }
+        if tokenType == TokenType.Percent {
+            return true
+        }
+        if tokenType == TokenType.Equal {
+            return true
+        }
+        if tokenType == TokenType.NotEqual {
+            return true
+        }
+        if tokenType == TokenType.Less {
+            return true
+        }
+        if tokenType == TokenType.LessEqual {
+            return true
+        }
+        if tokenType == TokenType.Greater {
+            return true
+        }
+        if tokenType == TokenType.GreaterEqual {
+            return true
+        }
+        if tokenType == TokenType.And {
+            return true
+        }
+        if tokenType == TokenType.Or {
+            return true
+        }
+        if tokenType == TokenType.Not {
+            return true
+        }
+        if tokenType == TokenType.BitwiseAnd {
+            return true
+        }
+        if tokenType == TokenType.BitwiseOr {
+            return true
+        }
+        if tokenType == TokenType.BitwiseXor {
+            return true
+        }
+        if tokenType == TokenType.BitwiseNot {
+            return true
+        }
+        if tokenType == TokenType.LeftShift {
+            return true
+        }
+        if tokenType == TokenType.RightShift {
+            return true
+        }
+        if tokenType == TokenType.Increment {
+            return true
+        }
+        if tokenType == TokenType.Decrement {
+            return true
+        }
+        if tokenType == TokenType.Question {
+            return true
+        }
+        if tokenType == TokenType.QuestionQuestion {
+            return true
+        }
+        if tokenType == TokenType.QuestionDot {
+            return true
+        }
+        if tokenType == TokenType.QuestionBracket {
+            return true
+        }
+        if tokenType == TokenType.Arrow {
+            return true
+        }
+        if tokenType == TokenType.ColonAssign {
+            return true
+        }
+        if tokenType == TokenType.DotDot {
+            return true
+        }
+        if tokenType == TokenType.DotDotDot {
+            return true
+        }
+        return IsAssignmentOperator(tokenType)
+    }
+
     static func IsAssignmentOperator(tokenType: TokenType): bool {
         if tokenType == TokenType.Assign {
             return true

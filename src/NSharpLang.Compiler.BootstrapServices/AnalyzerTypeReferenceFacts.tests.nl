@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // Native contracts for the pure decision surface of the analyzer's type-REFERENCE resolver. All three
 // rules were inline or `private` in Analyzer.cs, so nothing named them: their behaviour was pinned
@@ -291,4 +292,160 @@ test "visible type namespaces put the current one first, then imports in order, 
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
             null, ReferenceFactsNamespaces(["", "System"])))
         == "<global>,,System"
+}
+
+// ---- the built-in spelling set, and the three answers it reconciles --------------------------
+
+// The eighteen spellings, and a handful of names that are emphatically not spellings: a CLR name
+// (`Int32`), a well-known struct (`DateTime`), a user type, and a near-miss of case.
+func BuiltInSpellingNames(): string[] {
+    return [
+        "bool", "byte", "sbyte", "short", "ushort", "int", "uint", "long", "ulong",
+        "nint", "nuint", "char", "float", "double", "decimal", "string", "object", "void"
+    ]
+}
+
+func NonBuiltInSpellingNames(): string[] {
+    return ["Int32", "System.Int32", "Int", "String", "DateTime", "Guid", "TimeSpan", "never", "null", "Customer", ""]
+}
+
+// The membership itself, both directions.
+test "analyzer type reference facts own the eighteen built-in spellings" {
+    spellings := BuiltInSpellingNames()
+    assert spellings.Length == 18
+
+    index := 0
+    while index < spellings.Length {
+        assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName(spellings[index])
+        index = index + 1
+    }
+
+    others := NonBuiltInSpellingNames()
+    index = 0
+    while index < others.Length {
+        assert !AnalyzerTypeReferenceFacts.IsBuiltInTypeName(others[index])
+        index = index + 1
+    }
+}
+
+// THE TWO HALVES OF THE OWNER ANSWER THE SAME MEMBERSHIP. A spelling that resolves to a CLR name
+// must be a spelling, and one that does not must not be.
+test "analyzer type reference facts resolve exactly the spellings they admit" {
+    spellings := BuiltInSpellingNames()
+    index := 0
+    while index < spellings.Length {
+        name := spellings[index]
+        assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName(name) == (AnalyzerTypeReferenceFacts.BuiltInClrTypeName(name) != null)
+        index = index + 1
+    }
+
+    others := NonBuiltInSpellingNames()
+    index = 0
+    while index < others.Length {
+        name := others[index]
+        assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName(name) == (AnalyzerTypeReferenceFacts.BuiltInClrTypeName(name) != null)
+        index = index + 1
+    }
+}
+
+test "analyzer type reference facts name the CLR type each spelling denotes" {
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("int") == "System.Int32"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("uint") == "System.UInt32"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("long") == "System.Int64"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("ulong") == "System.UInt64"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("short") == "System.Int16"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("ushort") == "System.UInt16"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("byte") == "System.Byte"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("sbyte") == "System.SByte"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("bool") == "System.Boolean"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("char") == "System.Char"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("float") == "System.Single"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("double") == "System.Double"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("decimal") == "System.Decimal"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("string") == "System.String"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("object") == "System.Object"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("void") == "System.Void"
+
+    // The two the analyzer cannot resolve to a `TypeInfo` still have a CLR name, and it is the one
+    // the columnar binder already binds them to.
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("nint") == "System.IntPtr"
+    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("nuint") == "System.UIntPtr"
+}
+
+// THE ANALYZER'S GAP, PINNED TO EXACTLY TWO NAMES. Every spelling the owner admits must either
+// resolve through `BuiltInSimpleType` or be one of `nint`/`nuint`. When `BuiltInTypes` grows a
+// member for either, this assertion fails and the owner's comment is corrected rather than quietly
+// outliving the gap it describes.
+test "analyzer type reference facts pin the nint gap to exactly two spellings" {
+    spellings := BuiltInSpellingNames()
+    unresolved := 0
+
+    index := 0
+    while index < spellings.Length {
+        name := spellings[index]
+        if AnalyzerTypeReferenceFacts.BuiltInSimpleType(name) == null {
+            unresolved = unresolved + 1
+            assert name == "nint" || name == "nuint"
+        }
+
+        index = index + 1
+    }
+
+    assert unresolved == 2
+}
+
+// THE COLUMNAR BINDER'S GAP, PINNED TO EXACTLY ONE NAME. Every spelling the owner admits must bind
+// to a runtime type except `void`, which is not a type a local can hold.
+test "analyzer type reference facts pin the columnar void gap to exactly one spelling" {
+    spellings := BuiltInSpellingNames()
+    unbound := 0
+
+    index := 0
+    while index < spellings.Length {
+        name := spellings[index]
+        bound := typeof(object)
+        if !ColumnarBindingScopeFacts.TryResolveExplicitBuiltin(name, out bound) {
+            unbound = unbound + 1
+            assert name == "void"
+        }
+
+        index = index + 1
+    }
+
+    assert unbound == 1
+}
+
+// THE VALUE-TYPE PREDICATES ARE A DIFFERENT QUESTION, AND THIS IS THE PROOF THE EDITOR MUST NOT BE
+// ROUTED TO THEM. `string` and `object` are built-in spellings and are NOT primitive value types;
+// routing a "colour this as a built-in type" question to a "may this live on the stack" answer
+// would silently stop colouring both.
+test "analyzer type reference facts stay distinct from the primitive value type predicates" {
+    assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName("string")
+    assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName("object")
+    assert !AnalyzerResourceStatements.IsPrimitiveValueTypeName("string")
+    assert !AnalyzerResourceStatements.IsPrimitiveValueTypeName("object")
+
+    // And the other way: the value-type predicate admits nothing the spelling set refuses, so the
+    // spelling set is the wider of the two over the names they share.
+    assert AnalyzerResourceStatements.IsPrimitiveValueTypeName("int")
+    assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName("int")
+}
+
+// THE NUMERIC LIMIT OWNER AGREES ON EVERY SPELLING IT KNOWS. `PrimitiveLimitTypeName` answers a
+// narrower question — which type owns `MinValue`/`MaxValue` — over eight of the eighteen spellings,
+// and it must never name a different CLR type than the spelling owner does.
+test "analyzer type reference facts agree with the numeric limit owner" {
+    numerics := ["int", "uint", "long", "ulong", "short", "ushort", "byte", "sbyte"]
+
+    index := 0
+    while index < numerics.Length {
+        name := numerics[index]
+        assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName(name) == AnalyzerTypeReferenceFacts.BuiltInClrTypeName(name)
+        index = index + 1
+    }
+
+    // And it deliberately declines the ten it does not own, rather than guessing.
+    assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName("string") == ""
+    assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName("bool") == ""
+    assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName("nint") == ""
 }

@@ -461,6 +461,16 @@ must not be, because its cache is part of the answer.
 - `BuiltInSimpleType(name)` is the sixteen spellings resolved before any other channel. `null`,
   `never` and the inference/deferred holes are deliberately absent: those are types the analyzer
   synthesises, not names a program can write at a type position.
+- `IsBuiltInTypeName(name)` is the EIGHTEEN-spelling membership — the sixteen above plus `nint` and
+  `nuint` — and it is the single owner of "is this identifier a built-in type spelling". The two
+  extras are a pinned analyzer gap, not a separate policy: the columnar binder resolves `nint`/`nuint`
+  to `IntPtr`/`UIntPtr` and `SystemsTypePolicy` counts them as primitives, but `BuiltInTypes` has no
+  `TypeInfo` for either, so `BuiltInSimpleType` still answers null for them. Contracts assert the
+  divergence is exactly those two names.
+- `BuiltInClrTypeName(name)` is the CLR name each of the eighteen denotes, over the same membership.
+  It is what the editor's type resolution asks; do not confuse either with
+  `AnalyzerResourceStatements.IsPrimitiveValueTypeName` or `SystemsTypePolicy.IsPrimitiveValueTypeName`,
+  which answer "is this a primitive VALUE type" and exclude `string` and `object` on purpose.
 - `GenericHeadArity(TypeInfo)` distinguishes ZERO — "I know this head and it takes no type
   parameters", which the caller reports as an error — from -1, "unresolved external text, arity cannot
   be checked here", which is silent. A CLOSED reflected generic answers 0, not its argument count; only

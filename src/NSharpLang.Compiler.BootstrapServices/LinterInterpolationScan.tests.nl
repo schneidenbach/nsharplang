@@ -197,14 +197,19 @@ test "a stray closing brace is content, not a hole" {
     assert LisJoin("$\"}{name}\"") == "name"
 }
 
-test "the escaped-brace pair is NOT understood, and that is recorded rather than claimed otherwise" {
-    // `{{` is how a literal brace is written in an interpolated string. The scan counts depth
-    // instead of recognising the escape, so `$"{{name}}"` reads ONE hole of depth two whose text is
-    // `{name}` — and credits nothing, because `{name}` is not an identifier. The outcome is
-    // harmless (a false negative in a rule whose false negatives are silence), but it is the
-    // pre-existing behaviour and it is stated so a future change to it is a deliberate one.
-    assert LisHoles("$\"{{name}}\"") == "{name}"
+// THE DELIBERATE CHANGE THE OLD CONTRACT ASKED FOR. This test used to record that `{{` was NOT
+// understood: the scan counted depth instead of recognising the escape, so `$"{{name}}"` read as
+// ONE hole of depth two whose text was `{name}`, and credited nothing only because `{name}` is not
+// an identifier. It is understood now — the scan that answers WHERE each hole is had to know the
+// escape to place a token correctly, and the linter reads the same scan — so a literal brace pair
+// opens no hole at all. The credited-identifier answer is unchanged; what changed is that it is now
+// right for the right reason.
+test "the escaped-brace pair opens no hole" {
+    assert LisHoles("$\"{{name}}\"") == ""
     assert LisCount("$\"{{name}}\"") == 0
+
+    // And a real hole between two escaped pairs is still found.
+    assert LisJoin("$\"{{a}} {b} {{c}}\"") == "b"
 }
 
 
@@ -244,4 +249,121 @@ test "the answer is a list and not a set, because the caller marks each name use
     // and would lose the source order the assertions above rely on.
     assert LisCount("$\"{a}{a}{a}\"") == 3
     assert LisJoin("$\"{a}{a}{a}\"") == "a,a,a"
+}
+
+
+// ── the scan's positions, which the semantic-token layer places tokens with ────────────────────
+//
+// `HoleTexts` above is a VIEW of `HoleSpans`, so every assertion above is already an assertion
+// about this scanner. What is new here is the half the linter never needed: WHERE each hole is.
+
+func LisSpanJoin(value: string, line: int, column: int): string {
+    spans := LinterInterpolationScan.HoleSpans(value, line, column)
+    text := ""
+    index := 0
+    while index < spans.Count {
+        if index > 0 {
+            text = text + ";"
+        }
+
+        text = text + spans[index].Text + "@" + spans[index].Line.ToString() + ":" + spans[index].Column.ToString()
+        index = index + 1
+    }
+
+    return text
+}
+
+test "a hole reports the position of its first content character" {
+    // `$"{a}"` at line 3, column 10: the `$` is column 10, `"` is 11, `{` is 12, so `a` is 13.
+    assert LisSpanJoin("$\"{a}\"", 3, 10) == "a@3:13"
+}
+
+test "each hole reports its own position, and the text between them is counted" {
+    // `$"{a} and {b}"` — `a` at column 4 (1 + 2 for `$"` + 1 for `{`), `b` six characters later.
+    assert LisSpanJoin("$\"{a} and {b}\"", 1, 1) == "a@1:4;b@1:12"
+}
+
+test "the span text is untrimmed so a re-lex of it lands on the right column" {
+    // `HoleTexts` trims; `HoleSpans` must not, or every token inside a padded hole would be
+    // reported one column early for each space the trim removed.
+    assert LisSpanJoin("$\"{ a }\"", 1, 1) == " a @1:4"
+    assert LinterInterpolationScan.HoleTexts("$\"{ a }\"")[0] == "a"
+}
+
+test "a newline inside a raw literal resets the column, as the source does" {
+    assert LisSpanJoin("$\"\"\"x\n{a}\"\"\"", 5, 20) == "a@6:2"
+}
+
+test "a literal brace opens no hole" {
+    assert LisSpanJoin("$\"{{a}}\"", 1, 1) == ""
+    assert LisSpanJoin("$\"{{{a}}}\"", 1, 1) == "a@1:6"
+}
+
+test "an escaped brace opens no hole in a non-raw literal" {
+    // `\{` consumes both characters, so what follows is literal text rather than an interpolation.
+    assert LisSpanJoin("$\"\\{a}\"", 1, 1) == ""
+    // But an escaped BACKSLASH consumes only itself and its partner, so the hole after it is real.
+    assert LisSpanJoin("$\"\\\\{a}\"", 1, 1) == "a@1:6"
+}
+
+test "a brace inside a nested string is not counted as nesting" {
+    assert LisSpanJoin("$\"{d[\"}\"]}\"", 1, 1) == "d[\"}\"]@1:4"
+}
+
+test "a nested braced construct ends at its own matching brace" {
+    assert LisSpanJoin("$\"{new Point { X = 1 }}\"", 1, 1) == "new Point { X = 1 }@1:4"
+}
+
+test "an unterminated hole yields nothing at all" {
+    assert LisSpanJoin("$\"{name", 1, 1) == ""
+    assert LinterInterpolationScan.HoleTexts("$\"{name").Count == 0
+}
+
+test "a raw literal brace that is a format specifier or spans lines is text, not a hole" {
+    assert LisSpanJoin("$\"\"\"{a:{b}}\"\"\"", 1, 1) == "a:{b}@1:6"
+    assert LisSpanJoin("$\"\"\"{a\nb}\"\"\"", 1, 1) == ""
+}
+
+test "a literal that is not interpolated has no holes" {
+    assert LisSpanJoin("\"{a}\"", 1, 1) == ""
+    assert LisSpanJoin("$notastring", 1, 1) == ""
+}
+
+// THE POSITIONS ARE PINNED AGAINST THE REAL LEXER, NOT AGAINST ARITHMETIC RESTATED IN THE TEST.
+// The editor hands this owner a lexed token's own line and column; if the two disagree about where
+// a literal starts, every hole token lands in the wrong place. So the pin runs the real `Lexer`
+// over a real source line and checks that the hole's reported column is the column at which the
+// identifier actually appears in that line.
+test "the scan agrees with the lexer about where a hole sits in a real source line" {
+    source := "let greeting = $\"hi {name}\"\n"
+    lexer := new Lexer(source, null)
+    tokens := lexer.Tokenize()
+
+    literalValue := ""
+    literalLine := 0
+    literalColumn := 0
+    index := 0
+    while index < tokens.Count {
+        token := tokens[index]
+        if token.Type == TokenType.StringLiteral && token.Value.StartsWith("$", StringComparison.Ordinal) {
+            literalValue = token.Value
+            literalLine = token.Line
+            literalColumn = token.Column
+        }
+
+        index = index + 1
+    }
+
+    // The lexer carries the literal's RAW text, which is what this owner scans.
+    assert literalValue == "$\"hi {name}\""
+    assert literalLine == 1
+
+    spans := LinterInterpolationScan.HoleSpans(literalValue, literalLine, literalColumn)
+    assert spans.Count == 1
+    assert spans[0].Text == "name"
+    assert spans[0].Line == 1
+
+    // `let greeting = ` is fifteen characters, so `$` is column 16 and `name` starts at column 22.
+    assert literalColumn == 16
+    assert spans[0].Column == 22
 }

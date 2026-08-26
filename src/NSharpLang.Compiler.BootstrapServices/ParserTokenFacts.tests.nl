@@ -690,3 +690,168 @@ test "parser token facts stop everything at the end of file" {
     assert !ParserTokenFacts.IsAssignmentOperator(TokenType.Eof)
     assert !ParserTokenFacts.IsTypeReferenceStart(TokenType.Eof)
 }
+
+// ---- the symbolic operators, and the partition they complete ---------------------------------
+
+// The 36 tokens `IsOperator` admits. Written out in full rather than derived, so that the sweep
+// below compares the owner's answer against a table a reader can check against the enum by eye.
+func ParserTokenIsOperatorSet(): TokenType[] {
+    return [
+        TokenType.Plus,
+        TokenType.Minus,
+        TokenType.Star,
+        TokenType.Slash,
+        TokenType.Percent,
+        TokenType.Assign,
+        TokenType.PlusAssign,
+        TokenType.MinusAssign,
+        TokenType.StarAssign,
+        TokenType.SlashAssign,
+        TokenType.Equal,
+        TokenType.NotEqual,
+        TokenType.Less,
+        TokenType.LessEqual,
+        TokenType.Greater,
+        TokenType.GreaterEqual,
+        TokenType.And,
+        TokenType.Or,
+        TokenType.Not,
+        TokenType.BitwiseAnd,
+        TokenType.BitwiseOr,
+        TokenType.BitwiseXor,
+        TokenType.BitwiseNot,
+        TokenType.LeftShift,
+        TokenType.RightShift,
+        TokenType.Increment,
+        TokenType.Decrement,
+        TokenType.Question,
+        TokenType.QuestionQuestion,
+        TokenType.QuestionQuestionAssign,
+        TokenType.QuestionDot,
+        TokenType.QuestionBracket,
+        TokenType.Arrow,
+        TokenType.ColonAssign,
+        TokenType.DotDot,
+        TokenType.DotDotDot
+    ]
+}
+
+// The 27 that are neither: the seven literal kinds, the eleven delimiters, and the nine tokens the
+// lexer produces that are not code at all. `Test` is here because no lexer arm produces it.
+func ParserTokenNonCodeSet(): TokenType[] {
+    return [
+        TokenType.Identifier,
+        TokenType.IntLiteral,
+        TokenType.FloatLiteral,
+        TokenType.CharLiteral,
+        TokenType.StringLiteral,
+        TokenType.TripleQuoteStringLiteral,
+        TokenType.InterpolatedRawStringLiteral,
+        TokenType.Test,
+        TokenType.Colon,
+        TokenType.DoubleColon,
+        TokenType.Dot,
+        TokenType.LeftParen,
+        TokenType.RightParen,
+        TokenType.LeftBrace,
+        TokenType.RightBrace,
+        TokenType.LeftBracket,
+        TokenType.RightBracket,
+        TokenType.Semicolon,
+        TokenType.Comma,
+        TokenType.Eof,
+        TokenType.Newline,
+        TokenType.Unknown,
+        TokenType.PreprocessorDirective,
+        TokenType.Comment,
+        TokenType.MultiLineComment,
+        TokenType.XmlDocComment,
+        TokenType.Lifetime
+    ]
+}
+
+// The sweep. Every one of the 148 tokens is asked, so an arm added to `IsOperator` that the table
+// does not name fails here, and a table entry the owner does not admit fails here too.
+test "parser token facts own the symbolic operators" {
+    all := ParserTokenAllTokenTypes()
+    expected := ParserTokenIsOperatorSet()
+    ParserTokenAssertSetIsSwept(expected, all)
+
+    index := 0
+    while index < all.Length {
+        tokenType := all[index]
+        assert ParserTokenFacts.IsOperator(tokenType) == ParserTokenContains(expected, tokenType)
+        index = index + 1
+    }
+}
+
+// THE DISJOINTNESS, ASSERTED RATHER THAN ASSUMED. `is`, `as`, `and`, `or`, `not` are operators
+// spelled as words; they belong to the lexer's keyword table and must not also be here, or a
+// classifier that asks both questions would get two answers for one token.
+test "parser token facts keep the symbolic operators out of the keyword table" {
+    all := ParserTokenAllTokenTypes()
+
+    index := 0
+    while index < all.Length {
+        tokenType := all[index]
+        assert !(ParserTokenFacts.IsOperator(tokenType) && Lexer.IsReservedKeyword(tokenType))
+        index = index + 1
+    }
+}
+
+// THE PARTITION. 85 keywords + 36 symbolic operators + 27 non-code = 148, and every token lands in
+// exactly one bucket. A `TokenType` member added to the enum and forgotten by all three fails here
+// before any consumer notices it going unclassified.
+test "parser token facts partition every token type" {
+    all := ParserTokenAllTokenTypes()
+    operators := ParserTokenIsOperatorSet()
+    nonCode := ParserTokenNonCodeSet()
+
+    assert all.Length == 148
+    assert operators.Length == 36
+    assert nonCode.Length == 27
+
+    keywordCount := 0
+    index := 0
+    while index < all.Length {
+        tokenType := all[index]
+        isKeyword := Lexer.IsReservedKeyword(tokenType)
+        isOperator := ParserTokenFacts.IsOperator(tokenType)
+        isNonCode := ParserTokenContains(nonCode, tokenType)
+
+        buckets := 0
+        if isKeyword {
+            buckets = buckets + 1
+            keywordCount = keywordCount + 1
+        }
+        if isOperator {
+            buckets = buckets + 1
+        }
+        if isNonCode {
+            buckets = buckets + 1
+        }
+
+        assert buckets == 1
+        index = index + 1
+    }
+
+    assert keywordCount == 85
+}
+
+// THE CONTAINMENT, WHICH THE OWNER GUARANTEES BY CONSTRUCTION RATHER THAN BY COPYING. `IsOperator`
+// ends by delegating to `IsAssignmentOperator`, so the six assignment forms cannot drift out of the
+// larger set. This asserts the relation anyway, because the delegation is an implementation choice
+// and the relation is the contract.
+test "parser token facts make every assignment operator an operator" {
+    all := ParserTokenAllTokenTypes()
+
+    index := 0
+    while index < all.Length {
+        tokenType := all[index]
+        if ParserTokenFacts.IsAssignmentOperator(tokenType) {
+            assert ParserTokenFacts.IsOperator(tokenType)
+        }
+
+        index = index + 1
+    }
+}

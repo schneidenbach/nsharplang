@@ -3172,8 +3172,11 @@ func main() {
         Assert.Equal(SemanticTokensHandler.CatchResultModifierMask, classification.Value.Modifiers);
     }
 
+    // SUPERSEDED ASSERTION, REWRITTEN RATHER THAN DELETED. This used to assert that the LAST `err`
+    // of a FOUR-name deconstruction carried the catchResult modifier — the editor's `Count >= 2`
+    // reading of a rule `AnalyzerVariableDeclaration.IsErrorCaptureForm` spells `== 2`.
     [Fact]
-    public void SemanticTokens_MarksOnlyFinalErrInMultiValueCatchDeconstruction()
+    public void SemanticTokens_MarksNoErrInMultiValueDeconstruction()
     {
         var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_multi_catch_result.nl";
@@ -3202,21 +3205,17 @@ func main() {
             .ToList();
 
         Assert.Equal(2, errTokens.Count);
-        Assert.DoesNotContain(new SemanticTokenLocation(errTokens[0].Line, errTokens[0].Column, errTokens[0].Value), catchResultBindings);
-        Assert.Contains(new SemanticTokenLocation(errTokens[1].Line, errTokens[1].Column, errTokens[1].Value), catchResultBindings);
+        Assert.Empty(catchResultBindings);
 
-        var firstClassification = harness.SemanticTokensHandler.ClassifyToken(
-            errTokens[0], doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
-        var finalClassification = harness.SemanticTokensHandler.ClassifyToken(
-            errTokens[1], doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
+        foreach (var errToken in errTokens)
+        {
+            var classification = harness.SemanticTokensHandler.ClassifyToken(
+                errToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
 
-        Assert.NotNull(firstClassification);
-        Assert.Equal(8, firstClassification!.Value.TokenType); // variable
-        Assert.Equal(0, firstClassification.Value.Modifiers);
-
-        Assert.NotNull(finalClassification);
-        Assert.Equal(8, finalClassification!.Value.TokenType); // variable
-        Assert.Equal(SemanticTokensHandler.CatchResultModifierMask, finalClassification.Value.Modifiers);
+            Assert.NotNull(classification);
+            Assert.Equal(8, classification!.Value.TokenType); // variable
+            Assert.Equal(0, classification.Value.Modifiers);
+        }
     }
 
     #endregion

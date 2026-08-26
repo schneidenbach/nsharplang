@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
@@ -62,30 +61,10 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
 
     internal const int CatchResultModifierMask = 1 << 5;
 
-    // Keywords are NOT enumerated here: `Lexer.IsReservedKeyword` is the single owner of
-    // "is this token a keyword", and the editor asks it rather than keeping a copy that drifts.
-    private static readonly HashSet<TokenType> OperatorTokenTypes = new()
-    {
-        TokenType.Plus, TokenType.Minus, TokenType.Star, TokenType.Slash, TokenType.Percent,
-        TokenType.Assign, TokenType.PlusAssign, TokenType.MinusAssign, TokenType.StarAssign, TokenType.SlashAssign,
-        TokenType.Equal, TokenType.NotEqual, TokenType.Less, TokenType.LessEqual,
-        TokenType.Greater, TokenType.GreaterEqual,
-        TokenType.And, TokenType.Or, TokenType.Not,
-        TokenType.BitwiseAnd, TokenType.BitwiseOr, TokenType.BitwiseXor, TokenType.BitwiseNot,
-        TokenType.LeftShift, TokenType.RightShift,
-        TokenType.Increment, TokenType.Decrement,
-        TokenType.Question, TokenType.QuestionQuestion, TokenType.QuestionQuestionAssign,
-        TokenType.QuestionDot, TokenType.QuestionBracket,
-        TokenType.Arrow, TokenType.ColonAssign,
-        TokenType.DotDot, TokenType.DotDotDot,
-    };
-
-    private static readonly HashSet<string> PrimitiveTypeNames = new()
-    {
-        "int", "long", "float", "double", "bool", "string", "void", "object",
-        "byte", "short", "char", "decimal", "uint", "ulong", "ushort", "sbyte",
-        "nint", "nuint",
-    };
+    // Neither the keywords, the operators, nor the built-in type spellings are enumerated here.
+    // `Lexer.IsReservedKeyword`, `ParserTokenFacts.IsOperator` and
+    // `AnalyzerTypeReferenceFacts.IsBuiltInTypeName` are the single owners of those three
+    // memberships, and the editor asks them rather than keeping copies that drift.
 
     public SemanticTokensHandler(DocumentManager documentManager, ILogger<SemanticTokensHandler> logger)
     {
@@ -212,7 +191,7 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         }
 
         // Operators
-        if (OperatorTokenTypes.Contains(token.Type))
+        if (ParserTokenFacts.IsOperator(token.Type))
         {
             return (16, 0); // operator
         }
@@ -250,6 +229,12 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         builder.Push(line, col, length, tokenType, modifiers);
     }
 
+    // The hole SPANS are `LinterInterpolationScan.HoleSpans`, which is the language's one scanner
+    // for "where are the expression holes of this literal". The editor used to walk the literal's
+    // characters itself — tracking brace depth, `{{` escapes, nested strings, backslash escapes and
+    // the raw-literal brace heuristic — which was a third copy of a walk the parser and the linter
+    // already had. All this does now is re-lex each hole's text and shift the resulting tokens into
+    // the enclosing file's coordinates.
     internal static IReadOnlyList<Token> GetInterpolatedStringExpressionTokens(Token token)
     {
         if (!IsInterpolatedStringLiteral(token))
@@ -257,184 +242,21 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
             return Array.Empty<Token>();
         }
 
-        var value = token.Value;
-        var isRaw = token.Type == TokenType.InterpolatedRawStringLiteral;
-        var start = isRaw ? 4 : 2; // $"""...""" or $"..."
-        var end = isRaw ? value.Length - 3 : value.Length - 1;
-        if (end < start || !value.EndsWith(isRaw ? "\"\"\"" : "\"", StringComparison.Ordinal))
-        {
-            end = value.Length;
-        }
-
         var embeddedTokens = new List<Token>();
-        var currentLine = token.Line;
-        var currentColumn = token.Column + start;
-        var i = start;
-
-        void AdvancePosition(char ch)
+        foreach (var hole in LinterInterpolationScan.HoleSpans(token.Value, token.Line, token.Column))
         {
-            if (ch == '\n')
-            {
-                currentLine++;
-                currentColumn = 1;
-            }
-            else
-            {
-                currentColumn++;
-            }
-        }
-
-        while (i < end)
-        {
-            var ch = value[i];
-
-            if (!isRaw && ch == '\\' && i + 1 < end)
-            {
-                AdvancePosition(ch);
-                i++;
-                AdvancePosition(value[i]);
-                i++;
-                continue;
-            }
-
-            if (ch == '{' && i + 1 < end && value[i + 1] == '{')
-            {
-                AdvancePosition(value[i]);
-                i++;
-                AdvancePosition(value[i]);
-                i++;
-                continue;
-            }
-
-            if (ch == '}' && i + 1 < end && value[i + 1] == '}')
-            {
-                AdvancePosition(value[i]);
-                i++;
-                AdvancePosition(value[i]);
-                i++;
-                continue;
-            }
-
-            if (ch == '{')
-            {
-                if (isRaw && IsRawStringLiteralBrace(value, start, end, i))
-                {
-                    AdvancePosition(ch);
-                    i++;
-                    continue;
-                }
-
-                AdvancePosition(ch);
-                i++;
-
-                var expressionLine = currentLine;
-                var expressionColumn = currentColumn;
-                var expression = new StringBuilder();
-                var braceDepth = 1;
-                var inNestedString = false;
-
-                while (i < end && braceDepth > 0)
-                {
-                    ch = value[i];
-
-                    if (inNestedString)
-                    {
-                        expression.Append(ch);
-                        if (ch == '\\' && i + 1 < end)
-                        {
-                            AdvancePosition(ch);
-                            i++;
-                            ch = value[i];
-                            expression.Append(ch);
-                        }
-                        else if (ch == '"')
-                        {
-                            inNestedString = false;
-                        }
-                    }
-                    else
-                    {
-                        if (ch == '"')
-                        {
-                            inNestedString = true;
-                            expression.Append(ch);
-                        }
-                        else if (ch == '{')
-                        {
-                            braceDepth++;
-                            expression.Append(ch);
-                        }
-                        else if (ch == '}')
-                        {
-                            braceDepth--;
-                            if (braceDepth == 0)
-                            {
-                                break;
-                            }
-
-                            expression.Append(ch);
-                        }
-                        else
-                        {
-                            expression.Append(ch);
-                        }
-                    }
-
-                    AdvancePosition(ch);
-                    i++;
-                }
-
-                AddEmbeddedExpressionTokens(
-                    embeddedTokens,
-                    expression.ToString(),
-                    expressionLine,
-                    expressionColumn,
-                    token.FileName);
-
-                if (i < end && value[i] == '}')
-                {
-                    AdvancePosition(value[i]);
-                    i++;
-                }
-
-                continue;
-            }
-
-            AdvancePosition(ch);
-            i++;
+            AddEmbeddedExpressionTokens(embeddedTokens, hole, token.FileName);
         }
 
         return embeddedTokens;
     }
 
-    private static bool IsRawStringLiteralBrace(string value, int start, int end, int braceIndex)
+    // A hole's own tokens, in the enclosing file's coordinates. The sub-lexer starts each hole at
+    // line 1, column 1, so a FIRST-line token additionally carries the hole's own column; a token on
+    // a later line already begins at column 1 in both frames.
+    private static void AddEmbeddedExpressionTokens(List<Token> destination, InterpolationHoleSpan hole, string? fileName)
     {
-        var previous = braceIndex - 1;
-        while (previous >= start && char.IsWhiteSpace(value[previous]))
-        {
-            previous--;
-        }
-
-        var close = value.IndexOf('}', braceIndex + 1);
-        return (previous >= start && value[previous] == ':')
-            || close < 0
-            || close >= end
-            || value.Substring(braceIndex + 1, close - braceIndex - 1).IndexOfAny(new[] { '\r', '\n' }) >= 0;
-    }
-
-    private static void AddEmbeddedExpressionTokens(
-        List<Token> destination,
-        string expression,
-        int expressionLine,
-        int expressionColumn,
-        string? fileName)
-    {
-        if (string.IsNullOrWhiteSpace(expression))
-        {
-            return;
-        }
-
-        var lexer = new Lexer(expression, fileName);
+        var lexer = new Lexer(hole.Text, fileName);
         foreach (var token in lexer.Tokenize())
         {
             if (token.Type == TokenType.Eof)
@@ -442,9 +264,9 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
                 continue;
             }
 
-            var line = token.Line + expressionLine - 1;
+            var line = token.Line + hole.Line - 1;
             var column = token.Line == 1
-                ? token.Column + expressionColumn - 1
+                ? token.Column + hole.Column - 1
                 : token.Column;
 
             destination.Add(new Token(token.Type, token.Value, line, column, fileName, token.IsTerminated));
@@ -468,8 +290,8 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
             return (8, CatchResultModifierMask); // variable.catchResult
         }
 
-        // Primitive type names (int, string, bool, etc.)
-        if (PrimitiveTypeNames.Contains(name))
+        // Built-in type spellings (int, string, bool, etc.)
+        if (AnalyzerTypeReferenceFacts.IsBuiltInTypeName(name))
         {
             return (1, 0); // type
         }
@@ -858,7 +680,12 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         IReadOnlyList<Token> tokens,
         HashSet<SemanticTokenLocation> bindings)
     {
-        if (!IsCatchResultTupleDeconstruction(tupleDeconstruction))
+        // `AnalyzerVariableDeclaration.IsErrorCaptureForm` owns which deconstructions are the
+        // Go-style error capture. The editor used to test `Names.Count >= 2`, which painted the
+        // modifier on three-name deconstructions the analyzer and the emitter both treat as
+        // ordinary tuples.
+        var names = tupleDeconstruction.Names;
+        if (names.Count == 0 || !AnalyzerVariableDeclaration.IsErrorCaptureForm(names.Count, names[^1]))
         {
             return;
         }
@@ -892,12 +719,6 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
 
             identifierIndex++;
         }
-    }
-
-    private static bool IsCatchResultTupleDeconstruction(TupleDeconstructionStatement tupleDeconstruction)
-    {
-        return tupleDeconstruction.Names.Count >= 2
-            && tupleDeconstruction.Names[^1] == "err";
     }
 
     internal static HashSet<string> BuildTypeNameSet(DocumentState doc)

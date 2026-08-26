@@ -8222,11 +8222,11 @@ internal sealed class ColumnarIlEmitter
                 var nameCount = childCount - 1;
                 var valueNode = Child(idx, nameCount);
 
-                // The Go-style error capture `v, err := <call>` (names[1] == "err" — the legacy
-                // emitter's IsErrorTupleDeconstruction): v = default(T); err = null;
+                // The Go-style error capture, whose shape `AnalyzerVariableDeclaration
+                // .IsErrorCaptureForm` owns: v = default(T); err = null;
                 // try { v = <call> } catch (Exception e) { err = e }. The initializer is a single
                 // expression, so no control transfer can cross the protected region.
-                if (nameCount == 2 && Text(Child(idx, 1)) == "err")
+                if (AnalyzerVariableDeclaration.IsErrorCaptureForm(nameCount, Text(Child(idx, nameCount - 1))))
                 {
                     if (_inProtectedRegion || _inFinallyRegion)
                         return false;

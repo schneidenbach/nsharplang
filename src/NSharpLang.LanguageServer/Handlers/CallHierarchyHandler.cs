@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.LanguageServer.Models;
 using NSharpLang.LanguageServer.Services;
@@ -199,25 +200,13 @@ public class CallHierarchyPrepareHandler : CallHierarchyPrepareHandlerBase
     }
 
     /// <summary>
-    /// Estimates the end line of a function from its body. Returns a 0-based line number.
+    /// The 0-based end line of a function. `DeclarationFacts.EstimateDeclarationEndLine` owns the
+    /// estimate — including the "+1 for the closing brace" this handler used to guess for itself,
+    /// in three separate copies across two of its classes — and answers in 1-based lines.
     /// </summary>
     private static int GetFunctionEndLine(FunctionDeclaration func)
     {
-        // AST lines are 1-based
-        var startLine = Math.Max(0, func.Line - 1);
-
-        if (func.Body != null && func.Body.Statements.Count > 0)
-        {
-            var lastStmt = func.Body.Statements[^1];
-            return Math.Max(0, lastStmt.Line - 1) + 1; // +1 for closing brace estimate
-        }
-
-        if (func.ExpressionBody != null)
-        {
-            return Math.Max(0, func.ExpressionBody.Line - 1);
-        }
-
-        return startLine;
+        return Math.Max(0, DeclarationFacts.EstimateDeclarationEndLine(func) - 1);
     }
 
     protected override CallHierarchyRegistrationOptions CreateRegistrationOptions(
@@ -390,44 +379,21 @@ public class CallHierarchyIncomingHandler : CallHierarchyIncomingHandlerBase
     }
 
     /// <summary>
-    /// Checks whether a 1-based line position falls within a function's body.
+    /// Checks whether a 1-based line position falls within a function's body. The extent is the
+    /// owner's, so "which function encloses this call" and "how far does this function reach"
+    /// cannot disagree.
     /// </summary>
     private static bool IsPositionInsideFunction(FunctionDeclaration func, int line1)
     {
-        var startLine = func.Line;
-        var endLine = startLine;
-
-        if (func.Body != null && func.Body.Statements.Count > 0)
-        {
-            endLine = func.Body.Statements[^1].Line + 1; // +1 for closing brace
-        }
-        else if (func.ExpressionBody != null)
-        {
-            endLine = func.ExpressionBody.Line;
-        }
-
-        return line1 >= startLine && line1 <= endLine;
+        return line1 >= func.Line && line1 <= DeclarationFacts.EstimateDeclarationEndLine(func);
     }
 
     /// <summary>
-    /// Estimates the end line of a function from its body. Returns a 0-based line number.
+    /// The 0-based end line of a function, from the same owner the prepare handler asks.
     /// </summary>
     private static int GetFunctionEndLine(FunctionDeclaration func)
     {
-        var startLine = Math.Max(0, func.Line - 1);
-
-        if (func.Body != null && func.Body.Statements.Count > 0)
-        {
-            var lastStmt = func.Body.Statements[^1];
-            return Math.Max(0, lastStmt.Line - 1) + 1;
-        }
-
-        if (func.ExpressionBody != null)
-        {
-            return Math.Max(0, func.ExpressionBody.Line - 1);
-        }
-
-        return startLine;
+        return Math.Max(0, DeclarationFacts.EstimateDeclarationEndLine(func) - 1);
     }
 
 }

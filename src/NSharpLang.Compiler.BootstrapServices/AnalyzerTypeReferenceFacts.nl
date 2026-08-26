@@ -80,6 +80,98 @@ class AnalyzerTypeReferenceFacts {
         return null
     }
 
+    // ── THE BUILT-IN SPELLING SET ──────────────────────────────────────────────────────────────
+    //
+    // "Is this identifier one of the language's built-in type spellings?" is a NOMINAL question,
+    // and until now the language had no single place that answered it — the answer was split across
+    // the two halves of the compiler, each half dropping the spellings it had no use for.
+    // `BuiltInSimpleType` above resolves SIXTEEN, because `BuiltInTypes` has no `TypeInfo` for
+    // `nint`/`nuint`. `ColumnarBindingScopeFacts.TryResolveExplicitBuiltin` binds SEVENTEEN, because
+    // `void` is not a type a local can hold. Their UNION is the whole set, and this is where it is
+    // stated once.
+    //
+    // THE TWO EXTRAS ARE THE ANALYZER'S PINNED GAP, NOT A NEW LANGUAGE FEATURE. `nint` and `nuint`
+    // are real spellings — the columnar binder resolves them to `IntPtr`/`UIntPtr` and
+    // `SystemsTypePolicy.IsPrimitiveValueTypeName` counts them as primitives — but the analyzer's
+    // `BuiltInTypes` has no member for either, so `BuiltInSimpleType` still returns null for them.
+    // The contracts assert that the divergence is EXACTLY those two names and nothing else, so the
+    // day `BuiltInTypes` grows an `NInt` the assertion fails and this comment gets corrected.
+    //
+    // NOT TO BE CONFUSED WITH "IS THIS A PRIMITIVE VALUE TYPE". `AnalyzerResourceStatements` and
+    // `SystemsTypePolicy` both answer that one, and both exclude `string` and `object` on purpose,
+    // because neither is a value type. Anything asking "may I colour this as a built-in type" or
+    // "what does this alias resolve to" wants THIS predicate; anything asking "may this live on the
+    // stack" wants theirs.
+    static func IsBuiltInTypeName(name: string): bool {
+        if name == "nint" || name == "nuint" {
+            return true
+        }
+
+        return BuiltInSimpleType(name) != null
+    }
+
+    // The CLR name a built-in spelling denotes, or null when the name is not a built-in spelling.
+    // The membership this answers is the SAME membership `IsBuiltInTypeName` answers — the contracts
+    // assert the two agree on every name — so a spelling can never be resolvable here and unknown
+    // there.
+    static func BuiltInClrTypeName(name: string): string? {
+        if name == "bool" {
+            return "System.Boolean"
+        }
+        if name == "byte" {
+            return "System.Byte"
+        }
+        if name == "sbyte" {
+            return "System.SByte"
+        }
+        if name == "short" {
+            return "System.Int16"
+        }
+        if name == "ushort" {
+            return "System.UInt16"
+        }
+        if name == "int" {
+            return "System.Int32"
+        }
+        if name == "uint" {
+            return "System.UInt32"
+        }
+        if name == "long" {
+            return "System.Int64"
+        }
+        if name == "ulong" {
+            return "System.UInt64"
+        }
+        if name == "nint" {
+            return "System.IntPtr"
+        }
+        if name == "nuint" {
+            return "System.UIntPtr"
+        }
+        if name == "char" {
+            return "System.Char"
+        }
+        if name == "float" {
+            return "System.Single"
+        }
+        if name == "double" {
+            return "System.Double"
+        }
+        if name == "decimal" {
+            return "System.Decimal"
+        }
+        if name == "string" {
+            return "System.String"
+        }
+        if name == "object" {
+            return "System.Object"
+        }
+        if name == "void" {
+            return "System.Void"
+        }
+        return null
+    }
+
     // The generic-parameter count for a resolved type head, or -1 when the head is unresolved
     // external text and arity cannot be validated locally.
     static func GenericHeadArity(resolvedName: TypeInfo): int {
