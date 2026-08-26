@@ -40,7 +40,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [x] [017 — Semantic analyzer ownership](017-semantic-analyzer-ownership.md)
 - [x] [018 — Systems analyzer ownership](018-systems-analyzer-ownership.md)
 - [x] [019 — Compiler-contained tooling ownership](019-compiler-contained-tooling.md)
-- [ ] [020 — Native N# test-runner capabilities](020-native-test-runner-capabilities.md)
+- [x] [020 — Native N# test-runner capabilities](020-native-test-runner-capabilities.md)
 - [ ] [021 — Final compiler ownership audit](021-final-compiler-ownership-audit.md)
 
 The order is deliberate. If current code proves a dependency has changed, update the queue in a

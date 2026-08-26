@@ -6014,3 +6014,85 @@ test "016 bridge: the AST entry preserves the owned diagnostics byte-for-byte wi
     assert ast.Errors[1].Code == ErrorCode.UnexpectedToken
     assert ast.Errors[1].Message == "Unexpected token '5'"
 }
+
+// ── the total-parse guarantee ─────────────────────────────────────────────────────────────────
+//
+// Successor to `Parser_AlwaysProducesCompilationUnit_EvenWithErrors`, deleted from
+// `tests/ErrorRecoveryPipelineTests.cs` (21 declaration lines, ONE `Assert.` row inside a loop over
+// five malformed sources). The row asserted `result.CompilationUnit` was not null for each. That is
+// the contract every downstream consumer depends on — the LSP, `nlc check` and the formatter all
+// call `ParseFileAst` and then walk the unit — and a null would be a crash, not a diagnostic.
+//
+// THE DELETED ROW COULD NOT SAY THE OTHER HALF, AND IT IS THE HALF THAT MATTERS. A parser that
+// returned an EMPTY compilation unit for every input would have satisfied it five times over. Each
+// source below therefore also states what the recovery actually SALVAGED and that the failure was
+// REPORTED, so "not null" is not the whole claim.
+
+test "a malformed body still yields a unit, with the declaration recovered and the error reported" {
+    result := ColumnarParserRecovery.ParseFileAst("func test() { @@ }", "test.nl")
+
+    assert result.CompilationUnit != null
+    assert result.CompilationUnit.Declarations.Count == 1
+    assert result.Errors.Count > 0
+}
+
+test "a malformed initializer still yields a unit and keeps the enclosing function" {
+    result := ColumnarParserRecovery.ParseFileAst("func test() { let x: int = @@ }", "test.nl")
+
+    assert result.CompilationUnit != null
+    assert result.CompilationUnit.Declarations.Count == 1
+    assert result.Errors.Count > 0
+}
+
+test "a dangling member access still yields a unit and keeps the enclosing function" {
+    result := ColumnarParserRecovery.ParseFileAst("func test() { x. }", "test.nl")
+
+    assert result.CompilationUnit != null
+    assert result.CompilationUnit.Declarations.Count == 1
+    assert result.Errors.Count > 0
+}
+
+test "an unclosed function recovers at the next top-level declaration rather than swallowing it" {
+    // THE SHARPEST OF THE FIVE. `func test()` is never closed, and `class Foo` follows. A recovery
+    // that resynchronised badly would lose the class; the deleted row could not tell the two apart
+    // because BOTH produce a non-null unit.
+    result := ColumnarParserRecovery.ParseFileAst("func test() {\n    let x = 5\n\nclass Foo { name: string }", "test.nl")
+
+    assert result.CompilationUnit != null
+    assert result.CompilationUnit.Declarations.Count == 2
+    assert result.Errors.Count > 0
+}
+
+test "a file of pure punctuation still yields a unit, and recovery INVENTS declarations for it" {
+    // THE FIFTH SOURCE, AND THE ONE THAT TURNED OVER A DEFECT. The deleted row asserted only that
+    // this file's unit was not null. It is not null — and it carries THREE declarations that no
+    // syntax in the file asked for, while reporting only TWO of the file's SIX errors.
+    result := ColumnarParserRecovery.ParseFileAst("@@ ## !! %%", "test.nl")
+
+    assert result.CompilationUnit != null
+    assert result.CompilationUnit.Declarations.Count == 3
+    assert result.Errors.Count == 2
+    assert result.Errors[0].Message == "Unexpected token '@'"
+    assert result.Errors[1].Message == "Unexpected token '@'"
+}
+
+test "each punctuation run ALONE reports two errors — except ## which reports NONE" {
+    // MEASURED, RECORDED, NOT FIXED. `##` at the top level parses as a PREPROCESSOR declaration and
+    // is accepted in silence: a user who types it gets a clean file. The other three runs are
+    // rejected two tokens at a time.
+    assert ColumnarParserRecovery.ParseFileAst("@@", "test.nl").Errors.Count == 2
+    assert ColumnarParserRecovery.ParseFileAst("!!", "test.nl").Errors.Count == 2
+    assert ColumnarParserRecovery.ParseFileAst("%%", "test.nl").Errors.Count == 2
+    assert ColumnarParserRecovery.ParseFileAst("##", "test.nl").Errors.Count == 0
+}
+
+test "the preprocessor declaration SWALLOWS every diagnostic after it in the same file" {
+    // THE DEFECT, ISOLATED. `!!` reports two errors on its own and `%%` reports two on its own, so
+    // the four-run file should report six. It reports the TWO from `@@` and stops — the four that
+    // follow the `##` are lost. The deleted row could not see this: it asked only whether the unit
+    // was null, and a unit that reports nothing at all is just as non-null as a correct one.
+    //
+    // The pair below is the proof, not the claim: the SAME two runs, before and after a `##`.
+    assert ColumnarParserRecovery.ParseFileAst("!! %%", "test.nl").Errors.Count == 4
+    assert ColumnarParserRecovery.ParseFileAst("## !! %%", "test.nl").Errors.Count == 0
+}

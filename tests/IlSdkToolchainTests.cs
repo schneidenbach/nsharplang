@@ -5,7 +5,6 @@ using System.Reflection;
 using System.Xml.Linq;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
-using NSharpLang.Compiler;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -34,57 +33,6 @@ public abstract class IlSdkToolchainTestBase
 
 public class IlSdkToolchainTests : IlSdkToolchainTestBase
 {
-    [Fact]
-    public void ProjectReferenceResolver_ResolvesProjectYmlToNamedCsproj()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            var sharedDir = Path.Combine(tempDir, "Shared");
-            Directory.CreateDirectory(sharedDir);
-
-            File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
-name: SharedLib
-outputType: library
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(sharedDir, "SharedLib.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n");
-
-            var resolved = ProjectReferenceResolver.ResolveMsBuildProjectPath(Path.Combine(sharedDir, "project.yml"));
-
-            Assert.Equal(Path.Combine(sharedDir, "SharedLib.csproj"), resolved);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void ProjectReferenceResolver_ResolvesProjectYmlToNSharpProjectRoot()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            var sharedDir = Path.Combine(tempDir, "Shared");
-            Directory.CreateDirectory(sharedDir);
-
-            File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
-name: SharedLib
-outputType: library
-targetFramework: net10.0
-""");
-
-            var resolved = ProjectReferenceResolver.ResolveNSharpProjectRoot(Path.Combine(sharedDir, "project.yml"));
-
-            Assert.Equal(sharedDir, resolved);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
     [Fact]
     public void DotnetBuild_UsesIlBackendThroughSdk()
     {

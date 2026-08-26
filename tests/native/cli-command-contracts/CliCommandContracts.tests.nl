@@ -1132,3 +1132,605 @@ test "the retired idiom command is absent from help, the zsh script and the docs
     assert !zsh.Stdout.Contains("nlc idiom")
     assert !CliReferenceDocs().Contains("nlc idiom")
 }
+
+
+// ═══ SLICE 45: THE SIX DEPENDENCY AND HOUSEKEEPING COMMANDS, PROVEN AS PROCESSES ══════════════
+//
+// These blocks replace the 21 console-reading bodies deleted from `tests/CliParityAuditTests.cs`
+// that drove `AddCommand`, `TidyCommand`, `UpdateCommand`, `RemoveCommand`, `CleanCommand` and
+// `CompletionCommand`. All six subjects are `.nl` files in
+// `src/NSharpLang.Compiler.BootstrapServices/` with NO C# counterpart, and all six deleted bodies
+// called `XCommand.Execute(...)` IN PROCESS through a console capture — so none of them proved that
+// `nlc <name>` reaches the command at all, and none could observe an exit code.
+//
+// THE ESTATE ALREADY STATES EVERY SENTENCE THESE BLOCKS OBSERVE. `AddCommandKernels.tests.nl`,
+// `UpdateCommandKernels.tests.nl`, `RemoveCommandKernels.tests.nl`, `TidyCommandKernels.tests.nl`,
+// `CleanCommandKernels.tests.nl` and `CompletionCommandKernels.tests.nl` pin each message as a
+// LITERAL. What is missing there, and supplied here, is which STREAM the sentence reaches, what
+// EXIT CODE the process returns, and what the command left on disk. Each claim is therefore made
+// once on each side, and neither side can drift into agreement with a wrong answer.
+//
+// FOUR CROSS-COMMAND FACTS ARE STATED HERE FOR THE FIRST TIME, because each needs two commands or
+// two arms side by side and every deleted body saw only one:
+//   * the three missing-project sentences are NOT the same, and only `add` tells the user how to fix
+//   * `update` and `remove` share their missing-package sentence WORD FOR WORD
+//   * `add`'s failure usage and its `--help` usage differ, and only the latter mentions `--path`
+//   * `add`'s two duplicate-dependency arms differ, and only the package arm offers a remedy
+
+// ── running a command in a project directory ──────────────────────────────────
+//
+// `update`, `remove` and `add` take no `--project`: they read the CURRENT DIRECTORY. The deleted
+// bodies simulated that with `Directory.SetCurrentDirectory`, which mutates process-global state
+// and is why that whole file carried `[Collection("ProcessState")]`. A child process needs no such
+// thing — its working directory is its own.
+
+func NlcIn(workingDirectory: string, arguments: string): CliRun {
+    return RunProcess("dotnet", "\"" + CliDll() + "\" " + arguments, workingDirectory)
+}
+
+func WriteProjectYml(directory: string, text: string) {
+    File.WriteAllText(Path.Combine(directory, "project.yml"), text)
+}
+
+func ProjectWithNuGetDependency(prefix: string, name: string): string {
+    directory := NewTempDirectory(prefix)
+    WriteProjectYml(directory,
+        "name: " + name + "\n"
+        + "version: 1.0.0\n"
+        + "backend: il\n"
+        + "targetFramework: net10.0\n"
+        + "\n"
+        + "dependencies:\n"
+        + "  - YamlDotNet@16.3.0\n")
+    return directory
+}
+
+
+// ═══ `nlc clean` ══════════════════════════════════════════════════════════════════════════════
+
+test "nlc clean removes the three artifact directories, names them, and says nothing on stderr" {
+    directory := NewTempDirectory("nlc-clean-artifacts")
+    Directory.CreateDirectory(Path.Combine(directory, "bin"))
+    Directory.CreateDirectory(Path.Combine(directory, "obj"))
+    Directory.CreateDirectory(Path.Combine(directory, ".nlc"))
+
+    run := Nlc("clean --project \"" + directory + "\"")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Removed 3 build artifact directories:")
+    assert !Directory.Exists(Path.Combine(directory, "bin"))
+    assert !Directory.Exists(Path.Combine(directory, "obj"))
+    assert !Directory.Exists(Path.Combine(directory, ".nlc"))
+
+    // THE LISTING IS ORDERED, WHICH THE DELETED BODY NEVER READ. It asserted the count sentence and
+    // the three absences and stopped; a command that removed the right directories while printing
+    // the wrong names would have passed it.
+    dotNlcIndex := run.Stdout.IndexOf(".nlc", 0, StringComparison.Ordinal)
+    binIndex := run.Stdout.IndexOf("bin", 0, StringComparison.Ordinal)
+    objIndex := run.Stdout.IndexOf("obj", 0, StringComparison.Ordinal)
+    assert dotNlcIndex >= 0
+    assert binIndex > dotNlcIndex
+    assert objIndex > binIndex
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc clean on a directory with nothing to remove still exits 0" {
+    // THE CONTROL FOR THE COUNT SENTENCE: the number in `Removed 3 …` is a fact about this run and
+    // not a constant, so a clean tree must not report it.
+    directory := NewTempDirectory("nlc-clean-empty")
+
+    run := Nlc("clean --project \"" + directory + "\"")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert !run.Stdout.Contains("Removed 3 build artifact")
+
+    Directory.Delete(directory, true)
+}
+
+
+// ═══ `nlc completion` ═════════════════════════════════════════════════════════════════════════
+
+test "nlc completion bash emits a bash script naming every top-level command" {
+    run := Nlc("completion bash")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("clean")
+    assert run.Stdout.Contains("watch")
+    assert run.Stdout.Contains("doc")
+    assert run.Stdout.Contains("completion")
+
+    // AND IT IS A BASH SCRIPT, not a bare word list — which is the part the deleted body's four
+    // `Contains` rows could not distinguish from any output containing those four words.
+    assert run.Stdout.Contains("_nlc_commands=")
+    assert run.Stdout.Contains("complete -F _nlc nlc")
+    assert run.Stdout.Contains("COMPREPLY=(")
+
+    // the same registry the estate pins, reached through the real binary
+    names := TopLevelCommandNames()
+    i := 0
+    while i < names.Length {
+        assert run.Stdout.Contains(names[i])
+        i = i + 1
+    }
+}
+
+test "nlc completion bash carries the three nested command lists too" {
+    run := Nlc("completion bash")
+
+    assert run.Stdout.Contains("_nlc_query_commands=")
+    assert run.Stdout.Contains("_nlc_daemon_commands=")
+    assert run.Stdout.Contains("_nlc_watch_commands=")
+}
+
+
+// ═══ `nlc update` ═════════════════════════════════════════════════════════════════════════════
+
+test "nlc update --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("update --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("N# Update Dependencies")
+    assert run.Stdout.Contains("Usage: nlc update [package] [options]")
+}
+
+test "nlc update with no project.yml exits 1 and writes to STDERR, leaving stdout silent" {
+    directory := NewTempDirectory("nlc-update-noproject")
+
+    run := NlcIn(directory, "update")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("No project.yml found.")
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc update with only a framework dependency exits 0 and writes to STDOUT" {
+    // THE STREAM SPLIT IS THE CLAIM. This is a SUCCESS, so the sentence goes to stdout and stderr
+    // stays silent — the exact mirror of the block above. The deleted bodies asserted each half in
+    // isolation and never put the pair together.
+    directory := NewTempDirectory("nlc-update-frameworkonly")
+    WriteProjectYml(directory,
+        "name: UpdateDemo\nversion: 1.0.0\nbackend: il\ntargetFramework: net10.0\n\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n")
+
+    run := NlcIn(directory, "update")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("No NuGet dependencies to update.")
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc update names a package that is not in dependencies and exits 1" {
+    directory := ProjectWithNuGetDependency("nlc-update-missingtarget", "UpdateDemo")
+
+    run := NlcIn(directory, "update Serilog")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Package 'Serilog' not found in dependencies.")
+
+    Directory.Delete(directory, true)
+}
+
+
+// ═══ `nlc remove` ═════════════════════════════════════════════════════════════════════════════
+
+test "nlc remove --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("remove --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("N# Remove Dependency")
+    assert run.Stdout.Contains("Usage: nlc remove <package>")
+}
+
+test "nlc remove with no arguments exits 1 and puts its usage on STDERR, not stdout" {
+    // THE SAME SENTENCE REACHES A DIFFERENT STREAM depending on whether it was asked for. The
+    // `--help` block above finds `Usage: nlc remove <package>` on STDOUT; here it is a failure.
+    run := Nlc("remove")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Usage: nlc remove <package>")
+}
+
+test "nlc remove with no project.yml exits 1 and writes to stderr" {
+    directory := NewTempDirectory("nlc-remove-noproject")
+
+    run := NlcIn(directory, "remove Serilog")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("No project.yml found.")
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc remove names a package that is not in dependencies and exits 1" {
+    directory := ProjectWithNuGetDependency("nlc-remove-missingdep", "RemoveDemo")
+
+    run := NlcIn(directory, "remove Serilog")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Package 'Serilog' not found in dependencies.")
+
+    Directory.Delete(directory, true)
+}
+
+
+// ═══ `nlc tidy` ═══════════════════════════════════════════════════════════════════════════════
+
+func WriteTidyProject(directory: string, name: string, dependencies: string, program: string) {
+    WriteProjectYml(directory,
+        "name: " + name + "\n"
+        + "entry: Program.nl\n"
+        + "outputType: exe\n"
+        + "targetFramework: net10.0\n"
+        + "\n"
+        + "dependencies:\n"
+        + dependencies)
+    File.WriteAllText(Path.Combine(directory, "Program.nl"), program)
+}
+
+func TidyStatusOf(payload: JsonElement, wanted: string): string {
+    enumerator := payload.GetProperty("dependencies").EnumerateArray()
+    while enumerator.MoveNext() {
+        entry := enumerator.Current
+        if TextOf(entry.GetProperty("name")) == wanted {
+            return TextOf(entry.GetProperty("status"))
+        }
+    }
+
+    throw new InvalidOperationException("The tidy envelope has no dependency named '" + wanted + "'.")
+}
+
+// `nlc tidy --help` is ALREADY pinned above, in the help-contract family, with exactly the rows
+// `TidyCommand_Help_ShowsUsage` made — exit 0, a silent stderr, `Usage: nlc tidy [options]` and
+// `N# Tidy`. Writing it a second time here was caught by the perturbation matrix, which reported
+// 27 red blocks against 26 inverted ones because the two titles mangle to one test method name.
+// The migration for that body is the inherited block; what is new is the row it never made.
+test "nlc tidy --help documents the three dependency STATUSES the command can report" {
+    run := Nlc("tidy --help")
+
+    assert run.ExitCode == 0
+    // THE DELETED BODY ASKED ONLY FOR `Contains("tidy")` AND `Contains("Usage")`, which any help
+    // text for any command containing the word would satisfy. The help actually documents the
+    // classification vocabulary, and it is the same three words the JSON envelope uses.
+    assert run.Stdout.Contains("used")
+    assert run.Stdout.Contains("possibly-unused")
+    assert run.Stdout.Contains("unknown")
+    assert run.Stdout.Contains("--fix")
+    assert run.Stdout.Contains("schemaVersion")
+}
+
+test "nlc tidy with no project.yml exits 1 and writes the ERROR-PREFIXED sentence to stderr" {
+    // THE LITERAL, NOT A KERNEL CALL. The deleted body compared this stream against a live call to
+    // `ProgramCommandKernels.GetErrorLine(TidyCommandKernels.GetMissingProjectFileTextMessage())`,
+    // so both sides were computed by the kernels and agreed by construction. The kernels' own text
+    // is pinned in `TidyCommandKernels.tests.nl`; the sentence a user sees is pinned here.
+    directory := NewTempDirectory("nlc-tidy-noproject")
+
+    run := Nlc("tidy --project \"" + directory + "\"")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Trim() == "Error: No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project."
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc tidy --json uses a DIFFERENT missing-project sentence than the text arm does" {
+    // THE DELETED BODY ASKED ONLY FOR `Contains("No project.yml")`, WHICH BOTH SENTENCES SATISFY,
+    // so it could not see that the two arms differ. They do, and deliberately: the JSON arm names
+    // "the specified directory" because a machine reader has no current directory to reason about.
+    directory := NewTempDirectory("nlc-tidy-jsonnoproject")
+
+    run := Nlc("tidy --project \"" + directory + "\" --json")
+
+    assert run.ExitCode == 1
+    assert run.Stderr.Trim().Length == 0
+
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("schemaVersion").GetInt32() == 1
+    assert TextOf(root.GetProperty("command")) == "tidy"
+    assert !root.GetProperty("ok").GetBoolean()
+    assert TextOf(root.GetProperty("error").GetProperty("message")) == "No project.yml found in the specified directory."
+    document.Dispose()
+
+    // …and the text arm's sentence is genuinely a different string
+    textRun := Nlc("tidy --project \"" + directory + "\"")
+    assert !textRun.Stderr.Contains("No project.yml found in the specified directory.")
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc tidy --json classifies each dependency as used, possibly-unused or unknown" {
+    directory := NewTempDirectory("nlc-tidy-json")
+    WriteTidyProject(directory, "TidyClassification",
+        "  - nuget: Newtonsoft.Json\n    version: 13.0.3\n"
+        + "  - nuget: Serilog.Sinks.Console\n    version: 5.0.1\n"
+        + "  - nuget: Polly\n    version: 8.0.0\n",
+        "  import  Newtonsoft.Json.Linq // used by tidy import extraction\n\nfunc Main() {\n    print \"ok\"\n}\n")
+
+    run := Nlc("tidy --project \"" + directory + "\" --json")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert TidyStatusOf(root, "Newtonsoft.Json") == "used"
+    assert TidyStatusOf(root, "Serilog.Sinks.Console") == "possibly-unused"
+    assert TidyStatusOf(root, "Polly") == "unknown"
+
+    // EVERY ROW CARRIES A REASON, which the deleted body never read — and the three reasons are
+    // different sentences, so the status field is not the only thing an LLM consumer can act on.
+    enumerator := root.GetProperty("dependencies").EnumerateArray()
+    reasons := 0
+    while enumerator.MoveNext() {
+        assert TextOf(enumerator.Current.GetProperty("reason")).Length > 0
+        reasons = reasons + 1
+    }
+    assert reasons == 3
+    document.Dispose()
+
+    Directory.Delete(directory, true)
+}
+
+test "the tidy envelope's ok field reports CLEANLINESS, not success, and exit 0 can carry ok:false" {
+    // A PRODUCT FINDING, MEASURED AND RECORDED RATHER THAN FIXED. Everywhere else in `nlc` — `check`
+    // with 246 errors, `tidy` with no project.yml — `ok:false` accompanies a failure. In `tidy`'s
+    // success path it means "no possibly-unused dependency was found", so a consumer reading `ok`
+    // alone cannot tell "your project has an unused dependency" from "the command failed"; only the
+    // exit code separates them. The deleted body asserted `Assert.Equal(0, exitCode)` and read the
+    // `dependencies` array, and never read `ok` on this path at all.
+    unclean := NewTempDirectory("nlc-tidy-ok-unclean")
+    WriteTidyProject(unclean, "TidyUnclean",
+        "  - nuget: Serilog.Sinks.Console\n    version: 5.0.1\n",
+        "func Main() {\n    print \"ok\"\n}\n")
+
+    clean := NewTempDirectory("nlc-tidy-ok-clean")
+    WriteTidyProject(clean, "TidyClean",
+        "  - nuget: Newtonsoft.Json\n    version: 13.0.3\n",
+        "import Newtonsoft.Json.Linq\n\nfunc Main() {\n    print \"ok\"\n}\n")
+
+    uncleanRun := Nlc("tidy --project \"" + unclean + "\" --json")
+    cleanRun := Nlc("tidy --project \"" + clean + "\" --json")
+
+    assert uncleanRun.ExitCode == 0
+    assert cleanRun.ExitCode == 0
+
+    uncleanDocument := JsonDocument.Parse(uncleanRun.Stdout)
+    cleanDocument := JsonDocument.Parse(cleanRun.Stdout)
+
+    // SAME EXIT CODE, OPPOSITE `ok`.
+    assert !uncleanDocument.RootElement.GetProperty("ok").GetBoolean()
+    assert cleanDocument.RootElement.GetProperty("ok").GetBoolean()
+
+    uncleanDocument.Dispose()
+    cleanDocument.Dispose()
+
+    Directory.Delete(unclean, true)
+    Directory.Delete(clean, true)
+}
+
+test "nlc tidy without --json prints a table and no JSON at all" {
+    directory := NewTempDirectory("nlc-tidy-text")
+    WriteTidyProject(directory, "TidyTextClassification",
+        "  - nuget: Serilog.Sinks.Console\n    version: 5.0.1\n",
+        "func Main() {\n    print \"ok\"\n}\n")
+
+    run := Nlc("tidy --project \"" + directory + "\"")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Package")
+    assert run.Stdout.Contains("Serilog.Sinks.Console")
+    assert run.Stdout.Contains("possibly-unused")
+    assert !run.Stdout.Contains("\"command\"")
+
+    // AND IT TELLS THE USER WHAT TO DO NEXT, which the deleted body did not read.
+    assert run.Stdout.Contains("Status")
+    assert run.Stdout.Contains("Reason")
+    assert run.Stdout.Contains("Run 'nlc tidy --fix' to remove them.")
+
+    Directory.Delete(directory, true)
+}
+
+
+// ═══ `nlc add` ════════════════════════════════════════════════════════════════════════════════
+
+test "nlc add --help exits 0 and documents the --path option" {
+    run := Nlc("add --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("--path")
+    assert run.Stdout.Contains("N# Add Dependency")
+    assert run.Stdout.Contains("Usage: nlc add <package> [options]")
+}
+
+test "nlc add with no arguments exits 1 and its FAILURE usage omits --path entirely" {
+    // A FINDING NEITHER DELETED BODY COULD REACH. `AddCommand_Help_ShowsPathOption` read `--path`
+    // off the help text and `AddCommand_NoArgs_ReturnsUsage` read a `Usage:` line off stderr; the
+    // two lived in different bodies, so nothing compared them. They are DIFFERENT usage texts, and
+    // the one a user actually hits on failure does not mention the option at all.
+    run := Nlc("add")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Usage: nlc add <package> [--version <ver>]")
+    assert run.Stderr.Contains("nlc add <package>@<version>")
+    assert !run.Stderr.Contains("--path")
+
+    // …while the help text, on stdout, spells all three forms
+    help := Nlc("add --help")
+    assert help.Stdout.Contains("Usage: nlc add <package> [options]")
+    assert help.Stdout.Contains("nlc add --path <local-project>")
+}
+
+test "nlc add with no project.yml exits 1 and is the ONLY one of the three that says how to fix it" {
+    // THE THREE COMMANDS DO NOT SHARE THIS SENTENCE. `update` and `remove` both stop at
+    // "No project.yml found."; only `add` continues into a remedy. Each deleted body asserted its
+    // own command's `Contains` and could never have noticed.
+    addDirectory := NewTempDirectory("nlc-add-noproject")
+    updateDirectory := NewTempDirectory("nlc-update-noproject-cmp")
+    removeDirectory := NewTempDirectory("nlc-remove-noproject-cmp")
+
+    addRun := NlcIn(addDirectory, "add Serilog@3.1.0")
+    updateRun := NlcIn(updateDirectory, "update")
+    removeRun := NlcIn(removeDirectory, "remove Serilog")
+
+    assert addRun.ExitCode == 1
+    assert addRun.Stdout.Trim().Length == 0
+    assert addRun.Stderr.Trim() == "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project."
+
+    assert updateRun.Stderr.Trim() == "No project.yml found."
+    assert removeRun.Stderr.Trim() == "No project.yml found."
+    assert !updateRun.Stderr.Contains("nlc init")
+    assert !removeRun.Stderr.Contains("nlc init")
+
+    Directory.Delete(addDirectory, true)
+    Directory.Delete(updateDirectory, true)
+    Directory.Delete(removeDirectory, true)
+}
+
+test "nlc add inserts a package INSIDE the dependencies block, before the next top-level key" {
+    directory := NewTempDirectory("nlc-add-inline")
+    WriteProjectYml(directory,
+        "name: AddDemo\nversion: 1.0.0\nbackend: il\n\ndependencies:\n  - Newtonsoft.Json@13.0.3\ntargetFramework: net10.0\n")
+
+    run := NlcIn(directory, "add Serilog@3.1.0")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Added Serilog@3.1.0 to project.yml")
+
+    projectYaml := File.ReadAllText(Path.Combine(directory, "project.yml"))
+    addedIndex := projectYaml.IndexOf("Serilog@3.1.0", 0, StringComparison.Ordinal)
+    existingIndex := projectYaml.IndexOf("Newtonsoft.Json@13.0.3", 0, StringComparison.Ordinal)
+    nextTopLevelIndex := projectYaml.IndexOf("targetFramework: net10.0", 0, StringComparison.Ordinal)
+
+    assert existingIndex >= 0
+    assert addedIndex > existingIndex
+    assert nextTopLevelIndex > addedIndex
+
+    // THE INDENTATION IS THE POINT AND THE DELETED BODY NEVER READ IT: a line inserted at the wrong
+    // indent is still "before targetFramework" and still passes an index comparison, while
+    // producing a project.yml that no longer parses.
+    assert projectYaml.Contains("  - Serilog@3.1.0\n")
+
+    // and the generated props are refreshed by the same run
+    assert File.Exists(Path.Combine(Path.Combine(directory, "obj"), "project.g.props"))
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc add rejects a duplicate package case-insensitively and leaves project.yml untouched" {
+    directory := NewTempDirectory("nlc-add-duppackage")
+    WriteProjectYml(directory,
+        "name: AddDuplicatePackageDemo\nversion: 1.0.0\nbackend: il\ntargetFramework: net10.0\n\ndependencies:\n  - Newtonsoft.Json@13.0.3\n")
+    before := File.ReadAllText(Path.Combine(directory, "project.yml"))
+
+    run := NlcIn(directory, "add newtonsoft.json@14.0.0")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("already in dependencies")
+
+    // THE SENTENCE ECHOES THE USER'S CASING, NOT THE STORED CASING — measured, and a detail the
+    // deleted body's `Contains("already in dependencies")` could not see.
+    assert run.Stderr.Contains("'newtonsoft.json' is already in dependencies.")
+    assert run.Stderr.Contains("Use 'nlc update' to change the version.")
+
+    // THE FILE IS BYTE-IDENTICAL. The deleted body checked that `13.0.3` survived and that `14.0.0`
+    // was absent, which a command that rewrote the file some other way could still satisfy.
+    assert File.ReadAllText(Path.Combine(directory, "project.yml")) == before
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc add rejects a duplicate project reference, and that arm offers NO remedy" {
+    // THE TWO DUPLICATE ARMS ARE DIFFERENT ANSWERS. Both end in "already in dependencies", which is
+    // all the deleted bodies asserted — but only the package arm tells the user about `nlc update`,
+    // and there is no equivalent for a project reference.
+    directory := NewTempDirectory("nlc-add-dupproject")
+    Directory.CreateDirectory(Path.Combine(directory, "Shared"))
+    File.WriteAllText(Path.Combine(Path.Combine(directory, "Shared"), "project.yml"),
+        "name: Shared\nversion: 1.0.0\ntargetFramework: net10.0\noutputType: library\n")
+    WriteProjectYml(directory,
+        "name: AddDuplicateProjectDemo\nversion: 1.0.0\nbackend: il\ntargetFramework: net10.0\n\ndependencies:\n  - project: Shared/project.yml\n")
+    before := File.ReadAllText(Path.Combine(directory, "project.yml"))
+
+    run := NlcIn(directory, "add --path shared/PROJECT.yml")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0
+    assert run.Stderr.Contains("Project reference 'shared/PROJECT.yml' is already in dependencies.")
+    assert !run.Stderr.Contains("Use 'nlc update' to change the version.")
+
+    assert File.ReadAllText(Path.Combine(directory, "project.yml")) == before
+
+    Directory.Delete(directory, true)
+}
+
+
+// ═══ THE TWO CROSS-COMMAND SENTENCES ══════════════════════════════════════════════════════════
+
+test "nlc update and nlc remove share their missing-package sentence WORD FOR WORD" {
+    // Two commands, two `.nl` owners, ONE sentence. The two deleted bodies each asserted the same
+    // string in isolation, so neither said the commands agree — and neither would have noticed if
+    // one of them drifted.
+    updateDirectory := ProjectWithNuGetDependency("nlc-shared-update", "UpdateDemo")
+    removeDirectory := ProjectWithNuGetDependency("nlc-shared-remove", "RemoveDemo")
+
+    updateRun := NlcIn(updateDirectory, "update Serilog")
+    removeRun := NlcIn(removeDirectory, "remove Serilog")
+
+    assert updateRun.Stderr.Trim() == "Package 'Serilog' not found in dependencies."
+    assert updateRun.Stderr.Trim() == removeRun.Stderr.Trim()
+    assert updateRun.ExitCode == removeRun.ExitCode
+    assert updateRun.ExitCode == 1
+
+    Directory.Delete(updateDirectory, true)
+    Directory.Delete(removeDirectory, true)
+}
+
+test "every one of the six commands reaches its N#-owned implementation through nlc dispatch" {
+    // THE CLAIM NO DELETED BODY COULD MAKE AT ALL. All 21 of them called `XCommand.Execute(...)` in
+    // process, so a registry that lost the mapping from `nlc add` to `AddCommand` would have left
+    // every one of them green while the shipped CLI reported an unknown command.
+    add := Nlc("add --help")
+    tidy := Nlc("tidy --help")
+    update := Nlc("update --help")
+    remove := Nlc("remove --help")
+    clean := Nlc("clean --help")
+    completion := Nlc("completion --help")
+
+    assert add.ExitCode == 0
+    assert tidy.ExitCode == 0
+    assert update.ExitCode == 0
+    assert remove.ExitCode == 0
+    assert clean.ExitCode == 0
+    assert completion.ExitCode == 0
+
+    assert add.Stdout.Contains("N# Add Dependency")
+    assert tidy.Stdout.Contains("N# Tidy")
+    assert update.Stdout.Contains("N# Update Dependencies")
+    assert remove.Stdout.Contains("N# Remove Dependency")
+    assert clean.Stdout.Contains("N# Clean")
+    assert completion.Stdout.Contains("completion")
+
+    // …and the negative control: a name the registry does NOT carry fails
+    unknown := Nlc("addd --help")
+    assert unknown.ExitCode != 0
+}

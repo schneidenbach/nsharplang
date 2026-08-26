@@ -431,29 +431,6 @@ func valid_syntax() {
 
     #region Parser always produces CompilationUnit
 
-    [Fact]
-    public void Parser_AlwaysProducesCompilationUnit_EvenWithErrors()
-    {
-        var sources = new[]
-        {
-            "func test() { @@ }",
-            "func test() { let x: int = @@ }",
-            "func test() { x. }",
-            @"func test() {
-    let x = 5
-
-class Foo { name: string }",
-            "@@ ## !! %%",
-        };
-
-        foreach (var source in sources)
-        {
-            var result = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
-
-            Assert.NotNull(result.CompilationUnit);
-        }
-    }
-
     #endregion
 
     #region Helpers

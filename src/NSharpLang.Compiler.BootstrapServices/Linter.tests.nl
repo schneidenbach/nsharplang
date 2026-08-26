@@ -687,6 +687,31 @@ test "a suppression naming a DIFFERENT code suppresses nothing" {
     assert LntHas(diagnostics, "NL001", "'unused'")
 }
 
+// Successor to `Linter_IgnoreComment_SuppressesSpecificWarning`, deleted from
+// `tests/CliParityAuditTests.cs` (14 declaration lines, ONE `Assert.` row). Its single row asked
+// that no NL001 survive a `// nlc:ignore NL001` above `value := 42`, which is the claim the two
+// blocks above already make with a control the deleted row did not have. It is reproduced here on
+// its OWN source text so the migration is exact rather than merely equivalent, and it carries the
+// two distinctions the deleted row could not: the row asserted only ABSENCE, which a linter that
+// reported nothing at all for this file would also satisfy, and it never said which of the two
+// suppression SPELLINGS it was exercising.
+test "the deleted parity row's exact source suppresses NL001 and nothing else goes quiet" {
+    diagnostics := LntLintWithSource("func Main() {\n    // nlc:ignore NL001\n    value := 42\n}")
+
+    assert !LntHas(diagnostics, "NL001", "'value'")
+
+    // THE VACUITY CONTROL THE DELETED ROW LACKED: the identical file WITHOUT the comment does
+    // report NL001, so the absence above is the suppression working and not an empty result.
+    assert LntHas(LntLintWithSource("func Main() {\n    value := 42\n}"), "NL001", "'value'")
+}
+
+test "both suppression spellings are accepted — a space and a colon before the code" {
+    // TWO FORMS SHIP. `nlc:ignore NL001` and `nlc:ignore:NL001` both suppress, and neither was
+    // named by the deleted row, which used only the first.
+    assert !LntHas(LntLintWithSource("func Main() {\n    value := 42 // nlc:ignore NL001\n}"), "NL001", "'value'")
+    assert !LntHas(LntLintWithSource("func Main() {\n    value := 42 // nlc:ignore:NL001\n}"), "NL001", "'value'")
+}
+
 // ── the resolved spans ────────────────────────────────────────────────────────────────────────
 
 test "NL012's span covers the PARAMETER name" {

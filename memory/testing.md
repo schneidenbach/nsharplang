@@ -579,6 +579,53 @@ assert rows. Both files now hold ONLY bucket-(b) bodies, which retire with `Chec
 `FixCommand.cs`, `QueryCommand.cs`, `Program.cs`, `DaemonCommand.cs`, `DaemonClient.cs`,
 `DaemonServer.cs` and `DaemonProtocol.cs` under 021/015.
 
+**Slice 45 CLOSES TASK 020: the ownership classifier reports bucket (a) = 0 across ALL 24
+`tests/*.cs`.** Slice 44's closing pass found 30 more bucket-(a) bodies in four files it had never
+measured; slice 45 re-verified them with a SHARPENED classifier that adds a reachability rule — the
+N#-owned type must not only be CALLED, its value must REACH an assertion — and the census corrected
+itself to **29**. `DotnetBuild_ResolvesRuntimeForAnonymousUnionAndProjectReferences` calls
+`RestoreCommand.Restore` only as SETUP; its three assertions are a `dotnet build` exit code, a
+`dotnet run` exit code and that run's stdout, so its subject is MSBuild, not N#. It is bucket (c),
+and it stays.
+
+`tests/CliParityAuditTests.cs` drops 24 bodies to **1,194 lines / 49 tests**,
+`tests/IlSdkToolchainTests.cs` drops 2 to **282 / 5**, `tests/ErrorRecoveryPipelineTests.cs` drops
+1 to **455 / 11**, and `tests/AstChildrenTests.cs` is DELETED WHOLE (147 lines, its only test).
+The 29th body — `PackCommand_NoProjectYml_Fails` — is DE-TAUTOLOGISED IN PLACE rather than
+migrated, because the command it drives is still C#-owned: it compared stderr against a live call to
+`ProgramCommandKernels.GetErrorLine(PackCommandKernels.GetMissingProjectFileTextMessage())`, so both
+sides agreed by construction. It now asserts the literal sentence, and the kernels' own text is
+pinned independently in the new `PackCommandKernels.tests.nl`.
+
+The successors are **60 blocks in five NEW estate `.tests.nl` files** (`UnifiedDiff`,
+`NSharpInstallRoot`, `ProjectReferenceResolver`, `AstChildrenCore`, `PackCommandKernels`), **9 more
+appended to `Linter.tests.nl` and `ColumnarParserRecovery.tests.nl`**, and **26 more in
+`tests/native/cli-command-contracts`** — 95 blocks and 297 assert rows replacing 28 bodies and 95
+assert rows.
+
+**One body could not be ported and was RE-FORMULATED into something stronger.**
+`EveryExpressionTypedSlot_OfEveryExpressionNode_IsEnumerated` enumerated AST node types with
+`typeof(Expression).Assembly.GetTypes()`, which DECLINES at
+`emit.local.initializer` — measured on a probe. It does not need reflection: every Expression node
+is declared in ONE file (`Expressions.nl`) and `AstChildrenCore.Of` is a string-dispatch table whose
+arms name their slots as string literals. `AstChildrenCore.tests.nl` reads both sources and checks
+the containment IN BOTH DIRECTIONS — every node has an arm or is a declared leaf, every
+Expression-typed slot is named by its arm, no arm names a slot the node does not declare — and pairs
+that with runtime blocks over the two slots that historically shipped unvisited. The C# could only
+check nodes its reflective kit could CONSTRUCT; the source census checks nodes no constructor
+reaches, and catches the reverse error (a renamed slot leaving an arm that walks nothing) that the
+C# could not see at all.
+
+**Slice 45's product finding is in the parser's error recovery, and the deleted body could not see
+it.** `Parser_AlwaysProducesCompilationUnit_EvenWithErrors` asserted only `CompilationUnit != null`
+for five malformed sources. Measured against the real recovery: `@@`, `!!` and `%%` each report TWO
+errors alone, but `##` parses as a PREPROCESSOR declaration and reports **NONE** — and a `##`
+earlier in the file **SWALLOWS every diagnostic after it**. `"!! %%"` reports 4 errors;
+`"## !! %%"` reports **0**. The five-source file the C# used reports 2 of its 6, and recovers
+THREE invented declarations. Recorded, pinned, not fixed. A second finding is in the `nlc tidy`
+JSON envelope: `ok` reports CLEANLINESS, not success, so `exit 0` can carry `ok:false` — the only
+`nlc` envelope where the two disagree.
+
 **Two of slice 43's route predictions were overturned by measurement, both in the cheaper
 direction.** `CompilationBackendSelectionKernels_ValidatesEffectiveBackend` was flagged as possibly
 unmigratable because it needs a `ProjectConfig`; in fact `new ProjectConfig()` with a property set
