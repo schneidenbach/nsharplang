@@ -193,10 +193,10 @@ public class CompletionHandler : CompletionHandlerBase
     /// </summary>
     private List<CompletionItem> GetMemberCompletionViaAst(Models.DocumentState doc, int line, int character)
     {
-        // AstNodeFinder expects 0-based LSP coordinates as the target.
-        // It internally converts 1-based node positions to 0-based for comparison.
-        var expression = AstNodeFinder.FindExpressionAtPosition(
-            doc.CompilationUnit!, line, character);
+        // AstNodeFinderCore expects 0-based LSP coordinates as the target, converts 1-based node
+        // positions to 0-based, and answers object?; `as` narrows any other node kind to null.
+        var expression = AstNodeFinderCore.FindExpressionAtPosition(
+            doc.CompilationUnit!, line, character) as Expression;
 
         if (expression is not MemberAccessExpression memberAccess)
         {

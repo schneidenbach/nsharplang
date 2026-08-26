@@ -1,6 +1,60 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-26 (**TASK 021 SLICE 3 — `SystemsAnalyzer`'s THREE ORDERING SITES MOVE TO AN
+Last updated: 2026-08-26 (**TASK 021 SLICE 4 — `AstNodeFinder.cs` IS DELETED WHOLE, BOTH LSP
+CONSUMERS ROUTE TO THE N# OWNER, AND THE MEASUREMENT FINDS THE HOVER SEAM UNPINNED.** The decode was
+recorded BEFORE any production edit. The forwarder was **15 lines / 13 non-blank** adding exactly
+three things over `AstNodeFinderCore`: a `CompilationUnit` parameter type, an `Expression?` return
+type, and the `as Expression` NARROWING — which is a BEHAVIOR, because `as` answers **null** for a
+node of any other kind where a hard cast would throw. Tracing every property the reflective walk
+hands to `FindExpression` against `Expressions.nl`/`Statements.nl` shows all of them declared
+`Expression`, so **the narrowing is TOTAL over today's AST — a latent guard, not an active filter**,
+and that is recorded rather than used as licence to drop it. At `CompletionHandler.cs:198` it is
+behaviourally invisible (the only use is an `is`-pattern, which answers the same over `object?`) and
+is spelled anyway; at `HoverHandler.cs:67` it is LOAD-BEARING both ways — the local is declared
+`Expression?` and passed to `TryResolveExpression(Expression …)`, so without a cast it does not
+compile and with a hard cast a wrong-kind node would THROW out of a hover request. **THE CENSUS
+RE-RUN AT THIS TIP CONFIRMS SLICE 1'S 6 SITES / 2 CALLERS EXACTLY**, and after the reroute reports
+`AstNodeFinder` **0 / 0 ZERO-CONSUMER** with both LSP handlers appearing as direct callers of the N#
+owner (control `ColumnarParserRecovery` 55 sites). **The census caught two of its own faults**: its
+first control was spelled in the wrong namespace and it REFUSED to report, and a date-only staleness
+gate let seven `Release` `Compiler.dll` copies from 02:05 masquerade as current, so the run was
+retaken at this build's own mtime. **THE RATCHET FORCED THE SHAPE OF THE EDIT**: `HoverHandler.cs`
+sits AT its epoch ceiling, so a two-line comment would have been an `OWN004`, not a fingerprint move
+— both reroutes are LINE-FOR-LINE (**700/611 → 700/611**, **307/264 → 307/264**) and the narrowing's
+rationale went into a header on the N# OWNER instead. **THE MUTATION MATRIX FINDS A REAL GAP.** M1
+(the finder answers null, ALWAYS) fails exactly **2 of 133** `LanguageServerTests` — both
+member-completion bodies — and **not one hover body notices**, because
+`HoverHandler.TryResolveExpression` handles only `IdentifierExpression` and the word-based fallback
+resolves the same string; M2 (a ONE-COLUMN boundary shift) fails **0 of 133**. **So the completion
+site is pinned by two named tests and the hover site by NONE**, and the mandate's remedy is taken in
+the only shape 021 allows — not C# (forbidden outright) and not TypeScript (every
+`editors/vscode/test/suite/*.test.ts` is a ratcheted row at its ceiling), but the **019 arc's
+protocol-seam precedent**: `lspseam.py` opens a REAL LSP session against the built
+`LanguageServer.dll` (`initialize` → `didOpen` → 4 completion + 9 hover requests) over a fixture that
+is byte-for-byte the xunit test's source. **BEFORE vs AFTER: 13 = 13, 1,596 BYTES BYTE-IDENTICAL** —
+the "before" taken by restoring the three HEAD blobs and rebuilding ONLY the C# layer, which isolates
+the reroute exactly (a from-scratch second tree was tried and abandoned after two failed
+`BootstrapServices` emits) — **and the instrument is PROVED to move**: 3 rows differ under M1 and 1
+under M2, including one the whole 133-body suite cannot see. Ratchet repinned two-key
+`head-v1:b1e6e68c307a8227` → **`head-v1:9196b35151879970`** from a replica validated PRISTINE-FIRST
+against the HEAD blobs; **that replica's first run was WRONG** (it counted assertion markers the
+audit gates behind `IsAssertionTracked`) and was corrected before it wrote anything. The audit on the
+pristine manifest then reported **17/18** with exactly the predicted `OWN006` + two `OWN005`s;
+repinned it is **18/18**, non-vacuous on both a one-key head and a one-line ceiling raise; epoch
+triple UNCHANGED; manifest 391 lines, no BOM. `src/NSharpLang.Compiler` **11 files / 27,981 → 10 /
+27,966**. **IDE BAR: the extension was rebuilt, repackaged and reinstalled** (`nsharp-0.6.0.vsix`,
+289 files, exit 0) and the gate ran **VS CODE-ENABLED** — `./scripts/test-all.sh --commit` with
+`VSCODE_TESTS` unset, from a `/tmp` byte-copy excluding nested worktrees, log outside:
+**`ALL TESTS PASSED`, exit 0, 26m 00s, 127 steps, 0 failures** — units **606/606**, estate
+**6821/6821**, all **46** native projects (audit 18/18), **VS Code integration 36 passing / 0
+pending** over exactly `extension, diagnostics, hover, completion`, 22 examples, 38 single-file
+examples, templates, `nlc check`, ILVerify **67 assemblies**. Live tree **395/246** with slice 3's
+census to the digit. **AND THE RECORD SAYS PLAINLY THAT AN INTEGRATION SUITE IS NOT A SCREENSHOT**:
+computer-use is unavailable, so the answer is verified three independent ways and the PICTURE is not
+verified at all; 021/12 carries it. NOT COMMITTED; `tasks/README.md` is NOT edited.
+**NEXT: SLICE 5 — the LSP's six re-implementations routed to their N# owners, IDE bar**)
+
+Last updated (prior): 2026-08-26 (**TASK 021 SLICE 3 — `SystemsAnalyzer`'s THREE ORDERING SITES MOVE TO AN
 N# REPORT-ORDER OWNER, AND THE MEASUREMENT CORRECTS THE SLICE'S OWN PREMISE.** The decode was
 recorded BEFORE any production edit and it confirms slice 1's `:86` / `:103` / `:244` exactly — no
 fourth ordering decision exists in the file — then traces each to the user's JSON: the normalization
@@ -4345,7 +4399,396 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 3 — `SystemsAnalyzer`'s THREE ORDERING SITES.
+- Active sub-slice (021 arc, THIS TURN — **SLICE 4 — `AstNodeFinder.cs` IS DELETED WHOLE AND BOTH
+  LSP CONSUMERS ROUTE TO THE N# OWNER. THE DECODE, RECORDED BEFORE ANY PRODUCTION EDIT.**
+
+  ### THE FORWARDER'S EXACT SURFACE, DECODED
+
+  `src/NSharpLang.Compiler/AstNodeFinder.cs` is **15 lines / 13 non-blank**, and its whole body is
+  one expression-bodied static:
+
+  ```csharp
+  public class AstNodeFinder
+  {
+      public static Expression? FindExpressionAtPosition(CompilationUnit ast, int line, int column)
+          => AstNodeFinderCore.FindExpressionAtPosition(ast, line, column) as Expression;
+  }
+  ```
+
+  The type declares **one member and one synthesised constructor**. The file adds THREE things over
+  the N# owner and nothing else:
+
+  | # | what the forwarder adds | why it exists |
+  |---|---|---|
+  | **A** | the PARAMETER type: `CompilationUnit` where `AstNodeFinderCore.FindExpressionAtPosition(ast: object, …)` takes `object` | a widening that happens implicitly at any call site; carries no behavior |
+  | **B** | the RETURN type: `Expression?` where the N# owner returns `object?` | a static-type adaptation the C# callers need |
+  | **C** | the `as Expression` NARROWING itself | the runtime half of (B) — **and this is a BEHAVIOR, not a formality** |
+
+  **WHAT `as Expression` ACTUALLY DOES, AND WHY IT IS A BEHAVIOR THE REROUTE MUST PRESERVE
+  EXACTLY.** `as` is the SILENT conversion: given a non-null answer that is not an
+  `NSharpLang.Compiler.Ast.Expression`, it yields **`null`** — it does not throw the
+  `InvalidCastException` a hard `(Expression)` cast would. So the forwarder's contract is
+  *"the node at this position, or NOTHING — including when the owner found a node of some other
+  kind."* A reroute that spelled `(Expression)` instead would turn a silent miss into a crashing
+  LSP request; a reroute that dropped the cast entirely would not compile at one site and would
+  silently change the other's static type. **Both call sites must spell `as Expression`.**
+
+  **CAN THE NARROWING EVER FIRE TODAY? DECODED, AND THE ANSWER IS NO — WHICH IS ITSELF THE
+  FINDING.** `AstNodeFinderCore.FindExpressionAtPosition` returns `visitor.FoundExpression`
+  (`object?`), which is only ever assigned from `FindExpression(…)`, whose every return is either
+  the `expression` argument it was handed or a `ChooseBestExpression` of two such. Tracing every
+  property the walk hands to `FindExpression` against the AST declarations in
+  `src/NSharpLang.Compiler.BootstrapServices/{Expressions,Statements}.nl`:
+  `ExpressionStatement.Expression`, `VariableDeclarationStatement.Initializer`,
+  `ReturnStatement.Value`, `PrintStatement.Value`, `If/While/For.Condition`, `For.Iterator`,
+  `Foreach.Collection`, `Binary.Left/Right`, `Unary.Operand`, `Must.Expression`, `Call.Callee`,
+  `Argument.Value`, `MemberAccess.Object`, `IndexAccess.Object/Index`,
+  `ArrayLiteral.Elements` (`List<Expression>`), `Lambda.ExpressionBody`, `Parenthesized.Inner` —
+  **every one is declared `Expression` or `Expression?`.** The two non-`Expression` shapes the walk
+  touches are never returned from it: `Argument` is unwrapped to its `Value` before `FindExpression`
+  sees it, and `ForStatement.Initializer` is routed to `VisitStatement`, not `FindExpression`.
+  `TupleExpression.Elements` is `List<TupleElement>`, and the walk has no `TupleExpression` arm, so
+  it falls to `return currentMatch`. **So `as Expression` is TOTAL over today's AST: it is a
+  latent guard, not an active filter.** That is recorded rather than used as licence to drop it —
+  the owner's signature is `object?`, so the guard is the only thing standing between a future AST
+  shape and an `InvalidCastException` inside a hover request.
+
+  ### THE TWO CALL SITES, AND THE NARROWING AT EACH
+
+  | site | the text today | what the narrowing does HERE |
+  |---|---|---|
+  | `CompletionHandler.cs:198` (`GetMemberCompletionViaAst`) | `var expression = AstNodeFinder.FindExpressionAtPosition(doc.CompilationUnit!, line, character);` then `if (expression is not MemberAccessExpression memberAccess) return new List<CompletionItem>();` | **behaviourally INVISIBLE, and that is measured, not assumed.** The only use of `expression` is an `is`-pattern, and `is MemberAccessExpression` answers identically over `object?` and `Expression?`: a non-`Expression` object is not a `MemberAccessExpression` either. Dropping the cast here would compile and behave the same — **it is spelled anyway**, because the site's declared type is part of what the next reader reasons about, and because leaving one of two sibling sites unspelled invites the belief that the guard is optional |
+  | `HoverHandler.cs:67` (`Handle`) | `Expression? expression = null;` … `expression = AstNodeFinder.FindExpressionAtPosition(doc.CompilationUnit, line, character);` | **LOAD-BEARING BOTH WAYS.** The local is DECLARED `Expression?` (`:63`), is passed to `TryResolveExpression(Expression expression, …)` (`:202`) and is re-tested at `:90` as `expression == null \|\| expression is IdentifierExpression`. Without a cast this does not compile; with a hard cast a non-`Expression` answer would THROW out of a hover request; with `as` it becomes `null`, which routes the request to the word-based fallback at `:87`. **The narrowing is what makes "found a node of the wrong kind" degrade to "found nothing" instead of crashing** |
+
+  ### THE CENSUS, RE-RUN AT THIS TIP — SLICE 1'S 6 / 2 CONFIRMED EXACTLY
+
+  Slice 1's receiver-typed IL census re-run against a freshly built tree (`dotnet build
+  NSharpLang.sln`, 93 assembly files counted, **548** skipped as stale, **228,559** method bodies,
+  **0 undecodable opcodes**):
+
+  | type | external sites | distinct external callers | self sites | verdict |
+  |---|---|---|---|---|
+  | `NSharpLang.Compiler.AstNodeFinder` | **6** | **2** — `CompletionHandler::GetMemberCompletionViaAst` [LanguageServer], `HoverHandler::Handle` [LanguageServer] | **0** | CONSUMED — **exactly slice 1's 6 / 2, unchanged** |
+  | `NSharpLang.Compiler.AstNodeFinderCore` | 88 | 4 — `AstNodeFinder::FindExpressionAtPosition` [Compiler], `CodeIntelligenceNavigation::FindExpressionAtPositionRobust`, `CompletionReceiverFacts::FindMemberAccessAtPosition`, `Program::AnfAt` [all BootstrapServices] | 0 | CONSUMED |
+
+  **NON-VACUITY CONTROL PASSED**: `NSharpLang.Compiler.Columnar.ColumnarParserRecovery` reports
+  **292** external sites. (Slice 1 quoted 112 for the same control; the census counts one site per
+  DLL COPY on disk, so the absolute number tracks how many `bin`/`obj`/publish copies a given build
+  state left behind — `3x` per source site here. The control's job is to be non-zero, and the
+  per-copy multiplier is identical for target and control, so the 6 / 2 comparison holds.)
+  **The census's own first run FAILED the control at 0** because the control was spelled
+  `NSharpLang.Compiler.ColumnarParserRecovery`; the type is in `NSharpLang.Compiler.Columnar`. The
+  instrument caught its own operator error and refused to report — recorded because a control that
+  cannot fail is not a control.
+
+  **THE SOURCE CENSUS AGREES AND ADDS THE NON-IL SITES.** `git grep -n AstNodeFinder` over
+  `*.cs *.nl *.ts *.md *.csproj *.json`, excluding this STATUS, reports the type named in exactly
+  **four production/tooling places**: the definition itself, the two LSP call sites, and its ratchet
+  row (`tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json:197`). Every other hit is a
+  COMMENT or a prose mention — `CompletionHandler.cs:196` ("AstNodeFinder expects 0-based LSP
+  coordinates"), three `InvalidOperationException` message strings inside `AstNodeFinderCore.nl`
+  itself, the header commentary in `AstNodeFinderCore.tests.nl` and
+  `tests/native/analyzer-identifier-binding/`, and `memory/testing.md:34-37 / :1126`. **The five
+  comment/prose sites that name the DELETED type are corrected by this slice; the two inside
+  `AstNodeFinderCore.nl`'s own exception strings are its own name and stay.**
+
+  ### THE REROUTE, AND WHY IT IS THE ESTABLISHED PATH AND NOT A NEW ONE
+
+  Both handlers already carry `using NSharpLang.Compiler;` — the namespace `AstNodeFinderCore.nl`
+  declares — so the reroute is an identifier swap plus the narrowing, with **no new using, no new
+  reference and no new C#**. `NSharpLang.LanguageServer` ProjectReferences `Compiler.csproj`, which
+  ProjectReferences `NSharpLang.Compiler.BootstrapServices.csproj`; the LSP already consumes
+  BootstrapServices types directly today (`DocumentState.cs` holds a `SemanticModel`, which is
+  `SemanticModel.nl`). **And the exact spelling this slice writes is already the house style inside
+  the estate**: `CodeIntelligenceNavigation.nl:75/77` and `CompletionReceiverFacts.nl:54/56` each
+  call `AstNodeFinderCore.FindExpressionAtPosition(…) as Expression` at the call site. The C#
+  callers are being made to look like the N# callers, not the other way round.
+
+  ### THE DELETION, AND WHAT THE RATCHET FORCED
+
+  `git rm src/NSharpLang.Compiler/AstNodeFinder.cs` — **15 lines / 13 non-blank gone whole**, taking
+  with it the dead synthesised constructor slice 1 recorded as the one genuinely dead member it
+  deliberately did not touch ("the type is a published package API and it retires WHOLE in 021/4").
+  It retires whole here. **`src/NSharpLang.Compiler` goes 11 tracked `.cs` files / 27,981 lines →
+  10 / 27,966.**
+
+  **BOTH REROUTED SITES ARE LINE-FOR-LINE, AND THAT IS A RATCHET CONSTRAINT, NOT A PREFERENCE.** The
+  first draft put a short comment at each call site explaining the narrowing. **The replica caught it
+  before the audit could**: `HoverHandler.cs` sits AT its immutable epoch ceiling (`epochLines` 307 =
+  `currentLines` 307, `epochNonBlankLines` 264 = 264), so two added lines would have been an `OWN004`
+  *"observed ownership exceeds the immutable E0 epoch ceiling"*, not a fingerprint move.
+  `CompletionHandler.cs` had four lines of headroom and could have absorbed it — **which is exactly
+  why it was not allowed to**: a deletion slice that grows a C# file, even below a ceiling, is the
+  thing this campaign exists to stop. Both edits were rewritten to consume exactly as many lines as
+  they replace: **`CompletionHandler.cs` 700 / 611 → 700 / 611** and **`HoverHandler.cs` 307 / 264 →
+  307 / 264**, fingerprint-only rows on both. The narrowing's rationale went where it belongs and
+  where nothing is ratcheted — a header comment on the N# OWNER, `AstNodeFinderCore.nl`, which now
+  states that it answers `object?`, that every caller narrows with `as`, and why a cast that is total
+  today is spelled anyway.
+
+  **THE CENSUS AFTER, OVER FRESHLY BUILT ASSEMBLIES ONLY.** The first post-edit run was taken at
+  slice 1's `2026-08-26T00:00:00` cutoff and reported `AstNodeFinder` at 0 external sites but ALSO
+  reported a residual `AstNodeFinder::FindExpressionAtPosition` CALLING `AstNodeFinderCore` — from
+  **seven `Release`-configuration `Compiler.dll` copies written at 02:05 today**, which pass a
+  date-only staleness gate while being a pre-slice build. **A date gate is only as good as the date**;
+  the run was retaken at the mtime of this slice's own build (`2026-08-26T10:30:00`), which counts
+  **26 assembly files across 5 assemblies, 88,072 method bodies, 0 undecodable opcodes**:
+
+  | type | external sites | distinct external callers | verdict |
+  |---|---|---|---|
+  | `NSharpLang.Compiler.AstNodeFinder` | **6 → 0** | **2 → 0** | **ZERO-CONSUMER, and the TypeDef no longer exists** |
+  | `NSharpLang.Compiler.AstNodeFinderCore` | — | **4** — `CodeIntelligenceNavigation::FindExpressionAtPositionRobust`, `CompletionReceiverFacts::FindMemberAccessAtPosition` [both BootstrapServices], **`CompletionHandler::GetMemberCompletionViaAst`** and **`HoverHandler::Handle`** [both LanguageServer] | CONSUMED |
+
+  Control `ColumnarParserRecovery` = **55** external sites. **The reroute is proved in IL, not in
+  source**: the two LSP handlers now appear as direct callers of the N# owner, and the C# forwarder
+  is gone from every assembly the repository builds.
+
+  ### THE MUTATION MATRIX, AND THE GAP IT FOUND
+
+  Baseline verified green FIRST on the rerouted build: `LanguageServerTests` **133 / 133**, the LSP
+  protocol-seam harness answering all 13 probes. Then the N# OWNER was perturbed and everything
+  re-run. **Both mutations were checked to have actually applied before any verdict was reported**,
+  and the owner is restored by an `EXIT` trap so a failed run cannot leave a mutant on disk.
+
+  | # | mutation to `AstNodeFinderCore.nl` | `LanguageServerTests` | LSP protocol seam |
+  |---|---|---|---|
+  | **M1** | `FindExpressionAtPosition` answers `null`, always | **2 of 133 FAIL** — `Completion_MemberAccess_NSharpClassAsync`, `Completion_MemberAccess_NSharpClass_PrefersSourceMembersOverClrNameCollisionAsync` | **3 rows move** — both member-completion probes collapse from `count=3 sourceMembers=['Age','Greet','Name']` to `count=111 / 158 sourceMembers=[]`, and `hover-return-literal` goes from a resolved hover to `<none>` |
+  | **M2** | `IsAtPosition` shifts the first answering column by one (`nodeColumn <= targetColumn` → `nodeColumn + 1 <= …`) | **0 of 133 fail — the whole suite passes a one-column boundary shift** | **1 row moves** — `member-access-on-receiver` collapses from the three source members to `count=158 sourceMembers=[]` |
+
+  **THE COMPLETION SITE IS PINNED BY TWO NAMED TESTS. THE HOVER SITE IS PINNED BY NONE OF THE 133,
+  AND THAT IS THIS SLICE'S FINDING.** M1 is the strongest possible perturbation of the owner — it
+  makes the finder answer nothing, ever — and not one hover body notices. The mechanism is decoded,
+  not guessed: `HoverHandler.TryResolveExpression` (`:202`) handles exactly ONE shape,
+  `case IdentifierExpression id: return ResolveIdentifier(id.Name, doc)`, and the word-based fallback
+  at `:87` calls `ResolveIdentifier(word, doc)` with the text under the cursor. For every hover
+  fixture in the suite the node's `Name` and the cursor's `word` are **the same string**, so the AST
+  path and the fallback produce byte-identical hovers and killing the former is invisible.
+  `Hover_LocalVariableAsync`, `Hover_VariableWithSystemTypeAsync`, `Hover_FunctionNameAsync`,
+  `Hover_KeywordAsync`, `Hover_PrimitiveTypeAsync`, `Hover_InvalidPositionAsync` and the two
+  `…IncludesRange` bodies all sit in that blind spot.
+
+  ### THE ADDED COVERAGE: THE LSP SEAM DRIVEN OVER THE ACTUAL PROTOCOL
+
+  The mandate's remedy for "no test exercises the site" is taken, and the shape is the **019 arc's
+  precedent** (`nl96-lspformat.py`, which drove `initialize` → `initialized` → `didOpen` →
+  `textDocument/formatting` against each side's built `LanguageServer.dll` precisely because the VS
+  Code suite did not cover the surface under test). **New C# was not an option and neither was new
+  TypeScript**: task 021's contract forbids adding C# tests outright, and every
+  `editors/vscode/test/suite/*.test.ts` file is a ratcheted row sitting at its epoch ceiling —
+  `hover.test.ts` is `epochLines` 245 = `currentLines` 245 with `epochAssertionMarkers` 11 = 11, so
+  one more `test(` is an `OWN004`. The seam harness is therefore the coverage, exactly as it was in
+  019.
+
+  `lspseam.py` opens a REAL LSP session against a built `LanguageServer.dll` — `initialize` →
+  `initialized` → `didOpen` → **4 `textDocument/completion` + 9 `textDocument/hover` requests** →
+  `shutdown` → `exit` — over a fixture that is **byte-for-byte the source of
+  `Completion_MemberAccess_NSharpClassAsync`**, so the protocol seam and the handler seam ask the
+  SAME question of the SAME tree. It reports each completion as `count` + the source members present,
+  and each hover as its `range` and `contents`.
+
+  **THE COMPARATOR: 13 = 13, BYTE-IDENTICAL.** The "before" side is not a second repository — a
+  second tree was tried and abandoned when a from-scratch `BootstrapServices` emit produced a 2.5 MB
+  assembly missing `NSharpLang.Compiler.Ast` and 144 downstream `CS0234`s, twice. **The exact
+  comparator is cheaper and stronger**: the three HEAD blobs (`AstNodeFinder.cs` and both handlers)
+  were restored over the working tree, ONLY the C# layer rebuilt (the N# owner never moved, so the
+  measurement isolates the reroute and nothing else), and the harness re-run.
+  **`seam-before.txt` and `seam-after.txt` are 1,596 bytes each and diff to nothing.** The tree was
+  then restored and the replica re-run to confirm both handler fingerprints were back to the exact
+  values the audit later reported.
+
+  **AND THE INSTRUMENT IS PROVED TO MOVE**, which is the half that makes the identity a measurement:
+  the same harness against the M1 build differs on 3 rows and against the M2 build on 1 — including
+  a row the entire 133-body `LanguageServerTests` suite cannot see.
+
+  ### THE COUNTS
+
+  | | before | after |
+  |---|---|---|
+  | `src/NSharpLang.Compiler` tracked `.cs` | **11 files / 27,981 lines** | **10 / 27,966** |
+  | `AstNodeFinder.cs` | 15 / 13 non-blank | **DELETED** |
+  | `CompletionHandler.cs` | 700 / 611 | **700 / 611** (fingerprint only) |
+  | `HoverHandler.cs` | 307 / 264 | **307 / 264** (fingerprint only) |
+  | `AstNodeFinderCore.nl` | 376 | **389** (a 13-line ownership header; N#, not ratcheted) |
+  | `NSharpLang.Compiler.AstNodeFinder` IL consumers | 6 sites / 2 callers | **0 / 0** |
+  | `NSharpLang.Compiler.AstNodeFinderCore` distinct external callers | 4 (one of them the forwarder) | **4 (both LSP handlers, forwarder gone)** |
+  | compiler-service estate | 6,821 | **6,821 / 6,821, 0 failed** |
+  | `LanguageServerTests` | 133 | **133 / 133** |
+  | native test projects (gate discovery over `examples tests`) | 46 | **46** |
+  | live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 395 / 246 | **395 / 246** — census `NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26` IDENTICAL to slice 3's, **0 rows in any `.tests.nl`, 0 naming `AstNodeFinderCore`** |
+  | `nlc format --project src/NSharpLang.Compiler.BootstrapServices --check` | | **All files are properly formatted** — first write, no reformat needed |
+
+  **ONE INHERITED COUNT IS CORRECTED RATHER THAN REPEATED.** Slice 3 recorded "BootstrapServices
+  `.nl` files 663 → 665". The tracked count at this tip is **666** (`271` `.tests.nl` + `395`
+  production, and the 395 is exactly the live tree's `checkedFiles`), and it is **666 at `HEAD`
+  too** — this slice adds no `.nl` file, so the one-file difference is inherited from slice 3's
+  count, not created here.
+
+  ### THE REPIN — ONE ROW REMOVED, TWO FINGERPRINTS MOVED, NO CEILING RAISED
+
+  Walked from a replica **validated against the PRISTINE manifest FIRST**. Because the production
+  edits were already on disk, "pristine" was taken from the `HEAD` BLOBS rather than the working
+  tree: the replica reproduced all three stored header fingerprints AND the stored row of all three
+  touched files from `git show HEAD:<path>`, then PREDICTED the post-slice values.
+
+  **THE REPLICA'S FIRST RUN WAS WRONG AND SAID SO.** It reported 3 assertion markers for
+  `CompletionHandler.cs` and 1 for `HoverHandler.cs` where the manifest stores 0 — because it counted
+  markers unconditionally while the audit gates them behind `OwnershipPolicy.IsAssertionTracked`
+  (`OwnershipAudit.nl:417`), which counts markers ONLY for TEST sources. (`Edit(`/`Submit(` contain
+  the `it(` marker; that is why a handler file "has" markers.) The replica was corrected to implement
+  the gate and only then reproduced the manifest exactly. **A replica that had not been validated
+  would have written three wrong numbers into the ratchet.**
+
+  The audit was then run on the PRISTINE manifest to see the drift before writing it, and reported
+  **17 / 18** with exactly three violations, each matching the replica's prediction to the digit:
+
+  ```
+  OWN006 [src/NSharpLang.Compiler/AstNodeFinder.cs]: active debt entry disappeared; mark it removed in the same deletion commit
+  OWN005 [.../CompletionHandler.cs]: fingerprint drift; observed text-v1:3e16d48f628bd22b
+  OWN005 [.../HoverHandler.cs]:      fingerprint drift; observed text-v1:abfdb55c132c788b
+  ```
+
+  | | before | after |
+  |---|---|---|
+  | `src/NSharpLang.Compiler/AstNodeFinder.cs` row | `existing-debt` 15 / 13 / `text-v1:46647ee5a8138c21` | **`removed` 0 / 0 / `text-v1:removed`** |
+  | `CompletionHandler.cs` row | 700 / 611 / `text-v1:9413a5c9a9e0e9d1` | 700 / 611 / **`text-v1:3e16d48f628bd22b`** |
+  | `HoverHandler.cs` row | 307 / 264 / `text-v1:d587daa6b8509ea4` | 307 / 264 / **`text-v1:abfdb55c132c788b`** |
+  | `reviewedHeadFingerprint` | `head-v1:b1e6e68c307a8227` | **`head-v1:9196b35151879970`** — two-key, repinned LAST |
+  | `epochPathFingerprint` / `epochFactFingerprint` / `epochFileCount` | | **UNCHANGED** `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` / **381** |
+
+  The repin refuses to raise any ceiling per field before it writes, and asserts the epoch triple
+  unchanged after. Both keys moved together — the manifest header AND `OwnershipAudit.nl:241`'s
+  `ReviewedHeadFingerprint` constant. **`nlc test --project tests/native/ownership-audit` → 18 / 18**,
+  and PROVED non-vacuous twice: reverting the CONSTANT alone (a one-key head) fails **17 / 18**, and a
+  one-line ceiling raise on `HoverHandler.cs` fails **17 / 18**; restored, **18 / 18**. Manifest
+  **391 lines, no BOM** (first bytes `7b 0a 20`).
+
+  ### THE IDE BAR — WHAT WAS DONE, AND PLAINLY WHAT IT IS NOT
+
+  This is the first of the three 021 slices that changes code the developer experience runs through,
+  so `VSCODE_TESTS=skip` is NOT set and the extension is rebuilt and reinstalled.
+
+  **THE EXTENSION WAS REBUILT, REPACKAGED AND REINSTALLED**, not assumed current:
+  `./scripts/reload-vscode-extension.sh` exited **0** — VS Code killed, the language server rebuilt,
+  **`editors/vscode/nsharp-0.6.0.vsix` packaged (289 files, 3.95 MB, `server/` 68 files / 10.27 MB)**,
+  `code --install-extension … --force` reporting *"Extension 'nsharp-0.6.0.vsix' was successfully
+  installed"*, and VS Code reopened on `examples/01-hello-world`. The `server/` payload in that VSIX
+  is the LanguageServer built from THIS tree, so the installed extension is the rerouted one.
+
+  **AN INTEGRATION SUITE IS NOT A SCREENSHOT, AND THIS RECORD DOES NOT PRETEND OTHERWISE.**
+  `AGENTS.md` requires computer-use visual verification for IDE-affecting changes and computer-use is
+  NOT available in this session. What discharges the bar here is (1) the extension reinstall above,
+  (2) the VS Code integration suite — which in the gate's smoke mode is exactly
+  `extension, diagnostics, hover, completion`, i.e. **both surfaces this slice reroutes**, driven
+  through the real editor against the real language server, and (3) the LSP protocol-seam comparator,
+  which drives the shipped `LanguageServer.dll` over the actual JSON-RPC wire. That is three
+  independent machine checks of the same two surfaces. **It is still not a human, or an agent, LOOKING
+  at a hover popup in a real window.** The specific thing none of it proves is RENDERING — that the
+  markdown a handler returns is drawn correctly, that a completion list is positioned where the cursor
+  is, that no popup flickers or lands offscreen. Every check above verifies the ANSWER, not the
+  PICTURE. The honest statement is: this slice's reroute is proved not to change any answer the
+  editor receives, and the picture is unverified for want of the tool that verifies pictures.
+  **021/12 carries the visual verification, and that debt is named here rather than quietly closed.**
+
+  ### GATE — VS CODE ENABLED, GREEN END TO END
+
+  One fresh isolated `./scripts/test-all.sh --commit` with **`VSCODE_TESTS` DELIBERATELY UNSET**, run
+  from a `/tmp` byte-copy that excludes `.claude/worktrees/` and `TestResults/` (the nested-worktree
+  hazard is checked, not assumed: the copy contains **0** `NSharpLang.Benchmarks.csproj`, and so does
+  the tracked tree at this tip — all three copies live inside worktrees). Cache key
+  `3a15e7d2ba41a072`, run directory `/tmp/nsharp-test-all.3a15e7d2ba41.b76ozh`, log
+  `/tmp/nsharp-s021s4-gate.log` **outside the copy**. `--commit` disables both the whole-gate cache
+  and per-step skipping, so nothing was reused.
+
+  **`ALL TESTS PASSED! ✓`, exit 0, 26 m 00 s, 127 PASSED steps, ZERO failures.**
+
+  | step | verdict |
+  |---|---|
+  | Build N# Compiler | PASSED (4 m 39 s) |
+  | Format Contract Gate | PASSED — all four checks `All files are properly formatted` |
+  | Unit Tests | **`Passed: 606, Failed: 0, Skipped: 0, Total: 606`** — the inherited baseline exactly, so deleting the forwarder and rerouting both handlers costs ZERO C# tests |
+  | Native N# — compiler-service estate | **`Passed: 6821, Failed: 0, Skipped: 0, Total: 6821`** |
+  | Native N# — all **46** projects | PASSED, zero failures — including `tests/native/ownership-audit` (the two-key repin verified inside the fresh tree, not only locally) and `tests/native/systems-analysis-census` |
+  | **VS Code Integration Tests** | **PASSED — `36 passing (40s)`, 0 pending/skipped.** The gate's smoke selection is `extension, diagnostics, hover, completion` — **both surfaces this slice reroutes**, driven through the real editor against the real language server |
+  | Pack + install SDK, Runtime, Templates | PASSED |
+  | `dotnet new` template creation + build | PASSED |
+  | Example projects (**22**) + single-file examples (**38**) | PASSED |
+  | `nlc check` on examples | PASSED |
+  | IL Verification Gate | PASSED — **all 67 N# assemblies pass, no new errors vs baseline** |
+
+  **No failure group was inherited and none was created.** The stage boundary did not bind: nothing in
+  this slice needed a new emit surface, so no mid-slice repack was required.
+
+  **THE EXHAUSTIVE VS CODE SUITE WAS ATTEMPTED AS AN EXTRA AND DID NOT RUN — SAID HERE RATHER THAN
+  OMITTED.** Beyond the mandated gate, `tests/scripts/test-vscode-integration.sh` was run standalone
+  with no `TEST_SUITE` filter to take all ~21 editor suites. It built and published the language
+  server, compiled the TypeScript, then printed *"Removing incomplete VS Code test install:
+  .vscode-test/vscode-darwin-arm64-1.132.0"* and **wedged at 0.0 % CPU for 19 minutes with no
+  download directory appearing**; it was killed (it is a standalone run, not a gate driver — the
+  standing rule about never killing a `test-all.sh` driver does not apply). This is an environment
+  fault in the test-electron VS Code download, not a product failure: **the SAME harness ran green
+  inside the gate's isolated workspace minutes earlier**, which is where the bar's evidence comes
+  from. The extra run adds nothing that was required and its absence removes nothing that was.
+
+  ### THE COMMENTS THIS SLICE MADE FALSE ARE CORRECTED, AND THE ONE IT DID NOT IS SAID SO
+
+  Five places outside the deleted file named it. Two carried a PRESENT-TENSE claim that the shim
+  EXISTS and are corrected, because a codebase that lives by its comments cannot leave a sentence
+  standing that its own slice falsified:
+
+  - `memory/testing.md:35` — "`AstNodeFinder.cs` **is** a fifteen-line shim whose whole body **is** …"
+    → past tense, plus the fact of its deletion and where its consumers went.
+  - `AstNodeFinderCore.tests.nl:19–20` — the same present-tense sentence in the estate contract's
+    header → past tense, plus three lines naming the two handlers as the owner's only C# consumers
+    and stating that these contracts are now the only assertions over the only owner.
+
+  Three are left ALONE and the reasoning is recorded rather than skipped: the three
+  `InvalidOperationException` messages inside `AstNodeFinderCore.nl` say "AstNodeFinder expected a
+  list/property" about **their own type's name**, and
+  `tests/native/analyzer-identifier-binding/AnalyzerIdentifierBinding.tests.nl:11` is an entirely
+  past-tense sentence about what a DELETED C# test file asserted in task 020. Neither is false.
+
+  **THE DOCUMENTATION DEBT IS UNCHANGED AND STILL OWED.** No architecture document describes the
+  finder or either handler, so this slice adds none; the debt named by 021/3 stands —
+  **021/12 must add the systems report's row-order guarantee to
+  `memory/components/cli-toolchain.md`** — and 021/12 additionally carries the visual IDE verification
+  this slice could not take.
+
+  ### CLEANUP AND WORKING TREE
+
+  **NOT COMMITTED — the mandate reserves that. `tasks/README.md` is NOT edited: 021/4 of 12 is done
+  and the 021 box stays unchecked.** Every scratch instrument — the ratchet replica and its
+  pristine-first validator, the repin, the mutation harness, the LSP protocol-seam harness, the three
+  seam captures and both gate logs — lives OUTSIDE the tree in the session scratchpad and `/tmp`. The
+  abandoned second-tree comparator (`/tmp/nsharp-s021s4-head`) was deleted when the exact HEAD-blob
+  comparator replaced it, and the gate's `/tmp` byte-copy was removed once its log was banked. No
+  `TestResults/` and no `.bak` was left behind; `tests/TestResults` is absent. **The wedged extra VS
+  Code run left two generated fixtures behind — `editors/vscode/test/fixtures/simple/_perf_large.nl`
+  and `_perf_rapid.nl`, written by `performance.test.ts` and normally cleaned up by the run that
+  creates them — and both were deleted**; `git status --untracked-files=all` reports NO untracked
+  files. The nine background-task chips are untouched and stay pinned as measured.
+
+  The working tree carries exactly **eight paths**: the DELETED `AstNodeFinder.cs`, the two rerouted
+  LSP handlers, `AstNodeFinderCore.nl` (owner header) and `AstNodeFinderCore.tests.nl` (corrected
+  header), the two ratchet keys (`non-nsharp-growth-ratchet.v1.json`, `OwnershipAudit.nl`),
+  `memory/testing.md`, and this STATUS. *(Nine entries, eight of them production/test/ratchet paths
+  plus the ledger.)*
+
+  **NEXT IS SLICE 5 — THE LSP'S SIX RE-IMPLEMENTATIONS ROUTED TO THEIR EXISTING N# OWNERS, AND IT
+  ALSO CARRIES THE IDE BAR.** `TypeResolver.cs`, `SemanticTokensHandler.cs`'s vocabularies plus
+  `:921`, `CallHierarchyHandler.cs`, `EditorUtilities.cs`'s literal lexer, and the duplicated
+  implementor resolution. Slice 1's decode stands: this is NOT a missing-owner problem — `Lexer.nl`'s
+  `KeywordTypeForText` (`:989`) and `KeywordTextForType` (`:1248`) are PascalCase and therefore
+  already public, and `CodeIntelligenceService.GetCallGraph` / `GetImplementors` already ship — the
+  work is ROUTING. **Unlike slice 4, each of those reroutes is a behavior change a user SEES**, so the
+  before/after comparator matters there in a way it did not here, and slice 4's `lspseam.py` is the
+  instrument that is already built for it: extend its probe list to `textDocument/semanticTokens/full`,
+  `callHierarchy/*` and `textDocument/documentHighlight` and take the same before/after capture. **Two
+  further warnings from this slice carry forward: every `editors/vscode/test/suite/*.test.ts` is a
+  ratcheted row at its epoch ceiling, so new editor coverage cannot go there; and the
+  `LanguageServerTests` suite passed a ONE-COLUMN boundary shift in the finder, so it must not be
+  treated as a sufficient instrument for a routing slice.**
+
+- Active sub-slice (021 arc, PRIOR TURN — **SLICE 3 — `SystemsAnalyzer`'s THREE ORDERING SITES.
   THE DECODE, RECORDED BEFORE ANY PRODUCTION EDIT.**
 
   ### THE THREE SITES, RE-VERIFIED BY DECODE

@@ -64,7 +64,7 @@ public class HoverHandler : HoverHandlerBase
         Expression? expression = null;
         if (doc.CompilationUnit != null && doc.SemanticModel != null)
         {
-            expression = AstNodeFinder.FindExpressionAtPosition(doc.CompilationUnit, line, character);
+            expression = AstNodeFinderCore.FindExpressionAtPosition(doc.CompilationUnit, line, character) as Expression;
             if (expression != null)
             {
                 var hover = TryResolveExpression(expression, word, doc);

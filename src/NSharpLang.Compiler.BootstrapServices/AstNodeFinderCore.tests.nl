@@ -16,9 +16,12 @@ import NSharpLang.Compiler.Ast
 //
 // THE INVENTORY THIS CORRECTS. Slice 22 recorded `AstNodeFinderTests.cs` as unreachable from the
 // estate because it "drives `AstNodeFinder`, a code-intelligence type". Measuring it says otherwise:
-// `src/NSharpLang.Compiler/AstNodeFinder.cs` is FIFTEEN lines and its whole body is
+// `src/NSharpLang.Compiler/AstNodeFinder.cs` was FIFTEEN lines and its whole body was
 // `AstNodeFinderCore.FindExpressionAtPosition(ast, line, column) as Expression`, so the subject of
 // three of the five methods, and of 21 of the 30 claim rows, is an N# class that lives HERE.
+// Task 021 slice 4 then DELETED that C# forwarder outright: its two consumers, the LSP's
+// `CompletionHandler` and `HoverHandler`, now call `AstNodeFinderCore` directly and spell the
+// `as Expression` narrowing themselves, so these contracts are the only owner's only assertions.
 //
 // THE ROUTE IS A WHOLE-LINE SWEEP, AND IT IS STRICTLY STRONGER THAN WHAT IT REPLACES. Every deleted
 // method computed ONE cursor column with `line.IndexOf(...)`, asked the finder once and read one or

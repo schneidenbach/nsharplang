@@ -3,6 +3,19 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections
 
+
+// THE ONLY OWNER OF "WHICH EXPRESSION IS AT THIS POSITION". Task 021 slice 4 deleted the C#
+// forwarder `src/NSharpLang.Compiler/AstNodeFinder.cs` that used to wrap this call, so the LSP's
+// CompletionHandler and HoverHandler now reach this type directly, exactly as
+// CodeIntelligenceNavigation and CompletionReceiverFacts already did.
+//
+// THE RETURN TYPE IS `object?` AND EVERY CALLER NARROWS IT WITH `as`. The walk is reflective — it
+// dispatches on `GetType().Name` and reads properties by name — so it cannot name the AST types it
+// answers with. Every node it can return is declared `Expression` in Expressions.nl/Statements.nl
+// today, which makes `as Expression` total; it is spelled at every call site anyway, because `as`
+// answers NULL for a node of any other kind where a hard cast would throw, and "found the wrong
+// kind of node" must degrade to "found nothing" inside a completion or hover request, never to a
+// failed LSP call.
 class AstNodeFinderCore {
     static func FindExpressionAtPosition(ast: object, line: int, column: int): object? {
         visitor := new AstPositionVisitor(line, column)

@@ -32,8 +32,10 @@ whole error half had already moved in slice 16. The canonical contracts now live
 
 **AST POSITION FINDING has no C# assertion layer either, as of task 020 slice 23.**
 `tests/AstNodeFinderTests.cs` is DELETED and its five `[Fact]`s were SPLIT by subject, because
-`src/NSharpLang.Compiler/AstNodeFinder.cs` is a fifteen-line shim whose whole body is
-`AstNodeFinderCore.FindExpressionAtPosition(...) as Expression`. The finder half — 21 of the file's
+`src/NSharpLang.Compiler/AstNodeFinder.cs` was a fifteen-line shim whose whole body was
+`AstNodeFinderCore.FindExpressionAtPosition(...) as Expression` — that shim is itself DELETED as of
+task 021 slice 4, and its two LSP consumers now call `AstNodeFinderCore` directly, spelling the
+`as Expression` narrowing at the call site. The finder half — 21 of the file's
 30 decoded claim rows — is `AstNodeFinderCore.tests.nl` in the estate, where each of the five
 fixtures is swept COLUMN BY COLUMN across its cursor line and the answers pinned run-length encoded,
 so the boundary columns are stated rather than implied. The analyzer half — the 9 rows about
