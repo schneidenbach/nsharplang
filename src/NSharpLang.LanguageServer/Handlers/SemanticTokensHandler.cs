@@ -62,32 +62,8 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
 
     internal const int CatchResultModifierMask = 1 << 5;
 
-    // Sets for quick keyword classification
-    private static readonly HashSet<TokenType> KeywordTokenTypes = new()
-    {
-        TokenType.Func, TokenType.Class, TokenType.Struct, TokenType.Interface,
-        TokenType.Duck, TokenType.Union, TokenType.Record, TokenType.Enum,
-        TokenType.Namespace, TokenType.Using, TokenType.Import, TokenType.Package,
-        TokenType.Let, TokenType.Const, TokenType.Readonly,
-        TokenType.If, TokenType.Else, TokenType.For, TokenType.Foreach,
-        TokenType.While, TokenType.In, TokenType.Return, TokenType.Yield,
-        TokenType.Match, TokenType.Switch, TokenType.Case, TokenType.Default,
-        TokenType.Break, TokenType.Continue, TokenType.Throw,
-        TokenType.Try, TokenType.Catch, TokenType.Finally,
-        TokenType.New, TokenType.This, TokenType.Base,
-        TokenType.True, TokenType.False, TokenType.Null,
-        TokenType.Is, TokenType.As, TokenType.Typeof, TokenType.Nameof, TokenType.Sizeof,
-        TokenType.Print, TokenType.Where, TokenType.When,
-        TokenType.AndKeyword, TokenType.OrKeyword, TokenType.NotKeyword,
-        TokenType.Virtual, TokenType.Override, TokenType.Abstract, TokenType.Sealed, TokenType.Partial,
-        TokenType.Static, TokenType.Internal, TokenType.Protected,
-        TokenType.Async, TokenType.Await, TokenType.Immutable, TokenType.With,
-        TokenType.Type, TokenType.Test, TokenType.Assert,
-        TokenType.Operator, TokenType.Required, TokenType.Init,
-        TokenType.Ref, TokenType.Out, TokenType.Lock, TokenType.File, TokenType.Params,
-        TokenType.Checked, TokenType.Unchecked, TokenType.Implicit, TokenType.Explicit,
-    };
-
+    // Keywords are NOT enumerated here: `Lexer.IsReservedKeyword` is the single owner of
+    // "is this token a keyword", and the editor asks it rather than keeping a copy that drifts.
     private static readonly HashSet<TokenType> OperatorTokenTypes = new()
     {
         TokenType.Plus, TokenType.Minus, TokenType.Star, TokenType.Slash, TokenType.Percent,
@@ -206,7 +182,7 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         HashSet<SemanticTokenLocation>? catchResultBindings = null)
     {
         // Keywords
-        if (KeywordTokenTypes.Contains(token.Type))
+        if (Lexer.IsReservedKeyword(token.Type))
         {
             return (12, 0); // keyword
         }

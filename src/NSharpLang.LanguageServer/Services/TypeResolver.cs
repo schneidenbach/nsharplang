@@ -522,43 +522,6 @@ public class TypeResolver
         }
     }
 
-    /// <summary>
-    /// Format a type name for display
-    /// </summary>
-    private string FormatTypeName(Type type)
-    {
-        if (type.IsGenericType)
-        {
-            var genericType = type.GetGenericTypeDefinition();
-            var genericArgs = type.GetGenericArguments();
-            var typeName = genericType.Name;
-
-            // Remove `1, `2, etc. from generic type names
-            var backtickIndex = typeName.IndexOf('`');
-            if (backtickIndex > 0)
-            {
-                typeName = typeName.Substring(0, backtickIndex);
-            }
-
-            var argNames = string.Join(", ", genericArgs.Select(FormatTypeName));
-            return $"{typeName}<{argNames}>";
-        }
-
-        // Use simple names for common types
-        return type.Name switch
-        {
-            "Int32" => "int",
-            "Int64" => "long",
-            "Single" => "float",
-            "Double" => "double",
-            "Boolean" => "bool",
-            "String" => "string",
-            "Void" => "void",
-            "Object" => "object",
-            _ => type.Name
-        };
-    }
-
 }
 
 /// <summary>

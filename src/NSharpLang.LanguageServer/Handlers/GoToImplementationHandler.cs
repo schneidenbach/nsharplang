@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol;
@@ -161,14 +162,14 @@ public class GoToImplementationHandler : ImplementationHandlerBase
                 // Check base class (only relevant when target is a class)
                 if (targetKind == TargetSymbolKind.Class && classDecl.BaseClass != null)
                 {
-                    matches = TypeReferenceMatchesName(classDecl.BaseClass, targetName);
+                    matches = CodeIntelligenceDisplayText.InterfaceNameMatches(classDecl.BaseClass, targetName);
                 }
 
                 // Check interfaces (relevant for both interface and class targets,
                 // since a class could appear in an implements list if it is the base)
                 if (!matches)
                 {
-                    matches = classDecl.Interfaces.Any(iface => TypeReferenceMatchesName(iface, targetName));
+                    matches = classDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName));
                 }
 
                 if (matches && VerifySemantic(doc, classDecl.Name, targetName))
@@ -182,7 +183,7 @@ public class GoToImplementationHandler : ImplementationHandlerBase
 
             case StructDeclaration structDecl:
             {
-                if (structDecl.Interfaces.Any(iface => TypeReferenceMatchesName(iface, targetName)))
+                if (structDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
                 {
                     if (VerifySemantic(doc, structDecl.Name, targetName))
                     {
@@ -196,7 +197,7 @@ public class GoToImplementationHandler : ImplementationHandlerBase
 
             case RecordDeclaration recordDecl:
             {
-                if (recordDecl.Interfaces.Any(iface => TypeReferenceMatchesName(iface, targetName)))
+                if (recordDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
                 {
                     if (VerifySemantic(doc, recordDecl.Name, targetName))
                     {
@@ -210,20 +211,6 @@ public class GoToImplementationHandler : ImplementationHandlerBase
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Extracts the name from a TypeReference and compares it to the target.
-    /// Handles both <see cref="SimpleTypeReference"/> and <see cref="GenericTypeReference"/>.
-    /// </summary>
-    private static bool TypeReferenceMatchesName(TypeReference typeRef, string targetName)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference simple => string.Equals(simple.Name, targetName, StringComparison.Ordinal),
-            GenericTypeReference generic => string.Equals(generic.Name, targetName, StringComparison.Ordinal),
-            _ => false
-        };
     }
 
     /// <summary>
