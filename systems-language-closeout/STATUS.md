@@ -1,6 +1,41 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-26 (**TASK 020 IS COMPLETE — `tasks/README.md`'s 020 BOX IS CHECKED. SLICE 45
+Last updated: 2026-08-26 (**TASK 021 OPENS. SLICE 1 IS THE MEASURED MAP OF `NSharpLang.Compiler`
+OWNERSHIP, THE FREE DELETIONS, AND THE DEPENDENCY-ORDERED PLAN FOR THE REST.** The instrument is a
+TYPE-level receiver-typed IL census over **90 assemblies / 188,291 method bodies / 0 undecodable
+opcodes**, and **ITS FIRST PASS WAS WRONG AND FOUND ITS OWN ERROR**: `.WithHandler<T>()` hides its
+type argument in a MethodSpec SIGNATURE BLOB, so three live LSP handlers read as zero-consumer until
+an ECMA-335 signature walker was added — the run-1/run-2 diff IS the generic-path non-vacuity
+control. **THE INVENTORY COVERS ALL 13 TRACKED FILES**: `Analyzer.cs` 23,451 → 2,960 with its ENTIRE
+product-decision residue (3 sentences, 3 ordering sites, 2 comparator returns) measured to fall
+INSIDE the **27-extent / 646-line** MLC quarantine; `SystemsAnalyzer.cs` 1,160 lines carrying **ZERO**
+sentences and zero codes over TWELVE N# policy owners; `OutputFormatter.cs` 37 members and zero
+literals. **TWO DELETIONS, BOTH PROVEN AND BOTH MUTATION-CONTROLLED**:
+`Columnar/ColumnarCompiler.cs` is deleted WHOLE (0 external, 0 self sites — its consumers were five
+C# test files task 020 already migrated to `tests/native/columnar-emit-facts`, and the real path
+passes two arguments it cannot), and the slice-21 dead carrier's surviving half
+(`MultiFileCompiler.SharedAnalyzer` + `ProjectRoot`, 665 → 663). Three injected mutations each broke
+the build as required (CS1061 ×2, CS0234). **FOUR FINDINGS. (1) THE INHERITED AOT PREMISE IS
+OVERTURNED**: `DogfoodKernelLoader` does not exist — it was retired at `3c963eb5d`, an ancestor of
+this tip — and the real blocker is `System.Reflection.Emit` (1,190 `OpCodes.` sites, 177
+`TypeBuilder`, 2 `PersistedAssemblyBuilder`), re-priced below. **(2)** `ColumnarProgramInputBuilder`
+decides `ref struct`-ness and constructor starts by comparing raw `TokenType` ORDINALS in C#
+(`:406` `== 78`, `:867` `== 8||9||13`). **(3) A SHIPPED LANGUAGE FEATURE IS BROKEN**: `off <local>`
+is not counted as a READ, so a subscription consumed only by its `off` fires a false `NL001` —
+rendered as an ERROR by `nlc build` — proven against a `print(sub)` control that reports clean;
+`on`/`off` also has NO columnar
+emit path at all, and the same 27-row `commonAssemblies` table that hides `System.Timers` also makes
+`FileSystemWatcher` unresolvable while calling its import unused. **(4)**
+`NSharpLang.Runtime.ResultFactory` is dead public API (0 sites), named for the
+runtime campaign rather than deleted under a compiler task. The plan sequences **TWELVE 021 slices**
+with each blocker named, the AOT static-binding sequence priced item by item, and the closing
+slice's IDE debt recorded honestly — computer-use is unavailable here, so the visual half will be
+discharged by the VS Code integration suite plus an extension reinstall, and the closing record must
+say that an integration suite is not a screenshot. Ratchet repinned two-key
+`head-v1:93ca1813fea30994` → **`head-v1:e65ccd3f8b930d04`**, epoch values UNCHANGED, audit **18/18**.
+The fresh isolated `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` gate is **ALL TESTS PASSED, exit 0, 126 steps, 0 failures** — units **606/606**, estate **6778/6778**, all **46** native projects, templates, 22 examples, 38 single-file examples, `nlc check` and ILVerify. NOT COMMITTED — the mandate reserves that; `tasks/README.md` is NOT edited)
+
+Last updated (prior): 2026-08-26 (**TASK 020 IS COMPLETE — `tasks/README.md`'s 020 BOX IS CHECKED. SLICE 45
 SWEEPS THE LAST BUCKET-(a) BODIES AND THE CLOSING DECISION PASSES ON BOTH HALVES.** Slice 44's
 closing pass named 30; the SHARPENED classifier — a reachability rule on top of the call rule — says
 **29**, because `DotnetBuild_ResolvesRuntimeForAnonymousUnionAndProjectReferences` calls
@@ -4224,7 +4259,435 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 45 — THE 30-BODY SWEEP AND THE 020 CLOSING
+- Active sub-slice (021 arc, THIS TURN — **SLICE 1 — THE OPENING INVENTORY OF THE FINAL COMPILER
+  OWNERSHIP AUDIT. THE MAP IS MEASURED, THE FREE DELETIONS ARE TAKEN, AND THE REMAINDER IS
+  SEQUENCED.**
+
+  Task 021 opens. This slice does not retire an owner; it builds the instrument, measures every
+  tracked file in `NSharpLang.Compiler`, deletes what the measurement proves dead, and writes the
+  dependency-ordered plan for the slices that do the retiring. **One inherited premise is
+  OVERTURNED BY MEASUREMENT and one shipped language feature is found BROKEN.**
+
+  ### THE INSTRUMENT: A TYPE-LEVEL RECEIVER-TYPED IL CENSUS, WITH ITS OWN BLIND SPOT FOUND AND FIXED
+
+  The slice-21 precedent (`nl97ilcensus`) counts call sites by MEMBER name and reports them by
+  DECLARING TYPE. This slice needs the TYPE question — *does anything consume `T` at all* — so the
+  census was rebuilt around types: every `call`/`callvirt`/`newobj`/`calli`/`ldftn`/`ldvirtftn`,
+  every field op (`ldfld`/`ldflda`/`stfld`/`ldsfld`/`ldsflda`/`stsfld`) and every type op
+  (`castclass`/`isinst`/`box`/`unbox`/`unbox.any`/`newarr`/`ldtoken`/`ldobj`/`stobj`/`cpobj`/
+  `initobj`/`constrained`/`sizeof`/`ldelem`/`stelem`/`ldelema`) in every method body of every
+  assembly the repo builds, split into EXTERNAL sites and SELF sites (caller type == target type,
+  or a nested type of it). The opcode operand table is still built by reflection over
+  `System.Reflection.Emit.OpCodes`, so it cannot be wrong by transcription. **90 assemblies,
+  188,291 method bodies, 0 undecodable opcodes**, with the staleness gate at `2026-08-26T00:00:00`
+  skipping **551** stale `.dll`s (the `benchmarks/bin` tree that fooled the slice-21 census is among
+  them).
+
+  **ITS FIRST PASS WAS WRONG AND THE CENSUS ITSELF FOUND IT.** Swept over all **84 top-level types**
+  of `Compiler`/`Cli`/`LanguageServer`/`Playground`/`Build.Tasks`/`Runtime`, run 1 reported **TEN**
+  zero-consumer types, three of which were
+  `NSharpLang.LanguageServer.Handlers.{CodeAction,DidChangeWatchedFiles,TextDocument}Handler`. Those
+  handlers are registered by `.WithHandler<T>()` — a **MethodSpec** whose type argument lives in a
+  SIGNATURE BLOB, not in a bare `TypeRef`. A token-only census cannot see it. An ECMA-335
+  type-signature walker was added (GENERICINST / PTR / BYREF / SZARRAY / ARRAY / CMOD / VAR / MVAR),
+  applied to `TypeSpec` parents, `MemberRef` parents and `MethodSpec` instantiations, and **run 2
+  reports SEVEN — all three handlers resolve as CONSUMED**. The run-1/run-2 diff IS the non-vacuity
+  control for the generic path; the declared control (`ColumnarParserRecovery`, **112** external
+  sites) is the control for the ordinary path. Both pass. **The blind spot is recorded because it
+  would have produced three false deletions.**
+
+  The seven survivors of run 2 are decided one by one, and only ONE is dead: the three
+  `Build.Tasks` types are bound by MSBuild `UsingTask` reflection from
+  `src/NSharpLang.Sdk/Sdk/Sdk.targets:21–25`; `LanguageServer.Program` is an entry point;
+  `NSharpLang.Runtime.NSharpEventSubscription\`1` is consumed only by EMITTED user IL (and see
+  finding 3); `NSharpLang.Runtime.ResultFactory` is genuinely dead but out of scope (finding 4);
+  and `NSharpLang.Compiler.Columnar.ColumnarCompiler` is the deletion.
+
+  ### THE COMPLETE INVENTORY — EVERY TRACKED FILE IN `src/NSharpLang.Compiler`
+
+  Thirteen tracked files (12 `.cs` + the `.csproj`). Line counts are `ratchet epoch → current`.
+  "Consumers" is EXTERNAL IL sites / distinct external calling methods, from the census above.
+  Classification is (i) zero-consumer legacy → delete, (ii) mechanical boundary, (iii) still-owning
+  C# that a later 021 slice must retire.
+
+  | file | epoch→current | surface | canonical N# owner | consumers | class |
+  |---|---|---|---|---|---|
+  | `Analyzer.cs` | 23,451 → **2,960** | semantic-analysis driver shell + assembly/metadata loading | ~40 `Analyzer*.nl` owners (`AnalyzerDeclarationContext`, `AnalyzerTypeResolver`, `AnalyzerMemberResolution`, `AnalyzerDiagnosticSink`, `AnalyzerDiagnosticSpans`, `AnalyzerAssignability`, `AnalyzerOverloadScoring`, `AnalyzerSyntheticCall*`, `AnalyzerExternalTypeProbe`, `AnalyzerWellKnownTypes`, …) | 114 / 11 | **(ii) + (iii)** — driver shell is mechanical; the **27-extent / 646-line** MLC surface is (iii) |
+  | `AstNodeFinder.cs` | 15 → **15** | AST node at a position | `AstNodeFinderCore.nl` | 6 / 2 (`CompletionHandler.GetMemberCompletionViaAst`, `HoverHandler.Handle`) | (ii) one-line forwarder; retires in 021/4 |
+  | `CodeIntelligence/CodeIntelligenceService.cs` | 1,906 → **153** | project snapshot load + query façade | `ProjectSnapshot.nl`, `CodeIntelligenceQueries.nl`, `CodeIntelligenceNavigation.nl` | 177 / 40 | (ii) reviewed host — the one non-movable thing is a DIRECTION OF DEPENDENCY (`MultiFileCompiler` lives above BootstrapServices) |
+  | `CodeIntelligence/CompletionEngine.cs` | 805 → **96** | completion entry point | `CompletionEngineKernels.nl`, `CompletionReceiverFacts.nl`, `CodeIntelligenceSourceTextKernels.nl`, `CodeIntelligenceNavigation.nl` | 36 / 9 | (ii) mechanical host |
+  | `CodeIntelligence/FixApplicator.cs` | 57 → **54** | collect fixable diagnostics for a file | `ColumnarParserRecovery.nl`, `Linter.nl`/`LinterConfig.nl`, `CodeFix.nl` | 3 / 1 (`FixCommand.Execute`) | (ii) mechanical host |
+  | `CodeIntelligence/OutputFormatter.cs` | 379 → **271** | CLI JSON/text envelopes | `OutputFormatterJsonKernels.nl`, `OutputFormatterDiagnosticKernels.nl`, `CodeIntelligenceResultKernels.nl` | 296 / 42 | (ii) pure forwarder — 37 members, every one a single `=>` or `return` |
+  | `Columnar/ColumnarCompiler.cs` | 39 → **DELETED** | single-source columnar emit entry | superseded by `MultiFileCompiler.TryEmitWithColumnarBackend` | **0 / 0** | **(i) DELETED THIS SLICE** |
+  | `Columnar/ColumnarDeclineTrace.cs` | 39 → **39** | `[ThreadStatic]` decline trace | `ColumnarDeclineReasons.nl` (`ColumnarDeclineReason`) | 336 / 9 → **8** | (ii) mechanical thread-local store |
+  | `Columnar/ColumnarIlEmitter.cs` | 21,723 → **21,519** | IL generation | 26 `Columnar*Planner/Resolver/Facts` `.nl` owners consulted at the FRONT DOOR of every dispatch | 24 / 2 → **1** | **(iii)** — the 015 residual, five blocked-with-record families |
+  | `Columnar/ColumnarProgramInputBuilder.cs` | 1,062 → **1,062** | columnar input materialization | 16 `global::Program.*` N# parser kernels; models in `ColumnarInputs.nl` | 24 / 2 → **1** | **(iii)** — see the two findings below |
+  | `MultiFileCompiler.cs` | 670 → **663** | project compile orchestration | `ColumnarParserRecovery.nl`, `ImportGraphBuilder`/`ImportGraphCycleDetector`/`ImportCycleDiagnosticReporter`/`ImportGraphDiagnosticSuppressor` (`ImportGraphModels.nl`), `ColumnarEmissionDiagnostics.nl`, `MultiFileCompilationResult.nl`, `Preprocessor.nl` | 501 / 83 | (ii) orchestration host |
+  | `Performance/SystemsAnalyzer.cs` | 2,390 → **1,160** | systems policy/effect walk | TWELVE N# policy owners — `SystemsTypePolicy`, `SystemsStackallocPolicy`, `SystemsCallPolicy`, `SystemsSurfacePolicy`, `SystemsBalancePolicy`, `SystemsCalleePolicy`, `SystemsAttributePolicy`, `SystemsHotSummaryPolicy`, `SystemsConstructPolicy`, `SystemsTrapPolicy` (`SystemsGuardPolicy.nl`), `SystemsAllocationPolicy`, `SystemsFindingSink` | 24 / 1 (`MultiFileCompiler.AnalyzeSystemsPolicy`) | (ii) mechanical AST walk |
+  | `Compiler.csproj` | 38 → **38** | project file | — | — | (ii) mechanical |
+
+  **The assembly's ratchet arithmetic: 21 C# rows, 9 already `removed` (12,880 epoch lines gone
+  whole — `Parser.cs` 7,117, `Formatter.cs` 2,303, `Linter.cs` 1,611, `DocQuery.cs` 740, the three
+  `Ast/*.cs` 844, `NullabilityMetadata.cs` 251, `ErrorReporting.cs` 14). Across the whole surface
+  65,416 epoch → 28,033 current before this slice → 27,992 after. EVERY surviving row is at or
+  below its immutable epoch ceiling; not one has grown.**
+
+  ### THE PRODUCT-DECISION CENSUS IS WHAT PROVES "MECHANICAL", NOT THE WORD
+
+  A host claimed mechanical must not carry what a user can observe. Every `.cs` file above was
+  swept for `NL\d{3}` literals, user-facing SENTENCES (≥20 chars, contains a space and a lowercase
+  word, excluding dotted site-ids/paths/URLs), ordering sites and non-zero exit returns:
+
+  | file | NLCODE | SENTENCE | SORT | EXIT |
+  |---|---|---|---|---|
+  | `AstNodeFinder.cs`, `CodeIntelligenceService.cs`, `FixApplicator.cs`, `OutputFormatter.cs`, `ColumnarDeclineTrace.cs` | 0 | **0** | 0 | 0 |
+  | `SystemsAnalyzer.cs` | 0 | **0** | 3 | 0 |
+  | `CompletionEngine.cs` | 0 | 1 | 0 | 0 |
+  | `MultiFileCompiler.cs` | 0 | 6 | 0 | 0 |
+  | `Analyzer.cs` | 0 | 3 | 3 | 2 |
+  | `ColumnarProgramInputBuilder.cs` | 0 | **53** | 0 | 0 |
+  | `ColumnarIlEmitter.cs` | 0 | 146 | 3 | 0 |
+
+  **`SystemsAnalyzer.cs` — 1,160 lines of AST walk — carries ZERO sentences and ZERO codes.** Every
+  finding it raises is built by an N# policy: `SystemsAllocationPolicy.Violation(...)` returns the
+  code, effect, message, severity and suggestion, and `AddFinding` only forwards them to
+  `SystemsFindingSink`. Its whole residue is THREE ordering sites (`Analyze:86` file order,
+  `:103` trusted-site order, `:244` per-function call-list order) — observable report ordering that
+  belongs to the N# report owner.
+
+  **`Analyzer.cs`'s ENTIRE product-decision residue is INSIDE the MLC quarantine, and that is
+  measured, not asserted.** All three sentences (`:2441`, `:2736`, `:2757`), all three ordering
+  sites (`:2395`, `:2870`, `:2874` — NuGet version ordering) and both non-zero returns (`:2882`,
+  `:2937` — `IComparer` returns, not exit codes) fall inside it. The 2,960-line file's driver
+  half — 47 `Drive*`/`Analyze*` members — carries none.
+
+  `MultiFileCompiler.cs`'s six sentences are all `NSHARP_DEBUG_LOG` timing lines; `CompletionEngine.cs`'s
+  one is an internal `InvalidOperationException` for a kernel that refused its own input.
+
+  ### HOW MANY N# OWNERS EACH SURVIVOR CONSULTS — THE OTHER HALF OF "MECHANICAL"
+
+  A host is mechanical when the decisions it needs are made elsewhere. Cross-referencing every
+  capitalised identifier in each survivor against the ownership census (a name is counted only when
+  it is declared in `.nl` and NOT in any `src/*.cs`):
+
+  | file | distinct N#-declared types it NAMES |
+  |---|---|
+  | `Analyzer.cs` | **218** |
+  | `Performance/SystemsAnalyzer.cs` | **128** |
+  | `Columnar/ColumnarIlEmitter.cs` | **99** |
+  | `MultiFileCompiler.cs` | **39** |
+
+  **A 1,160-line walk that names 128 N# types and writes zero sentences is not an owner.** The same
+  reading is what makes `ColumnarIlEmitter.cs`'s 99 the interesting number: N# planners already run
+  at the front door of every dispatch, and what remains is the five blocked-with-record families,
+  not a missing owner.
+
+  ### THE QUARANTINE, MEASURED EXACTLY
+
+  The inherited figure was "~30 extents / 655 lines". Measured by brace-matched member extents over
+  the file: **20 method and nested-type extents totalling 639 lines, plus 7 field declarations = 27
+  extents / 646 lines**, 21.8 % of `Analyzer.cs`. `GetNuGetPackagesRoot` 13, `RecordReferenceLoadFailure`
+  ×2 = 9, `LoadReferencedAssembly` 35, `LoadReferencedAssemblyByName` 18, `RegisterMetadataAssembly`
+  5, `IsMetadataAssemblyAlreadyLoaded` ×2 = 6, `IsMetadataAssemblyPathAlreadyLoaded` 6,
+  `LoadSystemAssemblies` 98, `Dispose` 41, `LoadFromProjectConfig` 63, `LoadProjectReference` 35,
+  `LoadNuGetPackage` 43, `TryGetRestoredPackageVersion` 4, `GetRestoredPackageVersions` 38,
+  `LoadProjectReferenceFile` 17, `NSharpMetadataResolver` 115, `NuGetVersionOrder` 7,
+  `NuGetVersionComparer` 86; fields at `:34 :35 :41 :46 :48 :49 :390`.
+
+  ### DELETION 1 — `src/NSharpLang.Compiler/Columnar/ColumnarCompiler.cs` IS DELETED WHOLE
+
+  **0 external sites, 0 self sites, in 90 assemblies and 188,291 method bodies.** Nothing in the
+  repository calls `ColumnarCompiler.TryEmitProgram`. Its consumers were FIVE now-deleted C# test
+  files — `ColumnarDeclarationScanTests.cs`, `ColumnarLiteralFactsTests.cs`,
+  `ColumnarPatternFactsTests.cs`, `ColumnarNumericFactsTests.cs`,
+  `ColumnarTypeCanonicalizerTests.cs` — every one migrated into `tests/native/columnar-emit-facts`,
+  whose successor files still NAME it in their header comments. The production path is
+  `MultiFileCompiler.TryEmitWithColumnarBackend`, which calls `ColumnarProgramInputBuilder.TryBuildMultiFile`
+  and `ColumnarIlEmitter.TryEmitColumnarAssembly` DIRECTLY and passes two arguments `ColumnarCompiler`
+  cannot — the `assemblyVersion` derived from the project's SemVer and the resolved
+  `referenceAssemblyPaths`. **It was not a wrapper the product used; it was a wrapper the deleted
+  tests used, and it had already fallen behind the real path.**
+
+  ### DELETION 2 — THE SLICE-21 DEAD CARRIER'S SURVIVING HALF
+
+  Slice 21 deleted `ProjectSnapshot.SharedAnalyzer` and its four construction-site arguments. The
+  SOURCE side survived: `MultiFileCompiler.SharedAnalyzer` (`:45`) had **0 external sites** and is
+  read by nothing inside the type either — the type uses `_sharedAnalyzer` directly. The member
+  census over all 342 declared members of the audited types found exactly one neighbour in the same
+  state: `MultiFileCompiler.ProjectRoot` (`:49`), likewise 0 external sites, likewise shadowed
+  internally by `_projectRoot`. **Both are deleted. `MultiFileCompiler.cs` 665 → 663.**
+
+  The member census joined **342 declared members** of the audited types against their external site
+  counts. The full public/internal zero-external list is **SEVEN rows** and every one is decided,
+  not assumed:
+
+  | member | verdict |
+  |---|---|
+  | `Columnar.ColumnarCompiler::TryEmitProgram` | **DELETED** with its file |
+  | `MultiFileCompiler::get_SharedAnalyzer` | **DELETED** — 0 external, 0 self |
+  | `MultiFileCompiler::get_ProjectRoot` | **DELETED** — 0 external, 0 self |
+  | `MultiFileCompiler::get_AotMode` | KEPT — SELF-consumed at `:419` and `:462`, and the SETTER is written externally by `CompilationReferenceResolver.cs:155` and `Program.Backends.cs:330` |
+  | `Analyzer::LoadReferencedAssemblyByName` | KEPT — 4 SELF sites at `:1375 :2436 :2557 :2578` |
+  | `Analyzer::Dispose` | KEPT — the `IDisposable` contract; dispatch goes through `IDisposable::Dispose` (8,852 sites repo-wide), so the census structurally cannot attribute it. It is the MLC teardown and retires with the quarantine |
+  | `AstNodeFinder::.ctor` | KEPT — genuinely dead (the type has one static method and `public class` synthesises an unused ctor), but the type is a published package API and it retires WHOLE in 021/4; changing `class` to `static class` now would be a public-API break bought for one dead ctor |
+
+  ### THE PROOF SET FOR BOTH DELETIONS
+
+  1. **Census, with controls.** 0 external sites for all three targets. Ordinary-path control
+     `ColumnarParserRecovery` = 112 sites. Generic-path control = the run-1/run-2 diff that moved
+     three LSP handlers from ZERO to CONSUMED.
+  2. **Whole-tree rebuild.** `Compiler`, `Cli`, `LanguageServer`, `Playground`, `Build.Tasks` and
+     `tests/Tests.csproj` all build with **0 errors** after the deletions. **NO ASSERTION DIED, so
+     there is no comparator to run** — the campaign's claim-comparator exists to prove a migrated
+     assertion survives its move, and nothing here moved: the census reports 0 sites in `Tests.dll`
+     for all three targets, and `git grep` over `tests/` confirms no source file names them. That
+     absence is itself the reason the mutation control below is mandatory rather than optional.
+  3. **THE MUTATION CONTROL, WHICH IS WHAT MAKES (2) NON-VACUOUS.** Three mutations were injected
+     into `CodeIntelligenceService.LoadProject` and each was required to BREAK the build:
+     V1 `_ = compiler.SharedAnalyzer;` → **CS1061**; V2 `_ = compiler.ProjectRoot;` → **CS1061**;
+     V3 `_ = NSharpLang.Compiler.Columnar.ColumnarCompiler.TryEmitProgram(…)` → **CS0234, the type
+     or namespace name 'ColumnarCompiler' does not exist**. All three failed as required and the
+     pristine file was restored byte-for-byte from a pre-mutation copy; `git status` after the
+     restore shows exactly the two intended source changes.
+
+  ### FINDING 1 — THE INHERITED AOT PREMISE IS OVERTURNED BY MEASUREMENT
+
+  The brief (and `memory/…/project_aot_vs_reflection_kernel_loading`) names `DogfoodKernelLoader`'s
+  runtime `Assembly.Load` as the AOT blocker. **`DogfoodKernelLoader` DOES NOT EXIST.** It was
+  retired at commit `3c963eb5d` *"Static bind columnar kernels and retire dogfood loader"*, which
+  `git merge-base --is-ancestor 3c963eb5d HEAD` confirms is an ancestor of this tip; that commit
+  deleted `src/NSharpLang.Cli/DogfoodKernelLoaderAlias.cs` and added the 11,525-line
+  `CompilerServices/ColumnarParserKernels.nl`. `git grep DogfoodKernelLoader HEAD` matches exactly
+  one file: this STATUS. **The memory note is stale and the AOT sequence below is re-priced against
+  what is actually in the tree.**
+
+  ### FINDING 2 — `ColumnarProgramInputBuilder` HOLDS TWO RAW TOKEN-ORDINAL DECISIONS IN C#
+
+  Beyond its 53 decline sentences (which reach users as NL103 `Declined at <site>: <message>`), the
+  file makes two SHAPE decisions by comparing the N# lexer's `TokenType` ORDINALS in C#:
+
+  - `:406` `var isRefStruct = !isReference && structIndex > 0 && ck[structIndex - 1] == 78;`
+  - `:867` `… && (ck[ctorIndex] == 8 || ck[ctorIndex] == 9 || ck[ctorIndex] == 13);`
+
+  **The ordinals were decoded against `Token.nl:5`'s `enum TokenType` and they are exactly what the
+  hazard predicts: 78 = `Ref` (`Token.nl:84`), and 8 / 9 / 13 = `Class` / `Struct` / `Record`
+  (`:14` / `:15` / `:19`).** So C# decides what a `ref struct` is by counting positions in an N# enum
+  it does not import. This is the TokenType-ordinal hazard recorded in
+  `project_dogfood_consolidation`: inserting one case into `TokenType` silently changes the meaning
+  of both lines, and nothing would fail loudly. Everything else in the file is marshalling — flat
+  output arrays handed to sixteen `global::Program.*` N# kernels and repacked into
+  `ColumnarInputs.nl` models.
+
+  ### FINDING 3 — A SHIPPED LANGUAGE FEATURE IS BROKEN: `off <local>` IS NOT A READ
+
+  Probing the `on`/`off` event surface against the freshly built CLI found that **`off <local>` is
+  not counted as a READ of that local**, so any subscription whose only consumer is its `off` — the
+  canonical shape the feature's own doc-comment describes — carries a FALSE
+  `NL001 Variable 'sub' is declared but never read`, and NL001 is rendered as an **error** by
+  `nlc build`. The minimal probe is three lines:
+
+  ```
+  func main() { sub := 1 ; off sub }   →  NL001 + NL318      (off is not counted as a read)
+  func main() { sub := 1 ; print(sub) } →  ok: true          (CONTROL — an ordinary read is seen)
+  ```
+
+  The control is what makes it a finding rather than a cascade artifact — the `off` probe and the
+  `print` probe differ in exactly one token. Two adjacent gaps were measured on the way, and both
+  root-cause to the SAME 27-row table: `Analyzer.cs`'s `commonAssemblies` at **`:2404–2432`** lists
+  `System.IO.FileSystem` but not `System.IO.FileSystem.Watcher`, and lists `System.Xml.ReaderWriter`
+  but no `System.Timers`. So `import System.Timers` reports **NL704** and
+  `new FileSystemWatcher(".")` reports **NL201** — and in the second case the compiler ALSO reports
+  **NL010 "the import `import System.IO` is not used by any code in this file"** about the very
+  import that names the type it just failed to find, which is a contradiction a user will read as a
+  bug in their own code. This is the same wall the DocQuery probe hit on `System.Xml.Linq`, and it
+  is a TABLE, not an architecture: it belongs in N# beside the type probe. **`on`/`off` also has no columnar EMIT path at all** —
+  `OffStatement` is declared in `Statements.nl:285` and appears in NO columnar node-kind table and in
+  no emitter arm, and `NSharpLang.Runtime.NSharpEventSubscription<THandler>` (documented as
+  *"Constructed by emitted IL for the `on` keyword"*) has ZERO consumers in 90 assemblies. The
+  analyzer half is fully N#-owned and tested (`tests/native/analyzer-event-subscription`, 7 blocks);
+  the emit half does not exist. **Recorded, not fixed here — it is a language slice, not an
+  ownership slice.**
+
+  ### FINDING 4 — `NSharpLang.Runtime.ResultFactory` IS DEAD PUBLIC API
+
+  `ResultFactory.Ok`/`Err` (`src/NSharpLang.Runtime/Result.cs:178–187`) have **0 external and 0 self
+  sites**, and no source file outside their own declaration names them. The emitter's
+  `TryEmitResultFactoryCall` (`ColumnarIlEmitter.cs:2808`) is named after them but emits
+  `Result<,>.Ok`/`Err` directly. **NOT deleted here**: `NSharpLang.Runtime` is
+  `campaignScope: separate-campaign` in the ratchet and a shipped package's public API. Named for
+  the runtime campaign.
+
+  ### THE SIBLING ASSEMBLIES, CLASSIFIED IN-SCOPE OR NOT
+
+  **`src/NSharpLang.Cli` (16 files / 5,982 lines) — IN SCOPE as compiler-contained tooling.**
+  Fifteen of the sixteen forward to a named N# owner, with between **13 and 128** kernel call sites
+  each (`Program.cs` 128, `QueryCommand.cs` 125, `CompilationReferenceResolver.cs` 54,
+  `Program.Backends.cs` 44, `DaemonServer.cs` 42, `PackCommand.cs` 37, `BatchQueryRunner.cs` 36,
+  `DocCommand.cs` 27, `LintCommand.cs` 25, `DaemonProtocol.cs` 25, `FixCommand.cs` 19,
+  `CheckCommand.cs` 17, `WatchCommand.cs` 17, `DaemonClient.cs` 13, `DaemonCommand.cs` 13).
+  `DocCommand.cs`, `DaemonCommand.cs`, `PackCommand.cs` and `DaemonClient.cs` carry ZERO string
+  literals each — every message, path, exit decision and output mode is a kernel call. The residue
+  is small and enumerated: `Program.Testing.cs` (41 sites) is the ONE clearly still-owning file (outcome
+  vocabulary `"passed"/"skipped"/"failed"`, the `F3` duration format, the `"Setup"`/`"Teardown"`
+  lifecycle names despite `TestCommandKernels.IsLifecycleMethodName` existing, and raw exception
+  text at `:147`/`:349`); `Program.Backends.cs` still decides `release ? "Release" : "Debug"` and
+  returns bare `1`; `QueryCommand.cs:108` still owns a compilation-unit ordering;
+  `LintCommand.cs:75/100` still spells the `"LINT"`/`"PARSE"` source tokens; `WatchCommand.cs:33`
+  still holds the 250 ms debounce default; `Program.cs:581/584/633` still shapes the unified-diff
+  labels and the `stdin.nl` name; `DaemonProtocol.cs:13–81` still owns the JSON-RPC wire DTOs.
+  **A naming gotcha the audit must not repeat: there is NO `CheckCommandKernels.nl`. The
+  `CheckCommandKernels` class is declared at `FixCommandArgumentKernels.nl:147`.** A second claim was
+  raised and then REFUTED by checking it: `DaemonServerMessageKernels.nl` is named by no C# file, but
+  it is NOT dead — `DaemonServerKernels.nl` and `DaemonProtocolKernels.nl` both consume it. A
+  "referenced by zero C# files" reading of an N#-to-N# owner is the same class of mistake the
+  generic-instantiation blind spot was; it is recorded so 021/7 does not repeat it.
+
+  **`src/NSharpLang.LanguageServer` (31 files / 10,042 lines) — MOSTLY OUT OF SCOPE, but SIX files
+  re-implement a compiler decision and those ARE in scope.** The structural finding is that the LSP
+  **never calls the code-intelligence answers that already exist**: a grep for `GetCallGraph`,
+  `GetImplementors`, `GetOutline`, `GetSymbols`, `GetTypeAtPosition` and `CompletionEngine` across
+  the whole assembly returns ZERO hits, while the CLI and the Playground consult all of them.
+  - `Services/TypeResolver.cs` (573) — its own CLR type resolution, its own `int→System.Int32`
+    alias table (`:22`), its own well-known-namespace set (`:415`), over raw `System.Reflection`.
+  - `Handlers/SemanticTokensHandler.cs` (1,045) — its own keyword set (`:66`), its own primitive
+    set (`:107`), its own interpolated-string re-lexer (`:277`, re-invoking `new Lexer` at `:461`),
+    and **language policy hardcoded in the editor** at `:921`
+    (`… Names[^1] == "err"` — the catch-result convention).
+  - `Handlers/CallHierarchyHandler.cs` (768) — re-derives the call graph, with function extents
+    GUESSED (`:212` `Math.Max(0, lastStmt.Line - 1) + 1; // +1 for closing brace estimate`).
+  - `Services/EditorUtilities.cs` (299) — a hand-rolled string-literal lexer (`:24`, `:152`, `:289`)
+    for a lexical classification `Lexer.nl` owns.
+  - `Handlers/GoToImplementationHandler.cs` (285) + `Handlers/TypeHierarchyHandler.cs` (414) —
+    byte-identical ordinal-name interface-implementation resolution duplicated in both
+    (`:219–227` / `:405–413`), no namespace and no generic arity.
+  Borderline and listed but not in scope: `DocumentManager.cs` (1,449, its own symbol table by
+  `lineText.IndexOf` at `:1101`), `SelectionRangeHandler.cs` (552, brace-counted extents at `:398`),
+  `SignatureHelpHandler.cs` (522, call sites parsed by `Split` at `:401`), `CompletionHandler.cs`
+  (700, own keyword vocabulary + text-scan trigger). **The keyword vocabulary is hardcoded in FOUR
+  places and the primitive-type list in FOUR; the single owner is `Lexer.nl`.** The other twenty
+  files are LSP-protocol glue; `DocumentHighlightHandler.cs` is the exemplar (`:71` straight to
+  `BindingMap.FindAllReferences`, no textual fallback).
+
+  **`src/NSharpLang.Playground` (2 files / 1,650 lines) — `PlaygroundRunner.cs` (966) IS IN SCOPE
+  and is the single largest parallel semantics implementation in the repo**: a tree-walking
+  interpreter that owns operator semantics (`:280`), truthiness (`:778`), pattern matching (`:627`)
+  and its own string-escape decoding (`:846`) — a second answer to "what does this N# program mean".
+  `PlaygroundCompiler.cs` (613) is textbook glue and out of scope.
+
+  **`src/NSharpLang.Build.Tasks` (3 files / 523 lines) — mostly out of scope, TWO policy leaks in
+  `EmitIlAssembly.cs`**: `:95–98` duplicates `#if` define resolution ("resolves `#if` identically to
+  `nlc`" — a duplicated rule is not an identical rule), and `:155–161`/`:261` post-rewrites emitted
+  metadata with Mono.Cecil to decide which assembly owns a type reference — **reference policy
+  living outside the compiler.** The three task types report zero IL consumers because MSBuild binds
+  them by `UsingTask` reflection from `src/NSharpLang.Sdk/Sdk/Sdk.targets:21–25`; `LanguageServer.Program`
+  likewise, being an entry point.
+
+  ### THE 021 SLICE PLAN — DEPENDENCY-ORDERED, EACH SLICE ONE COHERENT RETIREMENT
+
+  | # | slice | retires | blocker | bar |
+  |---|---|---|---|---|
+  | **1** | *this slice* — inventory, free deletions, plan | `ColumnarCompiler.cs`, 2 dead members | none | backend gate |
+  | **2** | `ColumnarProgramInputBuilder` decline vocabulary + the two token-ordinal decisions | 53 sentences + `:406`/`:867` to N# | none — NL103 text is user-observable, so the estate can pin every sentence and the mutation matrix can move each one | backend gate |
+  | **3** | `SystemsAnalyzer`'s three ordering sites → the N# report owner | `:86`, `:103`, `:244` | none | backend gate |
+  | **4** | `AstNodeFinder.cs` deleted whole | 15 lines + the dead ctor | reroute 2 call sites (`CompletionHandler.GetMemberCompletionViaAst`, `HoverHandler.Handle`) to `AstNodeFinderCore` — the LSP already reaches BootstrapServices transitively through `Compiler.csproj` and already calls `ColumnarParserRecovery`/`Linter`/`SemanticModel` directly | **IDE bar** |
+  | **5** | the LSP's six re-implementations routed to their existing N# owners | `TypeResolver.cs`, `SemanticTokensHandler.cs`'s vocabularies + `:921`, `CallHierarchyHandler.cs`, `EditorUtilities.cs`'s literal lexer, the duplicated implementor resolution | NOT a missing-owner problem — `Lexer.nl`'s `KeywordTypeForText` (`:989`) and `KeywordTextForType` (`:1248`) are PascalCase and therefore already public, and `CodeIntelligenceService.GetCallGraph`/`GetImplementors` already ship; the work is ROUTING, and **each reroute is a behavior change a user sees** | **IDE bar** |
+  | **6** | `Program.Testing.cs`'s outcome vocabulary, duration format and lifecycle names | ~40 lines to `TestCommandKernels` | none; `IsLifecycleMethodName` already exists | backend gate |
+  | **7** | the Cli's small residues | `Program.Backends.cs` configuration names + bare `1`, `QueryCommand.cs:108` ordering, `LintCommand.cs` source tokens, `WatchCommand.cs` debounce default, `Program.cs` diff labels | none | backend gate |
+  | **8** | `EmitIlAssembly.cs`'s two policy leaks | `#if` define resolution + the Cecil reference-scope rewrite | the Cecil rewrite must become emitter behavior, so it is gated on the emitter owning reference scope | backend gate + SDK repack |
+  | **9** | `Analyzer.cs`'s 27-extent MLC quarantine | 646 lines | **the AOT static-binding sequence — priced below** | backend gate + SDK repack |
+  | **10** | `ColumnarIlEmitter.cs` residual | up to 21,519 lines | the FOUR future tasks named in the 015 roadmap (plan-row lambda-body emitter; N# preflight/typing-owner port; async-func lowering; planner-driven operand unlocks) — **015 does not complete inside 021** | backend gate |
+  | **11** | `PlaygroundRunner.cs`'s parallel interpreter | 966 lines | needs the playground to run emitted IL in the browser instead of interpreting an AST; that is a Playground task, not a compiler-ownership one | backend gate |
+  | **12** | **CLOSING** — docs, `tasks/README.md` ledger, VS Code-enabled gate, extension reinstall, visual IDE verification, clean repin | — | slices 2–11 | **FULL terminal bar** |
+
+  **THE C# ASSERTION DEBT THOSE SLICES CARRY, MEASURED.** `tests/*.cs` is **24 files / 20,277 lines
+  / 547 `[Fact]`/`[Theory]` / 2,211 lines carrying `Assert.`** after task 020. It is now dominated by THREE
+  integration files that no 021 slice above targets — `CompilationBackendTests.cs` (4,330 / 82),
+  `LanguageServerTests.cs` (4,201 / 133) and `LanguageServerDiagnosticsTests.cs` (3,182 / 92), i.e.
+  **11,713 lines and 307 bodies, 58 % of the survivors**. Task 020's classifier put them in buckets
+  (b)/(c)/(d), and that verdict stands — they drive `dotnet` and the LSP protocol, not an N# owner.
+  The 021 slices carry only the small named files: `AnalyzerMetadataLoadContextTests.cs` (189 / 5)
+  with 021/9, and `ColumnarDeclineDiagnosticsTests.cs` (212 / 5) with 021/2.
+
+  **THE AOT STATIC-BINDING SEQUENCE, PRICED.** The blocker is not a kernel loader; it is
+  Reflection.Emit and three smaller dynamic-loading surfaces.
+
+  | what loads/emits dynamically | measured size | what static binding replaces it with |
+  |---|---|---|
+  | `ColumnarIlEmitter.cs` — `System.Reflection.Emit` | **1,190** `OpCodes.` sites, **177** `TypeBuilder`, **52** `ILGenerator`, **27** `MethodBuilder`, **9** `AssemblyBuilder`, **5** `ModuleBuilder`, **2** `PersistedAssemblyBuilder` | a METADATA WRITER — `System.Reflection.Metadata.Ecma335.MetadataBuilder` + `BlobBuilder`, which is AOT-safe and already a repo dependency. NativeAOT forbids Reflection.Emit outright, so this is not optional and it is not a 021 slice: it needs its own task, and it is the single largest remaining item in the closeout |
+  | `ColumnarIlEmitter.cs:9916, 9931, 9961` — `Assembly.LoadFrom` / `Assembly.Load` for external type resolution | 3 sites | `PEReader`/`MetadataReader` over the reference paths `MultiFileCompiler` already resolves via `ExternalAssemblyScan.ResolveReferencePaths` |
+  | `Analyzer.cs` — `MetadataLoadContext` + `NSharpMetadataResolver` | 27 extents / 646 lines; 2 production consumers (`MultiFileCompiler.ctor`/`AnalyzeAllFiles`, `DocumentManager.ctor`/`UpdateDocument`) + `tests/AnalyzerMetadataLoadContextTests.cs`, 189 lines / **5** `[Fact]`s, which is the C# assertion debt this retirement must carry to the estate | the same probe over `MetadataReader`, with the NuGet-cache walk and the version ordering moved to N#. MLC executes no user code, so it is the LEAST urgent of the four — but it is the one whose 646 lines are pure C# ownership debt |
+  | `Program.Testing.cs` — collectible `AssemblyLoadContext` | `:20`, `:27`, `:149–170`, `:354` | under a single-binary AOT `nlc`, `nlc test` cannot load an emitted assembly at all: the native runner must SPAWN the built test executable. The precedent exists — slice 40 already runs the systems proof corpus as processes |
+  | toolset repin | one per landed slice | each lands a new `nlc` and a new SDK pack; the feed that matters is `~/.nuget/local-feed` (NOT `~/.nsharp/packages`) and a mid-slice pack poisons it, so the repin is taken ONCE, at the end of the slice, behind a green gate |
+
+  **THE CLOSING SLICE OWES THE IDE BAR AND THIS SLICE RECORDS THE DEBT HONESTLY.** Task 021's
+  terminal conditions include the VS Code-enabled gate, an extension reinstall, and VISUAL IDE
+  verification. Slices 1, 2, 3, 6, 7, 8, 9, 10 and 11 are backend-only and run
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`; slices 4, 5 and 12 touch the developer
+  experience and must not. **Computer-use is NOT AVAILABLE in this environment**, so the visual
+  half of the bar will be discharged by the VS Code integration suite plus the extension reinstall
+  (`./scripts/reload-vscode-extension.sh`), and the limitation must be STATED in the closing record
+  rather than papered over: an integration suite is not a screenshot, and the closing slice should
+  say so.
+
+  ### THE BASELINES, MEASURED THIS TURN
+
+  | baseline | measured |
+  |---|---|
+  | ratchet head, pristine | **`head-v1:93ca1813fea30994`** — replica reproduces it, plus `pathset-v1:8a26e1529863444b` and `epochfacts-v1:1b3090747e517fc1`, all three from the file on disk BEFORE any edit |
+  | manifest | **391 lines / 381 rows, no BOM** |
+  | `src/NSharpLang.Cli/Program.Testing.cs` | **617 lines** — UNCHANGED by this slice |
+  | C# unit suite, in the fresh gate | **`Passed: 606, Failed: 0, Skipped: 0, Total: 606`** in 4 m 48 s — the inherited baseline exactly, so the deletions cost ZERO tests |
+  | compiler-service estate, in the fresh gate | **`Passed: 6778, Failed: 0, Skipped: 0, Total: 6778`** — the inherited baseline exactly |
+  | native test projects (gate's own discovery rule) | **46** |
+  | live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **393 files / 246 diagnostics**, census `NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26`, **ZERO rows in any `.tests.nl`** — identical to slice 45 |
+  | ownership census (this generation's splitter) | **1,313 `.nl`-declared types** across 553 tracked production `.nl` files vs **107 `.cs`-declared types** across 70 tracked `src/*.cs` files; only THREE names collide (`Program`, `Result`, `SymbolKind`). The inherited figure was 1,094/106 — the variance is the splitter's, not the estate's, and it is recorded rather than absorbed: this generation admits nested and `union`/`newtype` declarations. **Bucket assignment reads the SET, not the count, and every collaborator named in this audit resolves to a `.nl` file.** |
+
+  ### THE REPIN AND THE COUNTS
+
+  | | before | after | delta |
+  |---|---|---|---|
+  | `src/NSharpLang.Compiler` tracked `.cs` files | 12 | **11** | −1 |
+  | `src/NSharpLang.Compiler` C# lines | 28,033 | **27,992** | −41 |
+  | `ColumnarCompiler.cs` | 39 / 34 | **0 / 0 `removed`** | −39 |
+  | `MultiFileCompiler.cs` | 665 / 589 `text-v1:0c47629dd875a9a2` | **663 / 587 `text-v1:283dd32e6dd49489`** | −2 |
+  | ratchet `reviewedHeadFingerprint` | `head-v1:93ca1813fea30994` | **`head-v1:e65ccd3f8b930d04`** | two-key, repinned LAST |
+  | `epochPathFingerprint` / `epochFactFingerprint` / `epochFileCount` | | **UNCHANGED** `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` / **381** | the epoch is immutable; a deleted file keeps its row and takes `state:"removed"` |
+
+  The repin refuses to raise any ceiling field by field, and asserts the three epoch values are
+  untouched before it writes. Both keys moved together: the manifest header AND
+  `tests/native/ownership-audit/OwnershipAudit.nl:241`'s `ReviewedHeadFingerprint` constant.
+  **`nlc test --project tests/native/ownership-audit` → 18/18 passed, 0 failed.**
+
+  ### GATE
+
+  **THE FRESH ISOLATED NON-VS-CODE PRODUCT GATE IS GREEN END TO END.**
+`VSCODE_TESTS=skip ./scripts/test-all.sh --commit` → **`ALL TESTS PASSED! ✓`, exit 0, 1,346 s**,
+run in its own isolated tree (`/tmp/nsharp-test-all.873d0ef632c0.e3inBb`, key `873d0ef632c0d734`),
+with the gate log written OUTSIDE the byte-copy. **126 PASSED steps and ZERO failures**, including
+every step this slice could have broken:
+
+  | step | verdict |
+  |---|---|
+  | Build N# Compiler | PASSED (2 m 21 s, 0 errors) — the deleted file leaves no reference behind |
+  | Format Contract Gate | PASSED |
+  | Unit Tests | **`Passed: 606, Failed: 0, Skipped: 0, Total: 606`** (4 m 48 s) |
+  | Native N# tests — compiler-service estate | **`Passed: 6778, Failed: 0, Skipped: 0, Total: 6778`** |
+  | Native N# tests — all **46** projects | PASSED, zero failures. Two matter specifically: **`tests/native/columnar-emit-facts` 15/15** — the successor project for the five C# test files that were `ColumnarCompiler`'s only consumers — and **`tests/native/ownership-audit` 18/18**, which is the repinned two-key head verified inside the fresh tree rather than only locally |
+  | VS Code Integration Tests | correctly SKIPPED (`VSCODE_TESTS=skip`; this slice is backend-only) |
+  | Pack + install SDK, Runtime, Templates | PASSED |
+  | `dotnet new` template creation + build (console AND webapi) | PASSED |
+  | Example projects (22) + single-file examples (38) | PASSED |
+  | `nlc check` on examples | PASSED |
+  | IL Verification Gate | PASSED |
+
+**No failure group was inherited and none was created.**
+
+  **NOT COMMITTED — the mandate reserves that. `tasks/README.md` is NOT edited: 021 has only begun.**
+  Scratch instruments live outside the tree in the session scratchpad; the working tree carries
+  exactly four changes: the deleted file, `MultiFileCompiler.cs`, the manifest, and
+  `OwnershipAudit.nl`.)
+
+- Active sub-slice (020 arc, PRIOR TURN — **SLICE 45 — THE 30-BODY SWEEP AND THE 020 CLOSING
   DECISION. THE DECODE, RECORDED BEFORE ANY TEST FILE WAS TOUCHED.**
 
   **THE INSTRUMENT IS REBUILT A FOURTEENTH TIME AND ITS FIRST PASS REPRODUCES SLICE 44's CENSUS TO

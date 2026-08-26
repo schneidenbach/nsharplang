@@ -42,11 +42,9 @@ public class MultiFileCompiler
     /// without requiring IL emission.</summary>
     public IReadOnlyDictionary<string, CompilationUnit> CompilationUnits => _compilationUnits;
     public IReadOnlyDictionary<string, SemanticModel> SemanticModels => _semanticModels;
-    public Analyzer SharedAnalyzer => _sharedAnalyzer;
     public IReadOnlyList<CompilerError> AllErrors => _allErrors;
     public IReadOnlyList<string> SourceFiles => _sourceFiles;
     public IReadOnlyDictionary<string, string> SourceTexts => _sourceTexts;
-    public string ProjectRoot => _projectRoot;
 
     /// <summary>The project-level semantic index built from all analyzed files.
     /// Contains the merged BindingMap and type-declaration-to-file mapping.
