@@ -568,6 +568,60 @@ green while the estate is red on 2.
 **One more reserved-word position was measured: `file` is reserved in the PARAMETER-NAME position.**
 A free function `func Entry(file: string, ...)` declines at `parse.function`; `filePath` compiles.
 
+**Slice 44 is the task-020 finisher: bucket (a) is EMPTY in both surviving C# test files, and the
+runner's last three policy decisions move into N#.** `tests/CliCommandTests.cs` drops its final 17
+canonical bodies (947 declaration lines, 265 `Assert.`) to **1,810 lines / 39 test methods**, and
+`tests/DaemonCommandTests.cs` drops two (45 lines, 27 `Assert.`) to **764 lines / 29**. The
+successors are **132 blocks in ten NEW estate `.tests.nl` files, 11 more appended to
+`BatchQueryKernels.tests.nl` and `TestCommandKernels.tests.nl`, and 13 more in
+`tests/native/cli-command-contracts`** — 156 blocks and 662 assert rows replacing 19 bodies and 292
+assert rows. Both files now hold ONLY bucket-(b) bodies, which retire with `CheckCommand.cs`,
+`FixCommand.cs`, `QueryCommand.cs`, `Program.cs`, `DaemonCommand.cs`, `DaemonClient.cs`,
+`DaemonServer.cs` and `DaemonProtocol.cs` under 021/015.
+
+**Two of slice 43's route predictions were overturned by measurement, both in the cheaper
+direction.** `CompilationBackendSelectionKernels_ValidatesEffectiveBackend` was flagged as possibly
+unmigratable because it needs a `ProjectConfig`; in fact `new ProjectConfig()` with a property set
+emits fine in the estate, and the whole policy sits behind one pure two-string function,
+`EffectiveBackendKind`. `RestoreCommand_Deduplicates…` was predicted to want the native route
+because it writes files; `RestoreCommand` is N#-owned and in the same assembly, and the whole
+`Directory.CreateDirectory` / `File.WriteAllText` / `File.ReadAllText` path emits in the estate,
+with no process to spawn.
+
+**The product finding of slice 44 is that three deleted assertions pinned something no user can
+observe.** `BatchQueryRunner_LoadRequestsErrorsUseMessageKernels` asserted
+`Assert.Throws<FileNotFoundException>` and `Assert.Throws<InvalidDataException>` against
+`BatchQueryRunner.LoadRequests`, which is `internal` in `src/NSharpLang.Cli/`. The shipped behaviour
+distinguishes neither: all four requests-file failures — missing file, non-array payload, non-object
+element, duplicate ids — exit 1 with a top-level `invalidRequestsFile` error envelope naming the
+requests path, and the duplicate case emits NO `results` array and NO counts at all, because the run
+never begins. The successors pin the observable envelope instead.
+
+**Fourteen more deleted assertions were tautologies, and both sides are literal now.** Each batch
+body compared an envelope's message against a LIVE call to the kernel that produced it, so the pair
+agreed by construction and neither side ever said what the sentence is. The same pattern held for
+the two surviving `DaemonServer` bodies, which are kept and de-tautologised in place: they assert
+the literal wire message, and the kernel's own text is pinned independently in
+`src/NSharpLang.Compiler.BootstrapServices/DaemonServerAndClientKernels.tests.nl`.
+
+**Two emit walls and one parser limit were measured this slice.** A widening ARRAY STORE of a user
+reference type into `object[]` declines (`emit.statement.block-child`), and so does an array
+LITERAL of user types passed to an `IReadOnlyList<object>` parameter (`emit.local.initializer`); a
+`List<object>` built with `.Add` works and is the spelling to use. Passing an `IReadOnlyList<T>`
+static PROPERTY straight into an `IEnumerable<T>` parameter declines at
+`emit.call.static-user-argument`; the backing array widens cleanly. And the vacuity instrument found
+a parser limit rather than a vacuous block: **inverting SIX asserts as `!( … )` across THREE locals
+in one `test` block declines at `parse.test`** — each shape parses alone, and the `(X) == false`
+spelling carries the same inversion, which is what the matrix used.
+
+**The `nlc test` runner's timeout classification and arity policy are now N#-owned, which
+discharges task 020's condition (2).** `Program.Testing.cs` shrinks 618 → **617** and no longer
+spells any of the three: `TestCommandKernels.GetRunTimedOutMessage`, `GetTestTimedOutMessage`,
+`IsSupportedTestMethodArity`, `GetUnsupportedTestArityMessage` and `GetTestFullName` own them, and a
+grep confirms zero copies of `Test run timed out.`, `Test timed out.`, `takes none` or the
+`GetParameters().Length != 0` predicate remain anywhere in C#. Three mutations of those kernels each
+move exactly one estate block.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.

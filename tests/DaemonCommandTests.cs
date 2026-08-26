@@ -158,23 +158,6 @@ public class DaemonCommandTests
         Assert.True(DaemonConstants.PingTimeoutMs > 0);
     }
 
-    [Fact]
-    public void DaemonClientKernels_ShapesClientMessages()
-    {
-        Assert.Equal(
-            "[daemon] Connection error: socket refused",
-            DaemonClientKernels.GetConnectionErrorMessage("socket refused"));
-        Assert.Equal(
-            "Cannot determine executable path for daemon",
-            DaemonClientKernels.GetExecutablePathMissingMessage());
-        Assert.Equal(
-            "Daemon started but not responding within 5 seconds",
-            DaemonClientKernels.GetStartTimeoutMessage());
-        Assert.Equal(
-            "Failed to start daemon: denied",
-            DaemonClientKernels.GetStartFailedWithReasonMessage("denied"));
-    }
-
     // ── DaemonClient — no socket ───────────────────────────────────────
 
     [Fact]
@@ -431,7 +414,11 @@ public class DaemonCommandTests
             Assert.NotNull(unknown!.Error);
             Assert.Equal("2.0", unknown.JsonRpc);
             Assert.Equal(DaemonConstants.ErrorMethodNotFound, unknown.Error!.Code);
-            Assert.Equal(DaemonServerKernels.GetUnknownMethodMessage("daemon/nope"), unknown.Error.Message);
+            // The expected sentence is the LITERAL, not a live call to the kernel that produces it:
+            // that pairing agreed by construction and never said what the wire message is. The kernel
+            // side is pinned independently in
+            // the compiler-service estate's daemon kernel contracts.
+            Assert.Equal("Unknown method: daemon/nope", unknown.Error.Message);
 
             var malformedJson = SendRawDaemonRequest(projectDir, "{not json");
             var malformed = JsonSerializer.Deserialize<DaemonResponse>(malformedJson);
@@ -459,7 +446,8 @@ public class DaemonCommandTests
             Assert.NotNull(unknown);
             Assert.NotNull(unknown!.Error);
             Assert.Equal(DaemonConstants.ErrorMethodNotFound, unknown.Error!.Code);
-            Assert.Equal(DaemonServerKernels.GetUnknownMethodMessage("query/not-real"), unknown.Error.Message);
+            // The LITERAL, for the same reason as above.
+            Assert.Equal("Unknown method: query/not-real", unknown.Error.Message);
         }
         finally
         {
@@ -507,38 +495,6 @@ func Main() {
         {
             Directory.Delete(projectDir, true);
         }
-    }
-
-    [Fact]
-    public void DaemonServerKernels_ShapesQueryMessages()
-    {
-        Assert.Equal("Unknown method: query/nope", DaemonServerKernels.GetUnknownMethodMessage("query/nope"));
-        Assert.Equal("Failed to load project", DaemonServerKernels.GetFailedLoadProjectMessage());
-        Assert.Equal("Batch request payload did not contain any requests.", DaemonServerKernels.GetEmptyBatchPayloadMessage());
-        Assert.Equal("file parameter required", DaemonServerKernels.GetFileParameterRequiredMessage());
-        Assert.Equal("file and pos parameters required", DaemonServerKernels.GetFileAndPosParametersRequiredMessage());
-        Assert.Equal("file+pos or name required", DaemonServerKernels.GetDefinitionTargetRequiredMessage());
-        Assert.Equal("file and pos required", DaemonServerKernels.GetFileAndPosRequiredMessage());
-        Assert.Equal("No symbol found at Program.nl:5:12", DaemonServerKernels.GetNoSymbolAtPositionMessage("Program.nl", 5, 12));
-        Assert.Equal(
-            "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
-            DaemonServerKernels.GetSemanticReferencesUnavailableMessage());
-        Assert.Equal("[daemon] Listening on /tmp/daemon.sock (PID 1234)", DaemonServerKernels.GetListeningMessage("/tmp/daemon.sock", 1234));
-        Assert.Equal("[daemon] Project: /tmp/project", DaemonServerKernels.GetProjectMessage("/tmp/project"));
-        Assert.Equal("[daemon] Idle timeout: 5m", DaemonServerKernels.GetIdleTimeoutMessage("5m"));
-        Assert.Equal("[daemon] Idle timeout (5m). Shutting down.", DaemonServerKernels.GetIdleTimeoutShutdownMessage("5m"));
-        Assert.Equal("[daemon] Error: boom", DaemonServerKernels.GetServerErrorMessage("boom"));
-        Assert.Equal("[daemon] Client error: bad client", DaemonServerKernels.GetClientErrorMessage("bad client"));
-        Assert.Equal("[daemon] Loading project...", DaemonServerKernels.GetLoadingProjectMessage());
-        Assert.Equal("[daemon] Project loaded in 42ms (3 files)", DaemonServerKernels.GetProjectLoadedMessage(42, 3));
-        Assert.Equal("[daemon] Failed to load project: bad yaml", DaemonServerKernels.GetProjectLoadFailedTraceMessage("bad yaml"));
-        Assert.Equal("[daemon] File watcher started for *.nl, project.yml, .editorconfig", DaemonServerKernels.GetFileWatcherStartedMessage());
-        Assert.Equal("[daemon] File watcher failed: denied", DaemonServerKernels.GetFileWatcherFailedMessage("denied"));
-        Assert.Equal("[daemon] File changed: Program.nl — cache invalidated", DaemonServerKernels.GetFileChangedMessage("Program.nl"));
-        Assert.Equal("[daemon] Shutdown complete.", DaemonServerKernels.GetShutdownCompleteMessage());
-        Assert.Equal(
-            "[daemon] Ignoring malformed request param 'pos' (expected String): invalid token",
-            DaemonServerKernels.GetMalformedRequestParamMessage("pos", "String", "invalid token"));
     }
 
     [Fact]

@@ -1,6 +1,35 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-23 (**020 SLICE 43 — THE `nlc` COMMAND SURFACE'S KERNEL FAMILIES GO WHOLE.
+Last updated: 2026-08-25 (**020 SLICE 44 — THE FINISHER LANDS ITS FIVE STEPS, AND THE CLOSING
+DECISION FINDS A SIXTH. BOTH TARGETED FILES REACH BUCKET-(a) ZERO**: `tests/CliCommandTests.cs`
+2,805 → **1,810** lines / 56 → **39** methods / 17 → **0** bucket-(a), and
+`tests/DaemonCommandTests.cs` 808 → **764** / 31 → **29** / 4 → **0** — 19 bodies deleted (992
+declaration lines, 292 `Assert.`) and TWO kept and de-tautologised in place, which is what moves
+them into bucket (b). The successors are **156 BLOCKS AND 662 ASSERT ROWS** — 132 in TEN new estate
+`.tests.nl`, 11 appended to two existing ones, and 13 in `tests/native/cli-command-contracts`
+(38 → 51). **`Program.Testing.cs` SHRINKS 618 → 617 AND THE THREE-ITEM POLICY RESIDUE IS N#-OWNED**
+— the two timeout sentences and the arity policy now live in `TestCommandKernels`, a grep proves
+ZERO copies survive anywhere in C#, and three mutations each move exactly one estate block, **so
+020's CONDITION (2) IS DISCHARGED.** **THE PRODUCT FINDING IS THAT THREE DELETED ASSERTIONS PINNED
+SOMETHING NO USER CAN OBSERVE**: they distinguished `FileNotFoundException` from
+`InvalidDataException` inside `internal` C#, while the shipped CLI answers all FOUR requests-file
+failures with one `invalidRequestsFile` envelope — and the duplicate-id case emits no `results`
+array and no counts at all. Fourteen more were tautologies comparing an envelope against a live
+call to the kernel that produced it; both sides are literal now. TWO OF SLICE 43's ROUTE PREDICTIONS
+ARE OVERTURNED, both cheaper: `ProjectConfig` emits fine in the estate, and `RestoreCommand`'s disk
+path needs no spawn. **THE COMPARATOR REACHES 292 / 0 UNDECODED / 0 MISSING** after four recorded
+self-defects (one found only by a V-control), with 8 V-controls of which 6 move and 2 are true
+non-movers for the same named reason — the split route deliberately double-covers. **THE MATRIX
+MOVES ALL 156 BLOCKS WITH ZERO NON-MOVERS**, and it found a PARSER LIMIT rather than a vacuous
+block: inverting six asserts as `!( … )` across three locals in one `test` declines at
+`parse.test`. **BUT TASK 020 STILL DOES NOT CLOSE AND `tasks/README.md` IS NOT EDITED** — the
+closing decision ran the classifier over ALL 25 `tests/*.cs` for the first time and found
+**30 BUCKET-(a) BODIES IN FOUR FILES NO PRIOR SLICE MEASURED**, 25 of them in
+`tests/CliParityAuditTests.cs`, driving `AddCommand`, `TidyCommand`, `UpdateCommand`,
+`RemoveCommand`, `CleanCommand` and `CompletionCommand` — every one a `.nl` file with no C#
+counterpart.) Full record in the Cursor block below
+
+Last updated (prior): 2026-08-23 (**020 SLICE 43 — THE `nlc` COMMAND SURFACE'S KERNEL FAMILIES GO WHOLE.
 44 OF THE 61 SURVIVING BUCKET-(a) BODIES MIGRATE: 1,469 LINES AND 358 `Assert.` OUT OF
 `tests/CliCommandTests.cs` (4,274 → **2,805**, 100 → **56** TEST METHODS), 117 BLOCKS INTO NINE NEW
 ESTATE `.tests.nl`, 13 MORE INTO `TestCommandKernels.tests.nl` AND 17 MORE INTO
@@ -4169,7 +4198,405 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (020 arc, THIS TURN — **SLICE 43 — THE DECODE, RECORDED BEFORE ANY C# WAS
+- Active sub-slice (020 arc, THIS TURN — **SLICE 44 — THE TASK-020 FINISHER. THE DECODE, RECORDED
+  BEFORE ANY FILE WAS TOUCHED.** The instrument is rebuilt a THIRTEENTH time, carrying slice 43's
+  semicolon-terminated-declaration fix, and its census REPRODUCES the inherited baseline to the
+  digit: **1,094** `.nl`-declared type names; `tests/CliCommandTests.cs` at **2,805 lines / 56 test
+  methods (55 `[Fact]` + 1 `[Theory]` / 0 `InlineData`) / 507 `Assert.` (503 in tests, 4 in
+  helpers)**; `tests/DaemonCommandTests.cs` at **808 lines / 31 test methods / 145 `Assert.` (142 in
+  tests, 3 in helpers)**; and the ownership classifier reports **bucket (a) = 17 / bucket (b) = 39**
+  for the first and **4 / 27** for the second — **947 declaration lines and 265 `Assert.` rows in
+  the first file's survivors, 90 and 41 in the second's.**
+
+  **ONE INSTRUMENT VARIANCE IS RECORDED RATHER THAN QUIETLY ABSORBED.** The `.cs`-declared type
+  census reads **107** where slice 43 recorded 106, because this generation's declaration regex
+  accepts the modifiers `readonly`, `file`, `unsafe`, `ref` and `new` (which is what admits
+  `public readonly struct Union<T0, T1>` and `Result<TOk, TErr>` in `src/NSharpLang.Runtime/`) and
+  rejects prose matches inside comments (`a class PROPERTY setter`, at
+  `ColumnarIlEmitter.cs:7541`). The variance changes NOTHING: bucket assignment reads only the
+  `.nl` set, which reproduces at 1,094 exactly, and both bucket splits reproduce exactly.
+
+  **THE SURVIVORS, MEASURED, IN THE FIVE STEPS THE SKETCH ORDERS THEM:**
+
+  | step | bodies | decl. lines | `Assert.` | what they reach |
+  |---|---|---|---|---|
+  | 1 — batch/query | 6 (`:523`–`:857`) | 325 | 62 | build a project on disk, drive `QueryCommand.Execute`, read a JSON envelope through a console capture |
+  | 2 — argument families | 4 (`:920`–`:1319`) | 384 | 157 | `New` (163L/72A), `Add` (119L/40A), `Remove` (63L/23A), `Update` (39L/22A) — pure kernels |
+  | 3 — the singles | 7 (`:88`, `:1085`, `:1322`–`:1462`, `:2458`–`:2528`) | 238 | 46 | `UpdateDependencyFilter`, `CompilationBackendSelectionKernels`, `RestoreCommand`, `CompilerErrorSeverityFilter`, `QuerySymbolNameFilter`, `CommandRegistry`+`CompletionCommand`, `CompletionCommandKernels` |
+  | 4 — daemon | 4 (`:162`, `:422`, `:451`, `:513`) | 90 | 41 | two pure kernel-message bodies; two that need a LIVE `DaemonTestServer` on a unix socket |
+  | 5 — `Program.Testing.cs` | — | 618 lines | — | the three-item policy residue: `:219`, `:487`/`:490`, `:540` |
+
+  **THE RATCHET REPLICA WAS VALIDATED AGAINST THE PRISTINE MANIFEST BEFORE ANY EDIT**, on all four
+  of its values — `epochPathFingerprint` `pathset-v1:8a26e1529863444b`, `epochFactFingerprint`
+  `epochfacts-v1:1b3090747e517fc1`, `reviewedHeadFingerprint` `head-v1:4e5a959052177f41` — and on
+  all THREE rows this slice will touch, each reproducing its pinned metrics and text fingerprint
+  from the file on disk: `tests/CliCommandTests.cs` `2805/2424/568` `text-v1:1732af7ad1beb875`,
+  `tests/DaemonCommandTests.cs` `808/705/176` `text-v1:83e42bb25e91f811`, and
+  `src/NSharpLang.Cli/Program.Testing.cs` `618/540/0` `text-v1:70e163bd806923f6`.)
+
+  ### WHAT MIGRATED, AND THE EXACT COUNTS
+
+  **ALL 21 SURVIVING BUCKET-(a) BODIES ARE GONE — 19 DELETED AND 2 DE-TAUTOLOGISED IN PLACE.**
+
+  | | before | after | delta |
+  |---|---|---|---|
+  | `tests/CliCommandTests.cs` lines | 2,805 | **1,810** | −995 |
+  | test methods | 56 | **39** | −17 |
+  | `[Fact]` / `[Theory]` / `[InlineData]` | 55 / 1 / 0 | **38 / 1 / 0** | −17 / 0 / 0 |
+  | `Assert.` | 507 | **240** | −267 |
+  | non-test members | 13 | **12** | −1 |
+  | bucket (a) | 17 | **0** | −17 |
+  | bucket (b) | 39 | **39** | 0 |
+  | `tests/DaemonCommandTests.cs` lines | 808 | **764** | −44 |
+  | test methods | 31 | **29** | −2 |
+  | `Assert.` | 145 | **118** | −27 |
+  | bucket (a) | 4 | **0** | −4 |
+  | bucket (b) | 27 | **29** | +2 |
+  | `src/NSharpLang.Cli/Program.Testing.cs` | 618 | **617** | −1 |
+
+  The `−995` decomposes exactly: 947 declaration lines + 17 `[Fact]`/`[Theory]` attributes + 17
+  separating blank lines (= the 981 the deletion instrument reported) + 10 lines of dead
+  `ExecuteProgram` + 3 dead `using` directives + 4 residual blanks. The daemon's `−44` is 45
+  declaration lines + 2 attributes + 2 blanks = 49 removed, less the 5 lines of comment added to
+  the two de-tautologised bodies. **`tests/DaemonCommandTests.cs`'s bucket (b) RISES by 2**,
+  because the two `DaemonServer` bodies that named a kernel only to build an expectation now
+  assert the LITERAL wire message and so name no N#-owned subject at all.
+
+  The successors are **132 blocks / 529 `assert` rows / 1,705 lines in TEN NEW estate `.tests.nl`
+  files**, **11 more blocks / 28 more `assert` rows appended to `BatchQueryKernels.tests.nl` and
+  `TestCommandKernels.tests.nl`**, and **13 more blocks / 105 more `assert` rows in
+  `tests/native/cli-command-contracts` (697 → 1,131 lines, 38 → 51 blocks)**. **156 BLOCKS AND 662
+  ASSERT ROWS REPLACE 19 BODIES AND 292 ASSERT ROWS.**
+
+  | successor | blocks | `assert` rows | lines |
+  |---|---|---|---|
+  | `NewCommandKernels.tests.nl` | 33 | 169 | 419 |
+  | `CliDependencyAndSymbolFilters.tests.nl` | 18 | 54 | 240 |
+  | `AddCommandKernels.tests.nl` | 19 | 74 | 213 |
+  | `CommandRegistry.tests.nl` | 8 | 66 | 185 |
+  | `RestoreCommandGeneratedProps.tests.nl` | 5 | 16 | 134 |
+  | `CompilationBackendSelectionKernels.tests.nl` | 9 | 21 | 116 |
+  | `RemoveCommandKernels.tests.nl` | 12 | 35 | 113 |
+  | `UpdateCommandKernels.tests.nl` | 10 | 32 | 102 |
+  | `DaemonServerAndClientKernels.tests.nl` | 10 | 37 | 98 |
+  | `CompletionCommandKernels.tests.nl` | 8 | 25 | 85 |
+  | `BatchQueryKernels.tests.nl` (extended) | +7 | +17 | +131 |
+  | `TestCommandKernels.tests.nl` (extended) | +4 | +11 | +46 |
+  | `tests/native/cli-command-contracts` (extended) | +13 | +105 | +434 |
+
+  ### THE PRODUCT FINDING: THREE DELETED ASSERTIONS PINNED SOMETHING NO USER CAN OBSERVE
+
+  `BatchQueryRunner_LoadRequestsErrorsUseMessageKernels` asserted
+  `Assert.Throws<FileNotFoundException>` for a missing requests file and
+  `Assert.Throws<InvalidDataException>` for a malformed payload and a non-object element — three
+  rows distinguishing two EXCEPTION TYPES thrown by `BatchQueryRunner.LoadRequests`, which is
+  `internal` in `src/NSharpLang.Cli/`. **THE SHIPPED CLI DISTINGUISHES NEITHER, MEASURED AGAINST
+  THE REAL BINARY**: all FOUR requests-file failures — missing file, non-array payload,
+  non-object element, and duplicate ids — exit 1 with the same top-level envelope,
+  `error.code == "invalidRequestsFile"`, and `error.details.requests` naming the path. The
+  duplicate-id case additionally emits **no `results` array and no counts at all**, because the run
+  never begins — a fact the deleted body could not see, since it never reached the CLI. The
+  successors pin the observable envelope, which is what a user and an LLM actually receive.
+
+  ### FOURTEEN MORE DELETED ASSERTIONS WERE TAUTOLOGIES, AND BOTH SIDES ARE LITERAL NOW
+
+  Every one of the six batch bodies compared an envelope's message against a LIVE CALL to the
+  kernel that produced it — `Assert.Equal(QueryCommandKernels.GetNoSymbolAtPositionMessage(
+  "Program.nl", 1, 1), results[3]…GetString())` and thirteen siblings. The pair agreed by
+  construction: neither side ever said what the sentence is, and a kernel and a command that were
+  wrong in the same way would have passed. **The same shape held for the two surviving
+  `DaemonServer` bodies**, which are the reason those two are KEPT and edited rather than deleted:
+  they now assert the literal wire message (`"Unknown method: daemon/nope"`), while the kernel's
+  own text is pinned independently in `DaemonServerAndClientKernels.tests.nl`. The sentence is now
+  stated on both sides of the socket and neither can drift into agreement with a wrong answer.
+
+  ### CLAIMS THE DELETED C# COULD NOT MAKE, NOW PINNED
+
+  - **`nlc new`'s "empty output" guard is structurally unreachable through its own enum.**
+    `GetTemplateSourceText` throws `N# new text kernel returned empty output.` when
+    `GetTemplateSourceTextOrEmpty` answers `""` — and all SEVEN declared
+    `NewTemplateSourceFileKind` members are mapped, so the final `return ""` is reachable only for
+    a value outside the enum. Measured, recorded, not fixed. A second measurement overturned the
+    obvious reading of the same kernel: **only the `Program` arm branches on the template**, so
+    asking the console template for a WebApi controller returns the CONTROLLER.
+  - **`--template` beats `--type`, and each option takes its FIRST occurrence.** The deleted body
+    asked for each alias separately, so a parser letting the LAST one win would have passed.
+  - **The bare word `help` is position-sensitive in four different commands, and is ALSO an
+    operand.** `nlc update help` reports a target package named `help`; `nlc new MyApp help` does
+    NOT show help and makes `help` the second positional. The deleted bodies asserted the same
+    `true` and never said it was positional.
+  - **`nlc remove`'s two removal arms are DIFFERENT answers**, which is what decides whether one
+    line or a whole indented block leaves the user's `project.yml`. The deleted body asserted five
+    expected values and never put two of them side by side.
+  - **`FindDuplicateRequestIds`'s reflection contract is now the subject.** It reads `Id` from a
+    PROPERTY, then a FIELD, then gives up; the deleted body's only carrier was `BatchQueryRequest`,
+    a record in `src/NSharpLang.Cli/`, so no arm was distinguishable. Both arms and the
+    no-`Id`-at-all case are pinned by carriers declared in the estate.
+  - **The command registry's CONTENT was never pinned.** The deleted body looped over whatever the
+    registry happened to contain, so a registry that silently LOST a command would have passed —
+    one fewer iteration, every remaining assertion still true. All 27 top-level and 19 query names
+    are literal in the estate AND literal in the native corpus, and the two ALIAS links (`def`,
+    `refs`) are pinned for the first time.
+  - **`nlc restore` recurses.** The deleted body only ever looked in `App/obj`; the referenced
+    project's own `project.g.props` is now read, which is also the other side of the
+    `outputType` rule.
+  - **`CompilerErrorSeverityFilter`'s two selections PARTITION the input**, and every selected row
+    really carries the severity asked for — the array comparison implied both and checked neither.
+
+  ### TWO ROUTE PREDICTIONS FROM SLICE 43 WERE OVERTURNED, BOTH IN THE CHEAPER DIRECTION
+
+  | body | slice 43's price | measured |
+  |---|---|---|
+  | `CompilationBackendSelectionKernels_ValidatesEffectiveBackend` | "needs a `ProjectConfig`, which is reflection-only at emit — price it against the spawned route first, and if that does not reach the same message it is the one body that legitimately stays" | **`new ProjectConfig()` with a property set EMITS in the estate.** No spawned route was needed, and the whole policy sits behind one pure two-string function, `EffectiveBackendKind` — so the estate carries it at FULL strength, including both `ProjectConfig` arms |
+  | `RestoreCommand_Deduplicates…` | "writes files to disk … wants the native route" | **`RestoreCommand` is N#-owned and in the same assembly**, and `Directory.CreateDirectory` / `File.WriteAllText` / `File.ReadAllText` all emit. `Restore` spawns no process, so a spawned `nlc` would prove strictly less |
+
+  ### THE COMPARATOR, WITH COMPLETENESS ARITHMETIC
+
+  **292 DECODED CLAIM ROWS ACROSS THE 19 DOOMED BODIES (265 + 27); 0 UNDECODED; 0 MISSING.** Of
+  those, **17 are CLI observations checked BY ROUTE**.
+
+  **THE COMPARATOR FOUND FOUR DEFECTS IN ITSELF, ONE OF THEM ONLY BECAUSE A V-CONTROL LOOKED**, and
+  all four are recorded rather than quietly fixed:
+
+  | # | defect | how it showed |
+  |---|---|---|
+  | A | the successor corpus omitted the estate files that slices 42/43 already populated | `QueryCommandKernels.GetNoDocumentationMessage` read as lost although it moved two slices ago |
+  | B | an interpolated `$"…{expr}…"` was treated as ONE literal — a RECURRENCE of slice 43's defect 3 in a freshly built instrument | `nlc {command}` and `nlc query {command}` looked absent from a corpus that spells them `"nlc " + names[i]` |
+  | C | a CLI observation (stream silence, containment in spawned output) had no route rule at all | 10 rows UNDECODED, every one of them a `IsNullOrWhiteSpace(stderr)` or a loop-variable `Contains` |
+  | D | the route rule was a CORPUS-WIDE existence check rather than a (command, observable) PAIR | **found by V-control V5**: deleting a whole native block left MISSING at 0 |
+
+  ### THE V-CONTROLS ON THE COMPARATOR — EIGHT RUN, SIX MOVE, TWO TRUE NON-MOVERS
+
+  | # | perturbation | result |
+  |---|---|---|
+  | V1 | drop one estate message row (`nlc add` duplicate-package sentence) | MISSING: 1 |
+  | V2 | drop one daemon trace row (file-watcher started) | MISSING: 1 |
+  | V3 | drop the native duplicate-ids SENTENCE | **MISSING: 0 — a TRUE NON-MOVER** |
+  | V4 | drop one `nlc new` template literal (`global.json` `rollForward`) | MISSING: 1 |
+  | V5 | drop the whole native completion-unknown-shell BLOCK | MISSING: 1 (only after DEFECT-D was fixed; **0 before**) |
+  | V6 | corrupt the XML-escape expectation | MISSING: 1 |
+  | V7 | drop the whole native registry top-level-sync BLOCK | **MISSING: 0 — a TRUE NON-MOVER** |
+  | V8 | drop the stderr-silence row from EVERY native batch block | MISSING: 4 |
+
+  **BOTH NON-MOVERS ARE NON-MOVERS FOR THE SAME NAMED REASON, AND IT IS A DESIGN PROPERTY RATHER
+  THAN A GAP: THE SPLIT ROUTE DELIBERATELY DOUBLE-COVERS.** V3's deleted row claimed the literal
+  `alpha, zeta` and the member `BatchQueryKernels.GetDuplicateRequestIdsMessage`; dropping the
+  NATIVE envelope row leaves the ESTATE row that pins exactly that kernel and that argument, so
+  there is genuinely nothing lost. V7's deleted rows claimed the 27 top-level command NAMES plus a
+  route; dropping the native sync block leaves all 27 names literal in
+  `CommandRegistry.tests.nl` and leaves the query-sync block asserting against the same zsh script
+  and the same docs file. In both cases the comparator is right to see nothing — which is the
+  point of pinning each claim on both sides.
+
+  ### THE PERTURBATION MATRIX, RUN OUT OF REPOSITORY — 156 BLOCKS, ZERO NON-MOVERS
+
+  A `/tmp` byte-copy (nested worktrees excluded, five material files verified byte-identical by
+  `shasum -a 256`) carried a vacuity instrument that rewrites every `assert X` into a statement
+  asserting its negation. A block that stays green under it asserted nothing that runs.
+
+  | instrument | blocks under it | `assert` rows inverted | red |
+  |---|---|---|---|
+  | A — the ten new estate files | 132 | 529 | **132** |
+  | B — the appended tails of `BatchQueryKernels.tests.nl` and `TestCommandKernels.tests.nl` | 11 | 28 | **11**, and the 9 + 21 inherited blocks in those files stay green |
+  | C — the 13 new native blocks | 13 | 105 | **13**, and the 38 inherited blocks stay green |
+
+  **ZERO NON-MOVERS ACROSS ALL 156.**
+
+  **THE MATRIX FOUND A PARSER LIMIT RATHER THAN A VACUOUS BLOCK, AND IT IS RECORDED.** The natural
+  `assert !(X)` spelling broke ONE file at `parse.test`, and the bisect is exact: **inverting SIX
+  asserts as `!( … )` across THREE locals in one `test` block declines**, while each shape parses
+  alone (`!(enum == enum)`, `!(!property)`, `!(f([]).property)` all compile), two of the three
+  groups compile together, and six negations over ONE local compile. The `(X) == false` spelling
+  carries the same inversion and parses, and that is what the matrix used throughout.
+
+  ### THE MUTATION PANEL — THREE MUTATIONS ON THE MOVED POLICY, THREE MATCHES
+
+  | # | mutation | prediction | measured |
+  |---|---|---|---|
+  | **M1** | `TestCommandKernels.GetRunTimedOutMessage` returns the PER-TEST sentence | exactly the two-timeout-sentences block, which asserts the pair differs | **`Failed: 1, Passed: 6708`** |
+  | **M2** | `IsSupportedTestMethodArity` accepts `parameterCount <= 1` | exactly the arity block | **`Failed: 1, Passed: 6708`** |
+  | **M3** | `GetUnsupportedTestArityMessage` transposes its two arguments | exactly the arity-sentence block; `GetTestFullName`'s block stays green | **`Failed: 1, Passed: 6708`** |
+
+  Every production file was restored by checksum between runs and the tree was verified pristine
+  after the panel. **One restore was interrupted mid-panel by a transient failure and the
+  checksum comparison CAUGHT IT** — `TestCommandKernels.nl` still carried M3 — which is why the
+  restore is verified rather than assumed.
+
+  ### THE `Program.Testing.cs` MOVE, WHICH DISCHARGES 020's CONDITION (2)
+
+  **BEFORE**, slice 42's partition: 38 kernel call sites over 29 distinct N#-owned entry points,
+  and a SIX-ITEM residue — three internal invariant violations on CLR-handed paths (the two
+  assembly-directory sentences at `:147`/`:349` and the outcome-summary sentence at `:614`) and
+  three that are not mechanical: `Test run timed out.` at `:219`, `Test timed out.` at `:540`, and
+  the arity predicate `method.GetParameters().Length != 0` at `:487` with its sentence at `:490`.
+  All three line numbers reproduced exactly before the edit.
+
+  **AFTER**: five new N# kernels own them — `TestCommandKernels.GetRunTimedOutMessage`,
+  `GetTestTimedOutMessage`, `IsSupportedTestMethodArity`, `GetUnsupportedTestArityMessage` and
+  `GetTestFullName` — and the C# reads the predicate and calls the messages. **THE RESIDUE IS
+  MEASURED, NOT ASSERTED**: a grep for `"Test run timed out.`, `"Test timed out.`, `takes none` and
+  `GetParameters().Length (!=|==) 0` returns **0 in `Program.Testing.cs` and 0 anywhere in C#**.
+  The file SHRINKS 618 → **617** (the moved comment left with the policy, and the interpolated
+  sentence collapsed into a kernel call), and its kernel call-site census rises to **41**.
+
+  **THE THREE SURVIVING RESIDUE ITEMS ARE NAMED AND JUDGED, NOT SWEPT.**
+  `Could not determine the test assembly directory for '{assemblyPath}'.` (twice) fires when
+  `Path.GetDirectoryName` returns null on a path the CLR just handed back;
+  `N# test JSON output requires an N# outcome summary.` fires when the runner reaches its JSON
+  writer with no summary object. Neither is a CLASSIFICATION of a test outcome and neither is part
+  of any output a passing or failing run produces — they are internal invariant violations on
+  impossible paths. Task 020's contract asks that "N# must own result classification and stable
+  output"; these are neither.
+
+  ### THE EVIDENCE
+
+  | check | result |
+  |---|---|
+  | compiler-service estate | **6,566 → 6,709 by COUNT DIFF (+143 = 132 new-file blocks + 11 appended)**, `Failed: 0`, under the restore-flag discipline |
+  | C# unit suite | **653 → 634 (−19), `Failed: 0`** — exactly the 19 deleted methods; none was a `[Theory]`, so the delta equals the method count |
+  | native project | `tests/native/cli-command-contracts` **38 → 51 blocks, `Failed: 0`**; native project count stays **46** by the gate's own discovery predicate |
+  | live tree | `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` = **393 files, 246 diagnostics — the inherited baseline to the digit**, same ten-code census (`NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26`), **ZERO rows in any `.tests.nl`**, ZERO naming a file this slice added, and ZERO naming `TestCommandKernels.nl`, the one production file this slice edited |
+  | format | `nlc format --project src/NSharpLang.Compiler.BootstrapServices --check` clean on the FIRST run |
+  | comparator | **292 decoded claim rows, 0 UNDECODED, 0 MISSING** (17 by route), after four recorded self-defects and eight V-controls |
+  | perturbation matrix | **156 blocks, 662 inverted `assert` rows, ZERO non-movers** |
+  | ownership audit | **18 / 18 after correctly failing 17 / 18 pre-repin** (the control was run by reverting both ratchet files and re-running); THREE rows repinned — `tests/CliCommandTests.cs` `2805/2424/568` → `1810/1562/284` with `text-v1:1732af7ad1beb875` → `text-v1:46a988aaee81e8de`, `tests/DaemonCommandTests.cs` `808/705/176` → `764/663/147` with `text-v1:83e42bb25e91f811` → `text-v1:97f81130183da2f9`, and `src/NSharpLang.Cli/Program.Testing.cs` `618/540/0` → `617/539/0` with `text-v1:70e163bd806923f6` → `text-v1:2fe5384d6c24697c` — and the two-key head repinned LAST, `head-v1:4e5a959052177f41` → `head-v1:48302ea8b4c227a7`, in BOTH places (the JSON header and the `OwnershipPolicy.ReviewedHeadFingerprint` constant); manifest **391 lines, no BOM, valid JSON, exactly four rows changed** |
+
+  **THE REPIN WAS COMPUTED BY A REPLICA VALIDATED AGAINST THE PRISTINE MANIFEST FIRST**, on all
+  four of its values, and the replica REFUSES to raise any ceiling, checked per field — all nine
+  numbers fell. `epochPathFingerprint` and `epochFactFingerprint` are unchanged, verified after the
+  edit: no path was added or removed and no epoch value was touched. **One replica defect was found
+  and fixed before the repin**: the audit strips a UTF-8 BOM when it reads a file, and reading
+  `LanguageServer.csproj` as plain UTF-8 reproduced the wrong fingerprint.
+
+  ### THE DEAD SWEEP
+
+  **`ExecuteProgram` DIES WITH ITS LAST CONSUMER**, measured by occurrence census across the
+  deletion: 2 → 0. With it goes the file's only reflection use, so `using NSharpLang.Cli;`,
+  `using NSharpLang.Compiler;` and `using NSharpLang.Compiler.CodeIntelligence;` are all deleted —
+  every type each of them supplied (`Reference`, `CompilerError`, `ErrorCode`, `ErrorSeverity`,
+  `ProjectConfig`, `SymbolResult`, `SymbolKind`, `ProjectFileParser`) now has ZERO occurrences —
+  and the rebuild is clean at `0 Error(s)`. Nothing else fell to one occurrence:
+  `CaptureConsole` 63 → 54, `AssertJsonContract` 10 → 9, `IssueTrackerFixture` 19 → 15,
+  `FindRepoRoot` 3 → 2, and `NormalizePath`, `HelloWorldProject`, `FindExamplesDir`,
+  `FindFixturesDir`, `LoadJsonContractRootKeys` and `QueryJsonContractCases` are untouched.
+  `tests/DaemonCommandTests.cs`'s six helpers are all unchanged and its `using` block is identical.
+  **ONE FILE WAS RENAMED BEFORE IT LANDED**: the daemon kernel contracts were first written as
+  `DaemonProtocolKernels.tests.nl`, which COLLIDES with the real production type in
+  `DaemonProtocolKernels.nl` — a file named for a type it does not test. It is
+  `DaemonServerAndClientKernels.tests.nl`. `tests/Tests.csproj` needed no edit — it globs its
+  sources — and no gate script, `.csproj` or `project.yml` changed. Two live documentation owners
+  are corrected: `memory/testing.md` gains the slice-44 section and
+  `memory/components/cli-toolchain.md` gains the widened `cli-command-contracts` row, the widened
+  `*CommandKernels.tests.nl` row and three new rows.
+
+  ### THE INSTRUMENT DEFECT THIS SLICE EXHIBITED, RECORDED RATHER THAN QUIETLY FIXED
+
+  The THIRTEENTH-generation classifier masks raw `"""` fixture text — because a type name inside
+  embedded N# SOURCE is data, not a subject — and did **not** mask `//` COMMENTS. It therefore read
+  a receiver out of the slice's own prose: a comment naming
+  `src/NSharpLang.Compiler.BootstrapServices/DaemonProtocolKernels.tests.nl` made
+  `DaemonServer_ReturnsStructuredErrors_…` read as bucket (a) even after its kernel expectation had
+  become a literal. The fix is one rule — strip a `//` comment, honouring string literals — and it
+  was **re-verified against the PRISTINE files before it was trusted**: with comment masking on,
+  the pristine census still reads **17 / 39 and 4 / 27**, the inherited baseline exactly.
+
+  A second, smaller variance is recorded and changes nothing: the `.cs`-declared type census reads
+  **107** where slice 43 recorded 106, because this generation accepts the modifiers `readonly`,
+  `file`, `unsafe`, `ref` and `new` (which is what admits `Union<T0, T1>` and `Result<TOk, TErr>`
+  in `src/NSharpLang.Runtime/`) and rejects prose matches inside comments. Bucket assignment reads
+  only the `.nl` set, which reproduces at **1,094** exactly.
+
+  ### THE GATE
+
+  **The full non-VS-Code product gate, fresh and isolated from a `/tmp` byte-copy that excludes the
+  nested worktrees, with the log written OUTSIDE the copy, is `ALL TESTS PASSED! ✓` with exit 0:
+  126 GREEN STEPS and ZERO `✗ FAILED` LINES IN 636 LOG LINES, 23m 08s.** Its banner confirms no
+  cached result was accepted (`Fresh isolated test run required: pre-commit verification` /
+  `Existing cache entries will not satisfy this invocation.`), and its closing line stores a fresh
+  validated result under key `348ecdf7e0f91a3f`.
+
+  **The reported copy was verified byte-identical to the shipped tree on ALL TWENTY-TWO changed
+  paths** by `shasum -a 256`, driven from `git status --porcelain` so the list cannot be curated,
+  and checked to contain no nested worktrees. **This ledger is the ONE file edited after the copy,
+  and it is not in any gate input set**: `test-all-core.sh`'s `UNIT` and `EXAMPLES` prefixes are
+  `scripts/`, `tests/scripts/`, `src/`, `tests/`, `examples/`, `templates/`, `docs/`,
+  `website/docs/` and `editors/vscode/test/suite/` — `systems-language-closeout/` is in neither.
+  Both `memory/` documents were edited BEFORE the copy and are byte-identical inside it.
+
+  **The gate's own instruments confirm every count this record makes.** It tests **46** native
+  projects and names the extended one explicitly — `Testing native project:
+  tests/native/cli-command-contracts` → `Passed: 51, Failed: 0` — the unit step reports
+  `Passed: 634, Failed: 0`, the compiler-service estate `Passed: 6709, Failed: 0`, and the
+  ownership audit `Passed: 18, Failed: 0`.
+
+  ### THE TREE
+
+  **NOT COMMITTED — the mandate reserves that.** The working tree carries exactly TWENTY-TWO
+  changed paths: the SHRUNK `tests/CliCommandTests.cs` (−995) and `tests/DaemonCommandTests.cs`
+  (−44), the SHRUNK `src/NSharpLang.Cli/Program.Testing.cs` (−1), the GROWN
+  `src/NSharpLang.Compiler.BootstrapServices/TestCommandKernels.nl` (+30, the five new kernels),
+  the TEN new estate `.tests.nl` files, the TWO extended estate `.tests.nl` files, the EXTENDED
+  `tests/native/cli-command-contracts/CliCommandContracts.tests.nl`, both ratchet files, both swept
+  `memory/` documents and this ledger. **`tasks/README.md` is NOT among them, verified by
+  `git diff --quiet`.** No gate script, no `.csproj` and no `project.yml` changed.
+
+  ### THE CLOSING DECISION — TASK 020 STILL DOES **NOT** CLOSE, AND THE REASON IS NEW
+
+  **HALF (2) PASSES.** `Program.Testing.cs` is now a mechanical executor of an N#-decided plan: the
+  timeout classification and the arity policy are N#-owned, the file shrank, and the residue is
+  three internal invariant violations on CLR-handed paths — named, judged, and neither a result
+  classification nor part of any stable output. That was the whole of 020's condition (2), and it
+  is discharged.
+
+  **HALF (1) FAILS, AND IT FAILS ON A FILE NO PRIOR SLICE MEASURED.** Both files the finisher was
+  aimed at are now bucket-(a) EMPTY — `tests/CliCommandTests.cs` 17 → **0** and
+  `tests/DaemonCommandTests.cs` 4 → **0**, reproduced by the same classifier that produced the
+  17 / 39 and 4 / 27 baseline. But the closing rule is about **every** C# compiler/tooling file,
+  not those two, so the classifier was run over **all 25 `tests/*.cs`** for the first time — and it
+  overturns the inherited triage.
+
+  | file | bodies whose SUBJECT is N#-owned | the subjects |
+  |---|---|---|
+  | `tests/CliParityAuditTests.cs` (1,822 lines / 73 tests / 403 assertion markers) | **25** | `AddCommand` 6, `TidyCommand` 5, `UpdateCommand` 4, `RemoveCommand` 4, `ProgramCommandKernels` 2, and one each of `CleanCommand`, `CompletionCommand`, `UnifiedDiff`, `ColumnarParserRecovery`, `Linter`, `NSharpInstallRoot`, `PackCommandKernels`, `TidyCommandKernels` |
+  | `tests/IlSdkToolchainTests.cs` | **3** | `ProjectReferenceResolver` ×2, `RestoreCommand` |
+  | `tests/AstChildrenTests.cs` | **1** | `AstChildrenCore` |
+  | `tests/ErrorRecoveryPipelineTests.cs` | **1** | `ColumnarParserRecovery` |
+  | **TOTAL** | **30** | |
+
+  **EVERY ONE OF THOSE THIRTEEN SUBJECTS IS A `.nl` FILE IN
+  `src/NSharpLang.Compiler.BootstrapServices/` WITH NO C# COUNTERPART**, checked one by one:
+  `AddCommand.nl`, `TidyCommand.nl`, `UpdateCommand.nl`, `RemoveCommand.nl`, `CleanCommand.nl`,
+  `CompletionCommand.nl`, `UnifiedDiff.nl`, `Linter.nl`, `NSharpInstallRoot.nl`,
+  `PackCommandKernels.nl`, `ProjectReferenceResolver.nl`, `AstChildrenCore.nl`,
+  `ColumnarParserRecovery.nl`. `CliParityAuditTests.cs` drives those commands' `Execute` through a
+  console capture and asserts their usage text, their missing-`project.yml` messages, their JSON
+  error envelopes and their dependency classification — **exactly the shape slices 42, 43 and 44
+  have been deleting from `CliCommandTests.cs`.** It is a canonical C# assertion layer over
+  N#-owned code, and the rule says 020 closes only when none remains.
+
+  **THE CENSUS WAS SHARPENED TWICE BEFORE IT WAS BELIEVED, AND BOTH SHARPENINGS ARE RECORDED**,
+  because the crude reading would have been alarmist. Asking merely "does this body NAME a type
+  declared in a production `.nl`" reports **214** bodies across 11 files — but most of those name
+  an N#-owned ENUM as an expected LABEL (`ErrorCode.UndefinedVariable` in
+  `LanguageServerDiagnosticsTests.cs`, `TokenType` in `LanguageServerTests.cs`), which is a value,
+  not a subject. Restricting to a CALL or a `new` on an N#-owned type gives **113**. Excluding the
+  eight types that are the test HARNESS's route rather than its claim — `DotnetRunner` (runs the
+  emitted artifact), `ProjectFileParser` (parses the fixture project.yml), `CompilationArtifacts`
+  (holds output paths), and `CompilerError` / `Diagnostic` / `Location` / `DiagnosticSeverity` /
+  `DiagnosticCatalog` (constructed as INPUT to a C#-owned LSP converter) — gives **30**. So
+  `CompilationBackendTests.cs`'s 68 flagged bodies are correctly (b): their asserted subject is
+  `MultiFileCompiler`, which is C#.
+
+  **`tasks/README.md` IS THEREFORE NOT EDITED, verified by `git diff --quiet`.** Task 020's next
+  and probably last cluster is named and measured: **`tests/CliParityAuditTests.cs`'s 25 bodies**,
+  then the five stragglers in `IlSdkToolchainTests.cs`, `AstChildrenTests.cs` and
+  `ErrorRecoveryPipelineTests.cs`. The route split is already known from this slice: the pure
+  kernel rows go to the estate, and every row that reads a console capture goes to
+  `tests/native/cli-command-contracts` as a spawned `nlc` — which for `AddCommand`, `TidyCommand`,
+  `UpdateCommand`, `RemoveCommand`, `CleanCommand` and `CompletionCommand` is strictly stronger
+  than the C#, since those bodies call `Execute` in process and never prove the dispatch.
+
+- Active sub-slice (020 arc, PRIOR TURN — **SLICE 43 — THE DECODE, RECORDED BEFORE ANY C# WAS
   TOUCHED.** The instrument is rebuilt a TWELFTH time and its census REPRODUCES slice 42's to the
   digit: **1,094** `.nl`-declared type names and **106** `.cs`-declared ones;
   `tests/CliCommandTests.cs` at **4,274 lines / 100 test methods (96 `[Fact]` + 4 `[Theory]` /

@@ -188,3 +188,49 @@ test "a pipe in the filter is an OR, and an all-empty one matches nothing" {
     assert !TestCommandKernels.MatchesFilter(" | ", "First", "", "Tests.SecondCase")
     assert !TestCommandKernels.MatchesFilter("missing", "First", "", "Tests.SecondCase")
 }
+
+// ── the timeout classification and the arity policy ───────────────────────────
+//
+// SLICE 44 MOVED THESE THREE DECISIONS OUT OF `src/NSharpLang.Cli/Program.Testing.cs`, WHICH IS
+// WHAT DISCHARGES TASK 020's CONDITION (2). Slice 42's partition of that file found six residue
+// items and split them: three are internal invariant violations on paths the CLR hands back —
+// mechanical, and they stay — while these three are not. A TIMEOUT IS AN OUTCOME, so classifying
+// one is result classification by definition and both sentences are user-facing; and the
+// parameter-arity refusal is a POLICY with a user-facing sentence attached.
+//
+// The C# now reads `IsSupportedTestMethodArity` for the decision and calls the three message
+// kernels for the words. These blocks are what pin them, so a change to either sentence has to be
+// made here.
+
+test "the two timeout sentences are exactly these, and they are DIFFERENT sentences" {
+    // The whole-run timeout and the per-test timeout are distinct classifications and read
+    // differently. A move that collapsed them into one string would pass a `Contains` check and
+    // fail this.
+    assert TestCommandKernels.GetRunTimedOutMessage() == "Test run timed out."
+    assert TestCommandKernels.GetTestTimedOutMessage() == "Test timed out."
+    assert TestCommandKernels.GetRunTimedOutMessage() != TestCommandKernels.GetTestTimedOutMessage()
+}
+
+test "a native test method takes NO parameters, and every other arity is refused" {
+    assert TestCommandKernels.IsSupportedTestMethodArity(0)
+    assert !TestCommandKernels.IsSupportedTestMethodArity(1)
+    assert !TestCommandKernels.IsSupportedTestMethodArity(2)
+    // a negative count cannot come from `GetParameters().Length`, but the predicate is total
+    assert !TestCommandKernels.IsSupportedTestMethodArity(-1)
+}
+
+test "the arity refusal names the test and the count it actually found" {
+    assert TestCommandKernels.GetUnsupportedTestArityMessage("Tests.Adds", 2)
+        == "Test 'Tests.Adds' expects 2 argument(s), but a native test method takes none."
+    // both arguments are really read — a kernel hard-coding either would pass one row and fail this
+    assert TestCommandKernels.GetUnsupportedTestArityMessage("Other.Subtracts", 1)
+        == "Test 'Other.Subtracts' expects 1 argument(s), but a native test method takes none."
+}
+
+test "the test full name joins the declaring type and the method with a dot" {
+    assert TestCommandKernels.GetTestFullName("NSharpTests", "Adds") == "NSharpTests.Adds"
+    // A CLR-HANDED NULL IS THE CASE THE C# INTERPOLATION USED TO ABSORB SILENTLY. `MethodInfo`'s
+    // `DeclaringType` is nullable, and `$"{null}.{name}"` rendered a leading dot; the kernel keeps
+    // exactly that shape rather than inventing a new one, so the move changes no output.
+    assert TestCommandKernels.GetTestFullName(null, "Adds") == ".Adds"
+}

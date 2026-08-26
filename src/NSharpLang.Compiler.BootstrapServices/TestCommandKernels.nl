@@ -541,6 +541,36 @@ class TestCommandKernels {
         return "Failed " + displayName + ": " + message
     }
 
+    // ── THE TIMEOUT CLASSIFICATION AND THE ARITY POLICY ───────────────────────
+    //
+    // A TIMEOUT IS AN OUTCOME, so classifying one is result classification and both of its
+    // sentences are stable user-facing output. The parameter-arity refusal is a POLICY — "a native
+    // test method takes none" — with a user-facing sentence attached. Task 020's contract puts all
+    // three on this side of the line: `src/NSharpLang.Cli/Program.Testing.cs` may only mechanically
+    // execute the plan these decide.
+
+    static func GetRunTimedOutMessage(): string {
+        return "Test run timed out."
+    }
+
+    static func GetTestTimedOutMessage(): string {
+        return "Test timed out."
+    }
+
+    // A native test method takes no parameters: N# lowers a table row's values into locals in the
+    // body, so there is nothing for the runner to bind.
+    static func IsSupportedTestMethodArity(parameterCount: int): bool {
+        return parameterCount == 0
+    }
+
+    static func GetUnsupportedTestArityMessage(testFullName: string, parameterCount: int): string {
+        return "Test '" + testFullName + "' expects " + parameterCount.ToString() + " argument(s), but a native test method takes none."
+    }
+
+    static func GetTestFullName(declaringTypeFullName: string?, methodName: string): string {
+        return (declaringTypeFullName ?? "") + "." + methodName
+    }
+
     static func DurationMilliseconds(duration: string): int {
         start := 0
         end := duration.Length - 1

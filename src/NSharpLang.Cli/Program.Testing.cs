@@ -216,7 +216,7 @@ partial class Program
 
             if (!executionSink.WaitForCompletion(timeoutMs))
             {
-                throw new TimeoutException("Test run timed out.");
+                throw new TimeoutException(TestCommandKernels.GetRunTimedOutMessage());
             }
 
             return executionSink.ToRun();
@@ -483,11 +483,10 @@ partial class Program
 
     private static void InvokeTestMethod(object? instance, MethodInfo method, int? timeoutMs)
     {
-        // A test method takes no parameters: N# lowers a table row's values into locals in the body.
-        if (method.GetParameters().Length != 0)
+        if (!TestCommandKernels.IsSupportedTestMethodArity(method.GetParameters().Length))
         {
-            throw new InvalidOperationException(
-                $"Test '{method.DeclaringType?.FullName}.{method.Name}' expects {method.GetParameters().Length} argument(s), but a native test method takes none.");
+            throw new InvalidOperationException(TestCommandKernels.GetUnsupportedTestArityMessage(
+                TestCommandKernels.GetTestFullName(method.DeclaringType?.FullName, method.Name), method.GetParameters().Length));
         }
 
         WaitForPossibleAsyncResult(method.Invoke(instance, Array.Empty<object?>()), timeoutMs);
@@ -537,7 +536,7 @@ partial class Program
 
         if (!task.Wait(timeoutMs.Value))
         {
-            throw new TimeoutException("Test timed out.");
+            throw new TimeoutException(TestCommandKernels.GetTestTimedOutMessage());
         }
     }
 

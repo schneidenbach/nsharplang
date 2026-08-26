@@ -129,3 +129,134 @@ test "the normaliser trims, lowercases, and expands the two shorthand command na
     assert BatchQueryKernels.GetCommandKind(" DEF ") == BatchQueryCommandKind.Definition
     assert BatchQueryKernels.GetCommandKind("Refs") == BatchQueryCommandKind.References
 }
+
+// ── the duplicate-id detector itself ──────────────────────────────────────────
+//
+// ADDED BY THE FINISHER SLICE, AND IT CLOSES A GAP THIS FILE'S OWN HEADER DESCRIBES. The header
+// above states the ordinal, case-sensitive, blank-ignoring rule in prose and pins only the
+// popcount half of the body it came from — because `FindDuplicateRequestIds` takes
+// `IReadOnlyList<object>` and reads each element's `Id` through REFLECTION, and the only carrier
+// the deleted C# had was `BatchQueryRequest`, a record in `src/NSharpLang.Cli/`. The carriers
+// below are declared here, so the reflection CONTRACT is what is pinned rather than one C# type
+// that happens to satisfy it: a PROPERTY named `Id`, then a FIELD named `Id`, then nothing.
+
+class IdCarryingProperty {
+    Id: string?
+
+    constructor(id: string?) {
+        Id = id
+    }
+}
+
+class IdCarryingField {
+    Id: string?
+}
+
+class NoIdAtAll {
+    Name: string?
+}
+
+test "duplicate ids are reported once each, in ordinal order" {
+    requests := new List<object>()
+    requests.Add(new IdCarryingProperty("zeta"))
+    requests.Add(new IdCarryingProperty("alpha"))
+    requests.Add(new IdCarryingProperty(" "))
+    requests.Add(new IdCarryingProperty("zeta"))
+    requests.Add(new IdCarryingProperty("Alpha"))
+    requests.Add(new IdCarryingProperty("alpha"))
+
+    duplicates := BatchQueryKernels.FindDuplicateRequestIds(requests)
+
+    assert duplicates.Length == 2
+    assert duplicates[0] == "alpha"
+    assert duplicates[1] == "zeta"
+}
+
+test "ordinal order puts uppercase FIRST, which is why Alpha is not a duplicate of alpha" {
+    // THE CLAIM THE DELETED BODY'S NAME PROMISED AND ITS ONE ASSERTION DID NOT MAKE. It carried
+    // `Alpha` and `alpha` and asserted `["alpha", "zeta"]`, so a case-INSENSITIVE detector would
+    // have failed on the count without ever saying that case is the point. Here BOTH casings are
+    // duplicated, both are reported, and `Alpha` comes first — ordinal, not alphabetical.
+    requests := new List<object>()
+    requests.Add(new IdCarryingProperty("alpha"))
+    requests.Add(new IdCarryingProperty("Alpha"))
+    requests.Add(new IdCarryingProperty("alpha"))
+    requests.Add(new IdCarryingProperty("Alpha"))
+
+    duplicates := BatchQueryKernels.FindDuplicateRequestIds(requests)
+
+    assert duplicates.Length == 2
+    assert duplicates[0] == "Alpha"
+    assert duplicates[1] == "alpha"
+}
+
+test "a blank, empty or absent id is never a duplicate, however often it repeats" {
+    // The deleted body carried ONE `" "` entry, so a detector that counted blanks would still have
+    // answered `["alpha", "zeta"]`. Five ignorable ids make the claim.
+    requests := new List<object>()
+    requests.Add(new IdCarryingProperty(" "))
+    requests.Add(new IdCarryingProperty(" "))
+    requests.Add(new IdCarryingProperty(""))
+    requests.Add(new IdCarryingProperty(null))
+    requests.Add(new IdCarryingProperty(null))
+
+    duplicates := BatchQueryKernels.FindDuplicateRequestIds(requests)
+
+    assert duplicates.Length == 0
+}
+
+test "the id is read from a FIELD as well as a property, and an element with neither is skipped" {
+    fields := new IdCarryingField()
+    fields.Id = "shared"
+    moreFields := new IdCarryingField()
+    moreFields.Id = "shared"
+
+    fieldCarriers := new List<object>()
+    fieldCarriers.Add(fields)
+    fieldCarriers.Add(moreFields)
+
+    duplicates := BatchQueryKernels.FindDuplicateRequestIds(fieldCarriers)
+    assert duplicates.Length == 1
+    assert duplicates[0] == "shared"
+
+    idlessCarriers := new List<object>()
+    idlessCarriers.Add(new NoIdAtAll())
+    idlessCarriers.Add(new NoIdAtAll())
+    assert BatchQueryKernels.FindDuplicateRequestIds(idlessCarriers).Length == 0
+}
+
+test "distinct ids answer an empty array, so the detector is not simply reporting everything" {
+    requests := new List<object>()
+    requests.Add(new IdCarryingProperty("one"))
+    requests.Add(new IdCarryingProperty("two"))
+    requests.Add(new IdCarryingProperty("three"))
+
+    assert BatchQueryKernels.FindDuplicateRequestIds(requests).Length == 0
+}
+
+// ── two more controls the finisher slice adds ─────────────────────────────────
+
+test "the popcount walks WHOLE words too, not only the truncated tail" {
+    // Every existing row above passes ONE word, so a kernel that read only `okWords[fullWordCount]`
+    // would pass all of them. Sixty-four set bits in word 0 and two in word 1 catch it.
+    words := new ulong[](2)
+    words[0] = 18446744073709551615UL
+    words[1] = 3UL
+
+    assert BatchQueryKernels.CountResultSuccesses(words, 64) == 64
+    assert BatchQueryKernels.CountResultSuccesses(words, 65) == 65
+    assert BatchQueryKernels.CountResultSuccesses(words, 66) == 66
+}
+
+test "the BATCH invalid-position sentence is NOT the query command's one" {
+    // A DIFFERENCE THE DELETED BODIES COULD NOT SHOW. `BatchCommand_PositionParsingUsesQueryKernelSemantics`
+    // asserted each envelope message against a live call to the same kernel that produced it, so
+    // the two sides agreed by construction. The two shipped paths word the same refusal
+    // differently, and a reader of the deleted body would have had no way to know.
+    batch := BatchQueryKernels.GetInvalidPositionMessage("1_000:2")
+    direct := QueryCommandKernels.GetInvalidPositionMessage("1_000:2")
+
+    assert batch == "Invalid position format '1_000:2'. Expected <line>:<col>."
+    assert direct == "Invalid position format: 1_000:2. Expected <line>:<col> (e.g. 5:12)"
+    assert batch != direct
+}
