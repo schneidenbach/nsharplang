@@ -26,6 +26,12 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
 
     DiagnosticId: string => DiagnosticIdOverride ?? BuildDefaultDiagnosticId()
 
+    // MSBuild's diagnostic span is INCLUSIVE at both ends, so a one-character diagnostic reports the
+    // same column twice and an N-character one reports N-1 past its start. This is what decides how
+    // wide the squiggle is in the IDE error list and what `(line,col-col)` reads in build output; it
+    // is the MSBuild counterpart of `Length`, and it never runs backwards past `Column`.
+    MsBuildEndColumn: int => Column + Math.Max(0, Length - 1)
+
     func BuildDefaultDiagnosticId(): string {
         codeValue: int = (int)Code
         return "NL" + codeValue.ToString("D3")

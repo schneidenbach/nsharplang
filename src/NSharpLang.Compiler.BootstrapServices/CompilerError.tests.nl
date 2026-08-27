@@ -267,6 +267,32 @@ test "format for msbuild collapses the rich context onto one line" {
     assert !formatted.Contains("x: int = ")
 }
 
+// NOT IN THE DELETED FILE AT ALL, AND NOT PINNED ANYWHERE UNTIL 021/8: MSBuild's span.
+//
+// `FormatForMsBuild` renders the TEXT of a diagnostic; the SPAN was computed separately, inside
+// `src/NSharpLang.Build.Tasks/EmitIlAssembly.cs`, as `error.Column + Math.Max(0, error.Length - 1)`
+// at two call sites, and nothing asserted it. It decides how wide the squiggle is in the IDE error
+// list and what `(line,col-col)` reads in build output.
+test "the msbuild end column is inclusive, so a one-character diagnostic reports its own column" {
+    single := CompilerError.Create(ErrorCode.TypeMismatch, "Type mismatch", 10, 5, ErrorSeverity.Error)
+    assert single.Length == 1
+    assert single.MsBuildEndColumn == 5
+    assert single.MsBuildEndColumn == single.Column
+
+    // an N-character span ends N-1 past its start — an EXCLUSIVE end would over-report by one
+    span := CompilerError.Create(ErrorCode.TypeMismatch, "Type mismatch", 10, 5, ErrorSeverity.Error)
+    span.Length = 7
+    assert span.MsBuildEndColumn == 11
+
+    // and it never runs BACKWARDS past the column, whatever a zero or negative length claims
+    zero := CompilerError.Create(ErrorCode.TypeMismatch, "Type mismatch", 10, 5, ErrorSeverity.Error)
+    zero.Length = 0
+    assert zero.MsBuildEndColumn == 5
+    negative := CompilerError.Create(ErrorCode.TypeMismatch, "Type mismatch", 10, 5, ErrorSeverity.Error)
+    negative.Length = -3
+    assert negative.MsBuildEndColumn == 5
+}
+
 // NOT IN THE DELETED FILE AT ALL: the suppression rule that governs BOTH rich renderers.
 test "a suggestions list suppresses the help line in both rich renderers" {
     names := new List<string>()

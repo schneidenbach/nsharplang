@@ -1,6 +1,20 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-26 (**TASK 021 SLICE 6 — `Program.Testing.cs`'s REMAINING VOCABULARY LEAVES
+Last updated: 2026-08-27 (**TASK 021 SLICE 8 — `EmitIlAssembly.cs`, THE MSBUILD TASK EVERY N# PROJECT
+BUILDS THROUGH. DECODE RECORDED BEFORE ANY PRODUCTION EDIT — see the Cursor block.** Slice 1 named
+TWO leaks; a full decode finds **SEVENTEEN decision-shaped items**, and the headline is that this
+file carries **ZERO `*Kernels.` call sites** — it consults no N# owner at all, and a sweep proves
+`NSharpLang.Build.Tasks` is the last assembly on the product path where that is still true of ANY
+file (all three of its `.cs` files; every `src/NSharpLang.Cli` file already consults one).
+FOUR of the seventeen are SECOND OR THIRD SPELLINGS of answers N# already holds
+(`BuildCommandKernels.ShouldApplyDebugDefine`/`ApplyEffectiveDefines`,
+`DefineArgumentKernels.AddDefineSymbols`, `CompilerError.DiagnosticId`,
+`CompilationReferenceResolverKernels.ShouldAddDllReference`) — and the fourth copy carries a
+**null-dereference the N# owner already guards**. The Cecil rewrite's consequence is measured, not
+asserted: without it a C# consumer of any N# library fails `CS0012 … 'System.Private.CoreLib,
+Version=10.0.0.0, PublicKeyToken=7cec85d7bea7798e'`. Full record in the Cursor block below)
+
+Last updated (prior): 2026-08-26 (**TASK 021 SLICE 6 — `Program.Testing.cs`'s REMAINING VOCABULARY LEAVES
 C#, AND ITS LITERAL CENSUS IS NOW EXACTLY TWO SENTENCES.** The decode was recorded BEFORE any
 production edit and it CONFIRMS the 020 finisher's partition to the digit — **41 `TestCommandKernels`
 call sites over 33 entry points**, the three invariants re-located at `:147`, `:349` and `:613` (one
@@ -4445,8 +4459,344 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 7 — THE DAEMON WIRE PROTOCOL, AND THE TWO
-  RETIRING-WITH-SUBJECT ITEMS. THE DECODE CENSUS, RECORDED BEFORE ANY PRODUCTION EDIT.**
+- Active sub-slice (021 arc, THIS TURN — **SLICE 8 — `EmitIlAssembly.cs`, THE MSBUILD TASK EVERY N#
+  PROJECT BUILDS THROUGH. THE DECODE CENSUS, RECORDED BEFORE ANY PRODUCTION EDIT.**
+
+  ### THE SUBJECT, RE-MEASURED AT THIS TIP (`2c525c7bb`)
+
+  `src/NSharpLang.Build.Tasks/EmitIlAssembly.cs` is **341 lines / 293 non-blank**, and its ratchet row
+  reads `epochLines 341 == currentLines 341`, `293 == 293`, fingerprint `text-v1:c8dbf5a1a893e3f9` —
+  **ZERO HEADROOM**, the slice-4/5 shape. Any edit must be line-for-line or net-negative.
+
+  **THE HEADLINE MEASUREMENT: `grep -oE '\b\w+Kernels\.\w+'` RETURNS ZERO ROWS.** It reaches SEVEN
+  N#-owned types (`ProjectFileParser`, `ProjectConfig`, `CompilerError`, `ErrorSeverity`, `Reference`,
+  `ReferenceType`, and `MultiFileCompiler`'s result) but asks **no N# owner a single question** — it
+  answers all of them itself.
+
+  **AND THE FIRST DRAFT OF THAT CLAIM WAS TOO STRONG; THE CORRECTION IS RECORDED RATHER THAN
+  INHERITED.** A sweep of every `.cs` file under `src/NSharpLang.Cli` and `src/NSharpLang.Build.Tasks`
+  at the pristine tip finds **THREE** with zero kernel sites, and all three are in `Build.Tasks`:
+  `EmitIlAssembly.cs` (341), `LoadProjectConfig.cs` (119) and `LoadProjectReferences.cs` (63). Every
+  single `src/NSharpLang.Cli` `.cs` file already consults at least one. So the accurate sentence is
+  that **`NSharpLang.Build.Tasks` is the last assembly on the product path that consults no N# owner
+  at all**, and this slice takes the largest of its three files. The other two are named for the slice
+  that finishes the assembly.
+
+  Its literal census is **7 distinct strings over 11 sites** (`"System.Private.CoreLib"` ×3,
+  `"DEBUG"` ×2, `"Release"` ×2 — one of which is prose in the XML doc — `"<Module>"`, `"Debug"`
+  (prose), the `NL{…:D3}` format and the success sentence) plus **12 comparison-policy sites**
+  (`StringComparison.Ordinal` ×4, `.OrdinalIgnoreCase` ×3, `StringComparer.Ordinal` ×2,
+  `.OrdinalIgnoreCase` ×3).
+
+  ### THE DECODE — SLICE 1 NAMED TWO LEAKS; THE FULL SURFACE IS SEVENTEEN
+
+  Slice 1's inventory row reads *"`:95–98` duplicates `#if` define resolution … and `:155–161`/`:261`
+  post-rewrites emitted metadata with Mono.Cecil."* Both hold. Both are also **smaller than the file's
+  real surface**, and the correction is recorded rather than inherited.
+
+  | # | decision | sites | what a user sees |
+  |---|---|---|---|
+  | **1** | `DEBUG` is defined for any configuration that is not `Release` (OrdinalIgnoreCase) | `:97–101` | which `#if DEBUG` branch compiles |
+  | **2** | `$(DefineConstants)` folds in: separators `;` **and** `,`, ends trimmed, empty segments dropped, deduplicated | `:103–115` | which `#if MY_SYMBOL` branch compiles |
+  | **3** | the diagnostic id is `DiagnosticIdOverride ?? "NL" + code:D3` | `:310–311` | the code in `error NL202:` — what `<NoWarn>` and the IDE error list match on |
+  | **4** | the MSBuild end column is `Column + max(0, Length - 1)` | `:292`, `:305` (2) | the width of the squiggle in the IDE and the `(l,c-c)` span in build output |
+  | **5** | a resolved MSBuild reference is folded into `config.Dependencies` unless an existing `Dll` dependency has the same full path (OrdinalIgnoreCase) | `:331–334` | whether a reference is passed twice |
+  | **6** | the implementation core library is named `System.Private.CoreLib` | `:155`, `:265`, `:272` (3) | see #7 |
+  | **7** | an emitted type reference is re-pointed at a contract assembly **iff** its scope is that implementation core library **and** a referenced assembly owns the type | `:152–162` | whether a C# project can consume an N# library at all |
+  | **8** | owner precedence — a **defining** assembly outranks a **forwarding** facade; the first of each kind wins; `<Module>` is not a type | `:187–188`, `:196–204`, `:218–223`, `:231` | which assembly name the emitted `TypeRef` carries |
+  | **9** | with an empty owner map the reference assembly is the implementation assembly **verbatim** | `:139–143` | whether a ref assembly exists at all |
+  | **10** | synchronisation preconditions: blank ref path, missing implementation, or the two paths equal (OrdinalIgnoreCase) ⇒ do nothing | `:120–130` | — |
+  | **11** | the reference-scan exclusion set is the task's own two outputs — **spelled TWICE in this one file** | `:173–177` and `:315–323` | a library must not own its own types |
+  | **12** | an existing assembly reference is reused **iff** name (Ordinal) **and** version match; a new one carries `Culture` + `PublicKeyToken` | `:242–258` | the emitted `AssemblyRef` row |
+  | **13** | the implementation-core-library reference is dropped once no type reference scopes to it | `:261–277` | one fewer `AssemblyRef` in the ref assembly |
+  | **14** | an unreadable reference is skipped, not fatal (`BadImageFormatException`, `IOException`) | `:206–211` | a native `.dll` on `@(ReferencePath)` does not fail the build |
+  | **15** | `project.yml`'s `version:` wins; `$(AssemblyVersion)` is only a fallback | `:54–57` | the emitted assembly version |
+  | **16** | legacy validation is **on** by default — a SECOND spelling of `Sdk.targets:17` | `:43` | whether the legacy analyzer gates emission |
+  | **17** | the success sentence `Emitted N# IL assembly to {path}` at `MessageImportance.High` | `:80` | the line every `dotnet build` of an N# project prints |
+
+  ### FOUR OF THE SEVENTEEN ARE SECOND OR THIRD SPELLINGS OF ANSWERS N# ALREADY HOLDS
+
+  | # | the C# copy | the N# owner that already existed |
+  |---|---|---|
+  | 1 | `:97–101` | `BuildCommandKernels.ShouldApplyDebugDefine` (`:321`) + `ApplyEffectiveDefines` (`:344`) — already consulted by **five** `Program.Backends.cs` call sites, so the C# here is the **THIRD** spelling |
+  | 2 | `:103–115` | `DefineArgumentKernels.AddDefineSymbols` (`:61`) — same two separators, same both-ends trim, same empty-drop, same dedupe |
+  | 3 | `:310–311` | `CompilerError.DiagnosticId` (`CompilerError.nl:27`) — already consumed from C# at `LspDiagnosticConverter.cs:24`, `CodeActionHandler.cs:130` and `PlaygroundCompiler.cs:470` |
+  | 5 | `:331–334` | `CompilationReferenceResolverKernels.ShouldAddDllReference` (`:243`) |
+
+  **AND THE FOURTH COPY IS NOT MERELY REDUNDANT — IT CARRIES A NULL DEREFERENCE THE OWNER ALREADY
+  GUARDS.** `EmitIlAssembly.cs:333` reads `Path.GetFullPath(dependency.Dll!)`; the N# owner reads
+  `if !string.IsNullOrWhiteSpace(referencePath ?? "")` first. A `dll:` dependency with no path is a
+  `NullReferenceException` out of an MSBuild task in the C# copy and a skipped row in the N# owner.
+  This is the slice-6 shape (a second copy that had also drifted), at the SDK boundary.
+
+  ### WHAT THE CECIL REWRITE ACTUALLY DOES — MEASURED AGAINST THE PACKAGED SDK, NOT ASSERTED
+
+  Two throwaway probes built with `dotnet build` against the shipped `NSharpLang.Sdk 0.1.0` from
+  `~/.nuget/local-feed`, then read with a `System.Reflection.Metadata` dumper.
+
+  **P1, the bare-`int` control** (`func Add(a: int, b: int): int`):
+
+  | | `obj/…/P1Lib.dll` (implementation) | `obj/…/refint/P1Lib.dll` (rewritten) |
+  |---|---|---|
+  | `AssemblyRef` | `System.Private.CoreLib v10.0.0.0`, **full PublicKey** `8d56c76f…` | `System.Runtime v10.0.0.0`, **token** `b03f5f7f11d50a3a` |
+  | `TypeRef` scopes | `System.Private.CoreLib: 1` | `System.Runtime: 1` |
+
+  **P2, the wider surface** (`List<string>`, `StringBuilder`, `DateTime`, `Console`): the rewrite
+  splits eight corelib-scoped type references **three ways** —
+  `System.Collections.Generic.List\`1` → `System.Collections`; `IEnumerable\`1`, `IEnumerator\`1`,
+  `IEnumerator`, `DateTime`, `IDisposable`, `Object`, `StringBuilder` → `System.Runtime`; and
+  `System.Console`, which the emitter had already scoped to `System.Console`, is **left alone**
+  because its scope name is not the implementation core library. That last row is the proof that
+  decision #7's scope test is doing real work rather than rewriting everything.
+
+  **WHAT BREAKS WITHOUT IT, EXECUTED RATHER THAN REASONED.** The same `Program.Add` referenced from a
+  plain `Microsoft.NET.Sdk` C# project:
+
+  | reference handed to `csc` | result |
+  |---|---|
+  | the rewritten `ref/P1Lib.dll` | **`Build succeeded. 0 Warning(s) 0 Error(s)`** |
+  | the un-rewritten implementation `P1Lib.dll` | **`error CS0012: The type 'Object' is defined in an assembly that is not referenced. You must add a reference to assembly 'System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e'.`** |
+
+  So the Cecil rewrite is not tidying: **it is the whole of N#→C# consumability**, and every decision
+  inside it is a product decision with a user-visible consequence. `System.Private.CoreLib` is the one
+  runtime assembly with no reference-pack counterpart, which is exactly why it is the one name the
+  rewrite tests for.
+
+  ### THE `#if` POLICY, ALSO EXECUTED AGAINST THE PACKAGED SDK
+
+  A third probe (`#if DEBUG` / `#if MYSYMBOL` / `#if OTHERSYM` in one `Main`) run five ways:
+
+  | build | printed |
+  |---|---|
+  | `-c Debug` | `DEBUG-ON`, `done` |
+  | `-c Release` | `done` |
+  | `-c Debug -p:DefineConstants=MYSYMBOL;OTHERSYM` | `DEBUG-ON`, `MYSYMBOL-ON`, `OTHERSYM-ON`, `done` |
+  | `-c Debug`, `DefineConstants=" MYSYMBOL ; ; OTHERSYM "` | same three — **so the trim and the empty-drop are live** |
+  | `-c Release`, `<DefineConstants>MYSYMBOL,OTHERSYM</DefineConstants>` | `MYSYMBOL-ON`, `OTHERSYM-ON`, `done` — **so the comma separator is live too** |
+
+  ### THE SPLIT THE DECODE FORCES
+
+  **MOVED (14):** #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #15, #17 — every one either
+  routes to an owner that already exists or lands on the owner whose subject it is.
+
+  **MECHANICAL, WITH THE PROOF STATED (3):**
+
+  | item | proof |
+  |---|---|
+  | MSBuild task plumbing — `Task` base, `[Required]`, `ITaskItem[]`, `Log.LogError/LogWarning/LogMessage`, `Execute(): bool` | the `Microsoft.Build.Utilities.Task` contract fixes every one of these; there is no product choice in any of them. Same shape as slice 6's xUnit `TraitAttribute` arity and slice 7's JSON-RPC 2.0 member names |
+  | Mono.Cecil API mechanics — `ReaderParameters`, `AssemblyDefinition.ReadAssembly`/`Write`/`Dispose`, `module.GetTypeReferences()`, `AssemblyNameReference` construction, the `.ToArray()` before mutation | these are the only API spellings that perform the decisions above; `ReadingMode.Immediate` + `InMemory = true` is a **file-handle** requirement (Cecil otherwise holds the implementation assembly open), and `ReadingMode.Deferred` on the scan side is the read-only counterpart |
+  | logging every diagnostic **before** the `!result.Success` return | **required by MSBuild**: a task that returns `false` without logging an error trips `MSB4181`. The loop's position is fixed by the ecosystem, not chosen |
+
+  **AND ONE ITEM IS PROVED TOTAL BY THE TYPE SYSTEM.** `LogCompilerDiagnostic`'s `if (Error) … else if
+  (Warning) …` looks like it silently drops a third severity. `ErrorSeverity.nl:3–6` declares
+  **exactly two members**, `Warning` and `Error`, so the pair is exhaustive and the apparent hole
+  cannot be reached. Recorded rather than "fixed" with an unreachable branch.
+
+  ### TWO RESIDUES RECORDED, NOT ABSORBED
+
+  | residue | why it is not this slice's |
+  |---|---|
+  | `Sdk.targets:16–17` spells the `NSharpEmitValidateWithLegacyAnalysis` default **and** the `NSharpLang.Compiler.BootstrapServices` exception in MSBuild property syntax | an MSBuild property default cannot be *defined from* an N# owner — the same hard boundary slice 7 recorded for C# attribute arguments. #16 routes the **C# side**; the `.targets` side belongs to whichever slice takes the SDK's own files |
+  | `:85` `Log.LogErrorFromException(ex, showStackTrace: true)` is the **only** stack-trace policy in the product — `grep -rn StackTrace src/NSharpLang.Cli --include='*.cs'` returns **ZERO** rows | it is the unhandled-**internal**-error envelope, not a product diagnostic: reaching it means the compiler threw, and the trace is the bug report. Recorded as a divergence from the CLI for the slice that unifies internal-error reporting |
+
+  ### THE TWO-STAGE WALL, PRICED BEFORE ANY EDIT
+
+  `NSharpLang.Sdk.csproj:27–33` packs `NSharpLang.Build.Tasks.dll`, `Compiler.dll`,
+  **`NSharpLang.Compiler.BootstrapServices.dll`**, `NSharpLang.Runtime.dll`, `YamlDotNet.dll` and the
+  four `Mono.Cecil*.dll`s into `tools/` — the `65c02f471` literal-path lesson — and
+  `Sdk.targets:21–26` binds all three task types out of that one assembly. So the N# owners this
+  slice adds ARE reachable from the task at SDK-build time, because `NSharpLang.Build.Tasks.csproj:19`
+  already `ProjectReference`s BootstrapServices.
+
+  The wall binds only if **(a)** the estate must spell surface the pinned toolset cannot compile, or
+  **(b)** the packed SDK's own behaviour changes. This slice is written to make (b) false by
+  construction — every moved decision must answer identically — and (a) is checked by building.
+
+  ### WHAT LANDED — ONE NEW N# OWNER, THREE EXISTING OWNERS CONSULTED, ZERO NEW C#
+
+  | file | shape |
+  |---|---|
+  | `src/NSharpLang.Compiler.BootstrapServices/SdkEmitTaskKernels.nl` | **NEW**, 224 lines / 185 non-blank: `SdkEmitTaskKernels` (15 static funcs) + `ReferenceTypeOwners` (6 members) |
+  | `src/NSharpLang.Compiler.BootstrapServices/SdkEmitTaskKernels.tests.nl` | **NEW**, 237 lines, **18 blocks / 82 asserts** — the first contract this file has ever had |
+  | `src/NSharpLang.Compiler.BootstrapServices/CompilerError.nl` | **+6 / −0** — `MsBuildEndColumn` lands on the owner that already renders `FormatForMsBuild` |
+  | `src/NSharpLang.Compiler.BootstrapServices/CompilerError.tests.nl` | **+26 / −0**, 1 block / 6 asserts |
+  | `src/NSharpLang.Build.Tasks/EmitIlAssembly.cs` | **+92 / −130**, **341 → 303 lines, 293 → 262 non-blank** |
+  | `docs/DOTNET-BUILD.md` | **+18 / −2** — "What the SDK Does" grows from 5 steps to 7 and now states the define rule and the reference-scope rewrite in the present tense |
+
+  **NO `.cs` FILE WAS ADDED** and the one that changed is net-negative on both metrics, which the
+  ratchet required: its row had ZERO headroom.
+
+  **THE CENSUS INVERTS.** `EmitIlAssembly.cs` goes from **0 kernel call sites** to **16 sites over 13
+  entry points**, and its string-literal census goes from **11 sites / 7 distinct** to **3 sites — all
+  three of which are prose inside XML doc comments** (`"Debug"` and `"Release"` naming the
+  `Configuration` parameter's values, and the `SdkEmitTaskKernels` cross-reference). **Not one
+  literal-bearing line of code remains.** The four comparison families it used to spell
+  (`StringComparison.Ordinal` ×4, `.OrdinalIgnoreCase` ×3, `StringComparer.Ordinal` ×2,
+  `.OrdinalIgnoreCase` ×3) survive only where they are container plumbing; every comparison that
+  ANSWERED something is now behind an N# predicate.
+
+  **THREE OF THE FOUR SECOND-SPELLINGS ROUTE TO OWNERS THAT ALREADY EXISTED** rather than to new ones:
+  `ApplyMsBuildDefines` is **defined from** `BuildCommandKernels.ShouldApplyDebugDefine` +
+  `ApplyEffectiveDefines` + `DefineArgumentKernels.AddDefineSymbols`, the diagnostic id is
+  `error.DiagnosticId`, and the resolved-reference dedupe is
+  `CompilationReferenceResolverKernels.ShouldAddDllReference`. The estate proves the first of those is
+  a shared owner rather than a matching rule: the same MSBuild string is pushed through
+  `ApplyMsBuildDefines` and through `DefineArgumentKernels.AddDefineSymbols` directly and the two
+  lists are asserted equal element by element.
+
+  ### THE A/B — THE PACKED SDK'S BEHAVIOUR DOES NOT CHANGE, MEASURED OVER 75 ASSEMBLIES
+
+  Two SDKs were packed with distinct package versions into two private feeds — `0.1.0-base` from a
+  worktree at the pristine tip `2c525c7bb`, `0.1.0-slice` from a worktree carrying exactly this
+  slice's five product files — and **the same 46-project corpus was built against each**: the 3
+  `examples` that are full SDK projects, the 40 `tests/native` projects that carry a `project.yml`
+  (`ownership-audit` excluded as self-referential), and 3 throwaway probes plus a
+  `DefineConstants` variant. Neither feed is `~/.nuget/local-feed` and neither is
+  `~/.nsharp/packages`, so **no toolset feed was touched**.
+
+  | | result |
+  |---|---|
+  | build outcomes | **IDENTICAL** — the same 25 build and the same 21 decline, name for name (`14-minimal-api` and 20 native projects decline on BOTH sides, pre-existing) |
+  | normalized IL | **ALL 75 DIGESTS IDENTICAL** |
+
+  The normalizer zeroes the **COFF `TimeDateStamp`**, the **PE checksum**, the **debug directory**
+  (table and contents) and every occurrence of the **module MVID**, then MD5s the remaining bytes. It
+  was validated before it was trusted — two independent builds of the same source reproduce the same
+  digest — and it was proved to MOVE: `p3ifdef` and `p3ifdef-defines` differ on both the
+  implementation (`c7d519b0…` vs `ddfb47d2…`) and the reference assembly (`d780e828…` vs
+  `ef622505…`), so a change in conditional compilation is visible to the instrument that reports "no
+  change" everywhere else.
+
+  **SO THE TWO-STAGE WALL DOES NOT BIND.** (b) is false by measurement, not by argument; and (a) is
+  false because the whole slice compiles under the PINNED Aug-18 toolset — `dotnet build` of
+  BootstrapServices with the new owner succeeded with `0 Error(s)`, and the estate emits and runs.
+
+  ### THE ESTATE, AND THE MUTATION MATRIX — 16 OF 16 BITE BY NAME
+
+  Estate: **`Passed: 6924, Failed: 0`**, which is the 6,905 baseline plus **exactly the 19 blocks this
+  slice adds** — the count diff is what proves the new blocks actually ran rather than a restore
+  silently excluding them.
+
+  | # | mutation | result | the block that caught it |
+  |---|---|---|---|
+  | M1 | the implementation core library is renamed | 6922 / **2** | `TheImplementationCoreLibraryIsNamedAndItIsTheOnlyScopeThatGetsRewritten`, `ATypeReferenceMovesOnlyWhenItIsCorelibScopedANDAReferenceOwnsTheType` |
+  | M2 | rewrite even when nothing owns the type | 6923 / **1** | `ATypeReferenceMovesOnlyWhenItIsCorelibScopedANDAReferenceOwnsTheType` |
+  | M3 | a facade outranks a defining assembly | 6923 / **1** | `ADefiningAssemblyOutranksAForwardingFacadeWhateverOrderTheyArriveIn` |
+  | M4 | `<Module>` is recorded as an owner | 6923 / **1** | `TheModulePseudoTypeOwnsNothingAndItIsTheOnlyNameExcluded` |
+  | M5 | output paths compare case-SENSITIVELY | 6923 / **1** | `TwoBuildOutputsAreTheSameOutputCaseInsensitively` |
+  | M6 | an assembly reference is reused on NAME alone | 6923 / **1** | `AnAssemblyReferenceIsReusedOnlyWhenBOTHItsNameAndItsVersionMatch` |
+  | M7 | the unused corelib reference is kept | 6923 / **1** | `TheImplementationCoreLibraryReferenceIsDroppedOnceNothingScopesToIt` |
+  | M8 | an empty owner map still runs the rewrite | 6923 / **1** | `WithNoKnownOwnersTheReferenceAssemblyIsTheImplementationAssemblyVerbatim` |
+  | M9 | `$(AssemblyVersion)` overrides `project.yml` | 6923 / **1** | `ProjectymlsVersionWinsAndMSBuildsAssemblyVersionIsOnlyAFallback` |
+  | M10 | the success sentence is reworded | 6923 / **1** | `ASuccessfulEmitPrintsOneSentenceAndItNamesTheAssemblyItWrote` |
+  | M11 | legacy analysis is off by default | 6923 / **1** | `LegacyAnalysisGatesEmissionUnlessAProjectOptsOut` |
+  | M12 | MSBuild `DefineConstants` are dropped | 6922 / **2** | `TheMSBuildDefineConstantsListIsSplitByTheSameExtractorDefineUses`, `DEBUGAndTheMSBuildDefineListArriveTogetherAndDEBUGIsNeverDuplicated` |
+  | M13 | synchronise with no implementation assembly | 6923 / **1** | `ThereIsAReferenceAssemblyToSynchronizeOnlyWhenMSBuildAskedForOneAndEmissionProducedOne` |
+  | M14 | the task scans its OWN outputs for owners | 6923 / **1** | `AReferenceIsScannedForOwnersOnlyWhenItExistsAndIsNotOneOfTheTasksOwnOutputs` |
+  | M15 | MSBuild's end column becomes EXCLUSIVE | 6923 / **1** | `TheMsbuildEndColumnIsInclusiveSoAOneCharacterDiagnosticReportsItsOwnColumn` |
+  | M16 | no MSBuild build ever defines `DEBUG` | 6923 / **1** | `AnMSBuildBuildDefinesDEBUGForEveryConfigurationExceptTheReleaseOne` |
+
+  **ZERO NON-MOVERS**, and every failure is attributable to the mutation that caused it.
+
+  **AND THE 021/7 WALL FIRED AGAIN, WAS CAUGHT, AND IS RE-RECORDED.** The matrix ran as a background
+  task and the task was STOPPED mid-`M14`. The harness's `trap … EXIT INT TERM` did not run, and
+  `ShouldScanReferenceForOwners` was left mutated on the tree. It was caught by the standing check —
+  a `shasum -a 256` of the two owner files against the pristine backups, run the moment the kill
+  notification arrived — restored, and `M13`–`M16` were re-run **detached with `nohup`**, outside the
+  task watchdog, which is the shape every future matrix in this campaign should use. `M13`'s first
+  attempt is recorded as a NON-RESULT (`passed=?`, the estate log ends mid-emit), not as a
+  non-mover — its rerun bites.
+
+  ### THE RATCHET — TWO-KEY, REPINNED LAST, REPLICA VALIDATED PRISTINE-FIRST ON FIVE VALUES
+
+  The replica was validated before it was trusted, and on the pristine tip: it reproduces
+  `epochPathFingerprint`, `epochFactFingerprint` and `reviewedHeadFingerprint` from the shipped
+  manifest, and it reproduces `EmitIlAssembly.cs`'s epoch row (`lines=341 nonBlank=293
+  fp=text-v1:c8dbf5a1a893e3f9`) from the file at `2c525c7bb`. It walks **UTF-16 code units**, not
+  Python code points, which is the 021/6 lesson applied rather than relearned.
+
+  | key | before | after |
+  |---|---|---|
+  | `EmitIlAssembly.cs` `currentLines` | 341 | **303** |
+  | `EmitIlAssembly.cs` `currentNonBlankLines` | 293 | **262** |
+  | `EmitIlAssembly.cs` `currentFingerprint` | `text-v1:c8dbf5a1a893e3f9` | **`text-v1:f711ca6198785b48`** |
+  | `reviewedHeadFingerprint` (JSON header) | `head-v1:4e6a5d5c2c4f57ca` | **`head-v1:ee1550b65607437b`** |
+  | `OwnershipPolicy.ReviewedHeadFingerprint` (`OwnershipAudit.nl:241`) | `head-v1:4e6a5d5c2c4f57ca` | **`head-v1:ee1550b65607437b`** |
+
+  **ONE row moved; the epoch triple is UNCHANGED** (`epochFileCount 381`,
+  `pathset-v1:8a26e1529863444b`, `epochfacts-v1:1b3090747e517fc1`), the manifest is **391 lines** and
+  starts `7b 0a 20` — **no BOM**. No `.nl` file appears in the manifest, so the two new N# files add
+  no rows.
+
+  **THE AUDIT IS 18/18 AND NON-VACUOUS ON BOTH KEYS.** Reverting ONLY the `OwnershipAudit.nl`
+  constant while leaving the JSON repinned reads **`Passed: 17, Failed: 1`**; appending ONE comment
+  line to `EmitIlAssembly.cs` against the repinned manifest also reads **`Passed: 17, Failed: 1`**;
+  and the restored tree reads **`Passed: 18, Failed: 0`**, with the file's fingerprint back to
+  `text-v1:f711ca6198785b48` exactly.
+
+  ### THE GATE — AND IT EXERCISES THIS SLICE'S SUBJECT BY CONSTRUCTION
+
+  **The full non-VS-Code product gate, fresh and isolated, run from `/private/tmp/nl8slice` with the
+  log written OUTSIDE the copy, is `ALL TESTS PASSED! ✓`: 126 GREEN STEPS, ZERO `✗ FAILED` LINES and
+  ZERO occurrences of the string `FAILED` in 636 log lines, 22m 20s.** Its banner confirms no cached
+  result was accepted (`Fresh isolated test run required: pre-commit verification` / `Existing cache
+  entries will not satisfy this invocation.`) under key `25438f03ca86f52d`.
+
+  Its own instruments reproduce every count this record makes: unit suite **`Passed: 605, Failed: 0`**,
+  compiler-service estate **`Passed: 6924, Failed: 0`**, **46** native projects including
+  `tests/native/cli-command-contracts` → **83/83** and `tests/native/ownership-audit` → **18/18**, the
+  formatting gate clean, `dotnet new` templates, `nlc check` on examples, and ILVerify reporting
+  **`All 67 N# assemblies pass IL verification`**.
+
+  **AND THIS IS THE ONE SLICE WHOSE GATE IS A DIRECT TEST OF ITS OWN SUBJECT.** Step 4 *packs the SDK
+  from this tree* — `dotnet build src/NSharpLang.Build.Tasks` then `dotnet pack src/NSharpLang.Sdk`
+  into `~/.nsharp/packages`, with the extracted package cache cleared — and Steps 5 through 10b then
+  build the `dotnet new` templates and every example **through the rewritten `EmitIlAssembly`**, and
+  run ILVerify over what it emitted. A defect in this task could not have reached a green gate.
+
+  **THE COPY WAS VERIFIED BYTE-IDENTICAL TO THE SHIPPED TREE ON ALL EIGHT CHANGED PRODUCT PATHS** by
+  `shasum -a 256`, driven from `git status --porcelain` so the list cannot be curated;
+  `git ls-files` reads **1,425** in both; and the copy contains no nested worktree (`.claude/` is
+  absent). `systems-language-closeout/STATUS.md` is the only changed file excluded, and
+  `systems-language-closeout/` is in NONE of the gate's input prefixes.
+
+  ### THE IDE BAR
+
+  This is a **backend-only** slice by the 021 plan's own classification — the subject is an MSBuild
+  task, and no Language Server, LSP handler, VS Code extension or editor-experience file is touched
+  (`git diff --quiet` on `src/NSharpLang.LanguageServer` and `editors/`) — so the gate ran
+  `VSCODE_TESTS=skip`. Computer-use remains unavailable; 021/12 still carries the visual half.
+
+  ### THE TREE
+
+  **NOT COMMITTED — the mandate reserves that.** Eight changed paths: one `.cs` (net-negative on both
+  metrics), one grown `.nl` owner, one grown `.tests.nl`, two NEW `.nl` files, both ratchet keys,
+  `docs/DOTNET-BUILD.md`, and this STATUS. **`tasks/README.md` is NOT among them.** No gate script, no
+  `.csproj`, no `.targets`, no `project.yml` and no `Sdk.props`/`Sdk.targets` changed — verified by
+  `git diff --quiet` on each. The eleven inherited background-task chips are untouched and stay
+  pinned as measured; **no new chip was filed** — the two residues this slice found (the
+  `Sdk.targets:16–17` MSBuild-side default and `:85`'s lone stack-trace policy) are recorded above and
+  belong to the slice that takes the SDK's own files, not to a separate queue entry.
+
+  Cleanup: both `/private/tmp` worktrees are removed from `git worktree list`, the gate's own
+  `/tmp/nsharp-test-all.*` run tree is gone, and no probe project, private feed or throwaway package
+  version survives outside the scratchpad. **Neither `~/.nuget/local-feed` nor `~/.nsharp/packages`
+  was written by this slice's own probes** — the A/B used two private feeds under the scratchpad with
+  the throwaway versions `0.1.0-base` and `0.1.0-slice`; the only write to `~/.nsharp/packages` was
+  the gate's own Step 4, which is what the gate is for.
+
+  ### WHAT 021/9 IS
+
+  **`Analyzer.cs`'s 27-extent MetadataLoadContext quarantine (646 lines) and the LSP's own
+  `Services/TypeResolver.cs` (573)**, as sequenced. Its blocker is the AOT static-binding sequence
+  priced in slice 1's table: `MetadataLoadContext` + `NSharpMetadataResolver` become the same probe
+  over `MetadataReader`, with the NuGet-cache walk and the version ordering moving to N#. It carries
+  the C# assertion debt in `tests/AnalyzerMetadataLoadContextTests.cs` (189 lines / 5 `[Fact]`s), and
+  it is a **backend gate + SDK repack** slice. Nothing in slice 8 touches either file.
+
+- Active sub-slice (021 arc, PRIOR TURN, ACCEPTED at `2c525c7bb`): **SLICE 7 — THE DAEMON WIRE
+  PROTOCOL, AND THE TWO RETIRING-WITH-SUBJECT ITEMS. THE DECODE CENSUS, RECORDED BEFORE ANY
+  PRODUCTION EDIT.**
 
   ### THE THREE ITEMS RE-VERIFIED AT THIS TIP (`80a6e3027`) — AND THE FIRST COUNT DOES NOT SURVIVE
 

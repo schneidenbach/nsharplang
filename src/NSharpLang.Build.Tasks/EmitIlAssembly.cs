@@ -5,10 +5,16 @@ using System.Linq;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using Mono.Cecil;
+using NSharpLang.Cli;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Build.Tasks;
 
+/// <summary>
+/// Drives N# IL emission from the SDK. Every decision this task takes belongs to
+/// <see cref="SdkEmitTaskKernels"/>; what remains here is MSBuild task plumbing and the Mono.Cecil
+/// API mechanics that carry those decisions out.
+/// </summary>
 public class EmitIlAssembly : Task
 {
     [Required]
@@ -28,19 +34,13 @@ public class EmitIlAssembly : Task
 
     public string? AssemblyVersion { get; set; }
 
-    /// <summary>
-    /// Build configuration ("Debug"/"Release"); drives whether <c>DEBUG</c> is defined
-    /// for conditional compilation, matching the <c>nlc</c> CLI.
-    /// </summary>
+    /// <summary>Build configuration ("Debug"/"Release") from MSBuild.</summary>
     public string? Configuration { get; set; }
 
-    /// <summary>
-    /// Semicolon/comma-separated conditional-compilation symbols from MSBuild
-    /// (<c>$(DefineConstants)</c>), folded into the project's defined symbols.
-    /// </summary>
+    /// <summary>MSBuild <c>$(DefineConstants)</c>.</summary>
     public string? DefineConstants { get; set; }
 
-    public bool ValidateWithLegacyAnalysis { get; set; } = true;
+    public bool ValidateWithLegacyAnalysis { get; set; } = SdkEmitTaskKernels.ValidatesWithLegacyAnalysisByDefault();
 
     public override bool Execute()
     {
@@ -51,14 +51,9 @@ public class EmitIlAssembly : Task
                 .ToArray();
 
             var config = ProjectFileParser.Parse(ProjectFile!);
-            if (string.IsNullOrWhiteSpace(config.Version) && !string.IsNullOrWhiteSpace(AssemblyVersion))
-            {
-                config.Version = AssemblyVersion;
-            }
-
-            ApplyEffectiveDefines(config);
-
-            AddResolvedDllReferences(config, TargetAssemblyPath, TargetReferenceAssemblyPath);
+            config.Version = SdkEmitTaskKernels.ResolveProjectVersion(config.Version, AssemblyVersion);
+            SdkEmitTaskKernels.ApplyMsBuildDefines(config, Configuration, DefineConstants);
+            AddResolvedDllReferences(config);
 
             var compiler = new MultiFileCompiler(sourceFiles, ProjectRoot, config);
             var result = compiler.CompileToIlAssembly(
@@ -76,8 +71,8 @@ public class EmitIlAssembly : Task
                 return false;
             }
 
-            SynchronizeReferenceAssembly(TargetAssemblyPath, TargetReferenceAssemblyPath, References);
-            Log.LogMessage(MessageImportance.High, $"Emitted N# IL assembly to {TargetAssemblyPath}");
+            SynchronizeReferenceAssembly();
+            Log.LogMessage(MessageImportance.High, SdkEmitTaskKernels.GetEmittedAssemblyMessage(TargetAssemblyPath));
             return true;
         }
         catch (Exception ex)
@@ -87,44 +82,46 @@ public class EmitIlAssembly : Task
         }
     }
 
-    /// <summary>
-    /// Folds build-configuration and MSBuild <c>DefineConstants</c> symbols into the
-    /// project's defined symbols so <c>dotnet build</c> resolves <c>#if</c> identically to
-    /// <c>nlc</c>: <c>DEBUG</c> is defined for any non-Release configuration.
-    /// </summary>
-    private void ApplyEffectiveDefines(ProjectConfig config)
+    private void AddResolvedDllReferences(ProjectConfig config)
     {
-        var isRelease = string.Equals(Configuration, "Release", StringComparison.OrdinalIgnoreCase);
-        if (!isRelease && !config.Defines.Contains("DEBUG"))
+        foreach (var reference in References)
         {
-            config.Defines.Add("DEBUG");
-        }
-
-        if (string.IsNullOrWhiteSpace(DefineConstants))
-        {
-            return;
-        }
-
-        foreach (var symbol in DefineConstants.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var trimmed = symbol.Trim();
-            if (trimmed.Length > 0 && !config.Defines.Contains(trimmed))
+            var referencePath = reference.ItemSpec;
+            if (string.IsNullOrWhiteSpace(referencePath))
             {
-                config.Defines.Add(trimmed);
+                continue;
+            }
+
+            var fullPath = Path.GetFullPath(referencePath);
+            if (!IsOwnOutput(fullPath)
+                && CompilationReferenceResolverKernels.ShouldAddDllReference(config.Dependencies, fullPath))
+            {
+                config.Dependencies.Add(new Reference { Dll = fullPath });
             }
         }
     }
 
-    private static void SynchronizeReferenceAssembly(string targetAssemblyPath, string? targetReferenceAssemblyPath, ITaskItem[] references)
+    private bool IsOwnOutput(string fullPath)
     {
-        if (string.IsNullOrWhiteSpace(targetReferenceAssemblyPath) || !File.Exists(targetAssemblyPath))
+        if (SdkEmitTaskKernels.IsSameOutputPath(fullPath, Path.GetFullPath(TargetAssemblyPath)))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(TargetReferenceAssemblyPath)
+            && SdkEmitTaskKernels.IsSameOutputPath(fullPath, Path.GetFullPath(TargetReferenceAssemblyPath));
+    }
+
+    private void SynchronizeReferenceAssembly()
+    {
+        if (!SdkEmitTaskKernels.ShouldSynchronizeReferenceAssembly(TargetReferenceAssemblyPath, File.Exists(TargetAssemblyPath)))
         {
             return;
         }
 
-        var assemblyPath = Path.GetFullPath(targetAssemblyPath);
-        var referenceAssemblyPath = Path.GetFullPath(targetReferenceAssemblyPath);
-        if (string.Equals(assemblyPath, referenceAssemblyPath, StringComparison.OrdinalIgnoreCase))
+        var assemblyPath = Path.GetFullPath(TargetAssemblyPath);
+        var referenceAssemblyPath = Path.GetFullPath(TargetReferenceAssemblyPath!);
+        if (SdkEmitTaskKernels.IsSameOutputPath(assemblyPath, referenceAssemblyPath))
         {
             return;
         }
@@ -135,8 +132,8 @@ public class EmitIlAssembly : Task
             Directory.CreateDirectory(referenceAssemblyDirectory);
         }
 
-        var referenceTypeOwners = BuildReferenceTypeOwnerMap(references, assemblyPath, referenceAssemblyPath);
-        if (referenceTypeOwners.Count == 0)
+        var owners = BuildReferenceTypeOwners(out var ownerNames);
+        if (SdkEmitTaskKernels.ShouldCopyImplementationVerbatim(owners))
         {
             File.Copy(assemblyPath, referenceAssemblyPath, overwrite: true);
             return;
@@ -151,56 +148,39 @@ public class EmitIlAssembly : Task
         var module = assembly.MainModule;
         foreach (var typeReference in module.GetTypeReferences().ToArray())
         {
-            if (typeReference.Scope is not AssemblyNameReference scope
-                || !string.Equals(scope.Name, "System.Private.CoreLib", StringComparison.Ordinal)
-                || !referenceTypeOwners.TryGetValue(typeReference.FullName, out var owner))
+            var owner = owners.Resolve(typeReference.FullName);
+            if (!SdkEmitTaskKernels.ShouldRescopeTypeReference(ScopeName(typeReference), owner != null))
             {
                 continue;
             }
 
-            typeReference.Scope = GetOrAddAssemblyReference(module, owner);
+            typeReference.Scope = GetOrAddAssemblyReference(module, ownerNames[owner!]);
         }
 
         RemoveUnusedCoreLibAssemblyReference(module);
         assembly.Write(referenceAssemblyPath);
     }
 
-    private static Dictionary<string, AssemblyNameDefinition> BuildReferenceTypeOwnerMap(
-        ITaskItem[] references,
-        string targetAssemblyPath,
-        string targetReferenceAssemblyPath)
+    private ReferenceTypeOwners BuildReferenceTypeOwners(out Dictionary<string, AssemblyNameDefinition> ownerNames)
     {
-        var excludedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            Path.GetFullPath(targetAssemblyPath),
-            Path.GetFullPath(targetReferenceAssemblyPath),
-        };
-
-        var referencePaths = references
-            .Select(reference => reference.ItemSpec)
-            .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-            .Select(Path.GetFullPath)
-            .Where(path => !excludedPaths.Contains(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        var typeDefinitions = new Dictionary<string, AssemblyNameDefinition>(StringComparer.Ordinal);
-        var exportedTypes = new Dictionary<string, AssemblyNameDefinition>(StringComparer.Ordinal);
-
-        foreach (var path in referencePaths)
+        var owners = new ReferenceTypeOwners();
+        ownerNames = new Dictionary<string, AssemblyNameDefinition>(StringComparer.Ordinal);
+        foreach (var path in ReferencesToScanForOwners())
         {
             AssemblyDefinition? referenceAssembly = null;
             try
             {
                 referenceAssembly = AssemblyDefinition.ReadAssembly(path, new ReaderParameters { ReadingMode = ReadingMode.Deferred });
+                var ownerKey = referenceAssembly.Name.FullName;
+                ownerNames.TryAdd(ownerKey, referenceAssembly.Name);
                 foreach (var type in referenceAssembly.MainModule.Types)
                 {
-                    AddTypeDefinitionOwners(typeDefinitions, referenceAssembly.Name, type);
+                    RecordDefinedTypes(owners, ownerKey, type);
                 }
 
                 foreach (var exportedType in referenceAssembly.MainModule.ExportedTypes)
                 {
-                    exportedTypes.TryAdd(exportedType.FullName, referenceAssembly.Name);
+                    owners.RecordForwarder(exportedType.FullName, ownerKey);
                 }
             }
             catch (BadImageFormatException)
@@ -215,35 +195,46 @@ public class EmitIlAssembly : Task
             }
         }
 
-        foreach (var exportedType in exportedTypes)
-        {
-            typeDefinitions.TryAdd(exportedType.Key, exportedType.Value);
-        }
-
-        return typeDefinitions;
+        return owners;
     }
 
-    private static void AddTypeDefinitionOwners(
-        Dictionary<string, AssemblyNameDefinition> typeOwners,
-        AssemblyNameDefinition assemblyName,
-        TypeDefinition type)
+    private IEnumerable<string> ReferencesToScanForOwners()
     {
-        if (type.Name != "<Module>")
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in References)
         {
-            typeOwners.TryAdd(type.FullName, assemblyName);
-        }
+            var referencePath = reference.ItemSpec;
+            if (string.IsNullOrWhiteSpace(referencePath))
+            {
+                continue;
+            }
 
+            var fullPath = Path.GetFullPath(referencePath);
+            if (SdkEmitTaskKernels.ShouldScanReferenceForOwners(fullPath, File.Exists(referencePath), IsOwnOutput(fullPath))
+                && seen.Add(fullPath))
+            {
+                yield return fullPath;
+            }
+        }
+    }
+
+    private static void RecordDefinedTypes(ReferenceTypeOwners owners, string ownerKey, TypeDefinition type)
+    {
+        owners.RecordDefinition(type.FullName, ownerKey);
         foreach (var nestedType in type.NestedTypes)
         {
-            AddTypeDefinitionOwners(typeOwners, assemblyName, nestedType);
+            RecordDefinedTypes(owners, ownerKey, nestedType);
         }
     }
 
     private static AssemblyNameReference GetOrAddAssemblyReference(ModuleDefinition module, AssemblyNameDefinition owner)
     {
         var existing = module.AssemblyReferences.FirstOrDefault(reference =>
-            string.Equals(reference.Name, owner.Name, StringComparison.Ordinal)
-            && reference.Version == owner.Version);
+            SdkEmitTaskKernels.AssemblyReferenceMatches(
+                reference.Name,
+                VersionText(reference.Version),
+                owner.Name,
+                VersionText(owner.Version)));
         if (existing != null)
         {
             return existing;
@@ -260,82 +251,53 @@ public class EmitIlAssembly : Task
 
     private static void RemoveUnusedCoreLibAssemblyReference(ModuleDefinition module)
     {
-        var hasCoreLibTypeReference = module.GetTypeReferences().Any(typeReference =>
-            typeReference.Scope is AssemblyNameReference scope
-            && string.Equals(scope.Name, "System.Private.CoreLib", StringComparison.Ordinal));
-        if (hasCoreLibTypeReference)
+        var hasCoreLibTypeReference = module.GetTypeReferences()
+            .Any(typeReference => SdkEmitTaskKernels.IsImplementationCoreLibrary(ScopeName(typeReference)));
+        if (!SdkEmitTaskKernels.ShouldRemoveCoreLibraryReference(hasCoreLibTypeReference))
         {
             return;
         }
 
         foreach (var reference in module.AssemblyReferences
-                     .Where(reference => string.Equals(reference.Name, "System.Private.CoreLib", StringComparison.Ordinal))
+                     .Where(reference => SdkEmitTaskKernels.IsImplementationCoreLibrary(reference.Name))
                      .ToArray())
         {
             module.AssemblyReferences.Remove(reference);
         }
     }
 
+    private static string? ScopeName(TypeReference typeReference)
+        => (typeReference.Scope as AssemblyNameReference)?.Name;
+
+    private static string VersionText(Version? version) => version?.ToString() ?? string.Empty;
+
     private void LogCompilerDiagnostic(CompilerError error)
     {
-        var diagnosticId = GetDiagnosticId(error);
         if (error.Severity == ErrorSeverity.Error)
         {
             Log.LogError(
                 subcategory: null,
-                errorCode: diagnosticId,
+                errorCode: error.DiagnosticId,
                 helpKeyword: null,
                 file: error.FileName ?? string.Empty,
                 lineNumber: error.Line,
                 columnNumber: error.Column,
                 endLineNumber: error.Line,
-                endColumnNumber: error.Column + Math.Max(0, error.Length - 1),
+                endColumnNumber: error.MsBuildEndColumn,
                 message: error.FormatForMsBuild());
         }
         else if (error.Severity == ErrorSeverity.Warning)
         {
             Log.LogWarning(
                 subcategory: null,
-                warningCode: diagnosticId,
+                warningCode: error.DiagnosticId,
                 helpKeyword: null,
                 file: error.FileName ?? string.Empty,
                 lineNumber: error.Line,
                 columnNumber: error.Column,
                 endLineNumber: error.Line,
-                endColumnNumber: error.Column + Math.Max(0, error.Length - 1),
+                endColumnNumber: error.MsBuildEndColumn,
                 message: error.FormatForMsBuild());
-        }
-    }
-
-    private static string GetDiagnosticId(CompilerError error)
-        => error.DiagnosticIdOverride ?? $"NL{(int)error.Code:D3}";
-
-    private void AddResolvedDllReferences(ProjectConfig config, string targetAssemblyPath, string? targetReferenceAssemblyPath)
-    {
-        var excludedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            Path.GetFullPath(targetAssemblyPath)
-        };
-
-        if (!string.IsNullOrWhiteSpace(targetReferenceAssemblyPath))
-        {
-            excludedPaths.Add(Path.GetFullPath(targetReferenceAssemblyPath));
-        }
-
-        foreach (var referencePath in References
-                     .Select(reference => reference.ItemSpec)
-                     .Where(path => !string.IsNullOrWhiteSpace(path))
-                     .Select(Path.GetFullPath)
-                     .Where(path => !excludedPaths.Contains(path)))
-        {
-            var alreadyPresent = config.Dependencies.Any(dependency =>
-                dependency.Type == ReferenceType.Dll &&
-                string.Equals(Path.GetFullPath(dependency.Dll!), referencePath, StringComparison.OrdinalIgnoreCase));
-
-            if (!alreadyPresent)
-            {
-                config.Dependencies.Add(new Reference { Dll = referencePath });
-            }
         }
     }
 }
