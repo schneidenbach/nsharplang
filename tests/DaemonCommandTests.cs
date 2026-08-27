@@ -316,28 +316,6 @@ public class DaemonCommandTests
         Assert.Equal("test error", deserialized.Error.Message);
     }
 
-    [Fact]
-    public void DaemonStatus_Serialization_HasExpectedPropertyNames()
-    {
-        var status = new DaemonStatus
-        {
-            Pid = 12345,
-            Uptime = "1h 2m 3s",
-            ProjectRoot = "/tmp/test",
-            CachedFiles = 10,
-            IdleTimeout = "30m"
-        };
-
-        var json = JsonSerializer.Serialize(status);
-        using var doc = JsonDocument.Parse(json);
-
-        Assert.Equal(12345, doc.RootElement.GetProperty("pid").GetInt32());
-        Assert.Equal("1h 2m 3s", doc.RootElement.GetProperty("uptime").GetString());
-        Assert.Equal("/tmp/test", doc.RootElement.GetProperty("projectRoot").GetString());
-        Assert.Equal(10, doc.RootElement.GetProperty("cachedFiles").GetInt32());
-        Assert.Equal("30m", doc.RootElement.GetProperty("idleTimeout").GetString());
-    }
-
     // ── PID file path convention ──────────────────────────────────────
 
     [Fact]
@@ -386,11 +364,11 @@ public class DaemonCommandTests
 
             var statusJson = DaemonClient.GetStatus(projectDir);
             Assert.NotNull(statusJson);
-            var status = JsonSerializer.Deserialize<DaemonStatus>(statusJson!);
-            Assert.NotNull(status);
-            Assert.Equal(projectDir, status!.ProjectRoot);
-            Assert.Equal(pid, status.Pid);
-            Assert.Equal("30m", status.IdleTimeout);
+            using var statusDocument = JsonDocument.Parse(statusJson!);
+            var statusRoot = statusDocument.RootElement;
+            Assert.Equal(projectDir, statusRoot.GetProperty(DaemonProtocolKernels.GetStatusProjectRootField()).GetString());
+            Assert.Equal(pid, statusRoot.GetProperty(DaemonProtocolKernels.GetStatusPidField()).GetInt32());
+            Assert.Equal(DaemonProtocolKernels.FormatIdleTimeoutMinutes(DaemonConstants.IdleTimeoutMinutes), statusRoot.GetProperty(DaemonProtocolKernels.GetStatusIdleTimeoutField()).GetString());
 
             Assert.True(DaemonClient.StopDaemon(projectDir));
             Assert.True(WaitUntil(() => !File.Exists(socketPath) && !File.Exists(pidPath), TimeSpan.FromSeconds(5)));
@@ -657,9 +635,8 @@ func Main() {
     {
         var statusJson = DaemonClient.GetStatus(projectDir);
         Assert.NotNull(statusJson);
-        var status = JsonSerializer.Deserialize<DaemonStatus>(statusJson!);
-        Assert.NotNull(status);
-        return status!.CachedFiles;
+        using var document = JsonDocument.Parse(statusJson!);
+        return document.RootElement.GetProperty(DaemonProtocolKernels.GetStatusCachedFilesField()).GetInt32();
     }
 
     private static string SendRawDaemonRequest(string projectDir, string requestJson)

@@ -4445,7 +4445,411 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 6 — `Program.Testing.cs`'s REMAINING VOCABULARY.
+- Active sub-slice (021 arc, THIS TURN — **SLICE 7 — THE DAEMON WIRE PROTOCOL, AND THE TWO
+  RETIRING-WITH-SUBJECT ITEMS. THE DECODE CENSUS, RECORDED BEFORE ANY PRODUCTION EDIT.**
+
+  ### THE THREE ITEMS RE-VERIFIED AT THIS TIP (`80a6e3027`) — AND THE FIRST COUNT DOES NOT SURVIVE
+
+  Slice 6's forward-look row reads **"7 DTO classes / 24 `[JsonPropertyName]`s / the `"30m"` idle
+  default"** for `src/NSharpLang.Cli/Daemon/DaemonProtocol.cs`. A census at this tip reads
+  **FOUR DTO classes and SIXTEEN `[JsonPropertyName]`s**, and the file has not moved since the
+  ratchet epoch (`epochLines 116 == currentLines 116`, `95 == 95`, fingerprint
+  `text-v1:6d433e0114e578f5` still current). The fifth type in the file, `DaemonConstants`, is not a
+  DTO at all — it is a static facade of **23 members, 22 of them one-line forwards to
+  `DaemonProtocolKernels`** and the twenty-third (`GetSocketPath`) a SHA-256 prefix computed and then
+  forwarded. So the reshape is smaller than the plan row said, and the correction is recorded rather
+  than inherited.
+
+  | type | fields | `[JsonPropertyName]` |
+  |---|---|---|
+  | `DaemonRequest` | `jsonrpc` (= `"2.0"`), `id`, `method`, `params` | 4 |
+  | `DaemonResponse` | `jsonrpc` (= `"2.0"`), `id`, `result`, `error` | 4 |
+  | `DaemonError` | `code`, `message`, `data` (+ `JsonIgnore(WhenWritingNull)`) | 3 |
+  | `DaemonStatus` | `pid`, `uptime`, `projectRoot`, `cachedFiles`, `idleTimeout` (= `"30m"`) | 5 |
+  | `DaemonConstants` | — not a DTO; 22 members, all already `DaemonProtocolKernels.*` | 0 |
+
+  ### WHO READS AND WRITES THE WIRE — MEASURED, NOT ASSUMED
+
+  The mandate asks whether the daemon's client is the VS Code extension or the CLI. **It is neither
+  the extension nor a third party: `grep -rn daemon editors/vscode/src` returns ZERO rows.** The
+  daemon speaks only to the same binary that serves it.
+
+  | role | owner |
+  |---|---|
+  | server: decode request | `DaemonServer.cs:193`, `JsonSerializer.Deserialize<DaemonRequest>(json, DaemonJsonOptions)` |
+  | server: encode response | `DaemonServer.cs:589`, `JsonSerializer.Serialize(response, DaemonJsonOptions)` |
+  | client: encode request | `DaemonClient.cs:65` and `:121`, `JsonSerializer.Serialize(request)` — **no options**, so the `[JsonPropertyName]`s are load-bearing on this side |
+  | client: decode response | `DaemonClient.cs:82`, `JsonSerializer.Deserialize<DaemonResponse>(json)` — **no options** |
+  | the `result` payloads themselves | **N#** — `DaemonProtocolKernels.GetPongResultJson`, `GetShutdownResultJson`, `StatusResultJson` |
+  | the stderr error rendering | **N#** — `DaemonProtocolKernels.ErrorResponseJson`, used by `DaemonClient.cs:31` and `QueryCommand.cs:1036` |
+
+  ### DOES ANY ESTATE CONTRACT PIN THE WIRE TODAY? **NO — AND THE MEASUREMENT IS 42 OF 44**
+
+  A census of `DaemonProtocolKernels`' **44** entry points against every `.tests.nl` in the
+  repository finds **2 named anywhere and 42 named nowhere**. The two are `GetAlreadyRunningMessage`
+  and `GetSocketPath`. Everything the wire is made of is in the other forty-two: **all twelve method
+  names**, **all five JSON-RPC error codes**, the socket directory and file name, all three timeouts,
+  `GetPongResultJson`, `GetShutdownResultJson`, `StatusResultJson`, `ErrorResponseJson`,
+  `FormatUptime`, `FormatIdleTimeoutMinutes` and `GetMethodKind`.
+
+  **THE FIRST DRAFT OF THIS CENSUS OVERSTATED THE GAP, AND THE CORRECTION IS RECORDED RATHER THAN
+  QUIETLY DROPPED.** Matching on kernel NAMES misses assertions that reach the answers through the
+  C# forwarding facade, and there are some: `DaemonCommandTests.cs:137` pins all twelve method
+  strings through `DaemonConstants.Method*`, `:107` pins `.nlc` and `daemon.sock`, and `:363`/`:393`
+  pin `"pong"` and `"30m"` off a live socket. So the accurate claim is narrower and still damning —
+  **every pin on the daemon wire is a C# assertion in a file that is itself deletion debt, and not
+  one estate contract exists.** And two families are unpinned by ANY assertion in ANY language,
+  checked by grepping the answers rather than the names:
+
+  | family | assertions anywhere in the repository |
+  |---|---|
+  | the five JSON-RPC error codes `-32700 / -32600 / -32601 / -32602 / -32603` | **ZERO** — they appear in `DaemonProtocolKernels.nl` and nowhere else |
+  | `"shutting down"` | **ZERO** |
+  | `DaemonConstants_TimeoutsArePositive` | asserts only `> 0`, which every wrong value also satisfies |
+
+  **`daemon/ping` could have been renamed and only a C# test that dies with its file would have
+  noticed; an error code could have been renumbered and nothing would have.** This is the slice-3 and
+  slice-6 shape again, at the largest scale the campaign has met: it is the versioned wire surface of
+  a long-running server, and the schema-discipline rule in `AGENTS.md` names exactly this kind of
+  surface. The remedy is the same one: pin it and say so.
+
+  ### THE SPLIT THE DECODE FORCES — ELEVEN NAMES ARE NOT N#'s TO CHOOSE, FIVE ARE
+
+  | names | verdict |
+  |---|---|
+  | `jsonrpc`, `id`, `method`, `params` (request); `jsonrpc`, `id`, `result`, `error` (response); `code`, `message`, `data` (error) — **11** | **MECHANICAL — an ECOSYSTEM FACT.** These are JSON-RPC 2.0's own member names, fixed by the specification's §4, §5 and §5.1. N# has no freedom to choose them, exactly as it has no freedom over the arity of xUnit's `TraitAttribute` — the slice-6 precedent, applied to a different ecosystem |
+  | `pid`, `uptime`, `projectRoot`, `cachedFiles`, `idleTimeout` — **5** | **NOT MECHANICAL.** No specification fixes these; they are N#'s own payload vocabulary for `daemon/status`, and **N# ALREADY SPELLS ALL FIVE** in `DaemonProtocolKernels.StatusResultJson`. The C# `DaemonStatus` is a SECOND, INDEPENDENT SPELLING of a payload N# composes |
+
+  **AND THE SECOND SPELLING HAS ZERO PRODUCTION CONSUMERS.** `nlc daemon status` prints the raw
+  string (`DaemonCommand.cs:85-89`); the production path never deserializes it. Every reference to
+  `DaemonStatus` outside its own declaration is in `tests/DaemonCommandTests.cs` — `:322` (a test
+  that serialises a `DaemonStatus` and asserts its own attribute names, i.e. **it pins the copy, not
+  the wire, and would still pass if `StatusResultJson` renamed every key**), `:389` and `:660`. It is
+  a production-file type kept alive by test code, which is the definition of deletion debt.
+
+  ### THE HARD BOUNDARY, STATED RATHER THAN LEFT AS "UNTIL N# EMITS JSON ATTRIBUTES"
+
+  The file's own header comment says the DTOs "stay in C# until N# emits JSON attributes". **That is
+  not the binding reason.** A C# attribute argument must be a *compile-time constant*, so
+  `[JsonPropertyName(DaemonProtocolKernels.GetIdField())]` cannot compile no matter what N# emits.
+  An attribute name is therefore the one residue in this campaign that cannot be *defined from* an N#
+  owner at all — which is precisely why the eleven that stay must be ecosystem facts rather than
+  product decisions, and why the five that are product decisions must stop being spelled there.
+
+  ### THE THREE FURTHER WIRE DECISIONS THE CENSUS TURNS UP
+
+  | # | finding | where |
+  |---|---|---|
+  | 1 | **`"2.0"` is spelled THREE times** — `DaemonRequest`'s initializer, `DaemonResponse`'s initializer, and inside `ErrorResponseJson`'s hand-built envelope string. A property *initializer* is not an attribute, so these two CAN be defined from an N# owner | `DaemonProtocol.cs:16`, `:34`; `DaemonProtocolKernels.nl:175` |
+  | 2 | **`result` carries JSON-encoded JSON.** `GetPongResultJson()` returns the four characters `"pong"` *including its quotes*, and `DaemonResponse.Result` is a `string?`, so the wire reads `"result":"\"pong\""`. Every daemon payload is a string containing JSON text, never embedded JSON | `DaemonProtocolKernels.nl:144`; `DaemonProtocol.cs:40` |
+  | 3 | **`ErrorResponseJson` drops `data`.** The server's error envelope carries a `data` object on the parse-error path (`DaemonServer.cs:197`); the client's stderr re-rendering has no `data` field at all. Recorded as a fidelity gap, not fixed here | `DaemonProtocolKernels.nl:174-176` |
+
+  A fourth, just outside this slice's named file: `DaemonJsonOptions` sets
+  `PropertyNamingPolicy = JsonNamingPolicy.CamelCase` (`DaemonServer.cs:29-33`), which is what turns
+  the anonymous `new { ex.Path, ex.LineNumber, ex.BytePositionInLine }` into the wire's `path` /
+  `lineNumber` / `bytePositionInLine`. `DaemonServer.cs` is its own file and its own row; the finding
+  is recorded for the slice that takes it.
+
+  ### ITEM 2 — `QueryCommand.cs:108`, THE COMPILATION-UNIT ORDERING
+
+  ```
+  foreach (var pair in snapshot.CompilationUnits.OrderBy(static kvp => kvp.Key, StringComparer.Ordinal))
+  ```
+
+  It is the **only** `OrderBy` in the file's 1,081 lines, and it decides the order of the `files`
+  array in `nlc query ast --json`. **Nothing pins it**: no `.tests.nl` names `CompilationUnits`
+  except two comments in `tests/native/query-integration` recording bodies that were *deleted*, and
+  no contract reads the order of the `files` array. `StringComparer.Ordinal` and
+  `StringComparer.OrdinalIgnoreCase` differ observably — ordinal sorts every uppercase letter before
+  every lowercase one — so the choice is a real, user-visible one that could be swapped silently.
+
+  ### ITEM 3 — `Program.cs:581/:584/:633`, THE UNIFIED-DIFF LABELS
+
+  ```
+  FormatSource(source, "stdin.nl", projectRoot)
+  UnifiedDiff.Create(source, formatted, "a/stdin.nl", "b/stdin.nl")
+  UnifiedDiff.Create(source, formatted, $"a/{relativePath}", $"b/{relativePath}")
+  ```
+
+  **The renderer is ALREADY N#** — `src/NSharpLang.Compiler.BootstrapServices/UnifiedDiff.nl`, whose
+  `BeforeHeaderText`/`AfterHeaderText` own the `--- ` and `+++ ` prefixes and are pinned by
+  `UnifiedDiff.tests.nl` ("the two header lines carry the labels verbatim and in before/after
+  order"). What is NOT owned and NOT pinned is the `a/` and `b/` prefixes and the `stdin.nl` name:
+  `UnifiedDiff.tests.nl:47` deliberately asserts that **"a label is never inspected"**, so the
+  N# side is proven indifferent to exactly the thing C# decides. Measured out of the shipped CLI,
+  `nlc format --diff messy.nl` prints `--- a/messy.nl` / `+++ b/messy.nl` and
+  `nlc format --stdin --diff` prints `--- a/stdin.nl` / `+++ b/stdin.nl`.
+
+  ### THE CLASSIFICATION THIS SLICE APPLIES, STATED BEFORE IT IS USED
+
+  **A `(b)`-bucket item retires with its subject, so it is not moved — but it may not retire
+  UNPINNED.** For items 2 and 3 the surviving observer is the spawned-`nlc` native route,
+  `tests/native/cli-command-contracts`, which asserts against the shipped binary's behaviour and
+  therefore outlives any C# implementation behind it. Both are pinned there and neither
+  `QueryCommand.cs` nor `Program.cs` is edited.
+
+  **A wire name a specification fixes is an ecosystem fact; a wire name N# invents is a product
+  decision.** For item 1 that puts the eleven JSON-RPC members on the mechanical side with a citation,
+  and the five status keys plus the `"2.0"` initializers on the move side.
+
+  ### BASELINES CONFIRMED FROM DISK BEFORE THE EDIT
+
+  ratchet head **`head-v1:3b37a86d92a15ff5`**, `pathset-v1:8a26e1529863444b`,
+  `epochfacts-v1:1b3090747e517fc1`, `epochFileCount` **381**; manifest **391 lines, no BOM**;
+  `Program.Testing.cs` **617**; `NSharpLang.Compiler` C# **10 files / 27,966 lines**;
+  `DaemonProtocol.cs` **116 / 95** with **ZERO ratchet headroom**;
+  `Commands/QueryCommand.cs` **1,081 / 917** (epoch 1,085 / 921); `Program.cs` **786 / 682** (epoch
+  787 / 683); `tests/DaemonCommandTests.cs` **764 / 663 / 147 assertion markers** (epoch 808 / 705 /
+  176); `DaemonProtocolKernels.nl` **327 / 44 entry points**;
+  `DaemonServerAndClientKernels.tests.nl` **98 / 10 blocks**; `CliCommandContracts.tests.nl`
+  **1,736 / 77 blocks**; tree **clean**.
+
+  ### THE VERDICTS, APPLIED
+
+  | # | subject | verdict |
+  |---|---|---|
+  | 1a | the **11** JSON-RPC member names on `DaemonRequest` / `DaemonResponse` / `DaemonError` | **MECHANICAL — ecosystem fact**, with a boundary reason (a C# attribute argument must be a compile-time constant) and a specification citation. The file's own comment is rewritten to say that instead of "until N# emits JSON attributes", which was not the binding reason |
+  | 1b | `DaemonStatus`, its **5** names and its `"30m"` default | **DELETED.** Zero production consumers; a second spelling of a payload `StatusResultJson` already composes |
+  | 1c | the **3** spellings of `"2.0"` | **MOVED** to `GetJsonRpcVersion()`. Both C# property initializers and `ErrorResponseJson` now read it |
+  | 1d | the 5 status member names | **DEFINED ONCE** — `GetStatusPidField()` … `GetStatusIdleTimeoutField()`, which `StatusResultJson` is composed from and which the two surviving C# test readers read the wire through |
+  | 2 | `QueryCommand.cs:108`'s ordering | **CLASSIFIED, NOT MOVED — and PINNED** by two spawned-`nlc` contracts. `QueryCommand.cs` is not edited |
+  | 3 | `Program.cs:581/:584/:633`'s labels | **CLASSIFIED, NOT MOVED — and PINNED** by four spawned-`nlc` contracts. `Program.cs` is not edited |
+
+  ### THE COUNTS, EXACT
+
+  | | before | after | delta |
+  |---|---|---|---|
+  | `src/NSharpLang.Cli/Daemon/DaemonProtocol.cs` | 116 / 95 | **100 / 84** | **−16 / −11** — a shrink on a row with ZERO headroom |
+  | its DTO classes / `[JsonPropertyName]`s | 4 / 16 | **3 / 11** | −1 / −5 |
+  | its literals | `"2.0"` ×2, `"30m"` ×1 | **ZERO** | the eleven spec-fixed attribute names are all that remain |
+  | `tests/DaemonCommandTests.cs` | 764 / 663 / 147 markers | **741 / 643 / 139** | −23 / −20 / −8 |
+  | NEW C# | — | **ZERO** | `git diff --numstat -- '*.cs'` adds no file; both `.cs` rows are net-negative |
+  | `Commands/QueryCommand.cs`, `Program.cs` | 1,081 / 786 | **untouched** | `git diff --quiet` on both |
+  | `DaemonProtocolKernels.nl` | 327 | **357** | +30, 44 → **50** entry points |
+  | `DaemonServerAndClientKernels.tests.nl` | 98 / 10 blocks | **383 / 26** | **+16 blocks** |
+  | `tests/native/cli-command-contracts/CliCommandContracts.tests.nl` | 1,736 / 77 blocks | **1,942 / 83** | **+6 blocks** |
+  | compiler-service estate | 6,889 | **6,905** | **+16, exactly the block count** |
+  | `tests/native/cli-command-contracts` | 77 | **83** | +6 |
+  | C# unit suite | 606 | **605** | **−1, and the reason is named**: `DaemonStatus_Serialization_HasExpectedPropertyNames` is deleted as vacuous — it serialised a `DaemonStatus` and asserted its own attributes, so it pinned the copy and would have passed while `StatusResultJson` renamed every key |
+  | `nlc test --project tests/native/ownership-audit` | 18 | **18** | `Failed: 0` |
+
+  ### THE PIN CENSUS, BEFORE AND AFTER — 2 OF 44 BECOMES 46 OF 50
+
+  | | entry points | named by an estate contract |
+  |---|---|---|
+  | before | 44 | **2** |
+  | after | 50 | **46** |
+
+  The four still unnamed are each pinned THROUGH a block that asserts their output, and that is stated
+  rather than counted as coverage: `CreateCompactJsonOptions` (both payloads whose exact bytes are
+  pinned go through it), `GetCanonicalProjectRoot` (a `Path.GetFullPath` wrapper),
+  `GetSocketPathForProject` (a composer whose six-argument `GetSocketPath` IS pinned) and
+  `InvalidParameters` (the constructor behind all six refusals, every one of which is pinned by value).
+
+  ### THE ESTATE MUTATION MATRIX — SIXTEEN PERTURBATIONS, FIFTEEN MOVERS, ONE HONEST NON-MOVER
+
+  Baseline and restored are both **`Failed: 0, Passed: 6905`**. Every mutation asserts its anchor
+  before writing and restores in a `finally`, and after this slice's two accidents the harness also
+  restores from a `SIGTERM`/`SIGINT`/`atexit` handler — see the walls.
+
+  | # | perturbation | estate | blocks that fail, BY NAME |
+  |---|---|---|---|
+  | M1 | `daemon/ping` → `daemon/ping2` | 1 / 6904 | `TheTwelveDaemonMethodsAreExactlyTheseStrings` |
+  | M2 | method-not-found `-32601` → `-32604` | 1 / 6904 | `TheFiveErrorCodesAreTheJSONRPC20NumbersAndNoTwoOfThemAreTheSame` |
+  | M3 | `GetJsonRpcVersion` → `"2.1"` | 2 / 6903 | `TheProtocolVersionIs20AndTheErrorEnvelopeIsBUILTFromThatOneWord`, `TheErrorEnvelopeReallyReadsAllThreeOfItsArguments` |
+  | M4 | `GetStatusPidField` → `"processId"` | 2 / 6903 | `TheDaemonstatusPayloadIsExactlyTheseFiveMembersInThisOrder`, `TheFiveStatusMemberNamesAreTheOnesTheFieldKernelsSpell` |
+  | M5 | status members reordered (uptime before pid) | 1 / 6904 | `TheDaemonstatusPayloadIsExactlyTheseFiveMembersInThisOrder` |
+  | M6 | `GetShutdownResultJson` loses its quotes | 1 / 6904 | `TheTwoControlResultsAreJSONENCODEDStringsQuotesIncluded` |
+  | M7 | idle timeout `30` → `45` | 1 / 6904 | `TheThreeTimeoutsAreExactlyTheseValuesAndTheIdleOneBecomesTheWiresOwnText` |
+  | M8 | `FormatUptime` transposes hours and minutes | 1 / 6904 | `UptimeFormatsHoursThenMinutesThenSecondsAndReadsAllThree` |
+  | M9 | `daemon.sock` → `daemon.socket` | 1 / 6904 | `TheSocketDirectorySocketFileAndPidFileAreExactlyTheseThreeNames` |
+  | M10 | socket byte budget `100` → `200` | 1 / 6904 | `TheSocketPathIsProjectLocalUntilItsOwnByteBudgetRefusesThenItIsNot` |
+  | M11 | `ErrorResponseJson` stops reading the version kernel and restates `"2.0"` | **0 / 6905** | **NONE — and correctly so; see below** |
+  | M12 | `daemon.pid` → `daemon.pidfile` | 1 / 6904 | `TheSocketDirectorySocketFileAndPidFileAreExactlyTheseThreeNames` |
+  | M13 | `symbols` made to require a file | 2 / 6903 | `SIXQueryMethodsRefuseARequestWithNoFileAndTheOtherThreeAcceptOne`, `EachFileRequiringRefusalNamesItsOwnQueryCommandAndItsOwnSentence` |
+  | M14 | the outline refusal names `"outlines"` | 1 / 6904 | `EachFileRequiringRefusalNamesItsOwnQueryCommandAndItsOwnSentence` |
+  | M15 | `IsQueryMethod` drops `Inspect` | 1 / 6904 | `TheNineQueryKindsAreExactlyTheOnesIsQueryMethodAdmits` |
+  | M16 | the missing-method sentence reworded | 1 / 6904 | `TheProtocolsOwnTwoRequestRefusalsAreExactlyTheseSentences` |
+
+  **M11 IS A MUTATION THAT IS NOT A MUTATION, AND IT IS REPORTED AS ONE.** Replacing
+  `JsonSerializer.Serialize(GetJsonRpcVersion(), …)` with the literal `"2.0"` is pointwise IDENTICAL,
+  so no contract can move — a contract cannot tell "defined from the kernel" from "restates the same
+  value". **M3 is what carries that claim**: a change confined to the KERNEL moves the envelope's own
+  byte-for-byte equality, which is only possible if the envelope reads it. The slice-6 lesson applied
+  in advance rather than discovered afterwards.
+
+  **AND M1 DOES *NOT* FAIL `EveryMethodNameDispatchesToItsOWNKind`, WHICH IS THE RIGHT ANSWER.** That
+  block asks `GetMethodKind(GetPingMethod()) == Ping`, so renaming both sides together keeps it true.
+  The two blocks are asking different questions — *what is the word* and *does the word dispatch* —
+  and the matrix shows the split rather than hiding it behind a single number.
+
+  ### THE (b)-BUCKET MUTATION — THE PROOF THAT A SILENT RETIREMENT IS NOW IMPOSSIBLE
+
+  All three residues were mutated AT ONCE, the CLI rebuilt, and the spawned contracts re-run. They
+  touch disjoint blocks, so one rebuild still attributes exactly.
+
+  | | perturbation | result |
+  |---|---|---|
+  | S3 | `QueryCommand.cs:108` `StringComparer.Ordinal` → `OrdinalIgnoreCase` | fails `nlc query ast orders its files ORDINALLY, so every capital sorts before every lowercase` |
+  | S4 | `Program.cs:633` `a/`,`b/` → `old/`,`new/` | fails `nlc format --diff labels the two sides a/PATH and b/PATH, git-style` |
+  | S5 | `Program.cs:584` `stdin.nl` → `-` | fails `nlc format --stdin --diff calls the anonymous input stdin.nl on BOTH sides of the diff` |
+
+  **`Passed: 80, Failed: 3` under the mutant and `Passed: 83, Failed: 0` restored** — exactly three
+  blocks, exactly the three expected. **When `QueryCommand.cs` and `Program.cs` are deleted, these
+  rows keep asking the same questions of whatever answers in their place.**
+
+  ### THE DAEMON WIRE SEAM — BYTE-IDENTICAL, AND PROVED TO BE A MEASUREMENT
+
+  `daemonseam.py` starts a REAL daemon (`nlc daemon run`) on a temp project and speaks to it over its
+  own unix domain socket exactly as `DaemonClient` does — eight raw request/response pairs (ping,
+  status, unknown method, missing method, malformed JSON, a query with no file, a `PascalCase`-only
+  request, and a request with no `jsonrpc` field at all), plus `nlc daemon status` and four `nlc query`
+  routes. Every unstable value is canonicalised to its SHAPE (`"pid":#`, `"uptime":"#h #m #s"`,
+  `"projectRoot":"<root>"`), including inside the `"`-escaped inner payloads.
+
+  | | before | after | diff |
+  |---|---|---|---|
+  | the daemon wire × 12 routes | 104 lines | 104 lines | **BYTE-IDENTICAL**, `sha256 38af308b…` both sides |
+
+  The "before" is a real restore-and-rebuild: all tracked paths were written back from `HEAD` with
+  `git stash`, the CLI was rebuilt from those blobs, and the seam was captured against that build.
+
+  | | seam perturbation | result |
+  |---|---|---|
+  | **S1** | `GetStatusPidField` → `"processId"`, CLI rebuilt | **2 LINES MOVE** — the raw socket response AND `nlc daemon status`'s stdout |
+  | **S2** | `GetJsonRpcVersion` → `"2.1"`, CLI rebuilt | **8 LINES MOVE — EVERY ENVELOPE ON THE WIRE.** This is the load-bearing one: those envelopes are serialised by `System.Text.Json` from the C# DTOs, so an N#-ONLY edit moving them is the proof, taken off a real socket, that the two `[JsonPropertyName]`-decorated classes now read their version from the kernel |
+
+  A restore-and-rebuild after both reproduces the "after" capture identically.
+
+  ### ONE FINDING THE SEAM MADE THAT NO CONTRACT COULD
+
+  **`ErrorResponseJson` may be unreachable from any user-supplied input.** It is the client-side
+  stderr rendering of a JSON-RPC `error`, and the server returns one only for an unknown method, a
+  missing method, invalid parameters, or an internal exception. The CLI never sends the first two, and
+  it validates parameters BEFORE dispatch — all four probe routes (`query type` with no `--pos`,
+  `query type`/`definition`/`references` at a position with no symbol) are refused client-side or come
+  back as an `ok:false` payload inside `result`, never as a JSON-RPC error. It is pinned by contract
+  rather than by seam, and the gap is recorded rather than dressed up. **A second, smaller gap in the
+  same function**: it drops the `data` member the server's parse-error envelope carries
+  (`{"path":"$","lineNumber":0,"bytePositionInLine":1}`, measured), so the stderr rendering is lossy.
+
+  ### THE REPIN AND THE AUDIT
+
+  The replica was validated **PRISTINE-FIRST on all eight values** — the manifest's four and the
+  policy constant's four — before it was trusted with an edit, and it **REFUSES to raise any ceiling,
+  checked field by field**.
+
+  | | value |
+  |---|---|
+  | rows repinned | **2** — `DaemonProtocol.cs` (`116/95` → `100/84`, `text-v1:6d433e0114e578f5` → `text-v1:771dbf5b2c9b4638`) and `tests/DaemonCommandTests.cs` (`764/663/147` → `741/643/139`, `text-v1:97f81130183da2f9` → `text-v1:42c924b0cc6d1afc`) — **both net-negative on EVERY metric** |
+  | two-key head | `head-v1:3b37a86d92a15ff5` → **`head-v1:4e6a5d5c2c4f57ca`**, written **LAST** and in BOTH places (the JSON header and `OwnershipPolicy.ReviewedHeadFingerprint`) |
+  | epoch triple | **UNCHANGED** — `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` / **381**, re-derived from the WRITTEN file |
+  | manifest | **391 lines, 381 rows, no BOM**, three changed lines |
+  | `nlc test --project tests/native/ownership-audit` | **Passed: 18, Failed: 0** |
+  | non-vacuity C1 — flip ONLY the manifest header key | **17 / 1 — CORRECTLY FAILS** |
+  | non-vacuity C2 — raise ONE epoch ceiling by one line | **17 / 1 — CORRECTLY FAILS** |
+
+  ### THE OTHER MEASUREMENTS
+
+  | check | result |
+  |---|---|
+  | compiler-service estate | **`Failed: 0, Passed: 6905`** under the restore-flag discipline |
+  | C# unit suite | **`Failed: 0, Passed: 605`** — 606 minus the one deleted vacuous assertion |
+  | `tests/native/cli-command-contracts` | **`Passed: 83, Failed: 0`** |
+  | `nlc format --project src/NSharpLang.Compiler.BootstrapServices --check` | **clean on the first run**, no reformat needed |
+  | live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **395 files / 246 diagnostics**, census `NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26` — the inherited baseline TO THE DIGIT, **ZERO rows in any `.tests.nl`** and **ZERO naming any daemon file** |
+
+  ### THE WALLS THIS SLICE HIT OR CONFIRMED
+
+  1. **A MUTATION HARNESS THAT IS SIGNALLED LEAVES A MUTANT ON THE TREE, AND THIS SLICE PROVED IT
+     TWICE.** A `finally` does not run when the process is killed. The first matrix was killed by a
+     600 s tool timeout and left `-32601` → `-32604` in `DaemonProtocolKernels.nl`; the second was
+     `pkill`ed and left `GetStatusPidField` → `"processId"`. **Both were caught, and one of them was
+     caught BY THIS SLICE'S OWN NEW CONTRACT** — the next baseline read `Failed: 1` naming
+     `TheFiveErrorCodesAreTheJSONRPC20NumbersAndNoTwoOfThemAreTheSame`, which is the first time in the
+     campaign a new pin has caught a real drift rather than a synthetic one. The harness now restores
+     from `atexit` and from `SIGTERM`/`SIGINT` handlers, and `git diff --numstat` on the owner is the
+     cheap check that says whether a kill was clean (`37/7` vs the true `36/6` was the tell).
+  2. **`ProcessStartInfo.RedirectStandardInput` DOES NOT EMIT.** A project whose only unusual line is
+     `startInfo.RedirectStandardInput = true` declines columnar emission, while the same project with
+     `RedirectStandardOutput` builds — so the unmodeled member is that SETTER, not
+     `Process.StandardInput`. Narrowed by two one-line probes rather than guessed. The recovery for
+     the `--stdin` contracts is `/bin/sh -c "… < file"`, which is also how a user actually reaches
+     `--stdin`.
+  3. **A `JsonElement.GetProperty` CHAIN DECLINES INSIDE AN `assert`.** `assert root.GetProperty(k)
+     .GetInt32() == 12` reports `emit.call.instance-member-unmodeled`. The spelling that emits is the
+     one `OutputFormatterJsonKernels.tests.nl` already uses — a `func` that parses, binds the root to
+     a local, and returns ONE value. Four such helpers carry every JSON read in the new blocks.
+  4. **`Path.GetFileName` RETURNS `string?`**, so a helper declared `: string` needs `?? ""`. Caught by
+     `NL202` with the Elm-level explanation, not by a runtime failure.
+  5. **`nlc build` IS NOT `nlc test` FOR A TEST-ONLY NATIVE PROJECT.** `nlc build --project
+     tests/native/cli-command-contracts` fails with the bare `This product path requires successful
+     N# columnar emission after analysis passes.` even on a PRISTINE tree, which sent the first
+     bisection down a false trail. Bisect a `.tests.nl` with `nlc test`, and treat a `build` failure on
+     such a project as uninformative.
+  6. **THE BARE DECLINE MESSAGE STILL HAS NO SITE.** `nlc test` and `nlc build` both print that
+     sentence with **no NL code, no file, no line and no decline site**, while the same source through
+     `dotnet test` prints a full `NL103 … Declined at emit.call.instance-member-unmodeled …
+     (file:line:col)`. Slice 6 filed this; this slice hit it three more times and confirms the chip is
+     still the right one.
+  7. Confirmed again: a CLI build silently disarms the estate — every estate run in this slice ran
+     `dotnet restore … -p:NSharpExcludeTests=false --force-evaluate` first.
+  8. **A LINE-BROKEN `assert … \n == …` IS NOT WORTH RISKING.** Every assert in the new blocks is one
+     line, after the slice-6 note that `nlc format` joins multi-line boolean chains anyway. `.tests.nl`
+     files are excluded from `nlc format` (`ShouldFormatDiscoveredPath` refuses `*.tests.nl`), so the
+     formatter would not have caught a bad wrap either.
+
+  ### THE GATE
+
+  **The full non-VS-Code product gate, fresh and isolated from a `/tmp` byte-copy that excludes the
+  nested worktrees, with the log written OUTSIDE the copy, is `ALL TESTS PASSED! ✓` with exit 0:
+  126 GREEN STEPS and ZERO `✗ FAILED` LINES IN 652 LOG LINES, 22m 18s.** Its banner confirms no
+  cached result was accepted (`Fresh isolated test run required: pre-commit verification` /
+  `Existing cache entries will not satisfy this invocation.`) under key `c6b303e73bbc4bdc`.
+
+  The gate's own instruments reproduce every count this record makes: unit suite
+  `Passed: 605, Failed: 0`, compiler-service estate `Passed: 6905, Failed: 0`, **46** native projects
+  including `tests/native/cli-command-contracts` → **`Passed: 83, Failed: 0`** and
+  `tests/native/ownership-audit` → `Passed: 18, Failed: 0`, the formatting gate clean, example and
+  single-file example builds, `dotnet new` templates, `nlc check` on examples, and ILVerify over
+  **67** N# assemblies.
+
+  **THE COPY WAS VERIFIED BYTE-IDENTICAL TO THE SHIPPED TREE ON ALL NINE CHANGED PATHS** by
+  `shasum -a 256`, driven from `git status --porcelain` so the list cannot be curated, and checked to
+  contain no nested worktree (`.claude/` excluded; the six worktrees under it stay out).
+  `git ls-files` reads **1,425** in both. **This ledger is the only file edited after the copy, and
+  `systems-language-closeout/` is in NONE of the gate's input prefixes** — re-verified against
+  `tests/scripts/test-all-core.sh:191-199`, whose `COMMON`/`UNIT`/`EXAMPLES` sets name `scripts/`,
+  `tests/scripts/`, `global.json`, `Directory.Build.props`, `Directory.Build.targets`, `NuGet.config`,
+  `NSharpLang.sln`, `src/`, `tests/`, `examples/`, `templates/`, `docs/`, `website/docs/`,
+  `editors/vscode/test/suite/`, `tests/fixtures/` and `tests/native/`, and nothing else.
+
+  ### THE IDE BAR
+
+  This is a **backend-only** slice by the 021 plan's own classification, and the subject is CLI and
+  daemon surface, so the gate ran `VSCODE_TESTS=skip`. No Language Server, LSP handler, VS Code
+  extension or editor-experience file is touched — and the decode confirms the VS Code extension does
+  not speak to the daemon at all (`grep -rn daemon editors/vscode/src` returns ZERO rows).
+  Computer-use remains unavailable; 021/12 still carries the visual half.
+
+  ### THE TREE
+
+  **NOT COMMITTED — the mandate reserves that.** Nine changed paths: two `.cs`
+  (`Daemon/DaemonProtocol.cs` and `tests/DaemonCommandTests.cs`, **both net-negative on every
+  metric**), one grown `.nl` owner, two grown `.tests.nl`, both ratchet keys,
+  `memory/components/cli-toolchain.md`, and this STATUS. **`tasks/README.md` is NOT among them**, and
+  neither is `Commands/QueryCommand.cs`, `Program.cs`, `DaemonServer.cs` or `DaemonClient.cs` —
+  verified by `git diff --quiet` on each. No gate script, no `.csproj` and no `project.yml` changed.
+  The eleven inherited background-task chips are untouched and stay pinned as measured; **no new chip
+  was filed** — the two findings this slice made (`ErrorResponseJson`'s unreachability and its dropped
+  `data` member) are recorded above and belong to the daemon slice that takes `DaemonServer.cs`, not
+  to a separate queue entry.
+
+  ### WHAT 021/8 IS
+
+  **`EmitIlAssembly` leaks**, as sequenced. Nothing in this slice touches it.
+
+- Active sub-slice (021 arc, PRIOR TURN — **SLICE 6 — `Program.Testing.cs`'s REMAINING VOCABULARY.
   THE DECODE CENSUS, RECORDED BEFORE ANY PRODUCTION EDIT.**
 
   ### THE PARTITION RE-VERIFIED AT THIS TIP (`b2f2356bf`), AND THE 020 COUNTS REPRODUCE EXACTLY

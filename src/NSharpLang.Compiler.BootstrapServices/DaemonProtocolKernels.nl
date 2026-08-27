@@ -161,18 +161,48 @@ class DaemonProtocolKernels {
         return new JsonSerializerOptions()
     }
 
+    // The JSON-RPC 2.0 protocol version every daemon message carries. The specification fixes the
+    // value, but it was spelled three times — twice as a C# property initializer and once inside the
+    // envelope below — so it is spelled here once and read from there.
+    static func GetJsonRpcVersion(): string {
+        return "2.0"
+    }
+
+    // The five members of the `daemon/status` payload. Unlike the JSON-RPC envelope's own names,
+    // nothing outside N# fixes these: they are this product's vocabulary, and `StatusResultJson`
+    // below is the only place the wire is composed from them.
+    static func GetStatusPidField(): string {
+        return "pid"
+    }
+
+    static func GetStatusUptimeField(): string {
+        return "uptime"
+    }
+
+    static func GetStatusProjectRootField(): string {
+        return "projectRoot"
+    }
+
+    static func GetStatusCachedFilesField(): string {
+        return "cachedFiles"
+    }
+
+    static func GetStatusIdleTimeoutField(): string {
+        return "idleTimeout"
+    }
+
     static func StatusResultJson(pid: int, uptime: string, projectRoot: string, cachedFiles: int, idleTimeout: string): string {
         payload := new Dictionary<string, object>()
-        payload["pid"] = pid
-        payload["uptime"] = uptime
-        payload["projectRoot"] = projectRoot
-        payload["cachedFiles"] = cachedFiles
-        payload["idleTimeout"] = idleTimeout
+        payload[GetStatusPidField()] = pid
+        payload[GetStatusUptimeField()] = uptime
+        payload[GetStatusProjectRootField()] = projectRoot
+        payload[GetStatusCachedFilesField()] = cachedFiles
+        payload[GetStatusIdleTimeoutField()] = idleTimeout
         return JsonSerializer.Serialize(payload, CreateCompactJsonOptions())
     }
 
     static func ErrorResponseJson(id: int, code: int, message: string): string {
-        return "{\"jsonrpc\":\"2.0\",\"id\":" + id.ToString() + ",\"result\":null,\"error\":{\"code\":" + code.ToString() + ",\"message\":" + JsonSerializer.Serialize(message, CreateCompactJsonOptions()) + "}}"
+        return "{\"jsonrpc\":" + JsonSerializer.Serialize(GetJsonRpcVersion(), CreateCompactJsonOptions()) + ",\"id\":" + id.ToString() + ",\"result\":null,\"error\":{\"code\":" + code.ToString() + ",\"message\":" + JsonSerializer.Serialize(message, CreateCompactJsonOptions()) + "}}"
     }
 
     static func ShouldUseProjectLocalSocket(projectLocalPath: string): bool {

@@ -13,7 +13,7 @@ namespace NSharpLang.Cli.Daemon;
 public class DaemonRequest
 {
     [JsonPropertyName("jsonrpc")]
-    public string JsonRpc { get; set; } = "2.0";
+    public string JsonRpc { get; set; } = DaemonProtocolKernels.GetJsonRpcVersion();
 
     [JsonPropertyName("id")]
     public int Id { get; set; }
@@ -31,7 +31,7 @@ public class DaemonRequest
 public class DaemonResponse
 {
     [JsonPropertyName("jsonrpc")]
-    public string JsonRpc { get; set; } = "2.0";
+    public string JsonRpc { get; set; } = DaemonProtocolKernels.GetJsonRpcVersion();
 
     [JsonPropertyName("id")]
     public int Id { get; set; }
@@ -57,28 +57,12 @@ public class DaemonError
 }
 
 /// <summary>
-/// Status info returned by daemon/status.
-/// </summary>
-public class DaemonStatus
-{
-    [JsonPropertyName("pid")]
-    public int Pid { get; set; }
-
-    [JsonPropertyName("uptime")]
-    public string Uptime { get; set; } = "";
-
-    [JsonPropertyName("projectRoot")]
-    public string ProjectRoot { get; set; } = "";
-
-    [JsonPropertyName("cachedFiles")]
-    public int CachedFiles { get; set; }
-
-    [JsonPropertyName("idleTimeout")]
-    public string IdleTimeout { get; set; } = "30m";
-}
-
-/// <summary>
-/// Wire DTOs stay in C# until N# emits JSON attributes; constants are owned by DaemonProtocolKernels.nl.
+/// The three envelope DTOs above carry only JSON-RPC 2.0's own member names — jsonrpc, id, method,
+/// params, result, error, code, message, data — which the specification fixes and N# does not choose.
+/// A C# attribute argument must be a compile-time constant, so a [JsonPropertyName] cannot be defined
+/// from an N# owner in any case; the daemon/status payload, whose five member names ARE this
+/// product's own vocabulary, is therefore composed by DaemonProtocolKernels.StatusResultJson and has
+/// no DTO here at all. Constants are owned by DaemonProtocolKernels.nl.
 /// </summary>
 public static class DaemonConstants
 {

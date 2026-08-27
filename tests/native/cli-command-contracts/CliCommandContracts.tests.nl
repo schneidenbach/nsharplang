@@ -1734,3 +1734,209 @@ test "every one of the six commands reaches its N#-owned implementation through 
     unknown := Nlc("addd --help")
     assert unknown.ExitCode != 0
 }
+
+
+// ═══ THE TWO DECISIONS THAT RETIRE WITH A C# SUBJECT ══════════════════════════════════════════
+//
+// `Commands/QueryCommand.cs:108` and `Program.cs:581/:584/:633` are the closeout inventory's
+// `(b)` bucket: residues that are not moved to an N# owner because the file holding them is itself
+// scheduled for deletion. That is a reason not to MOVE them. It is not a reason to let them retire
+// UNOBSERVED — a deletion that silently changes the order of an LLM-facing array, or the labels on a
+// diff a human is about to apply, is exactly the kind of regression the campaign exists to prevent.
+//
+// The blocks below observe the SHIPPED BINARY, so they outlive whatever implements it. When
+// `QueryCommand.cs` and `Program.cs` are deleted, these rows keep asking the same questions of
+// whatever answers in their place, and a changed answer fails by name.
+
+// ── `nlc query ast` — the compilation-unit ORDER ──────────────────────────────────────────────
+
+func WriteOrderingProject(directory: string) {
+    WriteProjectYml(directory,
+        "name: AstOrdering\n"
+        + "entry: Program.nl\n"
+        + "outputType: exe\n"
+        + "targetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(directory, "Program.nl"), "func Main() {\n    print \"ok\"\n}\n")
+    File.WriteAllText(Path.Combine(directory, "Zeta.nl"), "func Zed(): int {\n    return 1\n}\n")
+    File.WriteAllText(Path.Combine(directory, "Beta.nl"), "func Bet(): int {\n    return 2\n}\n")
+    File.WriteAllText(Path.Combine(directory, "alpha.nl"), "func Alp(): int {\n    return 3\n}\n")
+}
+
+func AstFileNameAt(payload: JsonElement, index: int): string {
+    return Path.GetFileName(TextOf(ElementAt(payload.GetProperty("files"), index).GetProperty("file"))) ?? ""
+}
+
+test "nlc query ast orders its files ORDINALLY, so every capital sorts before every lowercase" {
+    // THE DECISION: `QueryCommand.cs:108` sorts the compilation units with `StringComparer.Ordinal`.
+    // Nothing anywhere asserted that before this block — no estate contract reads the order of the
+    // `files` array, and the two `.tests.nl` comments that mention `CompilationUnits` are epitaphs
+    // for deleted bodies. The choice is observable and consequential: an LLM diffing two `ast` runs
+    // sees a reordered array as a change.
+    //
+    // `Beta.nl`, `Program.nl`, `Zeta.nl`, `alpha.nl` is the ORDINAL order. Under
+    // `OrdinalIgnoreCase` — the other comparer a maintainer would reach for — `alpha.nl` would come
+    // FIRST, so this fixture separates the two rather than merely agreeing with both.
+    directory := NewTempDirectory("nlc-ast-order")
+    WriteOrderingProject(directory)
+
+    run := Nlc("query ast --project \"" + directory + "\"")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("ok").GetBoolean()
+    assert root.GetProperty("files").GetArrayLength() == 4
+
+    assert AstFileNameAt(root, 0) == "Beta.nl"
+    assert AstFileNameAt(root, 1) == "Program.nl"
+    assert AstFileNameAt(root, 2) == "Zeta.nl"
+    assert AstFileNameAt(root, 3) == "alpha.nl"
+    document.Dispose()
+
+    Directory.Delete(directory, true)
+}
+
+test "the ast order is STABLE across runs, so a consumer can diff two envelopes" {
+    // The order above could be an accident of dictionary iteration rather than a sort. Two runs of
+    // the same project answering the same sequence is what makes it a contract.
+    directory := NewTempDirectory("nlc-ast-order-stable")
+    WriteOrderingProject(directory)
+
+    first := Nlc("query ast --project \"" + directory + "\"")
+    second := Nlc("query ast --project \"" + directory + "\"")
+
+    assert first.ExitCode == 0
+    assert second.ExitCode == 0
+
+    firstDocument := JsonDocument.Parse(first.Stdout)
+    secondDocument := JsonDocument.Parse(second.Stdout)
+    assert AstFileNameAt(firstDocument.RootElement, 0) == AstFileNameAt(secondDocument.RootElement, 0)
+    assert AstFileNameAt(firstDocument.RootElement, 3) == AstFileNameAt(secondDocument.RootElement, 3)
+    firstDocument.Dispose()
+    secondDocument.Dispose()
+
+    Directory.Delete(directory, true)
+}
+
+// ── `nlc format --diff` — the unified-diff LABELS ─────────────────────────────────────────────
+
+func WriteMisformattedFile(path: string) {
+    File.WriteAllText(path, "func  Main( ) {\n        print \"x\"\n}\n")
+}
+
+test "nlc format --diff labels the two sides a/PATH and b/PATH, git-style" {
+    // THE DECISION: `Program.cs:633` composes `$"a/{relativePath}"` and `$"b/{relativePath}"`. The
+    // RENDERER is already N# — `UnifiedDiff.nl` owns the `--- ` and `+++ ` prefixes — but
+    // `UnifiedDiff.tests.nl` states outright that "a label is never inspected", so the N# side is
+    // PROVEN INDIFFERENT to exactly the text C# decides. Nothing else observed it.
+    //
+    // The prefixes are what let the output be piped into `git apply` / `patch -p1`, so they are a
+    // compatibility contract, not decoration.
+    directory := NewTempDirectory("nlc-format-diff")
+    WriteProjectYml(directory, "name: FormatDiff\nentry: messy.nl\noutputType: exe\ntargetFramework: net10.0\n")
+    WriteMisformattedFile(Path.Combine(directory, "messy.nl"))
+
+    run := Nlc("format --project \"" + directory + "\" --diff messy.nl")
+
+    assert run.ExitCode == 0
+    assert run.Stdout.Contains("--- a/messy.nl")
+    assert run.Stdout.Contains("+++ b/messy.nl")
+
+    // …and the before label really precedes the after label, which a pair of `Contains` cannot say.
+    assert run.Stdout.IndexOf("--- a/messy.nl") < run.Stdout.IndexOf("+++ b/messy.nl")
+
+    // A CONTROL: the label carries the PATH, not a fixed word. A file in a subdirectory proves the
+    // relative path reaches the label instead of just its file name.
+    nested := Path.Combine(directory, "sub")
+    Directory.CreateDirectory(nested)
+    WriteMisformattedFile(Path.Combine(nested, "deep.nl"))
+
+    nestedRun := Nlc("format --project \"" + directory + "\" --diff sub/deep.nl")
+    assert nestedRun.ExitCode == 0
+    assert nestedRun.Stdout.Contains("--- a/sub/deep.nl")
+    assert nestedRun.Stdout.Contains("+++ b/sub/deep.nl")
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc format --diff writes NOTHING for a file that is already formatted" {
+    // The negative half of the same claim: the labels appear because a diff exists, not on every
+    // run. Without this row the block above could pass against a command that always printed a
+    // header.
+    directory := NewTempDirectory("nlc-format-diff-clean")
+    WriteProjectYml(directory, "name: FormatDiffClean\nentry: tidy.nl\noutputType: exe\ntargetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(directory, "tidy.nl"), "func Main() {\n    print \"x\"\n}\n")
+
+    run := Nlc("format --project \"" + directory + "\" --diff tidy.nl")
+
+    assert run.ExitCode == 0
+    assert !run.Stdout.Contains("--- a/")
+    assert !run.Stdout.Contains("+++ b/")
+
+    Directory.Delete(directory, true)
+}
+
+// A CHILD THAT IS FED ON STDIN — AND WHY IT GOES THROUGH A SHELL.
+//
+// The portable spelling is `RedirectStandardInput = true` followed by
+// `process.StandardInput.Write(text)`. IT DOES NOT EMIT, and the measurement is narrower than that:
+// a project whose ONLY unusual line is `startInfo.RedirectStandardInput = true` declines, while the
+// same project with `RedirectStandardOutput` builds. The unmodeled member is the
+// `ProcessStartInfo.RedirectStandardInput` SETTER, not `Process.StandardInput` — which is why
+// `RunProcess` above can drain both output pipes and still not feed one.
+// The recovery is not a weakening — a shell redirect is how a user actually reaches
+// `--stdin` (`cat file.nl | nlc format --stdin`), so the route below is the documented one rather
+// than a test-only harness trick. The source is written to a file first so no quoting of N# source
+// has to survive two layers of shell.
+func NlcWithStdinFile(arguments: string, inputPath: string): CliRun {
+    command := "exec dotnet '" + CliDll() + "' " + arguments + " < '" + inputPath + "'"
+    return RunProcess("/bin/sh", "-c \"" + command + "\"", Path.GetTempPath())
+}
+
+func WriteStdinSource(directory: string): string {
+    path := Path.Combine(directory, "piped-source.nl")
+    File.WriteAllText(path, "func  Main( ) {\n        print \"x\"\n}\n")
+    return path
+}
+
+test "nlc format --stdin --diff calls the anonymous input stdin.nl on BOTH sides of the diff" {
+    // THE DECISION: `Program.cs:581` names the piped source `stdin.nl` and `:584` labels the two
+    // sides `a/stdin.nl` / `b/stdin.nl`. There is no file on disk, so the name is INVENTED — the
+    // purest product decision in this bucket — and nothing observed it before this block.
+    //
+    // The name is not private: the formatter reports parse errors against it, and the diff is meant
+    // to be applicable, so `stdin.nl` is what a user reads and what a tool matches on.
+    directory := NewTempDirectory("nlc-format-stdin")
+    source := WriteStdinSource(directory)
+
+    run := NlcWithStdinFile("format --stdin --diff", source)
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("--- a/stdin.nl")
+    assert run.Stdout.Contains("+++ b/stdin.nl")
+    assert run.Stdout.IndexOf("--- a/stdin.nl") < run.Stdout.IndexOf("+++ b/stdin.nl")
+
+    // The diff is real, not just a header: the formatter's answer is in the body.
+    assert run.Stdout.Contains("-func  Main( ) {")
+    assert run.Stdout.Contains("+func Main() {")
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc format --stdin without --diff writes the formatted source and never names stdin.nl" {
+    // The control for the block above: `stdin.nl` belongs to the DIFF arm. On the plain arm the
+    // invented name never reaches the user, so a build that leaked it everywhere fails here.
+    directory := NewTempDirectory("nlc-format-stdin-plain")
+    source := WriteStdinSource(directory)
+
+    run := NlcWithStdinFile("format --stdin", source)
+
+    assert run.ExitCode == 0
+    assert run.Stdout == "func Main() {\n    print \"x\"\n}\n"
+    assert !run.Stdout.Contains("stdin.nl")
+
+    Directory.Delete(directory, true)
+}
