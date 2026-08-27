@@ -858,6 +858,58 @@ Do not resurrect eager cache scans: a dirty cache (multiple extracted versions o
 `nsharplang.runtime`) previously made every SDK build crash with "has already been loaded into
 this MetadataLoadContext" whenever the restored version was not the lexically greatest extraction.
 
+### The editor's type universe is NOT the analyzer's
+
+`EditorTypeCatalogFacts.nl` is the N# owner for what the **Language Server** offers out of metadata:
+which assemblies the editor may see, which short names a general completion always volunteers and
+what each denotes, which namespaces a bare name is probed in and in what order, how a written type
+name is spelled, which CLR types may be offered, how they are ranked, and how many may be sent.
+`src/NSharpLang.LanguageServer/Services/TypeResolver.cs` performs the reflection reads and the
+caching; it decides nothing. `AnalyzerTypeReferenceFacts.BuiltInClrTypeName` still owns the built-in
+aliases and is consulted before this catalogue.
+
+**The two universes are disjoint, and that is a product defect rather than a spelling one.** The
+analyzer builds a `MetadataLoadContext` over `ExternalAssemblyScan.CommonAssemblyNames()`'s 27 names
+PLUS the project's own restored references, so it sees everything a program compiles against. The
+editor's catalogue is four seed type names — `System.Object`, `System.Console, System.Console`,
+`System.Linq.Enumerable, System.Linq`, ``System.Collections.Generic.List`1`` — resolved by LIVE
+reflection over the language-server process itself. Those four names reach exactly **three**
+assemblies (``List`1`` and `object` both live in `System.Private.CoreLib`), and none of them is a
+project reference. So **completion cannot offer a type from a package the user depends on, and hover
+cannot name one.**
+
+Closing that gap means serving the editor from the analyzer's universe, which is a
+`MetadataLoadContext` — the AOT type-model verdict above is what currently blocks it. **Do not paper
+over it by adding a fifth seed name.** The seed names are metadata names rather than `typeof` for the
+reason `CompletionReflectionFacts` gives: `typeof` of a static class does not emit and an open
+`typeof(List<>)` does not parse.
+
+Two owners are consulted rather than copied:
+
+- **Eight of the twelve short-name spellings** are `CompletionReflectionFacts`'s answers, not a
+  second table: `Console`, `String`, `Math` and `DateTime` come from `KnownReceiverType`, and
+  `List`, `Dictionary`, `HashSet` and `IEnumerable` from `KnownReceiverGenericDefinition` — which is
+  also where the arity suffixes come from. The other four (`Guid`, `Exception`, the NON-generic
+  `Task`, `CancellationToken`) have no owner and are spelled once. The contracts assert each derived
+  answer equals the literal it replaced, so a drift in the other owner fails there rather than
+  silently costing the editor a completion.
+- **Ordinal comparison** is `AnalyzerMetadataLoadPolicy.CompareOrdinalText`. Both the importable-type
+  order and the namespace-segment order route to it, so no comparison policy is spelled twice.
+
+One divergence is recorded rather than unified: `EditorTypeCatalogFacts.CompletionTypeDisplayName`
+truncates a name at the FIRST arity backtick while `DocQueryKernels.StripGenericArity` removes every
+backtick run. They are different total functions that were measured identical over all 1,391 exported
+types the editor's universe can reach, and the contracts pin both the agreement and the divergence.
+Unifying them changes what `nlc query` prints too, so it belongs to a slice that can measure that
+side as well.
+
+**Hover's use of this catalogue is a FALLBACK, not the main path.** `HoverHandler.Handle` consults
+`DocumentManager.FindProjectHover` — the N#-owned code intelligence — before the AST branch that
+reaches `TypeResolver.ResolveType`, and for a document inside a workspace the project hover answers
+every time (measured: 1,332 positions, zero reaching the type-resolver formatters). The seam is only
+observable for a document opened OUTSIDE the workspace root, which is the loose-`.nl`-file case.
+Completion is the live consumer.
+
 ### Method Overload Resolution
 For external methods with multiple overloads:
 - Create a `ReflectionMethodGroupInfo` with the complete applicable method surface. For CLR

@@ -1,6 +1,42 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-27 (**TASK 021 SLICE 9 — THE MLC QUARANTINE. THE AOT LEG IS MEASURED SHUT AND
+Last updated: 2026-08-27 (**TASK 021 SLICE 9b — `Services/TypeResolver.cs`, THE LANGUAGE SERVER'S OWN
+TYPE UNIVERSE — see the Cursor block.** The decode was RE-VERIFIED at `3e90666ef` and recorded BEFORE
+any production edit, and it corrects slice 9 twice: the file's 526 lines partition as **210 reflection
+core / 189 presentation policy / 49 curation tables / 26 dead**, not 190/208, and the "four `typeof`
+roots" at `:90–96` are **THREE assemblies** — `object` and ``List`1`` both live in
+`System.Private.CoreLib`, so the `// System.Collections` comment beside the fourth was wrong. **THE
+SHARPEST FINDING IS THAT ONE OF THE TWO CONSUMERS IS UNREACHABLE**: a 666-position × 3-configuration
+hover sweep reaches the type-resolver's formatters **0 times in 1,332 tries** inside a workspace,
+because `DocumentManager.FindProjectHover` — N#-owned code intelligence — answers first every time;
+the seam is observable ONLY for a document opened outside the workspace root, which is the loose-file
+case, and that is why slice 4 found it pinned by no test. **TWENTY DECISIONS MOVE** into one new N#
+owner, `EditorTypeCatalogFacts.nl` (483 lines, 25 funcs), and **EIGHT SECOND SPELLINGS DIE**: the
+roster's `Console`/`String`/`Math`/`DateTime`/`List`/`Dictionary`/`HashSet`/`IEnumerable` are now
+DERIVED from `CompletionReflectionFacts` — a probe reports **AGREEING = 8 / 8** — while ordinal
+comparison routes to `AnalyzerMetadataLoadPolicy.CompareOrdinalText`. **ONE DIVERGENCE IS RECORDED
+RATHER THAN UNIFIED**: the display rule truncates at the first arity backtick where
+`DocQueryKernels.StripGenericArity` removes every run, measured identical over all **1,391** exported
+types the editor can reach, with both halves pinned. Four dead items go — both `GetImportNamespace`
+overloads (ABSENT from an 89,776-body IL census), `ImportableTypeInfo.IsStatic`, a stale `<summary>`,
+and a `maxResults = 200` parameter no caller ever passed. `TypeResolver.cs` **526 → 373**, its
+literal-bearing lines **52 → 5**, and **zero new C#**. **THE SEAM IS BYTE-IDENTICAL**: 1,812
+transcript lines over a real LSP session — 17 hover probes, 16 completion probes, 2 controls —
+`sha256 47648c56…` on both sides, the before taken from the HEAD blob and a real rebuild. **15 of 15
+mutations bite**; the ONE that does not move the seam is PROVED unobservable, not unproven — all 118
+nested types in the editor's universe already report `IsPublic == false`, so the `isNested` clause is
+a latent guard. A second non-mover WAS a real gap in the instrument (no two-dot import probe) and was
+CLOSED: two probes added, the whole before/after re-taken, and the mutation now moves 126 rows.
+Estate **7,012 / 0** (6,978 + exactly 34), live tree **398 / 246** with an identical census, ratchet
+repinned two-key to **`head-v1:7d215b4f4507c0fd`**, audit **18/18** and non-vacuous on both keys.
+**IDE BAR: the extension was rebuilt, repackaged and reinstalled** (`nsharp-0.6.0.vsix`, 289 files),
+the shipped `LanguageServer.dll` verified to no longer contain the deleted table, and the gate ran
+**VS CODE-ENABLED** from a `/tmp` byte-copy with the nested worktrees excluded —
+**`ALL TESTS PASSED`, exit 0, 25m 37s, 127 steps, 0 failures**, units 596, estate 7,012, all 47
+native projects, **VS Code integration tests (smoke) PASSED**, ILVerify 67 assemblies. NOT
+COMMITTED; `tasks/README.md` is NOT edited)
+
+Last updated (prior): 2026-08-27 (**TASK 021 SLICE 9 — THE MLC QUARANTINE. THE AOT LEG IS MEASURED SHUT AND
 THE QUARANTINE IS REDRAWN AROUND WHAT IS LEFT — see the Cursor block.** Slice 1's 27-extent / 646-line
 census REPRODUCES EXACTLY by brace-matched decode, and one ledger row is corrected:
 `AnalyzerMetadataLoadContextTests.cs` holds **eleven** xUnit cases (4 `[Fact]` + 1 `[Theory]` × 7
@@ -4473,7 +4509,462 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 9 — THE MLC QUARANTINE. THE AOT LEG IS MEASURED
+- Active sub-slice (021 arc, THIS TURN — **SLICE 9b — `Services/TypeResolver.cs`, THE LSP's OWN
+  TYPE UNIVERSE. THE DECODE IS RE-VERIFIED AT `3e90666ef` BEFORE ANY EDIT, IT CORRECTS SLICE 9's
+  LINE SPLIT, AND IT FINDS ONE OF THE TWO CONSUMERS UNREACHABLE.**)
+
+  ### THE DECODE, RE-RUN AT THIS TIP AND RECORDED BEFORE ANY PRODUCTION EDIT
+
+  The working tree is clean at `3e90666ef`; every `.dll` under the repo carries an mtime of
+  06:22–06:23 against a commit at 06:09, so the assemblies the instruments read ARE this tip's.
+
+  **THE SIZE HOLDS AND THE SPLIT DOES NOT.** `TypeResolver.cs` is **526 lines / 459 non-blank**, as
+  the ledger says. A brace-matched extent walk (strings, chars and both comment forms excluded from
+  the depth count) finds **25 class members plus the trailing `ImportableTypeInfo` record = 26
+  top-level extents**, covering 491 lines; the other 35 are 14 lines of preamble and 21 blank
+  separators. Slice 9's "190 reflection core / 208 presentation policy" does NOT reproduce under any
+  grouping the instrument can form. The reproducible partition is:
+
+  | group | lines | non-blank | code-only |
+  |---|---|---|---|
+  | preamble (usings, namespace, class doc, brace) | 14 | 12 | 9 |
+  | instance state (7 fields) | 7 | 7 | 7 |
+  | the three CURATION tables | 49 | 49 | 37 |
+  | **REFLECTION CORE** (ctor, `EnsureAssembliesLoaded`, `LoadSystemAssemblies`, `ResolveType`, `ResolveTypeByFullName`, `ResolveTypeBySimpleName`, `GetOrCacheExportedTypes`) | **210** | **191** | 166 |
+  | **DEAD** (`GetImportNamespace` ×2) | **26** | 24 | 17 |
+  | **PRESENTATION POLICY** (`GetImportableTypes`, `GetNamespaceSuggestions`, `GetKnownNamespaces`, `TryGetNextNamespaceSegment`, `GetCompletionTypeName`, `GetNamespacePriority`) | **189** | 165 | 160 |
+  | DTO `ImportableTypeInfo` | 10 | 10 | 7 |
+  | blank separators + the class's closing brace | 21 | 1 | 0 |
+
+  So the ledger's **190 is the reflection core's NON-BLANK count (191, one off)** and its 208 is not
+  reproducible; the **26 dead lines are exact** as a non-blank count (24 non-blank + 2 separators
+  inside the 28-line span `:209–236`). Slice 9's three curation line numbers — `:31`, `:47`, `:405`
+  — and their sizes (12 / 7 / 20 entries) all reproduce to the line.
+
+  **THE LITERAL CENSUS, WHICH SLICE 9 DID NOT TAKE.** Comments excluded: **52 literal-bearing code
+  lines, 76 literal sites, 59 distinct literals.** Twelve lines are the short-name table, seven the
+  probe prefixes, nine the well-known namespaces, five the ranking, five the log messages, and the
+  rest single separators (`"?"`, `"[]"`, `'<'`, `'.'`, `'`'`, `"<"`, `"__"`).
+
+  ### THE DEAD ITEMS, RE-VERIFIED BY IL RATHER THAN BY GREP
+
+  The receiver-typed IL census (mtime-gated at `2026-08-27T06:15:00`, **29 assemblies / 89,776
+  method bodies / 0 undecodable opcodes**, non-vacuity control `ColumnarParserRecovery` = **55
+  external sites, PASSED**) resolves every call token to its declaring type and member, so a name
+  collision cannot fake a consumer and a `using` alias cannot hide one:
+
+  | member | external sites | verdict |
+  |---|---|---|
+  | `TypeResolver::GetImportableTypes` | 3 | `CompletionHandler::AddExternalImportableCompletionItems` |
+  | `TypeResolver::GetNamespaceSuggestions` | 3 | `CompletionHandler::GetImportCompletionItems` |
+  | `TypeResolver::ResolveType` | 3 | `HoverHandler::ResolveIdentifier` |
+  | `TypeResolver::.ctor` / `Instance` | 8 | `LanguageServerFixture`, `LanguageServerAutoImportTests/Harness` |
+  | **`TypeResolver::GetImportNamespace` (both overloads)** | **0 — ABSENT FROM THE WHOLE CENSUS** | **DEAD** |
+  | **`ImportableTypeInfo::get_IsStatic`** | **0** — the census lists `get_Name`, `get_Namespace`, `get_FullName`, `get_IsEnum`, `get_IsInterface` and no other accessor | **DEAD** |
+
+  The stale `<summary>` at `:401–403` ("Check if a name matches a known namespace") sits above a
+  FIELD and describes a method the file does not have. Three dead items, all confirmed.
+
+  ### THE FINDING SLICE 9 COULD NOT SEE FROM THE SOURCE: **ONE OF THE TWO CONSUMERS IS UNREACHABLE**
+
+  `HoverHandler:223` is a real IL consumer of `ResolveType`, but a real LSP session cannot get
+  there. `HoverHandler.Handle` tries `TryCreateKeywordOrPrimitiveHover`, then
+  `DocumentManager.FindProjectHover` — the N#-owned code-intelligence hover — and only then the AST
+  path that reaches `ResolveIdentifier`. An exhaustive sweep of **every (line, column) of a broad
+  fixture** (fields, a property, parameters, locals, a loop variable, a user type, a method call, an
+  unknown name, imports, keywords) — **666 positions, 501 of them answered, run TWICE (with and
+  without `project.yml`) = 1,332 positions** — reaches `FormatVariable`/`FormatVariableWithSystemType`,
+  the only two formatters downstream of the `ResolveType` call, **ZERO times**. `FindProjectHover`
+  answers first, every time.
+
+  The seam IS reachable, and the third configuration found it: **a document opened from a directory
+  the server was not given as its workspace root**. There `FindProjectHover` declines and the same
+  666 positions produce **19 distinct `**(variable)**` hovers** carrying `*Namespace:*` and
+  `*Assembly:*` lines built straight from the resolved CLR `Type`. That is the real editor case of a
+  loose `.nl` file, so the branch is a live fallback and is NOT dead — but it explains slice 4's
+  otherwise puzzling result that the hover seam is pinned by no test at all, and it is why this
+  slice's comparator opens its hover fixture outside the root.
+
+  ### THE TWO UNIVERSES, MEASURED
+
+  Slice 9 read four `typeof` roots at `:90–96` and called them four assemblies. **They are three.**
+  `typeof(object).Assembly` and `typeof(List<>).Assembly` are BOTH `System.Private.CoreLib` — the
+  `// System.Collections` comment beside the fourth entry is wrong — so `_loadedAssemblies` holds
+  `System.Private.CoreLib`, `System.Console`, `System.Linq`. Against the analyzer's
+  `MetadataLoadContext`, built over `ExternalAssemblyScan.CommonAssemblyNames()`'s 27 names PLUS the
+  project's own references, that is the whole of the editor's type universe: **completion cannot
+  offer a type from a package the user depends on, and hover cannot name one.**
+
+  The same three assemblies resolve IDENTICALLY from metadata names — `System.Object`,
+  `System.Console, System.Console`, `System.Linq.Enumerable, System.Linq`,
+  `System.Collections.Generic.List`1` — which is the only spelling N# has (`typeof` of a static
+  class does not emit; an open `typeof(List<>)` does not parse), and the probe reports
+  `SET IDENTICAL TO typeof SEEDS = True`. That is what makes the seed list movable in this slice.
+  **Unifying the two universes is NOT movable here** and is named as the end-state: it means serving
+  the editor from the analyzer's universe, which is a `MetadataLoadContext`, which the AOT
+  type-model task owns.
+
+  ### THE `CompletionReflectionFacts` OVERLAP, MEASURED RATHER THAN ASSERTED
+
+  Of the twelve short-name entries, **EIGHT are already answered by `CompletionReflectionFacts`** —
+  `Console`, `String`, `Math`, `DateTime` through `KnownReceiverType`, and `List`, `Dictionary`,
+  `HashSet`, `IEnumerable` through `KnownReceiverGenericDefinition` (which is also where the arity
+  suffixes `` `1 ``/`` `2 `` come from). A probe resolving both spellings reports **AGREEING = 8 / 8**,
+  exact on every character. The other four have no owner: `Guid` and `Exception` are not completion
+  receivers, and `Task` here is the NON-GENERIC `System.Threading.Tasks.Task` while the other owner's
+  `Task` is `Task`1` — a different type, which is exactly where the derivation must stop. All four
+  resolve inside the three-assembly seed universe, so the force-include roster stays whole.
+
+  The other two curation tables have **no overlap at all**: `CompletionReflectionFacts` holds no
+  namespace table and no ranking.
+
+  **ONE MORE SECOND SPELLING, AND IT IS NOT A CLEAN KILL.** `GetCompletionTypeName` truncates a type
+  name at the FIRST backtick; `DocQueryKernels.StripGenericArity` deletes EVERY backtick-and-digits
+  run. They are different total functions. Over **all 1,391 exported types the editor's universe can
+  reach they differ on ZERO names**, because a `Type.Name` carries at most one arity suffix. So the
+  honest classification is: same question, two functions, measured identical on the whole reachable
+  domain — the display rule moves to N# with its OWN semantics preserved and both halves pinned, and
+  unifying it with `StripGenericArity` is recorded as a residue for the slice that can also measure
+  `nlc query`'s side of it.
+
+  ### THE SHAPE OF THE CUT
+
+  Delete the three dead items. Move the **twenty decisions** the reflection core and the
+  presentation policy make into ONE new N# owner (`EditorTypeCatalogFacts.nl`, namespace
+  `NSharpLang.Compiler.CodeIntelligence`, beside the completion family that already answers eight of
+  them), deriving from `CompletionReflectionFacts` where it answers and from
+  `AnalyzerMetadataLoadPolicy.CompareOrdinalText` for ordinal comparison rather than opening a
+  second copy of either. Leave the reflection MECHANICS in C# — the lazy double-checked load, the
+  `assembly.GetType` reads, the exported-type cache, the result dictionary — and classify them
+  mechanical with the proof. `AnalyzerTypeReferenceFacts.BuiltInClrTypeName` at `:155` is already
+  routed and stays.
+
+  ### WHAT LANDED — ONE NEW N# OWNER, TWO EXISTING OWNERS CONSULTED, ZERO NEW C#
+
+  | file | shape |
+  |---|---|
+  | `EditorTypeCatalogFacts.nl` **NEW** | 483 lines, **25 `static func`s answering 20 decisions** — the editor's whole type catalogue |
+  | `EditorTypeCatalogFacts.tests.nl` **NEW** | 507 lines, **34 contract blocks** |
+  | `Services/TypeResolver.cs` | **526 → 368** lines, **459 → 321** non-blank. No new C# file, no new C# type |
+  | `memory/components/analyzer.md` | +52 lines: the editor's universe, the two owners consulted, the recorded divergence, and the hover-is-a-fallback finding |
+
+  **THE THREE DEAD ITEMS ARE GONE, PLUS A FOURTH THE DECODE FOUND.** `GetImportNamespace(string)`
+  and `GetImportNamespace(Type)` — 26 lines, **absent from the entire IL census**;
+  `ImportableTypeInfo.IsStatic`, whose only producer was `type.IsAbstract && type.IsSealed` and whose
+  census row does not exist; and the stale `<summary>` at `:401–403`. **The fourth is
+  `GetImportableTypes`'s `int maxResults = 200` parameter**: no caller in the repository ever passed
+  it, so the knob was dead surface AND the cap it defaulted to was an unowned decision. Both problems
+  are solved by the same deletion — the parameter goes and the cap becomes
+  `EditorTypeCatalogFacts.MaxImportableTypeResults()`.
+
+  ### THE TWENTY DECISIONS THAT MOVED, AND THE CONTRACT THAT HOLDS EACH
+
+  | # | decision | where it was | who owns it now |
+  |---|---|---|---|
+  | 1 | which assemblies the editor may see | `:90–96`, four `typeof` roots | `EditorUniverseSeedTypeNames` |
+  | 2 | which short spellings a general completion volunteers | `CommonShortTypeToFullName` keys | `CommonShortTypeNames` |
+  | 3 | what each spelling denotes | its values | `CommonShortTypeFullName` — **eight of twelve DERIVED from `CompletionReflectionFacts`** |
+  | 4 | the force-include roster | `.Values` | `CommonShortTypeFullNames`, DEFINED from 2 + 3 |
+  | 5 | which namespaces a bare name is probed in | `CommonNamespacePrefixes` | `NamespaceProbePrefixes` |
+  | 6 | whether a name is already qualified | three `Contains('.')` tests | `IsQualifiedTypeName` |
+  | 7 | the probe ORDER | `ResolveType`'s control flow | `CandidateTypeFullNames`, DEFINED from 5 |
+  | 8 | a trailing `?` is nullability | `:128–131` | `StripNullableSuffix` |
+  | 9 | what an array name is, and its element | `:134–145` | `IsArrayTypeName` / `ArrayElementTypeName` |
+  | 10 | a written generic resolves to its OPEN definition | `:149–153` | `StripGenericArgumentList` |
+  | 11 | the name a completion SHOWS for a reflected type | `GetCompletionTypeName` | `CompletionTypeDisplayName` |
+  | 12 | which CLR types may be offered at all | `AddType`'s four guards | `IsOfferableCompletionType` |
+  | 13 | a type prefix matches case-INSENSITIVELY | `:313` | `MatchesCompletionPrefix` |
+  | 14 | how many importable types one completion may carry | the `= 200` default | `MaxImportableTypeResults` |
+  | 15 | which namespaces rank above which | `GetNamespacePriority` | `NamespacePriority` |
+  | 16 | the completion ORDER and that its tie-breaks are ordinal | the `OrderBy`/`ThenBy` chain | `CompareImportableTypes` |
+  | 17 | the namespace seed list | `WellKnownNamespaces` | `WellKnownNamespaceSeeds` |
+  | 18 | how an `import` prefix splits into parent + segment | `:362–383` | `NamespacePrefixParent` / `NamespacePrefixSegment` |
+  | 19 | the one segment a namespace contributes under a parent | `TryGetNextNamespaceSegment` | `NextNamespaceSegment` |
+  | 20 | a namespace segment matches case-SENSITIVELY, and its order is ordinal | `:392`, `:398` | `MatchesNamespaceSegmentPrefix` / `CompareNamespaceSegments` |
+
+  **TWO OWNERS ARE CONSULTED RATHER THAN COPIED, AND ONE DIVERGENCE IS RECORDED RATHER THAN HIDDEN.**
+
+  **THE OVERLAP WITH `CompletionReflectionFacts` IS MEASURED, AND EIGHT SECOND SPELLINGS DIE.**
+  A probe resolving both sides reports **AGREEING = 8 / 8**, character for character: `Console`,
+  `String`, `Math`, `DateTime` through `KnownReceiverType`, and `List`, `Dictionary`, `HashSet`,
+  `IEnumerable` through `KnownReceiverGenericDefinition` — which is also where the arity suffixes
+  come from rather than being transcribed. `CommonShortTypeFullName` now ASKS that owner for those
+  eight and the contract asserts each answer equals the literal it replaced, so the other owner
+  moving fails the estate rather than costing the editor a completion. The remaining four have no
+  owner: `Guid` and `Exception` are not completion receivers, and the roster's `Task` is the
+  NON-GENERIC `System.Threading.Tasks.Task` while the other owner's is `Task`1` — a different type,
+  which is exactly where the derivation stops, and the contract pins that too. **Ordinal comparison
+  is `AnalyzerMetadataLoadPolicy.CompareOrdinalText`**, for both the type order and the namespace
+  order, so no comparison policy is spelled twice.
+
+  **THE ONE DIVERGENCE IS RECORDED, NOT UNIFIED.** `CompletionTypeDisplayName` truncates at the
+  FIRST arity backtick; `DocQueryKernels.StripGenericArity` deletes EVERY backtick-and-digits run.
+  Over **all 1,391 exported types the editor's universe can reach they differ on ZERO names**,
+  because a `Type.Name` carries at most one suffix. Both halves are pinned — a contract asserts they
+  AGREE on `List`1` and `Dictionary`2` and DIFFER on `Outer`1Inner`2` — so the divergence is a fact
+  a reader can find rather than a surprise. Unifying them changes what `nlc query` prints, so it is
+  named as a residue.
+
+  ### THE SURVIVOR, CLASSIFIED MECHANICAL WITH THE ARGUMENT FOR EACH PART
+
+  | what is left | why it is mechanical |
+  |---|---|
+  | seven fields: two caches, a loaded-assembly list, a namespace memo, a flag and a lock | STATE, not policy. A cache cannot change an answer, only its cost |
+  | `EnsureAssembliesLoaded` | a double-checked lock. The alternative it guards against is recorded in the code and is a HANG, not a different answer |
+  | `LoadSystemAssemblies` | `Type.GetType(name)?.Assembly` over the owner's four names, de-duplicated. The names and the de-dup are the owner's; this is the reflection call |
+  | `ResolveType`'s body | control flow only. Every predicate and every string it uses is a call into the owner. The two things it still spells are the memo (same normalised key that produced the answer) and `MakeArrayType()` (the CLR's only spelling of an array type) |
+  | `ResolveTypeByFullName` | `assembly.GetType(fullName, throwOnError: false, ignoreCase: false)` over the loaded list. **`ignoreCase: false` is named rather than hidden**: it makes the read EXACT, and an inexact full-name read would answer a DIFFERENT type for the same string — a correctness property of the read, not a curation choice |
+  | `ResolveTypeBySimpleName` | an exported-type scan with `t.Name == simpleName`, which is C#'s ordinal string equality. First hit in load order wins, which is the same "first candidate wins" the owner's probe plan already states |
+  | `GetImportableTypes`'s body | a `Dictionary` keyed on `FullName` (dedupe), two loops, and a LINQ chain that CARRIES the owner's comparer and cap. `OrderBy` with a comparer is stable, which is why the three-key chain could be replaced by one comparison without reordering ties |
+  | `GetNamespaceSuggestions`'s body | a `HashSet` and a loop over the owner's two predicates |
+  | `GetKnownNamespaces` | the owner's seed list unioned with the scan; the blank-namespace filter is the same rule `IsOfferableCompletionType` applies to a type |
+  | `GetOrCacheExportedTypes` | a per-assembly memo whose `catch` answers null, i.e. "this assembly contributes nothing" |
+  | `ImportableTypeInfo` | a five-field data carrier, one field lighter than it was |
+
+
+  ### THE PROOF SETS
+
+  **THE DECODE CENSUS** — a brace-matched extent walk (26 top-level extents, 491 of 526 lines
+  covered), a three-way partition that CORRECTS the ledger's 190/208 split, and a literal census.
+  Literal-bearing code lines **52 → 5**, sites **76 → 5**, distinct literals **59 → 5** — and all
+  five survivors are structured-logging templates, not vocabulary.
+
+  **THE RECEIVER-TYPED IL CENSUS** — mtime-gated at `2026-08-27T06:15:00` against assemblies written
+  at 06:22–06:23 for a commit at 06:09, **29 assemblies / 89,776 method bodies / 0 undecodable
+  opcodes**, non-vacuity control `ColumnarParserRecovery` **55 external sites, PASSED**. It resolved
+  every call token to a declaring type and member, which is how `GetImportNamespace` and
+  `ImportableTypeInfo.IsStatic` were proved dead without trusting a grep.
+
+  **THE HOVER REACHABILITY SWEEP** — 666 positions × 3 configurations. With `project.yml` and
+  without it, **0 of 1,332** reach the type-resolver formatters; from a document outside the
+  workspace root, the same 666 positions produce **19 distinct `**(variable)**` hovers**. That is
+  what turned "the hover seam is pinned by no test" (slice 4's puzzle) into a mechanism.
+
+  **THE `lspseam9b.py` COMPARATOR** — a real LSP session against the built `LanguageServer.dll`:
+  `initialize` → `didOpen` × 17 → **17 hover probes + 8 identifier-prefix completions + 8
+  import-prefix completions + 2 controls**, 1,806 transcript lines. The hover fixture is opened
+  OUTSIDE the declared root, which is the only place the seam is observable; the identifier prefixes
+  are chosen to pull types out of each of the three assemblies the universe reaches; the hover
+  markdown carries `*Namespace:*` and `*Assembly:*` straight off the resolved `Type`, so a change to
+  the seed list cannot hide. **BEFORE vs AFTER: 1,806 = 1,806, BYTE-IDENTICAL,
+  `sha256 c95fb4e0bbf5897c4e098b2f2117e9d323d6d75f497152e9d2fe11cef1372d2a` on both** — the before
+  taken by restoring the HEAD blob of `TypeResolver.cs` and holding the two new `.nl` files aside,
+  then rebuilding the C# and estate layers, behind a trap whose restore was **checksum-verified on
+  all three files**.
+
+
+  ### THE RESIDUES THIS SLICE RECORDS RATHER THAN ABSORBS
+
+  | residue | why it is not this slice's |
+  |---|---|
+  | **THE TWO UNIVERSES.** The editor sees three assemblies of the language-server process; the analyzer sees 27 names plus the project's own references | the fix is to serve the editor from the analyzer's universe, which is a `MetadataLoadContext`. That is the AOT type-model TASK, priced by slice 9 at 99 estate files. Named as the end-state in the owner's header, in `TypeResolver.cs`'s header and in `memory/components/analyzer.md`, so the next reader does not "fix" it by adding a fifth seed name |
+  | `CompletionTypeDisplayName` vs `DocQueryKernels.StripGenericArity` | same question, two total functions, measured identical over 1,391 names. Unifying changes `nlc query`'s output too, so it needs a differential on that side |
+  | `ResolveTypeByFullName`'s `ignoreCase: false` | it is an argument to the reflection READ, and an inexact read answers a different type. Classified mechanical above rather than routed, and named here so the classification is visible rather than silent |
+  | `HoverHandler.ResolveIdentifier` and its two formatters are unreachable for any document inside a workspace | they are a live fallback for a loose file, so they are not dead — but `HoverHandler.cs` is not this slice's file, and the branch ordering is a `DocumentManager` question |
+  | the editor-suite epoch ceiling | every `editors/vscode/test/suite/*.test.ts` is a ratcheted row at its ceiling, so this slice could not ADD editor coverage even where the smoke suite already covers its surfaces. Third slice to hit it; still named for 021/12 |
+
+  ### THE MUTATION MATRIX — 15 OF 15 BITE, AND THE ONE SEAM NON-MOVER IS EXPLAINED, NOT EXCUSED
+
+  Every case mutates ONE decision in the N# owner, rebuilds once (the LanguageServer build carries
+  `-p:NSharpExcludeTests=false` so the estate emit is shared rather than paid twice), and then asks
+  TWO independent instruments what moved. Detached under `nohup`, behind a trap that restores the
+  owner and — unlike its first version — STOPS on a signal; the first version restored and kept
+  going, which would have scored an interrupted case as a false non-mover. **`M0` is the unmutated
+  tree and it reproduces the verified-green baseline exactly (0 seam rows, 7,012 / 0).**
+
+  | # | mutation | seam rows | estate passed / failed | probes that moved | blocks that caught it |
+  |---|---|---|---|---|---|
+  | **M0** | the UNMUTATED tree (baseline) | **0** | 7012 / **0** | — | — |
+  | **M1** | the roster loses one entry | **33** | 7010 / **2** | `cp-empty`, `cp-Cons`, `cp-Enum`, `cp-Lis`, `cp-Str`, `cp-Guid` | `TheRosterIsTwelveSpellingsAndTheyAreTheCLROnesAUserTypesAtATypePosition`, `TheForceIncludeListIsDEFINEDFromTheRosterAndCarriesAllTwelveInRosterOrder` |
+  | **M2** | a type prefix becomes case-SENSITIVE | **96** | 7010 / **2** | `cp-lowercons`, `im-System-co-lower`, `im-system-lower` | `ATYPEPrefixMatchesCaseINSENSITIVELYAndAnEmptyPrefixMatchesEverything`, `ANAMESPACESegmentPrefixMatchesCaseSENSITIVELYAndTheAsymmetryIsDeliberate` |
+  | **M3** | a namespace segment prefix becomes case-INSENSITIVE | **323** | 7011 / **1** | `im-System-co-lower`, `im-system-lower` | `ANAMESPACESegmentPrefixMatchesCaseSENSITIVELYAndTheAsymmetryIsDeliberate` |
+  | **M4** | the seed universe loses System.Linq | **3** | 7008 / **4** | `cp-Enum` | `TheFourSeedNamesReachTHREEAssembliesBecauseListAndObjectShareTheCoreLibrary`, `TheMetadataNameSpellingIsTheOnlyOneNHasAndItAnswersTheSameTypesTypeofWould`, `TheEditorUniverseIsFourSeedNamesAndEveryOneOfThemResolves`, `EveryForceIncludedFullNameResolvesInsideTheThreeAssemblySeedUniverse` |
+  | **M5** | the ranking flattens (System drops to 20) | **192** | 7010 / **2** | `cp-empty`, `cp-Cons`, `cp-Enum`, `cp-Lis`, `cp-Str`, `cp-Guid` | `RankDecidesFirstThenTheOfferedNAMEThenTheNamespaceItCameFrom`, `TheFourHandNamedNamespacesRankAheadOfEveryOtherSystemOneWhichRanksAheadOfTheRest` |
+  | **M6** | the cap drops from 200 to 5 | **242** | 7011 / **1** | `cp-empty`, `cp-Cons`, `cp-Enum`, `cp-Lis`, `cp-Str`, `cp-Guid` | `OneCompletionCarriesAtMostTwoHundredImportableTypes` |
+  | **M7** | the display name keeps the arity suffix | **119** | 7010 / **2** | `cp-empty`, `cp-Cons`, `cp-Enum`, `cp-Lis`, `cp-Str`, `cp-Guid` | `TheCompletionDisplayNameTruncatesAtTheFIRSTArityBacktick`, `TheDisplayRuleAGREESWithStripGenericArityOnATypeNameAndDIFFERSOnATwoRunOne` |
+  | **M8** | a written generic keeps its arguments | **7** | 7011 / **1** | `hv-generic` | `AWrittenGenericResolvesToItsOPENDefinitionAndTheArgumentsAreDiscarded` |
+  | **M9** | a trailing question mark stays part of the name | **98** | 7011 / **1** | `hv-int`, `hv-string`, `hv-bool`, `hv-double`, `hv-char`, `hv-long` | `ATrailingQuestionMarkIsNullabilityAndTheTrimAfterItLetsASpaceThrough` |
+  | **M10** | nothing is an array | **7** | 7011 / **1** | `hv-array` | `AnArrayPeelsONERankAndTheElementNameIsWhatGetsResolved` |
+  | **M11** | the descendant test drops its dot | **461** | 7010 / **2** | `im-System-dot`, `im-System-Co`, `im-Microsoft-dot` | `ANamespaceTreeIsOfferedONELEVELATATIME`, `ANamespaceContributesNOTHINGUnderAParentItDoesNotDescendFromOrUnderItself` |
+  | **M12** | the import prefix splits at the FIRST dot | **0** | 7011 / **1** | — | `APartlyTypedSegmentSplitsAtItsLASTDotIntoParentAndSegment` |
+  | **M13** | nested types become offerable | **0** | 7011 / **1** | — | `ANonPublicOrNESTEDTypeIsNeverOffered` |
+  | **M14** | the derivation from CompletionReflectionFacts is broken | **24** | 7010 / **2** | `cp-empty`, `cp-Enum`, `cp-Lis`, `cp-Str`, `cp-Guid`, `cp-Task` | `TheForceIncludeListIsDEFINEDFromTheRosterAndCarriesAllTwelveInRosterOrder`, `EightOfTheTwelveFullNamesAreDERIVEDFromCompletionReflectionFactsAndEqualWhatTheyReplaced` |
+  | **M15** | the name tie-break reverses | **460** | 7010 / **2** | `cp-empty`, `cp-Cons`, `cp-Enum`, `cp-Lis`, `cp-Str`, `cp-Guid` | `RankDecidesFirstThenTheOfferedNAMEThenTheNamespaceItCameFrom`, `TheTieBreaksAreORDINALSoACompletionListDoesNotReorderItselfUnderALocale` |
+
+  **NON-MOVERS: ONE, AND IT IS PROVED UNOBSERVABLE RATHER THAN UNPROVEN.**
+
+  **`M12` WAS A REAL GAP IN THE INSTRUMENT AND THE GAP IS NOW CLOSED.** Every import probe carried
+  AT MOST ONE DOT, so "split at the first dot" and "split at the last dot" agreed on all of them.
+  Two two-dot probes were added (`System.Collections.Gen` and `System.Collections.`), the whole
+  before/after was RE-TAKEN from the HEAD blob with the extended comparator — **1,812 = 1,812,
+  BYTE-IDENTICAL, `sha256 47648c56e8beec4b1c74efa40cfe131f3aa09d254ab668c2e672e63451e35991`** — and
+  `M12` re-run against it now changes **126 rows**, the first of which is exactly the point:
+  `import System.Collections.Gen` used to offer the single item `Generic`, and under the mutation it
+  offers nothing from the namespace path and falls through to 114 general items.
+
+  **`M13` IS NOT A GAP, AND A PROBE MEASURED WHY.** Of the **1,391 exported types** in the editor's
+  three-assembly universe, **118 are nested and ALL 118 report `IsPublic == false`** — a nested
+  public type reports `IsNestedPublic`, not `IsPublic` — so **`trulyPublicNested = 0`** and the
+  `!isPublic` rule already excludes every nested type there is. Removing the `isNested` clause
+  therefore changes nothing any completion can show, for ANY prefix including the empty one, which
+  the probe checked one prefix at a time. **The clause is a LATENT GUARD, exactly the shape slice 4
+  found in the `as Expression` narrowing** — correct, total over today's universe, and load-bearing
+  the moment a `Type` arrives from somewhere else, which is precisely what unifying the two
+  universes would do. It is kept, and the reason is recorded rather than the observation.
+
+  **Every estate failure is attributable to the mutation that caused it**, no mutation took down an
+  unrelated block, and the restored owner's checksum reads
+  `cda528bb7b0bad1df4f57bcfea4029694f43a6f6fea8a679cd4450081e1fb1c0` — identical to the pristine
+  backup, verified by the harness itself and again by hand after the re-check run.
+
+  ### THE OTHER GREEN BASELINES
+
+  | instrument | before | after |
+  |---|---|---|
+  | **the estate** | 6,978 | **`Passed: 7012, Failed: 0`** — the baseline plus EXACTLY the 34 blocks this slice adds, which is what proves the new blocks RAN rather than a restore silently excluding them |
+  | **the formatting gate** (the step slice 9 failed on) | — | **`All files are properly formatted.`**, exit 0, on both `.nl` files, checked again after the contract edits |
+  | **the live tree** `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 397 files / 246 errors / `NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26` | **398 / 246 / IDENTICAL census** — `checkedFiles` moves by exactly the ONE production `.nl` this slice adds (`nlc check` counts production files: 673 `.nl` total − 276 `.tests.nl` = 397 before), and **ZERO rows name the new owner or its contracts** |
+  | **the unit suite, LanguageServer slice** | — | **`Passed: 273, Failed: 0`** |
+
+  **THE ESTATE CAUGHT TWO DEFECTS IN THIS SLICE'S OWN CONTRACTS BEFORE ANY GATE RAN.** The first
+  contract file did not COMPILE: `assert coreFromList == coreFromObject` compares two `Assembly`
+  values and the columnar backend declines it (`emit.statement.block-child`, node kind 61), and
+  `return resolved.get_Assembly().GetName().Name ?? "<unnamed>"` declines at
+  `emit.return.expression`. Both were fixed by comparing assembly NAMES instead of references and by
+  splitting the `??` into a guarded local — which is also the more legible failure message. Recorded
+  because the instrument that caught them was the estate build, not review.
+
+  ### THE RATCHET — TWO-KEY, REPINNED LAST, REPLICA VALIDATED PRISTINE-FIRST ON SEVEN VALUES
+
+  The replica was validated before it was trusted: from the SHIPPED manifest it reproduces
+  `epochPathFingerprint`, `epochFactFingerprint` and `reviewedHeadFingerprint` exactly, and from the
+  files on disk it reproduces the untouched rows for `MultiFileCompiler.cs`
+  (`663 / 587 / text-v1:283dd32e6dd49489` — the value slice 9 recorded),
+  `CompletionHandler.cs` (`700 / 611 / text-v1:3e16d48f628bd22b`) and `HoverHandler.cs`
+  (`307 / 264 / text-v1:abfdb55c132c788b`). It walks **UTF-16 code units**, which is the 021/6
+  lesson applied rather than relearned.
+
+  | key | before | after |
+  |---|---|---|
+  | `TypeResolver.cs` `currentLines` | 526 | **373** |
+  | `TypeResolver.cs` `currentNonBlankLines` | 459 | **326** |
+  | `TypeResolver.cs` `currentFingerprint` | `text-v1:330c8bad2b1a94fa` | **`text-v1:eaed484488d09305`** |
+  | `reviewedHeadFingerprint` (JSON header) | `head-v1:1e742e2f4e318124` | **`head-v1:7d215b4f4507c0fd`** |
+  | `OwnershipPolicy.ReviewedHeadFingerprint` (`OwnershipAudit.nl:241`) | `head-v1:1e742e2f4e318124` | **`head-v1:7d215b4f4507c0fd`** |
+
+  **ONE row moved; the epoch triple is UNCHANGED** (`epochFileCount 381`,
+  `pathset-v1:8a26e1529863444b`, `epochfacts-v1:1b3090747e517fc1`), the manifest is **391 lines**,
+  **381 file rows**, and starts `7b 0a 20` — **no BOM**. It was edited SURGICALLY, one line for the
+  row and one for the header, so the compact one-entry-per-line shape is preserved rather than
+  reflowed. **No `.nl` path is in the manifest at all** (`grep -c '\\.nl"'` = 0), so the two new N#
+  files add no rows and the path set cannot move. **The repin was done TWICE**: once when
+  `TypeResolver.cs` was 368 lines, and again after the header gained the five lines that NAME the
+  `ignoreCase: false` argument — the second repin is the one that ships.
+
+  **THE AUDIT IS 18/18 AND NON-VACUOUS ON BOTH KEYS.** Reverting ONLY the `OwnershipAudit.nl`
+  constant while leaving the JSON repinned reads **`Passed: 17, Failed: 1`**; prepending ONE comment
+  line to `TypeResolver.cs` against the repinned manifest also reads **`Passed: 17, Failed: 1`**; and
+  the restored tree reads **`Passed: 18, Failed: 0`** with `TypeResolver.cs` back to
+  `sha256 72fd21b9…` exactly.
+
+  ### THE IDE BAR — AND, FOR ONCE, THE GATE'S OWN SUITE COVERS THE SURFACES
+
+  This is a Language Server file, so `VSCODE_TESTS` is NOT set and the extension is rebuilt and
+  reinstalled rather than assumed current.
+
+  **THE EXTENSION WAS REBUILT, REPACKAGED AND REINSTALLED.** `./scripts/reload-vscode-extension.sh`
+  exited **0** — VS Code killed, the language server rebuilt,
+  **`editors/vscode/nsharp-0.6.0.vsix` packaged (289 files, 3.95 MB, `server/` 68 files /
+  10.27 MB)**, `code --install-extension … --force` reporting *"Extension 'nsharp-0.6.0.vsix' was
+  successfully installed"*, and VS Code reopened on `examples/01-hello-world`.
+
+  **AND THE INSTALLED BINARIES WERE CHECKED, NOT ASSUMED.** The installed
+  `server/NSharpLang.Compiler.BootstrapServices.dll` **contains the string
+  `EditorTypeCatalogFacts`**; the installed `server/LanguageServer.dll` is **171,008 bytes, down
+  from 188,928**, and a string scan for `` System.Collections.Generic.HashSet`1 `` — one of the
+  twelve table values the C# used to hold — returns **ZERO hits**. The deleted table is gone from
+  the shipped binary, not just from the source. **Eight
+  `nsharp.nsharp-0.6.0/server/LanguageServer.dll --stdio` processes** were observed running under
+  the reinstalled extension.
+
+  **UNLIKE SLICE 5b, THE GATE'S VS CODE SUITE DOES COVER THIS SLICE'S SURFACES — AND THAT IS CHECKED
+  RATHER THAN ASSUMED.** The gate's smoke selection is literally
+  `extension, diagnostics, hover, completion` (`test-all-core.sh:494`), and **hover and completion
+  are exactly the two consumers `TypeResolver` has**: `hover.test.ts` holds **11** `test(` bodies and
+  `completion.test.ts` **7**, both driving `vscode.executeHoverProvider` /
+  `vscode.executeCompletionItemProvider` through `helpers.ts:214/226`. So for the first time in this
+  arc the 36 integration tests are evidence ABOUT the changed surfaces rather than only evidence that
+  nothing else broke.
+
+  **AN INTEGRATION SUITE IS STILL NOT A SCREENSHOT, AND THIS RECORD DOES NOT PRETEND OTHERWISE.**
+  `AGENTS.md` requires computer-use visual verification for IDE-affecting changes and computer-use is
+  NOT available in this session. What is proved is that **the ANSWER did not change**: 1,812
+  transcript lines byte-identical over the real JSON-RPC wire, the shipped VSIX built from this tree,
+  and the editor suite green. What is NOT proved is the PICTURE. This slice is in the easier position
+  than 021/5b, because it CHANGES no answer — a byte-identical seam is the whole claim, and the paint
+  cannot have moved if the answer did not. **021/12 still carries the visual half.**
+
+  **THE EDITOR-SUITE CEILING BLOCKED ADDING COVERAGE FOR A THIRD TIME.** All 19
+  `editors/vscode/test/suite/*.test.ts` files are ratcheted rows at their epoch ceiling, so a single
+  added `test(` is an `OWN004`. Here the suite happens to already cover the surfaces, so nothing was
+  lost — but the policy result stands and is now three slices old.
+
+  ### THE GATE — VS CODE-ENABLED, FROM A `/tmp` BYTE-COPY WITH THE NESTED WORKTREES EXCLUDED
+
+  The gate makes its own isolated copy, but its `rsync` excludes only `.git/` — and
+  `.claude/worktrees` holds six nested worktrees carrying **THREE duplicate
+  `NSharpLang.Benchmarks.csproj` files**, which is the recorded cause of the BDN Systems gate
+  reporting *"expected 6, got 0"*. So the tree was byte-copied to `/private/tmp/nl9bgate` FIRST with
+  those excluded (`.git` kept, because the gate's cache-key step enumerates sources with
+  `git ls-files`), the copy was CHECKED before the run — **`NESTED WORKTREES IN THE COPY: 0`,
+  `DUPLICATE Benchmarks.csproj IN THE COPY: 0`, `TypeResolver.cs 373 lines`, `NEW OWNER 483
+  lines`** — and the log was written OUTSIDE the copy so the gate's own cleanup could not take it.
+
+  **`./scripts/test-all.sh --commit` with `VSCODE_TESTS` UNSET: `ALL TESTS PASSED! ✓`, `GATE EXIT =
+  0`, 25m 37s, 127 `✓ PASSED` steps, 0 failures**, fresh and isolated
+  (`Fresh isolated test run required: pre-commit verification / Existing cache entries will not
+  satisfy this invocation`, run root `/tmp/nsharp-test-all.e706e3c475ed.nbj935`).
+
+  | step | result |
+  |---|---|
+  | 2b Format Contract Gate | ✓ (0m 01s) |
+  | 3 Unit tests | **`Passed: 596, Failed: 0`** — the baseline to the digit (6m 45s) |
+  | 3a Native N# tests | **estate `Passed: 7012, Failed: 0`** plus **all 47 native projects**, including `tests/native/ownership-audit` at **18 / 18** (6m 14s) |
+  | **3b VS Code Integration Tests** | **✓ PASSED (smoke)** — 3m 11s. This is the step this slice's surfaces actually live in |
+  | 4–9 SDK pack, template, examples | ✓ |
+  | 10b IL Verification | **✓ all 67 N# assemblies**, no new errors vs baseline |
+
+  **THE COPY WAS BYTE-FINAL FOR EVERY FILE THE GATE COMPILES OR READS.** It was taken after the
+  two-key repin, and step 3a's `tests/native/ownership-audit` reporting **18 / 18 inside the gate**
+  is the proof that the manifest and the `OwnershipPolicy` constant in the copy were the repinned
+  ones. The only edits made after the copy were to `.md` ledger text
+  (`systems-language-closeout/STATUS.md`, `memory/components/analyzer.md`), which
+  `OwnershipPolicy.Classify` ignores by extension and which nothing compiles.
+
+  ### THE EXACT COUNTS
+
+  | | before | after |
+  |---|---|---|
+  | `TypeResolver.cs` lines / non-blank | 526 / 459 | **373 / 326** |
+  | `TypeResolver.cs` literal-bearing code lines / sites / distinct literals | 52 / 76 / 59 | **5 / 5 / 5** (all five are logging templates) |
+  | C# files touched | — | **ONE**, `+73 / −226` on its only numstat row; **no new `.cs` file, no new C# type** |
+  | N# owner | — | `EditorTypeCatalogFacts.nl` **483 lines / 25 `static func`s / 20 decisions** |
+  | N# contracts | — | `EditorTypeCatalogFacts.tests.nl` **507 lines / 34 blocks** |
+  | estate blocks | 6,978 | **7,012** (+34, exactly the new file) |
+  | live-tree `checkedFiles` / errors | 397 / 246 | **398 / 246**, census identical |
+  | manifest | 391 lines / 381 rows / no BOM | **unchanged shape**, one row and one header line rewritten |
+  | reviewed head | `head-v1:1e742e2f4e318124` | **`head-v1:7d215b4f4507c0fd`** |
+
+  **NOT COMMITTED. `tasks/README.md` is NOT edited.**
+
+  **NEXT: SLICE 11 — `PlaygroundRunner.cs`'s parallel interpreter (966 lines).** Slice 10
+  (`ColumnarIlEmitter.cs` residual) is blocked by the four 015 tasks the plan says do not complete
+  inside 021, so 11 is the next slice the queue can actually take. Its blocker is recorded and
+  unchanged: the playground must run emitted IL in the browser instead of interpreting an AST, which
+  is a Playground task rather than a compiler-ownership one — so slice 11 opens by DECIDING whether
+  that task is in scope, exactly as slice 9 opened by pricing the AOT leg.
+
+- Active sub-slice (021 arc, PRIOR TURN — **SLICE 9 — THE MLC QUARANTINE. THE AOT LEG IS MEASURED
   SHUT AND THE QUARANTINE IS REDRAWN AROUND WHAT IS LEFT: STAGE A TAKES THE DECISION HALF, STAGE B
   IS `TypeResolver.cs` AND IS DECODED HERE RATHER THAN GUESSED AT.**
 

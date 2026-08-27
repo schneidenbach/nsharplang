@@ -4,11 +4,33 @@ using System.Linq;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.LanguageServer.Services;
 
 /// <summary>
-/// Resolves types from loaded assemblies and provides member information
+/// The REFLECTION MECHANICS behind the editor's type catalogue: load some assemblies, read types
+/// out of them, cache what was read.
+///
+/// Every decision this service used to make is <c>EditorTypeCatalogFacts</c>'s — which assemblies
+/// the editor may see, which short names it volunteers and what each denotes, which namespaces a
+/// bare name is probed in and in what order, how a written type name is spelled, which CLR types
+/// may be offered, how they are ranked and how many may be sent. <c>AnalyzerTypeReferenceFacts</c>
+/// owns the built-in aliases. What is left below is four kinds of thing and no fifth:
+/// a lazy double-checked assembly load, three <c>Reflection</c> reads, two caches, and the LINQ
+/// that carries the owner's answers.
+///
+/// ONE ARGUMENT IS STILL SPELLED HERE, AND IT IS NAMED RATHER THAN HIDDEN:
+/// <c>ignoreCase: false</c> on the full-name lookup. It is a property of the READ and not a
+/// curation choice — a case-insensitive CLR full-name lookup answers a DIFFERENT type for the same
+/// string, so exactness is the mechanical option rather than a policy this file gets to pick.
+///
+/// THE EDITOR'S TYPE UNIVERSE IS NOT THE COMPILER'S. The four seed names the owner supplies reach
+/// exactly three assemblies of the running language-server process; the analyzer meanwhile builds a
+/// <c>MetadataLoadContext</c> over its own 27-name table PLUS the project's own references. So
+/// completion cannot offer a type from a package the user depends on and hover cannot name one.
+/// Closing that gap means serving the editor from the analyzer's universe, which is the AOT
+/// type-model task's scope; do not paper over it by adding a fifth seed name here.
 /// </summary>
 public class TypeResolver
 {
@@ -19,41 +41,6 @@ public class TypeResolver
     private HashSet<string>? _namespaceCache;
     private bool _assembliesLoaded = false;
     private readonly object _loadLock = new();
-
-    // The alias table is NOT here: which spellings are built-in and what CLR type each denotes is a
-    // language fact, and `AnalyzerTypeReferenceFacts` owns it. The three tables below are not —
-    // they are editor CURATION. None of them decides what a name MEANS: `CommonShortTypeToFullName`
-    // and `CommonNamespacePrefixes` are probe orders in front of the exported-type scan that would
-    // find the same type anyway, and `WellKnownNamespaces` seeds a suggestion list that is then
-    // unioned with every namespace of every loaded assembly. Changing any of them changes what the
-    // editor VOLUNTEERS and how fast it answers; none of them can change what a program compiles to,
-    // and no compiler decision reads them.
-    private static readonly Dictionary<string, string> CommonShortTypeToFullName = new(StringComparer.Ordinal)
-    {
-        ["Console"] = "System.Console",
-        ["String"] = "System.String",
-        ["Math"] = "System.Math",
-        ["DateTime"] = "System.DateTime",
-        ["Guid"] = "System.Guid",
-        ["Exception"] = "System.Exception",
-        ["List"] = "System.Collections.Generic.List`1",
-        ["Dictionary"] = "System.Collections.Generic.Dictionary`2",
-        ["HashSet"] = "System.Collections.Generic.HashSet`1",
-        ["IEnumerable"] = "System.Collections.Generic.IEnumerable`1",
-        ["Task"] = "System.Threading.Tasks.Task",
-        ["CancellationToken"] = "System.Threading.CancellationToken",
-    };
-
-    private static readonly string[] CommonNamespacePrefixes =
-    [
-        "System",
-        "System.Collections",
-        "System.Collections.Generic",
-        "System.Linq",
-        "System.Text",
-        "System.Threading",
-        "System.Threading.Tasks",
-    ];
 
     public TypeResolver(ILogger<TypeResolver> logger)
     {
@@ -80,24 +67,18 @@ public class TypeResolver
     }
 
     /// <summary>
-    /// Load common system assemblies
+    /// Resolve the owner's seed type names to the assemblies that declare them. The names are
+    /// metadata names rather than <c>typeof</c> because that is the spelling N# can hold; several
+    /// of them resolve to the same assembly, so the list is de-duplicated on the way in.
     /// </summary>
     private void LoadSystemAssemblies()
     {
         try
         {
-            // Load core assemblies
-            var coreAssemblies = new[]
+            foreach (var seedTypeName in EditorTypeCatalogFacts.EditorUniverseSeedTypeNames())
             {
-                typeof(object).Assembly,                          // System.Private.CoreLib
-                typeof(Console).Assembly,                         // System.Console
-                typeof(System.Linq.Enumerable).Assembly,          // System.Linq
-                typeof(System.Collections.Generic.List<>).Assembly, // System.Collections
-            };
-
-            foreach (var assembly in coreAssemblies)
-            {
-                if (!_loadedAssemblies.Contains(assembly))
+                var assembly = Type.GetType(seedTypeName, throwOnError: false)?.Assembly;
+                if (assembly != null && !_loadedAssemblies.Contains(assembly))
                 {
                     _loadedAssemblies.Add(assembly);
                     _logger.LogDebug("Loaded assembly: {AssemblyName}", assembly.GetName().Name);
@@ -122,44 +103,32 @@ public class TypeResolver
             return null;
         }
 
-        typeName = typeName.Trim();
+        typeName = EditorTypeCatalogFacts.StripNullableSuffix(typeName.Trim());
 
-        // Handle nullable types (e.g., "string?" -> "string")
-        if (typeName.EndsWith("?"))
+        // An array is resolved through its element, one rank per call.
+        if (EditorTypeCatalogFacts.IsArrayTypeName(typeName))
         {
-            typeName = typeName.Substring(0, typeName.Length - 1).TrimEnd();
-        }
-
-        // Handle array types (e.g., "int[]" -> resolve int, then make array type)
-        if (typeName.EndsWith("[]"))
-        {
-            var elementTypeName = typeName.Substring(0, typeName.Length - 2).TrimEnd();
-            var elementType = ResolveType(elementTypeName);
-            if (elementType != null)
+            var elementType = ResolveType(EditorTypeCatalogFacts.ArrayElementTypeName(typeName));
+            if (elementType == null)
             {
-                var arrayType = elementType.MakeArrayType();
-                _typeCache[typeName] = arrayType;
-                return arrayType;
+                return null;
             }
-            return null;
+
+            var arrayType = elementType.MakeArrayType();
+            _typeCache[typeName] = arrayType;
+            return arrayType;
         }
 
-        // Strip generic arguments for now (e.g., Task<string> -> Task)
-        // IntelliSense uses reflection against the open type; generic argument resolution is handled elsewhere.
-        var genericStart = typeName.IndexOf('<');
-        if (genericStart >= 0)
-        {
-            typeName = typeName.Substring(0, genericStart).TrimEnd();
-        }
+        typeName = EditorTypeCatalogFacts.StripGenericArgumentList(typeName);
 
         var aliasFullName = AnalyzerTypeReferenceFacts.BuiltInClrTypeName(typeName);
         if (aliasFullName != null)
         {
             typeName = aliasFullName;
         }
-        else if (!typeName.Contains('.') && CommonShortTypeToFullName.TryGetValue(typeName, out var commonFullName))
+        else if (!EditorTypeCatalogFacts.IsQualifiedTypeName(typeName))
         {
-            typeName = commonFullName;
+            typeName = EditorTypeCatalogFacts.CommonShortTypeFullName(typeName) ?? typeName;
         }
 
         if (_typeCache.TryGetValue(typeName, out var cachedType))
@@ -167,27 +136,22 @@ public class TypeResolver
             return cachedType;
         }
 
-        // Try to find type in loaded assemblies
         Type? resolved = null;
         try
         {
-            // Exact match (fast path)
-            resolved = ResolveTypeByFullName(typeName);
-
-            // If input is a short name, try a few common namespaces (still cheap).
-            if (resolved == null && !typeName.Contains('.'))
+            // The owner's probe plan: the name as written, then each of its namespace prefixes.
+            foreach (var candidate in EditorTypeCatalogFacts.CandidateTypeFullNames(typeName))
             {
-                foreach (var ns in CommonNamespacePrefixes)
+                resolved = ResolveTypeByFullName(candidate);
+                if (resolved != null)
                 {
-                    resolved = ResolveTypeByFullName($"{ns}.{typeName}");
-                    if (resolved != null)
-                        break;
+                    break;
                 }
             }
 
             // Last resort: exported-type scan (cached per assembly).
             // This fixes missing completions like `Console.` while avoiding repeated hangs.
-            if (resolved == null && !typeName.Contains('.'))
+            if (resolved == null && !EditorTypeCatalogFacts.IsQualifiedTypeName(typeName))
             {
                 resolved = ResolveTypeBySimpleName(typeName);
             }
@@ -204,34 +168,6 @@ public class TypeResolver
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Get the namespace that should be imported for a resolved type.
-    /// Returns null for primitive aliases or unresolved type names.
-    /// </summary>
-    public string? GetImportNamespace(string typeName)
-    {
-        var type = ResolveType(typeName);
-        return type != null ? GetImportNamespace(type) : null;
-    }
-
-    /// <summary>
-    /// Get the namespace that should be imported for a resolved CLR type.
-    /// </summary>
-    public string? GetImportNamespace(Type type)
-    {
-        if (type.IsArray)
-        {
-            type = type.GetElementType() ?? type;
-        }
-
-        if (type.IsGenericType)
-        {
-            type = type.GetGenericTypeDefinition();
-        }
-
-        return type.Namespace;
     }
 
     private Type? ResolveTypeByFullName(string fullName)
@@ -285,7 +221,7 @@ public class TypeResolver
     /// Empty-prefix requests return a curated set so general completion stays useful
     /// without flooding the editor with framework types.
     /// </summary>
-    public List<ImportableTypeInfo> GetImportableTypes(string prefix, int maxResults = 200)
+    public List<ImportableTypeInfo> GetImportableTypes(string prefix)
     {
         EnsureAssembliesLoaded();
 
@@ -294,37 +230,27 @@ public class TypeResolver
 
         void AddType(Type? type, bool forceInclude = false)
         {
-            if (type == null || !type.IsPublic || type.IsNested)
+            if (type == null || !EditorTypeCatalogFacts.IsOfferableCompletionType(
+                    type.Name, type.Namespace, type.FullName, type.IsPublic, type.IsNested))
             {
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(type.Namespace) || string.IsNullOrWhiteSpace(type.FullName))
+            var name = EditorTypeCatalogFacts.CompletionTypeDisplayName(type.Name);
+            if (!forceInclude && !EditorTypeCatalogFacts.MatchesCompletionPrefix(name, prefix))
             {
                 return;
             }
 
-            if (type.Name.StartsWith("<", StringComparison.Ordinal) || type.Name.Contains("__", StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            var name = GetCompletionTypeName(type);
-            if (!forceInclude && prefix.Length > 0 && !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            results.TryAdd(type.FullName, new ImportableTypeInfo(
+            results.TryAdd(type.FullName!, new ImportableTypeInfo(
                 name,
-                type.FullName,
-                type.Namespace,
-                type.IsAbstract && type.IsSealed,
+                type.FullName!,
+                type.Namespace!,
                 type.IsInterface,
                 type.IsEnum));
         }
 
-        foreach (var fullName in CommonShortTypeToFullName.Values)
+        foreach (var fullName in EditorTypeCatalogFacts.CommonShortTypeFullNames())
         {
             AddType(ResolveTypeByFullName(fullName), forceInclude: true);
         }
@@ -347,10 +273,10 @@ public class TypeResolver
         }
 
         return results.Values
-            .OrderBy(type => GetNamespacePriority(type.Namespace))
-            .ThenBy(type => type.Name, StringComparer.Ordinal)
-            .ThenBy(type => type.Namespace, StringComparer.Ordinal)
-            .Take(maxResults)
+            .OrderBy(type => type, Comparer<ImportableTypeInfo>.Create(
+                (left, right) => EditorTypeCatalogFacts.CompareImportableTypes(
+                    left.Name, left.Namespace, right.Name, right.Namespace)))
+            .Take(EditorTypeCatalogFacts.MaxImportableTypeResults())
             .ToList();
     }
 
@@ -358,63 +284,32 @@ public class TypeResolver
     {
         var namespaces = GetKnownNamespaces();
         var results = new HashSet<string>(StringComparer.Ordinal);
-        var normalizedPrefix = prefix.Trim();
-        var wantsChildren = normalizedPrefix.EndsWith(".", StringComparison.Ordinal);
-        var basePrefix = wantsChildren ? normalizedPrefix[..^1] : normalizedPrefix;
-
-        string parentNamespace;
-        string segmentPrefix;
-
-        if (string.IsNullOrEmpty(basePrefix))
-        {
-            parentNamespace = string.Empty;
-            segmentPrefix = string.Empty;
-        }
-        else if (wantsChildren)
-        {
-            parentNamespace = basePrefix;
-            segmentPrefix = string.Empty;
-        }
-        else
-        {
-            var lastDot = basePrefix.LastIndexOf('.');
-            parentNamespace = lastDot >= 0 ? basePrefix[..lastDot] : string.Empty;
-            segmentPrefix = lastDot >= 0 ? basePrefix[(lastDot + 1)..] : basePrefix;
-        }
+        var parentNamespace = EditorTypeCatalogFacts.NamespacePrefixParent(prefix);
+        var segmentPrefix = EditorTypeCatalogFacts.NamespacePrefixSegment(prefix);
 
         foreach (var ns in namespaces)
         {
-            if (!TryGetNextNamespaceSegment(ns, parentNamespace, out var nextSegment))
+            var nextSegment = EditorTypeCatalogFacts.NextNamespaceSegment(ns, parentNamespace);
+            if (nextSegment.Length == 0)
             {
                 continue;
             }
 
-            if (nextSegment.StartsWith(segmentPrefix, StringComparison.Ordinal))
+            if (EditorTypeCatalogFacts.MatchesNamespaceSegmentPrefix(nextSegment, segmentPrefix))
             {
                 results.Add(nextSegment);
             }
         }
 
-        return results.OrderBy(x => x, StringComparer.Ordinal).ToList();
+        return results
+            .OrderBy(segment => segment, Comparer<string>.Create(EditorTypeCatalogFacts.CompareNamespaceSegments))
+            .ToList();
     }
 
     /// <summary>
-    /// Check if a name matches a known namespace
+    /// The owner's seed list unioned with every namespace of every assembly the editor can see.
+    /// The seed is what answers the first keystroke after <c>import</c>, before any scan has run.
     /// </summary>
-    // Common .NET namespaces — checked first to avoid expensive assembly scans
-    private static readonly HashSet<string> WellKnownNamespaces = new(StringComparer.Ordinal)
-    {
-        "System", "System.Collections", "System.Collections.Generic", "System.Collections.Concurrent",
-        "System.Linq", "System.Text", "System.Text.RegularExpressions",
-        "System.Threading", "System.Threading.Tasks",
-        "System.IO", "System.Net", "System.Net.Http",
-        "System.Reflection", "System.Runtime", "System.Diagnostics",
-        "System.Globalization", "System.ComponentModel",
-        "Microsoft.Extensions.DependencyInjection",
-        "Microsoft.Extensions.Logging",
-        "Microsoft.AspNetCore.Mvc",
-    };
-
     private HashSet<string> GetKnownNamespaces()
     {
         if (_namespaceCache != null)
@@ -424,7 +319,8 @@ public class TypeResolver
 
         EnsureAssembliesLoaded();
 
-        var namespaces = new HashSet<string>(WellKnownNamespaces, StringComparer.Ordinal);
+        var namespaces = new HashSet<string>(
+            EditorTypeCatalogFacts.WellKnownNamespaceSeeds(), StringComparer.Ordinal);
 
         foreach (var assembly in _loadedAssemblies)
         {
@@ -442,54 +338,6 @@ public class TypeResolver
 
         _namespaceCache = namespaces;
         return namespaces;
-    }
-
-    private static bool TryGetNextNamespaceSegment(string candidateNamespace, string parentNamespace, out string nextSegment)
-    {
-        nextSegment = string.Empty;
-
-        if (string.IsNullOrEmpty(parentNamespace))
-        {
-            var firstDot = candidateNamespace.IndexOf('.');
-            nextSegment = firstDot >= 0 ? candidateNamespace[..firstDot] : candidateNamespace;
-            return nextSegment.Length > 0;
-        }
-
-        var prefix = parentNamespace + ".";
-        if (!candidateNamespace.StartsWith(prefix, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var remainder = candidateNamespace[prefix.Length..];
-        if (remainder.Length == 0)
-        {
-            return false;
-        }
-
-        var nextDot = remainder.IndexOf('.');
-        nextSegment = nextDot >= 0 ? remainder[..nextDot] : remainder;
-        return nextSegment.Length > 0;
-    }
-
-    private static string GetCompletionTypeName(Type type)
-    {
-        var name = type.Name;
-        var backtick = name.IndexOf('`');
-        return backtick >= 0 ? name[..backtick] : name;
-    }
-
-    private static int GetNamespacePriority(string namespaceName)
-    {
-        return namespaceName switch
-        {
-            "System" => 0,
-            "System.Collections.Generic" => 1,
-            "System.Threading.Tasks" => 2,
-            "System.Linq" => 3,
-            _ when namespaceName.StartsWith("System.", StringComparison.Ordinal) => 10,
-            _ => 20
-        };
     }
 
     /// <summary>
@@ -521,6 +369,5 @@ public sealed record ImportableTypeInfo(
     string Name,
     string FullName,
     string Namespace,
-    bool IsStatic,
     bool IsInterface,
     bool IsEnum);
