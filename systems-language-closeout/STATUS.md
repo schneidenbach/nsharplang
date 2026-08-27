@@ -1,6 +1,40 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-27 (**TASK 021 SLICE 9b — `Services/TypeResolver.cs`, THE LANGUAGE SERVER'S OWN
+Last updated: 2026-08-27 (**TASK 021 SLICE 11 — `PlaygroundRunner.cs`, THE SECOND ANSWER TO "WHAT
+DOES THIS N# PROGRAM MEAN" — see the Cursor block.** The decode was RECORDED BEFORE ANY PRODUCTION
+EDIT and it settles the open classification question by MEASUREMENT rather than prose. **SEVEN OF
+FOURTEEN analysis-clean programs answer differently from `nlc run`**: int and double division by
+zero, `0.1 + 0.2 == 0.3` (the runner's `1e-7` tolerance says true), record and union printing,
+`"n=" + 1` (the runner runs a program `nlc` DECLINES to emit), and a union pattern's shorthand
+property binding (`PG208` where `nlc run` prints the answer). So "route to the canonical execution
+path" is NOT available — routing is not a refactor when half the corpus changes answer — and the
+file's EXECUTION MECHANISM is classified **(b)** with its retirement named, the slice-7 precedent.
+**ITS DECISION HALF MOVES ANYWAY**, and that half was the bigger one: **74 of the file's 131 literal
+sites — 56 % — were ONE undocumented user-visible vocabulary**, `PG201`–`PG237`, 37 codes paired
+with 37 sentences, of which the whole gate pinned exactly ONE. Twelve groups move into
+`PlaygroundRunFacts.nl` (**442 lines, 66 `static func`s**) — the vocabulary, the three budgets, the
+entry-point rule, the reserved names, union-case matching AND splitting, the division and equality
+rules, the escape decoder and every rendering word — pinned by `PlaygroundRunFacts.tests.nl`
+(**18 blocks / 143 asserts**). `PlaygroundRunner.cs` goes **966 → 939** at ZERO ratchet headroom,
+its literal census **81 lines / 131 sites / 117 distinct → 13 / 13 / 12**, and **zero new C#**
+(`+78 / −105` on its only numstat row). **TWO RULES ARE REFORMULATIONS, MEASURED NOT ASSUMED**: the
+backend models neither `Double.Epsilon` nor `Math.Abs(double)` — both DECLINE at emit with named
+sites — so `IsZeroDivisor` and `NumbersEqual` are rewritten pointwise-identically and said so.
+**`IsTruthy` is PROVED a latent guard**: six probes with a passing control show `NL202` on every
+non-`bool` gate operand, so five of its six arms cannot run and moving them would be ceremony.
+**THE SEAM IS BYTE-IDENTICAL** — 249 transcript lines over the shipped public surface (10 examples +
+34 probes × check/run/format), `sha256 d0f48750…` on both sides. **12 estate mutations → exactly 12
+failures in 12 DISTINCT blocks**; three seam mutations move 10 transcript rows, and the one expected
+mover that did NOT move is explained (a shipped example throws that string itself). **TWO PRODUCT
+DEFECTS FILED AS CHIPS, NOT ABSORBED**: the shipped `04-unions-patterns` example cannot produce its
+own declared `ExpectedOutput`, and the seven-way divergence above. Estate **7,030 / 0** (7,012 +
+exactly 18), live tree **399 / 246** with an identical error census, ratchet repinned two-key
+`7d215b4f4507c0fd` → **`ebdb9fdbf1d5b963`** with the row at 939/817, audit **18/18** and non-vacuous
+on both keys AND on a one-line ceiling raise, manifest 391 lines no BOM. Gate: **`ALL TESTS
+PASSED`, 126 steps, 0 failures, 23m 15s**, units 596, estate 7,030, all 47 native projects, ILVerify
+67 assemblies. NOT COMMITTED; `tasks/README.md` is NOT edited)
+
+Last updated (prior): 2026-08-27 (**TASK 021 SLICE 9b — `Services/TypeResolver.cs`, THE LANGUAGE SERVER'S OWN
 TYPE UNIVERSE — see the Cursor block.** The decode was RE-VERIFIED at `3e90666ef` and recorded BEFORE
 any production edit, and it corrects slice 9 twice: the file's 526 lines partition as **210 reflection
 core / 189 presentation policy / 49 curation tables / 26 dead**, not 190/208, and the "four `typeof`
@@ -4509,7 +4543,403 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 9b — `Services/TypeResolver.cs`, THE LSP's OWN
+- Active sub-slice (021 arc, THIS TURN — **SLICE 11 — `PlaygroundRunner.cs`. THE DECODE IS RECORDED
+  BEFORE ANY PRODUCTION EDIT, AND IT SETTLES THE OPEN CLASSIFICATION QUESTION WITH MEASUREMENT
+  RATHER THAN PROSE: THE FILE IS A SECOND IMPLEMENTATION OF N# SEMANTICS, AND SEVEN OF FOURTEEN
+  COMPARABLE PROGRAMS ALREADY ANSWER DIFFERENTLY FROM `nlc run`.**)
+
+  ### THE DECODE, RUN AT THIS TIP (`aded3dd58`) AND RECORDED BEFORE ANY PRODUCTION EDIT
+
+  The working tree is clean at `aded3dd58`. `Cli.dll` and the whole `NSharpLang.Playground` bin were
+  rebuilt from this tip (14:31Z / 14:34Z) before any instrument ran, so every measurement below reads
+  this tip's assemblies and not the stale installed `nlc`.
+
+  **THE SIZE REPRODUCES THE RATCHET ROW EXACTLY.** A brace-matched extent walk (strings, chars and
+  both comment forms excluded from the depth count) reads `PlaygroundRunner.cs` at **966 lines /
+  840 non-blank** — the ratchet's `epochLines 966` / `epochNonBlankLines 840` to the digit. Two
+  top-level types: `PlaygroundRunner` (`:10–961`, 952 lines) and `PlaygroundRunUnsupportedException`
+  (`:963–966`, 4). Inside the class: **44 brace-bearing members, 5 expression-bodied methods
+  (`FindUnionCase`, `CaseNamesMatch`, `IsIntegral`, `IsNumeric`, `Unsupported`), 3 positional
+  records (`RuntimeType`, `RuntimeFunction`, `RuntimeUnionCase`), 3 `const`s and 6 fields = 61
+  members.**
+
+  **THE LITERAL CENSUS, WHICH SLICE 1 DID NOT TAKE.** Comments excluded: **81 literal-bearing code
+  lines, 131 literal sites, 117 distinct literals.** (Three of the 117 are an artefact of the
+  instrument splitting two nested interpolated strings at `:940`/`:947`; the artefact is recorded
+  rather than hidden, and it does not touch the number that matters.) **74 of the 131 sites — 56 % —
+  are ONE vocabulary**: 37 `PG2xx` codes paired with 37 sentences, `PG201` through `PG237` with no
+  gaps. `PlaygroundCompiler.cs` adds `PG001`, `PG200` and `PG299`, so the playground's diagnostic
+  space is **40 codes across two files**, and `git grep` finds **not one of them documented** in
+  `docs/`, `website/` or any `.md`.
+
+  ### WHAT THE FILE ACTUALLY IMPLEMENTS — THE CENSUS THE "SECOND IMPLEMENTATION" CLAIM NEEDED
+
+  Slice 1 called it "a second answer to what does this N# program mean" and named four line numbers.
+  The decode partitions all 61 members into three groups, and the claim survives — but it is a claim
+  about THREE different kinds of thing, which is why the slice shape below is not uniform.
+
+  | group | members | what it owns |
+  |---|---|---|
+  | **A — EXECUTION MECHANISM** | 24 | the tree walk (`ExecuteBlock`/`ExecuteStatement`/`Evaluate`), the scope chain (`RuntimeEnvironment`), the value model (`RuntimeObject`/`RuntimeUnion`/`RuntimeType`/`RuntimeFunction`/`RuntimeUnionCase`), the two control-flow exceptions, member lookup (`FindMethod`, `GetDeclarationName`, `GetTypeName`) |
+  | **B — BOUNDED-SUBSET POLICY** | 37 fault sites + 3 budgets + 2 rosters | which constructs the browser refuses and in what words; how many steps, how deep, how many output lines; which 7 `string` members and which 2 numeric members are offered |
+  | **C — LANGUAGE SEMANTICS** | 14 | entry-point selection, operator semantics, truthiness, equality, division, string-literal decoding, value rendering, union-case name matching, pattern matching, the `result, err :=` convention |
+
+  Group C is the part that makes the slice-1 sentence true, and it is where the measurement below
+  bites.
+
+  ### THE MEASUREMENT THE MANDATE ASKED FOR — **THE PLAYGROUND AND `nlc run` DISAGREE ON HALF THE CORPUS**
+
+  A driver (`pgdrive`, in the scratchpad) loads the freshly built `NSharpLang.Playground.dll` and
+  drives the SAME five public methods the browser host calls from `PlaygroundExports.cs`
+  (`GetCatalog`, `Check`, `Format`, `RunProject`), over the **10 shipped examples** and a
+  **34-program probe corpus**. The same probes were then built and executed by the canonical path —
+  `nlc run` against the freshly built `Cli.dll`, in a real `project.yml` project. Fourteen probes
+  analyse clean and are therefore comparable:
+
+  | probe | the playground's answer | `nlc run`'s answer | verdict |
+  |---|---|---|---|
+  | `foreach` over an array literal | `1\n2\n3` | `1\n2\n3` | agree |
+  | escape decoding `"a\tb\\c\"d"` | `a⇥b\c"d` | identical | agree |
+  | `func Main()` (capital M) | runs | runs | agree |
+  | `with` on a record | `9` | `9` | agree |
+  | `1.0 / 3.0` | `0.3333333333333333` | identical | agree |
+  | `print true` / `print false` | `True` / `False` | identical | agree |
+  | union match with EXPLICIT binding `{ Radius: r }` | `circle 3` | `circle 3` | agree |
+  | **`6 / 0` (int)** | exit **1**, `division by zero` | exit **134**, `System.DivideByZeroException: Attempted to divide by zero.` | **DIVERGE** |
+  | **`6.0 / 0.0` (double)** | exit **1**, `division by zero` | exit **0**, prints `∞` | **DIVERGE — a defined value becomes a failure** |
+  | **`0.1 + 0.2 == 0.3`** | `True` | `False` | **DIVERGE — the 1e-7 tolerance** |
+  | **`print` a record** | `Point { X: 1, Y: 2 }` | `P.Point` | **DIVERGE** |
+  | **`print` a union value** | `Shape.Circle(Radius: 3)` | `P.Shape+Circle` | **DIVERGE** |
+  | **`"n=" + 1`** | prints `n=1` | **`nlc` DECLINES TO EMIT** | **DIVERGE — the playground runs a program the compiler refuses** |
+  | **union match with SHORTHAND binding `{ Radius }`** | **`PG208`, "could not resolve 'Radius'"** | `circle 3` | **DIVERGE — the playground refuses a program the compiler runs** |
+
+  **SEVEN OF FOURTEEN.** That is the evidence for slice 1's sentence, and it is also the reason the
+  mandate's first option — "route to the canonical execution path" — is NOT available here: routing
+  is not a refactor when half the corpus changes answer, and there is no process to spawn and no
+  `Reflection.Emit` to run inside a browser tab. The named blocker stands.
+
+  ### TWO PRODUCT DEFECTS THE MEASUREMENT FOUND, BOTH IN SHIPPED SURFACE
+
+  1. **`04-unions-patterns`, a SHIPPED tutorial example carrying a declared
+     `ExpectedOutput` of `"Ada: 99\nMissing player #404\n"`, DOES NOT RUN.** It fails
+     `PG208 — "The browser runner could not resolve 'name'"`. The cause is isolated by two probes
+     that differ in one character: `Shape.Circle { Radius }` fails, `Shape.Circle { Radius: r }`
+     succeeds. `PatternMatches` (`:659–666`) declares a binding only when `property.BindingName` is
+     non-null, so the SHORTHAND form — the form the shipped example uses, and the form `nlc run`
+     executes correctly — binds nothing.
+  2. **`08-async-interop`, also shipped, fails with `PG207` on `AwaitExpression`.** That one is
+     honest — the capability list says async needs the local toolchain — but the example is still
+     offered in a Run-button surface that cannot run it.
+
+  Neither is absorbed into this slice. Both are filed as chips, because fixing them changes the
+  playground's answers and that is a Playground product decision, not an ownership audit.
+
+  ### THE RECEIVER-TYPED IL CENSUS — WHAT IS DEAD, AND WHAT THE INSTRUMENT CANNOT SAY
+
+  Mtime-gated at `2026-08-27T14:25:00Z`, over the four assemblies of the Playground bin:
+  **4 assemblies / 10,458 method bodies / 0 undecodable opcodes / 0 stale-skipped.** The opcode
+  operand table is BUILT from `System.Reflection.Emit.OpCodes` rather than hand-written, so the sizes
+  are the runtime's own. Non-vacuity control: `PlaygroundRunner::Evaluate` resolves **11 rows**.
+
+  **31 members are defined and never appear as a call target**, and the honest split is:
+
+  * **26 are compiler-generated `record` machinery** — `<Clone>$`, `Deconstruct`, `op_Inequality`
+    and the positional `set_` accessors of `RuntimeType`, `RuntimeFunction`, `RuntimeUnion` and
+    `RuntimeUnionCase`, plus three lambda-cache `.cctor`s. They are synthesised, not source lines,
+    so deleting them means deleting `record`-ness, not deleting code.
+  * **5 are `GetHashCode`/`ToString` overrides**, and for those **the census is NOT conclusive**:
+    they are reachable by virtual dispatch through `Convert.ToString(object)`, which `FormatValue`'s
+    fallback arm calls. The limitation is stated rather than papered over.
+
+  **THE ONE REAL FINDING IS `RuntimeUnionCase`.** Its only live entry is its constructor
+  (`EvaluateMemberAccess:480`). Nothing type-tests it: `PatternMatches` matches `RuntimeUnion` and
+  never `RuntimeUnionCase`, so a parameterless union case reached as `Shape.Empty` can be created
+  and then matched by nothing. It is a dead-end value, and its only observable behaviour is the
+  record `ToString` of an INTERNAL type name leaking into user output.
+
+  ### THE CLASSIFICATION, STATED WITH ITS EVIDENCE
+
+  **`PlaygroundRunner.cs` is a (b)-bucket subject** — product surface with its own lifecycle — **for
+  its GROUP A execution mechanism**, and the slice-7 (b)-pin precedent applies: its behaviour is
+  pinned, its retirement stays the named Playground task (run emitted IL in the browser), and it is
+  not routed. The evidence is the divergence table above plus the deploy path: the file is the only
+  thing behind the Run button of `src/NSharpLang.Playground.Wasm`, which
+  `.github/workflows/deploy-website.yml` ships on every change to `src/NSharpLang.Playground/**`.
+
+  **Its GROUP B and GROUP C halves are NOT (b)-bucket, and they move.** The 40-code vocabulary, the
+  three budgets, the entry-point rule, the rendering words, the escape decoder, the equality
+  tolerance, the division rule and the two member rosters have no browser dependency at all — they
+  are exactly the shape slice 2 moved when it took the `NL103` decline vocabulary out of C#. And the
+  route is already open: `PlaygroundCompiler.cs` consumes `PlaygroundExamples` and `PlaygroundModels`
+  — N# files in `src/NSharpLang.Compiler.BootstrapServices` that already declare
+  `namespace NSharpLang.Playground` — so an N# owner in the same namespace needs no new `using`,
+  which matters because the file sits at **zero ratchet headroom** (`epochLines 966 == currentLines
+  966`).
+
+  ### WHAT LANDED — ONE NEW N# OWNER, ZERO NEW C#, AND A FILE THAT SHRANK AT ZERO HEADROOM
+
+  `src/NSharpLang.Compiler.BootstrapServices/PlaygroundRunFacts.nl` — **442 lines, 66
+  `static func`s**, `namespace NSharpLang.Playground`, so `PlaygroundRunner.cs` reaches it with no
+  new `using` and the ratchet's zero headroom is not spent on a line of ceremony. One record,
+  `PlaygroundRunFault(Code, Message)`, is added beside the other playground models in
+  `PlaygroundModels.nl` (+5 lines), which is why all 37 fault sites stay ONE line each.
+
+  | what moved | how many | where it was |
+  |---|---|---|
+  | the `PG201`–`PG237` vocabulary — 37 codes AND 37 sentences | **74 literal sites** | 37 `throw` sites |
+  | the three budgets | 3 `const`s | `:12–14` |
+  | the entry-point rule | 1 | `Run:46` |
+  | the reserved names — discard, receiver, `Message`, `Length` | 8 sites | 5 methods |
+  | the two `Exception` spellings | 3 | `CallIdentifier:379`, `EvaluateNew:512` |
+  | union case name MATCHING | 1 method, 2 call sites | `CaseNamesMatch:711–714` — deleted whole |
+  | union case name SPLITTING | 3 decisions | `TryCreateUnionCase:677–684` |
+  | the division rule — zero test, message, integer truncation | 3 | `Divide:311–323` |
+  | the equality tolerance | 1 | `ValuesEqual:799` |
+  | the string-literal escape decoder | 1 method, 2 call sites | `ParseStringLiteralValue:846–866` — deleted whole |
+  | the rendering words + the two display shapes | 12 | `FormatValue`, both `ToDisplayString`s |
+
+  **TWO OF THOSE ARE REFORMULATIONS, NOT MOVES, AND THE REASON IS MEASURED RATHER THAN ASSUMED.**
+  Two probes against the freshly built `Cli.dll` with `NSHARP_COLUMNAR_DECLINE_LOG=1` show the
+  columnar backend models neither `Double.Epsilon` nor `Math.Abs(double)`: both decline at
+  `emit.return.expression` / `emit.body`, and the same file emits once the expression is rewritten.
+  So `IsZeroDivisor` reads `divisor == 0.0` where the C# read `Math.Abs(divisor) < double.Epsilon`
+  — identical on every double, because `Double.Epsilon` is the smallest positive denormal and only
+  `±0.0` is below it, and `NaN` fails both — and `NumbersEqual` negates by hand. Both are stated in
+  the owner's header, not hidden.
+
+  **WHAT WAS DELIBERATELY NOT MOVED, WITH THE ARGUMENT FOR EACH.**
+
+  * **`IsTruthy` is a LATENT GUARD and it is proved, not assumed.** Six probes with a passing
+    control (`if true` → 0 results) show the analyzer answers `NL202` for `if 1` (actual `int`),
+    `if "hi"` (`string`), `if flag` on a `bool?`, `!0` and `1 && 2`. `RunProject` executes nothing
+    when the summary reports an error, so five of the method's six arms cannot run. Moving a
+    decision nothing can observe would have been ceremony — the slice-9b `isNested` precedent.
+  * **The two BCL member rosters stay.** Their names ARE the switch labels of the calls that
+    implement them (`text.ToUpperInvariant()` under `"ToUpper"`); restating them in N# would create
+    a second spelling, which is the thing this campaign removes.
+  * **`GetTypeName`'s `"[]"` stays, and the nearest N# answer is recorded as a DIFFERENT question.**
+    `AnalyzerOverloadSignatureFacts.GetParameterTypeSignature` (`:47`) also spells
+    `element + "[]"`, but its generic arm renders `Name<args>` and its nullable arm appends `?`
+    where the runner's returns the bare inner name — it builds a signature, the runner builds a
+    lookup key. Not routable, and saying so is the honest answer.
+
+  ### THE PROOF SETS
+
+  **THE DECODE CENSUS** — a brace-matched extent walk reproducing the ratchet row to the digit
+  (966 / 840), 61 members, and a literal census of 81 lines / 131 sites / 117 distinct with its one
+  instrument artefact named.
+
+  **THE RECEIVER-TYPED IL CENSUS** — mtime-gated at `2026-08-27T14:25:00Z`, **4 assemblies /
+  10,458 method bodies / 0 undecodable / 0 stale-skipped**, opcode operand sizes built from
+  `System.Reflection.Emit.OpCodes` rather than hand-written, non-vacuity control
+  `PlaygroundRunner::Evaluate` = **11 rows**.
+
+  **THE `pgdrive` COMPARATOR** — the shipped public surface driven exactly as
+  `PlaygroundExports.cs` drives it, over **10 shipped examples + 34 probes**, each through
+  `Check` + `RunProject` + `Format`, plus the whole catalog. **249 transcript lines.**
+
+  **THE CANONICAL-PATH ORACLE** — the same probes built and executed by `nlc run` in a real
+  `project.yml` project against the freshly built `Cli.dll`, which is what produced the
+  seven-of-fourteen divergence table above.
+
+  ### THE SEAM — BYTE-IDENTICAL
+
+  `sha256 d0f48750923d26e4e6b5bc141d09bf8aa8ad50b653b4aa1e53e678447dea1ce9` on **both** sides, 249
+  lines each, `cmp` clean. The before was taken from the HEAD build; the after from a real rebuild
+  of `Cli.csproj` and `NSharpLang.Playground.csproj` — and it was **RE-TAKEN A THIRD TIME from the
+  FINAL, formatted tree** after the format gate forced four blank-line edits, reproducing the same
+  hash. Every shipped example's `Check` summary, `Run` exit code, stdout, stderr, unsupported reason
+  and full diagnostic rows, and every `Format` hash, are unchanged.
+
+  ### THE MUTATION MATRIX — 12 ESTATE MUTATIONS, 12 FAILURES, 12 DISTINCT BLOCKS
+
+  Applied as one batch, deliberately: each mutation owns at least one contract block no other
+  mutation can break, so a batch is attributable and costs one rebuild instead of twelve. Both
+  harnesses restore from a byte-copy on `EXIT` and on `SIGTERM`/`SIGINT` and verify the restore by
+  `sha256`, so a killed run cannot leave a mutant on the tree — and both reported
+  `RESTORED OK sha256=9f4a9e6e…`.
+
+  | # | mutation | the block that failed |
+  |---|---|---|
+  | M1 | `PG204` → `PG999` | *the sixteen faults* AND *the thirty-seven codes are PG201 through PG237* |
+  | M2 | `MaxOutputLines` 200 → 199 | *the three budgets* |
+  | M3 | tolerance `1e-7` → `2e-7` | *the 1e-7 equality tolerance is a DIVERGENCE* |
+  | M4 | `Point { … }` → `Point [ … ]` | *the two display shapes are DIVERGENCES* |
+  | M5 | entry point `OrdinalIgnoreCase` → `Ordinal` | *the entry point is 'main' case-insensitively* |
+  | M6 | drop the `\t` escape | *the escape decoder* |
+  | M7 | union names match EXACTLY | *union case names match suffix-tolerantly in BOTH directions* |
+  | M8 | the division-by-zero sentence | *only zero divides by zero* — **shared with M10, so M8 is proved on the SEAM instead** |
+  | M9 | `"\n"` → `"\r\n"` | *an output line always ends with a bare newline* |
+  | M10 | `divisor == 0.0` → `== 1.0` | *only zero divides by zero* |
+  | M11 | split at the FIRST dot | *a qualified union case name splits at the LAST dot* |
+  | M12 | `"True"` → `"true"` | *the rendering words* |
+
+  **`Failed: 12, Passed: 7018, Total: 7030`** — every failure attributable, none inherited.
+
+  **THREE SEAM MUTATIONS MOVE TEN TRANSCRIPT ROWS**, against a real rebuild: the division-by-zero
+  sentence moves both probe stderr rows, the object display shape moves one stdout row, and the
+  output budget moves four `PG234` rows (the sentence quotes the budget, so it appears in `stderr`,
+  `unsupportedReason` and the diagnostic `Message`). **ONE EXPECTED MOVER DID NOT MOVE, AND IT IS
+  EXPLAINED RATHER THAN EXCUSED**: shipped example `07-error-handling` prints `division by zero`
+  but the mutation left it alone — the example `throw`s that string itself and guards `if b == 0`
+  before dividing, so the runner's `Divide` never sees a zero divisor and the identical wording is
+  a coincidence.
+
+  ### THE OTHER GREEN BASELINES
+
+  | run | result |
+  |---|---|
+  | compiler-service estate | **`Passed: 7030, Failed: 0`** — 7,012 + exactly the 18 new blocks |
+  | `tests/native/playground-tooling-surfaces` | 19 / 19 |
+  | `tests/native/playground-diagnostic-spans` | 116 / 116 |
+  | `tests/native/ownership-audit` | **18 / 18** |
+  | live-tree `nlc check` | **399 checkedFiles / 246 errors** — one more file (the new owner; `.tests.nl` are not discovered by `check`) and an **identical** error census: `NL202` 85, `NL402` 68, `NL905` 26, `NL012` 20, `NL011` 17, `NL301` 16, `NL010` 7, `NL303` 3, `NL412` 3, `NL002` 1 |
+
+  ### THE RATCHET — TWO-KEY, REPINNED LAST, NON-VACUOUS ON BOTH KEYS AND ON A CEILING RAISE
+
+  The audit is its own oracle here: it printed the observed metrics and both fingerprints, so
+  nothing was computed by a replica that could disagree with it. **Pristine-first**: before any
+  manifest edit the audit reported exactly **two** violations, both on `PlaygroundRunner.cs`
+  (`OWN004` for the shrink, `OWN005` for the fingerprint) and nothing else.
+
+  | key | before | after |
+  |---|---|---|
+  | `PlaygroundRunner.cs` row `currentLines` / `currentNonBlankLines` | 966 / 840 | **939 / 817** (epoch values UNCHANGED at 966 / 840) |
+  | `PlaygroundRunner.cs` row `currentFingerprint` | `text-v1:b99c74bce33b304d` | **`text-v1:0b4ebd9e7e2043c0`** |
+  | `reviewedHeadFingerprint` (JSON header) | `head-v1:7d215b4f4507c0fd` | **`head-v1:ebdb9fdbf1d5b963`** |
+  | `OwnershipPolicy.ReviewedHeadFingerprint` (`OwnershipAudit.nl:241`) | `head-v1:7d215b4f4507c0fd` | **`head-v1:ebdb9fdbf1d5b963`** |
+
+  **ONE row moved; the epoch triple is UNCHANGED** (`epochFileCount 381`, `epochPathFingerprint
+  pathset-v1:8a26e1529863444b`, `epochFactFingerprint epochfacts-v1:1b3090747e517fc1`) — the slice
+  adds no non-N# file and removes none. Manifest **391 lines, no BOM**, verified by reading the
+  first three bytes.
+
+  **NON-VACUITY, THREE WAYS.** Reverting ONLY `OwnershipAudit.nl:241` fails **17/18** with `OWN008`
+  naming the stale expectation; reverting ONLY the JSON header fails **17/18** with `OWN008` naming
+  two violations; appending ONE blank line to `PlaygroundRunner.cs` fails with `OWN004` reporting
+  `lines=940`. All three were restored and the file's `sha256` re-verified.
+
+  ### THE COUNTS
+
+  | | before | after |
+  |---|---|---|
+  | `PlaygroundRunner.cs` lines / non-blank | 966 / 840 | **939 / 817** |
+  | `PlaygroundRunner.cs` literal-bearing lines / sites / distinct | 81 / 131 / 117 | **13 / 13 / 12** |
+  | `PlaygroundRunFacts.` call sites in the runner | 0 | **74** |
+  | C# files touched | — | **ONE**, `+78 / −105`; **no new `.cs` file, no new C# type** |
+  | N# owner | — | `PlaygroundRunFacts.nl` **442 lines / 66 `static func`s** |
+  | N# contracts | — | `PlaygroundRunFacts.tests.nl` **268 lines / 18 blocks / 143 asserts** |
+  | `PlaygroundModels.nl` | 55 | **60** (one record + its two comment lines) |
+  | estate blocks | 7,012 | **7,030** (+18, exactly the new file) |
+  | live-tree `checkedFiles` / errors | 398 / 246 | **399 / 246**, census identical |
+  | manifest | 391 lines / no BOM | **unchanged shape**, one row and two header/constant lines rewritten |
+  | reviewed head | `head-v1:7d215b4f4507c0fd` | **`head-v1:ebdb9fdbf1d5b963`** |
+
+  ### THE IDE BAR DOES NOT APPLY, AND THAT IS CHECKED RATHER THAN ASSUMED
+
+  Nothing in this slice touches the Language Server, an LSP handler or the VS Code extension. The
+  decode's reference census is the evidence: `NSharpLang.Playground` is referenced by exactly two
+  things — `src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj` and the two native
+  test projects' `dll:` dependencies — and `src/NSharpLang.LanguageServer` names it nowhere. The
+  gate therefore runs `VSCODE_TESTS=skip`, which is what `AGENTS.md` prescribes for backend-only
+  work.
+
+  ### THE WALLS THIS SLICE HIT OR CONFIRMED
+
+  1. **A ZERO-COUNT RUN IS A NON-VERDICT, AND THIS SLICE PROVED IT TWICE IN ONE HOUR.** The first
+     comparator run read every field as `-1`/`<null>` because N# records emit **FIELDS, not
+     properties**, and reflection asked for `GetProperty`. The first analyzer probe reported
+     `0 diagnostics` for five programs that are all `NL202`, because `nlc check --json` names its
+     array `results` and the parser asked for `diagnostics`. Both were caught by the carried rule,
+     not by luck; both instruments now carry a passing control.
+  2. **`--project` IS NOT A FLAG `nlc run` ACCEPTS.** `nlc run --project .` answers
+     `Error: File not found: --project`; `nlc run` from inside the project directory works. Eleven
+     probes were silently mis-measured for one round.
+  3. **`timeout` IS NOT ON THIS MACHINE.** `timeout 900 dotnet …` exits 127.
+  4. **Confirmed again**: a plain CLI build silently disarms the estate — every estate run here ran
+     `dotnet restore … -p:NSharpExcludeTests=false --force-evaluate` first.
+  5. **Confirmed again**: `git grep --include=*.cs` fails under this shell (`no matches found`);
+     `git grep -- '*.cs'` is the spelling that works.
+  6. **THE FORMAT CONTRACT GATE CHECKS `.nl` FILES AND IT CAUGHT THIS SLICE'S NEW OWNER.** A first
+     gate run failed at step 2b with `Formatting check failed for 1 file(s): PlaygroundRunFacts.nl`
+     — blank-line placement only, four lines. Worth carrying: `nlc format` DISCOVERY skips
+     `*.tests.nl`, but `nlc format --check <explicit paths>` does NOT, so the contract file was also
+     unformatted and the gate would never have said so. Both are formatted now and
+     `format --check` over all three touched `.nl` files answers *All files are properly formatted.*
+     The killed gate was taken down the safe way — `pkill` over the whole `nsharp-test-all.<key>`
+     tree plus the orphaned `dotnet test`, then the run root removed — never by signalling the
+     driver alone.
+  7. **The bare decline message still has no site.** `nlc build` prints
+     *"This product path requires successful N# columnar emission after analysis passes."* with no
+     `NL` code and no line; `NSHARP_COLUMNAR_DECLINE_LOG=1` is the only way to find the expression,
+     and it is what located both unmodeled `System.Math`/`System.Double` members. The existing chip
+     is still the right one.
+
+  ### THE GATE — FRESH, ISOLATED, FROM A `/tmp` BYTE-COPY WITH THE NESTED WORKTREES EXCLUDED
+
+  The gate makes its own isolated copy, but its `rsync` excludes only `.git/` — and
+  `.claude/worktrees` holds six nested worktrees. So the tree was byte-copied to
+  `/private/tmp/nl11gate` FIRST with those excluded, the copy was CHECKED before the run
+  (**`NESTED WORKTREES: 0`, `DUPLICATE Benchmarks.csproj: 0`, runner 939, owner 442, manifest 391**,
+  and `git ls-files` reading **1,431** in both), and the log was written OUTSIDE the copy so the
+  gate's own cleanup could not take it.
+
+  **`VSCODE_TESTS=skip ./scripts/test-all.sh --commit`: `ALL TESTS PASSED! ✓`, 23m 15s, 126
+  `✓ PASSED` steps, ZERO `✗ FAILED` lines**, fresh and isolated (`Fresh isolated test run required:
+  pre-commit verification` / `Existing cache entries will not satisfy this invocation.`, run root
+  `/private/tmp/nsharp-test-all.ec73905072cc.6I4fiE`).
+
+  | step | result |
+  |---|---|
+  | 2b Format Contract Gate | ✓ |
+  | 3 Unit tests | **`Passed: 596, Failed: 0`** — the baseline to the digit |
+  | 3a Native N# tests | **estate `Passed: 7030, Failed: 0`** plus **all 47 native projects**, including `tests/native/ownership-audit`, `playground-diagnostic-spans` and `playground-tooling-surfaces` |
+  | 4–10 SDK pack, template, examples, `nlc check` | ✓ |
+  | 10b IL Verification | **✓ all 67 N# assemblies**, no new errors vs baseline |
+
+  **THE COPY WAS BYTE-FINAL FOR EVERY FILE THE GATE COMPILES OR READS.** It was taken after the
+  two-key repin and after the formatting fix; step 3a's `ownership-audit` passing INSIDE the gate is
+  the proof that the manifest and the `OwnershipPolicy` constant in the copy were the repinned ones.
+  The only edits made after the copy were to `.md` ledger text (`systems-language-closeout/STATUS.md`,
+  `memory/testing.md`), and **neither prefix is in any of the gate's input sets** (`UNIT` and
+  `EXAMPLES` cover `scripts/`, `tests/`, `src/`, `examples/`, `templates/`, `docs/`,
+  `website/docs/`, `editors/vscode/test/suite/` and the shared build files — not `memory/`, not
+  `systems-language-closeout/`).
+
+  **NOT COMMITTED. `tasks/README.md` is NOT edited.**
+
+  ### WHAT 021/12 — THE CLOSING SLICE — MUST CARRY
+
+  Slice 11 was the last slice the queue could take: **10 is blocked** by the four 015 tasks the plan
+  says do not complete inside 021, and **11 is now closed as a hybrid** — its decision half moved,
+  its execution half classified `(b)` with its retirement named. What 12 inherits:
+
+  1. **THE TERMINAL-CONDITION CHECKLIST, WITH THE THREE ITEMS NO BACKEND SLICE COULD DISCHARGE.**
+     The VS Code-enabled gate (slices 4, 5b and 9b each ran one; 12 owes the final one), the
+     extension reinstall via `./scripts/reload-vscode-extension.sh`, and **VISUAL IDE VERIFICATION,
+     which computer-use cannot provide in this environment**. That limitation has now been recorded
+     by three slices in a row and must be stated in the closing record rather than quietly
+     satisfied by the integration suite.
+  2. **THE `(b)`-PIN LEDGER.** Two files now carry an explicit `(b)` classification with a named
+     retirement task rather than a deletion: `DaemonProtocol.cs`'s wire DTOs (slice 7) and
+     `PlaygroundRunner.cs`'s execution mechanism (this slice). Neither is a compiler-ownership
+     failure; both need their task written down where the queue can see it.
+  3. **THE ACCUMULATED POLICY CALLS.** The editor-suite ceiling has now blocked adding coverage
+     four times (all 19 `editors/vscode/test/suite/*.test.ts` are at their epoch ceiling, so one
+     added `test(` is an `OWN004`); the `.nl`-vs-`.cs` asymmetry in the ratchet means an N# owner
+     can grow freely while its C# consumer cannot, which is the intended gradient and should be
+     stated as such; and the gate's `rsync` still excludes only `.git/`, so every slice has had to
+     hand-exclude `.claude/worktrees` — that is a gate defect worth fixing rather than re-carrying.
+  4. **THE CHIP BOARD, PINNED AS MEASURED.** Six chips now stand: the false `NL001` on off-statement
+     reads, the parse failure after bare member access, the locale-sensitive columnar estate blocks,
+     the documented `test … skip` form that does not emit, and the two this slice filed — the
+     playground's shorthand union-pattern binding (which breaks a SHIPPED example carrying a
+     declared `ExpectedOutput`) and the seven-of-fourteen divergence between the playground and
+     `nlc run`. None is absorbed; all are pinned as measured.
+  5. **THE DOCUMENTATION DEBT.** `memory/testing.md` now records this slice; `tasks/README.md` is
+     still NOT edited, because bucket (a) is not empty until 12 closes it.
+
+- Active sub-slice (021 arc, PRIOR TURN — **SLICE 9b — `Services/TypeResolver.cs`, THE LSP's OWN
   TYPE UNIVERSE. THE DECODE IS RE-VERIFIED AT `3e90666ef` BEFORE ANY EDIT, IT CORRECTS SLICE 9's
   LINE SPLIT, AND IT FINDS ONE OF THE TWO CONSUMERS UNREACHABLE.**)
 

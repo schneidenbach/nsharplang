@@ -9,10 +9,6 @@ namespace NSharpLang.Playground;
 
 internal sealed class PlaygroundRunner
 {
-    private const int MaxSteps = 20_000;
-    private const int MaxCallDepth = 128;
-    private const int MaxOutputLines = 200;
-
     private readonly List<CompilationUnit> _units;
     private readonly Dictionary<string, FunctionDeclaration> _functions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Declaration> _types = new(StringComparer.Ordinal);
@@ -43,10 +39,10 @@ internal sealed class PlaygroundRunner
     public PlaygroundRunResult Run()
     {
         var entryPoint = _functions.Values.FirstOrDefault(function =>
-            string.Equals(function.Name, "main", StringComparison.OrdinalIgnoreCase));
+            PlaygroundRunFacts.IsEntryPointFunctionName(function.Name));
         if (entryPoint == null)
         {
-            throw new PlaygroundRunUnsupportedException("PG201", "This sample does not declare a main function that the browser runner can execute.");
+            throw Unsupported(PlaygroundRunFacts.NoEntryPoint());
         }
 
         try
@@ -62,20 +58,20 @@ internal sealed class PlaygroundRunner
 
     private object? InvokeFunction(FunctionDeclaration function, IReadOnlyList<object?> arguments, RuntimeObject? receiver, int depth)
     {
-        if (depth > MaxCallDepth)
+        if (depth > PlaygroundRunFacts.MaxCallDepth())
         {
-            throw Unsupported("PG202", "The browser runner stopped this program because it exceeded the maximum call depth.");
+            throw Unsupported(PlaygroundRunFacts.CallDepthExceeded());
         }
 
         if (function.Parameters.Count != arguments.Count)
         {
-            throw Unsupported("PG203", $"The browser runner cannot call '{function.Name}' with {arguments.Count} argument(s).");
+            throw Unsupported(PlaygroundRunFacts.WrongArgumentCount(function.Name, arguments.Count));
         }
 
         var environment = new RuntimeEnvironment(receiver?.Environment);
         if (receiver != null)
         {
-            environment.Declare("this", receiver);
+            environment.Declare(PlaygroundRunFacts.ReceiverBindingName(), receiver);
         }
 
         for (var i = 0; i < function.Parameters.Count; i++)
@@ -151,7 +147,7 @@ internal sealed class PlaygroundRunner
             case EmptyStatement:
                 break;
             default:
-                throw Unsupported("PG204", $"The browser runner does not yet support {statement.GetType().Name}.");
+                throw Unsupported(PlaygroundRunFacts.UnsupportedStatement(statement.GetType().Name));
         }
     }
 
@@ -162,22 +158,22 @@ internal sealed class PlaygroundRunner
             try
             {
                 var result = Evaluate(call, environment, depth);
-                if (tuple.Names[0] != "_")
+                if (!PlaygroundRunFacts.IsDiscardName(tuple.Names[0]))
                 {
                     environment.Declare(tuple.Names[0], result);
                 }
-                if (tuple.Names[1] != "_")
+                if (!PlaygroundRunFacts.IsDiscardName(tuple.Names[1]))
                 {
                     environment.Declare(tuple.Names[1], null);
                 }
             }
             catch (PlaygroundThrownException ex)
             {
-                if (tuple.Names[0] != "_")
+                if (!PlaygroundRunFacts.IsDiscardName(tuple.Names[0]))
                 {
                     environment.Declare(tuple.Names[0], null);
                 }
-                if (tuple.Names[1] != "_")
+                if (!PlaygroundRunFacts.IsDiscardName(tuple.Names[1]))
                 {
                     environment.Declare(tuple.Names[1], ex.Value);
                 }
@@ -185,7 +181,7 @@ internal sealed class PlaygroundRunner
             return;
         }
 
-        throw Unsupported("PG205", "The browser runner only supports result, err := Function(...) deconstruction.");
+        throw Unsupported(PlaygroundRunFacts.UnsupportedDeconstruction());
     }
 
     private void ExecuteForeach(ForeachStatement foreachStatement, RuntimeEnvironment environment, int depth)
@@ -193,7 +189,7 @@ internal sealed class PlaygroundRunner
         var collection = Evaluate(foreachStatement.Collection, environment, depth);
         if (collection is not IReadOnlyList<object?> values)
         {
-            throw Unsupported("PG206", "The browser runner only supports foreach over array literals.");
+            throw Unsupported(PlaygroundRunFacts.UnsupportedForeachCollection());
         }
 
         foreach (var value in values)
@@ -211,7 +207,7 @@ internal sealed class PlaygroundRunner
         {
             IntLiteralExpression literal => int.Parse(literal.Value, CultureInfo.InvariantCulture),
             FloatLiteralExpression literal => double.Parse(literal.Value, CultureInfo.InvariantCulture),
-            StringLiteralExpression literal => ParseStringLiteralValue(literal.Value),
+            StringLiteralExpression literal => PlaygroundRunFacts.DecodeStringLiteralText(literal.Value),
             CharLiteralExpression literal => literal.Value.Length == 0 ? '\0' : literal.Value[0],
             BoolLiteralExpression literal => literal.Value,
             NullLiteralExpression => null,
@@ -229,7 +225,7 @@ internal sealed class PlaygroundRunner
             WithExpression with => EvaluateWith(with, environment, depth),
             MatchExpression match => EvaluateMatch(match, environment, depth),
             ThrowExpression throwExpression => throw new PlaygroundThrownException(Evaluate(throwExpression.Expression, environment, depth)),
-            _ => throw Unsupported("PG207", $"The browser runner does not yet support {expression.GetType().Name}.")
+            _ => throw Unsupported(PlaygroundRunFacts.UnsupportedExpression(expression.GetType().Name))
         };
     }
 
@@ -250,7 +246,7 @@ internal sealed class PlaygroundRunner
             return new RuntimeType(declaration);
         }
 
-        throw Unsupported("PG208", $"The browser runner could not resolve '{name}'.");
+        throw Unsupported(PlaygroundRunFacts.UnresolvedName(name));
     }
 
     private string EvaluateInterpolatedString(InterpolatedStringExpression interpolated, RuntimeEnvironment environment, int depth)
@@ -293,7 +289,7 @@ internal sealed class PlaygroundRunner
             BinaryOperator.GreaterOrEqual => ToNumber(left) >= ToNumber(right),
             BinaryOperator.And => IsTruthy(left) && IsTruthy(right),
             BinaryOperator.Or => IsTruthy(left) || IsTruthy(right),
-            _ => throw Unsupported("PG209", $"The browser runner does not yet support the {binary.Operator} operator.")
+            _ => throw Unsupported(PlaygroundRunFacts.UnsupportedBinaryOperator(binary.Operator.ToString()))
         };
     }
 
@@ -304,20 +300,20 @@ internal sealed class PlaygroundRunner
         {
             UnaryOperator.Negate => -ToNumber(value),
             UnaryOperator.Not => !IsTruthy(value),
-            _ => throw Unsupported("PG210", $"The browser runner does not yet support the {unary.Operator} operator.")
+            _ => throw Unsupported(PlaygroundRunFacts.UnsupportedUnaryOperator(unary.Operator.ToString()))
         };
     }
 
     private static object Divide(object? left, object? right)
     {
         var divisor = ToNumber(right);
-        if (Math.Abs(divisor) < double.Epsilon)
+        if (PlaygroundRunFacts.IsZeroDivisor(divisor))
         {
-            throw new PlaygroundThrownException(new RuntimeError("division by zero"));
+            throw new PlaygroundThrownException(new RuntimeError(PlaygroundRunFacts.DivisionByZeroMessage()));
         }
 
         var dividend = ToNumber(left);
-        return IsIntegral(left) && IsIntegral(right)
+        return PlaygroundRunFacts.UseIntegerDivision(IsIntegral(left), IsIntegral(right))
             ? ToInt(left) / ToInt(right)
             : dividend / divisor;
     }
@@ -339,7 +335,7 @@ internal sealed class PlaygroundRunner
                 AssignmentOperator.SubtractAssign => ToNumber(current) - ToNumber(value),
                 AssignmentOperator.MultiplyAssign => ToNumber(current) * ToNumber(value),
                 AssignmentOperator.DivideAssign => Divide(current, value),
-                _ => throw Unsupported("PG211", $"The browser runner does not yet support {assignment.Operator}.")
+                _ => throw Unsupported(PlaygroundRunFacts.UnsupportedAssignmentOperator(assignment.Operator.ToString()))
             };
         }
 
@@ -352,7 +348,7 @@ internal sealed class PlaygroundRunner
                 SetMember(member, environment, depth, value);
                 break;
             default:
-                throw Unsupported("PG212", "The browser runner only supports assignment to variables and object properties.");
+                throw Unsupported(PlaygroundRunFacts.UnsupportedAssignmentTarget());
         }
 
         return value;
@@ -365,7 +361,7 @@ internal sealed class PlaygroundRunner
         {
             IdentifierExpression identifier => CallIdentifier(identifier.Name, arguments, depth),
             MemberAccessExpression member => CallMember(member, arguments, environment, depth),
-            _ => throw Unsupported("PG213", "The browser runner only supports direct function and member calls.")
+            _ => throw Unsupported(PlaygroundRunFacts.UnsupportedCallee())
         };
     }
 
@@ -376,12 +372,12 @@ internal sealed class PlaygroundRunner
             return InvokeFunction(function, arguments, receiver: null, depth);
         }
 
-        if (string.Equals(name, "Exception", StringComparison.Ordinal) && arguments.Count <= 1)
+        if (PlaygroundRunFacts.IsExceptionFactoryName(name) && arguments.Count <= 1)
         {
             return new RuntimeError(arguments.Count == 0 ? string.Empty : FormatValue(arguments[0]));
         }
 
-        throw Unsupported("PG214", $"The browser runner cannot call '{name}'.");
+        throw Unsupported(PlaygroundRunFacts.UnknownFunction(name));
     }
 
     private object? CallMember(MemberAccessExpression member, IReadOnlyList<object?> arguments, RuntimeEnvironment environment, int depth)
@@ -392,7 +388,7 @@ internal sealed class PlaygroundRunner
             var method = FindMethod(runtimeObject.Declaration, member.MemberName, arguments.Count, requireStatic: false);
             if (method == null)
             {
-                throw Unsupported("PG215", $"The browser runner could not find method '{member.MemberName}'.");
+                throw Unsupported(PlaygroundRunFacts.MethodNotFound(member.MemberName));
             }
 
             return InvokeFunction(method, arguments, runtimeObject, depth);
@@ -403,7 +399,7 @@ internal sealed class PlaygroundRunner
             var method = FindMethod(runtimeType.Declaration, member.MemberName, arguments.Count, requireStatic: true);
             if (method == null)
             {
-                throw Unsupported("PG216", $"The browser runner could not find static method '{member.MemberName}'.");
+                throw Unsupported(PlaygroundRunFacts.StaticMethodNotFound(member.MemberName));
             }
 
             return InvokeFunction(method, arguments, receiver: null, depth);
@@ -425,7 +421,7 @@ internal sealed class PlaygroundRunner
                 "EndsWith" when arguments.Count == 1 => text.EndsWith(FormatValue(arguments[0]), StringComparison.Ordinal),
                 "IndexOf" when arguments.Count == 1 => text.IndexOf(FormatValue(arguments[0]), StringComparison.Ordinal),
                 "ToString" when arguments.Count == 0 => text,
-                _ => throw Unsupported("PG217", $"The browser runner does not yet support string.{memberName}.")
+                _ => throw Unsupported(PlaygroundRunFacts.UnsupportedStringMember(memberName))
             };
         }
 
@@ -435,11 +431,11 @@ internal sealed class PlaygroundRunner
             {
                 "ToString" when arguments.Count == 0 => FormatValue(target),
                 "CompareTo" when arguments.Count == 1 => ToNumber(target).CompareTo(ToNumber(arguments[0])),
-                _ => throw Unsupported("PG218", $"The browser runner does not yet support numeric.{memberName}.")
+                _ => throw Unsupported(PlaygroundRunFacts.UnsupportedNumericMember(memberName))
             };
         }
 
-        throw Unsupported("PG219", $"The browser runner cannot call member '{memberName}' on this receiver.");
+        throw Unsupported(PlaygroundRunFacts.UnsupportedReceiverMember(memberName));
     }
 
     private object? EvaluateMemberAccess(MemberAccessExpression member, RuntimeEnvironment environment, int depth)
@@ -458,17 +454,17 @@ internal sealed class PlaygroundRunner
             }
         }
 
-        if (target is RuntimeError error && member.MemberName == "Message")
+        if (target is RuntimeError error && member.MemberName == PlaygroundRunFacts.ErrorMessageMemberName())
         {
             return error.Message;
         }
 
-        if (target is string text && member.MemberName == "Length")
+        if (target is string text && member.MemberName == PlaygroundRunFacts.LengthMemberName())
         {
             return text.Length;
         }
 
-        if (target is IReadOnlyList<object?> values && member.MemberName == "Length")
+        if (target is IReadOnlyList<object?> values && member.MemberName == PlaygroundRunFacts.LengthMemberName())
         {
             return values.Count;
         }
@@ -486,7 +482,7 @@ internal sealed class PlaygroundRunner
             }
         }
 
-        throw Unsupported("PG220", $"The browser runner cannot resolve member '{member.MemberName}'.");
+        throw Unsupported(PlaygroundRunFacts.UnresolvedMember(member.MemberName));
     }
 
     private void SetMember(MemberAccessExpression member, RuntimeEnvironment environment, int depth, object? value)
@@ -498,18 +494,18 @@ internal sealed class PlaygroundRunner
             return;
         }
 
-        throw Unsupported("PG221", $"The browser runner cannot assign member '{member.MemberName}'.");
+        throw Unsupported(PlaygroundRunFacts.UnassignableMember(member.MemberName));
     }
 
     private object EvaluateNew(NewExpression newExpression, RuntimeEnvironment environment, int depth)
     {
         var typeName = GetTypeName(newExpression.Type)
-            ?? throw Unsupported("PG222", "The browser runner only supports named object construction.");
+            ?? throw Unsupported(PlaygroundRunFacts.UnsupportedConstructionTarget());
         var arguments = newExpression.ConstructorArguments
             .Select(argument => Evaluate(argument.Value, environment, depth))
             .ToArray();
 
-        if (typeName is "Exception" or "System.Exception")
+        if (PlaygroundRunFacts.IsExceptionTypeName(typeName))
         {
             return new RuntimeError(arguments.Length == 0 ? string.Empty : FormatValue(arguments[0]));
         }
@@ -521,7 +517,7 @@ internal sealed class PlaygroundRunner
 
         if (!_types.TryGetValue(typeName, out var declaration))
         {
-            throw Unsupported("PG223", $"The browser runner cannot construct '{typeName}'.");
+            throw Unsupported(PlaygroundRunFacts.UnknownConstructedType(typeName));
         }
 
         var runtimeObject = new RuntimeObject(declaration, new RuntimeEnvironment(null));
@@ -555,7 +551,7 @@ internal sealed class PlaygroundRunner
         {
             if (arguments.Count > 0)
             {
-                throw Unsupported("PG224", "The browser runner only supports constructor arguments on primary constructors and union cases.");
+                throw Unsupported(PlaygroundRunFacts.UnsupportedConstructorArguments());
             }
 
             return;
@@ -563,7 +559,7 @@ internal sealed class PlaygroundRunner
 
         if (parameters.Count != arguments.Count)
         {
-            throw Unsupported("PG225", "The browser runner received the wrong number of constructor arguments.");
+            throw Unsupported(PlaygroundRunFacts.WrongConstructorArgumentCount());
         }
 
         for (var i = 0; i < parameters.Count; i++)
@@ -579,7 +575,7 @@ internal sealed class PlaygroundRunner
         {
             if (property.Name == null)
             {
-                throw Unsupported("PG226", "The browser runner does not yet support indexer initializers.");
+                throw Unsupported(PlaygroundRunFacts.UnsupportedIndexerInitializer());
             }
 
             runtimeObject.Fields[property.Name] = Evaluate(property.Value, environment, depth);
@@ -591,7 +587,7 @@ internal sealed class PlaygroundRunner
         var target = Evaluate(with.Target, environment, depth);
         if (target is not RuntimeObject runtimeObject)
         {
-            throw Unsupported("PG227", "The browser runner only supports with expressions on records and objects.");
+            throw Unsupported(PlaygroundRunFacts.UnsupportedWithTarget());
         }
 
         var copy = runtimeObject.Clone();
@@ -599,7 +595,7 @@ internal sealed class PlaygroundRunner
         {
             if (property.Name == null)
             {
-                throw Unsupported("PG228", "The browser runner does not yet support indexer values in with expressions.");
+                throw Unsupported(PlaygroundRunFacts.UnsupportedWithIndexer());
             }
 
             copy.Fields[property.Name] = Evaluate(property.Value, environment, depth);
@@ -621,14 +617,14 @@ internal sealed class PlaygroundRunner
             }
         }
 
-        throw Unsupported("PG229", "The browser runner reached a match expression without a matching arm.");
+        throw Unsupported(PlaygroundRunFacts.NoMatchingMatchArm());
     }
 
     private bool PatternMatches(Pattern pattern, object? value, RuntimeEnvironment environment)
     {
         switch (pattern)
         {
-            case IdentifierPattern identifier when identifier.Name == "_":
+            case IdentifierPattern identifier when PlaygroundRunFacts.IsDiscardName(identifier.Name):
                 return true;
             case IdentifierPattern identifier:
                 environment.Declare(identifier.Name, value);
@@ -636,15 +632,15 @@ internal sealed class PlaygroundRunner
             case LiteralPattern literal:
                 object? literalValue = literal.Literal switch
                 {
-                    StringLiteralExpression stringLiteral => ParseStringLiteralValue(stringLiteral.Value),
+                    StringLiteralExpression stringLiteral => PlaygroundRunFacts.DecodeStringLiteralText(stringLiteral.Value),
                     IntLiteralExpression intLiteral => int.Parse(intLiteral.Value, CultureInfo.InvariantCulture),
                     BoolLiteralExpression boolLiteral => boolLiteral.Value,
                     NullLiteralExpression => null,
-                    _ => throw Unsupported("PG230", "The browser runner only supports literal string, int, bool, and null match patterns.")
+                    _ => throw Unsupported(PlaygroundRunFacts.UnsupportedLiteralPattern())
                 };
                 return ValuesEqual(value, literalValue);
             case UnionCasePattern unionPattern when value is RuntimeUnion union:
-                if (!CaseNamesMatch(unionPattern.CaseName, union.CaseName))
+                if (!PlaygroundRunFacts.UnionCaseNamesMatch(unionPattern.CaseName, union.CaseName))
                 {
                     return false;
                 }
@@ -667,32 +663,31 @@ internal sealed class PlaygroundRunner
                 }
                 return true;
             default:
-                throw Unsupported("PG231", $"The browser runner does not yet support {pattern.GetType().Name}.");
+                throw Unsupported(PlaygroundRunFacts.UnsupportedPattern(pattern.GetType().Name));
         }
     }
 
     private bool TryCreateUnionCase(string typeName, IReadOnlyList<object?> arguments, out RuntimeUnion value)
     {
         value = null!;
-        var lastDot = typeName.LastIndexOf('.');
-        if (lastDot <= 0)
+        if (!PlaygroundRunFacts.IsQualifiedUnionCaseName(typeName))
         {
             return false;
         }
 
-        var unionName = typeName[..lastDot];
-        var caseName = typeName[(lastDot + 1)..];
+        var unionName = PlaygroundRunFacts.UnionOwnerNameOf(typeName);
+        var caseName = PlaygroundRunFacts.UnionCaseNameOf(typeName);
         if (!_types.TryGetValue(unionName, out var declaration) || declaration is not UnionDeclaration union)
         {
             return false;
         }
 
         var unionCase = FindUnionCase(union, caseName)
-            ?? throw Unsupported("PG232", $"The browser runner could not find union case '{caseName}'.");
+            ?? throw Unsupported(PlaygroundRunFacts.UnknownUnionCase(caseName));
         var properties = unionCase.Properties ?? [];
         if (properties.Count != arguments.Count)
         {
-            throw Unsupported("PG233", "The browser runner received the wrong number of union case arguments.");
+            throw Unsupported(PlaygroundRunFacts.WrongUnionCaseArgumentCount());
         }
 
         var fields = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -706,12 +701,7 @@ internal sealed class PlaygroundRunner
     }
 
     private static UnionCase? FindUnionCase(UnionDeclaration union, string caseName)
-        => union.Cases.FirstOrDefault(candidate => CaseNamesMatch(candidate.Name, caseName));
-
-    private static bool CaseNamesMatch(string left, string right)
-        => string.Equals(left, right, StringComparison.Ordinal) ||
-           left.EndsWith("." + right, StringComparison.Ordinal) ||
-           right.EndsWith("." + left, StringComparison.Ordinal);
+        => union.Cases.FirstOrDefault(candidate => PlaygroundRunFacts.UnionCaseNamesMatch(candidate.Name, caseName));
 
     private FunctionDeclaration? FindMethod(Declaration? declaration, string name, int? argumentCount, bool requireStatic)
     {
@@ -756,22 +746,22 @@ internal sealed class PlaygroundRunner
 
     private void WriteLine(string value)
     {
-        if (_outputLines >= MaxOutputLines)
+        if (_outputLines >= PlaygroundRunFacts.MaxOutputLines())
         {
-            throw Unsupported("PG234", $"The browser runner stopped this program after {MaxOutputLines} output lines.");
+            throw Unsupported(PlaygroundRunFacts.OutputLineLimitReached());
         }
 
         _stdout.Append(value);
-        _stdout.Append('\n');
+        _stdout.Append(PlaygroundRunFacts.OutputLineTerminator());
         _outputLines++;
     }
 
     private void Step(AstNode node)
     {
         _steps++;
-        if (_steps > MaxSteps)
+        if (_steps > PlaygroundRunFacts.MaxSteps())
         {
-            throw Unsupported("PG235", $"The browser runner stopped this program after {MaxSteps} execution steps.");
+            throw Unsupported(PlaygroundRunFacts.StepLimitReached());
         }
     }
 
@@ -796,7 +786,7 @@ internal sealed class PlaygroundRunner
 
         if (IsNumeric(left) && IsNumeric(right))
         {
-            return Math.Abs(ToNumber(left) - ToNumber(right)) < 0.0000001;
+            return PlaygroundRunFacts.NumbersEqual(ToNumber(left), ToNumber(right));
         }
 
         return Equals(left, right);
@@ -816,7 +806,7 @@ internal sealed class PlaygroundRunner
             float number => number,
             double number => number,
             decimal number => (double)number,
-            _ => throw new PlaygroundRunUnsupportedException("PG236", $"The browser runner expected a number, but found {FormatValue(value)}.")
+            _ => throw Unsupported(PlaygroundRunFacts.ExpectedNumber(FormatValue(value)))
         };
 
     private static int ToInt(object? value)
@@ -825,48 +815,31 @@ internal sealed class PlaygroundRunner
             int integer => integer,
             long integer => checked((int)integer),
             double number => checked((int)number),
-            _ => throw new PlaygroundRunUnsupportedException("PG237", $"The browser runner expected an integer, but found {FormatValue(value)}.")
+            _ => throw Unsupported(PlaygroundRunFacts.ExpectedInteger(FormatValue(value)))
         };
 
     private static string FormatValue(object? value)
         => value switch
         {
-            null => "null",
+            null => PlaygroundRunFacts.NullDisplayText(),
             string text => text,
-            bool boolean => boolean ? "True" : "False",
+            bool boolean => PlaygroundRunFacts.BooleanDisplayText(boolean),
             RuntimeObject runtimeObject => runtimeObject.ToDisplayString(),
             RuntimeUnion union => union.ToDisplayString(),
             RuntimeError error => error.Message,
-            double number => number.ToString("G", CultureInfo.InvariantCulture),
-            float number => number.ToString("G", CultureInfo.InvariantCulture),
-            decimal number => number.ToString("G", CultureInfo.InvariantCulture),
+            double number => number.ToString(PlaygroundRunFacts.NumberFormatSpecifier(), CultureInfo.InvariantCulture),
+            float number => number.ToString(PlaygroundRunFacts.NumberFormatSpecifier(), CultureInfo.InvariantCulture),
+            decimal number => number.ToString(PlaygroundRunFacts.NumberFormatSpecifier(), CultureInfo.InvariantCulture),
             _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty
         };
 
-    private static string ParseStringLiteralValue(string value)
-    {
-        if (value.StartsWith("\"\"\"", StringComparison.Ordinal) &&
-            value.EndsWith("\"\"\"", StringComparison.Ordinal) &&
-            value.Length >= 6)
-        {
-            return value[3..^3];
-        }
+    private static PlaygroundRunUnsupportedException Unsupported(PlaygroundRunFault fault)
+        => new(fault.Code, fault.Message);
 
-        if (value.StartsWith('"') && value.EndsWith('"') && value.Length >= 2)
-        {
-            value = value[1..^1];
-        }
-
-        return value
-            .Replace("\\n", "\n", StringComparison.Ordinal)
-            .Replace("\\r", "\r", StringComparison.Ordinal)
-            .Replace("\\t", "\t", StringComparison.Ordinal)
-            .Replace("\\\"", "\"", StringComparison.Ordinal)
-            .Replace("\\\\", "\\", StringComparison.Ordinal);
-    }
-
-    private static PlaygroundRunUnsupportedException Unsupported(string code, string message)
-        => new(code, message);
+    private static string JoinFields(Dictionary<string, object?> fields)
+        => string.Join(
+            PlaygroundRunFacts.DisplayFieldSeparator(),
+            fields.Select(field => PlaygroundRunFacts.ObjectFieldDisplayText(field.Key, FormatValue(field.Value))));
 
     private sealed class RuntimeEnvironment(RuntimeEnvironment? parent)
     {
@@ -936,15 +909,15 @@ internal sealed class PlaygroundRunner
 
         public string ToDisplayString()
         {
-            var typeName = Declaration == null ? "object" : GetDeclarationName(Declaration) ?? "object";
-            return $"{typeName} {{ {string.Join(", ", Fields.Select(field => $"{field.Key}: {FormatValue(field.Value)}"))} }}";
+            var typeName = (Declaration == null ? null : GetDeclarationName(Declaration)) ?? PlaygroundRunFacts.AnonymousObjectDisplayName();
+            return PlaygroundRunFacts.ObjectDisplayText(typeName, JoinFields(Fields));
         }
     }
 
     private sealed record RuntimeUnion(string TypeName, string CaseName, Dictionary<string, object?> Fields)
     {
         public string ToDisplayString()
-            => $"{TypeName}.{CaseName}({string.Join(", ", Fields.Select(field => $"{field.Key}: {FormatValue(field.Value)}"))})";
+            => PlaygroundRunFacts.UnionDisplayText(TypeName, CaseName, JoinFields(Fields));
     }
 
     private sealed record RuntimeUnionCase(UnionDeclaration Union, string CaseName);

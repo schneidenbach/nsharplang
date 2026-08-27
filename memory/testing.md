@@ -398,6 +398,28 @@ types. The models themselves are already N# — `PlaygroundFile`, `PlaygroundChe
 `PlaygroundDiagnostic` and `PlaygroundSummary` live in `PlaygroundModels.nl`; only
 `PlaygroundCompiler` and `PlaygroundRunner` are still C#.
 
+**TASK 021 SLICE 11 SPLIT `PlaygroundRunner.cs` IN TWO AND MOVED THE HALF THAT DECIDES.** Its
+execution MECHANISM — the tree walk, the scope chain, the runtime value model — stays C# and is a
+`(b)`-bucket subject whose retirement is a Playground task (run emitted IL in the browser), because
+a browser tab has no process to spawn and no `Reflection.Emit`. Everything it DECIDES now lives in
+`src/NSharpLang.Compiler.BootstrapServices/PlaygroundRunFacts.nl` (66 `static func`s) and is pinned
+by `PlaygroundRunFacts.tests.nl` (18 blocks / 143 asserts): the **37-code `PG201`–`PG237`
+vocabulary** with its sentences, the three budgets (20,000 steps / 128 frames / 200 output lines),
+the entry-point rule, the reserved names, union-case name matching and splitting, the division and
+equality rules, the string-literal escape decoder, and every word the runner prints a value with.
+`PlaygroundRunner.cs` went **966 → 939 lines** and its literal census **81 lines / 131 sites / 117
+distinct → 13 / 13 / 12**; the 13 survivors are one `'\0'`, one `'.'`-free array suffix `"[]"`, and
+the nine BCL member names that are the switch labels of the calls implementing them.
+
+**THE PLAYGROUND AND `nlc run` DISAGREE ON HALF A MEASURED CORPUS, AND THAT IS A PRODUCT QUESTION.**
+Fourteen analysis-clean probes driven through the shipped `RunProject` and then built with `nlc run`
+diverge on **seven**: int and double division by zero (the runner answers `division by zero` and
+exits 1 where the CLR throws or prints `∞`), `0.1 + 0.2 == 0.3` (the runner's `1e-7` tolerance says
+true), record and union printing (`Point { X: 1, Y: 2 }` vs `P.Point`), `"n=" + 1` (the runner runs a
+program `nlc` declines to emit), and a union pattern's SHORTHAND property binding (`PG208` where
+`nlc run` prints the answer). The last one breaks the SHIPPED `04-unions-patterns` example, which
+carries a declared `ExpectedOutput` it cannot produce. Both are filed as chips, not absorbed.
+
 **THE WHOLE PLAYGROUND HAS NO C# ASSERTION LAYER AS OF TASK 020 SLICE 38**, which deleted
 `tests/PlaygroundCompilerTests.cs` outright — 821 lines, 35 `[Fact]`s, 745 declaration lines, 191
 in-body `Assert.` and 194 decoded claim rows — and split them 21 / 14 by what the bodies READ. The 21

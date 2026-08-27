@@ -51,5 +51,10 @@ record PlaygroundSummary(Errors: int, Warnings: int, Infos: int) {
 record PlaygroundDiagnostic(Code: string, Severity: string, Message: string, File: string, Line: int, Column: int, Length: int, SourceSnippet: string?, Explanation: string?, Suggestion: string?, Hint: string?) {
 }
 
+// The browser runner's refusal, as a value: one `PG2xx` code and the sentence a user reads. Every
+// one of the thirty-seven is built by `PlaygroundRunFacts`.
+record PlaygroundRunFault(Code: string, Message: string) {
+}
+
 record RuntimeError(Message: string) {
 }
