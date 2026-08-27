@@ -1,6 +1,54 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-27 (**TASK 015 RESIDUALS REOPENED — THE RE-MEASUREMENT OVERTURNS TWO OF THE
+Last updated: 2026-08-27 (**TASK 015 SUB-SLICE `015-A0` — THE TYPE-ADMISSIBILITY DIFFERENTIAL GRID
+IS BUILT AND THE 25-MEMBER FAMILY IS DECIDED CELL BY CELL. SIX MEASURED N#-OWNER BUGS ARE FIXED WITH
+CONTRACTS; ZERO C# CHANGES — see the Cursor block.** A throwaway reflection harness drives each C#
+emitter predicate and every candidate N# owner over a purpose-built **245-type corpus in eighteen
+groups** — every class the family discriminates, with the builder side built on the
+**`PersistedAssemblyBuilder` production uses** — for **68 driven rows and 12,115 cells**.
+**IT IS NON-VACUOUS AGAINST ITS OWN CONTROL: four of the five recorded divergences REPRODUCE**
+(span-element, generic-parameter, the interface `catch` breadth via a purpose-built throwing-`Type`
+probe, and the Yaml assembly identity via a second `AssemblyLoadContext` load) — **one is
+OVERTURNED** (`IsClosedUserGenericInstantiation` vs `IsClosedSourceGeneric` agree **245/245**), and
+**one reproduces SHARPER than it was written**: naming `typeof(Stream)` inline instead of calling
+`ColumnarRuntimeTypeFacts` does not merely spell it differently, it DROPS `FileStream` and
+`DirectoryInfo`. **THE VERDICT: 48 rows EQUIVALENT, 8 DIVERGENT, 12 UNMATCHED**, and the twelve
+unmatched are the A-cut's build list, which **re-prices `015-A`** — its C# deletion is not total
+until seven new N# owners are written (`IsSupportedParameterType`, `IsSupportedByRefElementType`,
+`IsSupportedContextualDelegateType`, `TryGetSupportedDelegateSignature` and the three
+dictionary-definition helpers). **SIX BUGS WERE FOUND AND FIXED IN THE N# OWNERS, EACH WITH A
+MEASURED DOWNSTREAM VERDICT RATHER THAN AN ASSERTED ONE**: the span head admitted without its element
+(`Span<UserStruct>`'s conversion ctor lookup **THROWS `NotSupportedException`** — measured — and this
+predicate is the only guard in front of it); `Result`/`Union` admitted on the definition name alone
+(admit-then-*clean-decline*, measured, so it is stated as the weaker class it is);
+**`IsEnumBuilder` COULD NEVER BE TRUE** because `EnumBuilder` is ABSTRACT on this runtime
+(`EnumBuilderImpl` / `RuntimeEnumBuilder`) — **and the same measurement bounds it as LATENT, because
+persisted `DefineEnum(...).CreateType()` returns a `TypeBuilderImpl` for which `is EnumBuilder` is
+False, so no production path hands either owner an EnumBuilder**; `SubstituteClosedTypeArguments`
+returning the UNSUBSTITUTED `T&`; a bare `catch` swallowing `TypeLoadException`; and the three
+dropped interop heads, which is missed coverage rather than an unsafe admit but is a **reroute
+blocker** because rerouting as-is would have removed three types the compiler admits today.
+**THE RESIDUAL 26 CELLS REDUCE TO THREE CAUSES, ALL RULED**: runtime generic parameters and a
+twice-loaded assembly (both unreachable in production, N# widens, recorded not changed), and an
+ARRAY of an AspNet type where **C# is the one that is wrong** (`IsPointer` where it needed
+`HasElementType`) — so that reroute TIGHTENS and closes a C# hole. Evidence: estate
+**`Passed: 7036, Failed: 0`** (7,030 + exactly the 6 new blocks, 86 asserts), **six of seven
+mutations fail exactly one block each with byte-exact restores** and the seventh (the `catch`
+narrowing) is pinned by the harness probe instead — 2/5 before the fix, 5/5 after — which is stated
+rather than glossed. Live-tree **399 / 246** diffed ROW-FOR-ROW against the baseline (0 added, 0
+removed); ownership audit **18/18** with a blank-line non-vacuity control at 17/18 and a byte-exact
+restore; manifest **391, no BOM**; **NO RATCHET REPIN IS OWED** because zero non-N# files changed, so
+both keys stay `head-v1:d0614137ae9ff544`. `.nl` only:
+`ColumnarTypeOfPlanner` 1,480 → 1,544, `ColumnarRuntimeInstanceMemberResolver` 1,046 → 1,075,
+`ColumnarBaseTypePlanner` 252 → 258, plus a 302-line contract file (6 blocks, 86 asserts). **ONE TOOLSET WALL RECORDED**:
+`typeof(TextWriter)` DECLINES at emit under the pinned toolset, so it is seeded by name like the
+read-only dictionary head. The staged `015-A` cut plan (A1..A6, `IsSupportedType` LAST at 77 sites)
+is written in the Cursor block. **THE FRESH ISOLATED GATE IS GREEN — `GATE EXIT 0`, 16 steps,
+126 PASSED / 0 FAILED, 22m 39s from a `/tmp` byte copy with the log outside it** — carrying unit
+**596**, estate **7,036**, **all 47 native projects** (ownership-audit among them), the format
+contract gate and the IL verification gate. NOT COMMITTED)
+
+Last updated (prior): 2026-08-27 (**TASK 015 RESIDUALS REOPENED — THE RE-MEASUREMENT OVERTURNS TWO OF THE
 ROADMAP'S LOAD-BEARING CLAIMS, AND THE CAMPAIGN PLAN IS WRITTEN. NO PRODUCTION EDIT, NO COMMIT —
 see the Cursor block.** Every roadmap number was re-measured at this tip with instruments that
 reproduce the published controls: the sentence census reads **145** where 021/12 read 144 (a
@@ -4641,6 +4689,357 @@ non-leaf primaries + postfix call/index/member/with deferred to tranche 9)
 Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSION MATERIALIZATION, the LEAF/PRIMARY tier: the int/float/char/string literals, bool/null, default/this/base, identifier, and single-expression parenthesized forms now RETURN their byte-exact Expression node, carried up the ladder via a new nullable `ExprResult.Node` [every operator-composing tier leaves it null → declines]; CONSUMER unlocked = VALUE-BEARING ENUM MEMBERS [EnumMember.Value materialized; Parser.cs :1304 string→String inference replicated]; VERIFIED owner==live-Parser.cs whole-tree on 14 leaf/paren synthetic shapes + WHOLE-FILE DeclarationEnums.nl [5 enums, 26 int-literal-valued members], the 3 composed forms correctly decline; +19 contracts → 1300/1300; the whole composed ladder + non-leaf primaries + field initializers deferred to tranche 8)
 
 ## Cursor
+
+- Active sub-slice (015 arc, THIS TURN — **`015-A0`: THE TYPE-ADMISSIBILITY DIFFERENTIAL GRID. THE
+  INSTRUMENT IS BUILT, THE 25-MEMBER FAMILY IS DECIDED CELL BY CELL, AND SIX MEASURED N#-OWNER BUGS
+  ARE FIXED WITH CONTRACTS. ZERO C# CHANGES. NOT COMMITTED.**)
+
+  ### THE INSTRUMENT — A REFLECTION DIFFERENTIAL, WITH THE FIVE RECORDED DIVERGENCES AS ITS CONTROL
+
+  A throwaway console harness (in the scratchpad, never in the repo — the ownership audit's file set
+  is untouched) loads the built `Compiler.dll` and `NSharpLang.Compiler.BootstrapServices.dll`,
+  reflects the emitter's `private static` predicates through `BindingFlags.NonPublic`, resolves
+  each candidate N# owner by name (failing loudly if a name is missing), and drives BOTH sides over
+  the same `Type`. Each cell records `T` / `F` / `!<ExceptionType>`, so a THROW is a distinguishable
+  answer rather than a crash.
+
+  **THE CORPUS IS THE WORK, AND IT IS BUILT THE WAY THE EMITTER BUILDS TYPES.** 245 `Type`s in
+  eighteen labelled groups: primitives and scalars incl. `void`/`decimal`/`IntPtr`/`Guid`; the named BCL
+  interop heads and their unmodelled neighbours (`Stream`/`FileStream`/`DirectoryInfo`/`TextWriter`
+  vs `MemoryStream`/`FileInfo`/`StreamWriter`/`Stopwatch`); SZ arrays, JAGGED arrays, MULTI-DIM
+  arrays and `int[][,]`; spans over EVERY element class (blittable, `string`, `object`, `DateTime`,
+  `Guid`, `decimal`, `IntPtr`, an ARRAY element, an enum element, a source-struct element, and both
+  open definitions); nullables incl. the non-liftable ones (`DateTime?`, `Guid?`, `DayOfWeek?`) and
+  `Nullable<(int,int)>`; the closed BCL generics on and off the collection list (`Queue<int>`,
+  `LinkedList<int>`, `ImmutableArray<int>`, `KeyValuePair<,>`); the task family incl.
+  `Task<Queue<int>>`; the pools at `byte` and at `int`; `Result`/`Union` at supported and
+  unsupported arguments; `ValueTuple` arities 1..8 incl. the `TRest` form; the delegate family
+  through arity 5 and past it; pointers, `int**`, byrefs, `int[]&`, `TypedReference`; runtime enums
+  at `int`/`byte`/`long` and a flags enum; the Json/Yaml surfaces plus unlisted types from the SAME
+  Yaml assembly; and synthetic AspNet-namespaced types (value, reference, ARRAY, open and closed
+  generic) because no AspNet assembly is loaded in this host and the SHAPE rules must still be
+  exercised.
+
+  **THE BUILDER SIDE USES `PersistedAssemblyBuilder`, WHICH IS WHAT PRODUCTION USES**
+  (`ColumnarIlEmitter.cs:4499`): a struct `TypeBuilder`, a class `TypeBuilder`, an interface
+  `TypeBuilder`, an `EnumBuilder`, `Box<T>` with its `GenericTypeParameterBuilder`, `Box<int>` and
+  `Box<UserStruct>` (`TypeBuilderInstantiation`), a METHOD-level generic parameter, arrays and
+  `List<>`/`Dictionary<,>`/`Action<>`/`Span<>`/`Nullable<>` over each of them, plus a Run-mode
+  assembly for the created/baked shapes. **Two purpose-built controls answer questions no ordinary
+  corpus can**: a SECOND LOAD of `YamlDotNet.dll` through a fresh `AssemblyLoadContext` (same
+  `AssemblyName.FullName`, different `Assembly` handle), and a `TypeDelegator` subclass whose
+  attribute flags THROW on demand, which is the only way to drive the `try`/`catch` members into
+  their catch arms.
+
+  **CONTROL — DOES THE GRID REPRODUCE THE FIVE DIVERGENCES THE REOPENING DECODE RECORDED? FOUR
+  REPRODUCE, ONE IS OVERTURNED, AND ONE REPRODUCES SHARPER THAN IT WAS WRITTEN.**
+
+  | recorded divergence | grid verdict |
+  |---|---|
+  | `IsSupportedSpanLikeType` has no element constraint | **REPRODUCED — 9 cells**, N# strictly looser, exactly as recorded |
+  | `t is GenericTypeParameterBuilder` vs `get_IsGenericParameter()` | **REPRODUCED — 3 cells**, all RUNTIME generic parameters (`List<>.T`, `Dictionary<,>.TKey`, `Enumerable.Select`'s `TSource`); the builder-backed parameters agree |
+  | `IsClosedUserGenericInstantiation` vs `IsClosedSourceGeneric` | **OVERTURNED — 245/245 agree.** The two spellings are pointwise equivalent, including on `Box<int>`, `Box<UserStruct>`, `List<T>`-over-a-GTPB and both open definitions |
+  | …the same row's `Stream`-through-`ColumnarRuntimeTypeFacts` half | **REPRODUCED, AND SHARPER THAN RECORDED**: naming `typeof(Stream)` inline does not just spell it differently, it DROPS `FileStream` and `DirectoryInfo`, which `IsSupportedDirectCallInteropType` admits |
+  | `IsRuntimeInterfaceType` bare `catch` vs two named | **REPRODUCED, but only by the throwing-`Type` probe — 3 of 5**: over the ordinary 245 the two agree exactly, and the divergence is invisible without an instrument built for it |
+  | `IsSupportedExternalType` assembly IDENTITY vs full-NAME | **REPRODUCED by the second-load control** — C# `F`, N# `T` on the twice-loaded `IYamlTypeConverter` |
+
+  The grid is therefore non-vacuous, and it corrects the record in two places rather than absorbing
+  the difference.
+
+  **A SECOND, INDEPENDENT CONTROL: THE CALL-SITE CENSUS REPRODUCES `286` TO THE DIGIT.** Counting
+  each of the 25 members' uses with the DEFINITION line excluded gives
+  77+1+15+1+27+11+23+8+16+13+27+8+2+1+2+1+7+3+3+2+17+2+8+7+4 = **286**, every individual row matching
+  the reopening decode's table exactly. The grid and the plan below are therefore anchored to the same
+  arithmetic the campaign was priced on.
+
+  ### THE GRID — 68 DRIVEN ROWS, 12,115 CELLS
+
+  Rows exceed 25 because every member with TWO live N# owners is driven against BOTH — and that is
+  itself a finding: **`ColumnarTypeOfPlanner` and `ColumnarRuntimeInstanceMemberResolver` each carry
+  a full copy of this family, and they disagreed with each other**, which is duplicated semantic
+  authority INSIDE N#, named here for a later slice.
+
+  **BEFORE the fixes: 133 divergent cells. AFTER, ON THE IDENTICAL ROW SET: 28. FINAL: 26**, once
+  the two probe rows that drove the raw name-only `IsSupportedRuntimeGeneric` helper were re-pointed
+  at the argument-constrained owners `IsSupportedType` now actually calls. The three-number form is
+  written out rather than collapsed to "133 → 26", because the row set is not identical across it.
+  Verdicts below are the FINAL state; the before-count is given where a fix moved it.
+
+  | # | C# member | N# owner(s) | verdict |
+  |---|---|---|---|
+  | 1 | `IsSupportedType` | `TypeOfPlanner.IsSupportedType` | **DIVERGENT 5** (was 20) — residual is R1/R2/R3 below |
+  |  | " | `Resolver.IsAdmittedValueType` | DIVERGENT 7 (was 10) — **the SECOND owner, not the reroute target** |
+  | 2 | `SplitTopLevelPipes` | `TypeOfPlanner.SplitTopLevelPipes` | **EQUIVALENT** — 25/25 strings incl. unbalanced `>`/`)`/`]`, `\|\|`, leading/trailing pipes, nested `<...\|...>` |
+  | 3 | `IsEnumType` | both owners | **EQUIVALENT** 245/245 each, **and 5/5 on the swallow probe** |
+  | 4 | `TryResolveKnownExternalType` | `TypeOfPlanner.TryResolveKnownExternalType` | **EQUIVALENT on the BOOL** — 39/39 canonicals |
+  | 5 | `SubstituteClosedTypeArguments` | `Resolver.SubstituteClosedTypeArguments` | **EQUIVALENT** 20/20 (was 19/20) |
+  | 6 | `ContainsNonEnumBuilderBoundType` | `TypeOfPlanner.…` | **EQUIVALENT** 245/245 (was 239) |
+  | 7 | `ContainsBuilderBoundType` | both owners | **EQUIVALENT** 245/245 each (was 239 each) |
+  | 8 | `IsSupportedValueTuple` | both owners | **EQUIVALENT** 245/245 each |
+  | 9 | `IsAdmissibleCollectionElement` | `TypeOfPlanner.…` | **DIVERGENT 2** (was 20) — residual R2/R3 only |
+  | 10 | `IsSupportedCollectionType` | both owners | **EQUIVALENT** 245/245 each |
+  | 11 | `IsSupportedElementType` | both owners | **EQUIVALENT** 245/245 each |
+  | 12 | `IsSupportedAnonymousUnionType` | `Resolver.…` / `TypeOfPlanner.IsSupportedAnonymousUnionType` | **EQUIVALENT** both (planner was 1) |
+  | 13 | `IsRuntimeInterfaceType` | `BaseTypePlanner.…` | **EQUIVALENT** 245/245 **and 5/5 on the probe** (probe was 2/5) |
+  | 14 | `IsSupportedTaskType` | both owners | **EQUIVALENT** 245/245 each |
+  | 15 | `OpenValueTupleType` | `TypeOfPlanner.…` | **EQUIVALENT** — arity −1..9, incl. 0/1/8/9 all null |
+  | 16 | `IsSupportedJsonType` | both owners | **EQUIVALENT** 245/245 each (the N# side matches by `FullName`, incl. the two nested enumerators) |
+  | 17 | `EnumerateInterfaceAndBases` | `BaseTypePlanner.…` | **STRUCTURAL-EQUIVALENT** — same pre-order DFS, same duplicates on a diamond, same non-termination on a cycle; the SIGNATURE differs (`IEnumerable<T>` vs an out-list), so the reroute rewrites call shape |
+  | 18 | `IsSupportedArrayPoolType` | both owners | **EQUIVALENT** 245/245 each |
+  | 19 | `IsSupportedMemoryPoolType` | both owners | **EQUIVALENT** 245/245 each |
+  | 20 | `IsLiftableNullableElement` | both owners | **EQUIVALENT** 245/245 each |
+  | 21 | `IsSupportedNullable` | both owners | **EQUIVALENT** 245/245 each |
+  | 22 | `IsSupportedExternalType` | both owners | **DIVERGENT 2** each — residual R2/R3 |
+  | 23 | `IsSupportedSpanLikeType` | `TypeOfPlanner.…` / `Resolver.IsSupportedSpanLikeReceiver` | **EQUIVALENT** both (planner was 9) |
+  | 24 | `IsSupportedDelegateType` | both owners | **EQUIVALENT** both (each was 1) |
+  | 25 | `IsAdmissibleHashSetElement` | `TypeOfPlanner.…` | **DIVERGENT 2** (was 21) — residual R2/R3 |
+
+  **THE TRANSITIVE PRIVATE CALLEES, MEASURED WITH THE SAME INSTRUMENT** (they become deletable with
+  the family, so their verdicts are load-bearing for the price):
+  `IsSupportedMemoryOwnerType` **EQUIVALENT** (both owners) · `IsSupportedMemoryType` **EQUIVALENT**
+  (both) · `IsSupportedResultType` **EQUIVALENT** (both; planner was 1) ·
+  `IsSupportedReadOnlySpanElementType` **EQUIVALENT** (both) · `IsByRefLikeType` **EQUIVALENT**
+  (245/245 + 5/5 probe) · `IsClosedUserGenericInstantiation` **EQUIVALENT** ·
+  `IsEnumBuilder` (the inlined `t is EnumBuilder`) **EQUIVALENT** (was 2) ·
+  `IsSupportedAnonymousUnionArmType` **DIVERGENT 5** (was 20; residual R1/R2/R3) ·
+  `IsSupportedAspNetExternalReferenceType` **DIVERGENT 1** (residual R3) ·
+  `TryResolveLoadedExternalType` folded into row 4 and measured there.
+
+  **UNMATCHED — 12 members, no N# owner answers the same question. This is the A-cut's build list.**
+  `IsSupportedReadOnlySpanType` and `IsSupportedSpanType` (N# folds both into `IsSupportedSpanLikeType`,
+  so the reroute must either split the N# owner or rewrite the two C# call sites that need the
+  head distinction — `CanUseSpanConversion` needs exactly that distinction) ·
+  `IsSupportedParameterType` · `IsSupportedByRefElementType` · `IsSupportedContextualDelegateType` ·
+  `TryGetSupportedDelegateSignature` (the out-parameters, not the bool) ·
+  `IsSupportedIndexableCollectionType` · `IsSupportedReadableIndexedCollectionType` ·
+  `IsDictionaryLikeCollectionDefinition` · `IsReadOnlyDictionaryCollectionDefinition` ·
+  `IsAnyDictionaryCollectionDefinition` · `TryResolveLoadedExternalType` (as a separate entry point).
+
+  ### THE SIX BUGS THE GRID FOUND, EACH WITH ITS DOWNSTREAM VERDICT — AND ALL SIX ARE FIXED HERE
+
+  The mandate's rule was applied literally: a divergence is a BUG to fix before rerouting when the
+  admitted type is not emittable downstream; it is missed coverage when the N# owner declines
+  something the emitter handles. The downstream verdict was MEASURED by calling the emitter's own
+  helper for the shape, not asserted.
+
+  1. **THE SPAN ELEMENT CONSTRAINT — N# ADMITS MORE, AND THE ADMIT ENDS IN A THROW.**
+     `ColumnarTypeOfPlanner.IsSupportedSpanLikeType` matched the generic-definition NAME and nothing
+     else, admitting `Span<string>`, `Span<object>`, `Span<DateTime>`, `Span<Guid>`, `Span<decimal>`,
+     `Span<IntPtr>`, `ReadOnlySpan<int[]>` and `Span<UserStruct>`. **DOWNSTREAM VERDICT: for
+     `Span<UserStruct>` the conversion path's `targetType.GetConstructor(elem[])`
+     (`ColumnarIlEmitter.cs`:19533) THROWS `NotSupportedException` — measured — and the ONLY guard
+     between `UserStruct[]` and that call is this predicate.** The other eight are guard-limited
+     (every downstream span helper is gated by the same predicate, which is precisely why rerouting
+     the predicate is the dangerous move). **The correct answer is unambiguous from inside N#: the
+     sibling owner `Resolver.IsSupportedSpanLikeReceiver` already carries the element constraint and
+     is EQUIVALENT to C# over all 245.** FIXED: the planner now requires
+     `IsSupportedReadOnlySpanElement(args[0])`.
+  2. **`Result`/`Union` ADMITTED ON THE HEAD ALONE — N# ADMITS MORE.** `IsSupportedType` reached
+     `IsSupportedRuntimeGeneric(t, "NSharpLang.Runtime.Result`2")`, which checks the definition NAME
+     and never the arguments, so `Result<Queue<int>,string>` read as supported. **DOWNSTREAM
+     VERDICT: NOT a crash — `TryResolveResultReadableProperty` returns a clean FALSE (measured), so
+     this is admit-then-later-decline.** It is still a bug: an admitted type flows into collection
+     elements and tuple slots before anything asks a second question. Again the sibling owner
+     (`Resolver.IsSupportedResultReceiver` / `Resolver.IsSupportedAnonymousUnionType`) already
+     constrained its arguments and is EQUIVALENT to C#. FIXED: two new argument-constrained
+     predicates in the planner, `IsSupportedResultType` and `IsSupportedAnonymousUnionType`, wired
+     into `IsSupportedType`; the union arm reuses the file's existing `IsSupportedAnonymousUnionArm`.
+  3. **`IsEnumBuilder` COULD NEVER BE TRUE.** Both N# owners tested
+     `valueType.GetType().FullName == "System.Reflection.Emit.EnumBuilder"`. **`EnumBuilder` is
+     ABSTRACT on this runtime**: the harness reads the live instance as
+     **`System.Reflection.Emit.EnumBuilderImpl`** (persisted) and **`RuntimeEnumBuilder`** (run), so
+     the exact-name test is dead code and every EnumBuilder read as BAKED. **DOWNSTREAM VERDICT:
+     `List<SomeEnumBuilder>`'s plain-reflection `GetMethod("Add")` THROWS `NotSupportedException`
+     (measured), and `ContainsBuilderBoundType` — which decides whether to rebind through the open
+     definition at `ColumnarRuntimeInstanceMemberResolver.nl:397` — answered FALSE for it.**
+     **THE HONEST SCOPE, MEASURED RATHER THAN ASSUMED: this is LATENT, not live.** The emitter calls
+     `eb.CreateType()` and registers the RESULT (`ColumnarIlEmitter.cs:4534`, whose own comment says
+     it does so to keep `List<Color>` on normal closed-Type handles), and on persisted emit
+     `DefineEnum(...).CreateType()` returns a **`TypeBuilderImpl`** for which `is EnumBuilder` is
+     **False** and `is TypeBuilder` is **True** — measured. So no production path today hands either
+     owner an EnumBuilder, and C# and N# agree on every production enum shape. It is fixed anyway:
+     the predicate is written to detect EnumBuilder, the C# member it will replace detects it
+     correctly, and a reroute must not trade a working check for a dead one. FIXED: both owners walk
+     the runtime base chain, exactly as the file's own `IsAssemblyBuilderBacked` already walks it.
+  4. **`SubstituteClosedTypeArguments` HAD NO BYREF ARM.** Given the open `T&` and `[int,string]` the
+     C# member returns `System.Int32&`; the N# owner returned the UNSUBSTITUTED `T&` — a wrong
+     answer, not a looser admission, so a closed argument was compared against an open parameter.
+     FIXED: the byref arm recurses and re-applies `MakeByRefType()`, mirroring the SZ-array arm
+     beside it.
+  5. **`IsRuntimeInterfaceType` SWALLOWED EVERYTHING.** C# catches exactly
+     `NotSupportedException`/`NotImplementedException`; N# had a bare `catch`. The throwing-`Type`
+     probe measures the difference precisely: on `TypeLoadException`,
+     `InvalidOperationException` and `NullReferenceException` **C# propagates and N# returns
+     `false`**. The narrow catch is the correct one — "this type could not be read" must not become
+     the confident answer "not an interface", which is exactly the masking this project's error
+     philosophy forbids. FIXED: the two exceptions are named.
+  6. **THE INTEROP HEADS WERE DROPPED — C# ADMITS MORE, AND THE REROUTE WOULD HAVE REGRESSED THE
+     PRODUCT.** `TypeOfPlanner.IsSupportedType` named `typeof(Stream)` inline instead of calling
+     `ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType`, losing `FileStream` and
+     `DirectoryInfo`; `TextWriter` was absent from both N# owners' scalar lists (the resolver had
+     `TextWriter` but also lacked the two file heads). By the mandate's taxonomy this is
+     decline-then-fine — MISSED COVERAGE, not an admit-then-crash — but it is a **reroute blocker**,
+     because routing `IsSupportedType`'s 77 call sites to the N# owner as-is would have removed
+     three types the compiler admits today. **The owner it needed already exists, ships and is
+     contract-tested** (`ColumnarRuntimeTypeFacts.nl`, 24 lines): the planner simply was not calling
+     it. FIXED in both owners.
+     **ONE TOOLSET WALL, RECORDED**: `typeof(TextWriter)` **DECLINES at emit** under the pinned
+     toolset (`NL103`, `emit.if.condition`), the same class as `typeof(FileStream)`, which is why
+     `ColumnarRuntimeTypeFacts` itself reaches those heads by name. The planner therefore names it
+     through a new `RequiredTextWriterType()` seed, the idiom the file already uses for the
+     read-only dictionary head. **This is a toolset limit, not a design choice, and it disappears at
+     the next SDK repack.**
+
+  ### THE NON-REGRESSION FACT THAT MAKES TWO OF THE FIXES RE-ALIGNMENTS, NOT NEW POLICY
+
+  **`ColumnarTypeOfPlanner`'s own RESOLUTION paths already enforced exactly the constraints its
+  ADMISSIBILITY predicates had lost.** `TryResolveType`'s `Span`/`ReadOnlySpan` head (`:362`) already
+  refuses to build the type at all unless `IsSupportedReadOnlySpanElement(element)` holds, and its
+  `Result` head (`:416`) already applies `IsByRefLike` plus `IsSupportedType` to BOTH arguments. So
+  the planner could never MANUFACTURE a `Span<string>` or a `Result<Queue<int>,string>` from source
+  in the first place — which means fixes 1 and 2 cannot reject any reachable program; they close the
+  gap for types arriving from elsewhere (a bindings-supplied receiver, and the reroute itself). They
+  are re-alignments to the file's own stated intent, and the divergence existed because one file
+  spelled the same rule twice and only kept one copy correct — which is precisely the duplicated-
+  authority failure mode `015` exists to remove.
+
+  ### THE RULINGS ON THE 26 RESIDUAL CELLS — THREE CAUSES, NONE OF THEM AN N# BUG
+
+  **THE 26 PARTITION EXACTLY, WHICH IS HOW WE KNOW NOTHING IS UNACCOUNTED FOR**: the AspNet-typed
+  ARRAY accounts for **8**, the twice-loaded `IYamlTypeConverter` for **7**, the three runtime
+  generic parameters for **9** (3 each), and the second-owner-only pair — an OPEN user generic
+  definition and `UserStruct&` — for **1** each. 8 + 7 + 9 + 1 + 1 = **26**.
+
+  - **R1 — RUNTIME GENERIC PARAMETERS (3 corpus types).** C# `t is GenericTypeParameterBuilder`
+    admits only BUILDER-backed parameters; N# `get_IsGenericParameter()` admits every generic
+    parameter, so `List<>.T` and friends read supported. **RULING: record, do not change.** The
+    emitter only ever asks about types it resolved itself, and a source generic parameter IS a
+    `GenericTypeParameterBuilder`, on which the two agree; tightening N# to builder-only would break
+    the resolver's legitimate handling of generic parameters elsewhere. Unreachable from the emit
+    path, so the reroute is safe in both directions.
+  - **R2 — A SECOND LOAD OF THE SAME ASSEMBLY (1 corpus type).** C# compares `Assembly` IDENTITY;
+    N# compares `AssemblyName.FullName`. **RULING: N#'s rule is the long-term-correct one** — an
+    assembly loaded twice is the same assembly for the purpose of "is this type from the Yaml
+    surface" — **but it is unobservable in production** (the compiler references YamlDotNet directly
+    and loads it once), so no code changes either way. Recorded so the A-cut's widening is a
+    decision, not an accident.
+  - **R3 — AN ARRAY OF AN ASPNET TYPE (1 corpus type). THIS ONE IS A C# DEFECT THE REROUTE FIXES.**
+    `IsSupportedAspNetExternalReferenceType` rejects `IsValueType`/`IsByRef`/`IsPointer`/
+    `ContainsGenericParameters` — but NOT arrays, so `SomeAspNetType[]` is admitted through the
+    external branch and never sees `IsSupportedElementType`. N# rejects on `HasElementType`, which
+    covers arrays, byrefs and pointers together, and is right. **RULING: N# wins; the reroute
+    TIGHTENS and that is the fix. No N# change; the C# deletion at `015-A` is the repair.**
+  - **R4 (second-owner only, 2 cells).** `Resolver.IsAdmittedValueType` also differs from
+    `IsSupportedType` on an OPEN user generic definition and on `UserStruct&`. **RULING: it is not
+    the reroute target for `IsSupportedType`** — `TypeOfPlanner.IsSupportedType`'s arms line up 1:1
+    with the C# member's — and the two N# owners' disagreement with each other is the duplicated-
+    authority item named above for a later slice.
+
+  ### ONE MORE MEASURED FACT ABOUT THE OUT-PARAMETER CONTRACT
+
+  `TryResolveKnownExternalType` agrees on the BOOL for all 39 canonicals, but on the FALSE path C#
+  leaves the `out` as `null` while N# leaves it as `typeof(object)` (16 of 39 inputs). Every call
+  site must therefore keep reading the `out` only when the bool is true — which both sides already
+  document. Recorded because a mechanical reroute that copies a `false` result into a nullable slot
+  would silently install `System.Object`.
+
+  ### THE FIXES, AND THE EVIDENCE
+
+  | | before | after |
+  |---|---|---|
+  | `ColumnarTypeOfPlanner.nl` | 1,480 | **1,544** (+64) |
+  | `ColumnarRuntimeInstanceMemberResolver.nl` | 1,046 | **1,075** (+29) |
+  | `ColumnarBaseTypePlanner.nl` | 252 | **258** (+6) |
+  | `ColumnarTypeAdmissibilityFacts.tests.nl` | — | **302 lines / 6 blocks / 86 asserts** (new, no BOM) |
+  | C# files changed | — | **ZERO** — `git diff -- '*.cs'` is empty and the working tree is exactly three modified `.nl` plus one new `.tests.nl` |
+  | estate | `Passed: 7030` | **`Passed: 7036, Failed: 0`** — +6, exactly the new blocks |
+  | grid divergent cells | 133 | **28** on the identical row set, **26** final (12,115 cells; 48 EQUIVALENT / 8 DIVERGENT / 12 UNMATCHED rows) |
+
+  **THE MUTATION CONTROLS — SEVEN, NOHUP-DETACHED, EACH WITH A `sha256` RESTORE VERIFICATION.**
+  Each reverts exactly ONE fix, runs the estate, restores, and re-hashes.
+
+  | mutation | estate | restore |
+  |---|---|---|
+  | M1 revert the span element constraint | **Failed: 1** — `SpanAdmissibilityRequiresABlittableElement…` | sha match |
+  | M2 revert `Result`/`Union` to the name-only helper | **Failed: 1** — `ResultAndAnonymousUnionAdmissibility…` | sha match |
+  | M3 revert the interop heads to the inline `Process`/`ProcessStartInfo` list | **Failed: 1** — `TypeAdmissibilityRoutesTheInteropHeads…` | sha match |
+  | M3b remove the `TextWriter` arm alone | **Failed: 1** — same block | sha match |
+  | M4 revert `IsEnumBuilder` to the exact-name test | **Failed: 1** — `EnumBuilderDetectionWalksTheRuntimeBaseChain` | sha match |
+  | M5 remove the byref substitution arm | **Failed: 1** — `ClosedGenericSubstitutionCarriesByrefParameterSlots` | sha match |
+  | M6 revert the interface `catch` to a bare `catch` | **PASSED 7036 — the estate does NOT catch this one** | sha match |
+  | FINAL pristine re-run | **`Passed: 7036, Failed: 0`** | — |
+
+  **M6's PASS IS REPORTED, NOT HIDDEN.** N# cannot construct a `Type` whose members throw, so no
+  estate contract can distinguish a bare `catch` from two named ones; the instrument that DOES
+  distinguish them is the harness's `TypeDelegator` probe, which reads **2/5 before the fix and 5/5
+  after**. The estate block pins the ordinary answers, and the split is stated rather than glossed.
+
+  ### THE REST OF THE BAR
+
+  | check | result |
+  |---|---|
+  | `nlc format --check` on all four files | **"All files are properly formatted."** — the new contract file needed ONE format pass (357 → **302** lines); the three production files were clean as written |
+  | live-tree `nlc check` over `BootstrapServices` | **`checkedFiles=399`, 246 errors**, census identical — `NL202` 85, `NL402` 68, `NL905` 26, `NL012` 20, `NL011` 17, `NL301` 16, `NL010` 7, `NL303` 3, `NL412` 3, `NL002` 1 — and diffed ROW-FOR-ROW against the stored baseline: **0 rows added, 0 rows removed**. **0 rows name the new contract file** (`.tests.nl` are not discovered by `check`, so the file count does not move either) |
+  | `tests/native/ownership-audit` | **18 / 18** |
+  | ratchet | **NO REPIN — and none is owed**: zero non-N# files changed, so both keys stay `head-v1:d0614137ae9ff544`, the epoch triple stays `381` / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1`, and the emitter row stays `currentLines 21519 / currentNonBlank 20457 / text-v1:d86f36cb8b445e8f` |
+  | ratchet NON-VACUITY | appending ONE blank line to `ColumnarIlEmitter.cs` takes the audit to **17 / 18**; the byte was removed and the file's `sha256` re-verified IDENTICAL, and the audit re-read **18 / 18** |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`), byte-unchanged |
+  | fresh isolated gate | `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` byte copy (`.git`, `bin`, `obj`, `node_modules` **and `.claude/worktrees/`** excluded — the nested-worktree hazard is a recorded gate breaker), log written OUTSIDE the copy: **`GATE EXIT 0` — GREEN, 16 steps, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 39s.** Inside the gate: unit suite **`Passed: 596`** (the baseline exactly), estate **`Passed: 7036`**, **all 47 native projects** including `tests/native/ownership-audit` (which is what proves the manifest and the `OwnershipPolicy` constant in the COPY are the consistent pair), the **format contract gate**, `dotnet new` templates, all example projects, 38 single-file examples, `nlc check` on examples, and the **IL verification gate** |
+
+  **TWO CONTRACT LIMITS ARE RECORDED RATHER THAN PAPERED OVER.** (a) `NSharpLang.Runtime.dll` is not
+  on the estate test host's probing path, so `Type.GetType("NSharpLang.Runtime.Result`2, …")` answers
+  null there — the planner matches these heads by exact full NAME so the contract installs the
+  definition the way `TypeOfInstallRuntimeUnion` already does, while the receiver-side owner (which
+  compares by handle identity) cannot be driven from that host at all and its agreement is
+  established by the differential instead. (b) The `IsRuntimeInterfaceType` catch-narrowing is
+  pinned by the harness probe, per M6 above. Neither is claimed as something it is not.
+
+  ### THE STAGED `015-A` CUT PLAN, WRITTEN FROM THE GRID
+
+  Ordering is forced by the call graph, not preference: `IsSupportedType` calls twelve of the other
+  duplicates, so it moves LAST; anything it calls moves before it; anything with an UNMATCHED
+  dependency is blocked until that owner exists.
+
+  - **STAGE A1 — THE PROVABLY-EQUIVALENT LEAVES THAT NOTHING IN THE FAMILY CALLS.**
+    `SplitTopLevelPipes` (1 site), `OpenValueTupleType` (2), `IsSupportedJsonType` (1),
+    `TryResolveKnownExternalType` + `TryResolveLoadedExternalType` (1), `EnumerateInterfaceAndBases`
+    (7, call-shape rewrite), `IsRuntimeInterfaceType` (2), `SubstituteClosedTypeArguments` (27).
+    **41 call sites** (1+2+1+1+7+2+27), ~150 C# lines. Every one is EQUIVALENT on the grid. Ratchet: the emitter's row
+    shrinks; `currentLines`/`currentNonBlank`/`currentFingerprint` repin, epoch triple UNCHANGED.
+  - **STAGE A2 — THE EQUIVALENT PREDICATES INSIDE THE `IsSupportedType` CONE, LEAVES FIRST.**
+    `IsSupportedArrayPoolType`, `IsSupportedMemoryPoolType`, `IsSupportedMemoryOwnerType`,
+    `IsSupportedMemoryType`, `IsLiftableNullableElement`, `IsSupportedNullable`,
+    `IsSupportedReadOnlySpanElementType`, `IsByRefLikeType`, `IsEnumType`, `IsSupportedElementType`,
+    `IsSupportedCollectionType`, `IsSupportedValueTuple`, `IsSupportedTaskType`,
+    `IsSupportedDelegateType`, `IsSupportedResultType`, `IsSupportedAnonymousUnionType`,
+    `IsSupportedSpanLikeType`, `ContainsBuilderBoundType`, `ContainsNonEnumBuilderBoundType`.
+    **146 counted call sites** (3+3+2+17+15+27+13+8+1+7+8+8+23+11) plus the transitive privates'
+    own. All EQUIVALENT **as of this slice** — six of them only because of the fixes above, which is
+    the whole reason A0 came first.
+  - **STAGE A3 — THE TWO C# SPAN HEADS.** `IsSupportedReadOnlySpanType`/`IsSupportedSpanType` are
+    UNMATCHED because N# folds them. `CanUseSpanConversion` genuinely needs the head distinction, so
+    A3 either publishes two N# heads or rewrites that one site. Small, but it must precede A4.
+  - **STAGE A4 — THE COLLECTION-ELEMENT PAIR.** `IsAdmissibleCollectionElement` (16 sites) and
+    `IsAdmissibleHashSetElement` (4). Their only residual divergences are R2/R3, both ruled; they
+    move once A2 has landed, because they call four of A2's members.
+  - **STAGE A5 — `IsSupportedExternalType` AND ITS ASPNET HELPER.** Carries R2 (widening, ruled
+    harmless) and R3 (a tightening that FIXES a C# defect). It is deliberately its own stage so the
+    two behaviour changes are one reviewable step and not noise inside a 77-site reroute.
+  - **STAGE A6 — `IsSupportedType` LAST, 77 SITES.** Only after A2–A5, so no half-migrated
+    predicate tree exists at any point. `IsSupportedAnonymousUnionArmType` rides with it.
+  - **STILL BLOCKED, NOT SCHEDULED**: `IsSupportedParameterType`, `IsSupportedByRefElementType`,
+    `IsSupportedContextualDelegateType`, `TryGetSupportedDelegateSignature` and the three dictionary-
+    definition helpers have no N# owner at all. They are new N# owners to write, not reroutes, and
+    the family's C# deletion is not total until they exist. **That is a re-price of `015-A`: the
+    "400-600 C# lines deleted" figure holds only if these seven are written as part of it.**
+
+  **THE STAGE TOTALS RECONCILE TO THE RECORDED FIGURE, WHICH IS THE PLAN'S OWN CONTROL**:
+  41 (A1) + 146 (A2) + 20 (A4: 16 + 4) + 2 (A5) + 77 (A6) = **286**, exactly the reopening decode's
+  measured call-site count. A3 adds no family sites (it splits an N# head).
+
+  - **THE BAR PER STAGE**: the differential re-run (the harness is the regression instrument — every
+    stage must leave its rows EQUIVALENT), the estate count-diff, the corpus IL byte-exact sweep
+    control-first, ratchet repin with the epoch triple unchanged, and the fresh isolated gate.
 
 - Active sub-slice (015 arc, THIS TURN — **THE REOPENING DECODE. EVERY ROADMAP NUMBER
   RE-MEASURED, EVERY RECORDED BLOCK RE-PROBED, THE RESIDUAL CAMPAIGN PLAN WRITTEN, AND NO CUT
@@ -61604,7 +62003,8 @@ strictly-stronger group: M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 (10)
   `ColumnarIteratorBodyPlanner` plans the user's own statement tree) — it is under-covered at
   **10/21 statement kinds and 7/27 expression kinds**, not blocked. Blockers #2 (preflight typing,
   re-measured 8 members / 629 lines), #3 (`case 12`/`13`) and #4 (blocking await, 5 members /
-  245 lines) were re-probed and HOLD. Next sub-slice is `015-A0`; the dependency-ordered plan
+  245 lines) were re-probed and HOLD. Next sub-slice was `015-A0`, which has since RUN (see the
+  `015-A0` record at the top of this block); the dependency-ordered plan
   `015-A`..`015-F` and the AOT metadata-writer decision (Reflection.Emit first, MetadataBuilder as a
   SECOND executor over the same rows) are in the Cursor block's reopening-decode sub-slice.
   **Emitter at 21,519/20,457 vs epoch 21,723/20,646 — and vs 21,433/20,375 at the pause, so it has
@@ -64610,20 +65010,25 @@ definitions are deleted as they move (shrink, not new). NO emitter-operand unloc
 
 These are populated only when their task becomes current.
 
-- Task 015 next emitter sub-slice: **`015-A0` — THE TYPE-ADMISSIBILITY DIFFERENTIAL GRID.** (This
-  REPLACES the former "NONE — movable-decision surface exhausted", which the reopening decode
-  FALSIFIED: that sweep read the dispatch ARMS and never read the HELPERS.) Build the throwaway
-  reflection differential (the 017-slice-1 method) over the ~25 duplicated type-admissibility
-  predicates and their live N# owners in `ColumnarTypeOfPlanner` /
-  `ColumnarRuntimeInstanceMemberResolver` / `ColumnarSemanticTypeRegistry` / `ColumnarBaseTypePlanner`,
-  cell by cell over a Type grid, and record a per-member EQUIVALENT/DIVERGENT verdict. Five
-  divergences are ALREADY measured and must come back the same way or the grid is wrong (the span
-  ELEMENT constraint the N# owner lacks; `GenericTypeParameterBuilder` vs `IsGenericParameter`;
-  `IsClosedUserGenericInstantiation` vs `IsClosedSourceGeneric`; `IsRuntimeInterfaceType`'s catch
-  breadth; `IsSupportedExternalType`'s Assembly-IDENTITY vs assembly-NAME comparison) — that is the
-  grid's non-vacuity control. Then `015-A1` moves the equivalent members and `015-A2` reconciles the
-  divergent ones, with `IsSupportedType` (77 call sites, 12 duplicate callees) LAST. Full plan,
-  prices and the AOT decision: the Cursor block's reopening-decode sub-slice. `015-B` (generalise
+- Task 015 next emitter sub-slice: **`015-A` STAGE A1 — MOVE THE PROVABLY-EQUIVALENT LEAVES.**
+  (`015-A0`, the differential grid, is DONE — see the Cursor block's `015-A0` sub-slice. It drove
+  **68 rows / 12,115 cells** over a **245-type corpus**, reproduced FOUR of the five recorded
+  divergences, **OVERTURNED** the `IsClosedUserGenericInstantiation`/`IsClosedSourceGeneric` one as
+  pointwise equivalent 245/245, reproduced the `Stream` one SHARPER — it drops `FileStream` and
+  `DirectoryInfo` — and independently reproduced the **286** call-site total to the digit. It
+  verdicts the family **48 EQUIVALENT / 8 DIVERGENT / 12 UNMATCHED** and FIXED six measured N#-owner
+  bugs so the equivalent set is real.) A1 moves `SplitTopLevelPipes`, `OpenValueTupleType`,
+  `IsSupportedJsonType`, `TryResolveKnownExternalType` (+`TryResolveLoadedExternalType`),
+  `EnumerateInterfaceAndBases`, `IsRuntimeInterfaceType` and `SubstituteClosedTypeArguments` —
+  **41 call sites, ~150 C# lines**, every one EQUIVALENT on the grid. Then A2 (the `IsSupportedType`
+  cone's equivalent members, 146 sites), A3 (split or rewrite the two C# span heads — the only
+  UNMATCHED members A4 depends on), A4 (the collection-element pair, 20 sites), A5
+  (`IsSupportedExternalType`, which carries the one behaviour change worth its own step), and
+  **A6 `IsSupportedType` LAST at 77 sites**. **THE RE-PRICE THE GRID FORCED**: seven members have no
+  N# owner at all (`IsSupportedParameterType`, `IsSupportedByRefElementType`,
+  `IsSupportedContextualDelegateType`, `TryGetSupportedDelegateSignature`, and the three
+  dictionary-definition helpers), so the family's C# deletion is not total until those are WRITTEN,
+  not rerouted. Full staged plan, rulings and the AOT decision: the Cursor block. `015-B` (generalise
   the plan-row body planner — the real long arc), `015-C` (fold expression typing INTO B; do NOT
   build it standalone), `015-D` (async lowering), `015-E` (the declaration host — retires with the
   AOT writer, NOT by moving literals) and `015-F` (operand unlocks ride along with B) follow.

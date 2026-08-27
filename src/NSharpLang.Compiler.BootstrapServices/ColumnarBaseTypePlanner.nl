@@ -175,10 +175,16 @@ class ColumnarBaseTypePlanner {
         return null
     }
 
+    // The swallow is NARROW on purpose: an un-finalized builder answers `IsInterface` by throwing
+    // NotSupportedException/NotImplementedException, and those two mean "not classifiable yet". A bare
+    // catch also swallowed TypeLoadException and every other failure, turning "this type could not be
+    // read" into the confident answer "not an interface".
     static func IsRuntimeInterfaceType(valueType: Type): bool {
         try {
             return valueType.get_IsInterface()
-        } catch {
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
             return false
         }
     }

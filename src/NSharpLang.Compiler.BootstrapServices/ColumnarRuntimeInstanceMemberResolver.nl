@@ -564,6 +564,18 @@ class ColumnarRuntimeInstanceMemberResolver {
             return signatureType
         }
 
+        // A `ref`/`out` slot in an open signature is `T&`, and substituting through it is the whole
+        // point: without this arm the method returned the UNSUBSTITUTED `T&` and the caller compared a
+        // closed argument against an open parameter.
+        if signatureType.get_IsByRef() {
+            byRefElement := signatureType.GetElementType()
+            if byRefElement == null {
+                return signatureType
+            }
+
+            return SubstituteClosedTypeArguments(byRefElement, closedArguments).MakeByRefType()
+        }
+
         if signatureType.get_IsSZArray() {
             elementType := signatureType.GetElementType()
             if elementType == null {
@@ -851,7 +863,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(valueType) || IsSupportedTaskValueType(valueType) || typeof(Exception).IsAssignableFrom(valueType) || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) {
+        if ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(valueType) || ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType(valueType) || IsSupportedTaskValueType(valueType) || typeof(Exception).IsAssignableFrom(valueType) || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) {
             return true
         }
 
@@ -1014,8 +1026,25 @@ class ColumnarRuntimeInstanceMemberResolver {
         return RequiredAssemblyType(typeof(JsonElement).get_Assembly(), fullName)
     }
 
+    // `EnumBuilder` is ABSTRACT on this runtime: a live instance is `EnumBuilderImpl` (persisted emit)
+    // or `RuntimeEnumBuilder` (run emit), so an EXACT match on the base name can never be true and the
+    // predicate silently reported every EnumBuilder as baked — which routed `List<SomeEnumBuilder>` into
+    // the plain-reflection member path, where `GetMethod` throws NotSupportedException.
     static func IsEnumBuilder(valueType: Type): bool {
-        return valueType != null && valueType.GetType().FullName == "System.Reflection.Emit.EnumBuilder"
+        if valueType == null {
+            return false
+        }
+
+        candidate := valueType.GetType()
+        while candidate != null {
+            if candidate.FullName == "System.Reflection.Emit.EnumBuilder" {
+                return true
+            }
+
+            candidate = candidate.get_BaseType()
+        }
+
+        return false
     }
 
     static func RequiredYamlType(fullName: string): Type {

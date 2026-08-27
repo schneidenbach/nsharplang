@@ -1037,10 +1037,16 @@ class ColumnarTypeOfPlanner {
         if valueType == typeof(int) || valueType == typeof(bool) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(string) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(uint) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(decimal) || valueType == typeof(object) || valueType == typeof(Stream) || valueType == typeof(StreamReader) || valueType == typeof(StringComparer) || valueType == typeof(StringBuilder) || valueType == typeof(DateTime) || valueType == typeof(TimeSpan) || valueType == typeof(Index) || valueType == typeof(Range) || valueType == typeof(CancellationToken) || valueType == typeof(Random) || valueType == typeof(IList) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) {
             return true
         }
-        if valueType == typeof(Process) || valueType == typeof(ProcessStartInfo) {
+        if valueType == RequiredTextWriterType() {
             return true
         }
-        if IsSupportedTaskType(valueType, bindings) || typeof(Exception).IsAssignableFrom(valueType) || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedJsonType(valueType) || IsSupportedExternalType(valueType) || IsSupportedSpanLikeType(valueType) || IsSupportedGenericDefinitionName(valueType, "System.Buffers.ArrayPool`1") || IsSupportedGenericDefinitionName(valueType, "System.Buffers.MemoryPool`1") || IsSupportedGenericDefinitionName(valueType, "System.Buffers.IMemoryOwner`1") || IsSupportedGenericDefinitionName(valueType, "System.Memory`1") || IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Result`2") || IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Union`2") || IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || IsClosedSourceGeneric(valueType) || IsSupportedValueTuple(valueType, bindings) || IsSupportedDelegateType(valueType, bindings) || IsSupportedCollectionType(valueType) || IsSupportedNullable(valueType, bindings) {
+        // The interop heads are owned by ColumnarRuntimeTypeFacts, not re-listed here: the direct-call
+        // set is Stream/FileStream/DirectoryInfo and the process set is Process/ProcessStartInfo/
+        // StreamReader. Naming only `Stream` inline dropped FileStream and DirectoryInfo.
+        if ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(valueType) || ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType(valueType) {
+            return true
+        }
+        if IsSupportedTaskType(valueType, bindings) || typeof(Exception).IsAssignableFrom(valueType) || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedJsonType(valueType) || IsSupportedExternalType(valueType) || IsSupportedSpanLikeType(valueType) || IsSupportedGenericDefinitionName(valueType, "System.Buffers.ArrayPool`1") || IsSupportedGenericDefinitionName(valueType, "System.Buffers.MemoryPool`1") || IsSupportedGenericDefinitionName(valueType, "System.Buffers.IMemoryOwner`1") || IsSupportedGenericDefinitionName(valueType, "System.Memory`1") || IsSupportedResultType(valueType, bindings) || IsSupportedAnonymousUnionType(valueType, bindings) || IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || IsClosedSourceGeneric(valueType) || IsSupportedValueTuple(valueType, bindings) || IsSupportedDelegateType(valueType, bindings) || IsSupportedCollectionType(valueType) || IsSupportedNullable(valueType, bindings) {
             return true
         }
         if valueType.get_IsSZArray() {
@@ -1076,12 +1082,20 @@ class ColumnarTypeOfPlanner {
         return valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || IsEnumType(valueType)
     }
 
+    // A span head alone is NOT admissibility: the span read/write/slice/conversion lowerings are
+    // written for the blittable element set, and `Span<T>` over anything else is a byref-like generic
+    // whose ctor/Item reflection lookups are not resolvable (a closed span over a source TypeBuilder is
+    // a TypeBuilderInstantiation whose `GetConstructor` throws). The ELEMENT is part of the question.
     static func IsSupportedSpanLikeType(valueType: Type): bool {
         if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
-        return name == "System.Span`1" || name == "System.ReadOnlySpan`1"
+        if name != "System.Span`1" && name != "System.ReadOnlySpan`1" {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 1 && IsSupportedReadOnlySpanElement(arguments[0])
     }
 
     static func IsSupportedTaskType(valueType: Type, bindings: ColumnarFragmentBindings): bool {
@@ -1145,6 +1159,32 @@ class ColumnarTypeOfPlanner {
 
     static func IsSupportedRuntimeGeneric(valueType: Type, definitionName: string): bool {
         return valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && (valueType.GetGenericTypeDefinition().FullName ?? "") == definitionName
+    }
+
+    // `Result<T, E>` and `Union<A, B>` are admissible only when their ARGUMENTS are: the head alone
+    // admits `Result<Queue<int>, string>`, whose Ok/Err member surface has no emit lowering. Byref-like
+    // arguments are excluded because a `Result` closed over one cannot be stored in a field or a local.
+    static func IsSupportedResultType(valueType: Type, bindings: ColumnarFragmentBindings): bool {
+        if !IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Result`2") {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && !IsByRefLike(arguments[0]) && !IsByRefLike(arguments[1]) && IsSupportedType(arguments[0], bindings) && IsSupportedType(arguments[1], bindings)
+    }
+
+    static func IsSupportedAnonymousUnionType(valueType: Type, bindings: ColumnarFragmentBindings): bool {
+        if !IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Union`2") {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        i := 0
+        while i < arguments.Length {
+            if !IsSupportedAnonymousUnionArm(arguments[i], bindings) {
+                return false
+            }
+            i += 1
+        }
+        return true
     }
 
     static func IsSupportedAnonymousUnionArm(valueType: Type, bindings: ColumnarFragmentBindings): bool {
@@ -1334,8 +1374,22 @@ class ColumnarTypeOfPlanner {
         return !(valueType is TypeBuilder) && valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && valueType.GetGenericTypeDefinition() is TypeBuilder
     }
 
+    // `EnumBuilder` is ABSTRACT on this runtime: a live instance is `EnumBuilderImpl` (persisted emit)
+    // or `RuntimeEnumBuilder` (run emit), so an EXACT match on the base name can never be true and the
+    // predicate silently reported every EnumBuilder as baked. The base chain is walked, exactly as
+    // IsAssemblyBuilderBacked already walks it for AssemblyBuilder.
     static func IsEnumBuilder(valueType: Type): bool {
-        return valueType != null && valueType.GetType().FullName == "System.Reflection.Emit.EnumBuilder"
+        if valueType == null {
+            return false
+        }
+        candidate := valueType.GetType()
+        while candidate != null {
+            if candidate.FullName == "System.Reflection.Emit.EnumBuilder" {
+                return true
+            }
+            candidate = candidate.get_BaseType()
+        }
+        return false
     }
 
     static func IsAssemblyBuilderBacked(valueType: Type): bool {
@@ -1458,6 +1512,16 @@ class ColumnarTypeOfPlanner {
         result := Type.GetType("System.Collections.Generic.IReadOnlyDictionary`2")
         if result == null {
             throw new InvalidOperationException("System.Collections.Generic.IReadOnlyDictionary`2 runtime type was not found.")
+        }
+        return result
+    }
+
+    // Fetched BY NAME for the same reason the read-only dictionary head is: the pinned toolset that
+    // compiles this kernel does not resolve the `TextWriter` canonical, though it emits the type fine.
+    static func RequiredTextWriterType(): Type {
+        result := Type.GetType("System.IO.TextWriter")
+        if result == null {
+            throw new InvalidOperationException("System.IO.TextWriter runtime type was not found.")
         }
         return result
     }
