@@ -9,7 +9,6 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using YamlDotNet.Core.Events;
 using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 using YamlEmitter = YamlDotNet.Core.IEmitter;
 using YamlExceptionType = YamlDotNet.Core.YamlException;
 using YamlParser = YamlDotNet.Core.IParser;
@@ -424,7 +423,7 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(Version)
         || t == typeof(Assembly)
         || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(t.FullName)
-        || IsSupportedJsonType(t)
+        || ColumnarTypeOfPlanner.IsSupportedJsonType(t)
         || IsSupportedExternalType(t)
         || IsSupportedReadOnlySpanType(t)
         || IsSupportedSpanType(t)
@@ -607,16 +606,6 @@ internal sealed class ColumnarIlEmitter
         }
         return false;
     }
-
-    private static bool IsSupportedJsonType(Type t) =>
-        t == typeof(JsonElement)
-        || t == typeof(JsonDocument)
-        || t == typeof(JsonValueKind)
-        || t == typeof(JsonSerializerOptions)
-        || t == typeof(JsonNamingPolicy)
-        || t == typeof(JsonElement.ArrayEnumerator)
-        || t == typeof(JsonElement.ObjectEnumerator)
-        || t == typeof(JsonProperty);
 
     private static bool IsSupportedReadOnlySpanType(Type t)
     {
@@ -1051,17 +1040,6 @@ internal sealed class ColumnarIlEmitter
             return false;
             return t.GetGenericTypeDefinition() is TypeBuilder;
     }
-
-    private static Type? OpenValueTupleType(int arity) => arity switch
-    {
-        2 => typeof(ValueTuple<,>),
-        3 => typeof(ValueTuple<,,>),
-        4 => typeof(ValueTuple<,,,>),
-        5 => typeof(ValueTuple<,,,,>),
-        6 => typeof(ValueTuple<,,,,,>),
-        7 => typeof(ValueTuple<,,,,,,>),
-        _ => null,
-    };
 
     // A positional System.ValueTuple of arity 2-7 whose every element is itself a supported type. (1-tuples and
     // the >7 nested-TRest form are not modelled.) Admits a tuple as a `:=` local / value, NOT as an array element.
@@ -2478,7 +2456,7 @@ internal sealed class ColumnarIlEmitter
         }
         if (bound.Assembly is AssemblyBuilder)
             return false;
-        return IsRuntimeInterfaceType(interfaceConstraint)
+        return ColumnarBaseTypePlanner.IsRuntimeInterfaceType(interfaceConstraint)
                && interfaceConstraint.IsAssignableFrom(bound);
     }
 
@@ -3046,7 +3024,7 @@ internal sealed class ColumnarIlEmitter
             if (genericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal))
             {
                 var tupleArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
-                var openTuple = OpenValueTupleType(tupleArgCanons.Count);
+                var openTuple = ColumnarTypeOfPlanner.OpenValueTupleType(tupleArgCanons.Count);
                 if (openTuple == null)
                 {
                     type = null!;
@@ -3199,71 +3177,14 @@ internal sealed class ColumnarIlEmitter
             ? TryResolveTypeWithTypeParams(canonical, def.GenericParameters, enumRegistry, structRegistry, unionRegistry, out type)
             : TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out type);
 
-    /// <summary>
-    /// Substitutes a CLOSED instantiation's type arguments into an open member signature type by
-    /// generic-parameter position (item: T on Box&lt;int&gt; → int; T[] and nested generics recurse).
-    /// Method-level generic parameters are left untouched.
-    /// </summary>
-    private static Type SubstituteClosedTypeArguments(Type signatureType, Type[] closedArguments)
-    {
-        if (signatureType.IsGenericParameter)
-        {
-            bool isMethodParameter;
-                isMethodParameter = signatureType.DeclaringMethod != null;
-            if (!isMethodParameter && signatureType.GenericParameterPosition < closedArguments.Length)
-                return closedArguments[signatureType.GenericParameterPosition];
-            return signatureType;
-        }
-        if (signatureType.IsByRef)
-            return SubstituteClosedTypeArguments(signatureType.GetElementType()!, closedArguments).MakeByRefType();
-        if (signatureType.IsSZArray)
-            return SubstituteClosedTypeArguments(signatureType.GetElementType()!, closedArguments).MakeArrayType();
-        if (signatureType.IsGenericType && !signatureType.IsGenericTypeDefinition)
-        {
-                var definition = signatureType.GetGenericTypeDefinition();
-                var arguments = signatureType.GetGenericArguments();
-                var substituted = new Type[arguments.Length];
-                for (var i = 0; i < arguments.Length; i++)
-                    substituted[i] = SubstituteClosedTypeArguments(arguments[i], closedArguments);
-                return definition.MakeGenericType(substituted);
-        }
-        return signatureType;
-    }
-
     private static bool TryResolveExactRuntimeType(string fullName, out Type type)
     {
         type = Type.GetType(fullName, throwOnError: false)!;
         return type != null;
     }
 
-    private static bool TryResolveKnownExternalType(string canonical, out Type type)
-    {
-        type = canonical switch
-        {
-            "IYamlTypeConverter" or "YamlDotNet.Serialization.IYamlTypeConverter" => typeof(IYamlTypeConverter),
-            "ObjectDeserializer" or "YamlDotNet.Serialization.ObjectDeserializer" => typeof(ObjectDeserializer),
-            "ObjectSerializer" or "YamlDotNet.Serialization.ObjectSerializer" => typeof(ObjectSerializer),
-            "DeserializerBuilder" or "YamlDotNet.Serialization.DeserializerBuilder" => typeof(DeserializerBuilder),
-            "IDeserializer" or "YamlDotNet.Serialization.IDeserializer" => typeof(IDeserializer),
-            "INamingConvention" or "YamlDotNet.Serialization.INamingConvention" => typeof(INamingConvention),
-            "CamelCaseNamingConvention" or "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention" => typeof(CamelCaseNamingConvention),
-            "IParser" or "YamlDotNet.Core.IParser" => typeof(YamlParser),
-            "IEmitter" or "YamlDotNet.Core.IEmitter" => typeof(YamlEmitter),
-            "YamlException" or "YamlDotNet.Core.YamlException" => typeof(YamlExceptionType),
-            "ParsingEvent" or "YamlDotNet.Core.Events.ParsingEvent" => typeof(ParsingEvent),
-            "Scalar" or "YamlDotNet.Core.Events.Scalar" => typeof(Scalar),
-            "MappingStart" or "YamlDotNet.Core.Events.MappingStart" => typeof(MappingStart),
-            "MappingEnd" or "YamlDotNet.Core.Events.MappingEnd" => typeof(MappingEnd),
-            "JsonElement" or "System.Text.Json.JsonElement" => typeof(JsonElement),
-            "JsonDocument" or "System.Text.Json.JsonDocument" => typeof(JsonDocument),
-            "JsonValueKind" or "System.Text.Json.JsonValueKind" => typeof(JsonValueKind),
-            "JsonSerializerOptions" or "System.Text.Json.JsonSerializerOptions" => typeof(JsonSerializerOptions),
-            "JsonNamingPolicy" or "System.Text.Json.JsonNamingPolicy" => typeof(JsonNamingPolicy),
-            _ => null!,
-        };
-        return type != null || TryResolveLoadedExternalType(canonical, out type);
-    }
-
+    // Kept alive by `TryResolveAspNetReferencedType`, which is its own entry point: the N# owner folds
+    // this fallback INTO TryResolveKnownExternalType and publishes no standalone head for it.
     private static bool TryResolveLoadedExternalType(string canonical, out Type type)
     {
         type = null!;
@@ -3391,7 +3312,7 @@ internal sealed class ColumnarIlEmitter
             type = null!;
             return false;
         }
-        var unionArms = SplitTopLevelPipes(canonical);
+        var unionArms = ColumnarTypeOfPlanner.SplitTopLevelPipes(canonical);
         if (unionArms.Count == 2)
         {
             if (TryResolveType(unionArms[0], enumRegistry, structRegistry, unionRegistry, out var firstArm)
@@ -3538,8 +3459,13 @@ internal sealed class ColumnarIlEmitter
         if (ColumnarExternalBindingPlans.TryGetRuntimeTypeName(canonical, out var runtimeTypeName)
             && TryResolveExactRuntimeType(runtimeTypeName, out type))
             return true;
-        if (TryResolveKnownExternalType(canonical, out type))
+        // The N# owner leaves its `out` as typeof(object) on the FALSE path where this C# member left
+        // it null, so the answer is copied into `type` only when the bool says it is meaningful.
+        if (ColumnarTypeOfPlanner.TryResolveKnownExternalType(canonical, out var knownExternalType))
+        {
+            type = knownExternalType;
             return true;
+        }
         if (TryResolveBclExceptionType(canonical, out type))
             return true;
         // Tuple `(e0,e1,...)` -> System.ValueTuple<...> (positional, arity 2-7). The canonical is parens + comma-joined element canons;
@@ -3653,7 +3579,7 @@ internal sealed class ColumnarIlEmitter
             if (closedGenericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal))
             {
                 var tupleArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
-                var openTuple = OpenValueTupleType(tupleArgCanons.Count);
+                var openTuple = ColumnarTypeOfPlanner.OpenValueTupleType(tupleArgCanons.Count);
                 if (openTuple == null)
                 {
                     type = null!;
@@ -3921,52 +3847,6 @@ internal sealed class ColumnarIlEmitter
             return false;
         }
         return false;
-    }
-
-    private static List<string> SplitTopLevelPipes(string canonical)
-    {
-        var parts = new List<string>();
-        var start = 0;
-        var angleDepth = 0;
-        var parenDepth = 0;
-        var bracketDepth = 0;
-        for (var i = 0; i < canonical.Length; i++)
-        {
-            switch (canonical[i])
-            {
-                case '<':
-                    angleDepth++;
-                    break;
-                case '>':
-                    if (angleDepth > 0)
-                        angleDepth--;
-                    break;
-                case '(':
-                    parenDepth++;
-                    break;
-                case ')':
-                    if (parenDepth > 0)
-                        parenDepth--;
-                    break;
-                case '[':
-                    bracketDepth++;
-                    break;
-                case ']':
-                    if (bracketDepth > 0)
-                        bracketDepth--;
-                    break;
-                case '|' when angleDepth == 0 && parenDepth == 0 && bracketDepth == 0:
-                    parts.Add(canonical.Substring(start, i - start));
-                    start = i + 1;
-                    break;
-            }
-        }
-
-        if (parts.Count == 0)
-            return parts;
-
-        parts.Add(canonical.Substring(start));
-        return parts;
     }
 
     // Resolve a delegate canonical's comma-joined type-argument list to a closed System.Func/Action.
@@ -4859,7 +4739,9 @@ internal sealed class ColumnarIlEmitter
             var implementedBuilders = new HashSet<TypeBuilder>();
             foreach (var implementedInterface in def.ImplementedInterfaces)
             {
-                foreach (var inherited in EnumerateInterfaceAndBases(implementedInterface))
+                var inheritedInterfaces = new List<ColumnarStructDef>();
+                ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(implementedInterface, inheritedInterfaces);
+                foreach (var inherited in inheritedInterfaces)
                     implementedBuilders.Add(inherited.Builder);
             }
 
@@ -4876,7 +4758,9 @@ internal sealed class ColumnarIlEmitter
                         typeResolution.Unions))
                     continue;
                 def.ImplementedInterfaces.Add(interfaceDef);
-                foreach (var implemented in EnumerateInterfaceAndBases(interfaceDef))
+                var duckImplementedInterfaces = new List<ColumnarStructDef>();
+                ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(interfaceDef, duckImplementedInterfaces);
+                foreach (var implemented in duckImplementedInterfaces)
                 {
                     if (implementedBuilders.Add(implemented.Builder))
                         def.Builder.AddInterfaceImplementation(implemented.Builder);
@@ -5129,7 +5013,9 @@ internal sealed class ColumnarIlEmitter
                     if (hasClosedImplementations)
                         continue;
 
-                    foreach (var requiredInterface in EnumerateInterfaceAndBases(implementedInterface))
+                    var requiredInterfaces = new List<ColumnarStructDef>();
+                    ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(implementedInterface, requiredInterfaces);
+                    foreach (var requiredInterface in requiredInterfaces)
                     {
                         if (!seenRequiredInterfaces.Add(requiredInterface))
                             continue;
@@ -5671,7 +5557,7 @@ internal sealed class ColumnarIlEmitter
                             return false;
                         if (!constraintType.IsGenericParameter
                             && (TryResolveUserInterfaceDef(constraintType, typeResolution.Structs.Values, out _)
-                                || IsRuntimeInterfaceType(constraintType)))
+                                || ColumnarBaseTypePlanner.IsRuntimeInterfaceType(constraintType)))
                         {
                             (fnInterfaceConstraintLists[g] ??= new List<Type>()).Add(constraintType);
                             continue;
@@ -9721,22 +9607,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private static bool IsRuntimeInterfaceType(Type type)
-    {
-        try
-        {
-            return type.IsInterface;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
-        catch (NotImplementedException)
-        {
-            return false;
-        }
-    }
-
     private static bool TryFindDefByBuilder(
         IEnumerable<ColumnarStructDef> structDefinitions,
         TypeBuilder builder,
@@ -10161,7 +10031,7 @@ internal sealed class ColumnarIlEmitter
             var openParameterTypes = chainedParamTypes!;
             var closedParameterTypes = new Type[openParameterTypes.Length];
             for (var p = 0; p < openParameterTypes.Length; p++)
-                closedParameterTypes[p] = SubstituteClosedTypeArguments(openParameterTypes[p], closedArguments);
+                closedParameterTypes[p] = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openParameterTypes[p], closedArguments);
             chainedParamTypes = closedParameterTypes;
             chained = TypeBuilder.GetConstructor(exactBaseType, chained);
         }
@@ -11110,7 +10980,7 @@ internal sealed class ColumnarIlEmitter
                                     _il.Emit(OpCodes.Ldloca, closedFieldTemp);
                                     _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(structReceiverType, openField));
                                 }
-                                type = SubstituteClosedTypeArguments(openField.FieldType, closedFieldArgs);
+                                type = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.FieldType, closedFieldArgs);
                                 return true;
                             }
                             if (closedFieldDef.Properties.TryGetValue(member, out var openProp))
@@ -11127,7 +10997,7 @@ internal sealed class ColumnarIlEmitter
                                     _il.Emit(OpCodes.Ldloca, closedPropertyTemp);
                                     _il.Emit(OpCodes.Call, closedGetter);
                                 }
-                                type = SubstituteClosedTypeArguments(openProp.PropertyType, closedFieldArgs);
+                                type = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProp.PropertyType, closedFieldArgs);
                                 return true;
                             }
                         }
@@ -11726,7 +11596,7 @@ internal sealed class ColumnarIlEmitter
                     var closedTypeArguments = closedType.GetGenericArguments();
                     for (var a = 0; a < closedCtorArgCount; a++)
                     {
-                        var expectedArgType = SubstituteClosedTypeArguments(chosenOpenParamTypes![a], closedTypeArguments);
+                        var expectedArgType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(chosenOpenParamTypes![a], closedTypeArguments);
                         if (!EmitExpression(Child(idx, 1 + a), out var closedArgType) || !TypesEquivalent(closedArgType, expectedArgType))
                             return false;
                     }
@@ -12040,7 +11910,7 @@ internal sealed class ColumnarIlEmitter
                                 }
                                 var propertyType = constructedClosedArgs.Length == 0
                                     ? userInitProperty.PropertyType
-                                    : SubstituteClosedTypeArguments(userInitProperty.PropertyType, constructedClosedArgs);
+                                    : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitProperty.PropertyType, constructedClosedArgs);
                                 _il.Emit(OpCodes.Dup);
                                 Type propertyValueType;
                                 if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType))
@@ -12071,7 +11941,7 @@ internal sealed class ColumnarIlEmitter
                             {
                                 var userFieldType = constructedClosedArgs.Length == 0
                                     ? userInitField.FieldType
-                                    : SubstituteClosedTypeArguments(userInitField.FieldType, constructedClosedArgs);
+                                    : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitField.FieldType, constructedClosedArgs);
                                 _il.Emit(OpCodes.Dup);
                                 Type userFieldValueType;
                                 if (TryEmitNullLiteralAsType(valueNode, userFieldType, out userFieldValueType))
@@ -12206,7 +12076,7 @@ internal sealed class ColumnarIlEmitter
                             var fieldName = Text(nameNode);
                             if (!closedInitDef.Fields.TryGetValue(fieldName, out var openInitField) || !closedAssigned.Add(fieldName))
                                 return false; // unknown or duplicately-assigned field -> decline.
-                            var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
+                            var expectedInitType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
                             _il.Emit(OpCodes.Dup);
                             if (!EmitExpression(valueNode, out var closedInitValueType)
                                 || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType)))
@@ -12229,7 +12099,7 @@ internal sealed class ColumnarIlEmitter
                         var fieldName = Text(nameNode);
                         if (!closedInitDef.Fields.TryGetValue(fieldName, out var openInitField) || !closedAssigned.Add(fieldName))
                             return false; // unknown or duplicately-assigned field -> decline.
-                        var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
+                        var expectedInitType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
                         _il.Emit(OpCodes.Ldloca, closedStructValue);
                         if (!EmitExpression(valueNode, out var closedInitValueType)
                             || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType)))
@@ -12977,7 +12847,7 @@ internal sealed class ColumnarIlEmitter
             {
                 EmitLoadUserPatternReceiver(ownerLocal, closedDef.IsReference);
                 _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(ownerType, openField));
-                memberType = SubstituteClosedTypeArguments(openField.FieldType, closedArgs);
+                memberType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.FieldType, closedArgs);
                 return StoreReadablePatternMember(memberType, out memberLocal);
             }
             if (closedDef.Properties.TryGetValue(member, out var openProperty))
@@ -12985,7 +12855,7 @@ internal sealed class ColumnarIlEmitter
                 EmitLoadUserPatternReceiver(ownerLocal, closedDef.IsReference);
                 var closedGetter = TypeBuilder.GetMethod(ownerType, openProperty.Getter);
                 _il.Emit(closedDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, closedGetter);
-                memberType = SubstituteClosedTypeArguments(openProperty.PropertyType, closedArgs);
+                memberType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProperty.PropertyType, closedArgs);
                 return StoreReadablePatternMember(memberType, out memberLocal);
             }
             return false;
@@ -13397,7 +13267,7 @@ internal sealed class ColumnarIlEmitter
             var fieldName = Text(nameNode);
             if (!caseDef.Fields.TryGetValue(fieldName, out var openField) || !assignedFields.Add(fieldName))
                 return false; // unknown or duplicately-assigned field -> decline.
-            var expectedFieldType = closedCase == null ? openField.FieldType : SubstituteClosedTypeArguments(openField.FieldType, typeArgs);
+            var expectedFieldType = closedCase == null ? openField.FieldType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.FieldType, typeArgs);
             _il.Emit(OpCodes.Dup);
             // A FIELD VALUE adopts the substituted field type's arguments (probe-pinned:
             // `new Opt.Some<Opt<int>> { value: new Opt.None }` adopts Opt<int> from `value: T`).
@@ -13529,7 +13399,7 @@ internal sealed class ColumnarIlEmitter
         if (!caseDef.Fields.TryGetValue(propertyName, out var field))
             return false;
 
-        var fieldType = caseArgs.Length == 0 ? field.FieldType : SubstituteClosedTypeArguments(field.FieldType, caseArgs);
+        var fieldType = caseArgs.Length == 0 ? field.FieldType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(field.FieldType, caseArgs);
         if (!IsSupportedType(fieldType))
             return false;
 
@@ -15919,11 +15789,11 @@ internal sealed class ColumnarIlEmitter
             {
                 if (property.Setter == null)
                     return false;
-                memberType = closedArgs.Length == 0 ? property.PropertyType : SubstituteClosedTypeArguments(property.PropertyType, closedArgs);
+                memberType = closedArgs.Length == 0 ? property.PropertyType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(property.PropertyType, closedArgs);
             }
             else if (TryFindFieldOnChain(initDef, memberName, out var field))
             {
-                memberType = closedArgs.Length == 0 ? field.FieldType : SubstituteClosedTypeArguments(field.FieldType, closedArgs);
+                memberType = closedArgs.Length == 0 ? field.FieldType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(field.FieldType, closedArgs);
             }
             else
             {
@@ -16442,7 +16312,7 @@ internal sealed class ColumnarIlEmitter
             {
                 parameterTypes = new Type[ctor.ParamTypes.Length];
                 for (var p = 0; p < parameterTypes.Length; p++)
-                    parameterTypes[p] = SubstituteClosedTypeArguments(
+                    parameterTypes[p] = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(
                         ctor.ParamTypes[p], typeArguments);
             }
             var hasTrailingDefaults = true;
@@ -16542,7 +16412,7 @@ internal sealed class ColumnarIlEmitter
                 var matches = true;
                 for (var a = 0; a < argCount; a++)
                 {
-                    var expected = SubstituteClosedTypeArguments(openParamTypes[a], typeArgs);
+                    var expected = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openParamTypes[a], typeArgs);
                     if (!CanEmitConstructorArgumentAs(Child(node, a), expected))
                     {
                         matches = false;
@@ -16642,7 +16512,7 @@ internal sealed class ColumnarIlEmitter
                 var matches = true;
                 for (var a = 0; a < argCount; a++)
                 {
-                    var expected = SubstituteClosedTypeArguments(openParamTypes[a], typeArgs);
+                    var expected = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openParamTypes[a], typeArgs);
                     if (!CanEmitConstructorArgumentAs(Child(node, a), expected))
                     {
                         matches = false;
@@ -16661,7 +16531,7 @@ internal sealed class ColumnarIlEmitter
 
             for (var a = 0; a < argCount; a++)
             {
-                var expected = SubstituteClosedTypeArguments(chosenOpenParamTypes[a], typeArgs);
+                var expected = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(chosenOpenParamTypes[a], typeArgs);
                 if (!TryEmitAssignableValue(Child(node, a), expected, out _))
                     return false;
             }
@@ -17220,7 +17090,7 @@ internal sealed class ColumnarIlEmitter
         {
             if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(closedMethod))
                 return false;
-            type = SubstituteClosedTypeArguments(closedMethod.ReturnType, closedArgs);
+            type = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(closedMethod.ReturnType, closedArgs);
             return true;
         }
 
@@ -18662,12 +18532,12 @@ internal sealed class ColumnarIlEmitter
             _il.Emit(closedDef.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, closedReceiverTemp);
             for (var a = 0; a < argCount; a++)
             {
-                var expectedParam = SubstituteClosedTypeArguments(closedMethod.ParamTypes[a], closedArgs);
+                var expectedParam = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(closedMethod.ParamTypes[a], closedArgs);
                 if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), expectedParam, allowLambdaLiteral: true))
                     return false;
             }
             _il.Emit(closedDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, TypeBuilder.GetMethod(receiverType, closedMethod.Builder));
-            type = SubstituteClosedTypeArguments(closedMethod.ReturnType, closedArgs);
+            type = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(closedMethod.ReturnType, closedArgs);
             return true;
         }
 
@@ -20110,7 +19980,9 @@ internal sealed class ColumnarIlEmitter
         ColumnarStructDef openInterfaceDef,
         Type closedInterfaceType)
     {
-        foreach (var requiredInterface in EnumerateInterfaceAndBases(openInterfaceDef))
+        var requiredInterfaces = new List<ColumnarStructDef>();
+        ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(openInterfaceDef, requiredInterfaces);
+        foreach (var requiredInterface in requiredInterfaces)
         {
             foreach (var (memberName, member) in requiredInterface.Methods)
             {
@@ -20164,7 +20036,9 @@ internal sealed class ColumnarIlEmitter
         ColumnarSemanticRegistry<ColumnarStructDef> structRegistry,
         ColumnarSemanticRegistry<ColumnarUnionDef> unionRegistry)
     {
-        foreach (var requiredInterface in EnumerateInterfaceAndBases(interfaceDef))
+        var requiredInterfaces = new List<ColumnarStructDef>();
+        ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(interfaceDef, requiredInterfaces);
+        foreach (var requiredInterface in requiredInterfaces)
         {
             foreach (var (memberName, member) in requiredInterface.Methods)
             {
@@ -20239,19 +20113,11 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private static IEnumerable<ColumnarStructDef> EnumerateInterfaceAndBases(ColumnarStructDef interfaceDef)
-    {
-        yield return interfaceDef;
-        foreach (var baseInterface in interfaceDef.InterfaceBases)
-        {
-            foreach (var inherited in EnumerateInterfaceAndBases(baseInterface))
-                yield return inherited;
-        }
-    }
-
     private static bool InterfaceEqualsOrExtends(ColumnarStructDef interfaceDef, TypeBuilder targetBuilder)
     {
-        foreach (var candidate in EnumerateInterfaceAndBases(interfaceDef))
+        var candidates = new List<ColumnarStructDef>();
+        ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(interfaceDef, candidates);
+        foreach (var candidate in candidates)
         {
             if (ReferenceEquals(candidate.Builder, targetBuilder))
                 return true;
@@ -21142,13 +21008,13 @@ internal sealed class ColumnarIlEmitter
             if (closedDef.Fields.TryGetValue(member, out var openField))
             {
                 var field = TypeBuilder.GetField(current, openField);
-                hop = new ColumnarInterpolationMemberPlan(field, null, SubstituteClosedTypeArguments(openField.FieldType, closedArgs));
+                hop = new ColumnarInterpolationMemberPlan(field, null, ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.FieldType, closedArgs));
                 return true;
             }
             if (closedDef.Properties.TryGetValue(member, out var openProperty))
             {
                 var getter = TypeBuilder.GetMethod(current, openProperty.Getter);
-                hop = new ColumnarInterpolationMemberPlan(null, getter, SubstituteClosedTypeArguments(openProperty.PropertyType, closedArgs));
+                hop = new ColumnarInterpolationMemberPlan(null, getter, ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProperty.PropertyType, closedArgs));
                 return true;
             }
             return false;
@@ -21332,7 +21198,7 @@ internal sealed class ColumnarIlEmitter
             var fieldName = caseDef.FieldOrder[a];
             if (!caseDef.Fields.TryGetValue(fieldName, out var openField))
                 return false;
-            var expectedFieldType = closedCase == null ? openField.FieldType : SubstituteClosedTypeArguments(openField.FieldType, typeArgs);
+            var expectedFieldType = closedCase == null ? openField.FieldType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.FieldType, typeArgs);
             _il.Emit(OpCodes.Dup);
             var argNode = Child(newIdx, 1 + a);
             Type valueType;

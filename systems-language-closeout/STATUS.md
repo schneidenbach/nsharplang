@@ -1,6 +1,62 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-27 (**TASK 015 SUB-SLICE `015-A0` — THE TYPE-ADMISSIBILITY DIFFERENTIAL GRID
+Last updated: 2026-08-27 (**TASK 015 SUB-SLICE `015-A1` — THE PROVABLY-EQUIVALENT LEAVES ARE
+REROUTED TO THEIR N# OWNERS AND 142 LINES OF C# PREDICATE ARE DELETED. THE EMITTER SHRINKS BELOW ITS
+OWN 015-PAUSE LOW-WATER MARK — see the Cursor block.** A1's member list was RE-DERIVED from the tip
+before any edit, with a member-extent instrument rebuilt for this slice, and it **reproduces the
+41-call-site total to the digit** (1+2+1+1+7+2+27) with every site attributed to its containing
+member. **THE RE-VERIFICATION CORRECTED THE PLAN'S OWN WORDING TWICE, MEASURED RATHER THAN ASSUMED**:
+`IsSupportedJsonType` is NOT a member "nothing in the family calls" — its one caller is
+`IsSupportedType` itself, the A6 target — and the property that actually makes it safe is the
+converse (it CALLS no family member), which all seven satisfy; and `TryResolveLoadedExternalType`
+**cannot be deleted here** because `TryResolveAspNetReferencedType` is a second entry point the grid
+lists as UNMATCHED, so A1 deletes its folded partner and KEEPS it — which is exactly why the plan
+counted the pair as 1. **SEVEN C# MEMBERS DIE (142 body lines); THE EMITTER GOES 21,519 → 21,385
+(−134 lines, −125 non-blank, 448 → 441 members)**, which is **48 lines BELOW the 21,433 low-water
+mark the reopening decode's +86 growth note flagged**, and compiler C# stays at **10 files**.
+**THE COMPOSITION IS PROVEN, NOT ASSUMED: the corpus IL byte-comparison ran CONTROL FIRST** — the
+baseline CLI over the SAME tree twice, `IL_DIFFS=0 / EXIT_DIFFS=0 / LOG_DIFFS=0` — and then
+**97 / 97 comparable assemblies BYTE-IDENTICAL** under the from-scratch normaliser, which is
+non-vacuous by measurement (it zeroes **24 of 3,072 bytes** on a representative assembly and the 97
+assemblies carry **97 DISTINCT** normalised digests). **THE GRID ROWS COLLAPSED, AND THE COLLAPSE WAS
+MEASURED AT THE METADATA LEVEL**: a new instrument decodes every `ColumnarIlEmitter` method body and
+counts the resolved call tokens — on the BASELINE all seven read `csDeclared=True` with **0** N#
+calls, on A1 all seven read `csDeclared=False` with **exactly 1/2/1/1/6/2/24**, `COLLAPSE_FAILURES=0`
+— and **the 37 IL sites reconcile with the 41 source sites exactly**, the four missing being the
+self-recursions that moved INSIDE the N# owners. **FOUR OF SEVEN COUPLING MUTATIONS MOVE THE
+EMITTER** (`SplitTopLevelPipes` → `direct-calls` fails; `IsSupportedJsonType` → `ownership-audit`
+fails; `IsRuntimeInterfaceType` → `external-base-interface` fails; `SubstituteClosedTypeArguments` →
+**2 IL diffs and 10 targets fail**), each with a byte-exact `sha256` restore. **THE OTHER THREE ARE
+REPORTED, NOT GLOSSED**: M2/M4/M5 do not move even against PURPOSE-BUILT targets, and the reason was
+measured in each case (`ValueTuple<…>` is rejected by the analyzer before emit; the Yaml head is not
+asked on that path even with BOTH spellings broken; a declared `IGreeter : INamed` implementer is
+byte-identical with the DFS truncated) — for those three the coupling is pinned structurally by the
+IL call counts and pointwise by A0's 245-type grid, the same way A0 reported its own M6. **A
+NEGATIVE CONTROL WAS RUN ON THE ONE JUDGEMENT CALL IN THE DIFF**: the naive out-parameter reroute the
+grid warned about produces `IL_DIFFS=0` — the corpus cannot tell — so the guard is justified by a
+DIRECT probe instead, which measures **46 inputs, 38 TRUE / 8 FALSE, and all 8 FALSE answers leaving
+`typeof(System.Object)` in the out slot, never null**. **THE REROUTE OPENED A HOLE AND IT IS CLOSED IN THE SAME SLICE, NOT DISCLOSED AND DEFERRED**: A1
+makes seven N# members the compiler's SOLE authority and only TWO were natively pinned, so the five
+unpinned ones get `ColumnarReroutedOwnerFacts.tests.nl` (**225 lines / 5 blocks / 82 asserts**),
+each with a mutation control that fails exactly its own block — **and C2/C4/C5 are precisely the
+three the corpus could not see**, so every rerouted member now has at least one instrument that
+breaks when its owner is perturbed. Evidence: estate **`Passed: 7041, Failed: 0`** (7,036 + exactly
+the 5 new blocks, count-diff EXACT); live-tree **399 / 246** with the census identical and a
+ROW-FOR-ROW diff against the BASELINE CLI over the SAME sources at **0 added / 0 removed**; ownership
+audit **18 / 18** with a blank-line non-vacuity control at 17/18 and a byte-exact restore; manifest
+**391, no BOM**. **THE TWO-KEY REPIN WAS TAKEN LAST AND ITS INSTRUMENT PROVED ITSELF FIRST** (it
+reproduces all three stored fingerprints from the stored rows before changing anything): the emitter
+row moves to `21385 / 20332 / text-v1:7f2f987c6c27492f` and the head moves
+`head-v1:d0614137ae9ff544` → **`head-v1:c81ecc99e951c534`** in BOTH keys, with the **epoch triple
+UNCHANGED** (381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1`).
+**THE FRESH ISOLATED GATE IS GREEN ON THE FINAL TREE — `GATE EXIT 0`, `ALL TESTS PASSED`, 126
+`✓ PASSED` / 0 `✗ FAILED`, 22m 36s from a `/tmp` byte copy with the log outside it** — carrying unit
+**596**, estate **7,041**, the ownership audit, the format contract gate and the IL verification
+gate. **NEXT: `015-A2`, the 146 call sites inside the `IsSupportedType` cone — and A2 should grep
+its 19 members against the `.tests.nl` estate BEFORE cutting, because deleting the C# is what makes
+an unpinned owner permanently unpinnable by A0's differential.** NOT COMMITTED)
+
+Last updated (prior): 2026-08-27 (**TASK 015 SUB-SLICE `015-A0` — THE TYPE-ADMISSIBILITY DIFFERENTIAL GRID
 IS BUILT AND THE 25-MEMBER FAMILY IS DECIDED CELL BY CELL. SIX MEASURED N#-OWNER BUGS ARE FIXED WITH
 CONTRACTS; ZERO C# CHANGES — see the Cursor block.** A throwaway reflection harness drives each C#
 emitter predicate and every candidate N# owner over a purpose-built **245-type corpus in eighteen
@@ -4690,7 +4746,330 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-A0`: THE TYPE-ADMISSIBILITY DIFFERENTIAL GRID. THE
+- Active sub-slice (015 arc, THIS TURN — **`015-A1`: THE EQUIVALENT LEAVES ARE REROUTED TO THEIR N#
+  OWNERS AND THE C# IS DELETED. NOT COMMITTED.**)
+
+  ### THE PRE-EDIT RE-VERIFICATION — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
+
+  A0's staged plan named A1 as "THE PROVABLY-EQUIVALENT LEAVES THAT NOTHING IN THE FAMILY CALLS",
+  seven members at **41 call sites**. Every part of that sentence was re-derived from the tip
+  (`846389f16`) before editing, with a member-extent instrument rebuilt for this slice (a C# lexer
+  pass masking strings/chars/both comment forms, then a brace-matched walk from each parameter
+  list). It reads `ColumnarIlEmitter.cs` at **448 members / 20,282 extent lines** against A0's
+  **449 / 20,348** — a one-member/66-line delta in the modifier-anchored declaration regex, recorded
+  rather than absorbed; the delta does not touch any A1 member, all seven of which the instrument
+  locates exactly.
+
+  **THE CALL-SITE ARITHMETIC REPRODUCES 41 TO THE DIGIT**, with every site attributed to its
+  containing member:
+
+  | member | def | sites | containing members | grid verdict |
+  |---|---|---|---|---|
+  | `SplitTopLevelPipes` | 3926 | **1** | `TryResolveType` | row 2 **EQUIVALENT** 25/25 strings |
+  | `OpenValueTupleType` | 1055 | **2** | `TryResolveTypeWithTypeParams`, `TryResolveType` | row 15 **EQUIVALENT** arity −1..9 |
+  | `IsSupportedJsonType` | 611 | **1** | `IsSupportedType` **[FAMILY]** | row 16 **EQUIVALENT** 245/245 |
+  | `TryResolveKnownExternalType` | 3239 | **1** | `TryResolveType` | row 4 **EQUIVALENT on the BOOL** 39/39 |
+  | `EnumerateInterfaceAndBases` | 20242 | **7** | `TryEmitColumnarAssembly` ×3, `ClosedInterfaceMembersSatisfied`, `ColumnarStructInputSatisfiesDuckInterface`, **self** ×1, `InterfaceEqualsOrExtends` | row 17 **STRUCTURAL-EQUIVALENT** |
+  | `IsRuntimeInterfaceType` | 9724 | **2** | `BoundSatisfiesInterfaceConstraint`, `TryEmitColumnarAssembly` | row 13 **EQUIVALENT** 245/245 + 5/5 probe |
+  | `SubstituteClosedTypeArguments` | 3207 | **27** | **self** ×3 + 24 non-family hosts | row 5 **EQUIVALENT** 20/20 |
+
+  1 + 2 + 1 + 1 + 7 + 2 + 27 = **41**, exactly the plan's figure.
+
+  **TWO CORRECTIONS TO THE PLAN'S OWN WORDING, MEASURED RATHER THAN ASSUMED.**
+
+  1. **`IsSupportedJsonType` IS NOT A MEMBER "NOTHING IN THE FAMILY CALLS".** Its single call site is
+     `ColumnarIlEmitter.cs:427`, which is INSIDE `IsSupportedType` — the A6 target. The property that
+     actually makes it safe is the converse one, and it is the one that was verified: **it calls
+     nothing in the family** (a flat `typeof` chain), so rerouting it cannot leave a half-migrated
+     predicate tree. It also lands on the pattern the file already runs: two lines above it,
+     `IsSupportedType` already calls the N# owners
+     `ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType` (`:407`) and
+     `ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName` (`:426`) from inside its own arm list.
+     The corrected leaf criterion for A1 is therefore **call-graph leaf (calls no family member)**,
+     and all seven satisfy it — `TryResolveKnownExternalType` only after the fold below.
+  2. **`TryResolveLoadedExternalType` CANNOT BE DELETED IN A1, AND THE COUNT ALREADY SAYS SO.** The
+     plan folds it into `TryResolveKnownExternalType`'s single site, and the fold is correct because
+     the N# owner `ColumnarTypeOfPlanner.TryResolveKnownExternalType` subsumes both halves (it
+     carries the AspNet/loaded fallback inline). But the C# member has a SECOND live caller outside
+     the pair — `ColumnarIlEmitter.cs:17742`, inside `TryResolveAspNetReferencedType` — and the grid
+     lists `TryResolveLoadedExternalType` under **UNMATCHED** "as a separate entry point". So A1
+     deletes `TryResolveKnownExternalType` and **KEEPS** `TryResolveLoadedExternalType`. That is not
+     a shortfall against the 41: the plan counted the pair as 1, which is exactly the one site that
+     moves.
+
+  **THE OUT-PARAMETER HAZARD A0 RECORDED IS LIVE AT THE ONE SITE THAT MOVES.** `:3541` reads
+  `if (TryResolveKnownExternalType(canonical, out type))` — writing straight into `TryResolveType`'s
+  own `out Type type`. C# leaves that slot `null` on the false path; the N# owner leaves it
+  `typeof(object)` (16 of 39 inputs). The reroute therefore goes through a fresh local and copies
+  only on `true`, which is the discipline A0 wrote down.
+
+  **THE CALL-SHAPE REWRITE, AND THE ONE SEMANTIC QUESTION IT RAISES.** C#
+  `EnumerateInterfaceAndBases` is a `yield`-based `IEnumerable<ColumnarStructDef>`; the N# owner is
+  `EnumerateInterfaceAndBases(interfaceDef, output: List<ColumnarStructDef>)`. Materialising loses
+  LAZINESS, which is observable only if (a) `InterfaceBases` contains a cycle and (b) the caller
+  exits the loop early. Four of the six non-recursive sites do exit early (`:5132`, `:20113`,
+  `:20167`, `:20254`); **but `:4862` does not, and it runs FIRST** (the duck-interface pass at
+  `:4854`, ahead of the `:4889` chain-depth cycle check). A cycle therefore already hangs the
+  lazy C# spelling today at `:4862`, before any early-exit site is reached — so a cycle is already
+  fatal in production and the two spellings are indistinguishable on it. That matches the grid's
+  own row-17 finding ("same non-termination on a cycle") and the reroute changes nothing reachable.
+
+  **THE OWNERS, ALL SEVEN LIVE AND CONTRACT-TESTED, ALL IN `namespace NSharpLang.Compiler.Columnar`**
+  (the same namespace the emitter compiles into, which is why the existing 26 `Columnar*` consumptions
+  need no `using`): `ColumnarTypeOfPlanner.SplitTopLevelPipes` (`:1447`), `.OpenValueTupleType`
+  (`:1270`), `.IsSupportedJsonType` (`:1112`), `.TryResolveKnownExternalType` (`:571`);
+  `ColumnarBaseTypePlanner.EnumerateInterfaceAndBases` (`:192`), `.IsRuntimeInterfaceType` (`:182`);
+  `ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments` (`:555`).
+  `ColumnarStructDef` is itself N#-owned (`ColumnarDefinitions.nl:345`), so the enumerate reroute
+  crosses no type boundary.
+
+  ### WHAT MOVED
+
+  Seven private C# members are **DELETED** and their 41 call sites now call the N# owner, in the
+  idiom the file already runs 26 times (`ColumnarTypeCanonicalizer.SplitTopLevelCommas` alone is
+  consumed 30 times). One member is **kept, deliberately**.
+
+  | C# member deleted | body lines | rerouted to |
+  |---|---|---|
+  | `SplitTopLevelPipes` | 49 | `ColumnarTypeOfPlanner.SplitTopLevelPipes` |
+  | `TryResolveKnownExternalType` | 27 | `ColumnarTypeOfPlanner.TryResolveKnownExternalType` |
+  | `SubstituteClosedTypeArguments` | 25 | `ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments` |
+  | `IsRuntimeInterfaceType` | 14 | `ColumnarBaseTypePlanner.IsRuntimeInterfaceType` |
+  | `OpenValueTupleType` | 10 | `ColumnarTypeOfPlanner.OpenValueTupleType` |
+  | `EnumerateInterfaceAndBases` | 9 | `ColumnarBaseTypePlanner.EnumerateInterfaceAndBases` (call-shape rewrite) |
+  | `IsSupportedJsonType` | 8 | `ColumnarTypeOfPlanner.IsSupportedJsonType` |
+  | **total** | **142** | |
+  | `TryResolveLoadedExternalType` | — | **KEPT** — `TryResolveAspNetReferencedType` is a second, UNMATCHED entry point |
+
+  **THE EMITTER SHRINKS, MEASURED THREE WAYS**: `21,519 → 21,385` lines (**−134**), non-blank
+  `20,457 → 20,332` (**−125**), members `448 → 441` (**−7**, exactly the seven deleted). `git diff`
+  reads **56 insertions / 190 deletions** — the 142 member bodies plus their doc comments and blank
+  separators out, and the rerouted call sites, six materialisation locals and three explanatory
+  comments in. Against the **+86 growth note** the reopening decode recorded (21,433 at the 015
+  pause → 21,519 here), this slice gives back 134, so the file is now **48 lines BELOW the 015-pause
+  low-water mark** and 338 below the epoch ceiling. **Compiler C# stays at 10 files** — no file was
+  added and none emptied.
+
+  **ONE DEAD `using` FELL OUT OF THE DELETION AND WAS REMOVED, WHICH COST A SECOND GATE AND IS
+  RECORDED RATHER THAN SKIPPED.** With `TryResolveKnownExternalType` gone, four names dropped to
+  ZERO references in the file — `ObjectDeserializer`, `ObjectSerializer`, `CamelCaseNamingConvention`
+  and `JsonNamingPolicy` — and `CamelCaseNamingConvention` was the *only* consumer of
+  `using YamlDotNet.Serialization.NamingConventions;` (a full-file sweep for every other name in that
+  namespace found none). The other three namespaces stay: `YamlDotNet.Serialization` still carries
+  `IYamlTypeConverter`/`IDeserializer`/`DeserializerBuilder`/`INamingConvention` (15 uses of
+  `DeserializerBuilder` alone) and `System.Text.Json` still carries `JsonElement` (38). The dead
+  `using` was deleted, the compiler rebuilt clean with the **same four pre-existing `CS8604`
+  warnings and no new ones**, and every downstream measurement — the corpus sweep, the collapse
+  instrument, the audit, the ratchet repin and the gate — was **re-run on the final tree** so no
+  number in this record predates it. Leaving it would have been the wrong shape for a slice whose
+  whole purpose is deleting dead C#.
+
+  **THE `EnumerateInterfaceAndBases` CALL-SHAPE REWRITE IS INLINE AT ALL SIX SITES, ON PURPOSE.** A
+  one-line C# adapter wrapping the N# call would have kept the diff smaller and kept a C# member of
+  that name alive, which is precisely what A1 exists to remove; each site instead materialises a
+  `List<ColumnarStructDef>` and iterates it.
+
+  ### THE PROOF THAT THE GRID ROWS COLLAPSED — A NEW INSTRUMENT, WITH ITS OWN NEGATIVE CONTROL
+
+  A0's grid drove the C# member and the N# owner over the same corpus and compared cells. After A1
+  the C# spelling is gone, so those rows **cannot be driven at all** — which is the completion
+  claim, and asserting it is not the same as measuring it. A throwaway instrument decodes
+  `Compiler.dll` with `System.Reflection.Metadata`, walks **every method body on `ColumnarIlEmitter`
+  and its nested types**, resolves every `call`/`callvirt`/`newobj` token, and answers two questions
+  per member: is the C# `MethodDef` still declared, and how many IL call sites now name the N# owner.
+
+  **IT IS RUN ON BOTH ASSEMBLIES IN ONE PASS, SO THE CONTROL IS INSIDE THE RESULT**: on the
+  **baseline** `Compiler.dll` all seven report `csDeclared=True` with **0** N# calls
+  (`COLLAPSE_FAILURES=7`); on the **A1** `Compiler.dll` all seven report `csDeclared=False` with the
+  exact expected counts — `SplitTopLevelPipes` **1**, `OpenValueTupleType` **2**,
+  `IsSupportedJsonType` **1**, `TryResolveKnownExternalType` **1**, `EnumerateInterfaceAndBases`
+  **6**, `IsRuntimeInterfaceType` **2**, `SubstituteClosedTypeArguments` **24** —
+  **`COLLAPSE_FAILURES=0`**. `TryResolveLoadedExternalType` reads `csDeclared=True` on both, which is
+  the recorded exception showing up as an exception rather than as a gap.
+
+  **37 IL CALL SITES AGAINST 41 SOURCE SITES, AND THE FOUR RECONCILE EXACTLY**: the difference is the
+  **self-recursion** — `SubstituteClosedTypeArguments` recursed 3 times (byref, SZ-array, generic
+  arguments) and `EnumerateInterfaceAndBases` once. Those four sites did not disappear; they moved
+  **inside the N# owners**, which recurse identically. 41 − 4 = **37**.
+
+  ### THE CORPUS IL BYTE-COMPARISON — CONTROL FIRST, AND THE CONTROL IS WHAT MAKES IT MEAN ANYTHING
+
+  The emitter is the IL owner, so the grid's pointwise equality is a claim about the parts; only the
+  IL comparison is a claim about the composition. The normaliser was **re-derived from scratch for
+  this slice** and touches ONLY the COFF `TimeDateStamp`, the optional-header `CheckSum`, every
+  Debug Directory entry plus the CodeView blobs they point at, and the `#GUID`/`#Pdb` metadata heaps.
+  **IT IS NON-VACUOUS BY MEASUREMENT, NOT BY DESCRIPTION**: on a representative emitted assembly it
+  zeroes **24 of 3,072 bytes (0.78%)**, and across the sweep the 97 harvested assemblies hash to
+  **97 DISTINCT normalised digests** — it is not collapsing the corpus to a constant.
+
+  All three passes run **in ONE fixed directory tree**, so not a single path byte differs between
+  them (the recorded CLI-location residue cannot arise). 92 `project.yml` targets + 38 single-file
+  examples per pass.
+
+  | pass | CLI | result |
+  |---|---|---|
+  | A | baseline `846389f16` | 97 assemblies harvested, 0 normaliser failures |
+  | B | baseline again | **CONTROL: `IL_DIFFS=0`, `EXIT_DIFFS=0`, `LOG_DIFFS=0`, `ONLY_IN_A/B=0`** — the instrument passes before it is trusted |
+  | C | **015-A1** | **VERDICT: `IL_DIFFS=0`, `EXIT_DIFFS=0`, `LOG_DIFFS=0`, `ONLY_IN_A/B=0`, `NORMALISER_FAILURES=0` — 97 / 97 comparable assemblies BYTE-IDENTICAL** |
+  | D | **015-A1 FINAL TREE** (after the dead-`using` removal) | **RE-RUN and identical: `IL_DIFFS=0`, `EXIT_DIFFS=0`, `LOG_DIFFS=0`, 97 / 97 BYTE-IDENTICAL** — the verdict is on the tree that ships, not on an intermediate one |
+
+  The `LOG_DIFFS` scrubber is recorded rather than hidden: the raw control produced **7** log diffs
+  and every one was a wall-clock number (`[0.6s]` vs `[0.7s]`, `Build failed in 7.7s` vs `7.9s`), so
+  timings are scrubbed and the exits are compared unscrubbed. The root `project.yml` self-host target
+  **fails identically (exit 1) in all three passes**.
+
+  ### THE COUPLING MUTATIONS — SEVEN, NOHUP-DETACHED, EVERY RESTORE `sha256`-VERIFIED
+
+  A1's claim is that the N# owner is now the emitter's authority. The test is the converse of A0's:
+  perturb the OWNER and the EMITTER's output must move. Each mutation edits exactly one owner line,
+  rebuilds the CLI, re-runs the corpus sweep against pass C, then restores and re-hashes.
+
+  | mutation | corpus verdict | restore |
+  |---|---|---|
+  | M1 `SplitTopLevelPipes` stops splitting on `\|` | **MOVED** — `tests/native/direct-calls` exit 0 → 1 | sha match |
+  | M2 `OpenValueTupleType` stops resolving arity 3 | `IL_DIFFS=0 EXIT_DIFFS=0` — **not reached** | sha match |
+  | M3 `IsSupportedJsonType` drops `JsonElement` | **MOVED** — `tests/native/ownership-audit` exit 0 → 1 | sha match |
+  | M4 `TryResolveKnownExternalType` drops the `IYamlTypeConverter` head | `IL_DIFFS=0 EXIT_DIFFS=0` — **not reached** | sha match |
+  | M5 `EnumerateInterfaceAndBases` stops recursing into bases | `IL_DIFFS=0 EXIT_DIFFS=0` — **not reached** | sha match |
+  | M6 `IsRuntimeInterfaceType` answers false for every interface | **MOVED** — `tests/fixtures/external-base-interface` exit 0 → 1 | sha match |
+  | M7 `SubstituteClosedTypeArguments` stops substituting the T slot | **MOVED HARDEST** — `IL_DIFFS=2` (both `IssueTracker.dll`) + **10 targets** exit 0 → 1 (7 systems proofs, `WeatherDemo`, `TargetTypedNew.nl`, `GenericUnions.nl`) | sha match |
+
+  **FOUR OF SEVEN MOVE THE EMITTER, AND THE OTHER THREE ARE REPORTED, NOT GLOSSED.** M2, M4 and M5
+  were re-probed against **purpose-built targets** written for exactly their shapes, and they still
+  did not move — so the honest statement is that this corpus cannot reach those three sites, and the
+  reason was measured in each case:
+
+  - **M2 is unreachable from N# source under the pinned toolset.** The `(a,b,c)` sugar goes through
+    `TryResolveType`'s own inline arity switch, not through `OpenValueTupleType`; the explicit
+    `ValueTuple<int,int,int>` spelling that WOULD reach it is rejected by the analyzer before emit
+    (`NL202` on the return/assignment, three separate spellings tried). The site is real IL — the
+    collapse instrument counts 2 calls — but no source program in this corpus can drive it.
+  - **M4's one site is shadowed for the canonicals a program can spell.** A purpose-built target that
+    declares an `IYamlTypeConverter` parameter builds byte-identically with the head broken, and with
+    **both** spellings broken (`M4b`), so the emitter is not asking `TryResolveType` for that name on
+    this path.
+  - **M5's truncated DFS leaves a declared `IGreeter : INamed` implementer byte-identical**, so the
+    six sites' inherited-interface registration is satisfied elsewhere for that shape. The duck
+    variant could not be built: the analyzer rejects a structurally-satisfying class at an interface
+    parameter (`NL202`), so the `:4879` duck arm is not source-reachable here either.
+
+  For those three the coupling is pinned **structurally** — the C# member is gone and the emitter's
+  IL calls the N# owner 2 / 1 / 6 times — and **pointwise**, by A0's grid over 245 types. That is the
+  same shape as A0's own M6, where the estate could not see the catch-narrowing and the harness probe
+  had to carry it, and it is stated the same way. **AND UNLIKE A0's M6, THE GAP DID NOT STAY OPEN**:
+  the five new native contracts below close it — `C2`, `C4` and `C5` are exactly M2, M4 and M5, and
+  each one FAILS its own named block when its owner is perturbed.
+
+  ### THE NEGATIVE CONTROL ON THE ONE JUDGEMENT CALL IN THE DIFF
+
+  The reroute at `:3465` deliberately does NOT write the N# owner's `out` straight into
+  `TryResolveType`'s own `out`. **P1 writes the naive version anyway and measures whether the corpus
+  can tell: `IL_DIFFS=0 EXIT_DIFFS=0` — it cannot.** So the guard is justified by the DIRECT probe
+  instead, which drives the shipped owner over the 39 canonicals plus 7 deliberate misses:
+  **46 inputs, TRUE=38, FALSE=8, and all 8 FALSE answers leave `typeof(System.Object)` in the out
+  slot, never null.** (The one canonical that is TRUE for C# and FALSE here is `WebApplication`: no
+  AspNet assembly is loaded in the probe host, which is the same host fact A0 recorded.) A mechanical
+  reroute would therefore have installed `System.Object` into a slot every caller reads only on the
+  true path today — harmless until one of them stops checking. The guard stays, and it is documented
+  in the code at the call site.
+
+  ### THE REST OF THE BAR
+
+  ### THE HOLE THE REROUTE OPENED, AND CLOSING IT — FIVE NEW NATIVE CONTRACTS
+
+  The first estate run came back at **`Passed: 7036, Failed: 0`**, the baseline exactly. That looked
+  like a clean count-diff and it was actually a **finding**: A1 makes seven N# members the compiler's
+  SOLE authority, and a grep of the whole `.tests.nl` estate found that **only two of them were
+  pinned** (`IsRuntimeInterfaceType` 8 asserts and `SubstituteClosedTypeArguments` 6, both from A0's
+  own contract file). **`SplitTopLevelPipes`, `OpenValueTupleType`, `IsSupportedJsonType`,
+  `TryResolveKnownExternalType` and `EnumerateInterfaceAndBases` had ZERO native contracts** — and
+  because A1 deletes the C# they were being differentialled against, **A0's grid can never be run on
+  them again**. Leaving that is exactly the unpinned-owner-surface case the mandate budgeted for, so
+  `ColumnarReroutedOwnerFacts.tests.nl` was written: **225 lines, 5 blocks, 82 asserts, no BOM**
+  (first three bytes `6e 61 6d`), one format pass 233 → **225** lines, `format --check` then reading
+  "All files are properly formatted."
+
+  What each block pins is the answer the emitter now *depends* on, not a restatement of the code:
+  the top-level pipe split (nesting inside `<>`/`()`/`[]`, the **empty**-list answer when there is no
+  top-level pipe — a one-element answer would silently flip the caller's `Count == 2` branch —
+  leading/trailing empty arms, and an unbalanced `>` not underflowing the depth counter); the
+  ValueTuple arity table at **exactly 2..7** with `−1/0/1/8/9` all null and the returned definitions
+  proven OPEN with the right parameter count; the eight-type Json surface **plus five neighbours on
+  the same surface that must NOT be admitted**, including an array of an admitted type; both
+  spellings of the external heads **and the `typeof(object)`-on-false out-slot contract that the
+  emitter's one call site guards**; and the interface walk's pre-order shape, depth-before-breadth,
+  **the diamond duplicate**, and the append-not-clear behaviour of the out-list.
+
+  **ONE MEASURED HOST LIMIT, RECORDED RATHER THAN WORKED AROUND SILENTLY.** The first run of the Json
+  block FAILED with `Type.GetType("System.Text.Json.JsonProperty")` answering null — the same
+  probing-path limit A0 recorded for `NSharpLang.Runtime` on this test host. The fixture now reaches
+  the nested and non-generic Json shapes through `typeof(JsonElement).Assembly.GetType(...)`. The
+  failure is reported because it is evidence the block actually resolves real types.
+
+  **THE FIVE NON-VACUITY CONTROLS — each reverts ONE owner behaviour, and each names its block.**
+
+  | control | estate | restore |
+  |---|---|---|
+  | C1 the top-level pipe stops splitting | **Failed: 2** — `TopLevelPipeSplitting…` **and** the pre-existing `TypeofPlannerResolvesBuiltinEnumArrayNullableTupleAndAnonymousUnionShapes` | sha match |
+  | C2 `OpenValueTupleType` stops resolving arity 3 | **Failed: 1** — `OpenValueTupleDefinitionsCoverExactlyArityTwoThroughSeven` | sha match |
+  | C3 the nested `ObjectEnumerator` drops out of the Json set | **Failed: 1** — `TheAdmittedJsonSurfaceIsExactlyTheEightModeledTypes` | sha match |
+  | C4 the false path leaves `typeof(string)` instead of `typeof(object)` | **Failed: 1** — `KnownExternalHeadsResolveUnderBothSpellingsAndLeaveObjectOnTheFalsePath` | sha match |
+  | C5 the interface DFS stops recursing into bases | **Failed: 1** — `InterfaceBaseEnumerationIsAPreOrderWalkThatKeepsDiamondDuplicates` | sha match |
+
+  **C2, C4 AND C5 ARE THE ONES THAT MATTER MOST, BECAUSE THEY ARE EXACTLY M2, M4 AND M5** — the three
+  the corpus could not see. The estate sees all three. So every one of the seven rerouted members is
+  now pinned by at least one instrument that FAILS when its owner is perturbed, and the "the corpus
+  cannot reach it" gap above is closed rather than merely disclosed.
+
+  **THE NEW FILE DOES NOT MOVE THE SHIPPED COMPILER, AND THAT IS MEASURED**: `.tests.nl` are excluded
+  from the default build, and after adding it both `Compiler.dll` and
+  `NSharpLang.Compiler.BootstrapServices.dll` re-publish to the **byte-identical normalised digests**
+  (`6e2207bf…` and `ea61fd4c…`), so the corpus IL verdict above stands without a re-run.
+
+  ### THE REST OF THE BAR
+
+  | check | result |
+  |---|---|
+  | estate contracts | **`Passed: 7041, Failed: 0`** — 7,036 + **exactly the 5 new blocks**, count-diff EXACT |
+  | live-tree `nlc check` over `BootstrapServices` | **`checkedFiles=399`, 246 errors**, census identical — `NL202` 85, `NL402` 68, `NL905` 26, `NL012` 20, `NL011` 17, `NL301` 16, `NL010` 7, `NL303` 3, `NL412` 3, `NL002` 1 — and diffed **ROW-FOR-ROW against the BASELINE CLI run over the SAME sources**: **0 rows added, 0 removed** (a live control, not a remembered census) |
+  | `tests/native/ownership-audit` | **18 / 18** |
+  | ratchet NON-VACUITY | appending ONE blank line to `ColumnarIlEmitter.cs` takes the audit to **17 / 18**; the byte was removed and the file's `sha256` re-verified IDENTICAL (`40bcbdad…`), and the audit re-read **18 / 18** |
+  | ratchet repin (two-key, LAST) | emitter row `currentLines` **21519 → 21385**, `currentNonBlank` **20457 → 20332**, `currentFingerprint` **`text-v1:d86f36cb8b445e8f` → `text-v1:7f2f987c6c27492f`**; `reviewedHeadFingerprint` **`head-v1:d0614137ae9ff544` → `head-v1:c81ecc99e951c534`** in BOTH keys (the JSON header AND `OwnershipPolicy.ReviewedHeadFingerprint`, `OwnershipAudit.nl:241`). **EPOCH TRIPLE UNCHANGED** — `epochFileCount` **381**, `pathset-v1:8a26e1529863444b`, `epochfacts-v1:1b3090747e517fc1` |
+  | repin instrument CONTROL | the repin script **reproduces all three stored fingerprints from the stored rows BEFORE changing anything**, which is what proves its FNV-1a/normalisation matches `OwnershipAudit.nl`; it then re-asserts the pathset and epoch-fact fingerprints are unmoved after the write |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`), 381 rows |
+  | `nlc format --check` on `OwnershipAudit.nl` | **FAILS — and it fails identically on the PRISTINE `HEAD` copy**, so it is a pre-existing condition of that file, not something this slice introduced. Recorded, not caused; the gate's own format-contract step is the arbiter |
+  | compiler C# files | **10** — unchanged |
+
+  ### THE FRESH ISOLATED GATE — RUN TWICE, AND BOTH RUNS ARE REPORTED
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` byte copy (`.git`, `bin`, `obj`,
+  `node_modules` **and `.claude/worktrees/`** excluded — the nested-worktree hazard is a recorded gate
+  breaker, and three such worktrees exist in this checkout), log written OUTSIDE the copy, with
+  `pgrep` run first to prove no other session's gate was live.
+
+  - **GATE 1 (the reroute, before the dead-`using` removal): GREEN — 126 `✓ PASSED` / 0 `✗ FAILED`,
+    24m 59s**, carrying unit **`Passed: 596`** (the baseline exactly), estate **`Passed: 7036`**, all
+    native projects, the **format contract gate** ("All files are properly formatted." ×4), `dotnet
+    new` templates, every example project, the 38 single-file examples, `nlc check` on examples and
+    the **IL verification gate**.
+  - **GATE 2 (the FINAL tree, the one that ships): GREEN — `GATE EXIT 0`, `ALL TESTS PASSED`,
+    126 `✓ PASSED` / 0 `✗ FAILED`, 22m 36s** from a fresh `/tmp` byte copy taken after the `using`
+    removal, the five new contracts and the re-taken repin, so the gated tree IS the tree that
+    ships. Inside it: unit **`Passed: 596`** (the baseline exactly), estate **`Passed: 7041`** (the
+    new count), `tests/native/ownership-audit` **PASSED**, the **format contract gate** ("All files
+    are properly formatted."), `dotnet new` templates, every example project, the 38 single-file
+    examples, `nlc check` on examples and the **IL verification gate**. The compiler built with the
+    **same four pre-existing `CS8604` warnings, 0 errors**.
+
+  **ONE OPERATIONAL NOTE FOR THE NEXT SLICE.** An intermediate gate was cancelled when the contract
+  gap was found mid-flight; it was stopped by `pkill`-ing the WHOLE `nsharp-test-all.<key>` tree, per
+  the recorded rule (never SIGTERM the driver alone — its EXIT trap deletes the `/tmp` tree out from
+  under a still-running core). That still left ONE orphaned `dotnet build` at 0% CPU holding the
+  dead tree's `BootstrapServices` directory open for ~52 minutes; it was found by `ps` and killed
+  before the final gate's build step. **`pkill` the tree, then `pgrep` for survivors** — the tree
+  pattern does not always catch the MSBuild grandchildren.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-A0`: THE TYPE-ADMISSIBILITY DIFFERENTIAL GRID. THE
   INSTRUMENT IS BUILT, THE 25-MEMBER FAMILY IS DECIDED CELL BY CELL, AND SIX MEASURED N#-OWNER BUGS
   ARE FIXED WITH CONTRACTS. ZERO C# CHANGES. NOT COMMITTED.**)
 
@@ -65010,7 +65389,36 @@ definitions are deleted as they move (shrink, not new). NO emitter-operand unloc
 
 These are populated only when their task becomes current.
 
-- Task 015 next emitter sub-slice: **`015-A` STAGE A1 — MOVE THE PROVABLY-EQUIVALENT LEAVES.**
+- Task 015 next emitter sub-slice: **`015-A` STAGE A2 — THE EQUIVALENT PREDICATES INSIDE THE
+  `IsSupportedType` CONE, LEAVES FIRST. 146 counted call sites.**
+  (`015-A1` is DONE — see the Cursor block's `015-A1` sub-slice. Seven C# members and **142 body
+  lines** are deleted, their **41 call sites** now call the N# owners, the emitter is
+  **21,519 → 21,385**, the corpus IL sweep is **97 / 97 byte-identical with the CONTROL FIRST**, the
+  collapse instrument reads **`COLLAPSE_FAILURES=0`** with the baseline at 7, and the two-key head is
+  repinned to **`head-v1:c81ecc99e951c534`** with the epoch triple unchanged. It also found and closed
+  a hole the reroute opened: five of the seven owners had NO native contract, and
+  `ColumnarReroutedOwnerFacts.tests.nl` (225 lines / 5 blocks / **82 asserts**) now pins them, taking
+  the estate to **7,041**.)
+  **A2's MEMBERS**, all EQUIVALENT on A0's grid — six of them only because of A0's fixes:
+  `IsSupportedArrayPoolType`, `IsSupportedMemoryPoolType`, `IsSupportedMemoryOwnerType`,
+  `IsSupportedMemoryType`, `IsLiftableNullableElement`, `IsSupportedNullable`,
+  `IsSupportedReadOnlySpanElementType`, `IsByRefLikeType`, `IsEnumType`, `IsSupportedElementType`,
+  `IsSupportedCollectionType`, `IsSupportedValueTuple`, `IsSupportedTaskType`,
+  `IsSupportedDelegateType`, `IsSupportedResultType`, `IsSupportedAnonymousUnionType`,
+  `IsSupportedSpanLikeType`, `ContainsBuilderBoundType`, `ContainsNonEnumBuilderBoundType`.
+  **FOUR THINGS A1 LEARNED THAT A2 SHOULD CARRY**: (a) the leaf criterion that matters is "calls no
+  family member", not "no family member calls it" — several A2 members ARE called from
+  `IsSupportedType`, which is fine and is the pattern the file already runs; (b) a member with a
+  second, UNMATCHED entry point survives the cut and the site count already says so; (c) the corpus
+  cannot reach every rerouted site, so budget the collapse instrument (IL call counts on
+  `ColumnarIlEmitter`) as the primary completeness proof and the coupling mutations as the
+  behavioural one, reporting the unreached members explicitly; and **(d) CHECK NATIVE CONTRACT
+  COVERAGE FOR EVERY MEMBER BEFORE CUTTING** — deleting the C# removes the only thing A0's grid could
+  compare the owner against, so an unpinned owner becomes permanently unpinnable by that instrument.
+  A1 found five of seven unpinned. **A2's 19 members should be grepped against the `.tests.nl` estate
+  up front and the missing contracts written as part of the slice, not after it.** The A0 contract
+  file already covers some of them (`IsEnumType`, `ContainsBuilderBoundType`, the span/Result/union
+  heads); the rest are the slice's own bill.
   (`015-A0`, the differential grid, is DONE — see the Cursor block's `015-A0` sub-slice. It drove
   **68 rows / 12,115 cells** over a **245-type corpus**, reproduced FOUR of the five recorded
   divergences, **OVERTURNED** the `IsClosedUserGenericInstantiation`/`IsClosedSourceGeneric` one as
