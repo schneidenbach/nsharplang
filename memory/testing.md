@@ -671,6 +671,33 @@ grep confirms zero copies of `Test run timed out.`, `Test timed out.`, `takes no
 `GetParameters().Length != 0` predicate remain anywhere in C#. Three mutations of those kernels each
 move exactly one estate block.
 
+**The runner's remaining VOCABULARY is N#-owned as of task 021 slice 6, and `Program.Testing.cs`'s
+literal census is now exactly its three surviving invariant sentences.** Slice 42's partition named
+four residues; a full literal/ordinal census at slice 6's tip found TWELVE, and all twelve moved:
+the outcome words `passed`/`skipped`/`failed` (`GetPassedOutcome`/`GetSkippedOutcome`/
+`GetFailedOutcome`, which `GetNativeTestOutcomeRank` is now DEFINED FROM), the `F3` JSON duration
+and the `F0` verbose elapsed number (`FormatTestDurationSeconds`, `GetZeroTestDuration`,
+`FormatTestElapsedMilliseconds`), the verbose classification (`GetVerboseMessage`), the lifecycle
+names AND their order (`GetPreTestLifecycleMethodNames`/`GetPostTestLifecycleMethodNames`, which
+`IsLifecycleMethodName` is now defined from), the xUnit runner-error row's identity
+(`GetXunitRunnerErrorName`/`…DisplayName`), the display-name preference
+(`GetPreferredDisplayName`), the failure-message join (`JoinFailureMessages`), the test build
+configuration (`GetTestBuildConfiguration`, which `GetTestOutputDirectory` now reads), the
+output-mode ordinals (`IsJsonOutputMode`/`IsTextOutputMode`, defined from `GetOutputMode`), the four
+bare `return 1`s (`GetExitCode(false)`) and two re-implementations of `GetTestFullName`.
+**NONE OF THE OUTCOME VOCABULARY HAD EVER BEEN PINNED**: before this slice no contract anywhere
+asserted a native `nlc test` outcome value, so the three words that decide the command's exit code
+could have been renamed freely. `TestCommandKernels.tests.nl` now pins them, including the
+consequence — an unknown outcome word ranks 0 and FAILS the run. **One deliberate behaviour change**:
+the JSON `duration` field was built with `$"{…:F3}s"`, which reads the CURRENT culture; it is now
+`CultureInfo.InvariantCulture`, so the versioned envelope cannot print a comma decimal.
+
+**The `nlc test` runner seam is the instrument for that slice** — `nlc test` driven six ways
+(`--json`, `--verbose`, plain text, `--filter`, and `--coverage` on both routes) over a fixture
+carrying a passing and a deliberately failing test, with every duration and elapsed number
+canonicalised to its SHAPE rather than its value. Before and after are byte-identical at 130 lines,
+and the after reproduces byte-identical across a restore-and-rebuild.
+
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
 `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.

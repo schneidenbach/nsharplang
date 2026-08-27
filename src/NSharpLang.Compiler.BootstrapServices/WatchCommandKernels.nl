@@ -159,6 +159,19 @@ class WatchCommandKernels {
         return forwardedArgs
     }
 
+    // ── THE WATCH DEFAULTS ────────────────────────────────────────────────────
+    //
+    // The debounce window is the one number `nlc watch` picks on the user's behalf, and the time
+    // format is what `GetChangeDetectedMessage` prints beside every rebuild. Both were spelled in
+    // the CLI, one screen apart from the kernels that consume them.
+    static func GetDefaultDebounceMilliseconds(): int {
+        return 250
+    }
+
+    static func GetChangeTimeFormat(): string {
+        return "T"
+    }
+
     static func ParsePositiveInt(value: string): int {
         parsed := ParseInt32OrZero(value)
         if parsed <= 0 {

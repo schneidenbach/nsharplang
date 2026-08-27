@@ -168,3 +168,31 @@ test "a bare .nl extension with no stem still triggers, and a non-N# path does n
     assert !WatchCommandKernels.ShouldTriggerForChangedPath("src/nested/")
     assert !WatchCommandKernels.ShouldTriggerForChangedPath("")
 }
+
+
+// ══ 021/6: THE WATCH DEFAULTS ═════════════════════════════════════════════════════════════════
+//
+// The debounce window is the one number `nlc watch` picks for the user, and the time format is what
+// every rebuild line prints. Both were spelled in `WatchCommand.cs`, one screen from the kernels
+// that consume them.
+
+test "the default debounce window is 250 ms" {
+    assert WatchCommandKernels.GetDefaultDebounceMilliseconds() == 250
+    // it is a POSITIVE default, which is what `ParsePositiveIntOption` requires of one
+    assert WatchCommandKernels.GetDefaultDebounceMilliseconds() > 0
+}
+
+test "an absent --debounce-ms takes the default, and a given one overrides it" {
+    absent := WatchCommandKernels.ParsePositiveIntOption(null, true, WatchCommandKernels.GetDefaultDebounceMilliseconds())
+    given := WatchCommandKernels.ParsePositiveIntOption("40", true, WatchCommandKernels.GetDefaultDebounceMilliseconds())
+
+    absentValue := WatchCommandKernels.GetParsedOptionalIntValue(absent)
+    givenValue := WatchCommandKernels.GetParsedOptionalIntValue(given)
+
+    assert (absentValue ?? 0) == 250
+    assert (givenValue ?? 0) == 40
+}
+
+test "the change line prints a short time, not a full date" {
+    assert WatchCommandKernels.GetChangeTimeFormat() == "T"
+}

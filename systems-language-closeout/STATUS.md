@@ -1,6 +1,52 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-26 (**TASK 021 SLICE 4 — `AstNodeFinder.cs` IS DELETED WHOLE, BOTH LSP
+Last updated: 2026-08-26 (**TASK 021 SLICE 6 — `Program.Testing.cs`'s REMAINING VOCABULARY LEAVES
+C#, AND ITS LITERAL CENSUS IS NOW EXACTLY TWO SENTENCES.** The decode was recorded BEFORE any
+production edit and it CONFIRMS the 020 finisher's partition to the digit — **41 `TestCommandKernels`
+call sites over 33 entry points**, the three invariants re-located at `:147`, `:349` and `:613` (one
+line of drift). **THEN IT CORRECTS IT UPWARD: the 020 records named FOUR residues; a full
+literal/ordinal census finds TWELVE**, two of which are a SECOND COPY of an answer the kernels
+already held — the runner spelled `"Debug"` beside a `GetTestOutputDirectory` that spells it too,
+and re-implemented `GetTestFullName` twice while calling it one screen away. All twelve move.
+**AND THE SHARPEST FINDING IS THAT NONE OF THE OUTCOME VOCABULARY HAD EVER BEEN PINNED** — no
+contract anywhere asserted a native `nlc test` outcome, so the three words that decide the command's
+exit code could have been renamed freely; they are pinned now, WITH the consequence (an unknown word
+ranks 0 and FAILS the run). Two owners are **defined rather than copied**: `GetNativeTestOutcomeRank`
+now reads the three accessors, and `IsLifecycleMethodName` is defined from the two ORDERED lifecycle
+arrays — closing a real gap, since the four names the runner invoked and the five discovery excluded
+were separately spelled. **THE THREE INVARIANTS SPLIT TWO WAYS.** The JSON-summary one is **deleted
+by the type system** — the parameter is now required and non-nullable, so the sentence cannot be
+written; the two assembly-directory ones are **proved mechanical by a three-step chain** (null is
+excluded at `:88`, empty by `ShouldTreatProjectReferenceBuildAsFailed`, and a root by
+`Path.Combine(outputDir, name + ".dll")`), so a user sees them only if the compiler reports a
+filesystem root as an emitted assembly. **ONE DELIBERATE BEHAVIOUR CHANGE**: the JSON `duration` was
+built with `$"{…:F3}s"`, which reads the CURRENT culture; it is invariant now — and the columnar
+backend models only `CultureInfo.InvariantCulture`, so the bug is **UNWRITABLE**, which is why its
+mutation fails at BUILD time rather than in a contract. **SLICE 7 IS TAKEN TOGETHER, THREE FILES OF
+ITS FOUR**, all line-for-line with two at zero ratchet headroom; `DaemonProtocol.cs`'s wire DTOs are
+deferred as a reshape. **ZERO NEW C#; all five `.cs` files are `added == deleted` on every numstat
+row**, `Program.Testing.cs` HOLDS at **617** with non-blank **539 → 538**, its kernel census rises
+**41/33 → 77/49**, and its literal-bearing lines go **29 → 2**. **TWELVE ESTATE MUTATIONS ALL FAIL BY
+NAME** — including one INHERITED block that a single renamed outcome word takes down — but **TWO WERE
+NON-MOVERS ON THE FIRST PASS AND BOTH ARE REPORTED**: one was a real contract gap (a separator
+claimed with `Contains` instead of an equality) and one was a mutation that was pointwise identical
+to the original. **TWO SEAMS, BOTH BYTE-IDENTICAL** (`nlc test` ×6 at 130 lines, `nlc lint` ×7 +
+`nlc build` ×2 at 193), each against a real restore-and-rebuild, with the after reproducing
+byte-identical; **S1 proves the instrument moves (6 rows) and S2 proves the C# residue cannot** —
+both surviving sentences rewritten at once changes nothing. **TWO PRODUCT DEFECTS FOUND AND FILED AS
+CHIPS, NOT ABSORBED**: three columnar estate blocks fail under a de-DE locale, and the DOCUMENTED
+`test "…" skip "reason" { }` form does not emit at all, failing with no NL code, no line and no
+reason. Ratchet repinned two-key `head-v1:fd8eef5f1a0fc1c6` → **`head-v1:3b37a86d92a15ff5`** from a
+replica validated PRISTINE-FIRST on seven values — **and that replica had a defect caught before it
+wrote anything**: it hashed Python code points where the audit walks UTF-16 code UNITS, so two astral
+emoji in one `.test.ts` made it report a phantom drift. Five rows repinned, epoch triple UNCHANGED,
+audit **18/18** and non-vacuous on both a one-key head and a one-line ceiling raise; manifest 391
+lines, no BOM. Gate: **`ALL TESTS PASSED`, exit 0, 126 steps, 0 failures, 22m 16s** — units 606,
+estate 6889, all 46 native projects, ILVerify 67 assemblies. Live tree **395/246** to the digit.
+NOT COMMITTED; `tasks/README.md` is NOT edited.
+**NEXT: SLICE 7 — `QueryCommand.cs:108`, `Program.cs`'s diff labels and `DaemonProtocol.cs`**)
+
+Last updated (prior): 2026-08-26 (**TASK 021 SLICE 4 — `AstNodeFinder.cs` IS DELETED WHOLE, BOTH LSP
 CONSUMERS ROUTE TO THE N# OWNER, AND THE MEASUREMENT FINDS THE HOVER SEAM UNPINNED.** The decode was
 recorded BEFORE any production edit. The forwarder was **15 lines / 13 non-blank** adding exactly
 three things over `AstNodeFinderCore`: a `CompilationUnit` parameter type, an `Expression?` return
@@ -4399,7 +4445,411 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 5b — THE NINE REMAINING LSP DECISIONS. SEVEN ARE
+- Active sub-slice (021 arc, THIS TURN — **SLICE 6 — `Program.Testing.cs`'s REMAINING VOCABULARY.
+  THE DECODE CENSUS, RECORDED BEFORE ANY PRODUCTION EDIT.**
+
+  ### THE PARTITION RE-VERIFIED AT THIS TIP (`b2f2356bf`), AND THE 020 COUNTS REPRODUCE EXACTLY
+
+  `src/NSharpLang.Cli/Program.Testing.cs` is **617 lines**. A census of `\b(\w+Kernels)\.(\w+)`
+  reads **43 call sites over 34 entry points**, of which `ProgramCommandKernels
+  .FormatElapsedMilliseconds` accounts for 2 sites / 1 entry point — so
+  **`TestCommandKernels` alone is 41 sites over 33 entry points**, the 020 finisher's figure TO THE
+  DIGIT. Its ratchet row is `653 / 571` epoch vs `617 / 539` current, `text-v1:2fe5384d6c24697c` —
+  **36 lines of headroom**, unlike slices 4 and 5 which had none.
+
+  ### THE THREE INHERITED INVARIANTS, RE-LOCATED (THE 020 LINE NUMBERS HELD)
+
+  | 020 said | at this tip | text |
+  |---|---|---|
+  | `:147` | **`:147`** | `Could not determine the test assembly directory for '{assemblyPath}'.` (xUnit path) |
+  | `:349` | **`:349`** | the same sentence (reflection/NUnit path) |
+  | `:614` → | **`:613`** | `N# test JSON output requires an N# outcome summary.` (drifted one line when the file shrank 618 → 617) |
+
+  ### THE RESIDUE THE DECODE FINDS BEYOND THOSE THREE — TWELVE DECISION-SHAPED ITEMS
+
+  The 020 records named FOUR (outcome vocabulary, the `F3` duration, the lifecycle names, the bare
+  `1`s). A full literal/ordinal census of the file finds **twelve**, and the eight it adds are not
+  cosmetic — two of them are a SECOND COPY of an answer `TestCommandKernels.nl` already holds.
+
+  | # | residue | sites | where the user sees it |
+  |---|---|---|---|
+  | **1** | outcome vocabulary `"passed"` / `"skipped"` / `"failed"` | `:243`, `:246`, `:249`, `:255`, `:259`, `:311`, `:427`, `:460`, `:477` (9) | `payload["outcome"]` in `nlc test --json`; and it is the JOIN to `GetNativeTestOutcomeRank`, so a misspelling silently ranks 0 → `nonOk` → exit 1 |
+  | **2** | duration format `:F3` + the literal `"0.000s"` | `:256`, `:295`, `:428`, `:461`, `:478` (5) | `payload["duration"]` in the JSON envelope |
+  | **3** | verbose elapsed format `"F0"` + `CultureInfo.InvariantCulture` | `:310`, `:454` (2) | the `[… ms]` number inside `GetVerbosePassedMessage` |
+  | **4** | the verbose CLASSIFICATION `errorMessage == null ? passed : outcome == "skipped" ? skipped : failed` | `:307`–`:313` | which of the three verbose sentences prints — result classification, in C#, keyed on a literal |
+  | **5** | lifecycle names AND their ORDER | `:438`, `:439`, `:444`, `:445` (4) | which of the user's methods run, and when |
+  | **6** | the xUnit runner-error identity `"xunit.runner"` / `"xUnit runner"` | `:253`, `:254`, `:258` (3) | `name`, `displayName` and `nsharpDescription` of the synthetic failure row |
+  | **7** | the full-name join `$"{type}.{method}"` — **`TestCommandKernels.GetTestFullName` ALREADY EXISTS and is called one screen away at `:489`** | `:337`, `:407` (2) | `payload["name"]` |
+  | **8** | the display-name preference `description ?? displayName` | `:204`, `:297`, `:329` (3) | `payload["displayName"]` and every verbose line |
+  | **9** | the test build configuration `"Debug"` — **a SECOND COPY: `GetTestOutputDirectory` (`TestCommandKernels.nl:145`) already spells `"Debug"` into the same path** | `:84` (1) | where the test assembly is built |
+  | **10** | bare `return 1` beside `GetExitCode(summary.Ok)` at `:121` | `:54`, `:66`, `:95`, `:133` (4) | the process exit code |
+  | **11** | output-mode ordinals `outputMode == 1` / `== 2` against `GetOutputMode`'s own 1/2 | `:51`, `:63`, `:92`, `:107`, `:125`, `:130` (6) | which output route runs |
+  | **12** | the failure-message join `string.Join(Environment.NewLine, …Where(!IsNullOrWhiteSpace))` | `:339`–`:340` | `payload["errorMessage"]` |
+
+  **AND THE SHARPEST FINDING IS THAT NONE OF THE OUTCOME VOCABULARY IS PINNED BY ANYTHING.**
+  `grep '"outcome"'` over `tests/native/cli-command-contracts/*.nl` and `tests/*.cs` returns
+  **ZERO** rows naming a native `nlc test` outcome (the one hit,
+  `tests/IlSdkToolchainTests.cs:274`, reads `"Passed"` out of a `dotnet test` TRX, a different
+  runner entirely). The only `nlc test` contract in the repository is slice 43's timeout refusal,
+  which never reaches a result row. **The three strings that decide `nlc test`'s exit code could
+  have been renamed to anything and the whole suite would still pass** — the slice-3 shape exactly,
+  and the mandate's remedy applies: pin them and say so.
+
+  **A LATENT CULTURE BUG, FOUND BY THE SAME CENSUS.** `:310` and `:454` format the verbose
+  milliseconds with an EXPLICIT `CultureInfo.InvariantCulture`, while `:295`/`:461`/`:478` format
+  the JSON `duration` through `$"{…:F3}s"`, which is **CURRENT-culture**. Under a comma-decimal
+  locale the versioned JSON envelope would print `"1,234s"`. Schema discipline says stable output is
+  invariant, so the kernel takes it invariant and the correction is RECORDED rather than smuggled.
+
+  ### THE CLASSIFICATION THIS SLICE APPLIES, STATED BEFORE IT IS USED
+
+  **The runner may not COMPOSE or CLASSIFY user-visible text; it MAY undo its own host wrapping.**
+  That line puts items 1–12 on the move side and leaves five things in C#: the three invariant
+  sentences, `UnwrapInvocationException` (every layer it removes — `TargetInvocationException`,
+  single-inner `AggregateException` — is a wrapper the HOST added around the user's own exception,
+  and it composes nothing), the `_outcomeRanks` growth arithmetic, the reflection enumeration shape
+  (`BindingFlags`, `IsClass`/`IsAbstract`, `IsSpecialName`), and `ConstructorArguments.Count == 2`
+  (the arity of **xUnit's** `TraitAttribute`, an ecosystem fact, not an N# policy — unlike
+  `IsSupportedTestMethodArity`, which is N#'s own rule about N# test methods).
+
+  ### THE SLICE-7 SWEEP, DECODED IN THE SAME PASS
+
+  | file | ratchet headroom | residue | verdict |
+  |---|---|---|---|
+  | `Program.Backends.cs` | **0** (366/366) | `release ? "Release" : "Debug"` at `:30`, `:82`; `"Debug"` at `:127` | **TAKE** — 44 kernel sites, 3 literals; the textbook "otherwise-forwarding file". `BuildCommandKernels.ShouldApplyDebugDefine` already spells `"Release"`, so N# holds half the answer already |
+  | `Commands/LintCommand.cs` | 6 (205/199) | `"LINT"` `:75`/`:148`, `"PARSE"` `:100`, `"error"` ×3, `"lint"` `:194` | **TAKE** |
+  | `Commands/WatchCommand.cs` | **0** (155/155) | the `250` ms debounce default `:33`, the `"T"` time format `:107` | **TAKE** |
+  | `Daemon/DaemonProtocol.cs` | **0** (116/116) | 7 DTO classes / 24 `[JsonPropertyName]`s / the `"30m"` idle default | **DEFER to 021/7** — this is not a vocabulary fragment in a forwarding file, it is a whole wire-format type family whose move is a reshape |
+  | `Commands/QueryCommand.cs:108`, `Program.cs:581/584/633` | — | ordering, diff labels, `stdin.nl` | **NOT TAKEN** — the mandate's (b)-bucket exclusion |
+
+  ### BASELINES CONFIRMED FROM DISK BEFORE THE EDIT
+
+  ratchet head **`head-v1:fd8eef5f1a0fc1c6`**, `pathset-v1:8a26e1529863444b`,
+  `epochfacts-v1:1b3090747e517fc1`, `epochFileCount` **381**; manifest **391 lines / 381 rows, no
+  BOM**; `Program.Testing.cs` **617**; `TestCommandKernels.nl` **648**;
+  `TestCommandKernels.tests.nl` **236 / 19 blocks**.
+
+  ### THE TWELVE MOVES, AND THE TWO OWNERS THAT ARE NOW DEFINED RATHER THAN COPIED
+
+  All twelve are taken. Two of them are the campaign's "define in terms of, do not restate" move —
+  `GetNativeTestOutcomeRank` now reads `GetPassedOutcome()`/`GetFailedOutcome()`/
+  `GetSkippedOutcome()` instead of restating three literals, and `IsLifecycleMethodName` is now
+  `NamesContain(pre) || NamesContain(post) || "Dispose"` instead of restating five. **That closes a
+  real gap rather than a stylistic one**: the four names the runner INVOKED and the five names
+  discovery EXCLUDED were separately spelled, so a lifecycle method could have been invoked AND
+  collected as a test. `GetTestOutputDirectory` likewise now reads `GetTestBuildConfiguration()`, so
+  the directory a test assembly is written to and the configuration it is built under are one word.
+
+  **`GetPreferredDisplayName` and `GetTestFullName` retire FIVE C# re-implementations between them**
+  — three `??`s and two interpolations — and `GetTestFullName` had already shipped, called one
+  screen away from two sites that spelled the join themselves.
+
+  ### THE THREE INVARIANTS: ONE IS DELETED BY THE TYPE SYSTEM, TWO ARE PROVED MECHANICAL
+
+  **`N# test JSON output requires an N# outcome summary.` IS GONE, AND NOT BY BEING MOVED.**
+  `OutputNativeTestJson` declared `NativeTestSummary? summary = null` and then threw if it was null,
+  while ALL NINE of its call sites passed a non-null summary by name. An invariant a signature can
+  carry should not be a runtime sentence: the parameter is now required and non-nullable (reordered
+  ahead of the optional `errorMessage`, since C# forbids a required parameter after an optional one)
+  and the `?? throw` line is deleted. **The C# shrinks and the sentence cannot be written at all.**
+
+  **THE TWO ASSEMBLY-DIRECTORY SENTENCES STAY, AND THE PROOF IS A CHAIN, NOT AN ASSERTION.**
+  `Path.GetDirectoryName` answers null for exactly three inputs — null, empty, and a filesystem
+  ROOT. Its argument is `assemblyPath`, and both runners receive the SAME value, `outputPath`:
+
+  | # | step | why the value cannot be one of the three |
+  |---|---|---|
+  | 1 | `Program.Testing.cs:88` returns early on `outputPath == null` | null is excluded before either runner is reached |
+  | 2 | `outputPath` is `CompileProjectWithIlBackend`'s `result.OutputAssemblyPath`, returned only after `CompilationReferenceResolverKernels.ShouldTreatProjectReferenceBuildAsFailed(success, path)` — `!success \|\| string.IsNullOrWhiteSpace(path)` — is FALSE | empty and whitespace are excluded by an N#-owned guard |
+  | 3 | that path is `GetProjectOutputAssemblyPath(outputDir, assemblyName)` = `Path.Combine(outputDir, assemblyName + ".dll")` | it ALWAYS ends in `.dll`, so it is never a root; and `Path.GetDirectoryName("X.dll")` is `""`, not null |
+
+  **So a user reaches those sentences only if `CompileToIlAssembly` reports a non-empty output
+  assembly path that is a filesystem root** — i.e. only if the compiler itself is broken. They are
+  mechanical, they are named, and unlike the third one the type system cannot carry them without
+  the kernel INVENTING a directory it has no basis to choose. That is the difference between the
+  two verdicts, stated rather than left to taste.
+
+  ### THE OTHER FOUR MECHANICAL ITEMS, EACH WITH ITS REASON
+
+  | residue | verdict |
+  |---|---|
+  | `UnwrapInvocationException` | **MECHANICAL.** Every layer it removes is a wrapper the HOST added around the user's own exception — `TargetInvocationException` by `MethodInfo.Invoke`, a single-inner `AggregateException` by `Task.Wait` — and it stops at anything the test itself threw. It composes no text and classifies nothing |
+  | `_outcomeRanks` growth (`Math.Max(n, 4)`, doubling) | **MECHANICAL.** Array capacity; no answer depends on it, and `SummarizeOutcomeRanks` reads `outcomeCount`, not `Length` |
+  | the reflection enumeration shape (`BindingFlags`, `IsClass`/`IsAbstract`, `IsSpecialName`) | **MECHANICAL.** It is the CLR's own member-enumeration vocabulary and the precondition of `Activator.CreateInstance`. Every NAME-level rule it feeds — is this a lifecycle name, a test attribute, the `NSharpTests` type, an N# description trait — is already N#-owned |
+  | `attribute.ConstructorArguments.Count == 2` | **MECHANICAL.** That is the arity of **xUnit's** `TraitAttribute(name, value)`, an ecosystem fact. It is NOT the same shape as `IsSupportedTestMethodArity`, which is N#'s own rule about N# test methods and therefore moved in slice 44 |
+
+  ### THE SLICE-7 TAKE-TOGETHER, TAKEN
+
+  Three of the four candidates are taken, all **LINE FOR LINE** — two of them had ZERO ratchet
+  headroom, so that was not a preference.
+
+  | file | before | after | what moved |
+  |---|---|---|---|
+  | `Program.Backends.cs` | 366 / 328 | **366 / 328** | `release ? "Release" : "Debug"` ×2 and a bare `"Debug"` → `BuildCommandKernels.GetConfigurationName(release)`, which `ShouldApplyDebugDefine` is now DEFINED FROM; and the two bare `return 1`s → `GetExitCode(built: false)` |
+  | `Commands/LintCommand.cs` | 199 / 181 | **199 / 181** | `"LINT"`/`"PARSE"` → `GetLintDiagnosticCode`/`GetParseDiagnosticCode`, `"error"` ×3 → `GetErrorSeverityText` (defined from `GetSeverityText`), `"lint"` → `GetCommandName`, `", "` → `JoinParseErrorMessages` |
+  | `Commands/WatchCommand.cs` | 155 / 127 | **155 / 127** | the `250` ms debounce default → `GetDefaultDebounceMilliseconds`, the `"T"` time format → `GetChangeTimeFormat` |
+  | `Daemon/DaemonProtocol.cs` | 116 / 95 | **untouched** | **DEFERRED to 021/7** — 7 DTO classes and 24 `[JsonPropertyName]`s are a wire-format type family, not a vocabulary fragment in a forwarding file |
+
+  **THE SEAM CORRECTED THE SLICE'S OWN NAMING BEFORE THE CONTRACT WAS WRITTEN.** The two lint
+  tokens were called "source tokens" by slice 1's inventory and by this slice's first draft. Reading
+  a real `nlc lint --json` envelope shows they land in the **`code`** field, beside `NL001` — so
+  they are hand-built diagnostic CODES, and the kernels, the contracts and the prose all say so.
+
+  **THE BARE `1`s ARE SPLIT BY A STATED RULE, NOT BY CONVENIENCE.** An exit code with a boolean
+  decision behind it and no sentence gets an owner — `Program.Testing.cs`'s four (`GetExitCode(false)`
+  beside the `GetExitCode(summary.Ok)` already one line away) and `Program.Backends.cs`'s two
+  (`outputPath == null`, which prints nothing at all). An exit code that is the tail of an
+  already-N#-owned refusal does not, because the failure is classified upstream: that leaves
+  `LintCommand.cs:197` and `WatchCommand.cs:35/:39/:153`, measured and left, each one line after an
+  `Error(...)`/`EmitError(...)` carrying a kernel sentence.
+
+  ### THE COUNTS, EXACT
+
+  | | before | after | delta |
+  |---|---|---|---|
+  | `src/NSharpLang.Cli/Program.Testing.cs` | 617 / 539 | **617 / 538** | **HOLDS**, −1 non-blank |
+  | its `TestCommandKernels` call sites / entry points | 41 / 33 | **77 / 49** | +36 / +16 |
+  | its literal-bearing lines (comments excluded) | 29 | **2** | the two invariant sentences, and nothing else |
+  | `src/NSharpLang.Cli/Program.Backends.cs` | 366 / 328 | **366 / 328** | line for line |
+  | `src/NSharpLang.Cli/Commands/LintCommand.cs` | 199 / 181 | **199 / 181** | line for line |
+  | `src/NSharpLang.Cli/Commands/WatchCommand.cs` | 155 / 127 | **155 / 127** | line for line |
+  | NEW C# | — | **ZERO** | `git diff --numstat -- '*.cs'` adds no file |
+  | `TestCommandKernels.nl` | 648 | **790** | +142 |
+  | `BuildCommandKernels.nl` | 462 | **487** | +25 |
+  | `LintCommandKernels.nl` | 240 | **267** | +27 |
+  | `WatchCommandKernels.nl` | 367 | **380** | +13 |
+  | `TestCommandKernels.tests.nl` | 236 / 19 blocks | **430 / 36** | +17 blocks |
+  | `LintCommandKernels.tests.nl` | 116 / 10 | **152 / 14** | +4 |
+  | `WatchCommandKernels.tests.nl` | 170 / 13 | **198 / 16** | +3 |
+  | `BuildCommandKernels.tests.nl` | — | **47 / 4, NEW** | `BuildCommandKernels` had NO estate contract file at all |
+  | compiler-service estate | 6,861 | **6,889** | **+28, which is 17 + 4 + 4 + 3 to the block** |
+  | C# unit suite | 606 | **606** | unchanged, `Failed: 0` |
+
+  ### THE TWO SEAMS — BOTH BYTE-IDENTICAL, AND THE BUILD IS PROVED TO REPRODUCE
+
+  **`runnerseam.py` drives the REAL `nlc test` six ways** — `--json`, `--verbose`, plain text,
+  `--filter adds`, and `--coverage` on both routes — over a fixture carrying two passing tests and
+  one that deliberately fails, so the vocabulary, the durations, the failure text, the display
+  names, the full names and the exit codes all appear. **Every duration and elapsed number is
+  canonicalised to its SHAPE, not its value**: `0.001s` becomes `#.###s`, `[12 ms]` becomes
+  `[## ms]`. That is what makes the identity a measurement rather than an accident of timing — an
+  `F3 → F2` change or a comma decimal moves the canonical text; a faster run does not.
+
+  **`cliseam.py` drives `nlc lint` seven ways and `nlc build` twice** over a fixture with a clean
+  file, an NL001 file and an unparseable file, and then reads `bin/Debug` and `bin/Release` off the
+  FILESYSTEM, because the configuration name picks a directory as well as a word.
+
+  **THE SEAM COVERS TWO OF THE THREE OUTCOME WORDS, AND THE REASON IS A PRODUCT DEFECT.** The
+  fixture was written to carry a skipped test too — `test "…" skip "not today" { }`, the form
+  `website/docs/cli-reference.md` documents in its Go/Rust comparison table. **It does not build.**
+  `nlc test` exits 1 with nothing but `This product path requires successful N# columnar emission
+  after analysis passes.` — **no NL code, no line, no column, no decline site** — while
+  `nlc check --json` on the same project answers `ok: true` with zero results, so the form parses
+  and analyses cleanly and only the emit path refuses it. Deleting exactly that one block makes the
+  same project build and run. **Two defects, and both are filed as a task chip rather than absorbed
+  here**: a documented language form that cannot be compiled, and a decline message that violates
+  the Elm-level bar every `NL103` elsewhere meets. The estate contracts pin the `skipped` word and
+  the skipped verbose sentence directly, so the vocabulary is not unpinned — but the SEAM cannot
+  reach it, and that is stated rather than papered over.
+
+  **THE "BEFORE" IS A REAL RESTORE-AND-REBUILD.** All eleven tracked paths were written back from
+  `HEAD` and the one new file moved aside, the CLI was rebuilt from those blobs, and both seams ran
+  against that build. The tree was then restored and rebuilt, and **the post-restore rebuild
+  reproduces `seam-after.txt` BYTE-IDENTICAL (`sha256 973db094…`, 130 lines)** — which is what makes
+  the diff a measurement of the slice rather than of the build.
+
+  | seam | before | after | diff |
+  |---|---|---|---|
+  | `nlc test` × 6 | 130 lines | 130 lines | **IDENTICAL** |
+  | `nlc lint` × 7 + `nlc build` × 2 | 193 lines | 193 lines | **IDENTICAL** |
+
+  ### THE MUTATION MATRIX — TWELVE ESTATE PERTURBATIONS, AND TWO OF THEM CAUGHT MY OWN INSTRUMENTS
+
+  Every mutation asserts its anchor before writing, restores the owner in a `finally` and checks the
+  `md5` back, so a failed run cannot leave a mutant on disk. Baseline is **`Failed: 0, Passed: 6889`**.
+
+  | # | perturbation | estate | blocks that fail, BY NAME |
+  |---|---|---|---|
+  | M1 | `GetPassedOutcome` → `"Passed"` | 3 / 6886 | `TheThreeNativeTestOutcomesAreExactlyTheseWords`, `AnOutcomeWordTheTableDoesNotKnowRanks0AndFAILSTHERUN`, **and the INHERITED `NativeTestSummariesAcceptANonemptySuccessfulRun`** |
+  | M2 | duration `F3` → `F2` | 1 / 6888 | `ATestDurationIsThreeDecimalPlacesAndATrailingS` |
+  | M3 | pre-test lifecycle order swapped | 1 / 6888 | `ThePreTestLifecycleRunsInitializeAsyncAndThenSetupINTHATORDER` |
+  | M4 | `GetXunitRunnerErrorName` → `"xunit-runner"` | 1 / 6888 | `TheXUnitRunnerErrorRowIsNamedAndShownWithExactlyTheseTwoStrings` |
+  | M5 | failure join `Environment.NewLine` → `" "` | 1 / 6888 | `FailureMessagesJoinOnANewlineAndBlankEntriesAreDropped` — **only after the contract was fixed; see below** |
+  | M6 | verbose classification reordered | 1 / 6888 | `TheABSENCEOfAnErrorMessageWinsOverTheOutcomeExactlyAsTheRunnerHadIt` — **only after the MUTATION was fixed; see below** |
+  | M7 | `IsJsonOutputMode` → text ordinal | 1 / 6888 | `TheOutputModePredicatesAnswerOverGetOutputModesOwnOrdinals` |
+  | M8 | `GetTestBuildConfiguration` → `"Release"` | 1 / 6888 | `ATestRunIsBuiltDebugAndTheOutputDirectoryIsBuiltFromTheSAMEWord` |
+  | M9 | `GetConfigurationName(true)` → `"Rel"` | 3 / 6886 | `TheTwoBuildConfigurationsAreExactlyReleaseAndDebug`, `TheDEBUGDefineIsAppliedForEveryConfigurationEXCEPTTheReleaseOne`, `TheConfigurationNameIsWhatTheOutputDirectoryIsBuiltFrom` |
+  | M10 | `GetLintDiagnosticCode` → `"LINTX"` | 1 / 6888 | `TheTwoHandBuiltDiagnosticCodesAreExactlyTheseTokens` |
+  | M11 | debounce default `250` → `500` | 2 / 6887 | `TheDefaultDebounceWindowIs250Ms`, `AnAbsentDebounceMsTakesTheDefaultAndAGivenOneOverridesIt` |
+  | M12 | `GetPreferredDisplayName` drops the description | 1 / 6888 | `AnNDescriptionWinsOverTheFrameworkDisplayNameAndNullFallsBack` |
+
+  **M1's THIRD ROW IS THE ONE THAT MATTERS BEYOND ITS OWN PIN.** Renaming one outcome word fails an
+  INHERITED block written long before this slice, because the word is the join to the rank table —
+  which is exactly the claim the new contract makes in prose.
+
+  **TWO NON-MOVERS WERE FOUND ON THE FIRST PASS, AND THEY WERE DIFFERENT KINDS OF FAULT.** M5 and M6
+  both reported `Failed: 0` — and the honest reading is that ONE was my contract's fault and one was
+  my mutation's.
+
+  | | what was wrong | the fix |
+  |---|---|---|
+  | **M5** | **A REAL CONTRACT GAP.** The block asserted `Contains("first")`, `Contains("second")` and `!Contains("first  second")`. A join on a SINGLE space produces `first second`, which satisfies all three. **A separator claim has to be an equality, not a `Contains`.** | the block now asserts `joined == "first" + Environment.NewLine + "second"` |
+  | **M6** | **A MUTATION THAT WAS NOT A MUTATION.** It reordered the arms but guarded the moved one with `&& errorMessage != null`, which makes the function pointwise IDENTICAL. The instrument was right and the perturbation was a no-op. | the mutation is now a bare reorder, which changes exactly the skip-with-no-reason case the contract pins |
+
+  ### M13 — THE INVARIANCE CLAIM, AND THE COMPILER ANSWERS IT BETTER THAN A CONTRACT COULD
+
+  The culture correction needed a falsification, so the estate was run under `LANG`/`LC_ALL` =
+  `de_DE.UTF-8` (with `DOTNET_CLI_UI_LANGUAGE=en`, because a localised runner summary defeats the
+  parser) with `CultureInfo.InvariantCulture` mutated to `CultureInfo.CurrentCulture`.
+
+  **IT DOES NOT COMPILE.** `NL103` at `TestCommandKernels.nl:647:16`,
+  `emit.call.instance-member-unmodeled: instance call 'Double.ToString' with 2 argument(s) is not
+  modeled`. The reason is exact and it is in the estate:
+  `ColumnarExternalBindingPlans.nl:313` models **one** `CultureInfo` static member —
+  `InvariantCulture` — so `CultureInfo.CurrentCulture` has no bound type and the two-argument
+  `ToString` cannot be planned. **The bug this slice corrected is not merely fixed; on the columnar
+  emit path it is UNWRITABLE.** That is a stronger guarantee than the contract, and it is also why
+  no runtime mutation can move that block — which is stated rather than dressed up as a passing pin.
+
+  **AND THE de-DE RUN FOUND SOMETHING THAT IS NOT MINE.** The PRISTINE estate under `de_DE.UTF-8`
+  reports **`Failed: 3, Passed: 6886`**: `SchemaV3ConversionPlansExecuteThroughTheirPersistedRows`,
+  `SchemaV3ExecutorEmitsEveryScalarConstantThroughDynamicMethod` and
+  `UnaryLiteralPlannerExecutesEveryAdmittedOpcodeThroughDynamicMethod` — three columnar
+  scalar/constant blocks with a latent locale dependency, in code this slice never touched. It is
+  green on every gate because the gate runs en-US. **It is recorded here and filed as its own task
+  chip rather than absorbed into this slice.**
+
+  ### THE SEAM MUTATIONS — THE INSTRUMENT MOVES, AND THE C# RESIDUE CANNOT
+
+  | | perturbation | seam |
+  |---|---|---|
+  | **S1** | `GetPassedOutcome` → `"PASSED"`, CLI rebuilt | **6 ROWS MOVE** — every `"outcome"` in the envelope and every decoded row. The byte-identical before/after is therefore a measurement, not an accident |
+  | **S2** | **BOTH surviving invariant sentences in `Program.Testing.cs` rewritten at once**, CLI rebuilt | **BYTE-IDENTICAL to the baseline.** No input a user can supply reaches them — the 020-finisher precedent, re-measured on the two that remain |
+
+  ### THE REPIN AND THE AUDIT
+
+  The replica was validated **PRISTINE-FIRST on all seven values** — the manifest's own head, the
+  policy constant's head, both epoch fingerprints in both places, and the epoch file count — before
+  it was trusted with an edit, and it **REFUSES to raise any ceiling, checked field by field**.
+
+  | | value |
+  |---|---|
+  | rows repinned | **5** — `Program.Testing.cs` (`617/539` → `617/538`, `text-v1:2fe5384d6c24697c` → `text-v1:33fa866c3d14c20e`), `Program.cs`, `Program.Backends.cs`, `Commands/LintCommand.cs`, `Commands/WatchCommand.cs` (the last four by FINGERPRINT ONLY — every one is line-for-line) |
+  | two-key head | `head-v1:fd8eef5f1a0fc1c6` → **`head-v1:3b37a86d92a15ff5`**, written **LAST** and in BOTH places (the JSON header and `OwnershipPolicy.ReviewedHeadFingerprint`) |
+  | epoch triple | **UNCHANGED** — `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` / **381**, re-derived from the WRITTEN file |
+  | manifest | **391 lines, 381 rows, no BOM**, six changed lines |
+  | `nlc test --project tests/native/ownership-audit` | **Passed: 18, Failed: 0** |
+  | non-vacuity C1 — flip ONLY the manifest header key | **17 / 1 — CORRECTLY FAILS**, so a one-key repin cannot pass |
+  | non-vacuity C2 — raise ONE epoch ceiling by one line | **17 / 1 — CORRECTLY FAILS** |
+
+  ### THE OTHER MEASUREMENTS
+
+  | check | result |
+  |---|---|
+  | compiler-service estate | **`Failed: 0, Passed: 6889`** under the restore-flag discipline |
+  | C# unit suite | **`Failed: 0, Passed: 606`** — the inherited baseline exactly |
+  | `nlc format --project src/NSharpLang.Compiler.BootstrapServices --check` | failed once on `TestCommandKernels.nl` (a three-line `||` chain the formatter joins), formatted, then **clean** — reported rather than quietly fixed |
+  | live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **395 files / 246 diagnostics**, census `NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26` — the inherited baseline TO THE DIGIT, **ZERO rows in any `.tests.nl`** and **ZERO naming any of the four files this slice edited**. The new `.tests.nl` does not move `checkedFiles`, because that count is production `.nl` only |
+
+  ### THE ONE CLAIM THE COMPILER OVERTURNED, RECORDED RATHER THAN QUIETLY CORRECTED
+
+  The decode said `OutputNativeTestJson` had **five** call sites, all passing a summary. It has
+  **NINE** — `Program.cs:490`, `:508`, `:522` and `:550` are in the OTHER half of the same
+  `partial class Program`, and the census that found five had been scoped to one file. The
+  conclusion survives (all nine pass a non-null summary, so the invariant was unreachable from
+  every one of them) but the number did not, and it was `CS1744` from the compiler that said so,
+  not the decode. **`Program.cs` is therefore edited by this slice, and only in the way a changed
+  signature forces**: four call sites reordered, `786 / 682` lines held EXACTLY, and none of its own
+  residues — the diff labels, the `stdin.nl` name, its bare `1`s — is touched.
+
+  ### WHAT 021/7 IS NOW
+
+  Three of its four named files are done here, and the mandate's `(b)`-bucket exclusion holds, so
+  the slice that remains is smaller AND sharper than the plan row: `QueryCommand.cs:108`'s
+  compilation-unit ordering and `Program.cs:581/:584/:633`'s unified-diff labels and `stdin.nl`
+  name — both **retiring-with-subject**, so they move when their subject does — plus
+  `Daemon/DaemonProtocol.cs`'s seven wire DTOs, which are a reshape and are named as one.
+
+  ### THE WALLS THIS SLICE HIT OR CONFIRMED
+
+  1. **`int?` cannot be compared to a literal inside an `assert`.** A contract written as
+     `assert Kernels.GetParsedOptionalIntValue(x) == 250` declines the whole `test` block at
+     `emit.statement.block-child` (node kind 61). The spelling that works is the one the timeout
+     contracts already used: bind the nullable to a local, then `assert (local ?? 0) == 250`.
+  2. **`double.ToString("F3", CultureInfo.InvariantCulture)` COMPILES AND EMITS in N#** — the first
+     production kernel in the estate to format a floating-point value at all. Every other numeric
+     format in `.nl` is integer arithmetic (`ProgramCommandKernels.FormatElapsedMilliseconds`) or an
+     `int.ToString("D3")`. This is recorded as a NEW capability confirmed by measurement, not
+     assumed.
+  3. **THE RATCHET REPLICA HAD A DEFECT, AND IT WAS CAUGHT BY PRISTINE-FIRST VALIDATION.** The first
+     replica hashed Python CODE POINTS where `OwnershipFacts.Fingerprint` walks a C# `string` by
+     UTF-16 CODE UNIT. It reproduced 380 of 381 rows and disagreed on exactly one —
+     `editors/vscode/test/suite/edgeCases.test.ts`, which deliberately contains two astral emoji, so
+     each is TWO surrogate halves to C# and ONE character to Python. **The replica was reporting a
+     phantom drift in a file this slice never touched**, and the pristine-first rule is what turned
+     that into a fixed bug instead of a corrupted repin.
+  4. **A `json.dumps` round trip of the manifest is a 6,000-line diff.** The manifest's 381 rows are
+     compact single lines; re-serialising reformats every one. The repin edits the manifest AS TEXT,
+     one row line at a time, and re-reads the written file to re-derive all four values.
+  5. Confirmed again: a CLI build silently disarms the estate — every estate run in this slice ran
+     `dotnet restore … -p:NSharpExcludeTests=false --force-evaluate` first.
+  6. **`nlc format` JOINS a multi-line `||` chain in a `return` onto one line.** A three-line
+     `return A(…)\n    || B(…)\n    || C(…)` is reformatted to a single 150-character line. The
+     format gate caught it, it was applied rather than argued with, and `TestCommandKernels.nl` is
+     **788** lines as a result. Worth knowing before hand-wrapping a boolean chain for readability.
+  7. **A localised `dotnet test` summary defeats an output parser.** Running the estate under
+     `LC_ALL=de_DE.UTF-8` makes the runner print its own summary in German, so a `Failed:`/`Passed:`
+     regex silently returns nothing and a failing run reads as unparsable rather than as red. Set
+     `DOTNET_CLI_UI_LANGUAGE=en` alongside the locale being tested.
+  8. **A mutation harness must parse the PASSING shape too.** The first matrix reported
+     `failed/passed=(None, None)` for its two non-movers because the parser only matched a `Failed:`
+     line, which a green run does not print. "Unparsable" and "green" are not the same answer and
+     the harness must not conflate them.
+
+  ### THE GATE
+
+  **The full non-VS-Code product gate, fresh and isolated from a `/tmp` byte-copy that excludes the
+  nested worktrees, with the log written OUTSIDE the copy, is `ALL TESTS PASSED! ✓` with exit 0:
+  126 GREEN STEPS and ZERO `✗ FAILED` LINES IN 636 LOG LINES, 22m 16s.** Its banner confirms no
+  cached result was accepted (`Fresh isolated test run required: pre-commit verification` /
+  `Existing cache entries will not satisfy this invocation.`) and its closing line stores a fresh
+  validated result under key `bdabb7cf23d318da`.
+
+  The gate's own instruments reproduce every count this record makes: unit suite
+  `Passed: 606, Failed: 0`, compiler-service estate `Passed: 6889, Failed: 0`, **46** native
+  projects including `tests/native/ownership-audit` → `Passed: 18, Failed: 0` and
+  `tests/native/cli-command-contracts` → `Passed: 77, Failed: 0`, the formatting gate clean, 22
+  example projects, 38 single-file examples, `dotnet new` templates, `nlc check` on examples, and
+  ILVerify over **67** N# assemblies.
+
+  **THE REPORTED COPY WAS VERIFIED BYTE-IDENTICAL TO THE SHIPPED TREE ON ALL NINETEEN CHANGED
+  PATHS** by `shasum -a 256`, driven from `git status --porcelain` so the list cannot be curated,
+  and checked to contain no nested worktrees (`.claude/` excluded; the six worktrees under it stay
+  out). `git ls-files` reads **1,424** in both. **This ledger is the only file edited after the
+  copy, and `systems-language-closeout/` is in none of the gate's input prefixes.**
+
+  ### THE TREE
+
+  **NOT COMMITTED — the mandate reserves that.** Nineteen changed paths: five `.cs`
+  (`Program.Testing.cs`, `Program.cs`, `Program.Backends.cs`, `Commands/LintCommand.cs`,
+  `Commands/WatchCommand.cs` — **every one line-for-line, `added == deleted` on all five numstat
+  rows**), four grown `.nl` owners, three grown `.tests.nl` and one NEW `.tests.nl`, both ratchet
+  keys, two `memory/` documents, `website/docs/cli-reference.md`, and this STATUS.
+  **`tasks/README.md` is NOT among them**, verified by `git diff --quiet`. No gate script, no
+  `.csproj` and no `project.yml` changed. `TestResults/` was removed from `git status`, never from a
+  glob. The nine inherited background-task chips are untouched and stay pinned as measured; **TWO
+  NEW chips were filed for the two findings above** (the locale-sensitive columnar blocks, and the
+  documented `skip` form that does not emit), because both are real and neither is this slice's
+  subject.
+
+  ### THE IDE BAR
+
+  This is a **backend-only** slice by the 021 plan's own classification, and the subject is CLI
+  surface, so the gate ran `VSCODE_TESTS=skip`. No Language Server, LSP handler, VS Code extension
+  or editor-experience file is touched. Computer-use remains unavailable; 021/12 still carries the
+  visual half.
+
+- Active sub-slice (021 arc, PRIOR TURN — **SLICE 5b — THE NINE REMAINING LSP DECISIONS. SEVEN ARE
   TAKEN WHOLE, ONE IS TAKEN IN PART WITH ITS REMAINDER DECODED TO THREE NAMED BLOCKERS, ONE IS LEFT
   TO 021/9 AS SEQUENCED — AND THE RE-VERIFICATION OVERTURNED THREE OF SLICE 5's OWN CENSUS CLAIMS.**
 

@@ -134,6 +134,33 @@ class LintCommandKernels {
         return "N# Lint\n" + "\n" + "Usage: nlc lint [options] [files...]\n" + "\n" + "Run static analysis rules on N# source files. Error-severity lints are\n" + "also included in 'nlc check' and block project builds.\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "  --json            Output as JSON (default)\n" + "  --text            Output as human-readable diagnostics\n" + "  --help, -h        Show this help text\n" + "\n" + "Lint Rules:\n" + "  NL001  error     Unused variable\n" + "  NL002  error     Missing import\n" + "  NL003  error     Unnecessary null check on value type\n" + "  NL004  error     Async function without await\n" + "  NL006  error     Unreachable code\n" + "  NL010  error     Unused import\n" + "  NL011  error     Empty catch block\n" + "  NL012  error     Unused parameter\n" + "  NL016  error     Redundant null check\n" + "  NL020  error     Shadowed variable\n" + "\n" + "Inline Suppression:\n" + "  // nlc:ignore NL001\n" + "  unusedVar := 42\n" + "\n" + "Examples:\n" + "  nlc lint\n" + "  nlc lint --json\n" + "  nlc lint --text\n" + "  nlc lint Program.nl\n" + "  nlc lint --project examples/16-task-cli\n" + "\n" + "Exit codes:\n" + "  0  No errors found\n" + "  1  One or more errors were reported"
     }
 
+    // ── THE HAND-BUILT DIAGNOSTIC CODES AND THE COMMAND NAME ──────────────────
+    //
+    // These two sit in the `code` field of `nlc lint --json`, ALONGSIDE the real rule ids: a row a
+    // user reads as `NL001` and a row they read as `LINT` come out of the same field. They are the
+    // only two codes the lint command invents rather than reads off a rule. The error severity is
+    // DEFINED IN TERMS OF `GetSeverityText`, so the word a hand-built row carries and the word a
+    // rule-driven row carries cannot drift apart.
+    static func GetLintDiagnosticCode(): string {
+        return "LINT"
+    }
+
+    static func GetParseDiagnosticCode(): string {
+        return "PARSE"
+    }
+
+    static func GetErrorSeverityText(): string {
+        return GetSeverityText(DiagnosticSeverity.Error)
+    }
+
+    static func GetCommandName(): string {
+        return "lint"
+    }
+
+    static func JoinParseErrorMessages(messages: string[]): string {
+        return string.Join(", ", messages)
+    }
+
     static func GetSeverityText(severity: DiagnosticSeverity): string {
         if severity == DiagnosticSeverity.Error {
             return "error"

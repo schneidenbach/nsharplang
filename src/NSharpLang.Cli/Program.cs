@@ -487,7 +487,7 @@ partial class Program
                 var message = TestCommandKernels.GetInvalidTimeoutMessage(testOptions.Timeout);
                 if (outputMode == 1)
                 {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, message);
                     return 1;
                 }
 
@@ -505,7 +505,7 @@ partial class Program
                 var message = TestCommandKernels.GetCoverageUnsupportedMessage();
                 if (outputMode == 1)
                 {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, message);
                     return 1;
                 }
 
@@ -519,7 +519,7 @@ partial class Program
             {
                 if (outputMode == 1)
                 {
-                    OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>(), summary: new NativeTestSummary(true, 0, 0, 0, 0));
+                    OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>(), new NativeTestSummary(true, 0, 0, 0, 0));
                     return 0;
                 }
                 Console.WriteLine(TestCommandKernels.GetNoTestFilesMessage());
@@ -547,7 +547,7 @@ partial class Program
         {
             if (outputMode == 2)
                 Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
-            if (outputMode == 1) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message, summary: NativeTestSummary.EmptyFailure); return 1; }
+            if (outputMode == 1) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, ex.Message); return 1; }
             return Error(TestCommandKernels.GetFailedMessage(ex.Message));
         }
     }

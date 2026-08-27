@@ -304,8 +304,33 @@ class BuildCommandKernels {
         return "Build timings:\n" + "  Resolve:    " + resolveElapsed + "\n" + "  Emit IL:    " + compileElapsed + "\n" + "  Total:      " + totalElapsed
     }
 
+    // ── THE BUILD CONFIGURATION NAMES ─────────────────────────────────────────
+    //
+    // The configuration name picks the output DIRECTORY and, read back through
+    // `ShouldApplyDebugDefine`, the `DEBUG` define. Those were two separately spelled answers —
+    // `release ? "Release" : "Debug"` in the CLI and a bare `"Release"` here — so this is now one
+    // owner and the predicate is DEFINED IN TERMS OF it rather than restating the word.
+    static func GetConfigurationName(release: bool): string {
+        if release {
+            return "Release"
+        }
+
+        return "Debug"
+    }
+
     static func ShouldApplyDebugDefine(configuration: string): bool {
-        return !string.Equals(configuration, "Release", StringComparison.OrdinalIgnoreCase)
+        return !string.Equals(configuration, GetConfigurationName(true), StringComparison.OrdinalIgnoreCase)
+    }
+
+    // A build's exit code is decided by whether it produced an output assembly. This is the same
+    // shape as `TestCommandKernels.GetExitCode`, and it replaces bare `1`s that carried no sentence
+    // and therefore had nothing else classifying them.
+    static func GetExitCode(built: bool): int {
+        if built {
+            return 0
+        }
+
+        return 1
     }
 
     static func GetOutputDirectory(projectRoot: string, configuration: string, targetFramework: string, outputDir: string?): string {

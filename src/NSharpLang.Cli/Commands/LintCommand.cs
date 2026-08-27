@@ -72,7 +72,7 @@ public static class LintCommand
                     {
                         // Surface as an error diagnostic so JSON consumers see it
                         allDiagnostics.Add(new DiagnosticResult(
-                            "LINT", "error", LintCommandKernels.GetFileNotFoundMessage(relativePath),
+                            LintCommandKernels.GetLintDiagnosticCode(), LintCommandKernels.GetErrorSeverityText(), LintCommandKernels.GetFileNotFoundMessage(relativePath),
                             relativePath, 0, 0, 0, null, null, null, null, null, null, null));
                     }
                     else
@@ -97,7 +97,7 @@ public static class LintCommand
                             foreach (var err in parseErrors)
                             {
                                 allDiagnostics.Add(new DiagnosticResult(
-                                    "PARSE", "error", err.Message,
+                                    LintCommandKernels.GetParseDiagnosticCode(), LintCommandKernels.GetErrorSeverityText(), err.Message,
                                     relativePath, err.Line, err.Column, Math.Max(err.Length, 1),
                                     CodeIntelligenceSourceDoor.SourceLine(source, err.Line),
                                     null, null, null, null, null, null));
@@ -107,7 +107,7 @@ public static class LintCommand
                         {
                             Console.Error.WriteLine(LintCommandKernels.GetParseErrorsMessage(
                                 file,
-                                string.Join(", ", parseResult.Errors.Select(e => e.Message))));
+                                LintCommandKernels.JoinParseErrorMessages(parseResult.Errors.Select(e => e.Message).ToArray())));
                         }
                         continue;
                     }
@@ -145,7 +145,7 @@ public static class LintCommand
                     if (useJson)
                     {
                         allDiagnostics.Add(new DiagnosticResult(
-                            "LINT", "error", LintCommandKernels.GetErrorLintingDiagnosticMessage(ex.Message),
+                            LintCommandKernels.GetLintDiagnosticCode(), LintCommandKernels.GetErrorSeverityText(), LintCommandKernels.GetErrorLintingDiagnosticMessage(ex.Message),
                             relativePath, 0, 0, 0, null, null, null, null, null, null, null));
                     }
                     else
@@ -191,7 +191,7 @@ public static class LintCommand
         }
         else
         {
-            Console.Write(OutputFormatter.ErrorToJson("lint", message, projectRoot));
+            Console.Write(OutputFormatter.ErrorToJson(LintCommandKernels.GetCommandName(), message, projectRoot));
         }
 
         return 1;

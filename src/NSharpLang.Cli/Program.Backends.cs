@@ -27,7 +27,7 @@ partial class Program
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
-            var configuration = release ? "Release" : "Debug";
+            var configuration = BuildCommandKernels.GetConfigurationName(release);
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
             var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(projectRoot, configuration, config.TargetFramework, outputDir);
 
@@ -79,7 +79,7 @@ partial class Program
 
             var sourceDir = BuildCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
             var config = GetEffectiveCompilationConfig(projectConfig, BuildCommandKernels.GetSourceFileAssemblyName(sourceFile));
-            var configuration = release ? "Release" : "Debug";
+            var configuration = BuildCommandKernels.GetConfigurationName(release);
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
             var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(sourceDir, configuration, config.TargetFramework, outputDir);
 
@@ -124,7 +124,7 @@ partial class Program
                 return Error(RunCommandKernels.GetLibraryProjectMessage());
             }
 
-            var configuration = "Debug";
+            var configuration = BuildCommandKernels.GetConfigurationName(release: false);
             BuildCommandKernels.ApplyEffectiveDefines(config, debug: true, cliDefines);
             var outputDir = BuildCommandKernels.GetOutputDirectory(projectRoot, configuration, config.TargetFramework, outputDir: null);
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
@@ -137,7 +137,7 @@ partial class Program
             var outputPath = CompileProjectWithIlBackend(projectRoot, config, outputDir, references);
             if (outputPath == null)
             {
-                return 1;
+                return BuildCommandKernels.GetExitCode(built: false);
             }
 
             Console.WriteLine();
@@ -176,7 +176,7 @@ partial class Program
             var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, tempDir, references);
             if (outputPath == null)
             {
-                return 1;
+                return BuildCommandKernels.GetExitCode(built: false);
             }
 
             Console.WriteLine();

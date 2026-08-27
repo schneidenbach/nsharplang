@@ -30,7 +30,7 @@ public static class WatchCommand
         if (!Directory.Exists(projectRoot))
             return Error(WatchCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot));
 
-        var debounceMs = ParsePositiveInt(options.DebounceMsOption, 250, "--debounce-ms");
+        var debounceMs = ParsePositiveInt(options.DebounceMsOption, WatchCommandKernels.GetDefaultDebounceMilliseconds(), "--debounce-ms");
         if (debounceMs == null)
             return 1;
 
@@ -104,7 +104,7 @@ public static class WatchCommand
                     continue;
 
                 Console.WriteLine();
-                Console.WriteLine(WatchCommandKernels.GetChangeDetectedMessage(DateTime.Now.ToString("T"), watchedCommand));
+                Console.WriteLine(WatchCommandKernels.GetChangeDetectedMessage(DateTime.Now.ToString(WatchCommandKernels.GetChangeTimeFormat()), watchedCommand));
                 lastExitCode = RunWatchedCommand(projectRoot, watchedCommand, forwardedArgs);
                 runCount++;
 

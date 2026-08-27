@@ -114,3 +114,39 @@ test "the lint command's sentences singularise on one file and pluralise on more
     assert LintCommandKernels.GetLintedInMessage("0.3s") == "  Linted in 0.3s"
     assert LintCommandKernels.GetFailedMessage("backend exploded") == "Lint failed: backend exploded"
 }
+
+
+// ══ 021/6: THE DIAGNOSTIC SOURCE TOKENS, THE SEVERITY WORD AND THE COMMAND NAME ════════════════
+//
+// `LintCommand.cs` built three `DiagnosticResult`s by hand with a literal CODE and a literal
+// `"error"`, and named the command a fourth time inside its JSON error envelope. Every one of those
+// four strings reaches `nlc lint --json` — the codes land in the same `code` field that carries
+// `NL001`, which the seam for this slice confirms by reading both out of one envelope.
+
+test "the two hand-built diagnostic codes are exactly these tokens" {
+    assert LintCommandKernels.GetLintDiagnosticCode() == "LINT"
+    assert LintCommandKernels.GetParseDiagnosticCode() == "PARSE"
+    // a missing file and a parse failure are DIFFERENT codes — a JSON consumer separates them
+    assert LintCommandKernels.GetLintDiagnosticCode() != LintCommandKernels.GetParseDiagnosticCode()
+    // and neither collides with a real rule id
+    assert LintCommandKernels.GetLintDiagnosticCode() != "NL001"
+}
+
+test "the hand-built severity is the SAME word a rule-driven row carries" {
+    // The literal `"error"` in the CLI and `GetSeverityText`'s answer were two spellings of one
+    // word; the accessor is defined from the severity table, so they cannot diverge.
+    assert LintCommandKernels.GetErrorSeverityText() == "error"
+    assert LintCommandKernels.GetErrorSeverityText() == LintCommandKernels.GetSeverityText(DiagnosticSeverity.Error)
+    assert LintCommandKernels.GetErrorSeverityText() != LintCommandKernels.GetSeverityText(DiagnosticSeverity.Warning)
+}
+
+test "the lint command names itself in its JSON error envelope" {
+    assert LintCommandKernels.GetCommandName() == "lint"
+}
+
+test "parse error messages join with a comma and a space" {
+    assert LintCommandKernels.JoinParseErrorMessages(["expected expression"]) == "expected expression"
+    assert LintCommandKernels.JoinParseErrorMessages(["expected expression", "unexpected }"])
+        == "expected expression, unexpected }"
+    assert LintCommandKernels.JoinParseErrorMessages(new string[](0)) == ""
+}

@@ -2,6 +2,7 @@ namespace NSharpLang.Cli
 
 import System
 import System.Collections.Generic
+import System.Globalization
 import System.IO
 import System.Reflection
 import System.Text
@@ -141,8 +142,16 @@ class TestCommandKernels {
         return Path.Combine(projectRoot, "project.yml")
     }
 
+    // A TEST RUN IS ALWAYS BUILT DEBUG, and this is the ONE place that decides it. The path below
+    // and `src/NSharpLang.Cli/Program.Testing.cs`'s build call used to spell the word separately,
+    // so the directory a test assembly was written to and the configuration it was built under
+    // were two answers that happened to agree.
+    static func GetTestBuildConfiguration(): string {
+        return "Debug"
+    }
+
     static func GetTestOutputDirectory(projectRoot: string, targetFramework: string): string {
-        return Path.Combine(Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), "Debug"), targetFramework), "tests")
+        return Path.Combine(Path.Combine(Path.Combine(Path.Combine(projectRoot, "bin"), GetTestBuildConfiguration()), targetFramework), "tests")
     }
 
     static func GetAssemblyDirectory(assemblyPath: string): string? {
@@ -161,8 +170,36 @@ class TestCommandKernels {
         return string.Equals(typeName ?? "", "NSharpTests", StringComparison.Ordinal)
     }
 
+    // ── THE LIFECYCLE VOCABULARY, AND ITS ORDER ───────────────────────────────
+    //
+    // The two arrays are the ORDER a native test runs in — everything before the test body, then
+    // everything after it — and `IsLifecycleMethodName` is DEFINED IN TERMS OF THEM rather than
+    // restating the names, so a runner that invokes a name discovery does not exclude, or excludes
+    // a name it never invokes, cannot exist. `Dispose` is the one name that is excluded without
+    // being invoked BY NAME: the runner reaches it through `IDisposable`, not reflection.
+    static func GetPreTestLifecycleMethodNames(): string[] {
+        return ["InitializeAsync", "Setup"]
+    }
+
+    static func GetPostTestLifecycleMethodNames(): string[] {
+        return ["Teardown", "DisposeAsync"]
+    }
+
     static func IsLifecycleMethodName(methodName: string): bool {
-        return methodName == "Setup" || methodName == "Teardown" || methodName == "InitializeAsync" || methodName == "DisposeAsync" || methodName == "Dispose"
+        return NamesContain(GetPreTestLifecycleMethodNames(), methodName) || NamesContain(GetPostTestLifecycleMethodNames(), methodName) || methodName == "Dispose"
+    }
+
+    static func NamesContain(names: string[], name: string): bool {
+        i := 0
+        while i < names.Length {
+            if names[i] == name {
+                return true
+            }
+
+            i = i + 1
+        }
+
+        return false
     }
 
     static func IsTestMethodAttributeName(attributeFullName: string?): bool {
@@ -197,16 +234,54 @@ class TestCommandKernels {
         return 1
     }
 
+    static func IsJsonOutputMode(outputMode: int): bool {
+        return outputMode == GetOutputMode(true)
+    }
+
+    static func IsTextOutputMode(outputMode: int): bool {
+        return outputMode == GetOutputMode(false)
+    }
+
+    // ── THE OUTCOME VOCABULARY ────────────────────────────────────────────────
+    //
+    // These three words are `results[].outcome` in the `nlc test --json` envelope AND the join to
+    // the rank table below, so they decide both what a user reads and what the process exits with:
+    // a word this table does not know ranks 0, which `SummarizeOutcomeRanks` counts as NOT OK.
+    // The rank table is DEFINED IN TERMS OF the three accessors rather than restating them.
+    static func GetPassedOutcome(): string {
+        return "passed"
+    }
+
+    static func GetFailedOutcome(): string {
+        return "failed"
+    }
+
+    static func GetSkippedOutcome(): string {
+        return "skipped"
+    }
+
+    static func IsSkippedOutcome(outcome: string): bool {
+        return outcome == GetSkippedOutcome()
+    }
+
+    static func GetXunitRunnerErrorName(): string {
+        return "xunit.runner"
+    }
+
+    static func GetXunitRunnerErrorDisplayName(): string {
+        return "xUnit runner"
+    }
+
     static func GetNativeTestOutcomeRank(outcome: string): int {
-        if outcome == "passed" {
+        if outcome == GetPassedOutcome() {
             return 1
         }
 
-        if outcome == "failed" {
+        if outcome == GetFailedOutcome() {
             return 2
         }
 
-        if outcome == "skipped" {
+        if outcome == GetSkippedOutcome() {
             return 3
         }
 
@@ -539,6 +614,71 @@ class TestCommandKernels {
 
     static func GetVerboseFailedMessage(displayName: string, message: string): string {
         return "Failed " + displayName + ": " + message
+    }
+
+    // ── WHICH VERBOSE SENTENCE PRINTS ─────────────────────────────────────────
+    //
+    // This is result classification and it used to be a nested conditional in the runner, keyed on
+    // the literal `"skipped"`. THE SHAPE IS KEPT EXACTLY, including the part that is surprising:
+    // the ABSENCE of an error message wins over the outcome, so a skip with no reason reads as a
+    // pass. That is the behaviour the runner had; changing it is a separate decision, and it is now
+    // a decision this file makes rather than one buried in a `?:`.
+    static func GetVerboseMessage(outcome: string, displayName: string, elapsedMillisecondsText: string, errorMessage: string?): string {
+        if errorMessage == null {
+            return GetVerbosePassedMessage(displayName, elapsedMillisecondsText)
+        }
+
+        if IsSkippedOutcome(outcome) {
+            return GetVerboseSkippedMessage(displayName, errorMessage ?? "")
+        }
+
+        return GetVerboseFailedMessage(displayName, errorMessage ?? "")
+    }
+
+    // ── THE DURATION AND ELAPSED FORMATS ──────────────────────────────────────
+    //
+    // `FormatTestDurationSeconds` is `results[].duration` in the versioned JSON envelope, so it is
+    // stable output and it is INVARIANT. The runner used to build it with `$"{…:F3}s"`, which reads
+    // the CURRENT culture — under a comma-decimal locale the envelope printed `1,234s`. Moving the
+    // format here fixes that, and the fix is the one behaviour change this owner makes on purpose.
+    static func FormatTestDurationSeconds(seconds: double): string {
+        return seconds.ToString("F3", CultureInfo.InvariantCulture) + "s"
+    }
+
+    static func GetZeroTestDuration(): string {
+        return FormatTestDurationSeconds(0.0)
+    }
+
+    static func FormatTestElapsedMilliseconds(milliseconds: double): string {
+        return milliseconds.ToString("F0", CultureInfo.InvariantCulture)
+    }
+
+    // ── THE NAME A TEST IS SHOWN UNDER ────────────────────────────────────────
+    //
+    // An N# `test "…"` declaration lowers its sentence into an `NSharpDescription` trait, and that
+    // sentence WINS over whatever xUnit or the reflection walk would otherwise call the method.
+    static func GetPreferredDisplayName(nsharpDescription: string?, frameworkDisplayName: string): string {
+        return nsharpDescription ?? frameworkDisplayName
+    }
+
+    // ── THE FAILURE TEXT A RUNNER-LEVEL ERROR SHOWS ───────────────────────────
+    //
+    // xUnit hands back a message ARRAY; this is what turns it into the one `errorMessage` string
+    // the envelope and the verbose line carry. Blank entries are dropped rather than printed as
+    // empty lines.
+    static func JoinFailureMessages(messages: string[]): string {
+        kept := new List<string>()
+        i := 0
+        while i < messages.Length {
+            message := messages[i]
+            if !string.IsNullOrWhiteSpace(message) {
+                kept.Add(message)
+            }
+
+            i = i + 1
+        }
+
+        return string.Join(Environment.NewLine, kept)
     }
 
     // ── THE TIMEOUT CLASSIFICATION AND THE ARITY POLICY ───────────────────────
