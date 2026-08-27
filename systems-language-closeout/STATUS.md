@@ -1,6 +1,52 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-27 (**TASK 021 SLICE 12 — THE CLOSING SLICE. THE TERMINAL SWEEP RUNS AND THE
+Last updated: 2026-08-27 (**TASK 015 RESIDUALS REOPENED — THE RE-MEASUREMENT OVERTURNS TWO OF THE
+ROADMAP'S LOAD-BEARING CLAIMS, AND THE CAMPAIGN PLAN IS WRITTEN. NO PRODUCTION EDIT, NO COMMIT —
+see the Cursor block.** Every roadmap number was re-measured at this tip with instruments that
+reproduce the published controls: the sentence census reads **145** where 021/12 read 144 (a
+one-row filter edge — the same class of variance 021/12 itself recorded against slice 1's 146) and
+it reproduces **CPIB 0 / MFC 6 / Analyzer 1 / SystemsAnalyzer 0 / CompletionEngine 1 EXACTLY**, so
+it is non-vacuous. **THE FIRST OVERTURN: 021/12's evidence for `mechanical`-FAILS is right in its
+verdict and wrong in one of its four quoted exhibits.** Classifying all 145 by the statement they
+sit in gives **133 decline messages / 8 internal `InvalidOperationException`s / 4 `Ldstr` literals
+baked into the USER's IL** — and `'base has only parameterized constructors'` (`:1124`), quoted as a
+DECLINE reaching users as NL103, is an internal invariant throw inside `EmitCtorBaseChain`, the
+exact class 021 accepted as mechanical for `Analyzer.cs:2394`. The verdict stands on the other 133.
+**THE SECOND OVERTURN IS THE ONE THAT MATTERS: the roadmap's "MOVABLE — EXHAUSTED" IS FALSE.** Its
+sweep read the dispatch ARMS and never read the HELPERS: a name-match of every emitter member
+against every production `.nl` func finds **34 hits / 2,706 C# lines**, and inside them a
+**TYPE-ADMISSIBILITY PREDICATE FAMILY of 25 members / 396 C# lines / 286 call sites that already has live,
+contract-tested N# owners** (`ColumnarTypeOfPlanner`, `ColumnarRuntimeInstanceMemberResolver`,
+`ColumnarSemanticTypeRegistry`, `ColumnarBaseTypePlanner`). `SplitTopLevelPipes` is a
+**line-for-line duplicate**; `IsSupportedType`/`IsEnumType`/`IsSupportedExternalType`/
+`IsSupportedSpanLikeType`/`IsRuntimeInterfaceType` are **divergent parallel implementations** — that
+is duplicated semantic authority, which 015's own contract forbids. **THE THIRD FINDING RE-PRICES
+BLOCKER #1: the "plan-row lambda-body emitter" the roadmap calls a FUTURE TASK ALREADY EXISTS AND
+IS IN PRODUCTION.** `ColumnarCodePlan` (2,155) + `ColumnarCodePlanExecutor` (2,625) are a real
+plan-row IR with `ExecuteMethodBody` and a stack validator, and `ColumnarIteratorBodyPlanner` calls
+`EmitStatement(emit, context.BodyRoot)` — it plans the USER's own statement tree into rows. It is
+not missing; it is **UNDER-COVERED**, measured exactly: **10 of 21 statement kinds and 7 of 27
+expression kinds**. Blocker #1 is therefore not blocked, it is unbuilt. **BLOCKERS #2 AND #3 WERE
+RE-PROBED AND HOLD**: no N# owner answers "what is the CLR type of node N" (the preflight engine is
+still the only expression-typing authority in the emit path — re-measured **8 members / 629 lines**
+at `16816-17712`, 36 call sites on the root alone), and `case 12` is verifiably a whole-subtree-exit
+server whose arms mirror the planner byte-for-byte and whose operands recurse into C#.
+**THE AOT DECISION IS RECORDED WITH ITS RATIONALE: Reflection.Emit FIRST, MetadataBuilder as a
+SECOND EXECUTOR over the SAME rows** — the pools already carry structural signatures beside the
+reflection handles (`Add{Method,Constructor,Field}WithSignature`, used by **12 production planners**),
+so the metadata writer consumes the signature side; its one named prerequisite, recorded now rather
+than discovered late, is the same treatment for `AddType`. **ONE UNCOUNTED FACT: the emitter has
+GROWN since 015 paused** — 21,433 → **21,519** (+86) across 7 bugfix commits — invisible to the
+audit because the ratchet ceiling is the *epoch* 21,723, not the low-water mark. **NO FIRST
+SUB-SLICE WAS TAKEN, and the measured reason is recorded**: the new seam's smallest *coherent* cut
+is the whole predicate family, because `IsSupportedType` (the root, **77 call sites**) transitively
+calls 12 of the other duplicates, so any partial cut leaves a half-migrated predicate tree; priced
+with its 286-call-site reroute, its five measured divergences and the exhaustive reflection
+differential its reconciliation needs, it is over the ~1,500-line cap and it sits at the compiler's
+central admissibility gate. Baselines re-verified: compiler C# **10 files**, ratchet **381 rows**,
+two-key head **`d0614137ae9ff544`** on BOTH keys, manifest **391** no BOM. NOT COMMITTED)
+
+Last updated (prior): 2026-08-27 (**TASK 021 SLICE 12 — THE CLOSING SLICE. THE TERMINAL SWEEP RUNS AND THE
 CLOSING DECISION IS *NOT TO CHECK THE BOX*, STATED WITH THE CONTRACT LINE QUOTED — see the Cursor
 block.** The type-level IL census was REBUILT and **it found three staleness defects in itself before
 it found anything else**, each caught by a known-answer control (the two types slices 1 and 4 deleted
@@ -4596,7 +4642,332 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 12 — THE CLOSING SLICE. THE TERMINAL SWEEP RUNS,
+- Active sub-slice (015 arc, THIS TURN — **THE REOPENING DECODE. EVERY ROADMAP NUMBER
+  RE-MEASURED, EVERY RECORDED BLOCK RE-PROBED, THE RESIDUAL CAMPAIGN PLAN WRITTEN, AND NO CUT
+  TAKEN — WITH THE MEASURED REASON.** No production file was edited; the only change in the tree
+  is this STATUS. NOT COMMITTED — the mandate reserves that.)
+
+  ### THE INSTRUMENTS, AND WHY THEIR NUMBERS CAN BE BELIEVED
+
+  Two instruments were rebuilt from scratch rather than inherited, and each was made to reproduce a
+  published control before any of its new numbers were read.
+
+  1. **THE MEMBER-EXTENT CENSUS** — a C# lexer pass masks strings/chars/both comment forms, then a
+     brace-matched walk from each member's parameter list gives its exact extent. It reads
+     `ColumnarIlEmitter.cs` at **449 members / 20,348 extent lines** and it locates **every one of
+     the seventeen members the roadmap names by line**, which is the control: the roadmap's
+     `~16718-17588` preflight band is now `16816-17712`, its `~17792` is `17890`, its `~1491` is
+     `1515`, its `~1702` is `1726`, its `~1724` is `1748`, its `~13943` is `13996`, its `~20885` is
+     `20966`, its `~21041` is `21122`, its `~6643` is `6686`. **Every roadmap line number is stale
+     by +24 to +124; none is wrong about what lives there.** (The roadmap's "516 members" counted a
+     looser member notion than this modifier-anchored one; the extent total is the load-bearing
+     figure and it is 20,348 of the file's 20,457 non-blank lines.)
+  2. **THE SENTENCE CENSUS** — 021/12's definition re-implemented: string literals ≥20 chars with a
+     space and a lowercase word, dotted site-ids/paths/URLs excluded, strings taken by a real lexer
+     pass so a comment cannot be counted. **CONTROL: it reproduces 021/12's published table on four
+     of five files EXACTLY** — `ColumnarProgramInputBuilder` **0**, `MultiFileCompiler` **6**,
+     `Analyzer` **1**, `SystemsAnalyzer` **0**, `CompletionEngine` **1**. On the emitter it reads
+     **145** where 021/12 read **144**. That one-row delta is the same sentence-filter-edge class
+     021/12 itself recorded when it read 144 against slice 1's 146, and it is recorded here rather
+     than absorbed.
+
+  ### RE-MEASURED FILE STATE AT `6fcb41f64`
+
+  | fact | roadmap / 021 said | measured now |
+  |---|---|---|
+  | `ColumnarIlEmitter.cs` lines / non-blank | 21,519 / 20,457 (021/12) | **21,519 / 20,457** — matches |
+  | ratchet row | epoch 21,723 / 20,646 | **currentLines 21,519, currentNonBlank 20,457, `text-v1:d86f36cb8b445e8f`** |
+  | line count at the 015 pause (`e0f987bba`) | 21,433 / 20,375 | **21,433** — so the file has **GROWN +86** since |
+  | members / extent lines | "516 members" | **449 members / 20,348 extent lines** |
+  | sentences | 144 | **145** (133 decline / 8 internal throw / 4 `Ldstr` into user IL) |
+  | decline call sites with a literal site-id | "72 decline sites" | **104 sites / 75 distinct site-ids** |
+  | preflight typing engine | `TryGetPreflight*`/`TryPreflight*` at ~16718-17588 | **8 members / 629 lines at 16816-17712** |
+  | interpolation core | ~20340-21200 | **20 members / 864 lines at 20353-21240** |
+  | lambda + enumerable-extension family | named, unsized | **15 members / 600 lines** |
+  | await family | `case 53` + `case 73` | **5 members / 245 lines**; `TryEmitBlockingAwait` **52 lines at 6686** |
+
+  **THE GROWTH FACT IS NEW AND NOBODY WAS COUNTING IT.** Seven commits touched the emitter after
+  015 paused (`b2f2356bf`, `c78271c2b`, `27a5df665`, `b52026a47`, `f71b5c1e6`, `889528b52`,
+  `6658e8304` — LSP drift, a ranged `Array.Sort` fix, an `IReadOnlyDictionary` publish, a
+  `char.IsLower` catalog row, an `is`/`as` boxing fix, the SZ-array receiver probe). None is a 015
+  slice; all are product fixes. They are invisible to the audit because `OwnershipPolicy` compares
+  against the **epoch** ceiling 21,723, not the low-water mark 21,433. **021's `non-growing`
+  conjunct passes on the epoch reading and would FAIL on a low-water reading.** Recorded as a fact
+  about the instrument, not as a proposal to change it mid-campaign.
+
+  ### THE SENTENCE CLASSIFICATION — 021/12's VERDICT SURVIVES, ONE OF ITS EXHIBITS DOES NOT
+
+  Each of the 145 was classified by the statement it sits in: **133 `Decline`/`DeclineMember`/
+  `DeclineStatic` messages**, **8 internal `throw new InvalidOperationException`**, **4 emitted
+  `OpCodes.Ldstr` literals baked into the USER's IL**. 021/12 quoted four exhibits for its
+  `mechanical`-FAILS finding; three are decline messages and hold. The fourth,
+  `'base has only parameterized constructors'` (`:1124`), **is not a decline** — read in place it is
+  `?? throw new InvalidOperationException(...)` inside `EmitCtorBaseChain`, an internal invariant
+  that never reaches a user as `NL103`. It is the same class 021/12 accepted as mechanical for
+  `Analyzer.cs:2394` and `CompletionEngine.cs`. **The verdict is unaffected — 133 genuine declines
+  is not 0 — but the exhibit is corrected so the record is exact.** The 4 `Ldstr` items
+  (`'Expected exception of type '`, `'must unwrap failed: value was null'` ×2, `'No matching case in
+  match expression'`) are a THIRD class the census cannot see and the closing record never named:
+  they are the runtime text the user's *own program* throws, i.e. part of the lowering contract, and
+  they retire with the lowering that emits them, not with an emitter-policy migration.
+
+  Where the 133 live (by owning member): `TryEmitColumnarAssembly` **41 sites / 57 sentences**,
+  `EmitStatement` **33 / 37**, `EmitExpressionCore` **11 / 17**, `TryEmitStaticCall` 4,
+  the iterator hosts 5+3, interpolation 3, the lambda family 3, `TryEmitInstanceCall` 1.
+  **THE LARGEST SENTENCE BLOCK IS THE DECLARATION HOST, WHICH THE ROADMAP CLASSIFIED `MECHANICAL`.**
+  That is the roadmap's three-way classification and 021's mechanical test disagreeing about where
+  the residue is, and the disagreement is recorded rather than resolved by preference: the
+  declaration host's 41 sites are `TryResolveType(canonical)`-fails-then-report, so they are
+  reflection type resolution (roadmap: mechanical) that nonetheless writes 57 user-readable
+  sentences (021: not mechanical). Both readings are correct about different properties.
+
+  ### THE OVERTURN — "MOVABLE — EXHAUSTED" IS FALSE, AND THE SWEEP THAT MISSED IT IS NAMED
+
+  The roadmap's MOVABLE sweep enumerated **decision ARMS** in the two dispatch switches and the
+  named families. It never enumerated **HELPERS**. A mechanical name-match of all 449 emitter
+  members against every `func` in every production `.nl` in `NSharpLang.Compiler.BootstrapServices`
+  returns **34 hits totalling 2,706 C# lines**. Discounting the coincidental ones (`EmitStatement`,
+  `EmitExpression`, `Text`, `Child`, `Decline`, `EmitPostfixStep`, `AlwaysReturns`, `TryResolveType`,
+  `FindDefByBuilder`), what is left is one coherent family:
+
+  **THE TYPE-ADMISSIBILITY PREDICATE FAMILY — 25 C# members, 396 lines, 286 call sites, all with
+  live N# owners.** (Call sites counted with the DEFINITION line excluded — the naive `grep -c`
+  reading is +1 on every row and is not what is written here.)
+
+  | C# member | lines | emitter call sites | live N# owner |
+  |---|---|---|---|
+  | `IsSupportedType` | 49 | **77** | `ColumnarTypeOfPlanner` |
+  | `SplitTopLevelPipes` | 45 | 1 | `ColumnarSemanticTypeRegistry`, `ColumnarTypeOfPlanner` |
+  | `IsEnumType` | 28 | 15 | `ColumnarRuntimeInstanceMemberResolver`, `ColumnarTypeOfPlanner` |
+  | `TryResolveKnownExternalType` | 27 | 1 | `ColumnarTypeOfPlanner` |
+  | `SubstituteClosedTypeArguments` | 25 | 27 | `ColumnarRuntimeInstanceMemberResolver` |
+  | `ContainsNonEnumBuilderBoundType` | 23 | 11 | `ColumnarTypeOfPlanner` |
+  | `ContainsBuilderBoundType` | 22 | 23 | four owners |
+  | `IsSupportedValueTuple` | 22 | 8 | `ColumnarTypeOfPlanner` |
+  | `IsAdmissibleCollectionElement` | 19 | 16 | `ColumnarTypeOfPlanner` |
+  | `IsSupportedCollectionType` | 17 | 13 | two owners |
+  | `IsSupportedElementType` | 16 | 27 | two owners |
+  | `IsSupportedAnonymousUnionType` | 16 | 8 | `ColumnarRuntimeInstanceMemberResolver` |
+  | `IsRuntimeInterfaceType` | 15 | 2 | `ColumnarBaseTypePlanner` |
+  | `IsSupportedTaskType` | 11 | 1 | `ColumnarTypeOfPlanner` |
+  | `OpenValueTupleType` | 10 | 2 | `ColumnarTypeOfPlanner` |
+  | `IsSupportedJsonType` | 9 | 1 | two owners |
+  | `EnumerateInterfaceAndBases` | 9 | 7 | `ColumnarBaseTypePlanner` |
+  | `IsSupportedArrayPoolType` / `IsSupportedMemoryPoolType` | 7 / 7 | 3 / 3 | `ColumnarRuntimeInstanceMemberResolver` |
+  | `IsLiftableNullableElement` | 6 | 2 | three owners |
+  | `IsSupportedNullable` | 4 | 17 | `ColumnarTypeOfPlanner` |
+  | `IsSupportedExternalType` | 3 | 2 | two owners |
+  | `IsSupportedSpanLikeType` / `IsSupportedDelegateType` / `IsAdmissibleHashSetElement` | 2 / 2 / 2 | 8 / 7 / 4 | `ColumnarTypeOfPlanner` |
+
+  Their transitive C#-private callees (`IsSupportedReadOnlySpanType`, `IsSupportedSpanType`,
+  `IsSupportedMemoryOwnerType`, `IsSupportedMemoryType`, `IsSupportedResultType`,
+  `IsSupportedAspNetExternalReferenceType`, `IsClosedUserGenericInstantiation`, `IsEnumBuilder`,
+  `TryResolveLoadedExternalType`) become deletable with them, which is why the family's total
+  deletion is larger than 396 and is priced below at 400-600.
+
+  **THIS IS DUPLICATED SEMANTIC AUTHORITY, WHICH 015's OWN CONTRACT FORBIDS** ("Leave no legacy
+  fallback, shadow implementation, comparison route, or duplicated semantic authority"). It is not,
+  however, a mechanical delete-and-route, and the reason was read rather than assumed — **five
+  divergences are already measured**:
+  - `IsSupportedType`: C# admits spans through `IsSupportedReadOnlySpanType`/`IsSupportedSpanType`,
+    which constrain the ELEMENT type; N#'s `IsSupportedSpanLikeType` checks only the generic
+    definition name and has **no element constraint at all** — N# is strictly LOOSER, so a naive
+    reroute would ADMIT span shapes the emitter currently declines.
+  - `IsSupportedType`: C# `t is GenericTypeParameterBuilder` vs N# `get_IsGenericParameter()` —
+    builder-backed parameters only, versus every generic parameter.
+  - `IsSupportedType`: C# `IsClosedUserGenericInstantiation` vs N# `IsClosedSourceGeneric`;
+    C# routes `Stream` through `ColumnarRuntimeTypeFacts`, N# names `typeof(Stream)` inline.
+  - `IsRuntimeInterfaceType`: C# catches exactly `NotSupportedException`/`NotImplementedException`;
+    N# has a bare `catch` — different swallow breadth over persisted-emit `TypeBuilder` reads.
+  - `IsSupportedExternalType`: C# compares `Assembly` IDENTITY; N# compares assembly full-NAME
+    strings — these differ when the same assembly is loaded twice, which is exactly the MLC world.
+  `SplitTopLevelPipes` alone is a **line-for-line duplicate** (same depth counters, same top-level
+  `|` rule, same "no parts ⇒ empty list" behaviour) with **zero** measured divergence.
+
+  ### BLOCKER #1 RE-PRICED — THE "FUTURE" PLAN-ROW BODY EMITTER IS ALREADY IN PRODUCTION
+
+  The roadmap gates lambda Stages 3b/4/5/6 on a FUTURE TASK named "plan-row lambda-body emitter".
+  **That owner exists and ships.** `ColumnarCodePlan.nl` (**2,155 lines**) is a plan-row IR —
+  instruction rows, operand-kind tags, an opcode constant table, label/local pools, and typed
+  operand pools; `ColumnarCodePlanExecutor.nl` (**2,625 lines**) is the only `.nl` file in the
+  estate that names `OpCodes`, and it carries `Execute`, **`ExecuteMethodBody`**, a schema validator
+  and a **stack-height validator**. And `ColumnarIteratorBodyPlanner` (inside
+  `ColumnarIteratorPlanner.nl`) does not plan fixed scaffolding — it calls
+  **`EmitStatement(emit, context.BodyRoot)`**, planning the USER's own statement tree into rows, and
+  the emitter executes those rows at **14 `ColumnarCodePlanExecutor.Execute(` call sites** (15
+  mentions, one of which is a comment) for MoveNext / GetCurrent / Dispose / GetEnumerator / Reset /
+  the factories / the async variants.
+
+  So blocker #1 is not blocked. It is **UNDER-COVERED, and the gap is now exact**:
+
+  | | C# emitter | N# plan-row body planner | missing |
+  |---|---|---|---|
+  | statement kinds | **21** (20,21,22,23,24,25,26,27,28,29,30,40,41,48,49,51,56,61,62,72,73) | **10** (23,24,25,26,27,28,29,40,48,72) | **11**: 20,21,22,30,41,49,51,56,61,62,73 |
+  | expression kinds | **27** (0,1,3,6,7,8,9,10,11,12,13,15,16,17,18,36,42,44,45,46,47,52,53,57,58,59,64) | **7** (0,4,6,7,9,12,44) | **20**: 1,3,8,10,11,13,15,16,17,18,36,42,45,46,47,52,53,57,58,59,64 |
+
+  **ONE CAVEAT, MEASURED AND RECORDED SO THE PRICE IS HONEST**: the existing planner is specialised
+  to the iterator lowering — a local is a hoisted state-machine FIELD (`Stfld` via `FieldPool`), not
+  a `Stloc`. Generalising it needs a locals-as-locals binding mode. That is a real piece of work and
+  it is a GENERALISATION of a proven production owner, not a from-scratch build, which is a
+  materially different price from what the roadmap recorded.
+
+  **AND ONE HARD CONSTRAINT ON HOW BLOCKER #1 MAY BE CUT.** A lambda body cannot be routed
+  shape-by-shape with the C# sub-emitter kept as a fallback for the shapes the planner does not
+  cover: that is a shadow route and duplicated authority, which the task contract forbids outright.
+  So the lambda cut is gated on the planner's coverage being TOTAL for the bodies it claims — which
+  is why the coverage table above, not the lambda members, is the real work item.
+
+  ### BLOCKERS #2, #3, #4 — RE-PROBED AT THIS TIP, ALL THREE HOLD
+
+  - **#2 THE PREFLIGHT TYPING ENGINE — HOLDS.** Re-measured at **8 members / 629 lines**
+    (`TryGetPreflightExpressionType` 257, `…InstanceCallType` 115, `…MemberAccessType` 74,
+    `…EnumerableExtensionCallType` 59, `…ExtensionStaticMethodCallType` 40, `…BinaryExpressionType`
+    35, `TryPreflightContextualLambdaReturnType` 27, `…ExtensionSiblingCallType` 22), with **36 call
+    sites on the root alone**. The re-probe asked the only question that could have rotted the
+    record — *did 017's arc leave an N# owner that answers "what is the CLR type of node N"?* — and
+    read the three candidates (`ColumnarSemanticTypeRegistry` 1,190, `ColumnarTypeCanonicalizer`
+    124, `ColumnarRuntimeTypeFacts` 24). **None types an expression node**; they classify and
+    canonicalise TYPES. The preflight engine is still the sole expression-typing authority in the
+    emit path and its port is still a new N# owner, not a relocation.
+  - **#3 THE LIVE `case 12`/`case 13` FAMILIES — HOLD.** `case 12` is **~227 lines at 10455** and
+    its own comment states the model, which the code confirms: the N# conditional planner owns every
+    FULLY-PLANNABLE `&&`/`||` at the front door and this arm serves only the residual whose OPERAND
+    is non-plannable, mirroring the planner's lowering byte-for-byte; **the operands recurse via the
+    C# `EmitExpression`**. So the arm retires only when every operand form is plannable, and it
+    retires whole. An operand unlock on its own deletes no C#, which is why a single unlock cannot
+    be a 015 slice under this task's contract.
+  - **#4 THE BLOCKING-AWAIT MODEL — HOLDS.** `TryEmitBlockingAwait` is **52 lines at 6686**, and the
+    await family totals **5 members / 245 lines**. Nothing in the tree replaces the synchronous
+    `GetAwaiter().GetResult()` model; it still retires with real async-func lowering.
+
+  ### THE AOT DECISION — REFLECTION.EMIT FIRST, METADATABUILDER AS A SECOND EXECUTOR
+
+  **DECISION: the plan-row body emitter targets the EXISTING `ColumnarCodePlanExecutor`
+  (Reflection.Emit) first; the AOT metadata writer arrives LATER as a SECOND EXECUTOR over the SAME
+  plan rows. It is NOT built AOT-first.** Rationale, in the order it was weighed:
+
+  1. **The IR already exists and is production-live** — 4,780 N# lines with whole-method-body plans
+     and a stack validator. Targeting anything else means a second IL owner to keep in parity with
+     the first, which is the opposite of "exactly one N# production owner".
+  2. **The IR is already half-abstracted for a metadata backend, measured.** The pools carry
+     `AddMethodWithSignature` / `AddConstructorWithSignature` / `AddFieldWithSignature`, which store
+     the declaring type, parameter types, return type and static/abstract flags **beside** the
+     reflection handle — and **12 production planners already use them** (`ColumnarConstructionPlanner`
+     15 sites, `ColumnarDirectCallPlanner` 9, `ColumnarIteratorPlanner` 5, `ColumnarInstanceMemberPlanner`
+     3, and eight more). A `MetadataBuilder` writer consumes the signature side and never needs the
+     handle. This is the single strongest reason the plan-row IR is the right AOT target.
+  3. **AOT-first inverts the dependency.** Coverage is the scarce thing (10/21 and 7/27 above);
+     backends are cheap once the IR is total. Writing a second backend for an IR that covers a third
+     of the language buys nothing and doubles the parity surface immediately.
+  4. **THE COUNTER-CONSIDERATION, RECORDED RATHER THAN SUPPRESSED**: the residual `Type` operands
+     are `TypeBuilder` / `GenericTypeParameterBuilder` handles, which `MetadataBuilder` cannot
+     consume. **So the AOT task carries one named prerequisite of its own: give `AddType` the same
+     signature-bearing treatment the member pools already have** (a type-reference description
+     beside the handle). Recording it now is the point — it is the kind of thing an AOT task
+     discovers three slices in.
+  5. **The long-term-completeness rule decides the tie**: the end-state is one N# IL owner with two
+     backends, not two N# IL owners. Only the plan-row route converges there.
+
+  ### THE RESIDUAL CAMPAIGN PLAN — FOUR SUB-TASKS, DEPENDENCY-ORDERED
+
+  Written as sub-slices with prices, N# owners, and wall status. `015-A` is NEW — it did not exist
+  in the roadmap because the roadmap's sweep could not see it.
+
+  **`015-A` — RETIRE THE DUPLICATED TYPE-ADMISSIBILITY AUTHORITY.** Independent of A/B/C/D below;
+  it is the only sub-task with no future-owner dependency, so it goes FIRST.
+  - A0 (ENTRY GATE, and the reason this turn did not cut): an exhaustive reflection differential —
+    a throwaway xunit harness reflecting into the ~25 C# privates and calling the N# owners cell by
+    cell over a Type grid (primitives, nullables, enums incl. `EnumBuilder`, `TypeBuilder`,
+    `GenericTypeParameterBuilder`, closed user generics, SZ-arrays incl. the `IsSZArray` landmine
+    shapes, spans, `ValueTuple` arities, collections, Json/Yaml/AspNet externals, `Process`,
+    `Task`/`ValueTask`). This is the 017-slice-1 method (2,400 cells, 0 mismatches) and it is what
+    turns "divergent" into a per-member EQUIVALENT/DIVERGENT verdict.
+  - A1: move the **provably-equivalent** members, deleting the C# and routing every call site.
+  - A2: reconcile the divergent members one at a time, each with a stated ruling on which semantics
+    win and why (the span element constraint is the sharpest: N#'s looser rule would admit shapes
+    the emitter declines today, so the C# constraint is the one to preserve and the N# owner is the
+    one to tighten). `IsSupportedType` moves LAST because 77 call sites and 12 duplicate callees
+    hang off it.
+  - PRICE: ~400-600 C# lines deleted, 286 call sites rewritten, +N# only where a divergence must be
+    reconciled. WALL: none — every owner already exists and is already emitted by the packaged SDK.
+  - BAR: the differential grid, then the corpus IL byte-exact sweep with control-first, then the
+    fresh isolated gate.
+
+  **`015-B` — GENERALISE THE PLAN-ROW BODY PLANNER (retires blocker #1, and eventually
+  `EmitStatement`/`EmitExpressionCore`).** Depends on nothing, but it is the long arc.
+  - B0: give the existing `ColumnarIteratorBodyPlanner` statement/expression planner a **binding
+    mode** so a local can be a plan local (`Stloc`) as well as a hoisted field (`Stfld`), and lift it
+    out of `ColumnarIteratorEmitContext` into a reusable body-planning owner. Capability-only; the
+    iterator path must stay byte-identical (that is the control).
+  - B1..Bn: close the coverage gap **one kind at a time**, in the order the corpus needs them —
+    the 11 missing statement kinds then the 20 missing expression kinds — each proven by native
+    contracts plus the iterator path staying byte-exact.
+  - Bx (the FIRST cut that deletes C#): only when the planner covers every kind a lambda body can
+    contain, route `TryEmitLambdaLiteral`'s body through it and delete `EmitLambdaBody` + the
+    sub-emitter construction. **No shape-by-shape routing with a C# fallback** — forbidden.
+  - PRICE: thousands of N# lines across many slices; the C# deletion lands at the END of the arc.
+    This is the sub-task that eventually deletes the emitter's two largest members (2,528 + 1,663).
+  - WALL: none expected while it stays inside BootstrapServices `.nl`; a coordinator republish is
+    owed at any boundary where the estate must spell a NEW emit surface.
+
+  **`015-C` — THE N# EXPRESSION-TYPING OWNER (retires blockers #2 and #5).** Depends on nothing
+  structurally, but it duplicates work with `015-B`: both must answer "what does this node evaluate
+  to". **SEQUENCING RULING: do NOT build a standalone typing owner. Fold the typing answer into
+  `015-B`'s body planner** — a plan-row builder must already know each subexpression's type to pick
+  opcodes, so the typing authority falls out of B rather than being ported separately. Only the
+  interpolation parsed-hole path (blocker #5, 864 lines of interpolation core) needs an entry point
+  the planner does not naturally provide, and it is sequenced after B has a typed expression planner.
+  - PRICE: 629 C# lines (preflight) + the parsed-hole half of the 864-line interpolation core.
+  - WALL: none expected.
+
+  **`015-D` — REAL ASYNC-FUNC LOWERING (retires blocker #4).** 5 members / 245 lines of C# retire
+  when the synchronous `GetAwaiter().GetResult()` model is replaced. Its state-machine hosting
+  already runs through the plan-row executor, so it is naturally sequenced AFTER `015-B` gives the
+  planner statement coverage inside async bodies.
+
+  **`015-E` (the residue nobody assigned) — THE DECLARATION HOST.** `TryEmitColumnarAssembly`,
+  **2,024 lines / 41 decline sites / 57 sentences**, the single largest sentence block in the file.
+  The roadmap calls it MECHANICAL; 021's test counts its sentences. **RULING: it is not a 015
+  ownership target and it must not be cut by moving message literals** (the 016 Stage-0 precedent
+  ruled exactly that: "Moving just the literals is NOT a decision-ownership move and is declined").
+  It retires with the AOT metadata-writer task, which replaces the reflection type resolution the
+  declines report on. Recorded so the queue does not rediscover it as an orphan.
+
+  **`015-F` — THE OPERAND UNLOCKS (blocker #3).** Not schedulable as 015 slices in their own right:
+  an unlock adds N# and deletes no C# until `case 12`/`case 13` can go whole. They ride along with
+  `015-B`, which is the thing that makes operands plannable.
+
+  **DEPENDENCY ORDER: `015-A` → `015-B` (with `015-C` folded in, `015-F` riding along) → `015-D`;
+  `015-E` and the AOT metadata writer close together afterwards.** 021's box unlocks when this
+  finishes, exactly as `tasks/README.md` records.
+
+  ### WHY NO CUT WAS TAKEN THIS TURN — THE MEASURED REASON
+
+  The mandate's cap is ~1,500 lines of impact. `015-A` is the only sub-task with a cut available at
+  this tip, and its smallest **coherent** cut is the whole predicate family, for a structural
+  reason that was read rather than guessed: **`IsSupportedType` calls 12 of the other duplicates**
+  (`IsEnumType`, `IsSupportedValueTuple`, `IsSupportedCollectionType`, `IsSupportedElementType`,
+  `IsSupportedAnonymousUnionType`, `IsSupportedTaskType`, `IsSupportedJsonType`,
+  `IsSupportedArrayPoolType`, `IsSupportedMemoryPoolType`, `IsSupportedNullable`,
+  `IsSupportedExternalType`, `IsSupportedDelegateType` — enumerated from its body, not assumed), so moving a leaf leaves a C# root calling
+  an N# leaf while eleven sibling leaves stay C# — a half-migrated predicate tree, and the
+  duplicated authority the cut exists to remove is still standing. Priced whole: ~400-600 C# lines
+  deleted, **286 call sites** rewritten, five measured divergences to reconcile, and an exhaustive
+  reflection differential to establish which members are equivalent at all — over the cap, and
+  sitting at the compiler's central admissibility gate (77 call sites) where the span-element
+  divergence would silently ADMIT shapes that are declined today.
+
+  **THE THIN OPTION WAS CONSIDERED AND DECLINED, WITH ITS NUMBERS.** The pure name/string members
+  — `SplitTopLevelPipes` (45 lines, verified line-for-line identical, 1 real call site at `:3394`),
+  `TryResolveKnownExternalType` (27 + `TryResolveLoadedExternalType` 36, 1 call site at `:3541`) and
+  `IsSupportedJsonType` (9, 1 call site at `:427`) — are ~117 C# lines with 3 call sites and would
+  fit the cap comfortably. It was declined because `IsSupportedJsonType`'s only caller IS
+  `IsSupportedType`, so that cut would itself create the half-migrated tree above; and because
+  cutting the two easy members first spends the family's coherence for ~72 lines. **A measured plan
+  beats a rushed cut**, and `015-A0` (the differential grid) is the correct next action — it is the
+  slice's entry gate, not a substitute for it.
+
+- Active sub-slice (021 arc, PRIOR TURN — **SLICE 12 — THE CLOSING SLICE. THE TERMINAL SWEEP RUNS,
   THE POLICY CALLS ARE MADE, AND THE CLOSING DECISION IS *NOT TO CHECK THE BOX* — STATED WITH THE
   CONTRACT LINE QUOTED AND THE REMAINDER NAMED.**)
 
@@ -61224,12 +61595,21 @@ strictly-stronger group: M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 (10)
   `ErrorSuggestions.nl`, `ErrorSuggestionHelpers.nl`).
   WALL STATUS: **NO two-stage bootstrap wall** — no kernel or OpCodes change; the packaged SDK
   self-emits the new owner.
-- Task 015 status: UNCHECKED, iteration PAUSED at `e0f987bba` — the movable decision surface is
-  EXHAUSTED per the 015 completion roadmap (recorded below): every remaining emitter policy is
-  BLOCKED-WITH-RECORD on four named future owners (plan-row lambda-body emitter, N# preflight/
-  typing-owner port, async-func lowering, planner operand unlocks) or MECHANICAL. Resume 015 only
-  when one of those owners lands. Emitter at 21,433/20,375 vs epoch 21,723/20,646 (−290 lines this
-  task across 8 landed slices + 2 proven refutations + 1 restored regression).
+- Task 015 status: **UNCHECKED, and REOPENED at `6fcb41f64` — the pause condition no longer holds.**
+  (SUPERSEDES the prior "PAUSED at `e0f987bba`, resume only when one of the four future owners
+  lands".) The reopening decode re-measured every roadmap number and re-probed every recorded block:
+  **the movable surface is NOT exhausted** (a ~25-member duplicated type-admissibility predicate
+  family, ~400-600 C# lines, already has live N# owners), and **blocker #1's "future" plan-row
+  body emitter ALREADY SHIPS** (`ColumnarCodePlan` + `ColumnarCodePlanExecutor`, 4,780 N# lines;
+  `ColumnarIteratorBodyPlanner` plans the user's own statement tree) — it is under-covered at
+  **10/21 statement kinds and 7/27 expression kinds**, not blocked. Blockers #2 (preflight typing,
+  re-measured 8 members / 629 lines), #3 (`case 12`/`13`) and #4 (blocking await, 5 members /
+  245 lines) were re-probed and HOLD. Next sub-slice is `015-A0`; the dependency-ordered plan
+  `015-A`..`015-F` and the AOT metadata-writer decision (Reflection.Emit first, MetadataBuilder as a
+  SECOND executor over the same rows) are in the Cursor block's reopening-decode sub-slice.
+  **Emitter at 21,519/20,457 vs epoch 21,723/20,646 — and vs 21,433/20,375 at the pause, so it has
+  GROWN +86 lines across 7 product-fix commits since 015 stopped**; the audit cannot see that because
+  the ratchet ceiling is the epoch, not the low-water mark.
 - 016 note: BOTH production-touching slices (N+2 cutover, N+3 deletion) have LANDED and were run on the IDE
   bar (VS Code-enabled gate + extension reinstall), as recorded. `Parser.cs` no longer exists: it is neither
   the LSP parser, nor any production consumer's parser, nor any test's parser. The
@@ -63809,6 +64189,21 @@ strictly-stronger group: M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 (10)
 
 ## 015 completion roadmap
 
+> **SUPERSEDED IN PART — READ THE REOPENING DECODE IN THE CURSOR BLOCK FIRST.** Re-measured at
+> `6fcb41f64`, this section is correct about WHAT lives where and stale in three specific ways, each
+> re-measured rather than re-asserted: (1) **every line number is stale by +24 to +124** (the
+> preflight band is `16816-17712`, not `~16718-17588`; `TryEmitEnumerableExtensionCall` is `17890`,
+> not `~17792`; the full mapping is in the Cursor block's re-measured table); (2) **"MOVABLE —
+> EXHAUSTED" IS FALSE** — that sweep read the dispatch ARMS and never read the HELPERS, and a
+> name-match against the production `.nl` estate finds a ~25-member type-admissibility predicate
+> family (~400-600 C# lines) that already has live N# owners, i.e. duplicated semantic authority;
+> (3) **blocker #1's "FUTURE TASK: plan-row lambda-body emitter" ALREADY EXISTS AND SHIPS** —
+> `ColumnarCodePlan` + `ColumnarCodePlanExecutor` (4,780 N# lines, `ExecuteMethodBody`, a stack
+> validator) and `ColumnarIteratorBodyPlanner`, which plans the USER's statement tree; it is not
+> blocked, it is under-covered at **10/21 statement kinds and 7/27 expression kinds**. Blockers #2,
+> #3 and #4 were re-probed at this tip and **HOLD**. The dependency-ordered residual campaign plan
+> (`015-A`..`015-F`) and the AOT metadata-writer decision live in the Cursor block.
+
 Exhaustive three-way classification of the REMAINING `ColumnarIlEmitter.cs` policy surface (this
 replaces the former ad-hoc residual lists). Method: swept the full decision surface (516 members; the
 `EmitExpressionCore` per-node-kind switch at ~10231, the `EmitStatement` switch at 6711, the preflight
@@ -64215,9 +64610,23 @@ definitions are deleted as they move (shrink, not new). NO emitter-operand unloc
 
 These are populated only when their task becomes current.
 
-- Task 015 next emitter sub-slice: NONE — movable-decision surface exhausted (see the 015 completion
-  roadmap above); gated on the plan-row lambda-body emitter, N# preflight/typing-owner port, async-func
-  lowering, and incremental planner OPERAND unlocks.
+- Task 015 next emitter sub-slice: **`015-A0` — THE TYPE-ADMISSIBILITY DIFFERENTIAL GRID.** (This
+  REPLACES the former "NONE — movable-decision surface exhausted", which the reopening decode
+  FALSIFIED: that sweep read the dispatch ARMS and never read the HELPERS.) Build the throwaway
+  reflection differential (the 017-slice-1 method) over the ~25 duplicated type-admissibility
+  predicates and their live N# owners in `ColumnarTypeOfPlanner` /
+  `ColumnarRuntimeInstanceMemberResolver` / `ColumnarSemanticTypeRegistry` / `ColumnarBaseTypePlanner`,
+  cell by cell over a Type grid, and record a per-member EQUIVALENT/DIVERGENT verdict. Five
+  divergences are ALREADY measured and must come back the same way or the grid is wrong (the span
+  ELEMENT constraint the N# owner lacks; `GenericTypeParameterBuilder` vs `IsGenericParameter`;
+  `IsClosedUserGenericInstantiation` vs `IsClosedSourceGeneric`; `IsRuntimeInterfaceType`'s catch
+  breadth; `IsSupportedExternalType`'s Assembly-IDENTITY vs assembly-NAME comparison) — that is the
+  grid's non-vacuity control. Then `015-A1` moves the equivalent members and `015-A2` reconciles the
+  divergent ones, with `IsSupportedType` (77 call sites, 12 duplicate callees) LAST. Full plan,
+  prices and the AOT decision: the Cursor block's reopening-decode sub-slice. `015-B` (generalise
+  the plan-row body planner — the real long arc), `015-C` (fold expression typing INTO B; do NOT
+  build it standalone), `015-D` (async lowering), `015-E` (the declaration host — retires with the
+  AOT writer, NOT by moving literals) and `015-F` (operand unlocks ride along with B) follow.
 - Task 016 next parser sub-slice: **NONE — `Parser.cs` IS DELETED and the task's completion criterion is met.**
   The whole arc (Stages 0-17 capability → N+1a/b/c bridge → N+2 cutover → N+3 deletion) is done: the N# owner
   `ColumnarParserRecovery` is the sole parse + ordered-diagnostic authority for production and for every test,
