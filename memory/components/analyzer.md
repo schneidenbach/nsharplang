@@ -712,7 +712,8 @@ The stack is `AnalyzerScopeStack` (N#, see "The scope stack" above); the shell's
 
 ## Type System
 
-See `src/NSharpLang.Compiler/TypeSystem/TypeInfo.cs` for type representations:
+See `src/NSharpLang.Compiler.BootstrapServices/TypeInfoModels.nl` (with `TypeInfoFactories.nl` and
+`TypeInfoIdentityFacts.nl`) for type representations:
 
 ### Built-in Types
 - **PrimitiveTypeInfo**: `int`, `long`, `float`, `double`, `bool`, `string`, `void`

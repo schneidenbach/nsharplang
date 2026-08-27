@@ -64,18 +64,20 @@ From highest to lowest:
 
 ## AST Node Types
 
-See `src/NSharpLang.Compiler/Ast/` folder:
+The AST is N#-owned. The node families live in `src/NSharpLang.Compiler.BootstrapServices/`
+(`Expressions.nl`, `Statements.nl`, `Declarations.nl`); the former C# `Ast/Declarations.cs`,
+`Ast/Expressions.cs`, `Ast/Statements.cs` and `Ast/AstChildren.cs` were deleted whole.
 
 **Adding an expression node or a new Expression-typed child?** Update
 `AstChildrenCore.Of` (`src/NSharpLang.Compiler.BootstrapServices/AstChildrenCore.nl`) — the N#-owned
-shared exhaustive child enumeration that the typed `AstChildren.Of` C# adapter exposes to
-linter, definite assignment, capture/escape scans, and performance analyzers recurse
-through. `AstChildrenTests` fails until every Expression-typed slot (including slots inside
+shared exhaustive child enumeration that the linter, definite assignment, capture/escape scans and
+performance analyzers recurse through. It is called directly, with no C# adapter.
+`AstChildrenCore.tests.nl` fails until every Expression-typed slot (including slots inside
 `Argument`/`PropertyInitializer`/`TupleElement`/`MatchCase`/`InterpolatedStringHole`) is
 yielded; this exists because late-added children (`NewExpression.ArrayLengthExpression`,
 `StackAllocExpression.LengthExpression`) twice shipped invisible to every hand-rolled walker.
 
-### Expressions (`Expressions.cs`)
+### Expressions (`Expressions.nl`)
 - **BinaryExpression**: `a + b`, `a && b`
 - **UnaryExpression**: `!x`, `-n`, `^index`
 - **CallExpression**: `Foo(a, b)`
@@ -85,7 +87,7 @@ yielded; this exists because late-added children (`NewExpression.ArrayLengthExpr
 - **MatchExpression**: Pattern matching with guards
 - **LiteralExpression**: `42`, `"hello"`, `true`
 
-### Statements (`Statements.cs`)
+### Statements (`Statements.nl`)
 - **VariableDeclarationStatement**: `let x = 42`, `x := 42`
 - **IfStatement**: `if cond { } else { }`
 - **ForStatement**: `for i := 0; i < 10; i++ { }`
@@ -97,7 +99,7 @@ yielded; this exists because late-added children (`NewExpression.ArrayLengthExpr
 - **UsingStatement**: `using resource { }`
 - **LockStatement**: `lock obj { }`
 
-### Declarations (`Declarations.cs`)
+### Declarations (`Declarations.nl`)
 - **FunctionDeclaration**: Functions with modifiers (async, generator, etc.)
 - **ClassDeclaration**: Classes with members
 - **RecordDeclaration**: Records (reference or struct)

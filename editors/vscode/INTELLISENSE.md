@@ -15,7 +15,7 @@ When you type `.` after an object, the extension:
 1. **Detects the trigger** (`CompletionHandler.cs` registers `.`, `:`, and space)
 2. **Identifies member completion context** in the completion handler
 3. **Extracts the identifier** before the dot
-4. **Resolves the type** using `TypeResolver` service
+4. **Resolves the type** through `EditorTypeCatalogFacts` (N#), which `TypeResolver` forwards to
 5. **Loads members** via .NET reflection
 6. **Returns completion items** with:
    - Member names (methods, properties, fields, events)
@@ -41,7 +41,8 @@ builder. // <-- Triggers IntelliSense
 
 **Key Files:**
 - `CompletionHandler.cs` - Main completion logic
-- `TypeResolver.cs` - Type resolution via reflection
+- `TypeResolver.cs` - Reflection reads and caching only; every type-naming, formatting and
+  curation decision belongs to `EditorTypeCatalogFacts.nl`
 - `DocumentManager.cs` - Document state management
 
 **Features:**

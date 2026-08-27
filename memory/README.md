@@ -5,7 +5,10 @@ only when they match product-path behavior.
 
 ## Compiler Ownership Rule
 
-The compiler core, compiler-service core, and CLI/tooling command logic are being moved to N#.
+The compiler core, compiler-service core, and CLI/tooling command logic are N#-owned. Two surfaces
+remain still-owning C# and are named in `memory/architecture.md`'s reviewed allowlist:
+`Columnar/ColumnarIlEmitter.cs` (IL generation, retiring under task 015) and `Analyzer.cs`'s
+`MetadataLoadContext` quarantine (retiring with the AOT external-type-model task).
 Do not use documentation to justify keeping legacy fallback/legacy emitter ownership or
 `*DogfoodAdapter` layers alive. Old dogfood/columnar strategy logs that normalized fallback work have
 been deleted.

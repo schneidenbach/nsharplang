@@ -750,9 +750,10 @@ goldens in `ColumnarParserAst.tests.nl` — whose `AstEq` reflective comparator 
 are shared by `ColumnarParserDeclarations.tests.nl` (the declaration family, 020 slice 17),
 `ColumnarParserStatements.tests.nl` (statements and the test DSL, slice 18) and
 `ColumnarParserPatterns.tests.nl` (patterns/`match`, parameter and argument modifiers, operator and
-conversion overloads and constructor initializers, slice 19) — and the four
-`ColumnarCompiler.TryEmitProgram` cases are
-real source shapes in `tests/native/columnar-emit-facts`.
+conversion overloads and constructor initializers, slice 19) — and the four cases that were written against the
+since-deleted `ColumnarCompiler.TryEmitProgram` wrapper are real source shapes in
+`tests/native/columnar-emit-facts`. The production emit path is
+`MultiFileCompiler.TryEmitWithColumnarBackend`.
 
 Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
 (restore with `-p:NSharpExcludeTests=false --force-evaluate` first).

@@ -175,7 +175,7 @@ Under the near-zero-warnings policy these are build-blocking **errors**, not war
 
 N# is **near-zero-warnings**. The single rule: correctness/safety/hygiene issues are build-blocking errors; pure style is handled by `nlc format`, not by diagnostics. There is intentionally no large tier of ignorable warnings.
 
-`DiagnosticCatalog` (`src/NSharpLang.Compiler/DiagnosticCatalog.cs`) is the authoritative policy surface — default severity, category, and build-blocking behavior for every code across compiler, linter, CLI, MSBuild, and LSP.
+`DiagnosticCatalog` (`src/NSharpLang.Compiler.BootstrapServices/DiagnosticCatalog.nl`) is the authoritative policy surface — default severity, category, and build-blocking behavior for every code across compiler, linter, CLI, MSBuild, and LSP.
 
 ### New strict checks
 

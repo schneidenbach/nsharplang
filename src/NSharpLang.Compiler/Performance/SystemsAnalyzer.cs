@@ -197,7 +197,7 @@ public sealed class SystemsAnalyzer
         var function = entry.Function;
         var name = entry.QualifiedName;
         var attributes = new SystemsAttributeSet(function.Attributes);
-        var summary = new MutableFunctionSummary(name, file, function.Line, function.Column)
+        var summary = new MutableFunctionSummary(name, file)
         {
             IsHot = attributes.Has("hot"),
             IsBoundary = attributes.Has("boundary"),
@@ -1004,18 +1004,14 @@ public sealed class SystemsAnalyzer
 
     private sealed class MutableFunctionSummary
     {
-        public MutableFunctionSummary(string name, string file, int line, int column)
+        public MutableFunctionSummary(string name, string file)
         {
             Name = name;
             File = file;
-            Line = line;
-            Column = column;
         }
 
         public string Name { get; }
         public string File { get; }
-        public int Line { get; }
-        public int Column { get; }
         public bool IsHot { get; init; }
         public bool IsBoundary { get; init; }
         public bool AllocNone { get; init; }

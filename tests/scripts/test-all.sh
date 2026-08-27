@@ -450,7 +450,7 @@ copy_source_tree() {
             --exclude='**/out/' \
             --exclude='**/server/' \
             --exclude='**/nsharp/' \
-            --exclude='.context/' \
+            --exclude='.context/' --exclude='.claude/' \
             --exclude='artifacts/' \
             --exclude='*.nupkg' \
             --exclude='*.vsix' \
@@ -465,7 +465,7 @@ copy_source_tree() {
                 --exclude='*/.vscode-test' \
                 --exclude='*/out' \
                 --exclude='*/server' \
-                --exclude='.context' \
+                --exclude='.context' --exclude='.claude' \
                 --exclude='artifacts' \
                 -cf - .
         ) | (

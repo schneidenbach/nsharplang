@@ -690,6 +690,32 @@ $ nlc query symbols
 
 ---
 
+## Systems Report Row Order
+
+The systems report's row order is part of its schema, not an accident of iteration. One N# owner,
+`src/NSharpLang.Compiler.BootstrapServices/SystemsReportOrder.nl`, declares all of it, and the whole
+path from the analyzer to the user's JSON is order-preserving — the normalization and JSON kernels
+each iterate their input and append in sequence, with no second sort anywhere.
+
+| array | order | key |
+|---|---|---|
+| `systemsReport.functions[]` | root order of the analyzer's depth-first walk over files | file path, `OrdinalIgnoreCase` |
+| `systemsReport.trustedSites[]` | file, then line, then column | file `OrdinalIgnoreCase`, then numeric |
+| `systemsReport.functions[].calls[]` | de-duplicated, then ascending | callee name, `Ordinal` |
+
+**`functions[]` is DFS root order, not file order.** The walk is re-entrant: analyzing a caller can
+analyze a declared callee mid-walk, and a function is appended when its own analysis *finishes*, so
+a callee row can precede its caller. Do not describe this array as "sorted by file".
+
+`calls[]` is both de-duplicated and sorted by the same step, so a repeated callee appears once.
+`Ordinal` and `OrdinalIgnoreCase` differ observably — ordinal sorts every uppercase letter before
+every lowercase one — so the two comparers above are load-bearing and may not be swapped.
+
+The same three orders are what `nlc check --systems-report`, `nlc query trusted`, `nlc query perf`
+and `nlc build --perf-report` emit. `tests/native/systems-analysis-census` is the order instrument:
+it spawns the real CLI and pins whole rows *by index*, including blocks whose file names are chosen
+to disagree with disk order.
+
 ## JSON Schema Discipline
 
 All `nlc check`, `nlc fix`, `nlc lint`, and `nlc tree --json` commands output JSON with a versioned envelope:
@@ -834,9 +860,9 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler/CodeIntelligence/CompletionEngine.cs` | LLM-optimized completions |
 | `src/NSharpLang.Compiler/CodeIntelligence/OutputFormatter.cs` | JSON + Elm-style formatters |
 | `src/NSharpLang.Compiler/CodeIntelligence/FixApplicator.cs` | TextEdit application |
-| `src/NSharpLang.Compiler/CodeIntelligence/Models.cs` | Result types (SymbolResult, etc.) |
-| `src/NSharpLang.Compiler/CodeFix.cs` | TextEdit, CodeAction, CodeFixProviders |
-| `src/NSharpLang.Compiler/BindingMap.cs` | Semantic symbol resolution |
+| `src/NSharpLang.Compiler.BootstrapServices/CodeIntelligenceModels.nl` | Result types (SymbolResult, etc.) |
+| `src/NSharpLang.Compiler.BootstrapServices/CodeFix.nl` | TextEdit, CodeAction, CodeFixProviders |
+| `src/NSharpLang.Compiler.BootstrapServices/BindingMap.nl` | Semantic symbol resolution |
 
 ### Testing
 

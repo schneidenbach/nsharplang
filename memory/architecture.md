@@ -9,8 +9,10 @@ The product toolchain runs through IL end to end. Projects use `backend: il` or 
 take the default. The CLI and MSBuild SDK honor that path for build, run, test, perf-report, publish,
 and package flows.
 
-Compiler core, compiler-service, and CLI/tooling command logic are moving to N# ownership. Current compiler
-compiler-core and tooling logic is deletion debt, not architecture.
+Compiler core, compiler-service, and CLI/tooling command logic are N#-owned. The parser, AST, syntax
+diagnostics, semantic analysis, systems policy, linting, formatting, code intelligence and the `nlc`
+command surface each have exactly one N# production owner; see the reviewed allowlist below for the
+mechanical C# boundaries that remain and for the two surfaces that are still owning C#.
 
 ```text
 .nl source
@@ -69,17 +71,59 @@ This is the durable location for the final closeout allowlist. During the migrat
 this section does not make a non-N# file acceptable; it remains product-ownership debt until its
 N# replacement is in the product path or the final audit proves it is mechanical integration.
 
-The completed inventory will list each surviving path, the ecosystem boundary it adapts to, the
-N# owner it invokes, responsibilities it is forbidden to own, and a removal or re-evaluation
-trigger. Candidate boundary categories include MSBuild/LSP protocol objects, process/socket/file
-IO, PE/Reflection.Emit replay, metadata loading, ALC loading, NuGet/Zip/HTTP mechanics, and editor
-UI wiring. Classification is path-specific: a file does not qualify merely because it uses one
-of those APIs or is small.
+### The reviewed allowlist for `src/NSharpLang.Compiler`
 
-`tasks/README.md` is the ordered vertical ownership queue and
-`systems-language-closeout/STATUS.md` is its temporary cursor/evidence ledger. The final queue task
-replaces this paragraph with the exact reviewed allowlist and enforces it with the committed
-ownership audit.
+Every tracked file in the compiler assembly, classified by the task-021 terminal audit. "Decisions"
+is the product-decision census — `NL` codes / user-facing sentences / ordering sites / non-zero exit
+returns — which is what proves *mechanical* rather than the word. Line counts are
+`ratchet epoch -> current`; no row in the entire 381-row ratchet has ever exceeded its epoch.
+
+| path | epoch -> current | decisions | N# owner it invokes | class |
+|---|---|---|---|---|
+| `Analyzer.cs` | 23,451 -> 2,798 | 0/1/0/0 | the `Analyzer*.nl` family (81 production files); `AnalyzerMetadataLoadPolicy` | mechanical shell + **quarantine** |
+| `CodeIntelligence/CodeIntelligenceService.cs` | 1,906 -> 153 | 0/0/0/0 | `ProjectSnapshot.nl`, `CodeIntelligenceQueries.nl` | mechanical |
+| `CodeIntelligence/CompletionEngine.cs` | 805 -> 96 | 0/1/0/0 | `CompletionEngineKernels.nl`, `CompletionReceiverFacts.nl` | mechanical |
+| `CodeIntelligence/FixApplicator.cs` | 57 -> 54 | 0/0/0/0 | `ColumnarParserRecovery.nl`, `Linter.nl`, `CodeFix.nl` | mechanical |
+| `CodeIntelligence/OutputFormatter.cs` | 379 -> 271 | 0/0/0/0 | `OutputFormatterJsonKernels.nl` and siblings | mechanical |
+| `Columnar/ColumnarDeclineTrace.cs` | 39 -> 39 | 0/0/0/0 | `ColumnarDeclineReasons.nl` | mechanical |
+| `Columnar/ColumnarIlEmitter.cs` | 21,723 -> 21,519 | **0/144/3/2** | the `Columnar*Planner/Resolver/Facts` family (33 production files) | **STILL OWNING — not mechanical** |
+| `Columnar/ColumnarProgramInputBuilder.cs` | 1,062 -> 1,051 | 0/0/0/0 | 16 `global::Program.*` parser kernels | mechanical |
+| `MultiFileCompiler.cs` | 670 -> 663 | 0/6/0/0 | `ImportGraph*`, `ColumnarEmissionDiagnostics.nl` | mechanical |
+| `Performance/SystemsAnalyzer.cs` | 2,390 -> 1,156 | 0/0/0/0 | the twelve `Systems*Policy` types (11 files) | mechanical |
+| `Compiler.csproj` | 38 -> 38 | — | — | mechanical |
+
+Eleven further C# files in this assembly are `state:"removed"` — deleted whole, 37,616 epoch lines:
+`Parser.cs`, `Formatter.cs`, `Linter.cs`, `DocQuery.cs`, the three `Ast/*.cs`, `NullabilityMetadata.cs`,
+`ErrorReporting.cs`, `AstNodeFinder.cs` and `Columnar/ColumnarCompiler.cs`.
+
+**Read the exceptions literally.** Two rows are *not* mechanical boundaries and are not claimed as
+such:
+
+- `ColumnarIlEmitter.cs` carries **144 user-facing sentences**. IL generation therefore does **not**
+  yet have exactly one N# production owner. It retires under the four remaining
+  `tasks/015-remaining-emitter-decisions.md` sub-tasks (plan-row lambda-body emitter; N#
+  preflight/typing-owner port; async-func lowering; planner-driven operand unlocks), and under the
+  AOT metadata-writer task that must replace `System.Reflection.Emit` outright.
+- `Analyzer.cs`'s remaining decision residue is one internal `InvalidOperationException` inside
+  `LoadSystemAssemblies()`, which sits wholly inside the **`MetadataLoadContext` quarantine**
+  (17 members plus the nested `NSharpMetadataResolver`). The quarantine retires with the AOT
+  external-type-model task: the estate cannot spell `MetadataReader` today, and 83 production `.nl`
+  files name the `System.Reflection` object model (its types, or an `import System.Reflection`), so
+  replacing it is a task, not a slice.
+
+Sibling assemblies are classified the same way and carry two `(b)` pins — surfaces that retire *with
+their subject* rather than moving, and which are pinned by contract in the meantime:
+`Cli/Daemon/DaemonProtocol.cs`'s JSON-RPC wire DTOs, and `Playground/PlaygroundRunner.cs`'s execution
+mechanism (a tree-walking interpreter that answers differently from `nlc run` on seven of fourteen
+comparable programs; it retires when the playground runs emitted IL in the browser).
+`Playground/PlaygroundCompiler.cs` carries the hosted playground's own presentation copy — 24
+sentences and 7 ordering sites — and retires with the same Playground task.
+
+The ratchet at `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` enforces this
+allowlist mechanically: no listed file may grow past its epoch ceiling (`OWN004`), and a new non-N#
+file is refused outright (`OWN003` — *"new unclassified non-N# file; implement this behavior in N#
+or remove the file"*). `tasks/README.md` is the ordered vertical ownership queue and
+`systems-language-closeout/STATUS.md` is its cursor/evidence ledger.
 
 ## Build And Test Commands
 
