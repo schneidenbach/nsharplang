@@ -1,18 +1,32 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-27 (**TASK 021 SLICE 8 — `EmitIlAssembly.cs`, THE MSBUILD TASK EVERY N# PROJECT
-BUILDS THROUGH. DECODE RECORDED BEFORE ANY PRODUCTION EDIT — see the Cursor block.** Slice 1 named
-TWO leaks; a full decode finds **SEVENTEEN decision-shaped items**, and the headline is that this
-file carries **ZERO `*Kernels.` call sites** — it consults no N# owner at all, and a sweep proves
-`NSharpLang.Build.Tasks` is the last assembly on the product path where that is still true of ANY
-file (all three of its `.cs` files; every `src/NSharpLang.Cli` file already consults one).
-FOUR of the seventeen are SECOND OR THIRD SPELLINGS of answers N# already holds
-(`BuildCommandKernels.ShouldApplyDebugDefine`/`ApplyEffectiveDefines`,
-`DefineArgumentKernels.AddDefineSymbols`, `CompilerError.DiagnosticId`,
-`CompilationReferenceResolverKernels.ShouldAddDllReference`) — and the fourth copy carries a
-**null-dereference the N# owner already guards**. The Cecil rewrite's consequence is measured, not
-asserted: without it a C# consumer of any N# library fails `CS0012 … 'System.Private.CoreLib,
-Version=10.0.0.0, PublicKeyToken=7cec85d7bea7798e'`. Full record in the Cursor block below)
+Last updated: 2026-08-27 (**TASK 021 SLICE 9 — THE MLC QUARANTINE. THE AOT LEG IS MEASURED SHUT AND
+THE QUARANTINE IS REDRAWN AROUND WHAT IS LEFT — see the Cursor block.** Slice 1's 27-extent / 646-line
+census REPRODUCES EXACTLY by brace-matched decode, and one ledger row is corrected:
+`AnalyzerMetadataLoadContextTests.cs` holds **eleven** xUnit cases (4 `[Fact]` + 1 `[Theory]` × 7
+`[InlineData]`), not five. **THE MANDATED MEASUREMENT COMES FIRST AND IT IS NEGATIVE**: six probes
+prove the estate cannot spell `MetadataReader` in ANY form — as an annotation it is `NL201`, its
+`PEReader` namespace is `NL704` without a `nuget:` dependency and DECLINES AT EMIT with one, against
+a `typeof(DateTime)` control that builds. And the wall behind that one is bigger: **82 production
+`.nl` files consume the `System.Reflection` object model**, so replacing MLC with `MetadataReader`
+means replacing the analyzer's whole external TYPE MODEL — a task, not a slice, and it is named as
+one. What IS reachable is the DECISION half, because `ExternalAssemblyScan.CreateMetadataLoadContext`
+already builds an MLC from N#. **AND THE DECODE FINDS THE QUARANTINE IS LARGELY A SECOND SPELLING**:
+its 26-name assembly table is a strict PREFIX of `ExternalAssemblyScan.CommonAssemblyNames`'s 27, its
+NuGet-root rule is byte-identical to `CompilationReferenceResolverKernels.GetGlobalPackagesFolder`,
+its resolver's failure phrasing re-implements `AnalyzerReferenceLoadReport.ExceptionDetail` — and
+**one file probed package `lib/` folders through TWO DIFFERENT TFM LADDERS** — a drift whose first
+stated consequence a `lib/net6.0`-only cache probe then OVERTURNED (the resolver's longer ladder
+rescues the direct probe, so what unification removes is a spurious load-failure record, not a
+resolution). `Analyzer.cs` **2,960 → 2,799**, the quarantine **27 extents / 646 lines →
+25 / 492**, its string-literal census **81 sites / 67 distinct → 4 / 3**, and `NuGetVersionComparer`
++ `NuGetVersionOrder` are **deleted whole**. `TypeResolver.cs` is DECODED, not touched — and the
+decode finds the Language Server holds **two disjoint type universes**. Full record in the Cursor
+block below)
+
+Last updated (prior): 2026-08-27 (**TASK 021 SLICE 8 — `EmitIlAssembly.cs`, THE MSBUILD TASK EVERY N#
+PROJECT BUILDS THROUGH. Seventeen decision-shaped items decoded, fourteen moved, and the packed SDK's
+behaviour proved unchanged over 75 assemblies. Full record in the Cursor block)
 
 Last updated (prior): 2026-08-26 (**TASK 021 SLICE 6 — `Program.Testing.cs`'s REMAINING VOCABULARY LEAVES
 C#, AND ITS LITERAL CENSUS IS NOW EXACTLY TWO SENTENCES.** The decode was recorded BEFORE any
@@ -4459,7 +4473,534 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (021 arc, THIS TURN — **SLICE 8 — `EmitIlAssembly.cs`, THE MSBUILD TASK EVERY N#
+- Active sub-slice (021 arc, THIS TURN — **SLICE 9 — THE MLC QUARANTINE. THE AOT LEG IS MEASURED
+  SHUT AND THE QUARANTINE IS REDRAWN AROUND WHAT IS LEFT: STAGE A TAKES THE DECISION HALF, STAGE B
+  IS `TypeResolver.cs` AND IS DECODED HERE RATHER THAN GUESSED AT.**
+
+  ### THE QUARANTINE, RE-MEASURED BY DECODE AT THIS TIP (`a9d9ed504`)
+
+  Slice 1's census REPRODUCES EXACTLY. A brace-matched extent walk over `Analyzer.cs` finds **20
+  method and nested-type extents totalling 639 lines, plus 7 field declarations = 27 extents / 646
+  lines**, 21.8 % of the file's 2,960. Every per-member count in slice 1's row is confirmed to the
+  line (`GetNuGetPackagesRoot` 13, `LoadSystemAssemblies` 98, `NSharpMetadataResolver` 115,
+  `NuGetVersionComparer` 86, …). Nothing was inherited; the instrument is in the scratchpad and it
+  agrees with the ledger.
+
+  **ONE LEDGER ROW IS CORRECTED.** `tests/AnalyzerMetadataLoadContextTests.cs` is recorded as
+  "189 lines / **5** `[Fact]`s". It holds **four `[Fact]`s and one `[Theory]` carrying seven
+  `[InlineData]` rows — ELEVEN xUnit cases**, and the ratchet's own `epochAssertionMarkers` reads
+  **22**. The count that matters for a migration is eleven, not five.
+
+  ### THE DECODE — WHAT EACH EXTENT DECIDES, AND WHO CONSUMES IT
+
+  The 27 extents answer **twenty-four distinct questions**, and they are enumerated rather than
+  counted at: (1) where the NuGet cache root is; (2) which failure per identity is reported;
+  (3) whether a search directory is admitted; (4) when a path is already loaded; (5) when an
+  identity is already loaded; (6) when a simple name is already loaded; (7) which copy wins when the
+  context already holds the identity; (8) how far to climb for the `shared` root; (9) which
+  frameworks to search, in what order; (10) which versions of each, in what order; (11) which
+  assemblies to pre-load; (12) which identity is the core assembly; (13) whether a project needs the
+  ASP.NET set; (14) which eight names that set is; (15) whether non-NuGet dependencies load first;
+  (16) whether a test dependency loads by name or by path; (17) whether a locally built copy
+  outranks the cache; (18) which version directory answers; (19) which target-framework asset
+  answers; (20) where a package's lib assets live; (21) how a `libraries` key splits; (22) which
+  project spellings are recognised and what each names its assembly; (23) how a relative reference
+  path resolves; (24) SemVer precedence. **Twenty-one of the twenty-four move in this cut**; the
+  three that do not are #15, #16 and the ordering half of #4–#7, named at the end of this record.
+
+  **AND SLICE 1's CONSUMER COUNT SURVIVES A CHALLENGE THIS SLICE RAISED AGAINST IT.** A first sweep
+  read FIVE production consumers and recorded them; checking each one against its declaration
+  overturned three. `BatchQueryRunner.cs:40` and `QueryCommand.cs:875` call
+  `DocQuery.LoadSystemAssemblies` — an **N#-owned** method at `DocQuery.nl:64` that indexes seed
+  assemblies through `ExternalAssemblyScan.Loaded()` and never touches `Analyzer`. `TypeResolver.cs:77`
+  calls its own PRIVATE method of the same name. So the production consumers are exactly the **two**
+  slice 1 named — `MultiFileCompiler.cs:102–103` and `DocumentManager.cs:40/:268` — and a
+  same-name grep is not a consumer census. The correction is recorded rather than the first count.
+
+  ### THE MEASUREMENT THE MANDATE ASKED FOR FIRST — **THE ESTATE CANNOT SPELL `MetadataReader`, IN ANY FORM**
+
+  **Seven probe projects** built against the freshly built CLI
+  (`src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll`, NOT the stale installed `nlc`), with
+  `NSHARP_COLUMNAR_DECLINE_LOG=1` so every decline names its site:
+
+  | probe | source | result |
+  |---|---|---|
+  | **A** | `import System.Reflection.Metadata`, nothing else | **builds** — the namespace resolves, because `System.Private.CoreLib` declares types in it |
+  | **B** | `typeof(MetadataReader)` | **declines** at `emit.local.initializer` → `emit.statement.block-child` → `emit.body` |
+  | **B2 CONTROL** | `typeof(DateTime)` — one token different from B | **`Build successful!`** |
+  | **F** | `func Probe(reader: MetadataReader)` — the type as an ANNOTATION | **`NL201: Type 'MetadataReader' not found`** |
+  | **C/D** | `import System.Reflection.PortableExecutable` | **`NL704`** — the namespace does not exist at all |
+  | **E** | C/D again **with `nuget: System.Reflection.Metadata 10.0.0`** | NL704 GONE, and `new PEReader(stream)` **declines at `emit.local.initializer`** |
+
+  So the wall is two walls stacked. Without the `nuget:` dependency the type does not RESOLVE
+  (F is the proof: `typeof` is lenient about an unknown name and an annotation is not). With it, the
+  type resolves and **emission declines** — the carried `nuget:`-sourced-types-are-reflection-only
+  wall, reproduced at this tip in a fifth spelling.
+
+  **AND THE WALL BEHIND BOTH OF THOSE IS THE ONE THAT MATTERS.** Even if `MetadataReader` were
+  spellable, the move could not happen in a slice. Of the **396 production `.nl` files** in
+  `NSharpLang.Compiler.BootstrapServices`, **74 open with `import System.Reflection`** and **99 name
+  a reflection object type on a line of CODE** (comments excluded) — `Assembly`, `MethodInfo`,
+  `PropertyInfo`, `FieldInfo`, `ConstructorInfo`, `ParameterInfo`, `Type[]`, `: Type`,
+  `Dictionary<string, Type>`. `AnalyzerExternalTypeProbe` holds `assemblies: List<Assembly>` and
+  `typeCache: Dictionary<string, Type>` BY REFERENCE from the analyzer itself. So replacing
+  `MetadataLoadContext` with `MetadataReader` is not a host swap: it replaces the analyzer's entire
+  external TYPE MODEL across a quarter of the estate. **That is a task, not a slice**, and it is
+  named as one here rather than half-started.
+
+  **`System.Reflection.MetadataLoadContext` IS ALREADY A `nuget:` DEPENDENCY OF THE ESTATE**
+  (`src/NSharpLang.Compiler.BootstrapServices/project.yml`, version 10.0.5) and
+  **`ExternalAssemblyScan.CreateMetadataLoadContext` (`:566–592`) ALREADY BUILDS ONE FROM N#**, via
+  reflection-invoke of the `PathAssemblyResolver` and `MetadataLoadContext` constructors because
+  those are `nuget:`-sourced and therefore reflection-only at emit. So the mechanism is reachable
+  from N# today; it is `MetadataReader` that is not. That is what makes Stage A possible and the AOT
+  leg impossible in the same turn.
+
+  ### AND THE DECODE FOUND THAT THE QUARANTINE IS LARGELY A **SECOND SPELLING**
+
+  | the C# copy | the N# owner that already existed | the drift |
+  |---|---|---|
+  | `Analyzer.cs:2404–2432`'s `commonAssemblies` (**26**) | `ExternalAssemblyScan.CommonAssemblyNames()` (`:598`, **27**) | the C# is a strict PREFIX of the N#, same order, missing exactly `System.Private.Xml.Linq` |
+  | `GetNuGetPackagesRoot()` (`:699`) | `CompilationReferenceResolverKernels.GetGlobalPackagesFolder` (`:40`) | NONE — byte-identical rule, spelled twice |
+  | `Path.Combine(root, packageName.ToLowerInvariant())` ×2 | `GetNuGetPackageDirectory` + `NormalizeNuGetPackageId` (`:56`, `:48`) | NONE |
+  | the resolver's `RecordLoadFailure` detail (`$"{Type}: {Message}"`) | `AnalyzerReferenceLoadReport.ExceptionDetail` (`:115`) | NONE — and the analyzer's OWN copy at `:2280` was already routed, so the nested resolver was the second spelling |
+  | `LoadNuGetPackage`'s TFM list (**6**) | — | **against `NSharpMetadataResolver.Tfms` (**7**) IN THE SAME FILE** |
+  | SemVer precedence (`NuGetVersionComparer`, 86 lines) | `CompilationReferenceResolverKernels.SelectBestNuGetVersionIndex` + `NuGetVersionCompareInto` (`:618`, `:932`) | **REAL** — the CLI kernel compares only the four numerics and never `+metadata`; the analyzer's carries full prerelease precedence |
+  | `LoadSystemAssemblies`'s 5-level `shared` climb | `GetDotnetSharedRootCandidates` (`:162`) | the CLI's is unbounded and adds three hard-coded roots |
+
+  **THE TFM ROW IS A REAL DRIFT, AND A PROBE OVERTURNED THE FIRST STATEMENT OF ITS CONSEQUENCE.**
+  One file probed a package's `lib/` folder through two different ladders: the direct load tried
+  `[project tfm, net10.0, net9.0, net8.0, netstandard2.1, netstandard2.0]` while the load context's
+  resolver tried `[net10.0, net9.0, net8.0, net7.0, net6.0, netstandard2.1, netstandard2.0]`. The
+  first draft of this record said a package publishing only `lib/net6.0` was therefore invisible to a
+  `nuget:` line the user wrote. **THAT CLAIM DOES NOT SURVIVE EXECUTION.** A private cache was staged
+  with exactly one asset — `humanizer/9.9.9/lib/net6.0/Humanizer.dll`, a real assembly taken from
+  outside the compiler's own directory so no search directory could reach it — and the same project
+  was checked under `NUGET_PACKAGES=<that cache>` by BOTH CLIs. **They answer identically**: the type
+  resolves on both sides. The reason is the architecture, not luck — the direct probe's miss falls
+  through to `NSharpMetadataResolver.Resolve`, which carries the LONGER ladder and rescues it.
+
+  So the accurate statement is narrower and it is the one recorded: **the drift is real and it is in
+  one file, but its observable effect is confined to the spurious load-failure the direct route
+  RECORDS on its way past, and to any future path that does not consult the resolver.** Unifying the
+  ladders removes a second spelling and a wrong record; it does not change a resolution today. That
+  is also why the differential is empty, and saying so is better than claiming a user-visible bug the
+  probe cannot reproduce.
+
+  ### THE SPLIT THE MEASUREMENT FORCES
+
+  **STAGE A (this cut): the DECISION half.** Every extent that answers a question about strings,
+  paths, versions, tables and orderings moves to N#. **STAGE B: `TypeResolver.cs`**, decoded below
+  and not touched, because it is an IDE-surface change and 021/12 still carries the visual half.
+  **STAGE C (a TASK, not a slice): the AOT type-model replacement**, priced above at 99 estate files.
+
+  ### WHAT LANDED — ONE NEW N# OWNER, TWO EXISTING OWNERS CONSULTED, ZERO NEW C#
+
+  | file | shape |
+  |---|---|
+  | `src/NSharpLang.Compiler.BootstrapServices/AnalyzerMetadataLoadPolicy.nl` | **NEW**, 688 lines, **42 static funcs** |
+  | `src/NSharpLang.Compiler.BootstrapServices/AnalyzerMetadataLoadPolicy.tests.nl` | **NEW**, 443 lines, **54 blocks / 141 asserts** |
+  | `src/NSharpLang.Compiler/Analyzer.cs` | **2,960 → 2,798 lines, 2,748 → 2,605 non-blank** |
+  | `tests/AnalyzerMetadataLoadContextTests.cs` | **189 → 159 lines**, assertion markers **22 → 15** |
+  | `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` | two rows repinned + the head |
+  | `tests/native/ownership-audit/OwnershipAudit.nl` | the second ratchet key |
+
+  **NO `.cs` FILE WAS ADDED**, and both that changed are net-negative on both metrics.
+
+  ### THE QUARANTINE, REDRAWN
+
+  | | before | after |
+  |---|---|---|
+  | method and nested-type extents | 20 / **639 lines** | 18 / **485 lines** |
+  | field declarations | 7 | 7 |
+  | **total** | **27 extents / 646 lines** | **25 extents / 492 lines** |
+  | share of `Analyzer.cs` | 21.8 % | 17.6 % |
+
+  `NuGetVersionComparer` (86) and `NuGetVersionOrder` (7) are **DELETED WHOLE** — 93 lines of C#
+  SemVer arithmetic with no successor in C#.
+
+  **AND THE LITERAL CENSUS IS THE SHARPER NUMBER.** The metadata-loading surface's string literals go
+  from **81 sites / 67 distinct** to **4 sites / 3 distinct**:
+
+  | survivor | why it is not a decision |
+  |---|---|
+  | `"NUGET_PACKAGES"` ×2 | the NAME of an environment variable being READ. What the value MEANS is `AnalyzerMetadataLoadPolicy.NuGetPackagesRoot`; the read itself is host mechanics. **Recorded as a residue**: `EnvCommand.nl:49` spells the same name, so the product has two readers of one variable |
+  | `"MLC core assembly not loaded"` | an `InvalidOperationException` message on a path that means the load context failed to construct — the unhandled-INTERNAL-error envelope, the same classification slice 8 gave `EmitIlAssembly.cs:85` |
+  | `"<unknown reference>"` | the identity a reference falls back to when it names neither a package, a project nor a dll. **Recorded as a residue** for the slice that finishes `AnalyzerReferenceLoadReport`'s phrasing, which owns every other word in that sentence |
+
+  `Analyzer.cs` goes from **0 call sites** on this owner to **36 sites over 33 entry points**.
+
+  ### THE C# ASSERTION DEBT — NINE OF ELEVEN CASES MIGRATE, TWO ARE BLOCKED WITH A NAMED REASON
+
+  The `[Theory]`'s seven rows and the two version `[Fact]`s move to the estate and are **restated,
+  then extended**: **nine C# cases become nineteen blocks** — nine restatements, one per C# row, and
+  **ten that state something the C# never did**: that the order is TOTAL over unparseable spellings,
+  that a missing numeric part is zero, that five parts is not a version, that a numeric part too
+  large to fit is a parse failure, that a numeric prerelease identifier sorts BELOW an alphanumeric
+  one, that `null` is not a version, that an empty directory list answers null rather than throwing,
+  that ties keep the caller's order, and that `PickHighestVersionDirectory` and
+  `OrderVersionDirectoriesDescending` agree on their first element.
+
+  The other **35 blocks** are the rest of the surface, which had no contract of any kind before this
+  slice: the assembly table (3), the ASP.NET table and its trigger (3), the shared-framework walk
+  (4), where a package lives (6), the target-framework ladder (5), the restore record (4), project
+  references (5), the three same-load predicates plus search-directory admission and
+  first-failure-wins (4), and the resolver's prefix sweep (1). **54 blocks, 141 asserts.**
+
+  **THE TWO THAT STAY ARE NOT RESTATEMENTS OF A RULE.** They build two managed libraries that share
+  one assembly identity and drive a real `MetadataLoadContext` through private-field reflection, to
+  observe what the registry does when two files claim one name. Migrating them needs an estate kernel
+  that can compile a throwaway managed library and return its path; no such kernel exists. The rules
+  they exercise ARE now named predicates with their own contracts (`IsSameAssemblyPath`,
+  `IsSameSimpleName`), so what is missing is the end-to-end demonstration, not the rule. **Recorded
+  in the file itself**, in a header comment that says why the two survive.
+
+  The unit suite moves **605 → 596**, and the arithmetic is exact: 7 `[InlineData]` rows + 2
+  `[Fact]`s = **9**.
+
+  ### THE DIFFERENTIAL — THE ANALYZER'S EXTERNAL-TYPE ANSWERS DO NOT MOVE, AND THE INSTRUMENT DOES
+
+  Two CLIs were built from source — the pristine tip `a9d9ed504` in a `/private/tmp` worktree, and
+  this tree — and both were run over the same corpora with `nlc check`, comparing every emitted
+  `code`, `message`, `line`, `column` and the error/warning counts.
+
+  | corpus | result |
+  |---|---|
+  | every `project.yml` under `tests/native` and `examples` — **58 projects** | **IDENTICAL**, twice — after the routing and again on the final tree |
+  | an **8-project corpus built to reach the changed decisions** | **IDENTICAL**, three times — after the routing, after the last two owners landed, and on the final tree |
+  | a **`lib/net6.0`-only private package cache**, reached through `NUGET_PACKAGES` | **IDENTICAL** — and it is the probe that overturned this slice's own first claim about the target-framework drift |
+
+  **THE 58-PROJECT SWEEP IS TRUE BUT WEAK** and is recorded as such: every one of those projects
+  checks clean, so a diagnostic change could not have shown. The 8-project corpus is what makes the
+  claim: it names types from **all 27 pre-loaded assemblies** in one function, reaches LINQ-to-XML
+  both through `import System.Xml.Linq` and fully qualified, builds a `Microsoft.NET.Sdk.Web`
+  project, takes a `nuget:` dependency, and carries a deliberate unresolvable type as a speaking
+  control. Both sides report the same **six distinct codes** with the same spans and the same
+  messages — `NL704`, `NL201`, `NL303`, `NL010`, `NL905`, `NL103` — so the instrument is live in
+  every direction the move could have broken.
+
+  **TWO PRE-EXISTING DEFECTS ARE RE-PINNED UNCHANGED**, which is what a differential is for.
+  `import System.Timers` still reports `NL704` and `new FileSystemWatcher(".")` still reports
+  `NL201` **together with an `NL010` saying the very import that names the missing type is unused** —
+  the contradiction slice 1 found. Both root-cause to the assembly table, which now has ONE owner, so
+  the fix is a one-line change to an N# array with a contract beside it. **NOT fixed here**: it is a
+  behaviour change to diagnostics and it belongs to a language slice, exactly as slice 1 ruled.
+
+  ### TWO DELIBERATE BEHAVIOUR CHANGES, BOTH ADDITIVE, BOTH MEASURED
+
+  | change | why it is right | measured effect |
+  |---|---|---|
+  | the analyzer's assembly table becomes the columnar scan's **27** rather than its own **26** | the two lists answer one question and one had simply not grown; a name in the union can only make MORE types resolvable | **ZERO** delta on both corpora — `XDocument` already resolved through the import-driven facade load, so the union is behaviour-preserving here and removes the divergence |
+  | the direct package probe's TFM ladder becomes the resolver's, with the project's own framework in front | the two ladders were the same question asked twice, and the shorter one could not see `lib/net6.0` or `lib/net7.0` | **ZERO** delta on both corpora AND on a purpose-built `lib/net6.0`-only cache probe run through both CLIs — the resolver's longer ladder already rescued the direct probe's miss, so what the unification removes is the spurious load-failure record, not a resolution |
+
+  Neither can remove a resolution: both are supersets of what they replace, in the same order.
+
+  ### STAGE B — `Services/TypeResolver.cs`, DECODED HERE AND NOT TOUCHED
+
+  Sequenced into 021/9 by slice 5b, which left "the probing core untouched so it moves once". The
+  decode is recorded now so the slice that moves it is not the one that first reads it.
+
+  **THE LEDGER'S SIZE IS STALE.** It reads 573 lines; the file is **526** at this tip, because slice
+  5b's alias-table extraction already took 47. Reflection core **190 lines**, editor presentation
+  policy **208**, the rest preamble, comments and the DTO. 26 members + 1 nested public record.
+
+  **SLICE 5b's TWO CLAIMS BOTH HOLD, AND ONE LINE-NUMBER ROW IS CORRECTED.**
+  `grep -rn AliasToFullName` over `src`, `tests` and `editors` returns **zero rows repo-wide**; the
+  single seam is `TypeResolver.cs:155` → `AnalyzerTypeReferenceFacts.BuiltInClrTypeName`
+  (`AnalyzerTypeReferenceFacts.nl:117`). **A delta slice 5b did not record**: the owner answers
+  **18** spellings where the deleted table answered 16, so the editor's alias behaviour GREW by
+  `nint`/`nuint` as a side effect of the move. The three curation sets are still editor presentation
+  policy — but the ledger's `:42 / :58 / :415` are pre-5b numbers and are now
+  **`:31` (`CommonShortTypeToFullName`, 12 entries, `:31–45`), `:47` (`CommonNamespacePrefixes`, 7,
+  `:47–56`) and `:405` (`WellKnownNamespaces`, 20, `:405–416`)**.
+
+  **THE FINDING THAT MAKES STAGE B WORTH A SLICE.** The Language Server process holds **TWO DISJOINT
+  TYPE UNIVERSES**. `DocumentManager.cs:40` builds the compiler's `MetadataLoadContext` over the
+  27-name table and the project's own references. `TypeResolver.cs:17/:90–96` holds a **separate
+  four-entry list of RUNTIME assemblies** — `typeof(object)`, `typeof(Console)`,
+  `typeof(Enumerable)`, `typeof(List<>)` — reached by live reflection over the compiler HOST. So
+  **completion and hover cannot see a project's own references at all**, and answer from whatever the
+  language server happens to have loaded. That is not an ownership defect; it is a product defect,
+  and it is the reason to take this file rather than tidy it.
+
+  **NINE OF ITS QUESTIONS ALREADY HAVE N# OWNERS**, most sharply
+  `AnalyzerExternalTypeProbe.ResolveExternalType` (`:56`) and `ResolveExactExternalType` (`:105`) —
+  whose three-stage probe is structurally the same as `ResolveType`'s `:175 / :178–186 / :190–193`,
+  except it prefixes with the FILE'S REAL IMPORTS rather than a hard-coded seven — and
+  `ExternalQualifiedTypeResolver.TryResolve` (`:11`) / `TryResolveBareName` (`:64`), which are
+  strictly stronger than `:237–281` (they walk `.`→`+` for nested types and verify the hit is
+  exported; the C# does neither). `AnalyzerExternalTypeProbe.nl:36–38` already says **"Do not
+  reintroduce any of this in C#."**
+
+  **THREE DEAD ITEMS ARE PINNED FOR DELETION.** `GetImportNamespace(string)` (`:213`) and
+  `GetImportNamespace(Type)` (`:222`) — **26 lines, zero consumers** in `src`, `tests` or `editors`;
+  `ImportableTypeInfo.IsStatic` (`:524`), read by nothing; and a stale `<summary>` at `:401–403`
+  describing a method that no longer exists.
+
+  **AND ITS COVERAGE IS TWO ASSERTIONS DEEP.** No test anywhere calls a `TypeResolver` public member
+  directly. `LanguageServerTests.cs:717` pins the force-include roster and `:2319` pins namespace
+  segmentation; ~150 other sites merely construct it. `tests/native/**` has **zero** coverage and
+  `editors/vscode/test/**` has **zero**. Genuinely editor-only and with no N# owner:
+  `AddType`'s visibility filter (`:295–325`), `GetNamespacePriority` (`:482–493`),
+  `TryGetNextNamespaceSegment` (`:447–473`), `GetCompletionTypeName` (`:475–480`).
+
+  **WHY IT IS NOT IN THIS CUT.** It is a Language Server file: taking it means the VS Code-enabled
+  gate, an extension reinstall and visual verification, and **computer-use is still unavailable**.
+  Three slices have now hit the editor-suite epoch ceiling. Stage B belongs with 021/12, which
+  already carries the visual half.
+
+  ### FOUR DEFECTS THIS SLICE FOUND IN ITS OWN WORK, AND THE DIFFERENT INSTRUMENT THAT CAUGHT EACH
+
+  Recorded because the instrument that caught each one is the argument for keeping it.
+
+  | # | defect | caught by |
+  |---|---|---|
+  | 1 | `OrderVersionDirectoriesDescending`'s insertion sort used `scan = -1` as a loop break, which made every element land at index 0 | **the contracts, on their first run** — `TheDescendingOrderIsTheSEARCHOrder…` and `OrderingAnEmptySetIsEmpty…` failed together while the other 50 blocks passed. A `PickHighestVersionDirectory`-only contract would not have seen it |
+  | 2 | `TryParseUnsignedNumber` accumulated in `long` with UNCHECKED arithmetic, so a 20-digit version part WRAPPED where `long.TryParse(…, NumberStyles.None, …)` reports a parse failure — a silent behaviour divergence from the C# being replaced | **re-reading the moved code against the C# it replaced**, before the gate. Fixed with an explicit pre-multiply overflow guard and pinned by a contract that asserts `9223372036854775807.0.0` parses and `9223372036854775808.0.0` does not |
+  | 3 | the new owner was not canonically formatted (one blank line after the import block) | **the product gate's Step 2b**, `✗ FAILED: Formatting gate`, naming the file. Neither `dotnet build`, the 6,978-block estate, nor the differential could see it |
+  | 4 | `ProjectReferenceAssemblyName` returned `Path.GetFileNameWithoutExtension(...)` — a `string?` — from a `string` function | **the live-tree self-check**: `nlc check` on the estate moved from the pinned **246** to **247**, and the extra row was `NL202 … should return string but returns string?` in the new owner itself. Fixed with an explicit coalesce and a comment saying why it is total, not a choice |
+
+  Defect 3 is why this slice ran the product gate more than once, and defect 4 is why it ran it once
+  more after that. Both earlier runs are recorded as failures that did their job; the verdict below
+  is the run on the tree that fixes all four. **Three of the four were invisible to the estate**, and
+  each was caught by a different instrument — which is the argument for keeping all of them.
+
+  ### STAGE B's THREE DEAD ITEMS, VERIFIED INDEPENDENTLY OF THE DECODE THAT FOUND THEM
+
+  `grep -rn GetImportNamespace` over `src`, `tests` and `editors`, excluding the declaring file,
+  returns **zero rows** — both overloads (`TypeResolver.cs:213` and `:222`) are dead public API.
+  `grep -rn "\.IsStatic"` over the whole Language Server returns **zero rows**, so
+  `ImportableTypeInfo.IsStatic` is a field nothing reads. Both were re-run here rather than taken on
+  report. The stale `<summary>` at `:401–403` describes a method the file no longer has.
+
+  ### THE RESIDUES THIS SLICE RECORDS RATHER THAN ABSORBS
+
+  | residue | why it is not this slice's |
+  |---|---|
+  | `CompilationReferenceResolverKernels`'s own SemVer comparer (`:618`, `:932`) answers a WEAKER version of the question this slice's owner now answers — four numerics only, no `+metadata`, no prerelease precedence | routing the CLI kernel to the richer answer changes what `nlc restore` picks, which needs its own differential over the package cache. Named for the slice that unifies the CLI side |
+  | `GetDotnetSharedRootCandidates` (`:162`) walks for `shared` UNBOUNDED and adds three hard-coded roots; the analyzer's walk is bounded at five and adds none | same shape, same reason: two answers to one question, and unifying them moves `nlc restore`'s framework resolution |
+  | `"NUGET_PACKAGES"` is read in `Analyzer.cs` and spelled again in `EnvCommand.nl:49` | one variable, two readers; the name is not a decision but the duplication is a fact |
+  | `"<unknown reference>"` (`Analyzer.cs:2556`) | `AnalyzerReferenceLoadReport` owns every other word of the `NL923` sentence; this fallback identity belongs with them |
+  | the 27-name table still lacks `System.IO.FileSystem.Watcher` and `System.Timers` | slice 1's finding, re-pinned unchanged by this slice's differential. It is now a one-line change to an N# array, which is the whole point of moving it — but it is a diagnostics behaviour change and belongs to a language slice |
+
+  ### THE MUTATION MATRIX — 14 OF 14 BITE BY NAME
+
+  Every case mutates ONE decision in the N# owner, rebuilds the estate against the PINNED bootstrap
+  SDK and re-runs all 6,978 blocks. The matrix ran **detached with `nohup`, outside the task
+  watchdog** — the 021/7 wall applied rather than relearned — behind a `trap … EXIT INT TERM` restore
+  and a `shasum -a 256` guard against a pristine backup taken before the first mutation.
+
+  | # | mutation | passed / failed | the block that caught it |
+  |---|---|---|---|
+| **M1** | the assembly table is truncated by one name | 6975 / **3** | `TheAnalyzerPreLoadsExactlyTheTableTheColumnarScanPreLoadsOneListNotTwo`, `TheNameTheAnalyzersOwnCopyWasMissingIsINTheTableLINQToXMLByItsImplementationAssembly`, `TheTableIsThe27NamesTheDriftUsedToBeMeasuredAgainstAndItStillOpensWithTheCoreAssembly` |
+| **M2** | the Web trigger becomes an equality test | 6976 / **2** | `AWebSDKAsksForTheASPNETAssembliesAndAPlainOneDoesNot`, `TheTriggerIsACONTAINSTestBecauseTheSDKIdAUserWritesIsNotAClosedSet` |
+| **M3** | the shared-root walk stops after one level | 6976 / **2** | `TheWalkClimbsFromTheRuntimeDirectoryToThesharedRootThatHoldsBothFrameworks`, `TheWalkIsBOUNDEDAtFiveLevelsSoAnUnexpectedLayoutDoesNotClimbToTheFilesystemRoot` |
+| **M4** | NUGET_PACKAGES is ignored | 6977 / **1** | `NUGETPACKAGESWinsOverTheUserProfileAndTheAnalyzerAnswersTheSameFoldernlcRestoreDoes` |
+| **M5** | the ladder loses net7.0 and net6.0 | 6975 / **3** | `TheLadderReachesNet70AndNet60WhichTheDirectProbeUsedToBeUnableToSee`, `TheProjectsOwnFrameworkIsProbedFIRSTAndNeverProbedTwice`, `ThereIsONEFallbackLadderAndItIsSevenFrameworksDeepNewestFirst` |
+| **M6** | the libraries key splits at the LAST slash | 6977 / **1** | `ALibrariesKeySplitsAtTheFIRSTSlashIntoPackageAndVersion` |
+| **M7** | assembly paths compare case-SENSITIVELY | 6977 / **1** | `AnAssemblyAlreadyLoadedFromTheSamePATHIsNotLoadedTwiceCaseInsensitively` |
+| **M8** | the LAST failure per identity wins | 6977 / **1** | `TheFIRSTFailurePerIdentityIsTheOneNL923ReportsLaterOnesDescribeTheFallback` |
+| **M9** | a prerelease outranks its own release | 6974 / **4** | `AReleaseOutranksEVERYPrereleaseOfTheSameNumbersIncludingOneThatSortsLastOrdinally`, `AReleaseOutranksItsOwnPrereleaseWhichORDINALOrderingGetsBackwards`, `OrderingAnEmptySetIsEmptyAndOrderingAgreesWithTheSinglePickAnswer`, `TheDescendingOrderIsTheSEARCHOrderEveryInstalledVersionStaysReachableNewestFirst` |
+| **M10** | build metadata becomes part of precedence | 6976 / **2** | `BuildMetadataIsNOTPartOfPrecedence120build5And120AreTheSameVersion`, `TiesKeepTheFIRSTDirectoryListedSoTheAnswerDoesNotDependOnFilesystemOrder` |
+| **M11** | the search order becomes ASCENDING | 6976 / **2** | `OrderingAnEmptySetIsEmptyAndOrderingAgreesWithTheSinglePickAnswer`, `TheDescendingOrderIsTheSEARCHOrderEveryInstalledVersionStaysReachableNewestFirst` |
+| **M12** | numeric overflow wraps instead of failing the parse | 6977 / **1** | `ANumericPartTooLargeToFitIsAParseFAILURESoItSortsBelowEveryRealVersion` |
+| **M13** | the cache sweep becomes a CONTAINS test | 6977 / **1** | `TheCacheSweepIsAPREFIXTestOnTheNormalisedPackageIdNeverASubstringTest` |
+| **M14** | the project framework is no longer probed first | 6976 / **2** | `AProjectFrameworkOutsideTheLadderIsPrependedToItRatherThanReplacingIt`, `TheProjectsOwnFrameworkIsProbedFIRSTAndNeverProbedTwice` |
+
+  **NON-MOVERS: **NONE**.** Every failure is attributable to the mutation that caused it, no mutation
+  took down an unrelated block, and the restored tree's owner checksum reads
+  `abc5c6ed010b6947…` — **identical to the pristine backup**, verified by the harness itself.
+
+  **AN EARLIER RUN OF THIS MATRIX WAS STOPPED AND IS RECORDED AS A NON-RESULT.** It was launched
+  while the first product gate still held the machine, and its first case took over twenty minutes
+  against the five it takes alone. It was stopped by the documented-safe route, the owner was
+  restored and CHECKSUM-VERIFIED against its backup before anything else ran, and the matrix was
+  relaunched on a free machine. Its partial output is not counted here.
+
+  ### THE RATCHET — TWO-KEY, REPINNED LAST, REPLICA VALIDATED PRISTINE-FIRST ON FIVE VALUES
+
+  The replica was validated before it was trusted: from the SHIPPED manifest it reproduces
+  `epochPathFingerprint`, `epochFactFingerprint` and `reviewedHeadFingerprint` exactly, and it
+  reproduces the untouched rows for `MultiFileCompiler.cs` (`663 / 587 / text-v1:283dd32e6dd49489`)
+  and `TypeResolver.cs` (`526 / 459 / text-v1:330c8bad2b1a94fa`) from the files on disk. It walks
+  **UTF-16 code units**, which is the 021/6 lesson applied rather than relearned.
+
+  | key | before | after |
+  |---|---|---|
+  | `Analyzer.cs` `currentLines` | 2,960 | **2,798** |
+  | `Analyzer.cs` `currentNonBlankLines` | 2,748 | **2,605** |
+  | `Analyzer.cs` `currentFingerprint` | `text-v1:9113f54b86098fc2` | **`text-v1:59d6f4f3a57894b9`** |
+  | `AnalyzerMetadataLoadContextTests.cs` `currentLines` | 189 | **159** |
+  | `AnalyzerMetadataLoadContextTests.cs` `currentNonBlankLines` | 160 | **135** |
+  | `AnalyzerMetadataLoadContextTests.cs` `currentAssertionMarkers` | 22 | **15** |
+  | `AnalyzerMetadataLoadContextTests.cs` `currentFingerprint` | `text-v1:2650d41606e39f23` | **`text-v1:b53f563785a772e8`** |
+  | `reviewedHeadFingerprint` (JSON header) | `head-v1:ee1550b65607437b` | **`head-v1:1e742e2f4e318124`** |
+  | `OwnershipPolicy.ReviewedHeadFingerprint` (`OwnershipAudit.nl:241`) | `head-v1:ee1550b65607437b` | **`head-v1:1e742e2f4e318124`** |
+
+  **TWO rows moved; the epoch triple is UNCHANGED** (`epochFileCount 381`,
+  `pathset-v1:8a26e1529863444b`, `epochfacts-v1:1b3090747e517fc1`), the manifest is **391 lines** and
+  starts `7b 0a 20` — **no BOM**. The manifest was edited SURGICALLY, one line per row, so the
+  compact one-entry-per-line shape the file has always had is preserved rather than reflowed. No
+  `.nl` file appears in the manifest, so the two new N# files add no rows and the path set cannot
+  move.
+
+  **THE AUDIT IS 18/18 AND NON-VACUOUS ON BOTH KEYS.** Reverting ONLY the `OwnershipAudit.nl`
+  constant while leaving the JSON repinned reads **`Passed: 17, Failed: 1`**; appending ONE comment
+  line to `Analyzer.cs` against the repinned manifest also reads **`Passed: 17, Failed: 1`**; and the
+  restored tree reads **`Passed: 18, Failed: 0`**, with `Analyzer.cs`'s fingerprint back to
+  `text-v1:59d6f4f3a57894b9` exactly.
+
+  ### THE PROOF SETS
+
+  **THE DECODE CENSUS** — a brace-matched extent walk reproducing slice 1's 27 / 646 to the line, a
+  literal census of the metadata-loading surface before and after, and a consumer sweep that RAISED
+  a five-consumer count and then overturned three of them against their declarations, confirming
+  slice 1's two.
+
+  **THE PROBES** — seven `MetadataReader`/`PEReader` bisection projects, one of them a control that
+  builds, run against a FRESHLY BUILT CLI rather than the installed `nlc`, with
+  `NSHARP_COLUMNAR_DECLINE_LOG=1` so each decline names its site. All deleted; none touched a feed.
+
+  **THE DIFFERENTIAL** — two CLIs built from source, pristine `a9d9ed504` versus this tree, over 58
+  repository projects and an 8-project corpus built to reach the changed decisions, comparing every
+  code, message, line, column and count. **IDENTICAL on all three runs** (after the routing, after
+  the two added owners, and on the final tree), with six live diagnostic codes proving the
+  instrument moves and two pre-existing defects re-pinned unchanged.
+
+  **THE ESTATE** — `Passed: 6978, Failed: 0`, which is the 6,924 baseline plus **exactly the 54
+  blocks this slice adds**. The baseline was measured on the pristine tree with the two new files
+  held aside, so the count diff is what proves the new blocks ran rather than a restore silently
+  excluding them.
+
+  **THE UNIT SUITE** — `Passed: 596, Failed: 0`, which is 605 minus exactly the nine migrated cases.
+
+  **THE LIVE TREE** — `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` reports
+  **246 errors, 0 warnings**, census
+  `NL002:1 NL010:7 NL011:17 NL012:20 NL202:85 NL301:16 NL303:3 NL402:68 NL412:3 NL905:26` —
+  **IDENTICAL to slices 4, 5 and 6**, with **ZERO rows in the new owner or its contracts**.
+  `checkedFiles` moves 395 → **397**, which is exactly the two files this slice adds. Getting there
+  took a fix: the first run read **247**, and the extra row was this slice's own.
+
+  ### THE DOCUMENTATION — A STANDING VERDICT IS NOW FULFILLED, AND SAID SO IN THE PRESENT TENSE
+
+  `memory/components/analyzer.md` carried a **2026-07-03 probe verdict** that reads: *"keep
+  `NSharpMetadataResolver` as bounded mechanical C# glue … Its policy decisions should move to N#
+  functions; the C# shell may only host the `Resolve` override and `MetadataLoadContext` integration
+  boundary."* This slice is that move, so the section stops describing a plan and describes the
+  shape: the host verdict is restated in the present tense, the AOT successor's measured wall is
+  recorded beside it, and a new section documents every decision
+  `AnalyzerMetadataLoadPolicy.nl` owns — with the two drifts named, so the next reader knows why the
+  analyzer must not have its own assembly table or its own target-framework ladder again. The
+  SemVer bullet in *Reference Resolution Policy* now names the surviving owner rather than the
+  deleted `NuGetVersionComparer`. `memory/README.md` already indexes the file and is unchanged; no
+  `memory/` path is in the ratchet manifest, so the doc carries no ratchet row.
+
+  ### THE GATE — RUN THREE TIMES, AND THE FIRST TWO ARE RECORDED AS FAILURES THAT DID THEIR JOB
+
+  **RUN 1** — full non-VS-Code product gate, fresh and isolated from `/private/tmp/nl9slice`, log
+  written OUTSIDE the copy. Steps 1–3 green (`✓ Compiler built`, `✓ Unit tests passed`) and every
+  native step that ran green, **but Step 2b read `✗ FAILED: Formatting gate`, naming
+  `AnalyzerMetadataLoadPolicy.nl`.** It was stopped once its verdict was known — by the
+  documented-safe route (`pkill` the whole `nsharp-test-all.<key>` tree, never the driver alone) —
+  and the defect fixed.
+
+  **RUN 2** — relaunched on the fixed tree, then stopped a second time when the live-tree
+  self-check, run alongside it, found the `string?` return described above. Recorded as a
+  non-verdict rather than a pass: it never reached its own conclusion.
+
+  **RUN 3 IS THE VERDICT.** Fresh and isolated from `/private/tmp/nl9slice2` with the log written
+  OUTSIDE the copy, `VSCODE_TESTS=skip`, `--commit` so no cached result can satisfy it. **The copy
+  was verified byte-identical to the shipped tree on ALL EIGHT changed paths** by `shasum -a 256`,
+  driven from `git status --porcelain` so the list cannot be curated; `git ls-files` reads **1,427**
+  in the source; and the copy contains no nested worktree (`.claude/` is absent). Only this STATUS
+  changed after the copy was taken, and `systems-language-closeout/` is in NONE of the gate's input
+  prefixes.
+
+  **THE VERDICT IS `ALL TESTS PASSED! ✓`: 126 GREEN STEPS, ZERO `✗ FAILED` LINES and ZERO
+  occurrences of the string `FAILED` in 636 log lines.** Its banner confirms no cached result was
+  accepted (`Fresh isolated test run required: pre-commit verification` /
+  `Existing cache entries will not satisfy this invocation.`).
+
+  Its own instruments reproduce every count this record makes: unit suite
+  **`Passed: 596, Failed: 0`**, the compiler-service and product estate green, **47 native suites**
+  including `tests/native/cli-command-contracts` → **83/83** and `tests/native/ownership-audit` →
+  **18/18**, the **formatting gate now `✓ PASSED`** where run 1 failed it, `dotnet new` templates
+  packed, installed, created and BUILT (console and Web API), every example and single-file example
+  green, and ILVerify reporting **`All 67 N# assemblies pass IL verification`**.
+
+  ### THE IDE BAR
+
+  This is a **backend-only** cut by the 021 plan's own classification. `git diff --quiet` is clean on
+  `src/NSharpLang.LanguageServer` and on `editors/` — Stage B is decoded above and deliberately
+  untouched — so the gate ran `VSCODE_TESTS=skip`. **Computer-use remains unavailable**; 021/12 still
+  carries the visual half, and Stage B now belongs to it.
+
+  ### THE TREE
+
+  **NOT COMMITTED — the mandate reserves that.** Eight changed paths: one `.cs` owner and one `.cs`
+  test file (both net-negative on every metric), two NEW `.nl` files, both ratchet keys,
+  `memory/components/analyzer.md`, and this STATUS. **`tasks/README.md` is NOT among them.** No gate script, no `.csproj`, no `.targets`, no
+  `project.yml`, no `Sdk.props`/`Sdk.targets` and no `editors/` file changed. The eleven inherited
+  background-task chips are untouched and stay pinned as measured; **no new chip was filed** — the
+  five residues this slice found are recorded above and belong to named later slices.
+
+  **NO FEED WAS PACKED BY THIS SLICE.** Neither `~/.nuget/local-feed` nor `~/.nsharp/packages` was
+  written outside the gate's own Step 4. The estate compiles under the PINNED bootstrap SDK: the new
+  owner needed one spelling correction to get there (`numbers[index] = 0L`, because an `int` literal
+  stored into a `long[]` element declines at `emit.statement.block-child`), and `string.CompareOrdinal`
+  was avoided entirely because `AnalyzerReferenceLoadReport.nl:92` records that the pinned emitter
+  does not model it — an explicit ordinal code-unit compare is spelled instead. **So the two-stage
+  wall does NOT bind and the boundary republish is not needed.**
+
+  Cleanup: the `/private/tmp/nl9base` worktree is removed from `git worktree list` (only the six
+  PRE-EXISTING `.claude/worktrees/*` remain, none of them this slice's), both gate copies
+  (`/private/tmp/nl9slice`, `/private/tmp/nl9slice2`) and both gate logs are deleted, no
+  `/private/tmp/nsharp-test-all.*` run tree survives, and every probe — the seven `MetadataReader`
+  bisection projects, the eight differential-corpus projects, the `lib/net6.0` private cache and its
+  project — is deleted. No process from this slice is still running. The tree is **eight paths, not
+  committed**.
+
+  ### WHAT 021/10 IS, AND WHAT THIS SLICE ADDS TO THE QUEUE
+
+  **021/10 is `ColumnarIlEmitter.cs`'s residual**, as sequenced — the four future tasks named in the
+  015 roadmap, and 015 does not complete inside 021. Nothing in this slice touches it.
+
+  **BUT THE QUEUE GAINS TWO ROWS THAT DID NOT EXIST BEFORE THIS SLICE, and both are now priced.**
+
+  | new row | size | what it needs |
+  |---|---|---|
+  | **9b — `Services/TypeResolver.cs`** | 526 lines: 190 reflection core, 208 presentation policy, **26 lines dead** | it is an IDE-surface change and needs the VS Code-enabled gate + visual verification. Nine of its questions already have N# owners; the two probe methods route to `AnalyzerExternalTypeProbe` and `ExternalQualifiedTypeResolver`, which are strictly stronger. Belongs WITH 021/12 |
+  | **THE AOT TYPE-MODEL TASK** | 99 of the estate's 396 production `.nl` files name a reflection object type in code (74 import `System.Reflection` outright), plus `Analyzer.cs`'s remaining 25-extent MLC quarantine | it is not an ownership slice at all: `MetadataReader` is unspellable from the estate in every measured form, and even if it were, the analyzer's whole external type model is `Type`/`Assembly`/`MethodInfo`. **This is the row the AOT single-binary `nlc` actually blocks on**, and it needs its own task beside the `Reflection.Emit`→`MetadataBuilder` port that slice 1 already named as the largest remaining item in the closeout |
+
+  ### THE REDRAWN QUARANTINE, EXTENT BY EXTENT
+
+  **25 extents / 492 lines remain, and they are classified rather than waved at.**
+
+  **MECHANICAL WITH THE PROOF STATED (22 of 25).** MLC API mechanics — `new MetadataLoadContext`,
+  `LoadFromAssemblyPath`, `LoadFromAssemblyName`, `GetAssemblies`, `CoreAssembly`, `Dispose`; the
+  `List<Assembly>` registry the N# probe holds by reference; `AssemblyName.GetAssemblyName` and the
+  two `AssemblyName.ReferenceMatchesDefinition` comparisons, whose semantics the CLR fixes and which
+  have no N# spelling because `AssemblyName` is `dll:`-sourced; the four `Directory.Exists` /
+  `File.Exists` / `Directory.GetDirectories` probes that PERFORM the paths this owner computes; the
+  `JsonDocument` read whose property name and key rule are both N#-owned; `RuntimeEnvironment.GetRuntimeDirectory`
+  and `AppContext.BaseDirectory`, which are host facts; and `Dispose`'s rebuild of 25 collaborators,
+  which exists because the fact bag must not point at a disposed context. Each is an API contract or
+  a host fact, not a product choice — the same classification slice 8 gave Mono.Cecil's mechanics and
+  slice 7 gave JSON-RPC's member names.
+
+  **THREE ORCHESTRATION DECISIONS SURVIVE IN C# CONTROL FLOW, AND THEY ARE NAMED RATHER THAN CLAIMED
+  AWAY.** They carry no literal, which is why the census cannot see them:
+
+  | # | decision | site | why it is not moved here |
+  |---|---|---|---|
+  | 1 | non-NuGet dependencies are loaded BEFORE NuGet ones | `:2483` and `:2488`, two `Where` clauses | a real probe-ORDER decision. `CompilationReferenceResolverKernels.FilterReferencesByType` (`:351`) already partitions by type, so the move is an ordered-concat owner defined from it — small, but it needs its own contract and differential |
+  | 2 | a **test** dependency contributes its package NAME to a by-name load, where a normal dependency contributes a PATH | `:2499–2513` | same shape; the two routes answer different questions about the same `Reference` |
+  | 3 | `LoadReferencedAssembly` probes path-identity, then name-identity, then the context's own set, then loads | `:2282–2316` | this is the sequence the two surviving C# `[Fact]`s exercise; it moves with them, when the estate can build a throwaway managed library |
+
+  **So the honest verdict is 22 mechanical, 3 named-blocked** — not "zero decisions left". The literal
+  census (four sites, three distinct, none an answer) is what it measures and no more.
+
+- Active sub-slice (021 arc, PRIOR TURN, ACCEPTED at `a9d9ed504`): **SLICE 8 — `EmitIlAssembly.cs`, THE MSBUILD TASK EVERY N#
   PROJECT BUILDS THROUGH. THE DECODE CENSUS, RECORDED BEFORE ANY PRODUCTION EDIT.**
 
   ### THE SUBJECT, RE-MEASURED AT THIS TIP (`2c525c7bb`)

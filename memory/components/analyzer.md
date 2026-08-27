@@ -759,9 +759,8 @@ scope analyzers. Extend the N# catalog, binding facts, and planner instead.
 
 ### MetadataLoadContext Host Verdict
 
-Track D Sub-arc 0 probe (2026-07-03): BootstrapServices can carry the
-`System.Reflection.MetadataLoadContext` 10.0.5 dependency, but the N# columnar backend declines a
-minimal external abstract override probe:
+BootstrapServices carries the `System.Reflection.MetadataLoadContext` 10.0.5 dependency, but the N#
+columnar backend declines a minimal external abstract override probe:
 
 `AnalyzerMetadataResolverProbe: MetadataAssemblyResolver` with
 `override func Resolve(context: MetadataLoadContext, assemblyName: AssemblyName): Assembly`.
@@ -769,9 +768,68 @@ minimal external abstract override probe:
 Exact build result:
 `error NL103: Columnar emission is required for 'NSharpLang.Compiler.BootstrapServices', but the columnar backend declined.`
 
-Verdict: keep `NSharpMetadataResolver` as bounded mechanical C# glue until the columnar backend
-supports overriding external abstract members. Its policy decisions should move to N# functions;
-the C# shell may only host the `Resolve` override and `MetadataLoadContext` integration boundary.
+So `NSharpMetadataResolver` stays as a bounded mechanical C# host until the columnar backend
+supports overriding external abstract members: the C# shell hosts the `Resolve` override and the
+`MetadataLoadContext` integration boundary, and **nothing else**. Every policy decision it used to
+make now lives in `AnalyzerMetadataLoadPolicy.nl` — see below.
+
+The AOT successor is a different question and it is currently shut. `MetadataReader` is not
+spellable from the estate in any form: as a type annotation it reports `NL201`, its
+`System.Reflection.PortableExecutable` namespace reports `NL704` without a `nuget:` dependency, and
+with one every direct spelling declines at columnar emit (`emit.local.initializer`). Beyond that,
+the analyzer's whole external type model is `System.Reflection`'s object model — `Type`, `Assembly`,
+`MethodInfo` — across the N# owners, so replacing the load context with a metadata reader is a
+type-model replacement, not a host swap.
+
+### AnalyzerMetadataLoadPolicy.nl — every decision the loading surface makes
+
+`AnalyzerMetadataLoadPolicy.nl` is the N# owner for the metadata-loading surface's DECISIONS. Its
+functions are pure: strings, paths and version spellings in, an answer out. The C# performs the IO
+and drives the load context; it decides nothing.
+
+- **Which assemblies are pre-loaded**: `CommonAssemblyNames()` is DEFINED FROM
+  `ExternalAssemblyScan.CommonAssemblyNames()`, so the analyzer and the columnar scan share one
+  list. Do not give the analyzer its own copy — it had one, it drifted, and the analyzer ended up
+  seeing one fewer assembly than the back end. `MetadataCoreAssemblyName()` is the identity the
+  context binds primitives against.
+- **ASP.NET**: `RequiresAspNetCoreAssemblies(sdk)` is a CONTAINS test on the SDK spelling, because
+  the SDK id a user writes is not a closed set; `AspNetCoreAssemblyNames()` is the eight names it
+  selects.
+- **The shared-framework walk**: `SharedRootFromRuntimeDirectory` climbs at most
+  `MaximumSharedRootSearchDepth()` (5) parents looking for a directory named `shared`.
+  `SharedFrameworkDirectoryNames()` searches ASP.NET before the base framework, and that order is
+  visible because the registry is first-loaded-wins.
+- **Where a package lives**: `NuGetPackagesRoot` / `NuGetPackageCacheDirectory` are DEFINED FROM
+  `CompilationReferenceResolverKernels.GetGlobalPackagesFolder` + `GetNuGetPackageDirectory`, so the
+  analyzer reads metadata from the folder `nlc restore` writes. `LocallyBuiltPackageAssemblyPath`
+  states that a locally built copy outranks the cache.
+- **Which target-framework asset answers**: `FallbackTargetFrameworks()` is the ONE ladder
+  (`net10.0` → `netstandard2.0`, seven deep) and `MetadataProbeTargetFrameworks(tfm)` is the same
+  ladder with the project's own framework in front. There used to be two ladders of different
+  lengths in one file, so a package publishing only `lib/net6.0` was reachable one way and not the
+  other. Do not reintroduce a second list.
+- **Version precedence**: `CompareVersionSpellings` is SemVer, not ordinal — `+metadata` is
+  discarded, up to four numeric parts compare numerically, a release outranks every prerelease of
+  the same numbers, prerelease identifiers compare part by part with numeric below alphanumeric, an
+  unparseable spelling (including one whose numeric part overflows) sorts below every parseable one,
+  and the order is total. `PickHighestVersionDirectory` and `OrderVersionDirectoriesDescending` are
+  its two consumers and they agree on their first element.
+- **What the project restored**: `RestoredPackageAssetsPath`, `RestoredLibrariesPropertyName` and
+  the `RestoredLibraryPackageName` / `RestoredLibraryPackageVersion` pair, which split a `libraries`
+  key at the FIRST slash and drop a key that names no package version.
+- **What a project reference resolves to**: `IsCSharpProjectReference` /
+  `IsNSharpProjectReference` / `ProjectReferenceAssemblyName` (a `.csproj`'s assembly is its file
+  name; a `project.yml`'s is `ProjectFileParser.EffectiveName`), `ProjectReferenceOutputPath`,
+  `ResolvedReferencePath` and `UnknownProjectReferenceWarning`.
+- **When two loads are the same load**: `IsSameAssemblyPath` and `IsSameSimpleName` are
+  case-INSENSITIVE; `ShouldAddSearchDirectory`'s duplicate test is ORDINAL, because a search list is
+  a probe order rather than an identity set. `ShouldRecordLoadFailure` keeps the FIRST failure per
+  identity, so the `NL923` sentence points at the cause rather than at a fallback.
+- **The resolver's cache sweep**: `NuGetPackageDirectoryMatchesPrefix` is a PREFIX test on the
+  normalised package id, never a substring test, and `PinnedPackageVersionDirectory` lets a pinned
+  version outrank the highest extracted one.
+
+Do not reintroduce any of this in C#, and do not put IO in this class — it decides, the host acts.
 
 ### Reference Resolution Policy (assembly loading)
 
@@ -785,8 +843,8 @@ truth and dedupes everything else against them:
   resolver.
 - A version-less NuGet dependency binds the restored version from `project.assets.json`; only
   when no restore output exists does it fall back to the highest cached version, ordered by
-  SemVer precedence (`NuGetVersionComparer`), never by ordinal string comparison (which ranks
-  `0.1.0-anything` above `0.1.0` and `0.9` above `0.10`).
+  SemVer precedence (`AnalyzerMetadataLoadPolicy.CompareVersionSpellings`), never by ordinal string
+  comparison (which ranks `0.1.0-anything` above `0.1.0` and `0.9` above `0.10`).
 - `NSharpMetadataResolver.Resolve` first unifies on an already-loaded assembly with the same
   simple name, so later binds can never pull a second copy of a different version out of the
   NuGet cache; its cache scans honor the pinned restored versions.

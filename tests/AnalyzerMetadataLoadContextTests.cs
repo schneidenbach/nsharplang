@@ -9,6 +9,17 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
+// WHAT IS LEFT HERE, AND WHY.
+//
+// Every version-precedence claim this file used to make now lives in the N# estate, on the owner
+// that makes the decision: `AnalyzerMetadataLoadPolicy.CompareVersionSpellings` and
+// `PickHighestVersionDirectory` (see `AnalyzerMetadataLoadPolicy.tests.nl`, which restates all nine
+// rows and adds twelve the C# never made). The two blocks below are NOT restatements of a rule — they
+// drive a real `MetadataLoadContext` over two separately BUILT managed libraries that share one
+// assembly identity, which is the only way to observe what the load registry does when two files
+// claim the same name. Migrating them needs an estate kernel that can compile a throwaway managed
+// library and hand back its path; no such kernel exists yet. Recorded as the remainder rather than
+// deleted, because deleting them would drop the only coverage of the adopt-instead-of-throw path.
 public class AnalyzerMetadataLoadContextTests
 {
     [Fact]
@@ -71,47 +82,6 @@ public class AnalyzerMetadataLoadContextTests
         finally
         {
             Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Theory]
-    [InlineData("0.1.0", "0.1.0-runtimeffffffffffffffff")]
-    [InlineData("0.10.0", "0.9.0")]
-    [InlineData("1.0.0-beta.11", "1.0.0-beta.2")]
-    [InlineData("1.0.0-rc.1", "1.0.0-beta.11")]
-    [InlineData("1.0.0-alpha.1", "1.0.0-alpha")]
-    [InlineData("1.0.0", "1.0.0-zzz")]
-    [InlineData("0.0.1", "not-a-version")]
-    public void NuGetVersionComparer_OrdersBySemVerPrecedence(string higher, string lower)
-    {
-        Assert.True(Analyzer.NuGetVersionComparer.Instance.Compare(higher, lower) > 0);
-        Assert.True(Analyzer.NuGetVersionComparer.Instance.Compare(lower, higher) < 0);
-    }
-
-    [Fact]
-    public void NuGetVersionComparer_TreatsBuildMetadataAsEqual()
-    {
-        Assert.Equal(0, Analyzer.NuGetVersionComparer.Instance.Compare("1.2.0+build.5", "1.2.0"));
-    }
-
-    [Fact]
-    public void PickHighestVersionDirectory_PrefersReleaseOverLexicallyGreaterPrerelease()
-    {
-        var packageDir = CreateTempDir();
-        try
-        {
-            var release = Path.Combine(packageDir, "0.1.0");
-            var prerelease = Path.Combine(packageDir, "0.1.0-runtimeffffffffffffffff");
-            Directory.CreateDirectory(release);
-            Directory.CreateDirectory(prerelease);
-
-            var picked = Analyzer.NuGetVersionOrder.PickHighestVersionDirectory(Directory.GetDirectories(packageDir));
-
-            Assert.Equal(release, picked);
-        }
-        finally
-        {
-            Directory.Delete(packageDir, true);
         }
     }
 

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -697,18 +696,9 @@ public class Analyzer : IDisposable
             _wellKnownTypes);
 
     private static string GetNuGetPackagesRoot()
-    {
-        var configuredRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
-        if (!string.IsNullOrWhiteSpace(configuredRoot))
-        {
-            return Path.GetFullPath(configuredRoot);
-        }
-
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".nuget",
-            "packages");
-    }
+        => AnalyzerMetadataLoadPolicy.NuGetPackagesRoot(
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 
     /// <summary>
     /// Sets the source texts used by the current project snapshot. This lets semantic
@@ -2281,7 +2271,7 @@ public class Analyzer : IDisposable
 
     private void RecordReferenceLoadFailure(string identity, string detail)
     {
-        if (!_referenceLoadFailures.ContainsKey(identity))
+        if (AnalyzerMetadataLoadPolicy.ShouldRecordLoadFailure(_referenceLoadFailures.ContainsKey(identity)))
             _referenceLoadFailures[identity] = detail;
     }
 
@@ -2360,13 +2350,13 @@ public class Analyzer : IDisposable
 
     private bool IsMetadataAssemblyAlreadyLoaded(string assemblyName)
         => _mlcAssemblies.Any(loadedAssembly =>
-            string.Equals(loadedAssembly.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
+            AnalyzerMetadataLoadPolicy.IsSameSimpleName(loadedAssembly.GetName().Name, assemblyName));
 
     private bool IsMetadataAssemblyPathAlreadyLoaded(string assemblyPath)
     {
         var normalizedPath = Path.GetFullPath(assemblyPath);
         return _mlcAssemblies.Any(loadedAssembly =>
-            string.Equals(Path.GetFullPath(loadedAssembly.Location), normalizedPath, StringComparison.OrdinalIgnoreCase));
+            AnalyzerMetadataLoadPolicy.IsSameAssemblyPath(Path.GetFullPath(loadedAssembly.Location), normalizedPath));
     }
 
     /// <summary>
@@ -2380,58 +2370,21 @@ public class Analyzer : IDisposable
         _metadataResolver.AddSearchDirectory(runtimeDir);
         _metadataResolver.AddSearchDirectory(AppContext.BaseDirectory);
 
-        var searchDir = runtimeDir;
-        for (int i = 0; i < 5; i++)
+        var sharedRoot = AnalyzerMetadataLoadPolicy.SharedRootFromRuntimeDirectory(runtimeDir);
+        if (sharedRoot != null)
         {
-            searchDir = Path.GetDirectoryName(searchDir);
-            if (searchDir == null) break;
-            if (Path.GetFileName(searchDir) == "shared")
+            foreach (var fwDir in AnalyzerMetadataLoadPolicy.SharedFrameworkDirectoryNames())
             {
-                foreach (var fwDir in new[] { "Microsoft.AspNetCore.App", "Microsoft.NETCore.App" })
-                {
-                    var fwPath = Path.Combine(searchDir, fwDir);
-                    if (!Directory.Exists(fwPath)) continue;
-                    foreach (var versionDir in Directory.GetDirectories(fwPath)
-                                 .OrderByDescending(Path.GetFileName, NuGetVersionComparer.Instance))
-                        _metadataResolver.AddSearchDirectory(versionDir);
-                }
-                break;
+                var fwPath = Path.Combine(sharedRoot, fwDir);
+                if (!Directory.Exists(fwPath)) continue;
+                foreach (var versionDir in AnalyzerMetadataLoadPolicy.OrderVersionDirectoriesDescending(Directory.GetDirectories(fwPath)))
+                    _metadataResolver.AddSearchDirectory(versionDir);
             }
         }
 
-        _mlc = new MetadataLoadContext(_metadataResolver, "System.Runtime");
+        _mlc = new MetadataLoadContext(_metadataResolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName());
 
-        var commonAssemblies = new[]
-        {
-            "System.Runtime",
-            "System.Console",
-            "System.Collections",
-            "System.Linq",
-            "System.Linq.Queryable",
-            "System.Net.Http",
-            "System.Text.Json",
-            "System.Threading",
-            "System.Threading.Tasks",
-            "System.IO.FileSystem",
-            "System.Text.RegularExpressions",
-            "System.ComponentModel.Annotations",
-            "System.Collections.Concurrent",
-            "System.Diagnostics.Debug",
-            "System.Diagnostics.Process",
-            "System.Runtime.InteropServices",
-            "System.ObjectModel",
-            "System.Linq.Expressions",
-            "System.Memory",
-            "System.IO.Pipes",
-            "System.Net.Primitives",
-            "System.Net.Sockets",
-            "System.Security.Cryptography",
-            "System.Text.Encoding.Extensions",
-            "System.Xml.ReaderWriter",
-            "System.Private.CoreLib"
-        };
-
-        foreach (var assemblyName in commonAssemblies)
+        foreach (var assemblyName in AnalyzerMetadataLoadPolicy.CommonAssemblyNames())
         {
             LoadReferencedAssemblyByName(assemblyName);
         }
@@ -2559,21 +2512,9 @@ public class Analyzer : IDisposable
             }
         }
 
-        if (config.Sdk?.Contains("Web") == true)
+        if (AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies(config.Sdk))
         {
-            var aspNetAssemblies = new[]
-            {
-                "Microsoft.AspNetCore",
-                "Microsoft.AspNetCore.Http",
-                "Microsoft.AspNetCore.Http.Abstractions",
-                "Microsoft.AspNetCore.Mvc.Core",
-                "Microsoft.AspNetCore.Mvc.Abstractions",
-                "Microsoft.AspNetCore.Routing",
-                "Microsoft.Extensions.DependencyInjection",
-                "Microsoft.Extensions.DependencyInjection.Abstractions"
-            };
-
-            foreach (var assembly in aspNetAssemblies)
+            foreach (var assembly in AnalyzerMetadataLoadPolicy.AspNetCoreAssemblyNames())
             {
                 LoadReferencedAssemblyByName(assembly);
             }
@@ -2596,17 +2537,13 @@ public class Analyzer : IDisposable
                     break;
 
                 case ReferenceType.Dll:
-                    var dllPath = Path.IsPathRooted(reference.Dll!)
-                        ? reference.Dll!
-                        : Path.Combine(projectDirectory, reference.Dll!);
-                    LoadReferencedAssembly(dllPath);
+                    LoadReferencedAssembly(AnalyzerMetadataLoadPolicy.ResolvedReferencePath(projectDirectory, reference.Dll!));
                     break;
 
                 case ReferenceType.Project:
-                    var projectPath = Path.IsPathRooted(reference.Project!)
-                        ? reference.Project!
-                        : Path.Combine(projectDirectory, reference.Project!);
-                    LoadProjectReferenceFile(projectPath, targetFramework);
+                    LoadProjectReferenceFile(
+                        AnalyzerMetadataLoadPolicy.ResolvedReferencePath(projectDirectory, reference.Project!),
+                        targetFramework);
                     break;
 
                 case ReferenceType.Framework:
@@ -2626,7 +2563,7 @@ public class Analyzer : IDisposable
     /// </summary>
     private void LoadNuGetPackage(string packageName, string? version, string targetFramework, string projectDirectory)
     {
-        var binPath = Path.Combine(projectDirectory, "bin", "Debug", targetFramework, $"{packageName}.dll");
+        var binPath = AnalyzerMetadataLoadPolicy.LocallyBuiltPackageAssemblyPath(projectDirectory, targetFramework, packageName);
         if (File.Exists(binPath))
         {
             LoadReferencedAssembly(binPath);
@@ -2635,7 +2572,10 @@ public class Analyzer : IDisposable
 
         version ??= TryGetRestoredPackageVersion(projectDirectory, packageName);
 
-        var nugetCache = Path.Combine(GetNuGetPackagesRoot(), packageName.ToLowerInvariant());
+        var nugetCache = AnalyzerMetadataLoadPolicy.NuGetPackageCacheDirectory(
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            packageName);
 
         if (!Directory.Exists(nugetCache))
         {
@@ -2643,9 +2583,8 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var versionDir = version != null
-            ? Path.Combine(nugetCache, version)
-            : NuGetVersionOrder.PickHighestVersionDirectory(Directory.GetDirectories(nugetCache));
+        var versionDir = AnalyzerMetadataLoadPolicy.PackageVersionDirectory(
+            nugetCache, version, Directory.GetDirectories(nugetCache));
 
         if (versionDir == null || !Directory.Exists(versionDir))
         {
@@ -2653,9 +2592,9 @@ public class Analyzer : IDisposable
             return;
         }
 
-        foreach (var tfm in new[] { targetFramework, "net10.0", "net9.0", "net8.0", "netstandard2.1", "netstandard2.0" })
+        foreach (var tfm in AnalyzerMetadataLoadPolicy.MetadataProbeTargetFrameworks(targetFramework))
         {
-            var path = Path.Combine(versionDir, "lib", tfm, $"{packageName}.dll");
+            var path = AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDir, tfm, packageName);
             if (File.Exists(path))
             {
                 LoadReferencedAssembly(path);
@@ -2665,7 +2604,7 @@ public class Analyzer : IDisposable
 
         RecordReferenceLoadFailure(
             packageName,
-            AnalyzerReferenceLoadReport.PackageLibAssetMissingDetail(packageName, Path.Combine(versionDir, "lib")));
+            AnalyzerReferenceLoadReport.PackageLibAssetMissingDetail(packageName, AnalyzerMetadataLoadPolicy.PackageLibRoot(versionDir)));
     }
 
     private string? TryGetRestoredPackageVersion(string projectDirectory, string packageName)
@@ -2685,21 +2624,22 @@ public class Analyzer : IDisposable
         }
 
         var versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var assetsPath = Path.Combine(projectDirectory, "obj", "project.assets.json");
+        var assetsPath = AnalyzerMetadataLoadPolicy.RestoredPackageAssetsPath(projectDirectory);
         if (File.Exists(assetsPath))
         {
             try
             {
                 using var assets = JsonDocument.Parse(File.ReadAllText(assetsPath));
-                if (assets.RootElement.TryGetProperty("libraries", out var libraries) &&
+                if (assets.RootElement.TryGetProperty(AnalyzerMetadataLoadPolicy.RestoredLibrariesPropertyName(), out var libraries) &&
                     libraries.ValueKind == JsonValueKind.Object)
                 {
                     foreach (var library in libraries.EnumerateObject())
                     {
-                        var separator = library.Name.IndexOf('/');
-                        if (separator > 0 && separator < library.Name.Length - 1)
+                        var packageName = AnalyzerMetadataLoadPolicy.RestoredLibraryPackageName(library.Name);
+                        var packageVersion = AnalyzerMetadataLoadPolicy.RestoredLibraryPackageVersion(library.Name);
+                        if (packageName != null && packageVersion != null)
                         {
-                            versions[library.Name[..separator]] = library.Name[(separator + 1)..];
+                            versions[packageName] = packageVersion;
                         }
                     }
                 }
@@ -2723,17 +2663,19 @@ public class Analyzer : IDisposable
     {
         var projectDir = Path.GetDirectoryName(projectPath)!;
 
-        if (projectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
-            projectPath.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
+        if (AnalyzerMetadataLoadPolicy.IsRecognizedProjectReference(projectPath))
         {
-            var assemblyName = projectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
-                ? Path.GetFileNameWithoutExtension(projectPath)
-                : ProjectFileParser.Parse(projectPath).EffectiveName;
-            LoadReferencedAssembly(Path.Combine(projectDir, "bin", "Debug", targetFramework, $"{assemblyName}.dll"));
+            var assemblyName = AnalyzerMetadataLoadPolicy.ProjectReferenceAssemblyName(
+                projectPath,
+                AnalyzerMetadataLoadPolicy.IsCSharpProjectReference(projectPath)
+                    ? string.Empty
+                    : ProjectFileParser.Parse(projectPath).EffectiveName);
+            LoadReferencedAssembly(
+                AnalyzerMetadataLoadPolicy.ProjectReferenceOutputPath(projectDir, targetFramework, assemblyName));
         }
         else
         {
-            Console.Error.WriteLine($"Warning: Unknown project reference type: {projectPath}");
+            Console.Error.WriteLine(AnalyzerMetadataLoadPolicy.UnknownProjectReferenceWarning(projectPath));
         }
     }
 
@@ -2744,8 +2686,6 @@ public class Analyzer : IDisposable
     /// </summary>
     internal sealed class NSharpMetadataResolver : MetadataAssemblyResolver
     {
-        private static readonly string[] Tfms = { "net10.0", "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
-
         private readonly List<string> _searchDirectories = new();
         private readonly Dictionary<string, string> _pinnedPackageVersions = new(StringComparer.OrdinalIgnoreCase);
 
@@ -2753,13 +2693,13 @@ public class Analyzer : IDisposable
 
         private void RecordLoadFailure(string path, Exception exception)
         {
-            if (!LoadFailures.ContainsKey(path))
-                LoadFailures[path] = $"{exception.GetType().Name}: {exception.Message}";
+            if (AnalyzerMetadataLoadPolicy.ShouldRecordLoadFailure(LoadFailures.ContainsKey(path)))
+                LoadFailures[path] = AnalyzerReferenceLoadReport.ExceptionDetail(exception.GetType().Name, exception.Message);
         }
 
         public void AddSearchDirectory(string directory)
         {
-            if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory) && !_searchDirectories.Contains(directory))
+            if (AnalyzerMetadataLoadPolicy.ShouldAddSearchDirectory(directory, Directory.Exists(directory), _searchDirectories))
                 _searchDirectories.Add(directory);
         }
 
@@ -2785,7 +2725,7 @@ public class Analyzer : IDisposable
 
             foreach (var dir in _searchDirectories)
             {
-                var dllPath = Path.Combine(dir, $"{simpleName}.dll");
+                var dllPath = AnalyzerMetadataLoadPolicy.SearchDirectoryAssemblyPath(dir, simpleName);
                 if (File.Exists(dllPath))
                 {
                     try { return context.LoadFromAssemblyPath(dllPath); }
@@ -2805,11 +2745,9 @@ public class Analyzer : IDisposable
 
             if (Directory.Exists(nugetRoot))
             {
-                    var prefix = simpleName.ToLowerInvariant();
                     foreach (var pkgDir in Directory.GetDirectories(nugetRoot))
                     {
-                        var dirName = Path.GetFileName(pkgDir);
-                        if (dirName != null && dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        if (AnalyzerMetadataLoadPolicy.NuGetPackageDirectoryMatchesPrefix(Path.GetFileName(pkgDir), simpleName))
                         {
                             var result = TryLoadFromNuGetPackageDir(context, pkgDir, simpleName);
                             if (result != null) return result;
@@ -2827,9 +2765,9 @@ public class Analyzer : IDisposable
             var versionDir = PickPackageVersionDirectory(packageDir);
             if (versionDir == null) return null;
 
-            foreach (var tfm in Tfms)
+            foreach (var tfm in AnalyzerMetadataLoadPolicy.FallbackTargetFrameworks())
             {
-                var dllPath = Path.Combine(versionDir, "lib", tfm, $"{simpleName}.dll");
+                var dllPath = AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDir, tfm, simpleName);
                 if (File.Exists(dllPath))
                 {
                     try { return context.LoadFromAssemblyPath(dllPath); }
@@ -2849,112 +2787,12 @@ public class Analyzer : IDisposable
             if (packageName != null &&
                 _pinnedPackageVersions.TryGetValue(packageName, out var pinnedVersion))
             {
-                var pinnedDir = Path.Combine(packageDir, pinnedVersion);
-                if (Directory.Exists(pinnedDir))
+                var pinnedDir = AnalyzerMetadataLoadPolicy.PinnedPackageVersionDirectory(packageDir, pinnedVersion);
+                if (pinnedDir != null && Directory.Exists(pinnedDir))
                     return pinnedDir;
             }
 
-            return NuGetVersionOrder.PickHighestVersionDirectory(Directory.GetDirectories(packageDir));
-        }
-    }
-
-    /// <summary>
-    /// Orders NuGet package version folder names by SemVer precedence: numeric parts compare
-    /// numerically and a release outranks its prereleases — unlike ordinal string ordering,
-    /// which ranks "0.1.0-beta" above "0.1.0" and "0.10.0" below "0.9.0".
-    /// </summary>
-    internal static class NuGetVersionOrder
-    {
-        public static string? PickHighestVersionDirectory(string[] versionDirectories)
-            => versionDirectories
-                .OrderByDescending(Path.GetFileName, NuGetVersionComparer.Instance)
-                .FirstOrDefault();
-    }
-
-    internal sealed class NuGetVersionComparer : IComparer<string?>
-    {
-        public static readonly NuGetVersionComparer Instance = new();
-
-        public int Compare(string? x, string? y)
-        {
-            if (ReferenceEquals(x, y)) return 0;
-            if (x == null) return -1;
-            if (y == null) return 1;
-
-            var parsedX = TryParse(x, out var numbersX, out var prereleaseX);
-            var parsedY = TryParse(y, out var numbersY, out var prereleaseY);
-            if (!parsedX || !parsedY)
-            {
-                return parsedX == parsedY ? string.CompareOrdinal(x, y) : (parsedX ? 1 : -1);
-            }
-
-            for (var i = 0; i < numbersX.Length; i++)
-            {
-                var byNumber = numbersX[i].CompareTo(numbersY[i]);
-                if (byNumber != 0) return byNumber;
-            }
-
-            if (prereleaseX.Length == 0) return prereleaseY.Length == 0 ? 0 : 1;
-            if (prereleaseY.Length == 0) return -1;
-            return ComparePrereleaseIdentifiers(prereleaseX, prereleaseY);
-        }
-
-        private static bool TryParse(string version, out long[] numbers, out string prerelease)
-        {
-            numbers = new long[4];
-            prerelease = string.Empty;
-
-            var metadataStart = version.IndexOf('+');
-            if (metadataStart >= 0)
-                version = version[..metadataStart];
-
-            var prereleaseStart = version.IndexOf('-');
-            if (prereleaseStart >= 0)
-            {
-                prerelease = version[(prereleaseStart + 1)..];
-                version = version[..prereleaseStart];
-            }
-
-            var parts = version.Split('.');
-            if (parts.Length is < 1 or > 4) return false;
-
-            for (var i = 0; i < parts.Length; i++)
-            {
-                if (!long.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out numbers[i]))
-                    return false;
-            }
-
-            return true;
-        }
-
-        private static int ComparePrereleaseIdentifiers(string x, string y)
-        {
-            var identifiersX = x.Split('.');
-            var identifiersY = y.Split('.');
-            for (var i = 0; i < Math.Max(identifiersX.Length, identifiersY.Length); i++)
-            {
-                if (i >= identifiersX.Length) return -1;
-                if (i >= identifiersY.Length) return 1;
-
-                var numericX = long.TryParse(identifiersX[i], NumberStyles.None, CultureInfo.InvariantCulture, out var numberX);
-                var numericY = long.TryParse(identifiersY[i], NumberStyles.None, CultureInfo.InvariantCulture, out var numberY);
-                if (numericX && numericY)
-                {
-                    var byNumber = numberX.CompareTo(numberY);
-                    if (byNumber != 0) return byNumber;
-                }
-                else if (numericX != numericY)
-                {
-                    return numericX ? -1 : 1;
-                }
-                else
-                {
-                    var byText = string.CompareOrdinal(identifiersX[i], identifiersY[i]);
-                    if (byText != 0) return byText;
-                }
-            }
-
-            return 0;
+            return AnalyzerMetadataLoadPolicy.PickHighestVersionDirectory(Directory.GetDirectories(packageDir));
         }
     }
 }
