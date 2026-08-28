@@ -1,6 +1,81 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-27 (**TASK 015 SUB-SLICES `015-A3`+`015-A4` — THE TWO SPAN HEADS AND THE
+Last updated: 2026-08-28 (**TASK 015 SUB-SLICE `015-A6` — `IsSupportedType`, THE CENTRE OF THE
+TYPE-ADMISSIBILITY FAMILY, IS REROUTED TO ITS N# OWNER AND THE A-ARC CLOSES. THE EMITTER'S
+TYPE-ADMISSIBILITY AUTHORITY IS NOW ENTIRELY N#'s — see the Cursor block.** All three members were
+RE-DERIVED from the tip before any edit: the member-extent instrument reproduces A5's published
+**21,054 / 20,030 / 416** exactly and reads `IsSupportedType` at **49 extent lines / 72 distinct
+line-sites** and `IsSupportedAnonymousUnionArmType` at **5 / 2** — A5's hand-off to the digit, with
+the 72 sites spread across **40 containing members**, the widest of the arc. **THE DERIVATION
+CORRECTED THE MANDATE'S OWN WORDING, MEASURED RATHER THAN ASSUMED**: A1–A5 did NOT reroute every
+family member the head calls — **`IsClosedUserGenericInstantiation` was still declared in C# with 10
+sites**, so A6 takes THREE members, not two, and without it the terminal claim would have been false
+by one. It is included only because this stage's differential re-measured it first (**0 / 302
+EQUIVALENT**, reproducing A0's OVERTURNED verdict over a corpus 57 types larger). **THE PIN SWEEP
+CAME FIRST AND WAS THE SHARPEST OF THE ARC**: 24 estate asserts name the N# head, and **every one is
+a composed row written by an earlier stage to reach a SUB-head** — the `typeof(Exception)`
+assignability arm, the `TypeBuilder` arm, the generic-parameter arm, the closed-generic arm and 26 of
+31 direct `typeof` arms had **ZERO** contracts anywhere, and the arm-type owner had none at all.
+**THE DIFFERENTIAL RAN ONE LAST TIME AND FOUND A DEFECT AT THE CENTRE OF THE FAMILY**: over **302
+types** (reproducing A5's `213 / 62 / 275` corpus split exactly) `IsSupportedType` reads **DIVERGENT
+4, ALL WIDENINGS, NOT ONE TIGHTENING, ALL FOUR R1** — and DIVERGENT 1 on A5's identical 275-subset,
+confirming A5's ledger by measurement. Chasing the arm-type row's 8 widenings found that
+**`SymbolType.IsSZArray` is TRUE for a POINTER and for a BY-REF** — measured on BOTH builder
+implementations — so the head's array arm walked into the element recursion and **admitted
+`UserStruct*` and `UserStruct&` into the entire supported surface, on BOTH sides**, and a
+`ref UserStruct` parameter never reached the by-ref arm written for it. **THREE C# MEMBERS DIE (60
+extent lines); THE EMITTER GOES 21,054 → 20,984 (−70 lines, −67 non-blank, 416 → 413 members)**,
+**535 lines below the arc's opening 21,519**, with compiler C# steady at 10 files and **no `using`
+going dead** (five probed by removal and rebuild, nine by identifier census). **TWO DELIBERATE
+BEHAVIOUR FIXES**: the array arm now asks `!IsPointer && !IsByRef && IsSZArray`, and the arm head's
+void test becomes an IDENTITY test on a seeded `typeof(void)`. The parameter path is proven unmoved —
+**`PARAMETER_PATH_SAME 8, MOVED 1`**, the one being a pointer parameter that had no lowering.
+**THE COLLAPSE IS THE A-ARC'S TERMINAL PROOF AND IT RECONCILES WITHOUT A REMAINDER**: over **all 36
+matched family rows**, `FAMILY_STILL_DECLARED_IN_CS` goes **3 → 0**, `DECODE_FAILURES 0` over
+460→457 bodies, the three rows read **71 / 9 / 2 = 82 IL sites against 82 external source sites**,
+and the +65 total delta decomposes exactly (+82 reroutes, −17 in-body calls, each of the seventeen
+named). **THE CORPUS IL BYTE-COMPARISON RAN THREE CONTROL PASSES BEFORE THE VERDICT** — all three
+pairings `IL_DIFFS=0 / EXIT_DIFFS=0 / LOG_DIFFS=0` — then **90 / 90 comparable assemblies
+BYTE-IDENTICAL against all three**, with the sources held FIXED and only the compiler swapped. **AND
+THAT PAIRING IS ITSELF THE ANSWER TO THE R1 QUESTION**: the baseline head carried the C#-exact
+builder-only spelling and the slice head carries `IsGenericParameter`, so R1 is precisely the gap
+being compared — **no program the corpus can build reaches a runtime generic parameter**. **SIX OF
+SEVEN ESTATE CONTROLS BREAK THEIR OWN NAMED BLOCK**, and the seventh's silence was **predicted in
+writing before it ran** (after FIX 1 the head declines every by-ref, so the arm head's own `!IsByRef`
+term can no longer move an answer; its block is still non-vacuous — C4 breaks it). **C1 REMOVES ONE
+ARM AND BREAKS ELEVEN BLOCKS WRITTEN BY FOUR EARLIER STAGES**, which is what "the centre" means
+measured. **THE COUPLING INSTRUMENT WAS DEFECTIVE ON ITS FIRST RUN AND THE DEFECT IS RECORDED, NOT
+ROUTED AROUND**: it had **no pristine baseline pass**, and two of its ten "targets" are single-file
+directories with no `project.yml` where `nlc build` fails unconditionally, giving every mutation a
+phantom floor of 2 — three mutations read exactly that floor. A corrected run with **20 real targets,
+a PRISTINE pass reading `MOVED=0`**, and M1/M2 rewritten as deletions (the product REJECTS a
+`typeof(Guid)` in the head — `NL103 emit.if.condition`) makes the centre's coupling plain: dropping
+one `typeof(int)` arm moves **18 of 20 targets**. Evidence: estate **`Passed: 7068`** (7,062 +
+exactly the 6 new blocks); `ColumnarSupportedTypeHeadFacts.tests.nl` **250 lines / 6 blocks / 94
+asserts / 3 local fixtures**; live-tree **399 / 246 row-for-row 0 added / 0 removed** with identical
+code histograms; ownership audit **17 / 18 pre-repin, 18 / 18 after**, blank-line control **17 / 18**
+with a byte-exact restore; manifest **391, no BOM**. **THE TWO-KEY REPIN WAS TAKEN LAST AND ITS
+INSTRUMENT PROVED ITSELF FIRST** (it reproduced the mandate's `head-v1:cf9f3bc4c59caa26` from the
+stored rows before changing anything): emitter row
+`21054/20030/text-v1:6ea3f17824bccebe` → **`20984/19963/text-v1:bcd86782b7ed0a82`**, head
+**`head-v1:cf9f3bc4c59caa26` → `head-v1:d03089d6dd7266c4`** in BOTH keys, **epoch triple UNCHANGED**
+(381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1`).
+**THE FRESH ISOLATED GATE IS GREEN ON THE FINAL TREE — `GATE EXIT 0`, `ALL TESTS PASSED`, 126
+`✓ PASSED` / 0 `✗ FAILED`, 22m 37s from a `/tmp` byte copy with the log outside it, launched
+detached** — carrying unit **596**, estate **7,068**, all **47** native projects, the ownership audit
+**18 / 18**, the format contract gate and the IL verification gate (**67** assemblies, no new errors
+vs baseline). **ONE PRODUCT DEFECT WAS FOUND IN PASSING AND FILED RATHER THAN ABSORBED**: `nlc
+format --check` gives different answers for the same file depending on invocation form, the gate's
+format step is scoped to `--project` so `.tests.nl` sources are outside its coverage entirely
+(**45 of 68 committed `Columnar*.tests.nl` fail the file-list form on the PRE-A6 compiler**, so this
+slice did not cause it), and `ColumnarIteratorPlanner.tests.nl` trips the formatter's own
+idempotence safety check. **THE A-ARC IS CLOSED: 35 C# members, 476 extent lines, 308 call sites,
+ten behaviour fixes, six contract files and +32 estate blocks — and every matched member of A0's
+25-member family now reads `csDeclared=False`.** **NEXT: `015-B`, and its first slice is the
+locals-as-locals binding mode, not a statement kind.** NOT COMMITTED. (`015-A5`'s header entry was
+not written at the time; its full record is in the Cursor block.))
+
+Last updated (prior): 2026-08-27 (**TASK 015 SUB-SLICES `015-A3`+`015-A4` — THE TWO SPAN HEADS AND THE
 COLLECTION-ELEMENT PAIR ARE REROUTED TO THEIR N# OWNERS AND 35 LINES OF C# PREDICATE ARE DELETED.
 THE EMITTER FALLS 365 LINES BELOW ITS 015-PAUSE LOW-WATER MARK — see the Cursor block.** Both stages
 were RE-DERIVED from the tip before any edit: the member-extent instrument reproduces A2's published
@@ -4861,7 +4936,619 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-A5`: `IsSupportedExternalType` AND ITS ASPNET HELPER.
+- Active sub-slice (015 arc, THIS TURN — **`015-A6`: `IsSupportedType` — THE CENTRE OF THE
+  TYPE-ADMISSIBILITY FAMILY, AND THE STAGE THAT ENDS THE A-ARC. NOT COMMITTED.**)
+
+  ### THE PRE-EDIT DERIVATION — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
+
+  A5's hand-off named A6 as "`IsSupportedType` … 49 extent lines with **72 line-sites** … plus
+  `IsSupportedAnonymousUnionArmType` at 5 lines / 2 sites". Both halves were re-derived from the tip
+  (`31a3e2d93`) with A5's member-extent instrument, unchanged.
+
+  **THE INSTRUMENT REPRODUCES A5's PUBLISHED FILE READING EXACTLY BEFORE ANY NEW NUMBER IS READ**:
+  `ColumnarIlEmitter.cs` at **21,054 lines / 20,030 non-blank / 416 members**.
+
+  | member | extent | occurrences | sites | distinct site lines |
+  |---|---|---|---|---|
+  | `IsSupportedType` | **49** | 73 | **72** | 72 — no line carries two calls |
+  | `IsSupportedAnonymousUnionArmType` | **5** | 3 | **2** | 3003, 3004 |
+
+  **BOTH ROWS REPRODUCE A5's HAND-OFF TO THE DIGIT.** The 72 sites spread across **40 containing
+  members**, the widest of any stage in the arc (`TryEmitColumnarAssembly` 11, `TryResolveType` 7,
+  `TryResolveTypeWithTypeParams` 5, `EmitExpressionCore` 5, `EmitStatement` 4, then a long tail of
+  ones). One of the 72 is **inside the arm-type body A6 also deletes** (line 456), the same shape A5
+  recorded for its own site 460, so the external reroute count is **71 + 2**.
+
+  ### THE DERIVATION CORRECTS THE MANDATE'S WORDING, MEASURED RATHER THAN ASSUMED
+
+  The mandate states "Every family member it called is now N#-owned (A1–A5 rerouted them all)".
+  **THAT IS NOT TRUE AT THIS TIP, AND THE CENSUS SAYS SO.** Driving A0's full family list — the 25
+  numbered members plus every transitive private — against the emitter's declarations finds **three**
+  still declared in C#, not two:
+
+  | still declared | A0's classification | A0's verdict | sites |
+  |---|---|---|---|
+  | `IsSupportedType` | row 1 | DIVERGENT 5 (residual R1/R2/R3) | 72 |
+  | `IsSupportedAnonymousUnionArmType` | transitive private | DIVERGENT 5 (residual R1/R2/R3) | 2 |
+  | **`IsClosedUserGenericInstantiation`** | **transitive private** | **OVERTURNED — 245/245 agree** | **10** |
+
+  Every other matched family member reads `decl=0`. The ten UNMATCHED members A5 counted
+  (`IsSupportedParameterType`, `IsSupportedByRefElementType`, `IsSupportedContextualDelegateType`,
+  `TryGetSupportedDelegateSignature`, `IsSupportedIndexableCollectionType`,
+  `IsSupportedReadableIndexedCollectionType`, `IsDictionaryLikeCollectionDefinition`,
+  `IsReadOnlyDictionaryCollectionDefinition`, `IsAnyDictionaryCollectionDefinition`,
+  `TryResolveLoadedExternalType`) all read `decl=1`, which is correct — no N# owner answers their
+  question and they are a later slice's build list, not this one's.
+
+  **SO A6 TAKES THREE MEMBERS, NOT TWO — AND THAT IS WHAT MAKES THE TERMINAL CLAIM TRUE.**
+  `IsClosedUserGenericInstantiation` is 6 extent lines with 10 sites, one of them inside
+  `IsSupportedType`'s own body. Its N# owner `ColumnarTypeOfPlanner.IsClosedSourceGeneric` is spelled
+  identically and A0 measured the pair EQUIVALENT over all 245 types. **It is included only because
+  this stage's own differential re-measured it first** (302/302 EQUIVALENT — see below), not because
+  A0 said so. Without it "zero family members declared in C#" would be false by one.
+
+  **THE STAGE'S TOTALS: 3 members, 60 extent lines, 84 sites, 82 of them external.**
+
+  ### WHAT THE BODY STILL DECIDES AFTER A1–A5's REROUTES — THE DECODE
+
+  `IsSupportedType` is a 49-line expression-bodied disjunction of **41 arms**. A1–A5 turned 21 of
+  them into calls on N# owners. The remaining 20 are the head's OWN logic, and they are not a thin
+  shell:
+
+  | class | arms | what the C# body still decides itself |
+  |---|---|---|
+  | direct `typeof` identity | 16 | `int bool long ulong string char double float byte sbyte short ushort uint IntPtr UIntPtr decimal object` + `StreamReader StringComparer TextWriter StringBuilder DateTime TimeSpan Index Range CancellationToken Random IList Type Version Assembly` |
+  | assignability | 1 | `typeof(Exception).IsAssignableFrom(t)` — the only non-identity BCL arm |
+  | builder shape | 2 | `t is TypeBuilder`, `t is GenericTypeParameterBuilder` |
+  | C#-private call | 1 | `IsClosedUserGenericInstantiation(t)` — the third member this stage takes |
+  | array recursion | 1 | `t.IsSZArray && IsSupportedElementType(t.GetElementType()!)` |
+
+  **SO THE ANSWER TO THE MANDATE'S QUESTION IS: NO, IT DOES NOT REDUCE TO A SINGLE N# HEAD BY
+  COMPOSITION ALONE — BUT THE N# HEAD IS ALREADY WRITTEN AND ALREADY CARRIES ALL 41 ARMS.**
+  `ColumnarTypeOfPlanner.IsSupportedType` (23 lines) spells the same disjunction with three
+  deliberate spelling differences, each of which was checked arm-for-arm rather than assumed:
+
+  | C# arm | N# spelling | reading |
+  |---|---|---|
+  | `t == typeof(TextWriter)` | `valueType == RequiredTextWriterType()` | A0's recorded toolset wall — `typeof(TextWriter)` declines at emit (NL103), so the seed-by-name idiom is required, not preferred |
+  | `IsSupportedReadOnlySpanType(t) \|\| IsSupportedSpanType(t)` | `IsSupportedSpanLikeType(valueType)` | the union of A3's two narrowings IS the head they both narrow — equivalent by construction, and the differential confirms it pointwise |
+  | `t is GenericTypeParameterBuilder` | `valueType.get_IsGenericParameter()` | **A0's ruled R1** — the one surviving deliberate difference, carried into this stage on purpose |
+
+  The N# head also names `typeof(Stream)` inline **in addition to** calling
+  `ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType`, which admits it anyway. That is
+  redundant rather than divergent, and it is A0's bug 6 leaving a scar: the inline name was the
+  original spelling, the interop call was the fix, and the differential reads both sides `T` on
+  `Stream`/`FileStream`/`DirectoryInfo`.
+
+  ### THE PIN SWEEP CAME FIRST, AND ITS ANSWER IS THE SHARPEST OF THE ARC
+
+  A grep of all **7,062** estate blocks for `ColumnarTypeOfPlanner.IsSupportedType` finds **24
+  asserts across 3 files** — `ColumnarTypeAdmissibilityFacts` (15), `ColumnarSupportedTypeConeFacts`
+  (8), `ColumnarSpanHeadAndElementFacts` (1). That looks like coverage. **IT IS NOT COVERAGE OF THIS
+  MEMBER**, and the distinction is the finding:
+
+  **EVERY ONE OF THE 24 IS A COMPOSED ROW THAT EXISTS TO PIN A SUB-HEAD**, written by A2/A3/A4/A5
+  as the vehicle for reaching `IsSupportedProcessInteropType`, `IsSupportedResultType`,
+  `IsSupportedAnonymousUnionType`, the four buffer heads, `IsEnumType` and the element rule. Sorted
+  by which of the head's OWN 20 arms they reach, the sweep reads:
+
+  | the head's own arm | pinned by |
+  |---|---|
+  | `typeof(DateTime)` / `typeof(decimal)` / `typeof(StreamReader)` | 3 asserts (A2's cone rows) |
+  | `typeof(TextWriter)` | 1 assert, and only by NAME through `AdmissibilityRuntimeType` |
+  | the SZ-array arm | 1 assert (`sourceStruct.MakeArrayType()`) |
+  | **`typeof(Exception).IsAssignableFrom`** | **ZERO** |
+  | **`t is TypeBuilder`** | **ZERO** |
+  | **the generic-parameter arm — A0's ruled R1 residual** | **ZERO** |
+  | **`IsClosedUserGenericInstantiation` / `IsClosedSourceGeneric`** | **ZERO** |
+  | **`typeof(IList)` / `Type` / `Version` / `Assembly` / `Index` / `Range` / `CancellationToken` / `Random` / `StringComparer` / `StringBuilder` / `TimeSpan` / the 16 scalars** | **ZERO** |
+
+  And `ColumnarTypeOfPlanner.IsSupportedAnonymousUnionArm` — the owner the two arm-type sites route
+  to — has **ZERO estate mentions of any kind**. So the member about to become the compiler's SOLE
+  type-admissibility authority has **not one contract that asserts the arms it decides itself**, and
+  its arm-type partner has none at all. That is the gap this stage's contracts close, and it is why
+  the sweep was run before a line of C# was touched.
+
+  ### THE DIFFERENTIAL, RUN ONE LAST TIME — AND IT FOUND A DEFECT AT THE CENTRE OF THE FAMILY
+
+  The differential was rebuilt for this stage. Its corpus is a STRICT SUPERSET of A5's and every
+  entry is stage-tagged, so it **reproduces A5's published corpus split before its own verdict is
+  read**: `CORPUS_A34_SUBSET 213`, `CORPUS_NEW_IN_A5 62`, `CORPUS_A5_SUBSET 275` — A5's exact
+  published total — plus `CORPUS_NEW_IN_A6 27`, for **302 types**. Zero cells throw.
+
+  The four A1–A5-deleted control rows read **`UNAVAILABLE cs=False`**, which is the arc's own
+  history showing up in the instrument and the reason A6 is the LAST differential this family can
+  carry. The sensitivity controls are non-vacuous by measurement: a deliberately wrong owner reads
+  **210 / 302** divergent (`IsSupportedJsonType`) and **149 / 302** (`IsSupportedElementType`).
+
+  **THE BASELINE VERDICT — `IsSupportedType` READS DIVERGENT 4 / 302, ALL FOUR WIDENINGS, NOT ONE
+  TIGHTENING, AND ALL FOUR ARE R1.** On A5's identical 275-subset it reads **DIVERGENT 1**, which
+  reproduces A5's hand-off exactly ("R1 … the single surviving divergent cell in `IsSupportedType`
+  after this cut"). A3+A4 published DIVERGENT 3 on the 213-subset and it now reads **1** there —
+  A5's reroute of `IsSupportedExternalType` INSIDE the C# head collapsed both R2 cells, so the
+  previous stage's ledger claim is confirmed by this stage's measurement rather than inherited.
+  A6's own corpus adds three more runtime generic parameters (`Dictionary<,>`'s `TKey` and `TValue`,
+  `Enumerable.Select`'s `TSource`) and every one lands in the same class: **R1 is not one cell, it
+  is a class, and this stage measures it at 4 of 302.**
+
+  **`IsClosedUserGenericInstantiation` READS 0 / 302 — EQUIVALENT** — reproducing A0's OVERTURNED
+  verdict over a corpus 57 types larger. That is the measurement the stage's enlargement rests on.
+
+  **`IsSupportedAnonymousUnionArmType` READS DIVERGENT 9 — 8 WIDENINGS AND ONE TIGHTENING — AND
+  BOTH CLASSES ARE REROUTE BLOCKERS.** Chasing them found the defect below.
+
+  ### THE DEFECT: `SymbolType.IsSZArray` IS TRUE FOR A POINTER AND FOR A BY-REF
+
+  The arm-type row's widenings are `srcStruct*`, `srcClass*`, `srcGp*` and A5's own
+  `aspnetPointer` — the C# arm declines them through `!t.IsPointer`, the N# arm has no pointer term.
+  The obvious reading is "add the pointer term". **THE ARM PROBE SAYS THAT IS THE WRONG FIX**, and
+  it says so by driving every sub-predicate the head composes:
+
+  | shape | runtime type | `IsSZArray` | `GetElementType()` | which arm fires | cs head | nl head |
+  |---|---|---|---|---|---|---|
+  | `SrcStruct*` | **`SymbolType`** | **True** | `SrcStruct` | **the ARRAY arm** | **T** | **T** |
+  | `SrcStruct&` | **`SymbolType`** | **True** | `SrcStruct` | **the ARRAY arm** | **T** | **T** |
+  | `SrcStruct[,]` | `SymbolType` | False | `SrcStruct` | none | F | F |
+  | `int*` | `RuntimeType` | False | `Int32` | none | F | F |
+
+  **`SymbolType` — what a builder type's `MakePointerType()`/`MakeByRefType()` returns — reports
+  `IsSZArray` as TRUE for a pointer and for a by-ref.** The head's array arm trusted it, the element
+  recursion read the element back as the TypeBuilder, `IsSupportedElementType` said yes, and
+  **`UserStruct*` and `UserStruct&` were admitted into the ENTIRE supported surface — on BOTH
+  sides.** This is the carried `IsSZArray` landmine, live, at the centre of the family, and neither
+  spelling caught it. The C# arm-type member's `!t.IsPointer` was the only guard anywhere, and it
+  guarded exactly one of the 82 call sites.
+
+  **THE LIE REPRODUCES ON BOTH BUILDER IMPLEMENTATIONS, MEASURED BEFORE A CONTRACT WAS WRITTEN** —
+  A5's vacuity lesson applied and answered in the opposite direction. `RuntimeTypeBuilder` (the
+  shared `TypeOfCreateBuilder` fixture) and `TypeBuilderImpl` (the persisted builder production
+  emits with) BOTH report `IsSZArray=True` for `S*` and `S&` and BOTH report False for `S[,]`. So
+  the contract can use the shared fixture; no persisted-builder gymnastics are needed here.
+
+  ### THE THREE DELIBERATE BEHAVIOUR FIXES THIS STAGE CARRIES
+
+  | # | fix | where | why not the other way |
+  |---|---|---|---|
+  | **FIX 1** | the array arm asks `!IsPointer && !IsByRef && IsSZArray` | the HEAD | the root cause is the head, not the arm. Fixing it in the head also repairs `IsSupportedParameterType`: a `ref UserStruct` parameter was admitted by the head's lying array arm and **never reached the by-ref arm that exists for it** — measured, `IsSupportedByRefElementType(SrcStruct)` is True, so the parameter path is unchanged and only the wrong route to it is closed |
+  | **FIX 2** | the arm head's void test becomes an IDENTITY test on a seeded `typeof(void)` | the ARM head | a source type declared `System.Void` is an ordinary storable TypeBuilder; the deleted C# member asked `t != typeof(void)` and was right to. `RequiredVoidType()` already existed in the file |
+  | — | the arm head gains NO pointer term | — | after FIX 1 the head declines every pointer, so an explicit term could never fire. A guard that cannot fire is dead code, and the control C6 below is run precisely to say whether the by-ref term beside it is in the same position |
+
+  ### THE CUT
+
+  All 84 sites rerouted (82 external; two lived inside bodies this stage deletes), all three members
+  deleted. **THE EMITTER GOES 21,054 → 20,984 (−70 lines, −67 non-blank, 416 → 413 members).**
+  One line was ADDED, not removed: the reroute rewrote a COMMENT that names the member (the
+  occurrence census reads 74 for `IsSupportedType` against the extent instrument's 73, and the
+  difference is exactly that comment, which now names the N# owner and was re-wrapped to width).
+
+  **NO `using` GOES DEAD, AND IT IS MEASURED TWO WAYS**: the five the deleted bodies could plausibly
+  have been the last user of were probed by REMOVING each and rebuilding — `System` 890 errors,
+  `System.Collections` 14, `System.Collections.Generic` 166, `System.Diagnostics` 44, `System.IO`
+  182 — and the remaining nine by identifier census (`System.Reflection` 123 hits,
+  `System.Reflection.Emit` 1,417, `System.Runtime.InteropServices` 4, `System.Text.Json` 73, the
+  four Yaml usings 12).
+
+  ### THE COLLAPSE — THE A-ARC'S TERMINAL GRID, AND IT RECONCILES WITHOUT A REMAINDER
+
+  The metadata instrument decodes every `ColumnarIlEmitter` method body and resolves every call
+  token. It is driven over **all 36 matched family rows**, not just this stage's three, with
+  `csName:nlName` pairs for the four reroutes that RENAME.
+
+  | | baseline | final |
+  |---|---|---|
+  | bodies decoded | 460 | 457 |
+  | `DECODE_FAILURES` | **0** | **0** |
+  | `FAMILY_ROWS` | 36 | 36 |
+  | **`FAMILY_STILL_DECLARED_IN_CS`** | **3** — exactly `IsSupportedType`, `IsClosedUserGenericInstantiation`, `IsSupportedAnonymousUnionArmType`, each with 0 N# call sites | **0** |
+  | `TOTAL_NL_CALL_SITES` | 208 | 273 |
+
+  **THE ARITHMETIC CLOSES EXACTLY.** The three rows read **71 / 9 / 2 = 82 IL call sites against 82
+  external source sites**. The final source census reads **72 / 9 / 2** for the dotted names and the
+  extra one is accounted for rather than rounded away: it is the COMMENT the reroute rewrote, which
+  now names the N# owner. Zero BARE references to any of the three deleted names survive anywhere in
+  the file, and zero definitions. The +65 total delta decomposes with no remainder: **+82** for the
+  reroutes, **−17** because seventeen OTHER family owners each lose exactly one call — the one that
+  lived inside the deleted head's body (`IsEnumType`, `IsSupportedValueTuple`,
+  `IsSupportedCollectionType`, `IsSupportedElementType`, `IsSupportedAnonymousUnionType`,
+  `IsSupportedTaskType`, `IsSupportedJsonType`, `IsSupportedArrayPoolType`,
+  `IsSupportedMemoryPoolType`, `IsSupportedNullable`, `IsSupportedExternalType`,
+  `IsSupportedDelegateType`, `IsSupportedMemoryOwnerType`, `IsSupportedMemoryType`,
+  `IsSupportedResultType`, `IsSupportedReadOnlySpanType`, `IsSupportedSpanType`). 82 − 17 = 65.
+
+  **THE 36 ROWS RECONCILE WITH A0's FAMILY EXACTLY**: A0's 25 numbered members, plus 9 of the 10
+  transitive privates, plus the 2 span heads A3 published. The tenth transitive private
+  (`TryResolveLoadedExternalType`) is deliberately absent — A1 measured it as a SECOND entry point on
+  A0's UNMATCHED list and KEPT it, and a separate census confirms all **10 UNMATCHED members still
+  read `decl=1`**, which is correct: no N# owner answers their question, and they are a later
+  slice's build list rather than a hole in this arc's terminal claim.
+
+  **`FAMILY_ROWS_WITH_ZERO_NL_CALLS 6`, AND EACH IS EXPLAINED RATHER THAN LEFT AS A NUMBER.** Two
+  (`IsRuntimeInterfaceType`, `EnumerateInterfaceAndBases`) are answered by
+  **`ColumnarBaseTypePlanner`**, which this counter does not scan — the emitter calls them at 2 and 6
+  sites respectively, so they are invisible to the instrument, not absent from the compiler. Two
+  (`IsByRefLikeType`, `IsEnumBuilder`) are transitive privates whose only callers are inside N#. And
+  two (`IsSupportedTaskType`, `IsSupportedJsonType`) reached zero IN THIS SLICE: each had exactly one
+  emitter site, it was the arm inside the deleted head, and that arm now lives inside the N# head.
+
+  ### THE CORPUS IL BYTE-COMPARISON — THREE CONTROL PASSES, THEN THE VERDICT
+
+  ONE fixed corpus tree (identical N# sources across every pass) and only the CLI swapped, so any
+  diff is attributable to the compiler change and nothing else. Three baseline passes first:
+
+  | pairing | verdict |
+  |---|---|
+  | ctlA vs ctlB | `IL_DIFFS=0 EXIT_DIFFS=0 LOG_DIFFS(scrubbed)=0` — **90 / 90 BYTE-IDENTICAL** |
+  | ctlA vs ctlC | same |
+  | ctlB vs ctlC | same |
+  | **ctlA / ctlB / ctlC vs SLICE** | **all three: `IL_DIFFS=0 EXIT_DIFFS=0 LOG_DIFFS(scrubbed)=0`, 90 / 90 BYTE-IDENTICAL** |
+
+  Non-vacuous by measurement: the normaliser zeroes ~1,795 bytes per pass and the 90 assemblies
+  carry **90 DISTINCT** normalised digests.
+
+  **AND THIS PAIRING IS ITSELF THE MEASURED ANSWER TO THE MANDATE'S QUESTION ABOUT R1 — no extra
+  instrument is needed, because the difference is already the thing being compared.** The BASELINE
+  compiler's head carried the C#-exact `t is GenericTypeParameterBuilder`; the SLICE compiler's head
+  carries the N# `IsGenericParameter`. R1 is precisely the gap between those two spellings. The two
+  compilers produce **90 / 90 byte-identical assemblies over 84 projects and 38 single-file
+  programs**, so **no program the corpus can build reaches a RUNTIME generic parameter** — which is
+  what the mechanism predicts (the emitter resolves types from source canonicals, every head
+  declines an open generic definition, so an open BCL definition's arguments are never extracted).
+  The widening is unreachable from N# source today, it is pinned by a contract that names it as the
+  deliberate difference it is, and control C3 below narrows the arm back to the C#-exact spelling so
+  that a future change to it cannot pass silently.
+
+  ### THE FIXES' OWN CELL DELTA, MEASURED
+
+  Re-driving the BASELINE C# head against the FINAL N# head isolates exactly what the three fixes
+  moved:
+
+  | row | before the fixes | after |
+  |---|---|---|
+  | `IsSupportedType` | DIVERGENT 4 — 4 widenings, 0 tightenings | **DIVERGENT 11 — 4 widenings (R1) + 7 TIGHTENINGS, every one of the 7 being FIX 1** (`aspnetByRef`, `aspnetPointer`, `srcStruct*`, `srcClass*`, `srcGp*`, `srcStruct&`, `srcGp&`) |
+  | `IsSupportedAnonymousUnionArmType` | DIVERGENT 9 — 8 widenings + 1 tightening | **DIVERGENT 4 — exactly the head's R1 residual, and NOTHING of its own** |
+  | `IsClosedUserGenericInstantiation` | 0 | **0** |
+
+  **THE COMPOSED-INPUT PROBE COVERS A0's RESIDUAL SET WHOLE**: `RESIDUAL_CELLS 115` = R1 (1) + R2
+  (2) + R3 builder shapes (14) + R3 REAL AspNet runtime types (17) + the composed wrappers that
+  reach a residual THROUGH a rerouted predicate (75 — fifteen shapes each over `r1`, `r2`, `r3`,
+  `r3open`, `r3arr`) + A6's three new runtime generic parameters and their composites (6). On the
+  final owner it reads `RESIDUAL_DIVERGENT 6`: the four R1 cells, plus `aspnetByRef` and
+  `aspnetPointer` as FIX 1 tightenings. **Every one of A0's ruled residual cells that is not R1 has
+  collapsed** — R2 by A5's reroute inside the C# head, R3's array and open-generic classes by A5's
+  two guards, and the pointer/by-ref pair by this stage's FIX 1.
+
+  **The arm row collapsing onto the head's residual is the cleanest available proof that FIX 1
+  belongs in the head**: after it, the arm head adds no divergence whatever, and the arm probe reads
+  all 15 arm shapes `cs` and `nl` in agreement — including `builder-named-System.Void`, which FIX 2
+  moved from `cs=T nl=F` to `cs=T nl=T`.
+
+  ### FIX 1's EFFECT ON THE ONE LIVE BY-REF SLOT, MEASURED RATHER THAN ARGUED
+
+  The head now declines a BUILDER by-ref, and the only live by-ref slot in the emitter is a
+  parameter. A probe drives `IsSupportedType`, `IsSupportedParameterType` and
+  `IsSupportedByRefElementType` on both the baseline and the final binaries over nine shapes:
+
+  | shape | baseline head / param | final head / param | parameter answer |
+  |---|---|---|---|
+  | `S&` (builder struct) | **T** / T | **F** / T | **SAME** — the by-ref arm answers, as it was written to |
+  | `C&` (builder class) | **T** / T | **F** / T | **SAME** |
+  | `int&`, `string&`, `int[]&`, `Guid&` | F / T,T,T,F | F / T,T,T,F | **SAME** |
+  | `S`, `int` | T / T | T / T | **SAME** |
+  | **`S*` (builder pointer)** | **T / T** | **F / F** | ***** MOVED** |
+
+  `PARAMETER_PATH_SAME 8  MOVED 1`. **Zero by-ref regressions; one pointer mis-admission closed.**
+  A pointer was a legal parameter type on the baseline compiler and has no lowering anywhere in the
+  backend — that is the whole live consequence of FIX 1, and it is a fix.
+
+  **THE N# CONSUMERS WERE CHECKED TOO, NOT JUST THE EMITTER'S.** The head has nine call sites inside
+  `ColumnarTypeOfPlanner` itself, and every one asks about a `typeof` TARGET, a collection ELEMENT,
+  a generic ARGUMENT or a union ARM — slots in which a by-ref or a pointer is illegal by
+  construction, and three of which (`Result` at line 416, the two-argument union at 1250) already
+  exclude by-ref-like shapes with an explicit `IsByRefLike` term. FIX 1 can only tighten shapes those
+  slots already rejected.
+
+  ### THE SEVEN CONTROLS — SIX BREAK THEIR OWN BLOCK, AND THE SEVENTH'S SILENCE WAS PREDICTED
+
+  Pristine baseline FIRST at **`Total tests: 7068`** and a pristine re-run LAST at **7068**, with
+  every restore `sha256`-verified against the owner.
+
+  | control | mutation | block it breaks |
+  |---|---|---|
+  | C1 | the head's `typeof(int)` arm stops matching | `…OwnsTheScalarAndNamedBCLSurfaceByIdentity` **+ 10 blocks from four earlier stages** |
+  | C2 | the `typeof(Exception)` assignability arm is neutered | `…AdmitsEveryExceptionByAssignabilityNotByName` |
+  | **C3** | **the generic-parameter arm narrows to the C#-EXACT builder-only spelling** | `…AdmitsSourceTypesAndAnyGenericParameterRuntimeOnesIncluded` — **this is A0's ruled R1 residual, and it now has the only instrument in the project that can see it** |
+  | **C4** | **FIX 1 REVERTED** — the array arm trusts `SymbolType.IsSZArray` again | `…DoesNotTrustIsSZArrayOnAPointerOrAByRefSymbolType` **and** `…DeclinesEveryShapeThatIsNotAStorableValue` |
+  | **C5** | **FIX 2 REVERTED** — the arm head tests the void NAME again | `…DeclinesVoidByIdentityNotByName` |
+  | C6 | the arm head's own `!IsByRef` term is dropped | **BROKE NOTHING** |
+  | C7 | `IsClosedSourceGeneric` stops recognising source definitions | `…AdmitsSourceTypesAndAnyGenericParameterRuntimeOnesIncluded` |
+
+  **C6's SILENCE IS A FINDING THIS STAGE PREDICTED IN WRITING BEFORE RUNNING IT, AND THE REASON IS
+  MEASURED, NOT GUESSED.** After FIX 1 the HEAD declines every by-ref — a runtime by-ref never
+  matched any arm, and a `SymbolType` by-ref is now guarded — so the arm head's `!IsByRef` term can
+  no longer change an answer and no mutation of it can move the estate. **The block it guards is
+  still non-vacuous: C4 breaks it.** The term is KEPT rather than deleted, and the reason is stated
+  rather than left implicit: a redundant guard can only decline what is already declined, so its
+  failure mode is nothing, while it states the arm's own contract at the place the question is
+  asked and would still hold if a future change to the head re-admitted by-refs. **What is recorded
+  here is that the estate cannot see it** — the same class of finding A5 recorded for its own three
+  vacuous first-attempt controls, reported rather than filtered out.
+
+  **C4 BREAKING TWO BLOCKS IS THE POINT, NOT COLLATERAL.** Block 6 asserts that the arm head declines
+  pointers, which after FIX 1 it does *through the head*. That the same mutation moves both is the
+  structural proof that FIX 1 was put in the right member.
+
+  ### THE CENTRE'S BREADTH IS VISIBLE IN THE ESTATE, NOT ONLY IN THE CORPUS
+
+  Control C1 removes ONE arm — `typeof(int)` — from the head. It breaks its own named block and
+  **ten others written by four earlier stages**: the nullable-liftable set, the Result/Union
+  argument constraint, the collection-element tail, the ten collection heads and tuple arities, the
+  HashSet element narrowing, both read-only-dictionary blocks, the task/delegate closed lists, the
+  `typeof` planner's shape row, and A6's own arm-type block. **That is what "the centre" means
+  measured rather than asserted**: a single-identity perturbation of this member propagates through
+  every contract the A-arc wrote, because every one of those owners composes it.
+
+  ### THE COUPLING INSTRUMENT WAS DEFECTIVE ON ITS FIRST RUN, AND THE DEFECT IS RECORDED, NOT ROUTED AROUND
+
+  The first coupling run produced numbers that looked like results and were not. **TWO defects, both
+  the instrument's, both fixed by a corrected re-run rather than argued away:**
+
+  1. **NO PRISTINE BASELINE PASS.** Two of its ten "targets" —
+     `examples/06-classes-and-records` and `examples/09-linq-and-collections` — are single-file
+     example DIRECTORIES with **no `project.yml`** (7 and 5 loose `.nl` files). `nlc build` in them
+     fails with *"No project.yml found in current directory"* **unconditionally — on every mutation
+     and on the unmutated compiler alike.** Every mutation therefore read a floor of `MOVED=2` that
+     had nothing to do with it, and **three mutations (M7 / M8 / M9) read EXACTLY that floor**,
+     which is to say they moved nothing at all. A pristine pass would have said so on its first
+     line, and the script did not have one. **This is the same class of error the arc has been
+     catching in the product: a number reported without its control.**
+  2. **M1 AND M2 WERE REJECTED BY THE PRODUCT ITSELF.** Both substituted `typeof(Guid)` into the
+     head, and the compiler declines that source shape — **`NL103 emit.if.condition` at
+     `ColumnarTypeOfPlanner.nl:1049`**, the same pinned-toolset wall this stage's contract file hit
+     on `typeof(Guid)` / `typeof(Uri)` / `typeof(void)`. A mutation the product refuses to compile
+     is not a coupling measurement. Rewritten as DELETIONS of the arm, which is what they were
+     meant to be.
+
+  **THE FOUR READINGS THAT SURVIVE THE CORRECTION**, with the artefact floor of 2 subtracted:
+
+  | mutation | raw | real |
+  |---|---|---|
+  | M3 the `TypeBuilder` arm | 6 / 10 | **4** |
+  | M4 the SZ-array arm | 7 / 10 | **5** |
+  | M5 the `Exception` assignability arm | 4 / 10 | **2** |
+  | M6 the collection arm | 6 / 10 | **4** |
+  | M7 / M8 / M9 / M10 | 2 / 10 | **0 — the floor and nothing else** |
+
+  **AND M9 READING ZERO IS A CONFIRMATION, NOT A GAP.** M9 narrows the generic-parameter arm to the
+  C#-exact builder-only spelling — it IS the R1 difference — and it moves no real target, which is
+  the same answer the 90 / 90 byte-identical corpus comparison gave by a completely different route.
+
+  **THE CORRECTED RUN** keeps the 8 real projects, adds the **12 single-file programs the two bogus
+  directories actually contain** (built the way the product builds them, `nlc build <file>
+  --output`), opens with a PRISTINE pass that must read `MOVED=0`, closes with a second one, and
+  re-runs M1/M2 as deletions plus M7–M11. It is sequenced AFTER the gate so nothing contends with
+  it, and the tree it leaves is `sha256`-verified byte-identical to the tree the gate validated.
+
+  ### THE CORRECTED COUPLING RUN — AND THE CENTRE SHOWS
+
+  | mutation | targets moved |
+  |---|---|
+  | **PRISTINE (first)** | **0 / 20** — the pass the first run did not have |
+  | **M1** the head drops its `typeof(int)` arm | **18 / 20** |
+  | **M2** the head drops its `typeof(string)` arm | **16 / 20** |
+  | M7 `IsClosedSourceGeneric` declines everything | 0 / 20 |
+  | M8 the arm head declines everything | 0 / 20 |
+  | M9 the generic-parameter arm becomes C#-EXACT | 0 / 20 |
+  | M10 FIX 1 reverted | 0 / 20 |
+  | M11 FIX 2 reverted | 0 / 20 |
+  | **PRISTINE (last)** | **0 / 20** |
+
+  **DELETING ONE IDENTITY FROM THE HEAD BREAKS 18 OF 20 PROGRAMS.** That is the coupling this stage
+  exists to demonstrate, and the first run's phantom floor had hidden it behind a smaller number.
+  Every restore `sha256` MATCHed, the planner returned to `4c036086…`, and the tree is byte-identical
+  before and after — **so the gate's verdict still describes the tree that ships.**
+
+  **THE FIVE THAT MOVE NOTHING ARE REPORTED WITH MEASURED REASONS, NOT GLOSSED.** The 47 corpus
+  source files were scanned for the exact shape each mutation needs:
+
+  | mutation | why the corpus cannot move | carried by |
+  |---|---|---|
+  | M7 | **ZERO source generic DECLARATIONS** in 47 files — no `type/record/struct/union Name<T>` anywhere, so no `Box<int>` over a user definition ever reaches the arm | control **C7**, which does break its block |
+  | M8 | **ZERO anonymous-union annotations** — the single `\|` match is inside a comment describing a pipe-delimited file format | blocks 5 and 6, control **C5** |
+  | M9 | R1 is unreachable, independently confirmed by the 90 / 90 corpus comparison, which IS this same difference | control **C3** |
+  | M10 | a WIDENING — an already-green corpus cannot move by construction — and the shapes it re-admits need pointer spellings, of which the corpus has **ZERO** (both `*` matches are the `func*` iterator syntax in a comment and a string); the two `out` parameters are over `int`, a RuntimeType by-ref, which never lied | control **C4** |
+  | M11 | a TIGHTENING on one exotic shape: a `System.Void` namesake needs `namespace System`, and the corpus has **ZERO** | control **C5** |
+
+  ### THE FINAL READING
+
+  | check | result |
+  |---|---|
+  | emitter | **20,984 lines / 19,963 non-blank / 413 members** (from 21,054 / 20,030 / 416) |
+  | the three C# members | **0 definitions and 0 BARE occurrences** of any of the three; the dotted census reads 72 / 9 / 2, the extra one being the rewritten comment |
+  | **live-tree census** | **399 / 246 on BOTH CLIs over the SAME sources, ROW-FOR-ROW `added=0 removed=0`**, and the code histograms are identical to the digit (`NL202` 85, `NL402` 68, `NL905` 26, `NL012` 20, `NL011` 17, `NL301` 16, `NL010` 7, `NL303` 3) |
+  | ratchet repin (two-key, LAST) | emitter row **21054→20984 / 20030→19963 / `text-v1:6ea3f17824bccebe`→`text-v1:bcd86782b7ed0a82`**; `reviewedHeadFingerprint` **`head-v1:cf9f3bc4c59caa26` → `head-v1:d03089d6dd7266c4`** in BOTH keys |
+  | epoch triple | **UNCHANGED** — 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
+  | audit | **17 / 18 BEFORE the repin** (the ratchet notices the shrink, failing exactly `RepositoryNonNSharpOwnershipMatchesTheE0GrowthBaseline`), **18 / 18 after**; blank-line vacuity control **17 / 18** failing the same block, byte-exact restore (`54fb5b15…` before and after), **18 / 18** again |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`) |
+  | compiler C# | **10 files**, the baseline exactly (`Analyzer.cs`, four `CodeIntelligence/`, three `Columnar/`, `MultiFileCompiler.cs`, `Performance/SystemsAnalyzer.cs`) |
+  | stray build output | **none** — the working tree carries exactly the five changed files plus the one new contract file |
+
+  The repin instrument proved itself before changing anything: it reproduced all three stored
+  fingerprints from the stored rows AND the stored `head-v1:cf9f3bc4c59caa26` the mandate named.
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` byte copy (`.git`, `bin`, `obj`,
+  `node_modules`, `artifacts` and `.claude/worktrees/` excluded; **zero stray
+  `NSharpLang.Benchmarks.csproj` in the copy, verified**), log written OUTSIDE it, `pgrep -f
+  test-all-core.sh` clean first, and launched DETACHED so no turn boundary could signal it. All five
+  changed/added product files `sha256`-verified **IDENTICAL** between the working tree and the copy
+  before the run.
+
+  **`GATE EXIT 0`, `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 37s** (05:09:42 →
+  05:32:19). Inside it: unit **`Passed: 596`** (the baseline exactly), estate **`Passed: 7068`**,
+  **47** native `✓ PASSED` lines, `tests/native/ownership-audit` **18 / 18**, the **format contract
+  gate** ("All files are properly formatted." × 4), `dotnet new` templates, every example project,
+  the single-file examples, `nlc check` on examples, and the **IL verification gate** ("All **67**
+  N# assemblies pass IL verification (no new errors vs baseline)").
+
+  ### THE FORMAT CHECK DISAGREED WITH THE GATE, AND THE DISAGREEMENT IS THE PRODUCT'S, NOT THIS SLICE'S
+
+  This stage's own finisher ran `nlc format --check` with an explicit FILE LIST and reported the new
+  contract file as needing formatting, while the gate's Format Contract Gate reported everything
+  clean. **That is two answers about one file, and it was chased rather than picked between.**
+
+  | measurement | result |
+  |---|---|
+  | file-list form, **BASELINE (pre-A6)** CLI, on A5's ALREADY-COMMITTED `ColumnarExternalTypeGuardFacts.tests.nl` | **FAILS** — so **A6 did not change the formatter** |
+  | `--project` form (what the gate at `tests/scripts/test-all-core.sh:309` runs), A6 CLI | "All files are properly formatted." |
+  | file-list form, BASELINE CLI, over every committed `Columnar*.tests.nl` | **45 of 68 FAIL** |
+
+  **The difference is wrapped call arguments**: the formatter's canonical output joins them onto one
+  line, and two-thirds of the committed contract estate keeps them wrapped. So the file-list form is
+  not the standard this repo holds its N# test sources to, the gate's form does not cover `.tests.nl`
+  at all, and **reformatting this one file would have made it the outlier rather than bringing it
+  into line**. It is left as its 67 siblings are, and the product defect is filed instead of being
+  silently absorbed into a reroute slice.
+
+  **THREE THINGS ARE RECORDED RATHER THAN LEFT IMPLICIT.** (1) The gate's format step is scoped to
+  `--project`, so **`.tests.nl` sources are outside its format coverage entirely** — a real gap,
+  named for a later slice. (2) **A5's finish log recorded "All files are properly formatted" for a
+  file that fails today on the pre-A6 compiler**, so that claim does not describe the file A5
+  shipped; A5's own scratchpad kept a `guardfacts.prefmt.nl`, and the file was edited after its
+  format check. (3) In passing, `ColumnarIteratorPlanner.tests.nl` trips the formatter's OWN
+  idempotence safety check — *"Formatter output is not idempotent (formatting again produces
+  different output). Returning original source."* — which is a formatter bug on a normal committed
+  file. The formatter correctly refuses to write, so nothing is corrupted. All three are filed as a
+  follow-up task; **none is fixed here, because a type-admissibility reroute is the wrong slice to
+  reformat two-thirds of the contract estate in.**
+
+  ### FILES THIS SLICE COMMITS (NOT COMMITTED — the mandate reserves that)
+
+  `src/NSharpLang.Compiler/Columnar/ColumnarIlEmitter.cs`,
+  `src/NSharpLang.Compiler.BootstrapServices/ColumnarTypeOfPlanner.nl`,
+  `src/NSharpLang.Compiler.BootstrapServices/ColumnarSupportedTypeHeadFacts.tests.nl` (new),
+  `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json`,
+  `tests/native/ownership-audit/OwnershipAudit.nl`, and this STATUS. **No other file in the working
+  tree changed**; every instrument, corpus, probe and log lives in the scratchpad and none was
+  written into the repo.
+
+  ### THE A-ARC CLOSURE SUMMARY
+
+  **THE EMITTER'S TRAJECTORY**, stage by stage, from the reopening decode's `21,519`:
+
+  | stage | C# members deleted | extent lines | emitter after | members |
+  |---|---|---|---|---|
+  | `015-A0` | 0 (the differential grid; six N#-owner bugs fixed) | 0 | 21,519 | 448 |
+  | `015-A1` | 7 | 142 | 21,385 | 441 |
+  | `015-A2` | 19 | 227 | 21,115 | 422 |
+  | `015-A3`+`A4` | 4 | 35 | 21,068 | 418 |
+  | `015-A5` | 2 | 12 | 21,054 | 416 |
+  | **`015-A6`** | **3** | **60** | **20,984** | **413** |
+  | **TOTAL** | **35** | **476** | **−535 lines** | **−35** |
+
+  **THE FAMILY IS TERMINAL.** All 25 of A0's numbered members and every transitive private are now
+  `csDeclared=False` — measured by the metadata instrument over all 36 rows, not by grep. The ten
+  UNMATCHED members remain, correctly: no N# owner answers their question and they are a later
+  slice's build list, not this arc's.
+
+  **THE CALL SITES**: 41 (A1) + 154 (A2) + 27 (A3+A4) + 4 (A5) + 82 (A6) = **308 rerouted call
+  sites**, every stage reconciled at the IL level against its own source census — A1's 37 IL against
+  41 source with the four self-recursions that moved INSIDE the N# owners named, A3+A4's 27 against
+  27, A2's 154 against 154, and A6's 82 against 82 with the seventeen in-body calls that vanished
+  with the deleted head accounted for individually.
+
+  **THE TEN BEHAVIOUR FIXES THE ARC CARRIED.** A reroute is only safe if the owner it routes to is
+  right, so every stage that found a wrong answer fixed it rather than preserving it:
+
+  | # | stage | fix |
+  |---|---|---|
+  | 1 | A0 | the span head admitted `Span<T>` with no element constraint — `Span<UserStruct>` reached a `GetConstructor` that THROWS |
+  | 2 | A0 | `Result`/`Union` admitted on the definition name alone, never their arguments |
+  | 3 | A0 | `IsEnumBuilder` tested an ABSTRACT type's exact name and could never be true |
+  | 4 | A0 | `SubstituteClosedTypeArguments` had no by-ref arm and returned the unsubstituted `T&` |
+  | 5 | A0 | `IsRuntimeInterfaceType`'s bare `catch` turned "unreadable" into the confident "not an interface" |
+  | 6 | A0 | the interop heads were dropped — `FileStream`, `DirectoryInfo`, `TextWriter` would have been REGRESSED by the reroute |
+  | 7 | A5 | the external head asked `IsPointer` where `HasElementType` was needed — `WebApplication[]` was admitted as an external reference type without ever consulting the element rule, live on real AspNet runtime types |
+  | 8 | A5 | the open-generic guard asked a CLR property that reads FALSE on a `TypeBuilderImpl` |
+  | **9** | **A6** | **the head's array arm trusted `SymbolType.IsSZArray`, which is TRUE for a pointer and a by-ref — `UserStruct*` and `UserStruct&` were in the entire supported surface, and a `ref UserStruct` parameter never reached the by-ref arm written for it** |
+  | **10** | **A6** | **the arm head tested the void NAME, declining a source type that merely shares it** |
+
+  **THE DIVERGENCES, RESOLVED.** A0's grid opened at **133 divergent cells** and closed at 26 after
+  its six fixes (28 on the identical row set, 26 once two probe rows were re-pointed at the
+  argument-constrained owners). A2 ruled its ten transitive widenings (R1/R2 only, not one
+  tightening). A5's two guards turned **17 tightenings** on `IsSupportedExternalType` into agreement
+  and, on `IsSupportedType` itself, retired nine tightening cells and BOTH R2 widenings — which this
+  stage confirmed by measurement, reading A3+A4's published DIVERGENT 3 as DIVERGENT 1 on the
+  identical 213-type subset. A6 retires the arm head's own 8 widenings and 1 tightening. **WHAT
+  SURVIVES IS ONE CLASS: R1 — a RUNTIME generic parameter, which
+  the N# head admits and the deleted C# head did not — measured at 4 of 302 cells, invisible to all
+  90 corpus assemblies, and now pinned by a contract that says so.** Not one tightening remains
+  anywhere in the family that is not a deliberate fix.
+
+  **THE CONTRACTS WRITTEN**, all six files, all in N#, none of which existed when the arc opened:
+
+  | stage | file | blocks | estate after |
+  |---|---|---|---|
+  | A0 | `ColumnarTypeAdmissibilityFacts.tests.nl` (the six bugs) | — | 7,036 |
+  | A1 | `ColumnarReroutedOwnerFacts.tests.nl` (225 lines / 82 asserts) | 5 | 7,041 |
+  | A2 | `ColumnarSupportedTypeConeFacts.tests.nl` (387 lines / 194 asserts) | 9 | 7,050 |
+  | A3+A4 | `ColumnarSpanHeadAndElementFacts.tests.nl` (173 lines / 77 asserts) | 5 | 7,055 |
+  | A5 | `ColumnarExternalTypeGuardFacts.tests.nl` | 7 | 7,062 |
+  | **A6** | **`ColumnarSupportedTypeHeadFacts.tests.nl` (250 lines / 94 asserts / 3 local fixtures)** | **6** | **7,068** |
+
+  A6's estate count is confirmed **two independent ways**: the runner reports `Passed: 7068,
+  Failed: 0` (7,062 + exactly the six new blocks), and a from-scratch parse of all **283**
+  `.tests.nl` files counts **7,068** `test` blocks — block-for-block agreement, with `test` the only
+  top-level keyword-plus-string form in the whole estate.
+
+  **+32 blocks across the arc, every one of them added because a pin sweep measured that nothing in
+  the estate could tell the owner's answer from a wrong one.**
+
+  ### THE `015-B` OPENING BRIEF — THE BODY PLANNER'S UNDER-COVERAGE
+
+  The reopening decode's record is re-read rather than restated from memory. `015-B` generalises the
+  plan-row body planner, and its price is set by ONE table, not by the lambda members the roadmap
+  named:
+
+  | | C# emitter | N# plan-row body planner | missing |
+  |---|---|---|---|
+  | statement kinds | **21** | **10** (23,24,25,26,27,28,29,40,48,72) | **11**: 20,21,22,30,41,49,51,56,61,62,73 |
+  | expression kinds | **27** | **7** (0,4,6,7,9,12,44) | **20**: 1,3,8,10,11,13,15,16,17,18,36,42,45,46,47,52,53,57,58,59,64 |
+
+  **THE OWNER EXISTS AND SHIPS** — `ColumnarCodePlan.nl` (2,155 lines) and
+  `ColumnarCodePlanExecutor.nl` (2,625 lines), the only `.nl` file in the estate that names
+  `OpCodes`, carrying `ExecuteMethodBody`, a schema validator and a stack-height validator, driven
+  from 14 `Execute(` call sites. So B is a GENERALISATION of a production owner, not a build.
+
+  **B's FIRST SLICE IS NOT A STATEMENT KIND. IT IS THE LOCALS-AS-LOCALS BINDING MODE**, and the
+  decode's caveat is the reason: today the planner is specialised to the iterator lowering, where a
+  local is a hoisted state-machine FIELD (`Stfld` via `FieldPool`), not a `Stloc`. Every one of the
+  11 missing statement kinds that declares or assigns a local is blocked behind it, so pricing B as
+  "31 kinds" and starting at kind 20 would hit the mode question on the first slice and pay for it
+  under a slice that is also doing something else. **`015-B1` should therefore be the binding mode
+  alone**: give `ColumnarCodePlan` a local pool that can bind either way, route the iterator
+  planner's existing 10 kinds through it UNCHANGED (the parity gate being that all 90 corpus
+  assemblies stay byte-identical, exactly as this arc measured), and only then start on kinds.
+
+  **AND B INHERITS A HARD CONSTRAINT THE ARC MUST NOT SOFTEN**: a lambda body cannot be routed
+  shape-by-shape with the C# sub-emitter kept as a fallback for the shapes the planner does not
+  cover. That is a shadow route and duplicated authority. So the lambda cut is gated on the
+  planner's coverage being TOTAL for the bodies it claims — which is why the coverage table, not
+  the lambda members, is the work item.
+
+  **THE AOT DECISION STANDS AND B MUST NOT RE-LITIGATE IT**: the plan-row body emitter targets the
+  existing Reflection.Emit executor first; the `MetadataBuilder` writer arrives later as a SECOND
+  executor over the SAME rows, carrying one named prerequisite of its own (give `AddType` the
+  signature-bearing treatment the member pools already have).
+
+  **THE A-ARC's TRANSFERABLE METHOD, WHICH B SHOULD REUSE WHOLESALE**: derive at the tip before
+  editing; sweep the estate for pins BEFORE the cut, because deleting the C# is what makes an
+  unpinned owner permanently unpinnable; run the differential CONTROL-FIRST and reproduce the prior
+  stage's published readings before reading a new one; reconcile the collapse at the IL level
+  against the source census; compare the corpus byte-for-byte with the sources held fixed and only
+  the compiler swapped; and take the two-key repin LAST.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-A5`: `IsSupportedExternalType` AND ITS ASPNET HELPER.
   THE STAGE THAT CARRIES BOTH DELIBERATE BEHAVIOUR FIXES. NOT COMMITTED.**)
 
   ### THE PRE-EDIT DERIVATION — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED

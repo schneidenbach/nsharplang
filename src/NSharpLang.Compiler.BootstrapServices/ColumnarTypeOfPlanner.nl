@@ -1033,10 +1033,25 @@ class ColumnarTypeOfPlanner {
         return name == "List" || name == "Dictionary" || name == "SortedDictionary" || name == "HashSet" || name == "Stack"
     }
 
+    // THE COMPILER'S TYPE-ADMISSIBILITY HEAD. Every param, local, field, return, array element,
+    // collection argument and match subject the columnar backend admits passes through here.
+    //
+    // The surface: int/bool/long/uint/ulong and the small-int scalars (i4-slot; arithmetic promotes
+    // small ints to INT per ECMA §12.4.7 and uint runs native u4), ulong being u8 on the stack like
+    // long but using the UNSIGNED opcodes; `decimal` as a baked VALUE struct whose arithmetic and
+    // comparisons call System.Decimal's op_* methods; `Nullable<T>` over a baked value scalar; a
+    // single-dimension ARRAY of a supported element type; a user-defined struct or record (a
+    // TypeBuilder — only those reach here as a resolved type, the Program type never does); a
+    // generic type/method parameter; and a closed instantiation of a user generic definition.
+    // Mixed arithmetic (implicit widening) is not modelled — an expression's operands must share
+    // one type.
     static func IsSupportedType(valueType: Type): bool {
         if valueType == typeof(int) || valueType == typeof(bool) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(string) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(uint) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(decimal) || valueType == typeof(object) || valueType == typeof(Stream) || valueType == typeof(StreamReader) || valueType == typeof(StringComparer) || valueType == typeof(StringBuilder) || valueType == typeof(DateTime) || valueType == typeof(TimeSpan) || valueType == typeof(Index) || valueType == typeof(Range) || valueType == typeof(CancellationToken) || valueType == typeof(Random) || valueType == typeof(IList) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) {
             return true
         }
+        // `typeof(TextWriter)` DECLINES at emit under the pinned toolset (NL103, emit.if.condition),
+        // the same class as `typeof(FileStream)`, so the type is seeded by name. This is a toolset
+        // limit, not a design choice, and it disappears at the next SDK repack.
         if valueType == RequiredTextWriterType() {
             return true
         }
@@ -1049,7 +1064,14 @@ class ColumnarTypeOfPlanner {
         if IsSupportedTaskType(valueType) || typeof(Exception).IsAssignableFrom(valueType) || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedJsonType(valueType) || IsSupportedExternalType(valueType) || IsSupportedSpanLikeType(valueType) || IsSupportedArrayPoolType(valueType) || IsSupportedMemoryPoolType(valueType) || IsSupportedMemoryOwnerType(valueType) || IsSupportedMemoryType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || IsClosedSourceGeneric(valueType) || IsSupportedValueTuple(valueType) || IsSupportedDelegateType(valueType) || IsSupportedCollectionType(valueType) || IsSupportedNullable(valueType) {
             return true
         }
-        if valueType.get_IsSZArray() {
+        // `SymbolType` — what a builder type's MakePointerType/MakeByRefType returns — reports
+        // `IsSZArray` as TRUE for a POINTER and for a BYREF. That is a reflection-emit defect, and
+        // trusting it admitted `UserStruct*` and `UserStruct&` into the whole supported surface
+        // through the element recursion (the element of `UserStruct*` reads back as the
+        // TypeBuilder). Pointers have no lowering in this backend at all, and by-ref types are
+        // valid only in PARAMETER slots, where `IsSupportedParameterType`'s own by-ref arm asks the
+        // question properly. The two guards are asked FIRST so the array arm answers about arrays.
+        if !valueType.get_IsPointer() && !valueType.get_IsByRef() && valueType.get_IsSZArray() {
             element := valueType.GetElementType()
             return element != null && IsSupportedElementType(element)
         }
@@ -1243,8 +1265,14 @@ class ColumnarTypeOfPlanner {
         return true
     }
 
+    // An arm of an anonymous union must be a storable value. `void` is not, and neither is a by-ref
+    // — the by-ref term is kept explicit rather than left to the head because an arm slot has no
+    // parameter path to fall through to. The void test is an IDENTITY test, not a name test: a user
+    // type declared as `System.Void` shares the name and is an ordinary storable TypeBuilder, and a
+    // name test declined it. `typeof(void)` is off the columnar front end's typeof surface, so the
+    // runtime type is seeded through `RequiredVoidType`, the idiom this file already uses.
     static func IsSupportedAnonymousUnionArm(valueType: Type): bool {
-        return valueType.FullName != "System.Void" && !valueType.get_IsByRef() && IsSupportedType(valueType)
+        return valueType != RequiredVoidType() && !valueType.get_IsByRef() && IsSupportedType(valueType)
     }
 
     static func IsSupportedCollectionType(valueType: Type): bool {

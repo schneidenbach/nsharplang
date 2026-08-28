@@ -388,72 +388,11 @@ internal sealed class ColumnarIlEmitter
     // checked before every other resolution tier (a boxed name is never also a lambda param or local).
     private readonly Dictionary<string, (FieldInfo BoxField, Type ValueType)>? _boxedCaptures;
 
-    // The types the type-aware emitter currently handles: int/bool/long/uint/ulong scalars, plus a
-    // single-dimension ARRAY of a supported element type (e.g. int[], uint[], long[], ulong[]). (Mixed
-    // arithmetic — implicit widening — is not modelled; an expression's operands must share one type.) ulong is
-    // u8 on the stack like long (i8), but its arithmetic uses the UNSIGNED opcodes (Shr_Un/Div_Un/Rem_Un and
-    // unsigned compares) — see the binary/comparison cases.
-    private static bool IsSupportedType(Type t) =>
-        t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(ulong)
-        || t == typeof(string) || t == typeof(char) || t == typeof(double) || t == typeof(float)
-        || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
-        || t == typeof(uint)                      // small ints + uint (SC-4): i4-slot scalars; arithmetic
-                                                  // promotes small ints to INT (ECMA §12.4.7), uint runs native u4
-        || t == typeof(IntPtr) || t == typeof(UIntPtr)
-        || t == typeof(decimal)                   // decimal (SC-6): a baked VALUE struct — arithmetic and
-                                                  // comparisons call System.Decimal's op_* methods
-        || ColumnarTypeOfPlanner.IsSupportedNullable(t)                 // Nullable<T> over a baked value scalar (null N2)
-        || t == typeof(object)
-        || ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType(t)
-        || t == typeof(StreamReader)
-        || t == typeof(StringComparer)
-        || t == typeof(TextWriter)
-        || t == typeof(System.Text.StringBuilder)
-        || t == typeof(DateTime)
-        || t == typeof(TimeSpan)
-        || t == typeof(Index)
-        || t == typeof(Range)
-        || t == typeof(System.Threading.CancellationToken)
-        || t == typeof(Random)
-        || ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(t)
-        || ColumnarTypeOfPlanner.IsSupportedTaskType(t)
-        || typeof(Exception).IsAssignableFrom(t)
-        || t == typeof(IList)
-        || t == typeof(Type)
-        || t == typeof(Version)
-        || t == typeof(Assembly)
-        || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(t.FullName)
-        || ColumnarTypeOfPlanner.IsSupportedJsonType(t)
-        || ColumnarTypeOfPlanner.IsSupportedExternalType(t)
-        || ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(t)
-        || ColumnarTypeOfPlanner.IsSupportedSpanType(t)
-        || ColumnarTypeOfPlanner.IsSupportedArrayPoolType(t)
-        || ColumnarTypeOfPlanner.IsSupportedMemoryPoolType(t)
-        || ColumnarTypeOfPlanner.IsSupportedMemoryOwnerType(t)
-        || ColumnarTypeOfPlanner.IsSupportedMemoryType(t)
-        || ColumnarTypeOfPlanner.IsSupportedResultType(t)
-        || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t)
-        || ColumnarTypeOfPlanner.IsEnumType(t)                          // a user-defined enum — its own i4-underlying value type
-        || t is TypeBuilder                       // a user-defined struct (value type) OR record (reference type);
-                                                  // only those reach here as a resolved type — the Program type never does
-        || t is GenericTypeParameterBuilder       // a generic type/method parameter (T) — valid member/param/local type
-        || IsClosedUserGenericInstantiation(t)    // Box<int> over a user generic definition (TypeBuilderInstantiation)
-        || (t.IsSZArray && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType()!))
-        || ColumnarTypeOfPlanner.IsSupportedValueTuple(t)
-        || ColumnarTypeOfPlanner.IsSupportedDelegateType(t)             // a closed System.Func/Action over baked runtime types (L1a)
-        || ColumnarTypeOfPlanner.IsSupportedCollectionType(t);          // a closed List<T>/Dictionary<K,V>/SortedDictionary<K,V>/HashSet<T> over supported runtime types
-
     // By-ref types are valid only in PARAMETER slots for this slice. The element type must already be part of the
     // supported value/reference surface so ref/out locals can be loaded by the same addressability paths as writes.
     private static bool IsSupportedParameterType(Type t) =>
-        IsSupportedType(t)
+        ColumnarTypeOfPlanner.IsSupportedType(t)
         || (t.IsByRef && IsSupportedByRefElementType(t.GetElementType()!));
-
-    private static bool IsSupportedAnonymousUnionArmType(Type t)
-        => t != typeof(void)
-           && !t.IsByRef
-           && !t.IsPointer
-           && IsSupportedType(t);
 
     private static bool TryResolveResultReadableProperty(Type receiverType, string member, out MethodInfo getter, out Type propertyType)
     {
@@ -558,7 +497,7 @@ internal sealed class ColumnarIlEmitter
     }
 
     private static bool IsSupportedByRefElementType(Type t) =>
-        !t.IsByRef && IsSupportedType(t);
+        !t.IsByRef && ColumnarTypeOfPlanner.IsSupportedType(t);
 
     // A closed KeyValuePair<K,V> — the Dictionary foreach loop variable's type (only that path produces
     // it; .Key/.Value resolve via the case-8 KVP arms). Builder-bound instantiations (KeyValuePair over a
@@ -647,7 +586,7 @@ internal sealed class ColumnarIlEmitter
         if (canonical.StartsWith("Task<", StringComparison.Ordinal) && canonical[^1] == '>')
         {
             if (!TryResolveType(canonical.Substring(5, canonical.Length - 6), enumRegistry, structRegistry, unionRegistry, out inner)
-                || !IsSupportedType(inner))
+                || !ColumnarTypeOfPlanner.IsSupportedType(inner))
                 return false;
             wrapped = typeof(System.Threading.Tasks.Task<>).MakeGenericType(inner);
             return true;
@@ -655,7 +594,7 @@ internal sealed class ColumnarIlEmitter
         if (canonical.StartsWith("ValueTask<", StringComparison.Ordinal) && canonical[^1] == '>')
         {
             if (!TryResolveType(canonical.Substring(10, canonical.Length - 11), enumRegistry, structRegistry, unionRegistry, out inner)
-                || !IsSupportedType(inner))
+                || !ColumnarTypeOfPlanner.IsSupportedType(inner))
                 return false;
             wrapped = typeof(System.Threading.Tasks.ValueTask<>).MakeGenericType(inner);
             return true;
@@ -666,7 +605,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
         if (!TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out inner)
-            || !IsSupportedType(inner))
+            || !ColumnarTypeOfPlanner.IsSupportedType(inner))
             return false;
         wrapped = isEntryPoint
             ? typeof(System.Threading.Tasks.Task<>).MakeGenericType(inner)
@@ -749,7 +688,7 @@ internal sealed class ColumnarIlEmitter
             // same module and the delegate never has to be reflected as a stable product API surface.
             if (!allowBuilderBoundArguments && (arg.Assembly is AssemblyBuilder || ColumnarTypeOfPlanner.ContainsBuilderBoundType(arg)))
                 return false;
-            if (!IsSupportedType(arg))
+            if (!ColumnarTypeOfPlanner.IsSupportedType(arg))
                 return false;
         }
 
@@ -758,16 +697,6 @@ internal sealed class ColumnarIlEmitter
             return false;
         delegateCtor = ColumnarTypeOfPlanner.ContainsBuilderBoundType(t) ? TypeBuilder.GetConstructor(t, openCtor) : t.GetConstructor(new[] { typeof(object), typeof(IntPtr) })!;
         return delegateCtor != null;
-    }
-
-    // A closed instantiation of a USER generic type (Box<int> where Box is an uncreated TypeBuilder).
-    // Reflection member queries throw on these — member access goes through the open definition's
-    // bookkeeping with rebound tokens, mirroring the previous parity baseline's closed-generic machinery.
-    private static bool IsClosedUserGenericInstantiation(Type t)
-    {
-        if (t is TypeBuilder || !t.IsGenericType || t.IsGenericTypeDefinition)
-            return false;
-            return t.GetGenericTypeDefinition() is TypeBuilder;
     }
 
     // The parameterless constructor a derived type may chain to on `def`: the synthesized default ctor (PASS 0d)
@@ -1322,7 +1251,7 @@ internal sealed class ColumnarIlEmitter
             // A capture typed by (or embedding) a generic METHOD parameter would put an out-of-context
             // MVAR into the display class's field signature — unencodable CLI metadata that saves but
             // throws TypeLoadException at load (adversarial-review finding, probe-confirmed). Decline.
-            if (!IsSupportedType(captureType)
+            if (!ColumnarTypeOfPlanner.IsSupportedType(captureType)
                 || !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(captureType, _programType))
                 return false;
             snapshotNames.Add(captureName);
@@ -1484,7 +1413,7 @@ internal sealed class ColumnarIlEmitter
     // ContainsBuilderBoundType catches builder-bound collections (a captured+reassigned List<Pt> local)
     // — Assembly/ContainsGenericParameters report baked-looking values on those TBIs (spike-proven).
     private static bool IsLiftableValueType(Type t) =>
-        IsSupportedType(t) && !(t.Assembly is AssemblyBuilder) && !t.IsGenericParameter
+        ColumnarTypeOfPlanner.IsSupportedType(t) && !(t.Assembly is AssemblyBuilder) && !t.IsGenericParameter
         && !t.ContainsGenericParameters && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(t);
 
     private static FieldInfo StrongBoxValueField(Type valueType) =>
@@ -2182,7 +2111,7 @@ internal sealed class ColumnarIlEmitter
         if (!actual.IsGenericParameter && ColumnarTypeOfPlanner.ContainsBuilderBoundType(actual) && actual is not TypeBuilder && actual is not EnumBuilder)
             return false; // T may bind a direct emitted user type, but not a builder-bound composed shape
                           // such as List<Pt> or Box<int>; member reflection on those requires rebinding.
-        if (!actual.IsGenericParameter && !IsSupportedType(actual))
+        if (!actual.IsGenericParameter && !ColumnarTypeOfPlanner.IsSupportedType(actual))
             return false;
         if (binding[pos] == null)
         {
@@ -2330,7 +2259,7 @@ internal sealed class ColumnarIlEmitter
         // references into its locals/isinst targets — BadImageFormatException at runtime (adversarial-review
         // finding, probe-confirmed: the legacy emitter runs the same program correctly). Any argument that cannot
         // fully substitute declines.
-        if (IsClosedUserGenericInstantiation(declaredReturn))
+        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(declaredReturn))
         {
             var declaredArgs = declaredReturn.GetGenericArguments();
             var substitutedArgs = new Type[declaredArgs.Length];
@@ -2612,7 +2541,7 @@ internal sealed class ColumnarIlEmitter
             }
             var validationCanonical = structRegistry.Resolver.RuntimeGenericValidationCanonical(type);
             if (validationCanonical == null) return true;
-            if (validationCanonical == "*") return IsSupportedType(type);
+            if (validationCanonical == "*") return ColumnarTypeOfPlanner.IsSupportedType(type);
             return TryResolveTypeWithTypeParams(
                 validationCanonical, typeParams, enumRegistry, structRegistry, unionRegistry, out type);
         }
@@ -2730,7 +2659,7 @@ internal sealed class ColumnarIlEmitter
                 var taskArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
                 if (taskArgCanons.Count == 1
                     && TryResolveTypeWithTypeParams(taskArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var taskElement)
-                    && IsSupportedType(taskElement))
+                    && ColumnarTypeOfPlanner.IsSupportedType(taskElement))
                 {
                     type = typeof(System.Threading.Tasks.Task<>).MakeGenericType(taskElement);
                     return true;
@@ -2743,7 +2672,7 @@ internal sealed class ColumnarIlEmitter
                 var valueTaskArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(10, canonical.Length - 11));
                 if (valueTaskArgCanons.Count == 1
                     && TryResolveTypeWithTypeParams(valueTaskArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var valueTaskElement)
-                    && IsSupportedType(valueTaskElement))
+                    && ColumnarTypeOfPlanner.IsSupportedType(valueTaskElement))
                 {
                     type = typeof(System.Threading.Tasks.ValueTask<>).MakeGenericType(valueTaskElement);
                     return true;
@@ -2759,8 +2688,8 @@ internal sealed class ColumnarIlEmitter
                     && TryResolveTypeWithTypeParams(resultArgCanons[1], typeParams, enumRegistry, structRegistry, unionRegistry, out var errType)
                     && !ColumnarTypeOfPlanner.IsByRefLike(okType)
                     && !ColumnarTypeOfPlanner.IsByRefLike(errType)
-                    && IsSupportedType(okType)
-                    && IsSupportedType(errType))
+                    && ColumnarTypeOfPlanner.IsSupportedType(okType)
+                    && ColumnarTypeOfPlanner.IsSupportedType(errType))
                 {
                     type = typeof(NSharpLang.Runtime.Result<,>).MakeGenericType(okType, errType);
                     return true;
@@ -2974,7 +2903,7 @@ internal sealed class ColumnarIlEmitter
             }
             var validationCanonical = structRegistry.Resolver.RuntimeGenericValidationCanonical(type);
             if (validationCanonical == null) return true;
-            if (validationCanonical == "*") return IsSupportedType(type);
+            if (validationCanonical == "*") return ColumnarTypeOfPlanner.IsSupportedType(type);
             return TryResolveType(
                 validationCanonical, enumRegistry, structRegistry, unionRegistry, out type);
         }
@@ -3000,8 +2929,8 @@ internal sealed class ColumnarIlEmitter
         {
             if (TryResolveType(unionArms[0], enumRegistry, structRegistry, unionRegistry, out var firstArm)
                 && TryResolveType(unionArms[1], enumRegistry, structRegistry, unionRegistry, out var secondArm)
-                && IsSupportedAnonymousUnionArmType(firstArm)
-                && IsSupportedAnonymousUnionArmType(secondArm)
+                && ColumnarTypeOfPlanner.IsSupportedAnonymousUnionArm(firstArm)
+                && ColumnarTypeOfPlanner.IsSupportedAnonymousUnionArm(secondArm)
                 && !TypesEquivalent(firstArm, secondArm))
             {
                 type = typeof(NSharpLang.Runtime.Union<,>).MakeGenericType(firstArm, secondArm);
@@ -3291,7 +3220,7 @@ internal sealed class ColumnarIlEmitter
                 var taskArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
                 if (taskArgCanons.Count == 1
                     && TryResolveType(taskArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var taskElement)
-                    && IsSupportedType(taskElement))
+                    && ColumnarTypeOfPlanner.IsSupportedType(taskElement))
                 {
                     type = typeof(System.Threading.Tasks.Task<>).MakeGenericType(taskElement);
                     return true;
@@ -3304,7 +3233,7 @@ internal sealed class ColumnarIlEmitter
                 var valueTaskArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(10, canonical.Length - 11));
                 if (valueTaskArgCanons.Count == 1
                     && TryResolveType(valueTaskArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var valueTaskElement)
-                    && IsSupportedType(valueTaskElement))
+                    && ColumnarTypeOfPlanner.IsSupportedType(valueTaskElement))
                 {
                     type = typeof(System.Threading.Tasks.ValueTask<>).MakeGenericType(valueTaskElement);
                     return true;
@@ -3320,8 +3249,8 @@ internal sealed class ColumnarIlEmitter
                     && TryResolveType(resultArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var errType)
                     && !ColumnarTypeOfPlanner.IsByRefLike(okType)
                     && !ColumnarTypeOfPlanner.IsByRefLike(errType)
-                    && IsSupportedType(okType)
-                    && IsSupportedType(errType))
+                    && ColumnarTypeOfPlanner.IsSupportedType(okType)
+                    && ColumnarTypeOfPlanner.IsSupportedType(errType))
                 {
                     type = typeof(NSharpLang.Runtime.Result<,>).MakeGenericType(okType, errType);
                     return true;
@@ -3715,7 +3644,7 @@ internal sealed class ColumnarIlEmitter
                 var enumeratorElement = ColumnarIteratorPlanner.EnumeratorElementCanonicalOf(shape.FieldCanonicals[i]);
                 if (enumeratorElement.Length == 0
                     || !TryResolveType(enumeratorElement, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var enumeratorElementType)
-                    || !IsSupportedType(enumeratorElementType))
+                    || !ColumnarTypeOfPlanner.IsSupportedType(enumeratorElementType))
                     return DeclineStatic(
                         "emit.iterator.field-type",
                         "iterator hoisted enumerator type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + declineLabel + "'",
@@ -3836,7 +3765,7 @@ internal sealed class ColumnarIlEmitter
             fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false, isAsync: true);
         if (!shape.Supported)
             return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, fn.Name);
-        if (!TryResolveType(shape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var elementType) || !IsSupportedType(elementType))
+        if (!TryResolveType(shape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var elementType) || !ColumnarTypeOfPlanner.IsSupportedType(elementType))
             return DeclineStatic(
                 "emit.iterator.element-type",
                 "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
@@ -3864,7 +3793,7 @@ internal sealed class ColumnarIlEmitter
                 fieldType = typeof(bool);
             else if (role == ColumnarIteratorPlanner.ContinuationFieldRole())
                 fieldType = typeof(Action);
-            else if (!TryResolveType(shape.FieldCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out fieldType) || !IsSupportedType(fieldType))
+            else if (!TryResolveType(shape.FieldCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out fieldType) || !ColumnarTypeOfPlanner.IsSupportedType(fieldType))
                 return DeclineStatic(
                     "emit.iterator.field-type",
                     "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'",
@@ -4013,11 +3942,11 @@ internal sealed class ColumnarIlEmitter
             if (smTypeParamMap.TryGetValue(canonical, out type!))
                 return true;
             return TryResolveTypeWithTypeParams(canonical, smTypeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out type)
-                && (type.IsGenericParameter || (type.IsSZArray && type.GetElementType()!.IsGenericParameter) || IsSupportedType(type))
+                && (type.IsGenericParameter || (type.IsSZArray && type.GetElementType()!.IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(type))
                 && !ContainsMethodVarReference(type, smTypeParamMap);
         }
         return TryResolveType(canonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out type)
-            && IsSupportedType(type);
+            && ColumnarTypeOfPlanner.IsSupportedType(type);
     }
 
     // Guard against the method-scoped registry leaking a METHOD generic parameter (an MVAR) into a
@@ -4273,7 +4202,7 @@ internal sealed class ColumnarIlEmitter
                 else if (!(interfaceDef.GenericParameters != null
                              ? TryResolveTypeWithTypeParams(iface.MethodReturnCanonicals[m], interfaceDef.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out memberReturn)
                              : TryResolveType(iface.MethodReturnCanonicals[m], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out memberReturn))
-                    || !IsSupportedType(memberReturn))
+                    || !ColumnarTypeOfPlanner.IsSupportedType(memberReturn))
                     return false;
                 var memberParams = new Type[iface.MethodParamCanonicals[m].Length];
                 var memberParamModifierKinds = iface.MethodParamModifierKinds[m];
@@ -4344,7 +4273,7 @@ internal sealed class ColumnarIlEmitter
                 var fieldTypeResolved = typeGenericParams != null
                     ? TryResolveTypeWithTypeParams(st.FieldTypeCanonicals[fi], typeGenericParams, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var fieldType)
                     : TryResolveType(st.FieldTypeCanonicals[fi], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out fieldType);
-                if (!fieldTypeResolved || !IsSupportedType(fieldType))
+                if (!fieldTypeResolved || !ColumnarTypeOfPlanner.IsSupportedType(fieldType))
                 {
                     return DeclineStatic("emit.declaration.field-type", "field type '" + st.FieldTypeCanonicals[fi] + "' could not be resolved for '" + st.Name + "." + st.FieldNames[fi] + "'", st.Name);
                 }
@@ -4498,7 +4427,7 @@ internal sealed class ColumnarIlEmitter
                     }
                     else if (m.ReturnCanonical == "void")
                         sReturn = typeof(void);
-                    else if (!TryResolveType(m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn) || !IsSupportedType(sReturn))
+                    else if (!TryResolveType(m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn) || !ColumnarTypeOfPlanner.IsSupportedType(sReturn))
                     {
                         return DeclineStatic("emit.declaration.method-return", "static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
                     }
@@ -4574,7 +4503,7 @@ internal sealed class ColumnarIlEmitter
                 }
                 else if (m.ReturnCanonical == "void")
                     mReturn = typeof(void);
-                else if (!TryResolveMemberType(m.ReturnCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn) || !IsSupportedType(mReturn))
+                else if (!TryResolveMemberType(m.ReturnCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn) || !ColumnarTypeOfPlanner.IsSupportedType(mReturn))
                 {
                     return DeclineStatic("emit.declaration.method-return", "method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
                 }
@@ -4742,7 +4671,7 @@ internal sealed class ColumnarIlEmitter
             var typeResolution = structTypeResolutions[s];
             foreach (var prop in structs[s].Properties)
             {
-                if (!TryResolveMemberType(prop.TypeCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var propType) || !IsSupportedType(propType))
+                if (!TryResolveMemberType(prop.TypeCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var propType) || !ColumnarTypeOfPlanner.IsSupportedType(propType))
                     return false;
                 if (prop.IsStatic)
                 {
@@ -5135,7 +5064,7 @@ internal sealed class ColumnarIlEmitter
                     var fieldResolved = caseParamMap != null
                         ? TryResolveTypeWithTypeParams(caseFieldTypes[fi], caseParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var caseFieldType)
                         : TryResolveType(caseFieldTypes[fi], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out caseFieldType);
-                    if (!fieldResolved || !IsSupportedType(caseFieldType))
+                    if (!fieldResolved || !ColumnarTypeOfPlanner.IsSupportedType(caseFieldType))
                         return false;
                     var cfb = caseTb.DefineField(caseFieldNames[fi], caseFieldType, FieldAttributes.Public);
                     caseFields[caseFieldNames[fi]] = cfb;
@@ -5309,7 +5238,8 @@ internal sealed class ColumnarIlEmitter
             typeResolutionsByFunc[f] = typeResolution;
             // The return type may be `void` (a procedure — its body need not always-return and `return` takes
             // no value); otherwise it must be a supported VALUE type. `void` is valid ONLY as a return type, so
-            // it is handled here and NOT admitted by IsSupportedType (which gates params/locals/arrays/values).
+            // it is handled here and NOT admitted by `ColumnarTypeOfPlanner.IsSupportedType` (which gates
+            // params/locals/arrays/values).
             Type returnType;
             Type? asyncWrappedReturn = null;
             if (fn.IsAsync && (fn.ModifierFlags & NSharpModifierGenerator) != 0)
@@ -5322,7 +5252,7 @@ internal sealed class ColumnarIlEmitter
                     isInstance: false, isAsync: true);
                 if (!asyncShape.Supported)
                     return DeclineStatic(asyncShape.DeclineSite, asyncShape.DeclineMessage, fn.Name);
-                if (!TryResolveType(asyncShape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var asyncElement) || !IsSupportedType(asyncElement))
+                if (!TryResolveType(asyncShape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var asyncElement) || !ColumnarTypeOfPlanner.IsSupportedType(asyncElement))
                     return DeclineStatic(
                         "emit.iterator.element-type",
                         "iterator element type '" + asyncShape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
@@ -5366,10 +5296,10 @@ internal sealed class ColumnarIlEmitter
             else if (typeParamMap != null)
             {
                 if (!TryResolveTypeWithTypeParams(fn.ReturnCanonical, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType)
-                    || !(returnType.IsGenericParameter || (returnType.IsSZArray && returnType.GetElementType()!.IsGenericParameter) || IsSupportedType(returnType)))
+                    || !(returnType.IsGenericParameter || (returnType.IsSZArray && returnType.GetElementType()!.IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(returnType)))
                     return DeclineStatic("emit.declaration.function-return", "generic function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name);
             }
-            else if (!TryResolveType(fn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType) || !IsSupportedType(returnType))
+            else if (!TryResolveType(fn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType) || !ColumnarTypeOfPlanner.IsSupportedType(returnType))
                 return DeclineStatic("emit.declaration.function-return", "function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name);
             var paramTypes = new Type[fn.ParamNames.Length];
             var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -5481,12 +5411,12 @@ internal sealed class ColumnarIlEmitter
                     Type localReturn;
                     if (localFn.ReturnCanonical == "void")
                         localReturn = typeof(void);
-                    else if (!TryResolveType(localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localReturn) || !IsSupportedType(localReturn))
+                    else if (!TryResolveType(localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localReturn) || !ColumnarTypeOfPlanner.IsSupportedType(localReturn))
                         return false;
                     var localParams = new Type[localFn.ParamNames.Length];
                     for (var lp = 0; lp < localParams.Length; lp++)
                     {
-                        if (!TryResolveType(localFn.ParamCanonicals[lp], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localParams[lp]) || !IsSupportedType(localParams[lp]))
+                        if (!TryResolveType(localFn.ParamCanonicals[lp], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localParams[lp]) || !ColumnarTypeOfPlanner.IsSupportedType(localParams[lp]))
                             return false;
                     }
                     if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(localReturn, localParams, type))
@@ -6289,7 +6219,7 @@ internal sealed class ColumnarIlEmitter
             && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<>))
         {
             var taskResult = awaitableType.GetGenericArguments()[0];
-            if (!IsSupportedType(taskResult))
+            if (!ColumnarTypeOfPlanner.IsSupportedType(taskResult))
                 return false;
             _il.Emit(OpCodes.Callvirt,
                 ResolveClosedGenericMethod(awaitableType, typeof(System.Threading.Tasks.Task<>).GetMethod("GetAwaiter", Type.EmptyTypes)!));
@@ -6642,7 +6572,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     return Decline("emit.local.initializer", "local initializer expression emission declined for '" + name + "'", Child(idx, 0));
                 }
-                if (!(initType.IsGenericParameter || (initType.IsSZArray && initType.GetElementType()!.IsGenericParameter) || IsSupportedType(initType)))
+                if (!(initType.IsGenericParameter || (initType.IsSZArray && initType.GetElementType()!.IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(initType)))
                 {
                     return Decline("emit.local.unsupported-type", "local initializer type is not supported for '" + name + "': " + initType.FullName, idx);
                 }
@@ -6688,7 +6618,7 @@ internal sealed class ColumnarIlEmitter
                 typeCanonical = tupleStrip.Canonical;
                 var declaredTupleNames = tupleStrip.Names;
                 if (!TryResolveBodyType(typeCanonical, out var declaredType)
-                    || !IsSupportedType(declaredType))
+                    || !ColumnarTypeOfPlanner.IsSupportedType(declaredType))
                     return Decline("emit.typed-local.unsupported-type", "typed local declaration type is not supported for '" + declaredName + "': " + typeCanonical, idx);
                 var declaredInit = Child(idx, 1);
                 if (_nodes.Kind(declaredInit) == 39)
@@ -7618,7 +7548,7 @@ internal sealed class ColumnarIlEmitter
                     var listElementType = IsAnyDictionaryCollectionDefinition(collectionDef)
                         ? typeof(KeyValuePair<,>).MakeGenericType(collectionType.GetGenericArguments())
                         : collectionType.GetGenericArguments()[0];
-                    if (!IsSupportedType(listElementType) && !IsSupportedKeyValuePairType(listElementType))
+                    if (!ColumnarTypeOfPlanner.IsSupportedType(listElementType) && !IsSupportedKeyValuePairType(listElementType))
                         return false;
                     var enumerableInterface = typeof(IEnumerable<>).MakeGenericType(listElementType);
                     var enumeratorInterface = typeof(IEnumerator<>).MakeGenericType(listElementType);
@@ -7735,7 +7665,7 @@ internal sealed class ColumnarIlEmitter
                     || ColumnarTypeOfPlanner.ContainsBuilderBoundType(streamType))
                     return Decline("emit.statement.await-foreach", "await foreach requires an IAsyncEnumerable<T> source", streamNode);
                 var streamElementType = streamType.GetGenericArguments()[0];
-                if (!IsSupportedType(streamElementType))
+                if (!ColumnarTypeOfPlanner.IsSupportedType(streamElementType))
                     return false;
                 var asyncEnumeratorType = typeof(IAsyncEnumerator<>).MakeGenericType(streamElementType);
                 var tokenLocal = _il.DeclareLocal(typeof(System.Threading.CancellationToken));
@@ -9570,7 +9500,7 @@ internal sealed class ColumnarIlEmitter
             && !receiverType.IsGenericTypeDefinition
             && receiverType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<>)
             && member == "Result"
-            && IsSupportedType(receiverType.GetGenericArguments()[0]))
+            && ColumnarTypeOfPlanner.IsSupportedType(receiverType.GetGenericArguments()[0]))
         {
             property = receiverType.GetProperty("Result")!;
             return property.GetMethod != null;
@@ -9598,7 +9528,7 @@ internal sealed class ColumnarIlEmitter
         if (ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver(receiverType))
         {
             property = receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)!;
-            return property?.GetMethod != null && IsSupportedType(property.PropertyType);
+            return property?.GetMethod != null && ColumnarTypeOfPlanner.IsSupportedType(property.PropertyType);
         }
         return false;
     }
@@ -9620,7 +9550,7 @@ internal sealed class ColumnarIlEmitter
         if (ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver(receiverType))
         {
             property = receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)!;
-            return property?.SetMethod != null && IsSupportedType(property.PropertyType);
+            return property?.SetMethod != null && ColumnarTypeOfPlanner.IsSupportedType(property.PropertyType);
         }
         return false;
     }
@@ -10364,7 +10294,7 @@ internal sealed class ColumnarIlEmitter
                         if (!TryBuildTypeNodeCanonical(typeArgNode, out var canonicalTypeArg)
                             || !TryResolveBodyType(canonicalTypeArg, out var taType))
                             return false;
-                        if (!IsSupportedType(taType))
+                        if (!ColumnarTypeOfPlanner.IsSupportedType(taType))
                             return false;
                         explicitBinding[ta] = taType;
                     }
@@ -10498,7 +10428,7 @@ internal sealed class ColumnarIlEmitter
                     }
                     if (structReceiverType == typeof(DateTime)
                         && typeof(DateTime).GetProperty(member, BindingFlags.Public | BindingFlags.Instance) is { GetMethod: not null } dateTimeProperty
-                        && IsSupportedType(dateTimeProperty.PropertyType))
+                        && ColumnarTypeOfPlanner.IsSupportedType(dateTimeProperty.PropertyType))
                     {
                         var dateTimeTemp = _il.DeclareLocal(typeof(DateTime));
                         _il.Emit(OpCodes.Stloc, dateTimeTemp);
@@ -10895,7 +10825,7 @@ internal sealed class ColumnarIlEmitter
                 if (!elementType.IsGenericParameter
                     && elementType is not TypeBuilder
                     && elementType.IsValueType
-                    && !IsSupportedType(elementType))
+                    && !ColumnarTypeOfPlanner.IsSupportedType(elementType))
                     return false; // other element types arrive with their type slices.
                 EmitArrayElementLoad(elementType);
                 type = elementType;
@@ -11255,7 +11185,7 @@ internal sealed class ColumnarIlEmitter
                         type = closedType;
                         return true;
                     }
-                    if (!IsClosedUserGenericInstantiation(closedType))
+                    if (!ColumnarTypeOfPlanner.IsClosedSourceGeneric(closedType))
                         return false;
                     if (!_structRegistry.TryGetValue(Text(typeNode), out var openGenericDef)
                         || openGenericDef.Constructors.Count == 0)
@@ -11452,7 +11382,7 @@ internal sealed class ColumnarIlEmitter
                     // ContainsBuilderBoundType: a builder-bound element (a record, a List<Pt>) would make
                     // the closed ValueTuple a TypeBuilderInstantiation whose GetConstructor below throws —
                     // decline cleanly instead (the IsSupportedValueTuple element rule, applied at emission).
-                    if (!EmitExpression(elementNode, out var elemType) || !IsSupportedType(elemType)
+                    if (!EmitExpression(elementNode, out var elemType) || !ColumnarTypeOfPlanner.IsSupportedType(elemType)
                         || ColumnarTypeOfPlanner.ContainsBuilderBoundType(elemType))
                         return false;
                     elementTypes[i] = elemType;
@@ -11739,7 +11669,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         if (!TryBuildTypeNodeCanonical(Child(typeRootNode, i), out var closedArgCanonical)
                             || !TryResolveType(closedArgCanonical, _typeResolutionEnums, _typeResolutionStructs, _typeResolutionUnions, out closedInitArgs[i])
-                            || !IsSupportedType(closedInitArgs[i]))
+                            || !ColumnarTypeOfPlanner.IsSupportedType(closedInitArgs[i]))
                             return false;
                     }
                     var closedInitType = closedInitDef.Builder.MakeGenericType(closedInitArgs);
@@ -12464,7 +12394,7 @@ internal sealed class ColumnarIlEmitter
 
     private bool EmitObjectPattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
     {
-        if (_nodes.Kind(patternNode) != 67 || !IsSupportedType(matchValueType))
+        if (_nodes.Kind(patternNode) != 67 || !ColumnarTypeOfPlanner.IsSupportedType(matchValueType))
             return false;
 
         if (!matchValueType.IsValueType)
@@ -12591,7 +12521,7 @@ internal sealed class ColumnarIlEmitter
     private bool StoreReadablePatternMember(Type memberType, out LocalBuilder memberLocal)
     {
         memberLocal = null!;
-        if (!IsSupportedType(memberType))
+        if (!ColumnarTypeOfPlanner.IsSupportedType(memberType))
             return false;
         memberLocal = _il.DeclareLocal(memberType);
         _il.Emit(OpCodes.Stloc, memberLocal);
@@ -12888,7 +12818,7 @@ internal sealed class ColumnarIlEmitter
         {
             if (!TryBuildTypeNodeCanonical(Child(typeRootNode, i), out var argCanonical)
                 || !TryResolveBodyType(argCanonical, out resolved[i])
-                || !IsSupportedType(resolved[i]))
+                || !ColumnarTypeOfPlanner.IsSupportedType(resolved[i]))
                 return false;
         }
         args = resolved;
@@ -12995,7 +12925,7 @@ internal sealed class ColumnarIlEmitter
             return false;
         if (!TryGetUnionCaseByKey(Text(root), out _, out var caseDef) || !caseDef.UnionBase.IsGenericTypeDefinition)
             return false;
-        return IsClosedUserGenericInstantiation(expectedType)
+        return ColumnarTypeOfPlanner.IsClosedSourceGeneric(expectedType)
             && ReferenceEquals(expectedType.GetGenericTypeDefinition(), caseDef.UnionBase);
     }
 
@@ -13083,7 +13013,7 @@ internal sealed class ColumnarIlEmitter
             return false;
 
         var fieldType = caseArgs.Length == 0 ? field.FieldType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(field.FieldType, caseArgs);
-        if (!IsSupportedType(fieldType))
+        if (!ColumnarTypeOfPlanner.IsSupportedType(fieldType))
             return false;
 
         var fieldLocal = _il.DeclareLocal(fieldType);
@@ -13184,7 +13114,7 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(bindNode) != 6
             || !TryBuildTypeNodeCanonical(typeNode, out var canonical)
             || !TryResolveBodyType(canonical, out targetType)
-            || !IsSupportedType(targetType))
+            || !ColumnarTypeOfPlanner.IsSupportedType(targetType))
             return false;
 
         bindName = Text(bindNode);
@@ -13201,7 +13131,7 @@ internal sealed class ColumnarIlEmitter
         || (t.IsSZArray && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType()!))
         || ColumnarTypeOfPlanner.IsEnumType(t)
         || t is TypeBuilder
-        || IsClosedUserGenericInstantiation(t)
+        || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t)
         || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t)
         || TryGetUnionDefForMatchValue(t, out _, out _);
 
@@ -13333,7 +13263,7 @@ internal sealed class ColumnarIlEmitter
             }
             return false;
         }
-        if (IsClosedUserGenericInstantiation(matchValueType))
+        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(matchValueType))
         {
             var definition = matchValueType.GetGenericTypeDefinition();
             foreach (var u in _unionRegistry.Values)
@@ -13363,7 +13293,7 @@ internal sealed class ColumnarIlEmitter
             caseTestType = caseDef.CaseType;
             return true;
         }
-        if (IsClosedUserGenericInstantiation(matchValueType)
+        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(matchValueType)
             && ReferenceEquals(matchValueType.GetGenericTypeDefinition(), caseDef.UnionBase))
         {
             caseArgs = matchValueType.GetGenericArguments();
@@ -13486,7 +13416,7 @@ internal sealed class ColumnarIlEmitter
             return false;
         if (!TryBuildTypeNodeCanonical(Child(callee, 0), out var targetCanonical)
             || !TryResolveBodyType(targetCanonical, out var targetType)
-            || !IsSupportedType(targetType))
+            || !ColumnarTypeOfPlanner.IsSupportedType(targetType))
             return false;
 
         var serialize = Array.Find(
@@ -13522,7 +13452,7 @@ internal sealed class ColumnarIlEmitter
             return false;
         if (!TryBuildTypeNodeCanonical(Child(callee, 0), out var targetCanonical)
             || !TryResolveBodyType(targetCanonical, out var targetType)
-            || !IsSupportedType(targetType))
+            || !ColumnarTypeOfPlanner.IsSupportedType(targetType))
             return false;
 
         var deserialize = Array.Find(
@@ -13563,7 +13493,7 @@ internal sealed class ColumnarIlEmitter
 
         if (!TryBuildTypeNodeCanonical(Child(callee, 0), out var targetCanonical)
             || !TryResolveBodyType(targetCanonical, out var targetType)
-            || !IsSupportedType(targetType))
+            || !ColumnarTypeOfPlanner.IsSupportedType(targetType))
             return false;
 
         var receiverChain = calleeName.Substring(0, dot);
@@ -13635,7 +13565,7 @@ internal sealed class ColumnarIlEmitter
             type = hop.ValueType;
         }
 
-        return type != typeof(void) && IsSupportedType(type);
+        return type != typeof(void) && ColumnarTypeOfPlanner.IsSupportedType(type);
     }
 
     private bool TryEmitGenericExtensionReceiverChain(string receiverChain, out Type type)
@@ -13687,7 +13617,7 @@ internal sealed class ColumnarIlEmitter
                 return false;
         }
 
-        return type != typeof(void) && IsSupportedType(type);
+        return type != typeof(void) && ColumnarTypeOfPlanner.IsSupportedType(type);
     }
 
     private static bool IsSupportedGenericExtensionReceiverChainText(string receiverChain, out string[] names)
@@ -15487,7 +15417,7 @@ internal sealed class ColumnarIlEmitter
         else if (elementType == typeof(string)) _il.Emit(OpCodes.Stelem_Ref);
         else if (elementType.IsGenericParameter) _il.Emit(OpCodes.Stelem, elementType);
         else if (!elementType.IsValueType) _il.Emit(OpCodes.Stelem_Ref);
-        else if (elementType is TypeBuilder || IsSupportedType(elementType)) _il.Emit(OpCodes.Stelem, elementType);
+        else if (elementType is TypeBuilder || ColumnarTypeOfPlanner.IsSupportedType(elementType)) _il.Emit(OpCodes.Stelem, elementType);
         else return false;
         return true;
     }
@@ -16068,7 +15998,7 @@ internal sealed class ColumnarIlEmitter
                        out _);
         }
 
-        if (IsClosedUserGenericInstantiation(target)
+        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(target)
             && target.GetGenericTypeDefinition() is TypeBuilder openBuilder
             && FindDefByBuilder(openBuilder) is { } openDef)
         {
@@ -16167,7 +16097,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        if (IsClosedUserGenericInstantiation(target)
+        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(target)
             && target.GetGenericTypeDefinition() is TypeBuilder openBuilder
             && FindDefByBuilder(openBuilder) is { } openDef)
         {
@@ -16486,7 +16416,7 @@ internal sealed class ColumnarIlEmitter
                 var castTargetName = Text(Child(node, 0));
                 return (TryResolveBuiltin(castTargetName, out type)
                         || TryResolveBodyType(castTargetName, out type))
-                       && IsSupportedType(type);
+                       && ColumnarTypeOfPlanner.IsSupportedType(type);
             }
             case 9:
             {
@@ -16596,7 +16526,7 @@ internal sealed class ColumnarIlEmitter
                 if (!elementType.IsGenericParameter
                     && elementType is not TypeBuilder
                     && !ColumnarTypeOfPlanner.IsSupportedElementType(elementType)
-                    && !IsSupportedType(elementType))
+                    && !ColumnarTypeOfPlanner.IsSupportedType(elementType))
                     return false;
                 type = elementType;
                 return true;
@@ -17000,7 +16930,7 @@ internal sealed class ColumnarIlEmitter
         }
         if (TryGetPreflightExpressionType(receiver, out var instanceReceiverType)
             && TryResolveInterpolationMemberPlan(instanceReceiverType, member, out var instanceHop)
-            && IsSupportedType(instanceHop.ValueType))
+            && ColumnarTypeOfPlanner.IsSupportedType(instanceHop.ValueType))
         {
             type = instanceHop.ValueType;
             return true;
@@ -17116,7 +17046,7 @@ internal sealed class ColumnarIlEmitter
     {
         def = null!;
         closedArguments = System.Array.Empty<Type>();
-        if (!IsClosedUserGenericInstantiation(receiverType))
+        if (!ColumnarTypeOfPlanner.IsClosedSourceGeneric(receiverType))
             return false;
         var definition = receiverType.GetGenericTypeDefinition();
         foreach (var d in _structRegistry.Values)
@@ -17247,7 +17177,7 @@ internal sealed class ColumnarIlEmitter
             typeResolutionUnions: _typeResolutionUnions);
         return subEmitter.TryGetPreflightExpressionType(signature.BodyNode, out returnType)
                && returnType != typeof(void)
-               && IsSupportedType(returnType);
+               && ColumnarTypeOfPlanner.IsSupportedType(returnType);
     }
 
     // N# owns the single-parameter contextual-delegate return-type SELECTION: the contextual lambda body's
@@ -17267,7 +17197,7 @@ internal sealed class ColumnarIlEmitter
             && localTarget.ParamTypes.Length == 1
             && TypesEquivalent(localTarget.ParamTypes[0], parameterType)
             && localTarget.ReturnType != typeof(void)
-            && IsSupportedType(localTarget.ReturnType))
+            && ColumnarTypeOfPlanner.IsSupportedType(localTarget.ReturnType))
             localCandidate = localTarget.ReturnType;
         var inferred = ColumnarLambdaPlacementPlanner.PlanSingleParameterContextualReturnType(lambdaCandidate, localCandidate);
         if (inferred == null)
@@ -17319,7 +17249,7 @@ internal sealed class ColumnarIlEmitter
             && TryResolveAspNetHttpContextType(out var contextType)
             && TryFindMethodOnChain(_currentStruct, Text(handlerNode), 1, out var method)
             && TypesEquivalent(method.ParamTypes[0], contextType)
-            && IsSupportedType(method.ReturnType))
+            && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType))
         {
             delegateType = typeof(Func<,>).MakeGenericType(contextType, method.ReturnType);
             if (!TryGetSupportedDelegateSignature(delegateType, allowBuilderBoundArguments: true, out _, out _, out var delegateCtor))
@@ -19757,7 +19687,7 @@ internal sealed class ColumnarIlEmitter
                 candidateReturn = typeof(void);
             }
             else if (!TryResolveMemberType(method.ReturnCanonical, sourceDef, enumRegistry, structRegistry, unionRegistry, out candidateReturn)
-                     || !IsSupportedType(candidateReturn))
+                     || !ColumnarTypeOfPlanner.IsSupportedType(candidateReturn))
             {
                 return false;
             }
@@ -20122,7 +20052,7 @@ internal sealed class ColumnarIlEmitter
             || ((!IsKnownEnumType(method.ReturnType)
                  && !method.ReturnType.IsGenericParameter
                  && ColumnarTypeOfPlanner.ContainsBuilderBoundType(method.ReturnType))
-                || !IsSupportedType(method.ReturnType)))
+                || !ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)))
             return false;
 
         plan = new ColumnarInterpolationHolePlan
@@ -20377,7 +20307,7 @@ internal sealed class ColumnarIlEmitter
 
     private bool IsSupportedParsedInterpolationHoleType(Type type)
         => type != typeof(void)
-           && IsSupportedType(type)
+           && ColumnarTypeOfPlanner.IsSupportedType(type)
            && (!ColumnarTypeOfPlanner.ContainsBuilderBoundType(type) || IsKnownEnumType(type));
 
     private bool CanEmitInterpolationCast(Type sourceType, Type targetType)
@@ -20604,7 +20534,7 @@ internal sealed class ColumnarIlEmitter
                 return false;
             }
             rootIndexElementType = rootType.GetElementType();
-            if (rootIndexElementType == null || !IsSupportedType(rootIndexElementType))
+            if (rootIndexElementType == null || !ColumnarTypeOfPlanner.IsSupportedType(rootIndexElementType))
                 return false;
         }
         var current = rootIndexElementType ?? (rootGetter != null ? valueType : (hops.Count == 0 ? rootType : hops[^1].ValueType));
@@ -20648,7 +20578,7 @@ internal sealed class ColumnarIlEmitter
              && ColumnarTypeOfPlanner.ContainsBuilderBoundType(current)
              && !IsKnownEnumType(current)
              && !current.IsGenericParameter)
-            || !IsSupportedType(current))
+            || !ColumnarTypeOfPlanner.IsSupportedType(current))
             return false;
         valueType = current;
         return true;
@@ -20720,7 +20650,7 @@ internal sealed class ColumnarIlEmitter
 
         if (current == typeof(DateTime)
             && typeof(DateTime).GetProperty(member, BindingFlags.Public | BindingFlags.Instance) is { GetMethod: not null } dateTimeProperty
-            && IsSupportedType(dateTimeProperty.PropertyType))
+            && ColumnarTypeOfPlanner.IsSupportedType(dateTimeProperty.PropertyType))
         {
             hop = new ColumnarInterpolationMemberPlan(null, dateTimeProperty.GetMethod, dateTimeProperty.PropertyType);
             return true;
