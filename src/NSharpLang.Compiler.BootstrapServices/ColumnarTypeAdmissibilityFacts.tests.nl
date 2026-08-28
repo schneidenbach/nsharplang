@@ -176,23 +176,21 @@ test "span admissibility requires a blittable element, not just the span head" {
 // The interop heads are ColumnarRuntimeTypeFacts' to own. Naming `Stream` inline dropped FileStream
 // and DirectoryInfo, and TextWriter was absent altogether — three types the emitter admits.
 test "type admissibility routes the interop heads through the runtime facts owner" {
-    bindings := ColumnarRangePlannerEmptyBindings()
-
     // `typeof(FileStream)` / `typeof(DirectoryInfo)` DECLINE at emit — the same reason the subject
     // kernel reaches them by name — so the seeded lookup names them here too.
-    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Stream), bindings)
-    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(StreamReader), bindings)
-    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Process), bindings)
-    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(ProcessStartInfo), bindings)
-    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.FileStream"), bindings)
-    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.DirectoryInfo"), bindings)
-    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.TextWriter"), bindings)
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Stream))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(StreamReader))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Process))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(ProcessStartInfo))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.FileStream"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.DirectoryInfo"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.TextWriter"))
 
     // Neighbours of the admitted heads that are NOT modelled stay out.
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.MemoryStream"), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.FileInfo"), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.StreamWriter"), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.TextReader"), bindings)
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.MemoryStream"))
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.FileInfo"))
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.StreamWriter"))
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.TextReader"))
 
     // The receiver-side owner answers the same on the two heads it was also missing.
     assert ColumnarRuntimeInstanceMemberResolver.IsAdmittedValueType(AdmissibilityRuntimeType("System.IO.FileStream"))
@@ -204,24 +202,23 @@ test "type admissibility routes the interop heads through the runtime facts owne
 // `Result<Queue<int>, string>` — whose Ok value has no emit lowering at all — read as a supported
 // type and could reach a collection element or a tuple slot.
 test "result and anonymous-union admissibility constrains the arguments, not just the head" {
-    bindings := ColumnarRangePlannerEmptyBindings()
     queue := AdmissibilityQueueOfInt()
 
-    assert ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(typeof(int), typeof(string)), bindings)
-    assert ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(typeof(string), typeof(bool)), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(queue, typeof(string)), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(typeof(string), queue), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedResultType(typeof(int), bindings)
+    assert ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(typeof(int), typeof(string)))
+    assert ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(typeof(string), typeof(bool)))
+    assert !ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(queue, typeof(string)))
+    assert !ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(typeof(string), queue))
+    assert !ColumnarTypeOfPlanner.IsSupportedResultType(typeof(int))
 
-    assert ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(AdmissibilityUnion(typeof(int), typeof(string)), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(AdmissibilityUnion(queue, typeof(string)), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(typeof(int), bindings)
+    assert ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(AdmissibilityUnion(typeof(int), typeof(string)))
+    assert !ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(AdmissibilityUnion(queue, typeof(string)))
+    assert !ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(typeof(int))
 
     // The root predicate carries the constraint, which is the reachable consequence.
-    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityResult(typeof(int), typeof(string)), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityResult(queue, typeof(string)), bindings)
-    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityUnion(typeof(int), typeof(string)), bindings)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityUnion(queue, typeof(string)), bindings)
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityResult(typeof(int), typeof(string)))
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityResult(queue, typeof(string)))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityUnion(typeof(int), typeof(string)))
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityUnion(queue, typeof(string)))
 }
 
 // `EnumBuilder` is ABSTRACT on this runtime. The exact-name test could never be true, so every
@@ -251,9 +248,8 @@ test "enum builder detection walks the runtime base chain" {
     assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(enumBuilder)))
     assert ColumnarRuntimeInstanceMemberResolver.IsSourceBuilderShape(enumBuilder)
 
-    bindings := ColumnarRangePlannerEmptyBindings()
-    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(enumBuilder, bindings)
-    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(enumBuilder, bindings)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(enumBuilder)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(enumBuilder)
 }
 
 func ColumnarTypeAdmissibilityOneType(only: Type): Type[] {

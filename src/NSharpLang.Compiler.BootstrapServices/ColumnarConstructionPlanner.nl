@@ -397,7 +397,7 @@ class ColumnarConstructionPlanner {
 
         elementCanonical := ""
         elementType := typeof(object)
-        if !TryBuildTypeCanonical(nodes, source, elementNode, 0, out elementCanonical) || !TryResolveExactType(nodes, elementCanonical, bindings, out elementType) || !IsSupportedArrayElement(elementType, bindings) {
+        if !TryBuildTypeCanonical(nodes, source, elementNode, 0, out elementCanonical) || !TryResolveExactType(nodes, elementCanonical, bindings, out elementType) || !IsSupportedArrayElement(elementType) {
             return false
         }
 
@@ -472,7 +472,7 @@ class ColumnarConstructionPlanner {
                 return false
             }
             if index == 0 {
-                if !IsSupportedArrayElement(currentType, bindings) {
+                if !IsSupportedArrayElement(currentType) {
                     return false
                 }
                 elementType = currentType
@@ -2197,11 +2197,11 @@ class ColumnarConstructionPlanner {
         }
     }
 
-    static func IsSupportedArrayElement(elementType: Type, bindings: ColumnarFragmentBindings): bool {
+    static func IsSupportedArrayElement(elementType: Type): bool {
         if elementType == null || elementType.FullName == "System.Void" || elementType.get_IsByRef() || elementType.get_IsPointer() {
             return false
         }
-        return ColumnarTypeOfPlanner.IsSupportedElementType(elementType, bindings)
+        return ColumnarTypeOfPlanner.IsSupportedElementType(elementType)
     }
 
     static func TryResolveExactType(nodes: ColumnarNodeTable, canonical: string, bindings: ColumnarFragmentBindings, out resultType: Type): bool {
