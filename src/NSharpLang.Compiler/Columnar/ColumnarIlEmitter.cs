@@ -424,7 +424,7 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(Assembly)
         || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(t.FullName)
         || ColumnarTypeOfPlanner.IsSupportedJsonType(t)
-        || IsSupportedExternalType(t)
+        || ColumnarTypeOfPlanner.IsSupportedExternalType(t)
         || ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(t)
         || ColumnarTypeOfPlanner.IsSupportedSpanType(t)
         || ColumnarTypeOfPlanner.IsSupportedArrayPoolType(t)
@@ -454,20 +454,6 @@ internal sealed class ColumnarIlEmitter
            && !t.IsByRef
            && !t.IsPointer
            && IsSupportedType(t);
-
-    private static bool IsSupportedExternalType(Type t) =>
-        t.Assembly == typeof(IYamlTypeConverter).Assembly
-        || IsSupportedAspNetExternalReferenceType(t);
-
-    private static bool IsSupportedAspNetExternalReferenceType(Type t)
-    {
-        if (t.IsValueType || t.IsByRef || t.IsPointer || t.ContainsGenericParameters)
-            return false;
-
-        var ns = t.Namespace ?? string.Empty;
-        return ns.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal)
-               || ns.StartsWith("Microsoft.Extensions.Hosting", StringComparison.Ordinal);
-    }
 
     private static bool TryResolveResultReadableProperty(Type receiverType, string member, out MethodInfo getter, out Type propertyType)
     {
@@ -2910,7 +2896,7 @@ internal sealed class ColumnarIlEmitter
             {
                 continue;
             }
-            if (candidate != null && IsSupportedExternalType(candidate))
+            if (candidate != null && ColumnarTypeOfPlanner.IsSupportedExternalType(candidate))
             {
                 type = candidate;
                 return true;
@@ -9609,7 +9595,7 @@ internal sealed class ColumnarIlEmitter
             property = typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind))!;
             return property.GetMethod != null;
         }
-        if (IsSupportedAspNetExternalReferenceType(receiverType))
+        if (ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver(receiverType))
         {
             property = receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)!;
             return property?.GetMethod != null && IsSupportedType(property.PropertyType);
@@ -9631,7 +9617,7 @@ internal sealed class ColumnarIlEmitter
             property = typeof(ProcessStartInfo).GetProperty(member)!;
             return property.SetMethod != null;
         }
-        if (IsSupportedAspNetExternalReferenceType(receiverType))
+        if (ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver(receiverType))
         {
             property = receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)!;
             return property?.SetMethod != null && IsSupportedType(property.PropertyType);

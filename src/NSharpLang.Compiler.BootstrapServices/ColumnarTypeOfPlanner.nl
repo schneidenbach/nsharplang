@@ -1129,6 +1129,27 @@ class ColumnarTypeOfPlanner {
         return name == "System.Text.Json.JsonElement" || name == "System.Text.Json.JsonDocument" || name == "System.Text.Json.JsonValueKind" || name == "System.Text.Json.JsonSerializerOptions" || name == "System.Text.Json.JsonNamingPolicy" || name == "System.Text.Json.JsonElement+ArrayEnumerator" || name == "System.Text.Json.JsonElement+ObjectEnumerator" || name == "System.Text.Json.JsonProperty"
     }
 
+    // SOLE OWNER since `015-A5`, which deleted the C# emitter's copy and rerouted its two sites.
+    // The reroute is deliberately NOT behaviour-preserving: the deleted head asked
+    // `IsValueType || IsByRef || IsPointer || ContainsGenericParameters`, and the last two terms are
+    // wrong for the shapes the emitter meets.
+    //
+    // THE ELEMENT GUARD. `IsPointer` is false for an ARRAY, so the C# head admitted `WebApplication[]`
+    // as an external reference type without ever consulting the array arm's element rule. Measured on
+    // the baseline compiler, that left a half-open surface — such an array could be indexed and have
+    // its `Length` read, but could not be CREATED and could not be walked by `for`, because those two
+    // paths do read `IsSupportedElementType`. Asking `HasElementType` keeps array-ness (and pointer-
+    // and byref-ness) a single decision made in the array arm, so the surface is coherent both ways.
+    //
+    // THE OPEN-GENERIC GUARD IS A SECOND, DISTINCT ONE. A generic type declared in an AspNet
+    // namespace by a source file with a file-scoped `namespace Microsoft.AspNetCore.…` reaches here
+    // as a `TypeBuilderImpl`, on which `ContainsGenericParameters` reads FALSE — and its
+    // `HasElementType` is false too, so the element guard above cannot catch it.
+    // `ContainsOpenGenericParameters` answers by walking the definition and its argument tree.
+    //
+    // The yaml clause is an ASSEMBLY test asked BEFORE both guards, and it compares by assembly NAME
+    // rather than by handle identity: the compiler never loads that assembly twice, and the name
+    // comparison is what lets a bootstrap host that did answer the same as the emitting host.
     static func IsSupportedExternalType(valueType: Type): bool {
         valueAssemblyName := valueType.get_Assembly().GetName().get_FullName()
         yamlAssemblyName := typeof(IYamlTypeConverter).get_Assembly().GetName().get_FullName()

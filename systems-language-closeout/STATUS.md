@@ -4861,7 +4861,240 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-A3`+`015-A4`: THE TWO SPAN HEADS AND THE
+- Active sub-slice (015 arc, THIS TURN — **`015-A5`: `IsSupportedExternalType` AND ITS ASPNET HELPER.
+  THE STAGE THAT CARRIES BOTH DELIBERATE BEHAVIOUR FIXES. NOT COMMITTED.**)
+
+  ### THE PRE-EDIT DERIVATION — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
+
+  A0's staged plan named A5 as "`IsSupportedExternalType` AND ITS ASPNET HELPER … deliberately its
+  own stage so the two behaviour changes are one reviewable step". Both halves were re-derived from
+  the tip (`4accb8c4e`) with A3+A4's member-extent instrument, unchanged.
+
+  **THE INSTRUMENT REPRODUCES A3+A4's PUBLISHED FILE READING EXACTLY BEFORE ANY NEW NUMBER IS READ**:
+  `ColumnarIlEmitter.cs` at **21,068 lines / 20,041 non-blank / 418 members**.
+
+  | member | extent | occurrences | sites | site lines |
+  |---|---|---|---|---|
+  | `IsSupportedExternalType` | 3 | 3 | **2** | 427 (`IsSupportedType`), 2913 (`TryResolveLoadedExternalType`) |
+  | `IsSupportedAspNetExternalReferenceType` | 9 | 4 | **3** | 460 (inside the deleted body), 9612 (`TryGetSupportedBclReadableProperty`), 9634 (`TryGetSupportedBclWritableProperty`) |
+
+  **THE PLAN'S ARITHMETIC IS CONFIRMED AND ITS SILENCE IS EXPLAINED.** A0 priced A5 at **2 family
+  sites** and the census reads exactly 2 for `IsSupportedExternalType`. The AspNet helper is a
+  TRANSITIVE PRIVATE — the same class A2 recorded as "plus the transitive privates' own" — and it
+  carries **two further sites the family census never counted** (9612 / 9634), both of them RECEIVER
+  shape tests inside the two BCL-property entry points. **A5 therefore reroutes 4 sites, not 2, and
+  that is a discovery of this derivation rather than a re-price of the plan**: the 286-site total is
+  untouched, because neither 9612 nor 9634 is a call to a member A0's family census enumerated.
+
+  **THE PIN SWEEP CAME FIRST, AND ITS FIRST ANSWER WAS WRONG — THE CORRECTION IS THE SHARPER
+  FINDING.** A grep of all 7,055 estate blocks for `IsSupportedExternalType`,
+  `ContainsOpenGenericParameters` and `IsSupportedAspNetReceiver` returns **ZERO test mentions** —
+  neither N# copy of the head, nor the open-generic owner, nor the receiver head, is asserted
+  anywhere. That first sweep omitted a fourth name, and re-running it with
+  `IsSupportedExternalReferenceShape` finds **ONE block, `ColumnarInstanceMemberPlanner.tests.nl`'s
+  "instance member runtime admission rejects pointer and open generic external shapes", carrying TWO
+  asserts**. So the family is not quite unpinned — and the correction is recorded rather than the
+  first claim quietly kept.
+
+  **BUT THAT ONE BLOCK IS VACUOUS WITH RESPECT TO BOTH OF THIS STAGE's FIXES, AND THAT IS MEASURED,
+  NOT ARGUED.** Its two inputs are `System.Int32*` and `Dictionary<,>`'s open definition — **both
+  `RuntimeType`s**. A probe evaluates the FIXED spelling (`!IsValueType && !HasElementType &&
+  !ContainsOpenGenericParameters`) and the DEFECTIVE one the C# head carried (`!IsValueType &&
+  !IsPointer && !ContainsGenericParameters`) on exactly those two inputs:
+
+  | input | fixed spelling | defective spelling | existing assert satisfied by |
+  |---|---|---|---|
+  | `System.Int32*` | False | False | **BOTH** |
+  | `Dictionary<,>` open | False | False | **BOTH** |
+  | **aspnet class ARRAY** (builder) | **False** | **True** | they DISAGREE — and the block has no such input |
+  | **aspnet OPEN generic** (builder) | **False** | **True** | they DISAGREE — and the block has no such input |
+
+  On a `RuntimeType` both defective terms answer correctly, so the existing block passes whichever
+  spelling is installed. **Nothing in 7,055 blocks could tell the fix from the defect**, which is the
+  finding that matters and the gap these contracts close.
+
+  **THE N# OWNER CANDIDATES, AND WHICH SITE GOES WHERE.** Both N# copies already exist and both
+  already carry BOTH guards — which is the honest reading of "fix the two defects": the fixed
+  spelling is already written in N#, and it is the REROUTE that carries it into the compiler.
+
+  | site | asks | N# owner it routes to |
+  |---|---|---|
+  | 427 (`IsSupportedType`) | is this type in the supported type surface | `ColumnarTypeOfPlanner.IsSupportedExternalType` |
+  | 2913 (`TryResolveLoadedExternalType`) | the same, about a resolved candidate | `ColumnarTypeOfPlanner.IsSupportedExternalType` |
+  | 9612 (`TryGetSupportedBclReadableProperty`) | can this RECEIVER own a member | `ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver` |
+  | 9634 (`TryGetSupportedBclWritableProperty`) | the same, for a writable member | `ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver` |
+
+  **THE RECEIVER SITES GO TO THE RESOLVER ON PURPOSE, AND THE CHOICE IS MEASURED, NOT STYLISTIC.**
+  Publishing a third AspNet head on the planner would spell the namespace rule a third time; routing
+  the two receiver-shaped sites to the owner whose whole subject is "can this receiver own a member"
+  spells it once more than it already is and no more. The emitter already calls
+  `ColumnarRuntimeInstanceMemberResolver` at **24 sites**, so this crosses no architectural line —
+  and A2's reason for preferring the planner (the resolver's cone carried one tightening the
+  planner's did not) **does not apply to this member**: driven as a second column over the same
+  275-type corpus, the resolver and the planner answer **cell-for-cell identically** on
+  `IsSupportedExternalType`, and the resolver's AspNet head differs from the C# one on exactly the
+  17 array/open cells and nothing else (0 widenings).
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` byte copy (`.git`, `bin`, `obj`,
+  `node_modules`, `artifacts` **and `.claude/worktrees/`** excluded — three stray
+  `NSharpLang.Benchmarks.csproj` DO live under `.claude/worktrees/` in this checkout, so that
+  exclusion is load-bearing and was verified to leave none in the copy), log written OUTSIDE the
+  copy, `pgrep -f test-all-core.sh` clean first, and the dependency-cache entry plus step cache from
+  the killed run removed beforehand.
+
+  **`GATE EXIT 0`, `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 44s** (02:40:18 → 03:03:02).
+  Inside it: unit **`Passed: 596`** (the baseline exactly), estate **`Passed: 7062`**, **47** native
+  `✓ PASSED` lines (46 project directories plus the compiler-service contracts step),
+  `tests/native/ownership-audit` at **`Passed: 18, Failed: 0`**, the **format contract gate**
+  ("All files are properly formatted."), `dotnet new` templates, every example project, the
+  single-file examples, `nlc check` on examples, and the **IL verification gate**
+  ("All **67** N# assemblies pass IL verification (no new errors vs baseline)"). All six
+  changed/added product files were `sha256`-verified **IDENTICAL** between the working tree and the
+  gate copy before the run.
+
+  ### THE FINAL READING
+
+  | check | result |
+  |---|---|
+  | emitter | **21,054 lines / 20,030 non-blank / 416 members** (from 21,068 / 20,041 / 418) |
+  | the two C# members | **0 definitions, 0 occurrences** of the AspNet helper; the head's 2 sites now read `ColumnarTypeOfPlanner.` |
+  | ratchet repin (two-key, LAST) | emitter row **21068→21054 / 20041→20030 / `text-v1:e3a2adcb4e520e1a`→`text-v1:6ea3f17824bccebe`**; `reviewedHeadFingerprint` **`head-v1:0b1b9ad365cbff54` → `head-v1:cf9f3bc4c59caa26`** in BOTH keys |
+  | epoch triple | **UNCHANGED** — 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
+  | audit | **17 / 18 BEFORE the repin** (the ratchet notices the shrink), **18 / 18 after**; blank-line control **17 / 18** failing exactly `RepositoryNonNSharpOwnershipMatchesTheE0GrowthBaseline`, byte-exact restore, **18 / 18** again |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`) |
+  | stray build output | **none** — working tree carries exactly the six changed/added files |
+
+  ### FILES THIS SLICE COMMITS (NOT COMMITTED — the mandate reserves that)
+
+  `src/NSharpLang.Compiler/Columnar/ColumnarIlEmitter.cs`,
+  `src/NSharpLang.Compiler.BootstrapServices/ColumnarTypeOfPlanner.nl`,
+  `src/NSharpLang.Compiler.BootstrapServices/ColumnarRuntimeInstanceMemberResolver.nl`,
+  `src/NSharpLang.Compiler.BootstrapServices/ColumnarExternalTypeGuardFacts.tests.nl` (new),
+  `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json`,
+  `tests/native/ownership-audit/OwnershipAudit.nl`, and this STATUS.
+
+  ### WHAT A5 LEAVES FOR `015-A6`
+
+  - **`015-A6` IS CONFIRMED AND RE-DERIVED AT THIS TIP**: `IsSupportedType` is 49 extent lines with
+    **72 line-sites** (A0 published 77; the five went to A1–A4, and **A5 removes none** — 72 before
+    and 72 after). `IsSupportedAnonymousUnionArmType` rides with it at 5 lines / 2 sites.
+  - **THE WIDENING LEDGER**: A5 retires nine of A0's tightening cells and both R2 widenings on this
+    member. What remains for A6 is R1 (a RUNTIME generic parameter) — the single surviving divergent
+    cell in `IsSupportedType` after this cut — plus A2's ten transitive widenings, all already ruled.
+  - **THE UNMATCHED LIST IS UNCHANGED AT TEN.** A5 wrote no new N# owner: both guards already
+    existed, which is why this stage was a reroute plus contracts rather than a port.
+
+  ### THE SEVEN CONTROLS, RE-RUN AGAINST THE STRENGTHENED CONTRACTS — ALL SEVEN BREAK
+
+  | control | mutation | block it breaks |
+  |---|---|---|
+  | C1 | the yaml-assembly clause is removed | `…AdmitsTheYamlAssemblyByAssemblyIdentityNotByNamespace` |
+  | C2 | the AspNet namespace prefix stops matching | `…AdmitsOrdinaryClosedReferenceTypesInTheAspNetAndHostingNamespaces` |
+  | **C3** | **FIX 1 REVERTED** — the element guard becomes `IsPointer` again | `…DeclinesEveryElementTypedShapeNotJustPointers` |
+  | **C4** | **FIX 2 REVERTED** — the open-generic guard becomes the CLR property again | `…DeclinesAnOpenGenericTheElementGuardCannotSee` |
+  | C5 | the open-generic owner stops walking the argument tree | `…WalksTheArgumentTreeRatherThanAskingTheTypeOnce` |
+  | C6 | the head stops declining value types | `…StillDeclinesValueTypesInTheAdmittedNamespaces` |
+  | C7 | BOTH fixes reverted on the RESOLVER's shared shape head | `…AnswersTheSameAsThePlannerHeadOnEveryGuardedShape` |
+
+  **Every one names its own block, and the two that carry the deliberate behaviour changes (C3, C4)
+  are the point of the stage.** Pristine baseline FIRST at **`Total tests: 7062`** and a pristine
+  re-run LAST at **7062**, with every restore `sha256`-verified against both owners. C1/C2/C3 also
+  break C7's block as collateral, which is expected: that block asserts the two owners AGREE, so any
+  mutation to the planner's head moves it too — recorded rather than filtered out.
+
+  ### ONE GATE RUN WAS LOST TO AN OPERATOR KILL, AND IT IS RECORDED AS THAT
+
+  A first gate was launched before the vacuity findings above were known. When the controls exposed
+  them, that gate was validating a contract file already known to be wrong, and it was killed to
+  reclaim the machine — **`pkill` on the `nsharp-test-all.<key>` tree while the core was live, which
+  is the recorded hazard, not a safe path.** Its log then showed exactly the recorded signature and
+  it must not be read as a product failure:
+
+  - `test-all.sh: line 115: 33207 Terminated: 15` — SIGTERM, the kill itself;
+  - then `Interop.Sys.GetCwd()` throwing inside the packaged SDK's emit of `BootstrapServices`,
+    because `test-all.sh`'s EXIT trap had already deleted `/tmp/nsharp-test-all.ec51835408eb.qaU4LI`
+    out from under the still-running core;
+  - then `MSB3541 Path has invalid value "bin/Debug/net10.0/"` — a CONSEQUENCE of the vanished cwd,
+    sequenced after the kill, not a cause and not an environment defect of the byte copy.
+
+  **It is NOT the two-stage wall, NOT a poisoned pack, and NOT a shape the pinned toolset cannot
+  emit** — the same `.nl` sources compiled green locally at `Passed: 7062` immediately before and
+  after. No republish boundary is implied. The one real consequence is the recorded cache poisoning,
+  so the dependency-cache entry `5d56539834e7…` and the step cache were cleared before the re-run.
+
+  ### THE FIRST CONTRACT ATTEMPT WAS PARTLY VACUOUS, AND THE CONTROLS SAID SO
+
+  Seven estate blocks were written and all seven passed. **Three of the seven non-vacuity controls
+  then failed to break anything**, which is the whole reason the controls exist, and each cause was
+  different:
+
+  | control | what happened | cause |
+  |---|---|---|
+  | C4 — FIX 2 reverted | **broke nothing** | the shared `TypeOfCreateBuilder` fixture goes through `AssemblyBuilder.DefineDynamicAssembly`, which yields a **`RuntimeTypeBuilder`** — and on THAT implementation `ContainsGenericParameters` reads **True** for an open generic, so the defective spelling declines it too. **The estate could not see Fix 2 at all.** |
+  | C6 — the value-type term deleted | **broke nothing** | the block's inputs were `int`, `DateTime`, `string`, `List<int>`, `object` — all outside both admitted namespaces, where the NAMESPACE test declines them anyway. The `IsValueType` term is only load-bearing INSIDE an admitted namespace. |
+  | C5 — the argument walk neutered | **did not build** | the mutation inserted `return false` ahead of live code, so the estate never ran; a broken mutation, not a vacuity finding |
+
+  **THE FIX IS MEASURED, NOT GUESSED.** A probe drives both builder implementations side by side:
+
+  | builder | open `1 `ContainsGenericParameters` | fixed vs defective |
+  |---|---|---|
+  | `RuntimeTypeBuilder` (the shared fixture) | **True** | AGREE — indistinguishable |
+  | `TypeBuilderImpl` (`PersistedAssemblyBuilder`, the compiler's own emit shape) | **False** | **DISAGREE — this is the defect** |
+
+  So the contract now builds the **persisted** shape itself (`ExternalGuardPersistedBuilder`, resolving
+  `PersistedAssemblyBuilder` by assembly-qualified name because `TypeBuilder` is forwarded to a
+  different assembly, and selecting the `(AssemblyName, Assembly, …)` constructor by its first two
+  parameter types because the exact two-type lookup finds nothing). The value-type block now asserts
+  on a struct declared **in `Microsoft.AspNetCore.Builder`**, built through `DefineType`'s parent
+  argument (a `SetParent` STATEMENT is a shape the columnar backend declines — measured, NL103 at
+  node kind 61). C5's mutation was rewritten to neuter the argument walk without unreachable code.
+  **The first guard needed none of this: an array is a `SymbolType` on both builders, which is why
+  C3 broke correctly the first time.**
+
+  ### THE GRID'S DIVERGENT VERDICT, RE-READ AT THIS TIP
+
+  The differential was rebuilt for this stage and pointed at the baseline `Compiler.dll` and the
+  baseline `BootstrapServices.dll`. Its corpus is a STRICT SUPERSET of A3+A4's, and every entry is
+  tagged, so **it reproduces A3+A4's published control readings on the identical subset before its
+  own verdict is read**: `CORPUS_A34_SUBSET 213`, `CORPUS_NEW_IN_A5 62`, total **275**.
+
+  | control row | A34-subset reading | published |
+  |---|---|---|
+  | `IsSupportedType` | 213 cells, **DIVERGENT 3** | A3+A4's DIVERGENT 3 — R1, R2, `Array<r2>` |
+  | `IsSupportedExternalType` | 213 cells, **DIVERGENT 5** | A2's and A3+A4's DIVERGENT 5, reproduced exactly |
+  | cs `IsSupportedExternalType` vs nl `IsSupportedJsonType` (a deliberately WRONG owner) | **DIVERGENT 6** / 25 over the full corpus | the instrument can see a divergence when there is one |
+
+  `IsSupportedAspNetExternalReferenceType` reads **`UNAVAILABLE cs=True nl=False`** against the
+  planner — the same shape A3 measured for the two span heads, and the pin sweep's finding confirmed
+  by measurement rather than by grep alone.
+
+  **THE FULL-CORPUS VERDICT: `IsSupportedExternalType` READS DIVERGENT 19 — 17 TIGHTENINGS AND 2
+  WIDENINGS — AND EVERY ONE OF THE 17 IS ONE OF THE TWO DEFECTS.** The 2 widenings are A0's ruled R2
+  (`yaml2nd` and `Array<r2>`, an assembly loaded twice, which the compiler never does).
+
+  ### THE THIRD FINDING: THE ARRAY DEFECT IS LIVE ON PRODUCTION SHAPES, THE OPEN-GENERIC ONE IS NOT
+
+  A2 and A3+A4 could only drive R3 as BUILDER types. This stage adds the **real AspNet runtime types
+  the emitter actually meets** when it compiles this repo's own `examples/14-minimal-api`,
+  `examples/17-issue-tracker/backend` and `tests/fixtures/issue-tracker` — loaded from the installed
+  `Microsoft.AspNetCore.App/10.0.5` shared framework as genuine `RuntimeType`s. The two defects part
+  company there, and the split is measured:
+
+  | defect | builder shape (`TypeBuilderImpl`/`SymbolType`) | real `RuntimeType` |
+  |---|---|---|
+  | ARRAY (`IsPointer` asked where `HasElementType` was needed) | `aspnetArray`, `aspnetArray2d`, `aspnetJagged`, `hostingArray` all `cs=T nl=F` | **`WebApplication[]`, `WebApplication[,]`, `WebApplicationBuilder[]`, `HttpContext[]`, `RequestDelegate[]` and their rank-2 forms — 8 cells, all `cs=T nl=F`** |
+  | OPEN GENERIC (`ContainsGenericParameters` False on a `TypeBuilderImpl`) | `aspnetOpen`, `hostingOpen` `cs=T nl=F` | **`Microsoft.AspNetCore.Http.HttpResults.Results\`2` is NOT divergent** — on a `RuntimeType` the property answers correctly, so the C# guard already catches it |
+
+  **AND THE ARRAY DEFECT IS NOT MASKED THE WAY THE BUILDER CORPUS SUGGESTED.** `IsSupportedType`
+  carries an `IsSZArray && IsSupportedElementType(...)` arm, which admitted `aspnetArray` on both
+  sides and hid the divergence one level up. It does NOT hide the runtime shapes: over the full
+  corpus `IsSupportedType` itself reads **DIVERGENT 12** — the 3 reproduced A34 cells plus
+  `aspnetArray2d` and **all 8 runtime AspNet array cells**, every one `cs=T nl=F`. The mis-admission
+  reaches the compiler's top-level type gate.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-A3`+`015-A4`: THE TWO SPAN HEADS AND THE
   COLLECTION-ELEMENT PAIR, TAKEN TOGETHER. NOT COMMITTED.**)
 
   ### THE PRE-EDIT DERIVATION — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED

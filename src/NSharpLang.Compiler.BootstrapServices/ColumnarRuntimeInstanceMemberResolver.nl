@@ -776,6 +776,15 @@ class ColumnarRuntimeInstanceMemberResolver {
         return true
     }
 
+    // SOLE OWNER of the AspNet RECEIVER test since `015-A5`. The C# emitter's two BCL-property entry
+    // points (`TryGetSupportedBclReadableProperty` / `TryGetSupportedBclWritableProperty`) asked their
+    // own copy of this predicate; both now call here, because "may this receiver own a member?" is
+    // this owner's whole subject and routing them to the planner's type-surface head would have
+    // spelled the namespace rule a third time. Driven as a second column over a 275-type corpus, this
+    // head and `ColumnarTypeOfPlanner.IsSupportedExternalType` agree on every AspNet-namespaced input;
+    // they part company only on the yaml assembly, which is a type-surface question and not a
+    // receiver one. `IsSupportedExternalReferenceShape` below carries BOTH of the guards `015-A5`
+    // was created to land — see the planner's own comment for why each one is needed.
     static func IsSupportedAspNetReceiver(valueType: Type): bool {
         if !IsSupportedExternalReferenceShape(valueType) {
             return false
