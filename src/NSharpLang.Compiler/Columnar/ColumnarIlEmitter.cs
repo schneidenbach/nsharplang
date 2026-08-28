@@ -425,8 +425,8 @@ internal sealed class ColumnarIlEmitter
         || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(t.FullName)
         || ColumnarTypeOfPlanner.IsSupportedJsonType(t)
         || IsSupportedExternalType(t)
-        || IsSupportedReadOnlySpanType(t)
-        || IsSupportedSpanType(t)
+        || ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(t)
+        || ColumnarTypeOfPlanner.IsSupportedSpanType(t)
         || ColumnarTypeOfPlanner.IsSupportedArrayPoolType(t)
         || ColumnarTypeOfPlanner.IsSupportedMemoryPoolType(t)
         || ColumnarTypeOfPlanner.IsSupportedMemoryOwnerType(t)
@@ -521,22 +521,6 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
         return false;
-    }
-
-    private static bool IsSupportedReadOnlySpanType(Type t)
-    {
-        if (!t.IsGenericType || t.IsGenericTypeDefinition)
-            return false;
-        return t.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>)
-               && ColumnarTypeOfPlanner.IsSupportedReadOnlySpanElement(t.GetGenericArguments()[0]);
-    }
-
-    private static bool IsSupportedSpanType(Type t)
-    {
-        if (!t.IsGenericType || t.IsGenericTypeDefinition)
-            return false;
-        return t.GetGenericTypeDefinition() == typeof(Span<>)
-               && ColumnarTypeOfPlanner.IsSupportedReadOnlySpanElement(t.GetGenericArguments()[0]);
     }
 
     private static MethodInfo? ResolveSpanLikeItemGetter(Type spanType)
@@ -731,37 +715,6 @@ internal sealed class ColumnarIlEmitter
         => ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedType)
             ? TypeBuilder.GetConstructor(closedType, openCtor)
             : (ConstructorInfo)MethodBase.GetMethodFromHandle(openCtor.MethodHandle, closedType.TypeHandle)!;
-
-    // The element/value types a collection may close over (the builder-element rebind rung):
-    // - a user TypeBuilder (record/class/struct under construction) — members rebind, probe-pinned working;
-    // - a nested admissible collection (List<List<Pt>>, List<HashSet<int>>) — its own resolution already vetted the inner args;
-    // - the BAKED surface (scalars/string/enums/baked closed generics) exactly as before.
-    // PINNED DECLINES (legacy-emitter accepted, flip in later rungs): user-headed closed generics (List<Box<int>>),
-    // builder-bound key/equality shapes, and tuples/delegates over builders.
-    private static bool IsAdmissibleCollectionElement(Type t)
-    {
-        if (t is EnumBuilder)
-            return false;
-        if (ColumnarTypeOfPlanner.IsEnumType(t))
-            return true;
-        if (t is TypeBuilder)
-            return true;
-        if (t.IsGenericType && !t.IsGenericTypeDefinition)
-        {
-            Type def;
-                def = t.GetGenericTypeDefinition();
-            if (def == typeof(List<>) || def == typeof(Dictionary<,>) || def == typeof(SortedDictionary<,>) || def == typeof(HashSet<>) || def == typeof(Stack<>))
-                return true;
-            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(t))
-                return false;
-        }
-        return IsSupportedType(t) && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(t);
-    }
-
-    // HashSet<T> elements are keys: accepting builder-bound elements would make lookup behavior depend on
-    // generated Equals/GetHashCode synthesis before that key path has parity evidence.
-    private static bool IsAdmissibleHashSetElement(Type t)
-        => IsAdmissibleCollectionElement(t) && !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(t);
 
     private static bool IsSupportedContextualDelegateType(Type t)
         => TryGetSupportedDelegateSignature(t, allowBuilderBoundArguments: true, out _, out _, out _);
@@ -2054,7 +2007,7 @@ internal sealed class ColumnarIlEmitter
             && def != typeof(IEnumerable<>))
             return false;
         elementType = paramsType.GetGenericArguments()[0];
-        return IsAdmissibleCollectionElement(elementType);
+        return ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(elementType);
     }
 
     private bool TryEmitExpandedParamsValue(int callIdx, int fixedCount, int argCount, Type paramsType, Type paramsElementType)
@@ -2839,7 +2792,7 @@ internal sealed class ColumnarIlEmitter
                 var listArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
                 if (listArgCanons.Count == 1
                     && TryResolveTypeWithTypeParams(listArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var listElement)
-                    && (listElement is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(listElement)))
+                    && (listElement is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(listElement)))
                 {
                     type = typeof(List<>).MakeGenericType(listElement);
                     return true;
@@ -2852,7 +2805,7 @@ internal sealed class ColumnarIlEmitter
                 var hashArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(8, canonical.Length - 9));
                 if (hashArgCanons.Count == 1
                     && TryResolveTypeWithTypeParams(hashArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var hashElement)
-                    && (hashElement is GenericTypeParameterBuilder || IsAdmissibleHashSetElement(hashElement)))
+                    && (hashElement is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(hashElement)))
                 {
                     type = typeof(HashSet<>).MakeGenericType(hashElement);
                     return true;
@@ -2865,7 +2818,7 @@ internal sealed class ColumnarIlEmitter
                 var stackArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(6, canonical.Length - 7));
                 if (stackArgCanons.Count == 1
                     && TryResolveTypeWithTypeParams(stackArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var stackElement)
-                    && (stackElement is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(stackElement)))
+                    && (stackElement is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(stackElement)))
                 {
                     type = typeof(Stack<>).MakeGenericType(stackElement);
                     return true;
@@ -2880,7 +2833,7 @@ internal sealed class ColumnarIlEmitter
                     && TryResolveTypeWithTypeParams(dictArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var dictKey)
                     && TryResolveTypeWithTypeParams(dictArgCanons[1], typeParams, enumRegistry, structRegistry, unionRegistry, out var dictValue)
                     && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(dictKey)
-                    && (dictValue is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(dictValue)))
+                    && (dictValue is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(dictValue)))
                 {
                     type = typeof(Dictionary<,>).MakeGenericType(dictKey, dictValue);
                     return true;
@@ -2895,7 +2848,7 @@ internal sealed class ColumnarIlEmitter
                     && TryResolveTypeWithTypeParams(sortedArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var sortedKey)
                     && TryResolveTypeWithTypeParams(sortedArgCanons[1], typeParams, enumRegistry, structRegistry, unionRegistry, out var sortedValue)
                     && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(sortedKey)
-                    && (sortedValue is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(sortedValue)))
+                    && (sortedValue is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sortedValue)))
                 {
                     type = typeof(SortedDictionary<,>).MakeGenericType(sortedKey, sortedValue);
                     return true;
@@ -3393,7 +3346,7 @@ internal sealed class ColumnarIlEmitter
             // BCL COLLECTIONS — List/Dictionary/SortedDictionary/HashSet close over the runtime generics; a USER
             // type of those names shadows the head entirely (declined above — the pipeline rejects such uses).
             // Elements may be user TypeBuilders or nested collections (rebind via ResolveClosedGenericMethod/Ctor;
-            // IsAdmissibleCollectionElement pins what stays out), but Dictionary KEYS and HashSet ELEMENTS must
+            // ColumnarTypeOfPlanner.IsAdmissibleCollectionElement pins what stays out), but Dictionary KEYS and HashSet ELEMENTS must
             // stay BAKED: hashing over a builder type rides synthesized Equals/GetHashCode and the PASS 0e
             // synthesis-skip rules would diverge from the legacy emitter — pinned decline.
             if (closedGenericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal))
@@ -3401,7 +3354,7 @@ internal sealed class ColumnarIlEmitter
                 var listArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
                 if (listArgCanons.Count == 1
                     && TryResolveType(listArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var listElement)
-                    && IsAdmissibleCollectionElement(listElement))
+                    && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(listElement))
                 {
                     type = typeof(List<>).MakeGenericType(listElement);
                     return true;
@@ -3414,7 +3367,7 @@ internal sealed class ColumnarIlEmitter
                 var hashArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(8, canonical.Length - 9));
                 if (hashArgCanons.Count == 1
                     && TryResolveType(hashArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var hashElement)
-                    && IsAdmissibleHashSetElement(hashElement))
+                    && ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(hashElement))
                 {
                     type = typeof(HashSet<>).MakeGenericType(hashElement);
                     return true;
@@ -3427,7 +3380,7 @@ internal sealed class ColumnarIlEmitter
                 var stackArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(6, canonical.Length - 7));
                 if (stackArgCanons.Count == 1
                     && TryResolveType(stackArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var stackElement)
-                    && IsAdmissibleCollectionElement(stackElement))
+                    && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(stackElement))
                 {
                     type = typeof(Stack<>).MakeGenericType(stackElement);
                     return true;
@@ -3440,7 +3393,7 @@ internal sealed class ColumnarIlEmitter
                 var listArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(14, canonical.Length - 15));
                 if (listArgCanons.Count == 1
                     && TryResolveType(listArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var listElement)
-                    && IsAdmissibleCollectionElement(listElement))
+                    && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(listElement))
                 {
                     type = typeof(IReadOnlyList<>).MakeGenericType(listElement);
                     return true;
@@ -3453,7 +3406,7 @@ internal sealed class ColumnarIlEmitter
                 var collectionArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(20, canonical.Length - 21));
                 if (collectionArgCanons.Count == 1
                     && TryResolveType(collectionArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var collectionElement)
-                    && IsAdmissibleCollectionElement(collectionElement))
+                    && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(collectionElement))
                 {
                     type = typeof(IReadOnlyCollection<>).MakeGenericType(collectionElement);
                     return true;
@@ -3466,7 +3419,7 @@ internal sealed class ColumnarIlEmitter
                 var setArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(13, canonical.Length - 14));
                 if (setArgCanons.Count == 1
                     && TryResolveType(setArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var setElement)
-                    && IsAdmissibleHashSetElement(setElement))
+                    && ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(setElement))
                 {
                     type = typeof(IReadOnlySet<>).MakeGenericType(setElement);
                     return true;
@@ -3479,7 +3432,7 @@ internal sealed class ColumnarIlEmitter
                 var enumerableArgCanons = ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(12, canonical.Length - 13));
                 if (enumerableArgCanons.Count == 1
                     && TryResolveType(enumerableArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var enumerableElement)
-                    && IsAdmissibleCollectionElement(enumerableElement))
+                    && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(enumerableElement))
                 {
                     type = typeof(IEnumerable<>).MakeGenericType(enumerableElement);
                     return true;
@@ -3494,7 +3447,7 @@ internal sealed class ColumnarIlEmitter
                     && TryResolveType(dictArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var dictKey)
                     && TryResolveType(dictArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var dictValue)
                     && !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(dictKey)
-                    && IsAdmissibleCollectionElement(dictValue))
+                    && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(dictValue))
                 {
                     type = typeof(Dictionary<,>).MakeGenericType(dictKey, dictValue);
                     return true;
@@ -3513,7 +3466,7 @@ internal sealed class ColumnarIlEmitter
                     && TryResolveType(roDictArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var roDictKey)
                     && TryResolveType(roDictArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var roDictValue)
                     && !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(roDictKey)
-                    && IsAdmissibleCollectionElement(roDictValue))
+                    && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(roDictValue))
                 {
                     type = typeof(IReadOnlyDictionary<,>).MakeGenericType(roDictKey, roDictValue);
                     return true;
@@ -3528,7 +3481,7 @@ internal sealed class ColumnarIlEmitter
                     && TryResolveType(sortedArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var sortedKey)
                     && TryResolveType(sortedArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var sortedValue)
                     && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(sortedKey)
-                    && IsAdmissibleCollectionElement(sortedValue))
+                    && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sortedValue))
                 {
                     type = typeof(SortedDictionary<,>).MakeGenericType(sortedKey, sortedValue);
                     return true;
@@ -7132,7 +7085,7 @@ internal sealed class ColumnarIlEmitter
                         _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item")!));
                         return true;
                     }
-                    if (IsSupportedSpanType(arrayType))
+                    if (ColumnarTypeOfPlanner.IsSupportedSpanType(arrayType))
                     {
                         var spanElementType = arrayType.GetGenericArguments()[0];
                         var itemGetter = ResolveSpanLikeItemGetter(arrayType);
@@ -10889,7 +10842,7 @@ internal sealed class ColumnarIlEmitter
                     type = typeof(object);
                     return true;
                 }
-                if (IsSupportedReadOnlySpanType(indexedType))
+                if (ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(indexedType))
                 {
                     var spanElementType = indexedType.GetGenericArguments()[0];
                     var spanSlice = indexedType.GetMethod(nameof(ReadOnlySpan<byte>.Slice), new[] { typeof(int), typeof(int) });
@@ -10927,7 +10880,7 @@ internal sealed class ColumnarIlEmitter
                     type = spanElementType;
                     return true;
                 }
-                if (IsSupportedSpanType(indexedType))
+                if (ColumnarTypeOfPlanner.IsSupportedSpanType(indexedType))
                 {
                     var spanElementType = indexedType.GetGenericArguments()[0];
                     var itemGetter = ResolveSpanLikeItemGetter(indexedType);
@@ -15426,8 +15379,8 @@ internal sealed class ColumnarIlEmitter
         elementType = target.GetGenericArguments()[0];
         if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)
             && !(collectionDefinition == typeof(HashSet<>)
-                ? IsAdmissibleHashSetElement(elementType)
-                : IsAdmissibleCollectionElement(elementType)))
+                ? ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(elementType)
+                : ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(elementType)))
             return false;
         var openCtor = collectionDefinition.GetConstructor(Type.EmptyTypes);
         var openAdd = collectionDefinition.GetMethod(nameof(List<int>.Add));
@@ -16638,7 +16591,7 @@ internal sealed class ColumnarIlEmitter
                     return TryGetPreflightExpressionType(indexNode, out var listIndexType)
                            && listIndexType == typeof(int);
                 }
-                if (IsSupportedReadOnlySpanType(indexedType))
+                if (ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(indexedType))
                 {
                     var spanElementType = indexedType.GetGenericArguments()[0];
                     if (!TryGetPreflightExpressionType(indexNode, out var spanIndexType)
@@ -17212,7 +17165,7 @@ internal sealed class ColumnarIlEmitter
         if (args.Length != 1)
             return false;
         elementType = args[0];
-        return IsAdmissibleCollectionElement(elementType) || ColumnarTypeOfPlanner.IsSupportedElementType(elementType);
+        return ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(elementType) || ColumnarTypeOfPlanner.IsSupportedElementType(elementType);
     }
 
     private static bool IsSafeSzArrayType(Type type)
@@ -19123,7 +19076,7 @@ internal sealed class ColumnarIlEmitter
     {
         if (sourceType.IsSZArray && ColumnarTypeOfPlanner.IsSupportedSpanLikeType(targetType))
             return TypesEquivalent(sourceType.GetElementType()!, targetType.GetGenericArguments()[0]);
-        if (IsSupportedSpanType(sourceType) && IsSupportedReadOnlySpanType(targetType))
+        if (ColumnarTypeOfPlanner.IsSupportedSpanType(sourceType) && ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(targetType))
             return TypesEquivalent(sourceType.GetGenericArguments()[0], targetType.GetGenericArguments()[0]);
         return false;
     }

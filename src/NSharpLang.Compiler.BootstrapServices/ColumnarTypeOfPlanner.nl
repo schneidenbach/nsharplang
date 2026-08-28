@@ -1098,6 +1098,21 @@ class ColumnarTypeOfPlanner {
         return arguments.Length == 1 && IsSupportedReadOnlySpanElement(arguments[0])
     }
 
+    // The two span heads are published SEPARATELY because the span family is not symmetric and three
+    // emitter decisions read the difference: only `Span<T>` converts to `ReadOnlySpan<T>` (there is no
+    // conversion the other way), an indexed READ of a `ReadOnlySpan<T>` lowers through
+    // `MemoryMarshal.AsBytes` while a `Span<T>` read uses the `Item` getter, and an indexed WRITE is a
+    // `Span<T>`-only lowering. A single folded head would answer `true` for `ReadOnlySpan<T>` in the
+    // source slot of a conversion that does not exist. Both narrow the SAME span-like rule, so the
+    // element constraint is still spelled exactly once.
+    static func IsSupportedReadOnlySpanType(valueType: Type): bool {
+        return IsSupportedSpanLikeType(valueType) && (valueType.GetGenericTypeDefinition().FullName ?? "") == "System.ReadOnlySpan`1"
+    }
+
+    static func IsSupportedSpanType(valueType: Type): bool {
+        return IsSupportedSpanLikeType(valueType) && (valueType.GetGenericTypeDefinition().FullName ?? "") == "System.Span`1"
+    }
+
     static func IsSupportedTaskType(valueType: Type): bool {
         if valueType == typeof(Task) || valueType == typeof(ValueTask) {
             return true
@@ -1219,6 +1234,13 @@ class ColumnarTypeOfPlanner {
         return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.Stack`1" || name == "System.Collections.Generic.IReadOnlyList`1" || name == "System.Collections.Generic.IReadOnlyCollection`1" || name == "System.Collections.Generic.IReadOnlySet`1" || name == "System.Collections.Generic.IReadOnlyDictionary`2" || name == "System.Collections.Generic.IEnumerable`1"
     }
 
+    // The element/value types a collection may close over (the builder-element rebind rung):
+    // - a user TypeBuilder (record/class/struct under construction) — members rebind, probe-pinned working;
+    // - a nested admissible collection (List<List<Pt>>, List<HashSet<int>>) — its own resolution already
+    //   vetted the inner arguments, which is why the five concrete heads return before asking about them;
+    // - the BAKED surface (scalars/string/enums/baked closed generics), through the supported-value tail.
+    // PINNED DECLINES (legacy-emitter accepted, flip in later rungs): user-headed closed generics
+    // (List<Box<int>>), builder-bound key/equality shapes, and tuples/delegates over builders.
     static func IsAdmissibleCollectionElement(valueType: Type): bool {
         if IsEnumBuilder(valueType) {
             return false
@@ -1241,6 +1263,9 @@ class ColumnarTypeOfPlanner {
         return IsSupportedType(valueType) && !ContainsBuilderBoundType(valueType)
     }
 
+    // HashSet<T> elements are keys: accepting builder-bound elements would make lookup behaviour depend
+    // on generated Equals/GetHashCode synthesis before that key path has parity evidence. A source ENUM
+    // is the one builder-bound shape that stays, because its underlying integral value is what is hashed.
     static func IsAdmissibleHashSetElement(valueType: Type): bool {
         return IsAdmissibleCollectionElement(valueType) && !ContainsNonEnumBuilderBoundType(valueType)
     }

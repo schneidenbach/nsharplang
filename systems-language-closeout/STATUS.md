@@ -1,6 +1,64 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-27 (**TASK 015 SUB-SLICE `015-A2` — THE `IsSupportedType` CONE IS REROUTED TO
+Last updated: 2026-08-27 (**TASK 015 SUB-SLICES `015-A3`+`015-A4` — THE TWO SPAN HEADS AND THE
+COLLECTION-ELEMENT PAIR ARE REROUTED TO THEIR N# OWNERS AND 35 LINES OF C# PREDICATE ARE DELETED.
+THE EMITTER FALLS 365 LINES BELOW ITS 015-PAUSE LOW-WATER MARK — see the Cursor block.** Both stages
+were RE-DERIVED from the tip before any edit: the member-extent instrument reproduces A2's published
+**21,115 / 20,084 / 422** exactly, and **all four rows reproduce their planned site counts to the
+digit** (4 / 4 / 16 / 4) along with the two extents A0's decode table published. A2's `IsEnumType`
+occurrence edge does not recur, and that was CHECKED — no line carries two calls to the same member,
+though `CanUseSpanConversion` carries one call to EACH head, which is the asymmetry the stage exists
+for. **THE PIN SWEEP CAME FIRST AND WAS SHARPER THAN A2's: THE TWO SPAN HEADS HAD NO NAMED N# OWNER
+AT ALL** — the only estate mention anywhere is a comment naming the C# pair — **and the two
+collection-element owners were pinned on ONE axis only, six asserts all about builder-bound shapes**,
+so nothing in 7,050 blocks pinned the element surface itself. **THE SPAN-HEAD RULING IS MEASURED, NOT
+ARGUED**: `CanUseSpanConversion` consumes an ASYMMETRIC pair, so A3 publishes TWO N# heads rather
+than merging, and over the **20,164 ordered span pairs** the corpus can form the two-head rule agrees
+with the C# pair on **every one** while a folded head would answer differently on **588** — including
+`ReadOnlySpan<int> → Span<int>`, for which no conversion exists. The heads are written as NARROWINGS
+of the existing `IsSupportedSpanLikeType`, so the element rule is still spelled once and that owner's
+30 estate references keep their meaning. **THE DIFFERENTIAL REPRODUCES TWO PUBLISHED CONTROLS BEFORE
+ITS OWN VERDICT** (`IsSupportedType` DIVERGENT 3; `IsSupportedExternalType` **DIVERGENT 5**, A2's row
+exactly) and then reads **the two span heads at DIVERGENT 0 and the A4 pair at DIVERGENT 2 each —
+852 cells, 4 divergent, NOT ONE TIGHTENING**; the A4 residual is `yaml2nd` and its array, reproducing
+A0's grid rows 9 and 25, and **the divergence set is IDENTICAL before and after the cut**. The same
+baseline run proves the pin sweep's finding: the span rows read `UNAVAILABLE nl=False` against the
+baseline assembly. **FOUR C# MEMBERS DIE (35 extent lines); THE EMITTER GOES 21,115 → 21,068 (−47
+lines, −43 non-blank, 422 → 418 members)** and `ColumnarTypeOfPlanner` consumption goes **159 → 181**
+with the arithmetic closing exactly (159 + 28 − 6), every other N# owner's count unchanged, compiler
+C# steady at **10 files**, and no `using` going dead (measured). **THE C# KNOWLEDGE COMMENTS WERE
+PORTED ONTO THE N# OWNERS, NOT DISCARDED.** **THE COLLAPSE RECONCILES WITHOUT A REMAINDER**: baseline
+all 4 `csDeclared=True` / 0 N# calls / `COLLAPSE_FAILURES=4`; final all 4 `csDeclared=False` with
+**4 / 4 / 15 / 4 = 27 IL sites against 27 source sites**, `COLLAPSE_FAILURES=0`, `DECODE_FAILURES=0`
+over 466→462 bodies. **THE CORPUS IL BYTE-COMPARISON RAN THREE CONTROL PASSES BEFORE THE VERDICT**
+— all three pairings `IL_DIFFS=0 / EXIT_DIFFS=0 / LOG_DIFFS=0` — and then **90 / 90 comparable
+assemblies BYTE-IDENTICAL with NOT EVEN ONE LOG DIFF**, cleaner than A2. **BOTH COUPLING MUTATIONS
+THAT NARROW THE OWNER MOVE THE EMITTER** (M2 12 targets, M4 9 targets) **and the three that WIDEN it
+cannot move an already-green corpus by construction** — named as the instrument's shape rather than
+glossed, each with a measured corpus reason (zero ReadOnlySpan indexed writes among 37 declarations;
+four nested-collection shapes all over scalars; zero source-typed arrays as elements; zero
+source-typed sets) and each carried by a NAMED estate control that breaks. Evidence: estate
+**`Passed: 7055`** (7,050 + exactly the 5 new blocks, two independent parses agreeing block-for-block);
+`ColumnarSpanHeadAndElementFacts.tests.nl` **173 lines / 5 blocks / 77 asserts / ZERO local
+fixtures**; **five non-vacuity controls, each NAMING the block it breaks**, all `sha256`-restored,
+with C5 reaching into A2's own cone contract — and **C1 and C2 RE-RUN CLEANLY AND SERIALLY** with a
+pristine baseline first and a pristine re-run last, every one carrying a real **`Total tests: 7055`**
+line (7055 / **7053+2** / **7054+1** / 7055), because their first pass had overlapped a second
+`dotnet test` on the same project; live-tree **399 / 246** row-for-row 0 added / 0 removed;
+ownership audit **18 / 18** PRISTINE-FIRST on a `git archive HEAD` tree and **18 / 18** after the
+repin, with the blank-line control at **17 / 18** and a byte-exact restore; manifest **391, no BOM**.
+**THE TWO-KEY REPIN WAS TAKEN LAST AND ITS INSTRUMENT PROVED ITSELF FIRST**: emitter row
+`21115/20084/text-v1:c68eef366389d2bd` → **`21068/20041/text-v1:e3a2adcb4e520e1a`**, head
+`head-v1:9d10dee2ca517f36` → **`head-v1:0b1b9ad365cbff54`** in BOTH keys, **epoch triple UNCHANGED**
+(381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1`).
+**THE FRESH ISOLATED GATE IS GREEN ON THE FINAL TREE — `GATE EXIT 0`, `ALL TESTS PASSED`, 126
+`✓ PASSED` / 0 `✗ FAILED`, 22m 33s from a `/tmp` byte copy with the log outside it** — carrying unit
+**596**, estate **7,055**, all **47** native projects, the ownership audit **18 / 18**, the format
+contract gate and the IL verification gate (**67** assemblies, no new errors vs baseline).
+**NEXT: `015-A5`, `IsSupportedExternalType` and its AspNet helper — and it needs TWO distinct guard
+fixes, not one, because the open generic's `HasElementType` is False.** NOT COMMITTED)
+
+Last updated (prior): 2026-08-27 (**TASK 015 SUB-SLICE `015-A2` — THE `IsSupportedType` CONE IS REROUTED TO
 ITS N# OWNERS AND 227 LINES OF C# PREDICATE ARE DELETED. THE EMITTER FALLS 318 LINES BELOW ITS
 015-PAUSE LOW-WATER MARK — see the Cursor block.** The 19 members and their sites were RE-DERIVED
 from the tip before any edit: the member-extent instrument reproduces A1's published
@@ -4803,7 +4861,464 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-A2`: THE `IsSupportedType` CONE. NOT COMMITTED.**)
+- Active sub-slice (015 arc, THIS TURN — **`015-A3`+`015-A4`: THE TWO SPAN HEADS AND THE
+  COLLECTION-ELEMENT PAIR, TAKEN TOGETHER. NOT COMMITTED.**)
+
+  ### THE PRE-EDIT DERIVATION — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
+
+  A0's staged plan named A3 as "THE TWO C# SPAN HEADS" (no family sites, because it splits an N#
+  head) and A4 as "THE COLLECTION-ELEMENT PAIR", `IsAdmissibleCollectionElement` (16 sites) and
+  `IsAdmissibleHashSetElement` (4). Both were re-derived from the tip (`f2239872c`) with the
+  member-extent instrument rebuilt for this slice — a C# lexer pass masking strings/chars/both
+  comment forms, then a brace-matched walk from each parameter list — and with A2's arithmetic
+  correction applied (OCCURRENCE-based counting, not line-based).
+
+  **THE INSTRUMENT REPRODUCES A2's PUBLISHED FILE READING EXACTLY BEFORE ANY OF ITS NEW NUMBERS ARE
+  READ**: `ColumnarIlEmitter.cs` at **21,115 lines / 20,084 non-blank / 422 members**.
+
+  | # | member | plan / A2 said | measured now | extent | grid verdict |
+  |---|---|---|---|---|---|
+  | 1 | `IsSupportedReadOnlySpanType` | 4 (A2: "5 each, A2 removed one") | **4** | 7 | UNMATCHED — no N# owner exists |
+  | 2 | `IsSupportedSpanType` | 4 (same) | **4** | 7 | UNMATCHED — no N# owner exists |
+  | 3 | `IsAdmissibleCollectionElement` | 16 | **16** | 19 | DIVERGENT 2 (A0 row 9) — residual R2/R3 |
+  | 4 | `IsAdmissibleHashSetElement` | 4 | **4** | 2 | DIVERGENT 2 (A0 row 25) — residual R2/R3 |
+
+  **EVERY ROW REPRODUCES TO THE DIGIT** — including the two extents A0's reopening-decode table
+  published (`IsAdmissibleCollectionElement` 19 lines, `IsAdmissibleHashSetElement` 2). **A2's
+  `IsEnumType` edge does not recur here, and that was checked rather than assumed**: no line carries
+  two calls to the SAME member, so the line-based and occurrence-based censuses agree on all four
+  rows. (`CanUseSpanConversion`:19126 does carry two sites, but of DIFFERENT members — one for each
+  head, which is the asymmetry the whole stage exists for.)
+
+  **THE RECONCILIATION.** A4's 20 sites are the plan's own `20 (A4: 16 + 4)` term in
+  41 + 148 + **20** + 2 + 77 = 288. A3's **8** sites are NOT in that total and should not be: like
+  A2's 22 transitive-private sites, the two span heads are transitive C#-private callees the
+  reopening decode listed under "their transitive C#-private callees … become deletable with them"
+  and never counted into the 286. A0's own plan says it: "A3 adds no family sites." **Stage total for
+  this turn: 28 call sites, of which 27 MOVE and 1 VANISHES** (the
+  `IsAdmissibleCollectionElement` call inside `IsAdmissibleHashSetElement`'s deleted one-line body).
+
+  ### THE PIN SWEEP — TAKEN FIRST, BEFORE A LINE OF C# MOVED
+
+  A1's carried lesson (deleting the C# is what makes an unpinned owner permanently unpinnable by A0's
+  differential) was applied to all four owners plus the two they narrow.
+
+  | owner on `ColumnarTypeOfPlanner` | estate references before A3/A4 |
+  |---|---|
+  | `IsSupportedSpanLikeType` | 30 (A0's span block, A2's cone block) |
+  | `IsSupportedReadOnlySpanElement` | 19 |
+  | `IsAdmissibleCollectionElement` | **3 asserts — ALL of them builder-shape** |
+  | `IsAdmissibleHashSetElement` | **3 asserts — ALL of them builder-shape** |
+  | `IsSupportedReadOnlySpanType` | **0 — AND NO NAMED OWNER EXISTED** |
+  | `IsSupportedSpanType` | **0 — AND NO NAMED OWNER EXISTED** |
+
+  **THE SWEEP WAS AGAIN THE RIGHT CALL, AND SHARPER THAN A2's.** The only estate mention of either
+  span head anywhere is a COMMENT in `ColumnarTypeAdmissibilityFacts.tests.nl:135` naming the C#
+  pair as the predecessor contract — there is no owner to call. And the two collection-element
+  owners, which do exist, are pinned on exactly ONE axis: six asserts, every one of them about a
+  builder-bound shape. **Nothing in 7,050 blocks pinned the collection-element surface itself** — not
+  the five concrete heads that return TRUE without asking about their arguments, not the fact that
+  that head list is NARROWER than `IsSupportedCollectionType`'s ten, and not the
+  `!ContainsBuilderBoundType` tail.
+
+  ### THE SPAN-HEAD RULING — DECIDED BY WHAT `CanUseSpanConversion` CONSUMES, THEN MEASURED
+
+  A0 left the choice open: "the reroute must either split the N# owner or rewrite the two C# call
+  sites that need the head distinction." Read in place, `CanUseSpanConversion` consumes
+  `IsSupportedSpanType(sourceType) && IsSupportedReadOnlySpanType(targetType)` — an ASYMMETRIC pair,
+  because only `Span<T>` converts to `ReadOnlySpan<T>` and nothing converts back. Two further sites
+  need the same asymmetry for a different reason: an indexed READ of a `ReadOnlySpan<T>` lowers
+  through `MemoryMarshal.AsBytes` while a `Span<T>` read uses the `Item` getter, and an indexed WRITE
+  is a `Span<T>`-only lowering. **THE RULING IS TWO N# HEADS, NOT A MERGED ONE, AND IT IS MEASURED
+  RATHER THAN ARGUED**: over the 20,164 ordered span-typed pairs the corpus can form, the two-head
+  rule agrees with the C# pair on **every one (`CS_VS_NL_PAIR_MISMATCHES 0`)**, and a single folded
+  head would answer differently on **588** of them — including the named direction
+  `ReadOnlySpan<int> → Span<int>`, for which no conversion exists at all.
+
+  The heads are written as NARROWINGS of the existing `IsSupportedSpanLikeType` rather than as two
+  new bodies, so the element constraint is still spelled exactly once and the folded owner's 30
+  estate references keep their meaning untouched:
+  `IsSupportedSpanLikeType(v) && v.GetGenericTypeDefinition().FullName == "System.ReadOnlySpan\`1"`.
+  A4 needed no N# change at all — both owners already existed.
+
+  ### THE DIFFERENTIAL, RUN ONE LAST TIME — BECAUSE THE CUT MAKES IT UNRUNNABLE
+
+  The harness was **rebuilt from scratch for this slice** and pointed at the BASELINE `Compiler.dll`
+  and the FINAL `BootstrapServices.dll`. **IT REPRODUCES TWO PUBLISHED CONTROLS TO THE DIGIT BEFORE
+  ITS OWN VERDICT IS READ**, which is what makes its corpus comparable to A0's and A2's:
+
+  | control row | verdict | reading |
+  |---|---|---|
+  | `IsSupportedType` | **DIVERGENT 3** | A0's R1 (a RUNTIME generic parameter) + R2 (the twice-loaded `IYamlTypeConverter`) + its array wrapper |
+  | `IsSupportedExternalType` | **DIVERGENT 5** | **A2's published control row, reproduced exactly** — R2 and its array, R3's AspNet ARRAY and its wrapper, and the AspNet OPEN GENERIC A2 measured as newly found. All three classes are `015-A5`'s |
+  | cs `IsAdmissibleCollectionElement` driven against nl `IsSupportedDelegateType` (a deliberately WRONG owner) | **DIVERGENT 136** | the instrument can see a divergence when there is one |
+  | cs `IsSupportedSpanType` driven against nl `IsSupportedReadOnlySpanType` (the WRONG head) | **DIVERGENT 28** | the instrument can see the head distinction it is being asked about — the 28 are the 14 admitted `Span<·>` and the 14 admitted `ReadOnlySpan<·>`, answering opposite ways |
+
+  R3 is driven as **builder types declared in the AspNet namespaces**, which is the shape the emitter
+  actually meets — the C# head asks only about `t.Namespace`, and `ContainsGenericParameters` reading
+  False on a `TypeBuilderImpl` is precisely why A2's newly found open-generic tightening exists.
+
+  **THE VERDICT ON THE FOUR, over a 213-type corpus that already contains the composed inputs:**
+
+  | row | cells | divergent | reading |
+  |---|---|---|---|
+  | `IsSupportedReadOnlySpanType` | 213 | **0** | EQUIVALENT |
+  | `IsSupportedSpanType` | 213 | **0** | EQUIVALENT |
+  | `IsAdmissibleCollectionElement` | 213 | **2** | `yaml2nd` and `yaml2nd[]`, both `cs=F nl=T` |
+  | `IsAdmissibleHashSetElement` | 213 | **2** | the same two |
+  | **total** | **852** | **4** | **not one tightening** |
+
+  **THE TWO SPAN HEADS MOVE NO ANSWER AT ALL**, and the A4 pair's residual **reproduces A0's grid
+  rows 9 and 25 exactly — "DIVERGENT 2, residual R2/R3 only"**. Both cells are R2 (an assembly loaded
+  twice, which the compiler never does), both are WIDENINGS, and the divergence set is **IDENTICAL
+  before and after the cut**: run against the BASELINE `BootstrapServices.dll` over the SAME
+  213-type corpus, both A4 rows give **the same two cells, `yaml2nd` and `Array<r2>`**. The reroute
+  introduces nothing; it makes an already-measured N# answer the single one.
+
+  **THAT BASELINE RUN ALSO CONFIRMS THE PIN SWEEP'S SHARPEST FINDING BY MEASUREMENT**: against the
+  baseline assembly the two span rows read `UNAVAILABLE cs=True nl=False` — the C# member exists and
+  **there is no N# owner to drive at all**. The heads A3 publishes are genuinely new.
+
+  **NO R3 CELL REACHES THE A4 PAIR, AND THE REASON IS MEASURED RATHER THAN ASSUMED**: every AspNet
+  shape in the corpus is a builder type, so `ContainsBuilderBoundType` answers TRUE and the tail's
+  second conjunct rejects it on BOTH sides before the divergent external-type answer can be read. R3
+  stays entirely `015-A5`'s.
+
+  **THE COMPOSED-INPUT PROBE.** A flat corpus cannot see what a reroute changes, because the N# owner
+  recurses into **N#'s** `IsSupportedType`, not C#'s. Fifteen wrapper shapes (`List`, `HashSet`,
+  `Stack`, `Dictionary<int,·>`, `SortedDictionary<int,·>`, `IReadOnlyList`, `IEnumerable`,
+  `ValueTuple<int,·>`, array, `Span`, `ReadOnlySpan`, `Action`, `Func`, `Task`, `List<List<·>>`) were
+  closed over each of R1, R2 and R3, giving a **45-type composed group** inside the corpus
+  (which also carries 26 builder shapes, 45 span shapes, 5 R3, 2 R2 and 1 R1). Driven through all
+  four rows, **exactly ONE of the 180 composed cells diverges** (`yaml2nd[]`),
+  and the reason the others do not is itself a measured
+  fact about what A2 already landed: `List<yaml2nd>` hits the five-head early return, and
+  `ValueTuple<int,yaml2nd>` reaches `IsSupportedValueTuple` — **which A2 already made N#-owned**, so
+  both sides ask the same owner and agree.
+
+  ### THE HEAD-DISTINCTION PROBE — THE RULING, MEASURED
+
+  | reading | value |
+  |---|---|
+  | ordered span-typed pairs driven | **20,164** |
+  | `CS_VS_NL_PAIR_MISMATCHES` (two N# heads vs the C# pair) | **0** |
+  | `MERGED_HEAD_WOULD_CHANGE` (one folded head vs the two-head rule) | **588** |
+
+  The four named orderings make it concrete: `Span<int> → ReadOnlySpan<int>` is admitted by both
+  spellings, and **`ReadOnlySpan<int> → Span<int>`, `Span<int> → Span<int>` and
+  `ReadOnlySpan<int> → ReadOnlySpan<int>` are refused by the two-head rule and ADMITTED by the folded
+  one**. The first of those three has no CLR conversion at all. That is the measured answer to the
+  mandate's question, and it is why A3 publishes a second entry point rather than merging.
+
+  ### WHAT MOVED
+
+  Four private C# members are **DELETED** and their surviving call sites now call the N# owner.
+
+  | C# member deleted | extent | sites that MOVE | sites that VANISH with a deleted body |
+  |---|---|---|---|
+  | `IsAdmissibleCollectionElement` | 19 | 15 | 1 |
+  | `IsSupportedReadOnlySpanType` | 7 | 4 | 0 |
+  | `IsSupportedSpanType` | 7 | 4 | 0 |
+  | `IsAdmissibleHashSetElement` | 2 | 4 | 0 |
+  | **total** | **35** | **27** | **1** |
+
+  27 + 1 = **28**, the two stages' measured site total. **NO MEMBER CHANGES NAME AT THE CALL SITE**,
+  which is the kind of reroute a later grep can audit; the textual rewrite count is **28 + 1**, the
+  extra one being a comment at `:3349` that names the predicate and now names its owner.
+
+  **THE EMITTER SHRINKS, MEASURED THREE WAYS**: `21,115 → 21,068` lines (**−47**, the 35 member lines
+  plus 8 doc-comment lines and 4 blank separators), non-blank `20,084 → 20,041` (**−43**), members
+  `422 → 418` (**−4**, exactly the four). `git diff` reads **27 insertions / 74 deletions**. The file
+  is now **365 lines BELOW the 21,433 low-water mark at the 015 pause** and 655 below the epoch
+  ceiling. **Compiler C# stays at 10 files**, and the build carries the **same four pre-existing
+  `CS8604` warnings, 0 errors**.
+
+  **THE C# KNOWLEDGE COMMENTS WERE PORTED, NOT DISCARDED.** The deleted
+  `IsAdmissibleCollectionElement` carried a six-line comment naming the rebind rung and its PINNED
+  DECLINES, and `IsAdmissibleHashSetElement` a two-line one explaining why set elements are keys.
+  Both are now on the N# owners, which had none, so the cut moves the knowledge rather than losing it.
+
+  **N# CONSUMPTION IN THE EMITTER GOES 159 → 181 `ColumnarTypeOfPlanner` MENTIONS**, and the
+  arithmetic closes exactly: 159 + 28 − 6 = 181, the six being the `ColumnarTypeOfPlanner` calls that
+  sat INSIDE the four deleted bodies. **Every other N# owner's mention count is unchanged to the
+  digit** (`ColumnarTypeCanonicalizer` 39, `ColumnarRuntimeInstanceMemberResolver` 24,
+  `ColumnarDeclineTrace` 22, … 32 rows), which is what a reroute to a single owner should look like.
+
+  **NO `using` WENT DEAD, AND THAT IS MEASURED RATHER THAN ASSUMED** — unlike A1, which had to remove
+  one. The deleted bodies named `ReadOnlySpan<>`/`Span<>` (`System`), `EnumBuilder`/`TypeBuilder`
+  (`System.Reflection.Emit`) and the five collection definitions (`System.Collections.Generic`), and
+  every one of those namespaces keeps a large live population after the cut:
+  `System.Collections.Generic`→`List<` reads **173** live consumers,
+  `System.Reflection.Emit`→`TypeBuilder` **156**, `System.Collections`→`IList` 7,
+  `System.Diagnostics`→`Process` 22, `System.IO`→`StreamReader` 6, `System.Text.Json`→`JsonElement`
+  38, `System.Runtime.InteropServices`→`CallingConvention` 8.
+
+  ### THE PROOF THAT THE ROWS COLLAPSED — ONE INSTRUMENT, BOTH ASSEMBLIES, ITS OWN CONTROL INSIDE
+
+  The collapse instrument decodes `Compiler.dll` with `System.Reflection.Metadata`, walks **every
+  method body on `ColumnarIlEmitter` and its 13 nested types**, resolves every
+  `call`/`callvirt`/`newobj`/`ldftn` token, and answers two questions per member. **The decoder checks
+  itself** — every body must decode to exactly its own length, and `DECODE_FAILURES=0` on both
+  assemblies (466 bodies before, 462 after: the four deleted members).
+
+  | assembly | reading |
+  |---|---|
+  | **baseline `f2239872c`** | all 4 `csDeclared=True`, **0** N# calls, `COLLAPSE_FAILURES=4` |
+  | **A3+A4 (the tree that ships)** | all 4 `csDeclared=False` with **exactly 4 / 4 / 15 / 4**, `COLLAPSE_FAILURES=0` |
+
+  **27 IL SITES AGAINST 27 SOURCE SITES — THEY RECONCILE WITHOUT A REMAINDER.** The instrument's own
+  cross-check is the total: `TOTAL_NL_CALL_SITES` moves **159 → 180**, which is +21, and the source
+  moves +22 textual mentions of which exactly one is the comment — so the IL total and the source
+  total agree on the same 21 new calls. **The baseline reading of 159 reproduces A2's published
+  `ColumnarTypeOfPlanner alone 5 → 159` to the digit**, from a different instrument.
+
+  ### THE CORPUS IL BYTE-COMPARISON — THREE CONTROL PASSES BEFORE THE VERDICT PASS
+
+  **122 targets per pass** — 83 `project.yml` under `examples`/`tests`/`docs`, the root self-host
+  target, and 38 single-file examples, **reproducing A2's published target count exactly** — with
+  **90 assemblies harvested**, all passes run in ONE fixed directory tree with the CLI parked at one
+  fixed path so not a single path byte differs between them. The normaliser was re-derived for this
+  slice and touches ONLY the COFF `TimeDateStamp`, the optional-header `CheckSum`, every Debug
+  Directory entry plus the blobs they point at, and the `#GUID`/`#Pdb` heaps. **IT IS NON-VACUOUS BY
+  MEASUREMENT**: it zeroes **1,794–1,796 bytes** across the 90, it touches **90 / 90** of them, and
+  the 90 hash to **90 DISTINCT** normalised digests.
+
+  | pass | CLI | result |
+  |---|---|---|
+  | A | baseline `f2239872c` | 122 targets, 90 assemblies, 0 normaliser failures |
+  | B, A′ | baseline again ×2 | **CONTROL: `IL_DIFFS=0`, `EXIT_DIFFS=0`, `LOG_DIFFS=0` on ALL THREE pairings (A·B, A·A′, B·A′)** — the instrument passes three times before it is trusted |
+  | **D** | **A3+A4, the FINAL tree** | **`IL_DIFFS=0`, `EXIT_DIFFS=0`, `LOG_DIFFS=0`, `ONLY_IN_A/B=0`, `NORMALISER_FAILURES=0` — 90 / 90 comparable assemblies BYTE-IDENTICAL** against BOTH baseline passes |
+
+  **A3+A4 IS CLEANER THAN A2 ON THIS INSTRUMENT: not even ONE log diff.** The scrubbers are recorded
+  rather than hidden — the raw control produced 42–47 log diffs and every one was either a wall-clock
+  number or **the harness's OWN per-pass output directory** in a single-file example's `Output:` line,
+  which is a property of the sweep and not of the compiler; with those two scrubbed, every pairing
+  including the verdict reads `LOG_DIFFS=0`. Exits are compared UNSCRUBBED, and the 32 targets that
+  fail (the `tests/native/*` contract projects, which `nlc build` cannot build, and the root
+  self-host target) **fail identically in every pass**.
+
+  ### THE LIVE-TREE CENSUS
+
+  `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` reports **`checkedFiles=399`,
+  246 errors** with the census identical to the published one to the digit — `NL202` 85, `NL402` 68,
+  `NL905` 26, `NL012` 20, `NL011` 17, `NL301` 16, `NL010` 7, `NL303` 3, `NL412` 3, `NL002` 1 — and
+  diffed **ROW-FOR-ROW against the BASELINE CLI over the SAME sources: 0 added, 0 removed.**
+  `checkedFiles` does not move because this slice adds no production `.nl`, and **0 rows name the new
+  contract file**. A2's `NL012` regression class does not recur: **no signature changed in this
+  slice**, and the never-read-parameter sweep was run against the diff to confirm it.
+
+  ### THE HOLE THE REROUTE WOULD HAVE OPENED, CLOSED IN THE SAME SLICE
+
+  `ColumnarSpanHeadAndElementFacts.tests.nl` — **173 lines, 5 blocks, 77 asserts, ZERO local helper
+  functions, no BOM** (first three bytes `6e 61 6d`), `format --check` clean. Estate
+  **7,050 → 7,055**, a count-diff of exactly the five new blocks. **The green run was the fourth**,
+  and the three reds are recorded rather than trimmed: all three were fixture mistakes in the
+  CONTRACT file (`typeof(void)` and `typeof(Uri)` are not emittable typeof roots;
+  `Type.GetType("System.Uri")` answers null because `System.Uri` is not in corelib) — **not one of
+  them was an owner behaviour**, which is itself a small piece of evidence that the four rerouted
+  answers were already what the emitter depended on. The file was then **cut from 199 lines to 173**
+  by deleting three fixtures that duplicated the estate's existing `AdmissibilitySpan` /
+  `AdmissibilityReadOnlySpan` / `AdmissibilityRuntimeType` exactly, so it now adds contracts and no
+  fixtures at all; the estate re-ran green at **7,055** on the trimmed file.
+
+  **TWO INDEPENDENT PARSES CONFIRM THE COUNT BLOCK-FOR-BLOCK**: a multiline regex over all 281
+  `.tests.nl` files and a per-file `grep -c` driven over the same list both read **7,055**, matching
+  the runner's `Passed: 7055` exactly. (A single recursive `grep -r --include` reads 7,033 on this
+  tree and is the unreliable instrument here — recorded, because the discrepancy was chased to its
+  cause rather than absorbed.)
+
+  What each block pins is an answer the emitter now *depends on* and that nothing pinned before: the
+  head DISTINCTION and the conversion gate's one admitted ordering; the element constraint carried
+  into BOTH heads and the identity `spanLike == readOnly || span` checked on span and non-span
+  shapes alike; the five concrete collection heads that return TRUE without asking about their
+  arguments (including `List<Queue<int>>`, where `Queue<int>` is not a supported value at all) and
+  the fact that that head list is NARROWER than `IsSupportedCollectionType`'s ten — visible only over
+  a builder-bound argument, where `List<sourceStruct>` is admitted and `IReadOnlyList<sourceStruct>`
+  is not; the tail as a CONJUNCTION, with `sourceStruct[]` the shape that is a supported value and
+  still refused by the second half alone; and the hash-set narrowing as the ONE thing separating the
+  two predicates, with the source enum as its single exception.
+
+  **THE FIVE NON-VACUITY CONTROLS — each reverts ONE owner behaviour and NAMES the block it breaks.**
+  Run in the live tree so the `sha256` restores and the failing block names come from the same pass.
+
+  | control | block(s) broken |
+  |---|---|
+  | C1 the two heads fold back into one | **2** — `TheTwoSpanHeadsSeparateTheSpanFamilyTheFoldedHeadCannot` **and** `BothSpanHeadsCarryTheBlittableElementConstraint` |
+  | C2 the ReadOnlySpan head drops the element constraint | 1 — `BothSpanHeadsCarryTheBlittableElementConstraint` |
+  | C3 the five collection heads stop returning early | **2** — `TheCollectionElementSurfaceAdmitsTheFiveConcreteHeads…` **and** `TheHashSetElementNarrows…` |
+  | C4 the element tail drops the builder-containment conjunct | 1 — `TheCollectionElementTailRequiresASupportedValueThatIsNotBuilderBound` |
+  | C5 the hash-set element stops narrowing | **2** — `TheHashSetElementNarrows…` **and A2's** `TheTwoBuilderContainmentWalksDifferOnExactlyTheSourceEnum` |
+  | FINAL pristine re-run | **`Passed: 7055, Failed: 0`** — and the planner's `sha256` is byte-exact back to `661949a5…` |
+
+  **C1 AND C2 WERE RE-RUN CLEANLY AND SERIALLY BECAUSE THEIR FIRST PASS WAS NOT ZERO-DOUBT.** During
+  the first control pass a second `dotnet test` was issued against the SAME project — the recorded
+  concurrent-build hazard, where a run can exit 0 with no output after two builds share `obj`/`bin`.
+  Nothing looked wrong, but "nothing looked wrong" is not the bar for a non-vacuity control, so both
+  were re-run with nothing else building, each preceded by its own
+  `restore -p:NSharpExcludeTests=false --force-evaluate`, and **each verdict required to carry a real
+  `Total tests: 7055` line or be reported as a NON-VERDICT rather than a pass**:
+
+  | run | Total | Passed | Failed | blocks broken |
+  |---|---|---|---|---|
+  | pristine baseline, taken FIRST | **7055** | 7055 | 0 | — the otherwise-green estate the controls are read against |
+  | **C1** the two heads fold back into one | **7055** | **7053** | **2** | `TheTwoSpanHeadsSeparateTheSpanFamilyTheFoldedHeadCannot` **and** `BothSpanHeadsCarryTheBlittableElementConstraint` |
+  | **C2** the ReadOnlySpan head drops the element constraint | **7055** | **7054** | **1** | `BothSpanHeadsCarryTheBlittableElementConstraint` |
+  | final pristine re-run | **7055** | 7055 | 0 | — |
+
+  **BOTH REPRODUCE THE FIRST PASS EXACTLY**, both restores are `sha256`-verified back to
+  `661949a5…`, and the planner's final bytes are that same hash. **The re-run's own instrument failed
+  safe once and that is recorded rather than hidden**: the summary parser was written for the `-v q`
+  one-line form and the runs were driven at `-v n`, so all four were first reported as
+  `NO SUMMARY LINE — NON-VERDICT`; the captures show `Test Run Successful. / Total tests: 7055` and
+  the verdicts were re-derived from them. **The guard mis-firing towards non-verdict is the correct
+  direction** — it is exactly what a silent abort would have looked like, and it refused to call any
+  of them a pass.
+
+  **ALL FIVE BLOCKS ARE COVERED AND EVERY CONTROL BREAKS ITS OWN.** The three that break a second
+  block break a genuinely related one, and that is reported rather than trimmed: C1's fold makes
+  `IsSupportedSpanType` answer for the wrong head, which the element block also asserts against; C3's
+  removal takes `List<sourceStruct>` out of the element surface, which is the exact input the hash-set
+  block reads the difference on; and **C5 reaches all the way into A2's own cone contract**, which is
+  the two slices' owners proving they are coupled rather than parallel.
+
+  ### THE COUPLING MUTATIONS — SIX, EVERY RESTORE `sha256`-VERIFIED
+
+  A3+A4's claim is that the N# owner is now the emitter's authority. The test is the converse of
+  A0's: perturb the OWNER, rebuild the CLI into the same fixed path, re-run the 122-target corpus,
+  and require the emitter's OUTPUT to move.
+
+  | mutation | direction | corpus verdict | restore |
+  |---|---|---|---|
+  | M1 the two span heads fold back into one | WIDENS | `EXIT_DIFFS=0 IL_DIFFS=0` — masked | sha match |
+  | M2 `IsSupportedReadOnlySpanType` answers false | NARROWS | **MOVED HARDEST — 12 targets exit 0 → 1** | sha match |
+  | M3 the five collection heads stop returning early | NARROWS | `EXIT_DIFFS=0 IL_DIFFS=0` — not reached | sha match |
+  | M4 the element predicate drops its `TypeBuilder` arm | NARROWS | **MOVED — 9 targets exit 0 → 1** | sha match |
+  | M5 the element tail drops `!ContainsBuilderBoundType` | WIDENS | `EXIT_DIFFS=0 IL_DIFFS=0` — masked | sha match |
+  | M6 the hash-set element stops narrowing | WIDENS | `EXIT_DIFFS=0 IL_DIFFS=0` — masked | sha match |
+
+  **THE PATTERN IS NOT NOISE, IT IS THE INSTRUMENT'S SHAPE, AND NAMING IT IS THE HONEST READING:
+  BOTH MUTATIONS THAT NARROW THE OWNER MOVE THE EMITTER, AND EVERY MUTATION THAT WIDENS IT CANNOT
+  MOVE AN ALREADY-GREEN CORPUS BY CONSTRUCTION** — admitting more types cannot turn a program that
+  compiles into one that does not, so for M1/M5/M6 the corpus is a one-directional instrument and its
+  silence is not evidence of decoupling. Each of the three is reported with a measured reason as well:
+
+  - **M1** widens the `Span` head to accept `ReadOnlySpan`, and all four of its sites are masked —
+    three structurally and one by measurement. At `:429` the `IsSupportedType` disjunction **already
+    contains the other head**, so widening one arm cannot change an OR. At `:10883` the ReadOnlySpan
+    arm is tested **first, at `:10845`**, so a ReadOnlySpan receiver never reaches the widened Span
+    arm. At `:19079` the widened source side would admit `ReadOnlySpan<T> → ReadOnlySpan<U>`, but
+    `TypesEquivalent` then forces `T == U`, and an equal-typed pair never reaches the conversion gate.
+    The fourth, `:7088`, is the indexed WRITE — and the corpus declares **37 `ReadOnlySpan<·>`
+    values (28 `byte`, 7 `int`, 3 `T`, 2 `string`) and contains ZERO writes through a ReadOnlySpan
+    indexer**, which the language rejects upstream anyway.
+  - **M3** is the one NARROWING that does not move, and the reason is a measured corpus fact: the
+    five-head early return only changes an answer when the nested head's ARGUMENTS would fail the
+    tail, and **the corpus contains exactly FOUR nested-collection shapes, all of them over scalars**
+    (`List<List<int>>` ×2, `List<Dictionary<string,int>>`, `Dictionary<string,Dictionary<string,string>>`)
+    — **zero nested collections over a source type, and zero `Queue` nested inside one of the five.**
+  - **M5** widens the tail, and only TWO shape classes can reach it builder-bound: a bare TypeBuilder
+    and an enum return earlier from their own arms, and every builder-bound CLOSED generic is refused
+    by the containment check inside the generic branch before the tail. The first class is a
+    collection whose ELEMENT is an ARRAY of a source type — the corpus contains **zero** of them. The
+    second is a bare GENERIC PARAMETER, and the fifteen sites were walked one by one rather than
+    waved at: **five** (inside `TryResolveTypeWithTypeParams`) guard with
+    `element is GenericTypeParameterBuilder ||` BEFORE asking the predicate; **ten** (inside
+    `TryResolveType`) have no type parameters in scope at all; and of the remaining four,
+    **three** (`TryGetCollectionLiteralTarget` ×2, `TryGetEnumerableElementType`) already admit a
+    generic parameter through the `IsSupportedElementType` disjunct beside the predicate. **Exactly
+    ONE site is left** — `TryGetExpandedParamsElementType`:2010, a `params` collection in a generic
+    method — and there M5 is again admit-more, which cannot turn a green target red. (This is walked
+    rather than assumed because the corpus carries 48 `List<T>` mentions, so "the corpus does not
+    contain it" would have been the WRONG reason.)
+  - **M6**'s only reachable shape class is a set whose element is an admissible collection element
+    that is ALSO non-enum builder-bound — a bare source struct/record, or one of the five heads closed
+    over one. The corpus's fifteen set shapes are **`HashSet<string>` ×10, `HashSet<T>` ×4,
+    `IReadOnlySet<T>` ×1 — zero of them.** The four `HashSet<T>` are not a near miss but a
+    non-case: a generic parameter is already not an admissible collection element (the tail's
+    `!ContainsBuilderBoundType` refuses it), so both spellings answer FALSE for it.
+
+  **EVERY MUTATION THE CORPUS CANNOT SEE IS CARRIED BY A NAMED CONTRACT THAT BREAKS**: M1↔C1 (two
+  blocks), M3↔C3 (two blocks), M5↔C4, M6↔C5 (two blocks). That pairing is the point of running both
+  instruments, and it is why the corpus's silence on three rows is a bound rather than a gap.
+  The two that DO move are load-bearing by measurement, not by assertion: **19 of the 90 building
+  targets exercise spans** and **128 collection-of-user-type shapes** live in the corpus.
+
+  ### `015-A5` IS CONFIRMED, AND ITS TWO BEHAVIOUR FIXES ARE NOW MEASURED RATHER THAN INHERITED
+
+  A2 handed A5 two tightenings. A purpose-built probe drives the exact guard clause on
+  `PersistedAssemblyBuilder` shapes and reads every predicate the C# head asks:
+
+  | shape | runtime type | `IsPointer` | `HasElementType` | `ContainsGenericParameters` | C# guard fires? |
+  |---|---|---|---|---|---|
+  | AspNet class | `TypeBuilderImpl` | False | False | False | no — correctly admitted |
+  | AspNet class **ARRAY** | **`SymbolType`** | **False** | **True** | False | **no — WRONGLY admitted** |
+  | AspNet **OPEN GENERIC** | `TypeBuilderImpl` | False | False | **False** | **no — WRONGLY admitted** |
+
+  **BOTH DEFECTS REPRODUCE, AND THE PROBE SHARPENS A2's READING**: they are not one bug with two
+  faces. The array case is `IsPointer` asked where `HasElementType` was needed; the open-generic case
+  is `ContainsGenericParameters` reading **False on a `TypeBuilderImpl`** — and the open generic's
+  `HasElementType` is **False**, so a single `HasElementType` fix would NOT catch it. **A5 needs two
+  distinct guards, not one.** Both cells read `cs=T nl=F` on this slice's differential
+  (`IsSupportedExternalType` DIVERGENT 5: `yaml2nd`, `Array<r2>` widening; `aspnetOpen`,
+  `aspnetArray`, `Array<r3>` tightening), which reproduces A2's published control row exactly.
+  **`015-A5` carries BOTH behaviour fixes, confirmed.**
+
+  ### THE REST OF THE BAR
+
+  | check | result |
+  |---|---|
+  | estate contracts | **`Passed: 7055, Failed: 0`** on the final tree — 7,050 + exactly the 5 new blocks, confirmed block-for-block by two independent parses |
+  | live-tree `nlc check` over `BootstrapServices` | **`checkedFiles=399`, 246 errors**, census identical, row-for-row 0 added / 0 removed against the baseline CLI over the SAME sources |
+  | `tests/native/ownership-audit` | **18 / 18** — PRISTINE-FIRST on a `git archive HEAD` tree with the baseline CLI, and **18 / 18** again on the final tree after the repin |
+  | ratchet NON-VACUITY | appending ONE blank line to `ColumnarIlEmitter.cs` takes the audit to **17 / 18**, failing exactly `RepositoryNonNSharpOwnershipMatchesTheE0GrowthBaseline`; the byte was removed and the file's `sha256` re-verified IDENTICAL (`82ef600f…`), and the audit re-read **18 / 18** |
+  | ratchet repin (two-key, LAST) | emitter row `currentLines` **21115 → 21068**, `currentNonBlank` **20084 → 20041**, `currentFingerprint` **`text-v1:c68eef366389d2bd` → `text-v1:e3a2adcb4e520e1a`**; `reviewedHeadFingerprint` **`head-v1:9d10dee2ca517f36` → `head-v1:0b1b9ad365cbff54`** in BOTH keys (the JSON header AND `OwnershipPolicy.ReviewedHeadFingerprint`). **EPOCH TRIPLE UNCHANGED** — **381** / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1`, and the epoch row's own `epochLines` 21,723 / `epochNonBlankLines` 20,646 untouched |
+  | repin instrument CONTROL | the script **reproduces all three stored fingerprints from the stored rows BEFORE changing anything**, and refuses to apply if it cannot — which is what proves its FNV-1a, its `AppendFactString`/`AppendFactInt` framing and its line/non-blank counting match `OwnershipAudit.nl` for the one row it rewrites |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`), 381 rows |
+  | `nlc format --check` | **"All files are properly formatted."** on both changed/added `.nl` files. `OwnershipAudit.nl` FAILS — **and fails identically on the PRISTINE `git archive HEAD` copy**, so it is pre-existing, recorded not caused |
+  | compiler C# files | **10** — unchanged |
+  | mutation hygiene | **eleven** owner mutations were applied and reverted across this slice (5 estate controls + 6 coupling), every one `sha256`-verified back to `661949a5…`, and the planner's final bytes are identical to its pre-mutation copy |
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` byte copy (`.git`, `bin`, `obj`,
+  `node_modules`, `artifacts` **and `.claude/worktrees/`** excluded — the nested-worktree hazard is a
+  recorded gate breaker, and the copy was checked for a stray `NSharpLang.Benchmarks.csproj` and had
+  none), log written OUTSIDE the copy, with `pgrep -f test-all-core.sh` run first and reporting **no
+  other session's gate live**.
+
+  **`GATE EXIT 0`, `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 33s.** Inside it: unit
+  **`Passed: 596`** (the baseline exactly), estate **`Passed: 7055`** (the new count), all **47**
+  native projects including `tests/native/ownership-audit` at **`Passed: 18, Failed: 0`**, the
+  **format contract gate**, `dotnet new` templates, every example project, the **38** single-file
+  examples, `nlc check` on examples, and the **IL verification gate** ("All 67 N# assemblies pass IL
+  verification (no new errors vs baseline)"). The copy was taken AFTER the coupling mutations were
+  restored and AFTER the two-key repin, and **every one of the five changed/added product files was
+  `sha256`-verified IDENTICAL between the gate copy and the working tree** — the emitter, the two
+  `.nl` sources and both ratchet keys. The only file that differs is this STATUS narrative, which is
+  written after the gate and is in no gate step and no manifest row.
+
+  ### WHAT A3+A4 LEAVES FOR THE REST OF THE `015-A` CUT
+
+  - **`015-A5` IS NEXT AND ITS TWO BEHAVIOUR FIXES ARE MEASURED**, not inherited: the AspNet ARRAY
+    (`IsPointer` asked where `HasElementType` was needed) and the AspNet OPEN GENERIC
+    (`ContainsGenericParameters` reading False on a `TypeBuilderImpl`). **They need TWO distinct
+    guards, not one** — the open generic's `HasElementType` is False, so an `HasElementType` fix alone
+    does not catch it. `IsSupportedExternalType` is 3 lines with 2 sites plus the AspNet helper.
+  - **`015-A6` IS UNCHANGED IN PRICE BY THIS SLICE** — its 77 sites are still a plain
+    `ColumnarTypeOfPlanner.IsSupportedType(t)`, and the two span arms inside `IsSupportedType` now
+    already call N#, so A6 rewrites one fewer thing.
+  - **THE A-CUT's UNMATCHED LIST IS DOWN FROM TWELVE TO TEN.** A0 listed twelve members with no N#
+    owner; A3 writes two of them (`IsSupportedReadOnlySpanType`, `IsSupportedSpanType`). The
+    remaining ten — `IsSupportedParameterType`, `IsSupportedByRefElementType`,
+    `IsSupportedContextualDelegateType`, `TryGetSupportedDelegateSignature`,
+    `IsSupportedIndexableCollectionType`, `IsSupportedReadableIndexedCollectionType`, the three
+    dictionary-definition helpers, and `TryResolveLoadedExternalType` as a separate entry point —
+    are still new N# owners to write, not reroutes.
+  - **THE WIDENING LEDGER IS UNCHANGED BY THIS SLICE.** A3 adds none (0 divergent cells over 426),
+    and A4 adds none that were not already there (the same two R2 cells before and after the cut).
+    A2's ten transitive widenings remain A6's to absorb, and both A5 tightenings remain A5's.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-A2`: THE `IsSupportedType` CONE. NOT COMMITTED.**)
 
   ### THE PRE-EDIT DERIVATION — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
 
@@ -5851,7 +6366,7 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
     stage must leave its rows EQUIVALENT), the estate count-diff, the corpus IL byte-exact sweep
     control-first, ratchet repin with the epoch triple unchanged, and the fresh isolated gate.
 
-- Active sub-slice (015 arc, THIS TURN — **THE REOPENING DECODE. EVERY ROADMAP NUMBER
+- Active sub-slice (015 arc, PRIOR TURN — **THE REOPENING DECODE. EVERY ROADMAP NUMBER
   RE-MEASURED, EVERY RECORDED BLOCK RE-PROBED, THE RESIDUAL CAMPAIGN PLAN WRITTEN, AND NO CUT
   TAKEN — WITH THE MEASURED REASON.** No production file was edited; the only change in the tree
   is this STATUS. NOT COMMITTED — the mandate reserves that.)
