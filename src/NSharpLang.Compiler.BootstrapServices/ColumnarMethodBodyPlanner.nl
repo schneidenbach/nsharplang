@@ -154,6 +154,10 @@ class ColumnarMethodBodyPlanner {
     //   F  `{ return <instance field> }` — the CurrentField selection                      (015-B5)
     //   R  `{ return <instance property> }` — the CurrentProperty selection                (015-B5)
     //   X  `{ return <ref/out parameter> }` — the ByRefParameter selection                 (015-B5)
+    //   U  `{ return <unary over a literal> }` / `nameof` — the first composites           (015-B6)
+    //   D  `x := <claimed value>` — the statement loop's plan-local declaration            (015-B6)
+    //   C  `{ return <call> }` — the direct-call owner's own root sequence                 (015-B7)
+    //   DC `x := <call>` — the same owner in the position that runs no host pre-pass       (015-B7)
     //
     // The value classes all reach the plan through ONE door — `TryAppendReturnValue` — rather than
     // through a chain of special cases, so a class the door does not claim cannot arrive here by
@@ -179,7 +183,7 @@ class ColumnarMethodBodyPlanner {
     // and they do not weaken that argument: they are declared in the PLAN's own local pool rather than
     // through the emitter, so the driver still touches none of the host's live state and a declined
     // body leaves every one of the caller's maps exactly as it found them.
-    static func TryPlanBody(nodes: ColumnarNodeTable, source: string, bodyRoot: int, returnType: Type, isVoid: bool, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, plan: ColumnarCodePlan): bool {
+    static func TryPlanBody(nodes: ColumnarNodeTable, source: string, bodyRoot: int, returnType: Type, isVoid: bool, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, exactSourceTypes: Dictionary<string, Type>, overflowCheckingEnabled: bool, siblingCallables: Dictionary<string, ColumnarSiblingCallFacts>, plan: ColumnarCodePlan): bool {
         if nodes == null || source == null || returnType == null || plan == null {
             return false
         }
@@ -238,8 +242,38 @@ class ColumnarMethodBodyPlanner {
         // statement rather than rebuilding it per row, and each claimed declaration publishes its name
         // into the set's OWN plan-local map — a fresh dictionary the bindings allocate, never one of the
         // caller's, so a declined body leaves the emitter's live maps untouched.
+        //
+        // THE THREE FACTS `015-B5` AND `015-B6` DELIBERATELY LEFT UNROUTED ARE ROUTED HERE (015-B7),
+        // because the direct-call claim is the arm that reads them. They are set in the same order and
+        // by the same three assignments as `ColumnarRangeIndexPlanner.TryEmitFromFacts`, which is the
+        // production expression path's own seam, so the door and the cascade hand their owners
+        // IDENTICAL binding state rather than merely similar state:
+        //
+        //   `ExactSourceTypes`      the declaration-name index `TryResolveSelectedSourceType` consults
+        //                           FIRST; without it an aliased or generic-head declaration resolves by
+        //                           a live scan that demands exactly one candidate, which is a DIFFERENT
+        //                           selection rather than a slower one
+        //   `OverflowCheckingEnabled` the checked/unchecked context `ColumnarPrimitiveBinaryPlanner`
+        //                           turns into `add`/`add.ovf`. ⚠ It is PROVABLY `false` at every
+        //                           `EmitBody` entry — the field starts false, is written only by
+        //                           `EmitExpressionWithOverflowChecking` (which restores it in a
+        //                           `finally` around ONE kind-57 child), and all seven `EmitBody` call
+        //                           sites run on a freshly constructed emitter. It is carried anyway
+        //                           rather than assumed, because a door that reproduces a CONCLUSION
+        //                           about host state instead of reading the state itself is one refactor
+        //                           away from being wrong in bytes
+        //   `SiblingCallables`      the plannable top-level sibling facts. THREE of its five consumers in
+        //                           `ColumnarDirectCallPlanner` are branch SELECTORS, not guards — an
+        //                           empty map sends a bare sibling name down the delegate-invoke or the
+        //                           decline arm instead of the sibling arm
         value := nodes.Child(statement, 0)
         bindings := ColumnarFragmentBindings.FromRawFacts(parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters)
+        bindings.ExactSourceTypes = exactSourceTypes
+        bindings.OverflowCheckingEnabled = overflowCheckingEnabled
+        if siblingCallables != null {
+            bindings.SiblingCallables = siblingCallables
+        }
+
         bindings.SetEnclosingTypeDefinition(enclosingTypeDefinition)
 
         plan.PrepareMethodBody()
@@ -379,11 +413,13 @@ class ColumnarMethodBodyPlanner {
     // external-static-member and instance-member each get their OWN root facade, and only range/index
     // roots fall through to the shared append dispatcher. So a composite claim must call THAT owner's
     // own root sequence; guessing a single entry point would be a second, divergent routing policy.
-    // Two owners are entered that way here — the unary-literal owner and `nameof`, both of which the
-    // emitter reaches through their own facade AHEAD of the cascade, so byte identity is against one
-    // owner apiece. The rest wait for their own diffs, and the binary and call owners additionally wait
-    // on three binding facts (`ExactSourceTypes`, the overflow flag, the sibling-callable map) that this
-    // driver still does not route.
+    // THREE owners are entered that way now — the unary-literal owner and `nameof`, which the emitter
+    // reaches through their own facade AHEAD of the cascade, and the DIRECT-CALL owner, which the
+    // cascade's second arm owns for every call root (015-B7). Byte identity is against one owner apiece.
+    // The rest wait for their own diffs. The three binding facts the earlier slices deliberately left
+    // unrouted — `ExactSourceTypes`, the overflow flag and the sibling-callable map — ARE routed as of
+    // the call claim, because the direct-call owner is what reads two of them and the primitive-binary
+    // owner (still declined) is what reads the third.
     static func TryAppendReturnValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
         if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length || IsHostAdoptedReturnShape(nodes, source, node) {
@@ -458,16 +494,75 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarExpressionNodeKind.NameOfExpression() {
             return ColumnarNameOfPlanner.TryAppendRoot(nodes, source, node, plan, out resultType)
         }
+        // 9 Call — THE DIRECT-CALL COMPOSITE (015-B7), and the first claimed kind whose owner consults
+        // the three facts this driver routes. The owner's own root facade is what is called: the
+        // emitter reaches it through `ColumnarRangeIndexPlanner.TryEmitFromFacts`'s SECOND cascade arm
+        // for every call root, so entering `TryAppendRoot` — the sequence that facade's `Plan` also
+        // calls — is what makes the claim byte-identical BY CONSTRUCTION. The two ownership outs are
+        // read and DISCARDED on purpose: they steer the host's decline-vs-legacy choice for a call the
+        // owner would not plan, and this driver has exactly one answer for all of them, which is to
+        // decline the whole body and let the host make that choice itself.
+        if kind == ColumnarExpressionNodeKind.CallExpression() {
+            if ReadsPlanLocal(nodes, source, node, bindings, 0) {
+                return false
+            }
+
+            ownership := ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning := false
+            return ColumnarDirectCallPlanner.TryAppendRoot(nodes, source, node, bindings, plan, out ownership, out legacyWholeSubtreePlanning, out resultType)
+        }
         // Unreachable while the claimed set and the arms above agree, and that agreement is exactly
         // what the estate's partition block asserts. A kind added to the claimed set without its own
         // arm lands here and DECLINES rather than silently taking a neighbouring owner's route.
         return false
     }
 
-    // The kinds the door takes. Each owner is method-body-schema aware, and two of them (unary,
-    // `nameof`) reach that state only through this slice's nine-gate widening.
+    // ⚠ A PLAN LOCAL CANNOT CROSS INTO A CALL'S OWN TYPE DISCOVERY, AND THIS REFUSAL IS A MEASURED
+    // HARD-CRASH GUARD RATHER THAN A TASTE. THE CLAIM-CLASS CORPUS PRODUCED THE CRASH; NO REVIEW DID.
+    //
+    // `ColumnarDirectCallPlanner.TryGetPlannableValueType` discovers each argument's type by planning it
+    // into a FRESH schema-v3 SCRATCH plan, and that plan's local pool is EMPTY. The sole identifier
+    // owner appends `ldloc <pool index>` for a plan local (`ColumnarBoundIdentifierPlanner:216`), and an
+    // index the scratch does not have throws "The opcode does not use this plan-local entry" straight
+    // out of the compiler — which is exactly what `n := Callee(3)` followed by `return Callee(n)` did
+    // before this guard existed. It is a THROW, not a wrong byte, and it was reachable only once the
+    // statement loop (015-B6) and the call claim (015-B7) coexisted: neither slice alone could produce
+    // a body where a plan local is read inside a call.
+    //
+    // MIRRORING THE POOL INTO THE SCRATCH IS *NOT* THE FIX, AND THAT WAS MEASURED TOO.
+    // `ColumnarCodePlanExecutor.ValidateAllUsed` demands that EVERY declared plan local be referenced by
+    // some row, on both the v3 and the method-body validator, so a mirrored pool with one read fails
+    // validation instead of throwing at the append. Making a scratch plan able to REPRESENT a pool it
+    // does not emit is a plan-contract change to the shared validator, and it belongs in a slice with
+    // its own diff and its own control rather than smuggled in behind a composite claim.
+    //
+    // Until then a call whose subtree reads a plan local is declined WHOLE. The cost is measured, not
+    // guessed: `x := f(1)` followed by `return x` still CLAIMS (the return is an identifier, not a
+    // call), `return f(7)` still claims, and only a plan-local read INSIDE a call's subtree — the shape
+    // `return g(x)` — is refused.
+    static func ReadsPlanLocal(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, depth: int): bool {
+        if bindings.PlanLocals.Count == 0 || depth > 200 || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression() && bindings.PlanLocals.ContainsKey(nodes.Text(source, node)) {
+            return true
+        }
+
+        n := 0
+        while n < nodes.ChildCount(node) {
+            if ReadsPlanLocal(nodes, source, nodes.Child(node, n), bindings, depth + 1) {
+                return true
+            }
+
+            n = n + 1
+        }
+        return false
+    }
+
+    // The kinds the door takes. Each owner is method-body-schema aware; three of them (unary, `nameof`,
+    // direct call) reach that state only through `015-B6`'s nine-gate widening.
     static func IsClaimedExpressionKind(kind: int): bool {
-        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression()
+        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression()
     }
 
     // The kinds the door refuses, named one by one rather than left to a fall-through. The reason is
@@ -476,9 +571,12 @@ class ColumnarMethodBodyPlanner {
     // owner at all. None is "not yet supported" — each is a body whose bytes this door cannot promise.
     static func IsDeclinedExpressionKind(kind: int): bool {
         // 5 NullLiteral (the host's target-typed kind-20 pre-pass owns it), 7 Parenthesized (recurses),
-        // 8 MemberAccess, 9 Call, 10 IndexAccess — every one a composite that recurses into the shared
-        // value dispatcher, whose routing this door does not reproduce.
-        if kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.ParenthesizedExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
+        // 8 MemberAccess, 10 IndexAccess — every one a composite that recurses into the shared value
+        // dispatcher, whose routing this door does not reproduce. 9 Call LEFT THIS LIST in `015-B7`;
+        // parenthesised forms stay here because the owner's own `UnwrapParentheses` is reached through
+        // its root facade and this door dispatches on the OUTER kind, so `(f())` is the parenthesis
+        // owner's shape rather than the call owner's.
+        if kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.ParenthesizedExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
             return true
         }
         // 12 Binary, 13 Ternary, 15 New, 16 Cast, 36 ObjectInitializer, 55 TypeOf, 58 ArrayLiteral,
@@ -544,10 +642,11 @@ class ColumnarMethodBodyPlanner {
     //
     // The current-instance pair reads `bindings.CurrentInstance` and NOTHING else beyond what the
     // parameter class already read: `ExactSourceTypes`, the overflow flag and the sibling-callable
-    // facts are consumed only by `TryResolveSelectedSourceType`, `ColumnarPrimitiveBinaryPlanner` and
-    // `ColumnarDirectCallPlanner` respectively — all of them on the COMPOSITE surface this door
-    // declines. So the three deliberately-unrouted facts stay unrouted, and become mandatory when a
-    // composite class is claimed rather than when this filter widens.
+    // facts are consumed by `TryResolveSelectedSourceType`, `ColumnarPrimitiveBinaryPlanner` and
+    // `ColumnarDirectCallPlanner` respectively. `015-B5` and `015-B6` recorded that they become
+    // mandatory when a COMPOSITE class is claimed rather than when this filter widens, and `015-B7` is
+    // that moment: the call claim routes all three at `TryPlanBody`, so no identifier selection's
+    // behaviour changed — the facts arrived for the arm below this one, not for this one.
     static func TryAppendIdentifierRead(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
         selection := ColumnarBoundIdentifierPlanner.EmptySelection()

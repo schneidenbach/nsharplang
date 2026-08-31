@@ -530,3 +530,60 @@ test "the statement loop claims a declaration and the return that reads it in re
     member := new DriverDeclaringMember(29)
     assert member.ReadDeclared() == 29
 }
+
+
+// ---- 015-B7: the direct-call composite in real source ---------------------------------------------
+//
+// The first claimed kind whose owner consults the three binding facts the driver now routes. Every
+// body below reaches `ColumnarDirectCallPlanner.TryAppendRoot` — the SAME root sequence that owner's
+// own `Plan` calls, which the emitter reaches for every call root through
+// `ColumnarRangeIndexPlanner.TryEmitFromFacts`'s second cascade arm. Two positions, because `015-B6`
+// proved the return position is not the value position: a call as a RETURN VALUE and a call as a `:=`
+// INITIALIZER are separate claim classes with separate corpus diffs.
+//
+// `DriverCallee` is a top-level sibling, so `DriverCallReturn` is exactly the shape an EMPTY
+// `SiblingCallables` map would have sent down the delegate-invoke arm instead — the routed fact doing
+// real work rather than merely existing.
+
+func DriverCallee(value: int): int {
+    return value
+}
+
+func DriverCallReturn(): int {
+    return DriverCallee(7)
+}
+
+func DriverCallDeclared(): int {
+    n := DriverCallee(9)
+    return n
+}
+
+func DriverCallDeclaredThenCallReturn(): int {
+    n := DriverCallee(3)
+    return DriverCallee(n)
+}
+
+class DriverCallHolder {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    func Read(): int {
+        return Value
+    }
+
+    // A BARE INSTANCE call — the current-instance tier rather than the sibling one.
+    func ReadViaCall(): int {
+        return Read()
+    }
+}
+
+test "the expression door claims a direct call in both positions in real source" {
+    assert DriverCallReturn() == 7
+    assert DriverCallDeclared() == 9
+    assert DriverCallDeclaredThenCallReturn() == 3
+    holder := new DriverCallHolder(37)
+    assert holder.ReadViaCall() == 37
+}

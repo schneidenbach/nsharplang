@@ -55,13 +55,47 @@ class ColumnarDirectCallPlanner {
 
     static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): ColumnarFragmentPlanStatus {
         ValidateInputs(nodes, source, node, bindings, plan)
+        plan.PrepareV3()
+        if !TryAppendRoot(nodes, source, node, bindings, plan, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+            return plan.Status
+        }
+
+        plan.CompleteV3(resultType)
+        ownership = ColumnarDirectCallOwnership.Planned
+        return plan.Status
+    }
+
+    // THE ROOT-APPEND SEQUENCE, OWNED ONCE (015-B7). A call root is a checkpoint, a root fragment, the
+    // resolved handles, the append and the fragment's completion — the same five steps whether the plan
+    // is a standalone schema-v3 expression (`Plan` wraps this between `PrepareV3` and `CompleteV3`) or
+    // an open schema-v4 METHOD BODY (`ColumnarMethodBodyPlanner`'s expression door calls it directly).
+    // Both callers therefore produce the SAME row sequence, which is the whole of producing the same
+    // bytes: `ColumnarIlEmitter.EmitExpressionCore` reaches this owner through
+    // `ColumnarRangeIndexPlanner.TryEmitFromFacts`'s SECOND cascade arm for every call root — the four
+    // pre-cascade owners have no call arm and the construction owner answers only `new`/object-initializer
+    // /array-literal — so byte identity for a claimed call is against one owner.
+    //
+    // ⚠ A VOID RESULT IS REFUSED HERE RATHER THAN THROWN AT `CompleteFragment`, AND THAT GUARD IS NEW
+    // WITH THE SECOND CALLER. `CompleteFragment` admits a `System.Void` result only on a schema-v3 root
+    // fragment, which is exactly what `Plan` always hands it — a statement-position `foo()` is planned
+    // that way today. A METHOD BODY is neither v3 nor necessarily fragment 0, so `x := SomeVoidCall()` —
+    // a shape the parser produces and the host declines at its own supported-type gate — would leave the
+    // compiler through a thrown `InvalidOperationException` instead of a decline. The condition below is
+    // `CompleteFragment`'s own admission rule spelled the other way round, so `Plan`'s v3 behaviour is
+    // bit-for-bit unchanged and only the new caller can reach the refusal. The ownership outs are left
+    // exactly as the append set them: the owner really did plan the call, and it is the PLAN that cannot
+    // carry the result, so reporting `NotOwned` here would be a false statement about the owner.
+    static func TryAppendRoot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         ownership = ColumnarDirectCallOwnership.NotOwned
         legacyWholeSubtreePlanning = false
         resultType = typeof(int)
-        plan.PrepareV3()
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
         candidate := UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.CallExpression() {
-            return plan.Status
+            return false
         }
 
         checkpoint := plan.CreateCheckpoint()
@@ -71,13 +105,15 @@ class ColumnarDirectCallPlanner {
             handles := ColumnarRangeIndexHandles.Resolve()
             if !TryAppendCall(nodes, source, candidate, bindings, handles, plan, fragment, 0, out ownership, out legacyWholeSubtreePlanning, out resultType) {
                 plan.Rollback(checkpoint)
-                return plan.Status
+                return false
+            }
+            if IsVoidType(resultType) && (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || fragment != 0) {
+                plan.Rollback(checkpoint)
+                return false
             }
 
             plan.CompleteFragment(fragment, resultType)
-            plan.CompleteV3(resultType)
-            ownership = ColumnarDirectCallOwnership.Planned
-            return plan.Status
+            return true
         } catch ex: Exception {
             plan.Rollback(checkpoint)
             throw ex

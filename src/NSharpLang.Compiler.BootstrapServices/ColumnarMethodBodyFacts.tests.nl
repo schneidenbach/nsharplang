@@ -221,7 +221,10 @@ func MethodBodyFactsLocals(): Dictionary<string, LocalBuilder> {
 }
 
 // The ONE driver entry point, with the binding facts the emitter routes. A claim class that needs no
-// bindings passes empty maps, which is exactly what a static free function's body has.
+// bindings passes empty maps, which is exactly what a static free function's body has. The last three
+// arguments are `015-B7`'s routed facts, and passing them EMPTY here is the honest default: an empty
+// exact-name index and an empty sibling map are what a free function with no source siblings actually
+// has, and `false` is what `_overflowCheckingEnabled` provably holds at every `EmitBody` entry.
 func MethodBodyFactsPlanBody(nodes: ColumnarNodeTable, source: string, returnType: Type, isVoid: bool, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, plan: ColumnarCodePlan): bool {
     return ColumnarMethodBodyPlanner.TryPlanBody(
         nodes,
@@ -244,6 +247,9 @@ func MethodBodyFactsPlanBody(nodes: ColumnarNodeTable, source: string, returnTyp
         new string[](0),
         new string[](0),
         new Dictionary<string, Type>(StringComparer.Ordinal),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        false,
+        new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal),
         plan)
 }
 
@@ -1038,10 +1044,10 @@ test "the expression door partitions its whole kind ledger with no hole and no o
         i = i + 1
     }
 
-    // EIGHT claimed kinds: the four scalar-literal kinds, bool, identifier, and — since 015-B6 — the
-    // two composites whose owners the emitter reaches through their own facade ahead of the value
-    // cascade. The count is pinned so a widening cannot arrive without a block that says what it claims.
-    assert claimed == 8
+    // NINE claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites 015-B6
+    // took, and — since 015-B7 — the direct CALL. The count is pinned so a widening cannot arrive
+    // without a block that says what it claims.
+    assert claimed == 9
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression())
@@ -1050,11 +1056,14 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IdentifierExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.UnaryExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.NameOfExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CallExpression())
 
     // The composites that remain declined are declined one by one. Their gates are open now; what
     // holds them back is the emitter's ELEVEN-ARM root cascade, which a claim must enter arm by arm.
+    // ⚠ `CallExpression` LEFT THIS LIST in 015-B7 and is asserted CLAIMED above; `MemberAccess` did
+    // not, and the asymmetry is deliberate — a call's CALLEE may be a member access, which the call
+    // owner resolves itself, but a bare member access in value position is a different owner's shape.
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CallExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NewExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression())
@@ -1064,10 +1073,19 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     // driver reuse one plan object across a decline.
     untouched := new ColumnarCodePlan()
     untouched.PrepareMethodBody()
+    memberNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.MemberAccessExpression(), "f")
+    memberType := typeof(int)
+    assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(memberNodes, "f", 2, MethodBodyFactsEmptyBindings(), untouched, out memberType)
+    assert untouched.OperationCount == 0
+
+    // A CLAIMED kind whose owner refuses the particular node — a call with no callee child at all —
+    // rolls back just as completely. This is the arm that replaced the member-access probe above when
+    // kind 9 moved sides, and it asserts the same invariant about a different mechanism.
     callNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.CallExpression(), "f")
     callType := typeof(int)
     assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(callNodes, "f", 2, MethodBodyFactsEmptyBindings(), untouched, out callType)
     assert untouched.OperationCount == 0
+    assert untouched.FragmentCount == 0
 
     // A kind OFF the ledger entirely — 25 is a statement block, which never reaches value position —
     // is neither claimed nor declined by name, and the door still refuses it.
@@ -1819,4 +1837,355 @@ test "a plan-declared local resolves as its own selection tier and refuses every
     assert throws InvalidOperationException {
         ColumnarBoundIdentifierPlanner.TryResolve(overlapNodes, "p", 2, overlapping, out overlapSelection)
     }
+}
+
+
+// ---- 015-B7 SHARED FIXTURES — THE DIRECT-CALL COMPOSITE ----
+//
+// The call subtrees are built on the DIRECT-CALL owner's OWN fixture builder rather than on a second
+// hand-rolled node layout, so the shape these blocks plan is the exact shape that owner's contract
+// file already plans. Only the block/return/declaration wrapper above the call is new here.
+
+func MethodBodyFactsNoSiblings(): Dictionary<string, ColumnarSiblingCallFacts> {
+    return new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal)
+}
+
+func MethodBodyFactsSiblings(name: string, facts: ColumnarSiblingCallFacts): Dictionary<string, ColumnarSiblingCallFacts> {
+    result := new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal)
+    result[name] = facts
+    return result
+}
+
+// `{ return <Owner>.<Member>(<literal>) }`, or with a non-empty `localName`,
+// `{ <localName> := <Owner>.<Member>(<literal>)  return <localName> }`. The local's token is added to
+// the source FIRST so the identifier read and the declaration share one span.
+func MethodBodyFactsQualifiedCallBody(ownerName: string, memberName: string, argumentText: string, argumentKind: int, localName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    nameStart := builder.AddToken(localName)
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), ownerName)
+    member := DirectCallAppendMember(builder, owner, memberName)
+    argument := builder.AddLeaf(argumentKind, argumentText)
+    call := DirectCallAppendCall(builder, member, DirectCallOneArgument(argument))
+    return MethodBodyFactsWrapValueInBody(builder, call, nameStart, localName)
+}
+
+// `{ return <Member>(<name>) }` — a bare call whose ONE argument is a bare identifier. The shape the
+// plan-local refusal is about, in the position where the crash was found.
+func MethodBodyFactsIdentifierCallBody(memberName: string, argumentName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
+    argument := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), argumentName)
+    call := DirectCallAppendCall(builder, callee, DirectCallOneArgument(argument))
+    return MethodBodyFactsWrapValueInBody(builder, call, 0, "")
+}
+
+// `{ <name> := <Member>()  return <Member>(<name>) }` — the exact body the claim-class corpus crashed
+// on: a declaration whose initializer is a call, and a return whose call READS that plan local.
+func MethodBodyFactsDeclareThenCallReturnBody(memberName: string, localName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    nameStart := builder.AddToken(localName)
+    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
+    initCall := DirectCallAppendCall(builder, initCallee, DirectCallNoArguments())
+    declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initCall))
+    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
+    argument := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), nameStart, localName.Length, nameStart, localName.Length, new int[](0))
+    returnCall := DirectCallAppendCall(builder, returnCallee, DirectCallOneArgument(argument))
+    statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(returnCall))
+    return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
+}
+
+// The same qualified shape with NO arguments, which is what a void member needs.
+func MethodBodyFactsQualifiedCallBodyNoArguments(ownerName: string, memberName: string, localName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    nameStart := builder.AddToken(localName)
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), ownerName)
+    member := DirectCallAppendMember(builder, owner, memberName)
+    call := DirectCallAppendCall(builder, member, DirectCallNoArguments())
+    return MethodBodyFactsWrapValueInBody(builder, call, nameStart, localName)
+}
+
+// `{ return <Member>() }`, or the declaration form — a BARE callee, which is the shape the routed
+// sibling map decides.
+func MethodBodyFactsBareCallBody(memberName: string, localName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    nameStart := builder.AddToken(localName)
+    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
+    call := DirectCallAppendCall(builder, callee, DirectCallNoArguments())
+    return MethodBodyFactsWrapValueInBody(builder, call, nameStart, localName)
+}
+
+// The block/return wrapper the two builders above share. An empty `localName` selects the RETURN
+// position; a non-empty one selects the `:=` INITIALIZER position with a return that reads it back.
+func MethodBodyFactsWrapValueInBody(builder: ColumnarRangePlannerNodeBuilder, value: int, nameStart: int, localName: string): ColumnarRangePlannerTestTree {
+    if localName.Length == 0 {
+        statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(value))
+        return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(statement)))
+    }
+
+    declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(value))
+    read := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), nameStart, localName.Length, nameStart, localName.Length, new int[](0))
+    statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(read))
+    return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
+}
+
+// The driver over a builder-made tree, whose body root is the LAST node rather than node 0, plus the
+// two routed facts a call body can actually observe. `ExactSourceTypes` stays empty and the overflow
+// flag stays `false` — the first has no consumer on the claimed surface and the second is provably
+// `false` at every `EmitBody` entry, and both are stated rather than quietly defaulted.
+func MethodBodyFactsPlanCallBody(tree: ColumnarRangePlannerTestTree, returnType: Type, sourceTypeDefinitions: ColumnarStructDef[], siblingCallables: Dictionary<string, ColumnarSiblingCallFacts>, plan: ColumnarCodePlan): bool {
+    return ColumnarMethodBodyPlanner.TryPlanBody(
+        tree.Nodes,
+        tree.Source,
+        tree.Root,
+        returnType,
+        false,
+        MethodBodyFactsNoOrdinals(),
+        MethodBodyFactsNoTypes(),
+        MethodBodyFactsLocals(),
+        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
+        new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal),
+        null,
+        null,
+        null,
+        sourceTypeDefinitions,
+        new ColumnarUnionDef[](0),
+        new Dictionary<string, string[]>(StringComparer.Ordinal),
+        new string[](0),
+        new string[](0),
+        new string[](0),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        false,
+        siblingCallables,
+        plan)
+}
+
+func MethodBodyFactsNoSourceTypes(): ColumnarStructDef[] {
+    return new ColumnarStructDef[](0)
+}
+
+
+// ---- BLOCK 40 — THE DIRECT-CALL COMPOSITE IN RETURN POSITION (class C) ----
+//
+// The first claimed kind whose owner reaches the CASCADE rather than a pre-cascade facade:
+// `EmitExpressionCore` offers boolean, unary-literal, scalar-literal and `nameof` first — none has a
+// call arm — and then `ColumnarRangeIndexPlanner.TryEmitFromFacts` answers `FacadeRootMayNeedFacts`
+// TRUE for kind 9, declines the construction owner (15/36/58 only) and hands the node to
+// `ColumnarDirectCallPlanner`. So the door calling that owner's own `TryAppendRoot` is byte-identity
+// BY CONSTRUCTION, and the rows below are the owner's rows plus the driver's `ret`.
+test "the door claims a direct call as a return value and executes it" {
+    tree := MethodBodyFactsQualifiedCallBody("Type", "GetType", "\"System.String\"", ColumnarExpressionNodeKind.StringLiteralExpression(), "")
+    ExternalStampScope(tree, "import System")
+
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(Type), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    assert plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+    assert plan.Methods[plan.OperandIndices[1]].get_Name() == "GetType"
+    assert plan.MethodDeclaringTypes[plan.OperandIndices[1]] == typeof(Type)
+    assert plan.OpenFragmentCount == 0
+    assert plan.FragmentParentIndices[0] == -1
+
+    method := MethodBodyFactsDynamicMethod("NSharpB7CallReturnBody", typeof(Type))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Object.ReferenceEquals(method.Invoke(target, MethodBodyFactsNoArguments()), typeof(string))
+}
+
+
+// ---- BLOCK 41 — THE SAME CALL AS A DECLARATION INITIALIZER (class DC) ----
+//
+// Two claim classes, not one, because `015-B6` proved the RETURN position is not the VALUE position:
+// the host's kind-20 arm runs seven target-typed pre-passes and its kind-24 arm runs none. All six
+// kind-gated pre-passes exclude kind 9 (15/36/42, 42, 0-after-an-optional-minus, 58, 58, 5), so the
+// two positions agree for a call — which is a fact worth ASSERTING at both ends rather than assuming,
+// since the unary class does not have it.
+test "the door claims a direct call as a declaration initializer and the return reads the plan local" {
+    tree := MethodBodyFactsQualifiedCallBody("Type", "GetType", "\"System.String\"", ColumnarExpressionNodeKind.StringLiteralExpression(), "resolved")
+    ExternalStampScope(tree, "import System")
+
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(Type), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    assert plan.OperationCount == 5
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Stloc()
+    assert plan.OperandKinds[2] == ColumnarCodePlanContract.PlanLocalOperand()
+    assert plan.OperandIndices[2] == 0
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Ldloc()
+    assert plan.OperandIndices[3] == 0
+    assert plan.OpCodeValues[4] == ColumnarCodePlanContract.Ret()
+
+    // The plan local carries the CALL's return type, which is what makes the initializer position a
+    // real consumer of the owner's result rather than a shape that merely parses.
+    assert plan.PlanLocalCount == 1
+    assert plan.AmbientLocalCount == 0
+    assert plan.Types[plan.PlanLocalTypeIndices[0]] == typeof(Type)
+
+    method := MethodBodyFactsDynamicMethod("NSharpB7CallDeclaredBody", typeof(Type))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Object.ReferenceEquals(method.Invoke(target, MethodBodyFactsNoArguments()), typeof(string))
+}
+
+
+// ---- BLOCK 42 — THE ROUTED SIBLING MAP IS A BRANCH SELECTOR, NOT A CONVENIENCE ----
+//
+// `015-B5` and `015-B6` deliberately left `SiblingCallables` unrouted and recorded that it becomes
+// mandatory when a COMPOSITE is claimed. This is the block that makes that claim falsifiable: the SAME
+// body is claimed with the map routed and DECLINED with an empty one, because
+// `ColumnarDirectCallPlanner:222` routes a bare name to the sibling arm on exactly this fact and
+// `:170` bails out of the whole call when no tier answers. A driver that forgot to route it would not
+// crash — it would silently emit a different body — which is why the pin is a claim/decline pair.
+test "the routed sibling map decides a bare call and an empty map declines it" {
+    facts := DirectCallSiblingFacts("MethodBodyFactsSiblingHost", "Ping", new Type[](0), typeof(int))
+    tree := MethodBodyFactsBareCallBody("Ping", "")
+
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsSiblings("Ping", facts), plan)
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ret()
+    assert plan.Methods[plan.OperandIndices[0]].get_Name() == "Ping"
+
+    empty := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(tree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), empty)
+
+    // The same asymmetry in the INITIALIZER position, so the routing is not accidentally return-only.
+    declaredTree := MethodBodyFactsBareCallBody("Ping", "n")
+    declared := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(declaredTree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsSiblings("Ping", facts), declared)
+    assert declared.PlanLocalCount == 1
+    assert declared.Types[declared.PlanLocalTypeIndices[0]] == typeof(int)
+    declaredEmpty := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(declaredTree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), declaredEmpty)
+}
+
+
+// ---- BLOCK 43 — ⚠ A VOID CALL DECLINES INSTEAD OF LEAVING THE COMPILER ----
+//
+// THIS IS THE HAZARD THE `015-B6` OWNERS DID NOT HAVE, AND IT IS A THROW RATHER THAN A WRONG BYTE.
+// `CompleteFragment` admits a `System.Void` result only on a schema-v3 ROOT fragment — exactly what
+// `ColumnarDirectCallPlanner.Plan` always hands it, which is how a statement-position `foo()` is
+// planned today. A METHOD BODY is neither v3 nor necessarily fragment 0, so `x := SomeVoidCall()` — a
+// shape the parser produces and the host declines at its own supported-type gate — would have left the
+// compiler through "Only a schema-v3 root code-plan fragment can declare a void result."
+//
+// The unary owner's result is bounded by its own syntax and `nameof`'s is always `string`; the call
+// owner is the first whose result type its syntax does not bound. Both halves are asserted: the v3
+// route still completes a void root, and the method-body route DECLINES with the plan rolled back.
+test "a void direct call declines on a method body and still completes a schema-v3 root" {
+    owner := SourceCallDefinition("MethodBodyFactsVoidCallOwner", true)
+    _reset := SourceCallPublicStatic(owner, "Reset", new Type[](0), MethodBodyFactsVoidType())
+    voidTree := DirectCallQualifiedTree("MethodBodyFactsVoidCallOwner", "Reset", DirectCallEmptyTexts(), DirectCallEmptyKinds())
+
+    // v3 — unchanged, and the assertion is what makes the guard's narrowness checkable.
+    v3 := DirectCallPlan(voidTree, DirectCallSingleDefinitionBindings(owner))
+    assert v3.ResultType != null
+    assert v3.ResultType.FullName == "System.Void"
+    assert v3.SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+
+    // A method body — the same append, the same owner, and a DECLINE with nothing left behind.
+    body := new ColumnarCodePlan()
+    body.PrepareMethodBody()
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacyWholeSubtreePlanning := false
+    voidResult := typeof(int)
+    assert !ColumnarDirectCallPlanner.TryAppendRoot(voidTree.Nodes, voidTree.Source, voidTree.Root, DirectCallSingleDefinitionBindings(owner), body, out ownership, out legacyWholeSubtreePlanning, out voidResult)
+    assert body.OperationCount == 0
+    assert body.FragmentCount == 0
+    assert body.OpenFragmentCount == 0
+
+    // And through the DOOR, which is the route a user body actually takes.
+    declaredTree := MethodBodyFactsQualifiedCallBodyNoArguments("MethodBodyFactsVoidCallOwner", "Reset", "ignored")
+    declaredPlan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(declaredTree, typeof(int), SourceCallDefinitions(owner), MethodBodyFactsNoSiblings(), declaredPlan)
+}
+
+
+// ---- BLOCK 44 — THE ROOT SEQUENCE IS ONE COPY, NOT TWO ----
+//
+// `TryAppendRoot` was FACTORED OUT of `Plan` rather than written beside it, and that is the whole
+// byte-identity argument: if the door had grown its own checkpoint/fragment/append/complete sequence,
+// the two would agree only as long as someone kept them agreeing. The same call planned both ways
+// produces the same rows, in the same order, resolving the SAME `MethodInfo`.
+test "the direct-call root sequence produces the same rows through Plan and through the door" {
+    tree := DirectCallQualifiedTree("Type", "GetType", DirectCallOneText("\"System.String\""), DirectCallOneKind(ColumnarExpressionNodeKind.StringLiteralExpression()))
+    ExternalStampScope(tree, "import System")
+
+    viaPlan := DirectCallPlan(tree, ColumnarRangePlannerEmptyBindings())
+
+    viaDoor := new ColumnarCodePlan()
+    viaDoor.PrepareMethodBody()
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacyWholeSubtreePlanning := false
+    doorResult := typeof(int)
+    assert ColumnarDirectCallPlanner.TryAppendRoot(tree.Nodes, tree.Source, tree.Root, ColumnarRangePlannerEmptyBindings(), viaDoor, out ownership, out legacyWholeSubtreePlanning, out doorResult)
+
+    assert doorResult == viaPlan.ResultType
+    assert viaDoor.OperationCount == viaPlan.OperationCount
+    row := 0
+    while row < viaPlan.OperationCount {
+        assert viaDoor.OpCodeValues[row] == viaPlan.OpCodeValues[row]
+        assert viaDoor.OperandKinds[row] == viaPlan.OperandKinds[row]
+        row = row + 1
+    }
+
+    assert Object.ReferenceEquals(viaDoor.Methods[viaDoor.OperandIndices[1]], viaPlan.Methods[viaPlan.OperandIndices[1]])
+
+    // The two differ in exactly one place, and it is the wrapper rather than the sequence: `Plan`
+    // SEALS a v3 expression, the door leaves the body open for the statements after it.
+    assert viaPlan.SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+    assert viaDoor.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+    assert viaDoor.OpenFragmentCount == 0
+}
+
+
+// ---- BLOCK 45 — ⚠ THE PLAN-LOCAL-INSIDE-A-CALL REFUSAL ----
+//
+// THE CLAIM-CLASS CORPUS FOUND THIS AS A COMPILER CRASH, NOT AS AN ARGUMENT: `n := Callee(3)` followed
+// by `return Callee(n)` came back `Build failed: The opcode does not use this plan-local entry.` The
+// direct-call owner types each argument by planning it into a FRESH schema-v3 SCRATCH plan whose local
+// pool is EMPTY, and the sole identifier owner appends `ldloc <pool index>` for a plan local, so the
+// index does not exist there. Mirroring the pool into the scratch is not the alternative either —
+// `ValidateAllUsed` throws on any declared plan local no row references — so the refusal stands until a
+// slice changes the scratch plan's contract.
+//
+// The block asserts BOTH sides of the narrowness, because a guard that refused too much would be a
+// retreat from the class rather than a fix: a plan-local read INSIDE the call is refused, the same
+// binding read OUTSIDE the call is claimed, and the predicate itself answers false when no plan local
+// exists at all.
+test "a call whose subtree reads a plan local is refused and the same binding outside a call is claimed" {
+    facts := DirectCallSiblingFacts("MethodBodyFactsPlanLocalHost", "Ping", new Type[](0), typeof(int))
+    siblings := MethodBodyFactsSiblings("Ping", facts)
+
+    // `n := Ping()` then `return n` — the plan local is read in RETURN position, outside any call.
+    outside := MethodBodyFactsBareCallBody("Ping", "n")
+    outsidePlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(outside, typeof(int), MethodBodyFactsNoSourceTypes(), siblings, outsidePlan)
+    assert outsidePlan.PlanLocalCount == 1
+
+    // The predicate is FALSE on the same tree with EMPTY bindings — no plan locals, nothing to refuse —
+    // and TRUE once a plan local of that name exists. Both directions, on one tree.
+    bindings := MethodBodyFactsEmptyBindings()
+    read := MethodBodyFactsIdentifierCallBody("Ping", "n")
+    assert !ColumnarMethodBodyPlanner.ReadsPlanLocal(read.Nodes, read.Source, read.Root, bindings, 0)
+    bindings.DeclarePlanLocal("n", 0, typeof(int))
+    assert ColumnarMethodBodyPlanner.ReadsPlanLocal(read.Nodes, read.Source, read.Root, bindings, 0)
+
+    // A name the bindings do NOT hold is not refused, so the scan is about the plan-local tier rather
+    // than about identifiers in general.
+    other := MethodBodyFactsIdentifierCallBody("Ping", "q")
+    assert !ColumnarMethodBodyPlanner.ReadsPlanLocal(other.Nodes, other.Source, other.Root, bindings, 0)
+
+    // And the DOOR declines the whole body rather than reaching the owner: `n := Ping()` then
+    // `return Ping(n)`. Without the guard this call throws out of the compiler.
+    inside := MethodBodyFactsDeclareThenCallReturnBody("Ping", "n")
+    insidePlan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(inside, typeof(int), MethodBodyFactsNoSourceTypes(), siblings, insidePlan)
 }

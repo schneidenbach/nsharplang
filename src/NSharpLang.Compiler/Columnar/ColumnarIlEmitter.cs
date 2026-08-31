@@ -6002,14 +6002,13 @@ internal sealed class ColumnarIlEmitter
     // unreachable code).
     private bool EmitBody(int bodyRoot, bool isVoid)
     {
-        // BODY FRONT DOOR (015-B3, widened in B4, B5 and B6): the ORDINARY USER bodies the plan-row IR
-        // claims end to end — the void arity, and a run of `:=` declarations ending in a return of a
-        // literal, a bool, an identifier, a unary over a literal, or a `nameof`. Offered ahead of every
-        // field below, because no shape ColumnarMethodBodyPlanner accepts holds a lambda, a branch or a
-        // region, so a claimed body needs none of that state; its LOCALS are declared in the plan's own
-        // pool rather than here, so none of this emitter's live maps is written. The claim is total: the
-        // planner produces every byte or it declines and this method emits as ever. An ASYNC body is
-        // excluded because its returns wrap and leave to a shared tail (below).
+        // BODY FRONT DOOR (015-B3, widened in B4, B5, B6 and B7): the ORDINARY USER bodies the plan-row
+        // IR claims end to end — the void arity, and a run of `:=` declarations ending in a return of a
+        // literal, a bool, an identifier, a unary over a literal, a `nameof`, or a CALL. Offered ahead of
+        // every field below: no shape ColumnarMethodBodyPlanner accepts holds a lambda, a branch or a
+        // region, and its LOCALS live in the plan's own pool, so none of this emitter's live maps is
+        // written. The claim is total — the planner produces every byte or declines and this method emits
+        // as ever. ASYNC is excluded: its returns wrap and leave to a shared tail (below).
         if (_asyncReturnType == null)
         {
             var bodyPlan = new ColumnarCodePlan();
@@ -6017,7 +6016,8 @@ internal sealed class ColumnarIlEmitter
                     _nodes, _source, bodyRoot, _returnType, isVoid, _paramOrdinals, _paramTypes, _locals,
                     _enumRegistry, _liftedLocals, _boxedCaptures, _currentStruct, _enclosingType,
                     _structRegistry.Values, _unionRegistry.Values, _tupleNamesByVariable,
-                    _enclosingBindingNames, _siblings.Keys, _visibleLocalFuncs, _typeParameters, bodyPlan))
+                    _enclosingBindingNames, _siblings.Keys, _visibleLocalFuncs, _typeParameters,
+                    ExactSourceTypesForBody(), _overflowCheckingEnabled, SiblingCallFacts(), bodyPlan))
             {
                 ColumnarCodePlanExecutor.Execute(bodyPlan, _il);
                 return true;

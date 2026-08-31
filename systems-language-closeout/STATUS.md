@@ -1,6 +1,33 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-31 (**TASK 015 SUB-SLICE `015-B6` — THE NINE-OWNER GATE WIDENING AND THE
+Last updated: 2026-08-31 (**TASK 015 SUB-SLICE `015-B7` — THE DIRECT-CALL COMPOSITE — see the Cursor
+block.** The decode was written before any production file was touched and it **OVERTURNS THE BRIEF ON
+TWO OF ITS FOUR ITEMS**. First: the overflow flag is not "a byte divergence to measure and handle" at
+this door — it is **PROVABLY `false` at every `EmitBody` entry** (the field starts false, is written at
+exactly two lines inside `EmitExpressionWithOverflowChecking` which restores it in a `finally` around
+ONE kind-57 child, and all SEVEN `EmitBody` call sites run on a freshly constructed emitter); it is
+routed anyway, carried rather than assumed. Second: the census's "five of six bodies" is not what the
+composite buys — re-reading all six, only ONE is unblocked by the call claim and the real prize is
+`{ return <call> }`, a shape B6's census never counted. **AND THE SLICE PRODUCED TWO FINDINGS NEITHER
+BRIEF NOR REVIEW SAW.** (1) The gauntlet body the brief called "blocked by nothing else at all" **DOES
+NOT COMPILE** — `NL001` for the unread local and `NL301` for the bare `ArrayPool` receiver, both
+DIAGNOSTICS that stop the build before any emitter runs (the repo's own systems-census contract already
+records the NL301) — and even in its compilable type-alias spelling it is declined by
+`ColumnarDirectCallPlanner`'s pre-existing alias-chain rule, whose comment **names `ByteArrayPool.Shared.Rent`
+verbatim**. (2) The claim-class corpus CRASHED the compiler: `n := f(3)` then `return g(n)` came back
+`Build failed: The opcode does not use this plan-local entry.` — the direct-call owner types arguments
+in a FRESH scratch plan with an empty local pool, and B6's plan-locals cannot exist there; mirroring the
+pool is not the fix either, because `ValidateAllUsed` throws on any unreferenced pool entry, so the
+shape is declined WHOLE and the scratch-plan contract is `015-B8`'s first item. **THE COMPOSITE IS THE
+FIRST NEW CLAIM CLASS TO MOVE THE LIVE CORPUS SINCE `015-B5`**: `MUT-C` moves `UserService::GetUserEmail`
+and `Point::GetAngle` by name where `015-B6`'s four classes moved zero. All THREE deliberately-unrouted
+binding facts are now routed, and `MUT-CS` — a two-file control combining the marker with an empty
+sibling map — proves the sibling routing in BYTES by moving exactly the one bare-sibling body. Estate
+**7,121 → 7,127**; native emit-facts **25 → 26**; both corpora `IL_DIFFS=0`; the emitter **20,890 →
+20,890** byte-identical in both counts; the control walk 6/6 with two single-block isolations and a
+clean pristine bracket. NOT COMMITTED.)
+
+Last updated (prior): 2026-08-31 (**TASK 015 SUB-SLICE `015-B6` — THE NINE-OWNER GATE WIDENING AND THE
 STATEMENT LOOP'S BIRTH — see the Cursor block.** The decode was written before any production file was
 touched and it **OVERTURNS THE BRIEF ON ALL THREE MOVES**. First: the nine gates are real, but the
 composites they blocked are NOT reached through one dispatcher — `EmitExpressionCore` calls four owner
@@ -5176,7 +5203,449 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B6`: THE NINE-OWNER GATE WIDENING AND THE STATEMENT
+- Active sub-slice (015 arc, THIS TURN — **`015-B7`: THE DIRECT-CALL COMPOSITE. THE DECODE OVERTURNS
+  THE BRIEF ON TWO OF ITS FOUR ITEMS — THE OVERFLOW FLAG IS *PROVABLY FALSE* AT EVERY `EmitBody`
+  ENTRY RATHER THAN A DIVERGENCE TO HANDLE, AND THE CENSUS'S "FIVE OF SIX" IS NOT THE CLAIM THE
+  COMPOSITE ACTUALLY BUYS — AND IT FINDS A *NEW* HARD-CRASH HAZARD THE B6 OWNERS DID NOT HAVE: A
+  VOID-RETURNING CALL THROWS OUT OF `CompleteFragment` RATHER THAN DECLINING.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED, AT `b5644eff7`
+
+  #### THE TIP, RE-MEASURED RATHER THAN INHERITED
+
+  | reading | value | matches the brief |
+  |---|---|---|
+  | `ColumnarIlEmitter.cs` | **20,890 / 19,871** | ✓ |
+  | compiler C# files (excluding `obj/`, `bin/`) | **10** | ✓ |
+  | ratchet manifest | **391**, no BOM (`7b 0a 20`) | ✓ |
+  | two-key head | `head-v1:d0a2dfa62779dee5` | ✓ |
+  | working tree | CLEAN — B6 committed as `b5644eff7` | — |
+  | `ColumnarMethodBodyPlanner.nl` | **567** lines | — |
+  | `ColumnarDirectCallPlanner.nl` | **1,737** lines, **48** `static func` | — |
+  | `ColumnarMethodBodyFacts.tests.nl` | **39** blocks | ✓ |
+
+  #### THE DIRECT-CALL OWNER'S ROOT SHAPE, READ FROM THE TIP
+
+  `ColumnarDirectCallPlanner.Plan` (`:56–85`) is EXACTLY the B6 `TryAppendRoot` shape with three
+  wrappers around it:
+
+  | step | line | belongs to |
+  |---|---|---|
+  | `ValidateInputs` | `:57` | `Plan` |
+  | `ownership = NotOwned`, `legacyWholeSubtreePlanning = false`, `resultType = int` | `:58–60` | both |
+  | `plan.PrepareV3()` | `:61` | `Plan` ONLY |
+  | `candidate := UnwrapParentheses(...)`, kind must be `CallExpression` | `:62–65` | both |
+  | `checkpoint := plan.CreateCheckpoint()` | `:67` | **the root sequence** |
+  | `try { fragment := plan.BeginFragment(-1, CallExpression(), candidate) }` | `:69` | **the root sequence** |
+  | `handles := ColumnarRangeIndexHandles.Resolve()` | `:71` | **the root sequence** |
+  | `TryAppendCall(..., fragment, 0, ...)` else `Rollback` | `:72–75` | **the root sequence** |
+  | `plan.CompleteFragment(fragment, resultType)` | `:77` | **the root sequence** |
+  | `plan.CompleteV3(resultType)` | `:78` | `Plan` ONLY |
+  | `ownership = Planned` | `:79` | `Plan` ONLY (a status, not a row) |
+  | `catch { Rollback; rethrow }` | `:81–84` | **the root sequence** |
+
+  So the factoring is the same one B6 applied to the unary and `nameof` owners, and the direct-call
+  owner is the FIRST to need `handles`, the try/catch and TWO extra `out`s inside it.
+
+  **THE HOST'S ROUTE FOR A KIND-9 NODE IS ONE OWNER, MEASURED RATHER THAN ASSUMED.**
+  `EmitExpressionCore` offers four pre-cascade owners first — boolean, unary-literal, scalar-literal,
+  `nameof` — and none has a `CallExpression` arm. Then `ColumnarRangeIndexPlanner.TryEmitFromFacts`:
+  `FacadeRootMayNeedFacts` answers TRUE for kind 9 outright (`:237–239`),
+  `ColumnarConstructionPlanner.MayPlanRoot` answers only 15/36/58, and
+  `ColumnarDirectCallPlanner.MayPlanRoot` answers TRUE. So the cascade's SECOND arm owns every call
+  root, and byte identity for this claim is against ONE owner.
+
+  #### ⚠ THE NEW HAZARD THE B6 OWNERS DID NOT HAVE — A VOID CALL IS A *THROW*, NOT A DECLINE
+
+  `CompleteFragment` (`ColumnarCodePlan.nl:1083–1087`) refuses a `System.Void` result unless
+  `SchemaVersion == ScalarSchemaVersion() && fragmentIndex == 0`. `Plan` always satisfies both
+  (`PrepareV3` then `BeginFragment` → index 0), which is how statement-position `foo()` is planned
+  today. **A METHOD BODY SATISFIES NEITHER**, so `x := Console.WriteLine("hi")` — a shape the parser
+  produces and the host DECLINES at `IsSupportedType(void)` — would reach `CompleteFragment` with a
+  void result and throw a hard `InvalidOperationException` out of the compiler.
+
+  Neither B6 owner could reach this: a unary literal's result is int/long/float/double/decimal/bool
+  and `nameof`'s is `string`. The call owner is the first whose result type is not bounded by its own
+  syntax. **The guard therefore lives in the shared root sequence and mirrors `CompleteFragment`'s
+  own admission rule exactly** — void is refused when `SchemaVersion != ScalarSchemaVersion()` or the
+  fragment is not index 0 — which turns the throw into a decline at the one call site that can reach
+  it and leaves `Plan`'s v3 behaviour bit-for-bit unchanged.
+
+  #### THE THREE BINDING FACTS — WHAT THEY FEED, AND WHY TWO OF THE THREE ARE MANDATORY *BY DIVERGENCE*
+
+  All three are plan-time inputs the driver's own call site already has; none needs threading through
+  new emitter state. `ExactSourceTypesForBody()` is a one-expression field read (`:306`) and
+  `SiblingCallFacts()` is memoised into `_siblingCallFacts` (`:9644–9660`). The cost is one C# call
+  site, which must stay line-neutral under the exact-match ratchet.
+
+  | fact | consumer at this tip | what an EMPTY value does |
+  |---|---|---|
+  | `ExactSourceTypes` | `ColumnarFragmentBindings.TryResolveSelectedSourceType:219`, reached from `ColumnarBindingScopeFacts:1034` | falls back to scanning live definitions and requires exactly ONE candidate — so an ALIASED or generic-head declaration that resolves under the index resolves to *nothing* without it. **A different selection, not a slower one** |
+  | `SiblingCallables` | `ColumnarDirectCallPlanner:139`, `:160`, `:222`, `:236`, `:474` | **THREE of the five are branch selectors, not guards.** `:222` routes a bare name to `TryAppendSiblingCall`; `:236` gates the delegate-invoke arm; `:139` declines outright. Empty ⇒ different arm ⇒ different rows |
+  | `OverflowCheckingEnabled` | `ColumnarPrimitiveBinaryPlanner:322` — `checkedIntegral := flag && (isAdd\|\|isSub\|\|isMul) && integral`, selecting `AddOvf`/`AddOvfUn`/`SubOvf`/… over `Add`/`Sub`/`Mul` | see the overturn below |
+
+  #### ⚠ OVERTURN 1 — THE OVERFLOW FLAG IS *PROVABLY FALSE* AT EVERY `EmitBody` ENTRY, SO IT IS NEITHER A DIVERGENCE TO MEASURE NOR A SHAPE TO REFUSE
+
+  The brief says the flag "is a BYTE DIVERGENCE not a decline (checked arithmetic emits different
+  opcodes: measure and handle)". The opcode fact is true — `ColumnarPrimitiveBinaryPlanner:322`
+  selects `add.ovf` for a checked integral add — but the *hazard* is not reachable at this door, and
+  that is a census rather than an argument:
+
+  1. `_overflowCheckingEnabled` is declared at `ColumnarIlEmitter.cs:63` with no initializer, so it
+     starts `false`, and NO constructor assigns it.
+  2. It is written at EXACTLY two lines — `:9630` and `:9637` — both inside
+     `EmitExpressionWithOverflowChecking`, which saves the previous value, sets the new one, emits ONE
+     child expression and restores in a `finally`. Its whole dynamic extent is one kind-57
+     (`CheckedContext`) node's child.
+  3. All **SEVEN** `EmitBody` call sites (`:1340`, `:5474`, `:5524`, `:5559`, `:5659`, `:5802`,
+     `:5904`) are invoked on a FRESHLY CONSTRUCTED `ColumnarIlEmitter` — `subEmitter` (`:1186`),
+     `emitter` (`:5457`, `:5546`, `:5642`, `:5731`), `localEmitter` (`:5508`), `testEmitter` (`:5889`).
+
+  **So the value the door would carry is `false` at every entry, without exception.** It is routed
+  ANYWAY — carried, never assumed — because the door must read the same field the host reads rather
+  than reproduce a conclusion about it, and because kind 57 is on the door's DECLINED side, no claimed
+  statement can sit inside a toggle that opened after `EmitBody` was entered. The `add` vs `add.ovf`
+  divergence is measured for the record in a probe; it is not a shape this door has to refuse.
+
+  #### ⚠ OVERTURN 2 — "FIVE OF THE SIX CENSUS BODIES" IS NOT WHAT THE COMPOSITE BUYS, AND THE REAL PRIZE IS A SHAPE B6's CENSUS NEVER COUNTED
+
+  B6's census counted the STATEMENT-LOOP shape (N declarations then one return) and found six bodies,
+  five with a call initializer. Re-reading all six at this tip, **only ONE is unblocked by the
+  direct-call claim** — every other is blocked a SECOND time, by a kind the door still declines:
+
+  | body | what it is | still blocked by |
+  |---|---|---|
+  | `tests/fixtures/systems-gauntlet/06-pooled-boundary/sample.nl:2` | `buffer := ArrayPool.Shared.Rent(1024)` then `return 1` | **NOTHING** — the one the brief named |
+  | `examples/06-classes-and-records/PrimaryConstructors.nl:49` | `parts := value.Split("@")` then `return parts.Length > 1 ? parts[1] : ""` | the RETURN is a **ternary** (kind 13) |
+  | `examples/11-advanced-features/ConversionOperators/ConversionOperators.nl:48` | `numerator := (int)(value * precision)` then `return new Fraction {…}` | the initializer is a **cast** (16) and the return a **`new`** (15) |
+  | `examples/16-task-cli/Services/Store.nl:59` | three declarations then `return $"…"` | the RETURN is an **interpolated string** |
+  | `examples/12-multi-file-projects/WeatherDemo/Services/WeatherService.nl:51` | `forecasts := GetForecasts(days)` … `return (minTemp, maxTemp)` | the RETURN is a **tuple** (17) |
+  | `.../WeatherService.nl:62` | `forecasts := GetForecasts(days)` then `hotDays := forecasts.Where(…).Select(…).ToArray()` | the SECOND initializer holds **lambdas** (39) |
+
+  **THE SHAPE THAT ACTUALLY MOVES IS `{ return <call> }`, WHICH B6's CENSUS DID NOT COUNT AT ALL.** A
+  fresh scan of the same corpus (105 `.nl` files under `examples/` + `tests/fixtures/`) for a
+  ONE-statement body whose statement is `return <name>(…)` finds **14**:
+
+  `examples/17-issue-tracker/backend/Service.nl:69` `return store.GetAll()`; `:73` and `:77` (both
+  `.Where(…).ToList()` — lambdas); `examples/06-classes-and-records/PrimaryConstructors.nl:20`
+  `return Math.Sqrt(x * x + y * y)` and `:24` `return Math.Atan2(y, x)`;
+  `examples/11-advanced-features/FileScopedTypes/FileScopedTypes.nl:70` `return cache.Get(username)`;
+  `examples/11-advanced-features/CheckedUnchecked/CheckedUnchecked.nl:6` `return checked(x + y)`;
+  `examples/16-task-cli/Services/TaskService.nl:114` `return tasks.ToList()`;
+  `tests/fixtures/issue-tracker/Service.nl:65`, `:69`, `:73` (the mirror three);
+  `tests/fixtures/systems-gauntlet/09-native-interop/sample.nl:7` `return Ok(1)`;
+  `.../10-json-cli/sample.nl:13` and `:18`.
+
+  How many of those the owner actually plans is a question for BYTES, not for this decode — the
+  mutation counts below are the answer, and predicting them here would be the same over-claim `015-B6`
+  caught in itself.
+
+  #### THE COMPOSITE'S CLAIM CLASSES
+
+  Two, split by POSITION exactly as `015-B6`'s finding demands — the kind-20 arm runs seven
+  target-typed pre-passes and the kind-24 arm runs none:
+
+  | | class | door entry |
+  |---|---|---|
+  | **C** | a call as the RETURN VALUE — `{ … return <call> }` | `TryAppendReturnValue` → `IsHostAdoptedReturnShape` (never matches kind 9) → `TryAppendValue` |
+  | **DC** | a call as a DECLARATION INITIALIZER — `x := <call>` | `TryAppendLocalDeclaration` → `TryAppendValue` directly |
+
+  **ALL SEVEN KIND-20 PRE-PASSES WERE RE-CHECKED AGAINST KIND 9 AND SIX ARE KIND-GATED SHUT.**
+  `IsAdoptableUnionConstruction` demands kind 15/36/42 (`:12823`); `TryEmitTargetTypedNewAsType` kind
+  42; `TryEmitIntLiteralAsType` kind 0 after an optional kind-11 minus (`:15342–15347`);
+  `CanUseCollectionLiteralAsType` kind 58 (`:15179`); `TryEmitArrayLiteralAsType` likewise;
+  `TryEmitNullLiteralAsType` kind 5 (`:15107`). The SEVENTH is the return-TYPE-gated
+  `IsSupportedNullable`, which `TryPlanBody:219` already refuses whole. So the return position adds
+  nothing for kind 9 beyond what the door already guards — and the guard stays anyway, because it is
+  the position rule and not a kind rule.
+
+  **THE HOST'S KIND-24 ARM PUBLISHES TUPLE ELEMENT NAMES FOR A CALL INITIALIZER AND THE DRIVER DOES
+  NOT — AND THAT IS INERT, MEASURED RATHER THAN WAVED AT.** `_tupleNamesByVariable[name] =
+  TupleNamesOfExpressionNode(…)` runs for "a sibling call with a named return type". Tuple element
+  names are not IL: they are consumed only by MEMBER ACCESS on the local (kind 8), which is on the
+  door's declined side, and a claimed body ends at its `return`, so no later statement can consult the
+  map. The omission cannot move a byte.
+
+  #### THE CUT
+
+  | | |
+  |---|---|
+  | move 1 | `ColumnarDirectCallPlanner.TryAppendRoot` — the checkpoint / root fragment / handles / append / complete sequence factored OUT of `Plan`, `Plan` calling the one copy, plus the void-result guard that mirrors `CompleteFragment`'s own rule |
+  | move 2 | the door's kind-9 arm: 9 leaves `IsDeclinedExpressionKind` and joins `IsClaimedExpressionKind` |
+  | move 3 | the three binding facts routed — `TryPlanBody` gains `exactSourceTypes`, `overflowCheckingEnabled`, `siblingCallables`, and the C# call site passes `ExactSourceTypesForBody()`, `_overflowCheckingEnabled`, `SiblingCallFacts()` **line-neutrally** (the front door's comment pays for the argument line) |
+  | the cheap items | the adopted-negative-literal class and the `==` → `TypesEquivalent` coercion, each with its own diff, taken only if budget remains |
+
+  Everything below this line is the record written AFTER the build; the decode above is unedited.
+
+  ### WHAT LANDED
+
+  | file | change |
+  |---|---|
+  | `ColumnarDirectCallPlanner.nl` | a new `TryAppendRoot`: the checkpoint / root fragment / handles / append / complete sequence factored OUT of `Plan`, `Plan` calling the ONE copy between `PrepareV3` and `CompleteV3`, plus the VOID-RESULT guard that mirrors `CompleteFragment`'s own admission rule and turns a throw into a decline at the one call site that can reach it |
+  | `ColumnarMethodBodyPlanner.nl` | kind 9 moves from `IsDeclinedExpressionKind` to `IsClaimedExpressionKind` and gets its arm; `TryPlanBody` gains the THREE routed facts and sets them exactly as `ColumnarRangeIndexPlanner.TryEmitFromFacts` does; `ReadsPlanLocal` — the measured hard-crash guard below |
+  | `ColumnarIlEmitter.cs` | the front door passes `ExactSourceTypesForBody()`, `_overflowCheckingEnabled` and `SiblingCallFacts()`, and its comment tells the truth about what it now claims. **20,890 → 20,890 (−0 / −0)**, byte-identical line AND non-blank counts — the comment paid for the argument line; compiler C# steady at **10 files** |
+  | `ColumnarMethodBodyFacts.tests.nl` | **6** new estate blocks (**39 → 45**), one existing block re-pinned (claimed kinds 8 → 9, and its "declined kind" probe re-aimed from `CallExpression` to `MemberAccess` with a second probe added for a claimed kind whose owner refuses the node) |
+  | `columnar-emit-facts/DeclarationAndLiteralEmitFacts.tests.nl` | **1** new native block (**25 → 26**, all green) over four new bodies — a sibling call in both positions, a plan-local read outside a call, and a bare instance call |
+
+  ### ⚠ FINDING 1 — THE GAUNTLET BODY DOES NOT COMPILE, AND IT IS BLOCKED TWICE OVER BY *DIAGNOSTICS*
+
+  The `015-B7` brief's first item says
+  `tests/fixtures/systems-gauntlet/06-pooled-boundary/sample.nl:2` — `buffer := ArrayPool.Shared.Rent(1024)`
+  then `return 1` — is **"blocked by nothing else at all."** Compiled verbatim, it is blocked TWICE, and
+  neither blocker is an emitter:
+
+  | attempt | what the compiler said |
+  |---|---|
+  | verbatim | **`NL001: Variable 'buffer' is declared but never read`**, with the compiler's own fix ("prefix it with `_`") |
+  | `_buffer := ArrayPool.Shared.Rent(1024)` | **`NL301: I cannot find a 'ArrayPool' variable`** — the bare non-generic receiver does not resolve |
+  | `_buffer := ArrayPool<byte>.Shared.Rent(1024)` | `NL102` **and** `NL301` — a generic head is not a receiver spelling this grammar accepts |
+
+  **THE REPO ALREADY KNEW.** `tests/native/systems-analysis-census/SystemsAnalysisCensus.tests.nl:52`
+  records in so many words that this receiver "the analyzer reports as `NL301: Variable 'ArrayPool' not
+  found`", and `:1446` feeds the identical body to the SYSTEMS CENSUS, which reads a syntax tree and
+  never emits. **The fixture is an ANALYSIS fixture, not compilable source**, and it has no
+  `project.yml` precisely because nothing builds it. No emitter claim can ever reach it.
+
+  The compilable spelling of the same shape is the one `tests/native/direct-calls/DirectCalls.nl:233`
+  uses — a type alias for the closed generic — and the claim-class corpus carries it under that
+  spelling, with the `_` prefix the compiler itself suggested. **The SHAPE the door claims is
+  unchanged**: a `:=` whose initializer is a member call on a static receiver, followed by a literal
+  return. What is overturned is the brief's reason for prizing it.
+
+  **AND EVEN IN THAT SPELLING THE BODY IS NOT CLAIMED — FOR A THIRD REASON, WHICH THE OWNER'S OWN CODE
+  NAMES VERBATIM.** `MUT-DC` moves the corpus's other two declaration bodies and does NOT move `Load`,
+  and `ColumnarDirectCallPlanner.TryAppendMemberCall` says why in a comment written long before this
+  slice:
+
+  > "A nested chain such as **ByteArrayPool.Shared.Rent** has a value-or-nested-type receiver, so fixed
+  > direct-call ownership must preserve the complete subtree for the composed-expression owner instead
+  > of treating the chain as a type."
+
+  That arm sets `legacyWholeSubtreePlanning` and rolls back — a DELIBERATE, DOCUMENTED yield to the
+  legacy composed-expression owner, unchanged by this slice and unrelated to the door, the statement
+  loop or the claim rule. **So the census's one "blocked by nothing else" body is blocked THREE ways:
+  by NL001, by NL301, and by the direct-call owner's own alias-chain rule.** The moved/unmoved pair is
+  the proof: the identical statement shape with a SIBLING call (`CDeclSibling`) moves under `MUT-DC`,
+  and `Load` does not.
+
+  ### ⚠ FINDING 2 — A PLAN LOCAL INSIDE A CALL IS A HARD CRASH, AND THE CORPUS FOUND IT, NOT A REVIEW
+
+  The first claim-class corpus build with the slice CLI came back
+  **`Error: Build failed: The opcode does not use this plan-local entry.`** — a THROW out of the
+  compiler, not a wrong byte, on `n := Callee(3)` followed by `return Callee(n)`.
+
+  The mechanism is the meeting of `015-B6` and `015-B7` and could not exist in either alone.
+  `ColumnarDirectCallPlanner.TryGetPlannableValueType` (`:1473`) discovers each argument's type by
+  planning it into a FRESH schema-v3 **scratch** plan whose local pool is EMPTY; the sole identifier
+  owner appends `ldloc <pool index>` for a plan local (`ColumnarBoundIdentifierPlanner:216`); and
+  `AppendPlanLocalInstruction` refuses an index the scratch does not have. Before the statement loop
+  there were no plan locals in a user body; before the call claim no plan local could reach a scratch.
+
+  **MIRRORING THE POOL INTO THE SCRATCH IS NOT THE FIX, AND THAT WAS MEASURED TOO.**
+  `ColumnarCodePlanExecutor.ValidateAllUsed` (`:1340`) throws on any declared plan local no row
+  references, and it is called on BOTH the method-body validator (`:712`) and the recursive/v3 one
+  (`:1064`). A mirrored pool with one read fails validation instead of throwing at the append. Making a
+  scratch plan able to REPRESENT a pool it does not emit is a change to the shared validator's contract,
+  and it belongs in a slice with its own diff and its own control rather than smuggled in behind a
+  composite claim. It is `015-B8`'s first item.
+
+  Until then `ReadsPlanLocal` declines a call whose subtree reads a plan local, WHOLE. The cost is
+  measured rather than guessed: `x := f(1)` then `return x` still claims (the return is an identifier,
+  not a call), `return f(7)` still claims, and only `return g(x)` — a plan-local read INSIDE a call — is
+  refused. The claim-class corpus carries both, side by side, so the refusal's narrowness is a byte fact.
+
+  ### THE MEASUREMENTS TAKEN SO FAR
+
+  | check | result |
+  |---|---|
+  | estate, BASELINE (tree restored to `b5644eff7` by COPY — never `git checkout --`) | **`7,121 / 0`**. The first attempt raced the slice's own edits and was DISCARDED as a non-measurement rather than used |
+  | estate, SLICE | **`7,127 / 0`** — exactly the SIX new blocks (five written before the corpus crash, one added for the guard the crash produced) |
+  | big corpus, ctlA vs ctlB | **`IL_DIFFS=0`**, md5 **`21fb3a6db3e1c9a32cf752af085a79bb`** |
+  | big corpus, ctlA vs SLICE | **`IL_DIFFS=0`**, same md5. **885 rows / 59 assemblies / 60 targets**, the ONE build failure (`tests/fixtures/external-static-relative-dll`, the repo-relative-DLL fixture `015-B6` also removed) identical on both sides |
+  | claim-class corpus, ctlA vs ctlB | **`IL_DIFFS=0`**, md5 **`1180abda2623467fd721b4ca844586c4`**, 27 rows |
+  | claim-class corpus, ctlA vs SLICE | **`IL_DIFFS=0`**, same md5, `RUNRC=0`, stdout identical (`42 hi True 5 -4 -2.5 False count -5 -8 -22 v 7 9 3 ab 37 37 1 5 2`) |
+  | `nlc format --check` | "All files are properly formatted." on all four gate projects |
+  | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **`checkedFiles=402`** on BOTH CLIs, **246** results, summary `{errors 246, warnings 0, info 0}` on both, **ROW-FOR-ROW IDENTICAL EVEN IN ORDER** (`added=0 removed=0`) |
+  | native `columnar-emit-facts` | **25 → 26**, all green (`total 26, passed 26, failed 0`) |
+  | `tests/native/ownership-audit` | **17 / 18 BEFORE the repin** — exactly ONE violation, `OWN005` fingerprint drift on `ColumnarIlEmitter.cs`, and **no `OWN004`**, because the file's line counts did not move at all — **18 / 18 after** |
+  | ratchet repin (two-key, taken LAST) | `currentLines`/`currentNonBlankLines` **unchanged at 20890 / 19871**; `currentFingerprint` **`text-v1:9e6b2349ba83f886` → `text-v1:dbb58601c216a0c0`**; `reviewedHeadFingerprint` **`head-v1:d0a2dfa62779dee5` → `head-v1:6bc1f1b6f58f020d`** in BOTH keys (the JSON header AND `OwnershipAudit.nl:241`'s `OwnershipPolicy.ReviewedHeadFingerprint`), with **ZERO** occurrences of the old head left anywhere under `tests/native/ownership-audit`. Every value was READ FROM the audit's own `OWN005`/`OWN008` output, never computed by hand |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`) |
+  | compiler C# files | **10** — unchanged |
+  | native projects with `*.tests.nl` | **46** + the BootstrapServices contract line = the gate's **47** |
+  | working tree | exactly **8** files, all modifications, no new files: 3 BootstrapServices `.nl` (2 production, 1 contract), 1 emitter `.cs`, 1 native contract, 2 ratchet, plus this STATUS. Every instrument, corpus, baseline and log lives under `/private/tmp`; none was written into the repo |
+
+  ### THE ESTATE CONTROL WALK
+
+  Restore is COPY-BASED with a `sha256` gate — never `git checkout --`, because the tree carries
+  uncommitted slice work. All six anchors were verified to resolve EXACTLY once before the walk was
+  launched, and each case ran UNPIPED into its own log.
+
+  | control | mutation | result | blocks broken |
+  |---|---|---|---|
+  | **PRISTINE FIRST** | — | **`7,127 / 0`** | — |
+  | **C1** | the door's kind-9 arm always declines | **`7,123 / 4`** | the two claim-class blocks, the plan-local block and the routed-map block — every block that needs the DOOR, and NEITHER owner-level block |
+  | **C2** | `IsClaimedExpressionKind` drops kind 9 | **`7,122 / 5`** | C1's four PLUS the ledger-partition block — a superset by exactly the block that counts the claimed kinds |
+  | **C3** | the void-result guard never fires | **`7,126 / 1`** | the void block **ALONE** |
+  | **C4** | `TryPlanBody` drops the routed sibling map | **`7,125 / 2`** | the routed-map block and the plan-local block — the second because its fixture is also a sibling call, which is stated rather than glossed |
+  | **C5** | `ReadsPlanLocal` never fires | **`7,126 / 1`** | the plan-local block **ALONE** |
+  | **C6** | a declined call does not roll its root fragment back | **`7,093 / 34`** | **BROADLY**, and that breadth is the finding: the rollback is the DIRECT-CALL OWNER's own transaction, used by every decline in that owner, so a mutation to it breaks `DirectCallPlannerRejectsBadSourceShapes…`, `SourceDirectCallOverloadRankingIsExactThenNumericThenBoxing`, the construction owner's deferral blocks and 31 more. It is a coupling control, not an isolation one |
+  | **PRISTINE LAST** | — | **`7,127 / 0`**, all restores `sha256`-verified, zero mismatches | — |
+
+  **C3 AND C5 EACH BREAKING EXACTLY ONE BLOCK IS THE WALK'S POINT.** The two guards this slice invented
+  — the void-result refusal and the plan-local refusal — are pinned by one block apiece, and nothing
+  else in the estate depends on either. **C1 VS C2 DIFFERING BY EXACTLY ONE BLOCK IS THE SECOND POINT**:
+  the predicate and the arm are separate mechanisms, and the ledger-partition block is the one that
+  asks the predicate rather than the behaviour.
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/private/tmp` byte copy (`.git`, `bin`,
+  `obj`, `node_modules`, `artifacts` and `.claude/worktrees/` excluded), the log written OUTSIDE the
+  copy, `pgrep -f test-all-core.sh` reading **0** first, launched DETACHED, and all **7** changed
+  non-STATUS files `sha256`-verified IDENTICAL between the working tree and the copy BOTH before and
+  after the run — so nothing drifted under it.
+
+  **`ALL TESTS PASSED`, `GATE EXIT 0`, 126 `✓ PASSED` / 0 `✗ FAILED`.** Inside it: unit
+  **`Passed: 596`** (the baseline exactly), estate **`Passed: 7127`** (the bracket exactly), all **47**
+  native `✓ PASSED` lines — `tests/native/ownership-audit` among them, on the REPINNED ratchet, which
+  is what proves the manifest and the `OwnershipPolicy` constant in the COPY are the consistent pair,
+  and `tests/native/columnar-emit-facts` on the new call block — the format contract gate ×4,
+  `dotnet new` templates, all 22 example projects, the 38 single-file examples, `nlc check` on
+  examples, and the IL verification gate: **"All 67 N# assemblies pass IL verification (no new errors
+  vs baseline)"**, which is the independent confirmation that the bodies the door now emits at ELEVEN
+  claim classes are VERIFIABLE and not merely runnable.
+
+  **THE BENCHMARK CSPROJ CHECK AGAIN MATTERS.** The copy contains **zero** `NSharpLang.Benchmarks.csproj`
+  — correct rather than a gap: this branch's `benchmarks/` carries no project file, and the only ones in
+  the repo live under `.claude/worktrees/`, excluded from the copy by construction.
+
+  Only `STATUS.md` changed after the copy was taken — it is neither compiled nor tested by the gate, and
+  that is said rather than glossed.
+
+  ### THE PER-CLASS MUTATIONS — WHAT PROVES EACH CLAIM LIVE
+
+  Byte identity cannot tell a claiming door from a declining one, so each class gets a mutation that
+  changes its bytes without changing its meaning. Every anchor was verified to resolve EXACTLY once
+  before the cycle ran; every restore was `sha256`-gated and COPY-BASED (never `git checkout --`, because
+  the tree carries uncommitted slice work); and **the CLI was rebuilt INSIDE each restore**.
+
+  | mutation | what it changes | claim corpus (27 rows) | big corpus (885 rows) |
+  |---|---|---|---|
+  | **MUT-C** — the call as a RETURN VALUE | `dup; pop` after the call's rows, in `TryAppendReturnValue` and gated on kind 9 | **3** — `CReturnSibling`, `CReturnExternalStatic`, `CallHolder::ReadViaCall` | **2 — AND THEY ARE LIVE** — `FileScopedTypes.dll UserService::GetUserEmail` (`return cache.Get(username)`) and `PrimaryConstructors.dll Point::GetAngle` (`return Math.Atan2(y, x)`) |
+  | **MUT-DC** — the call as a `:=` INITIALIZER | `ldc.i4.0; pop` after the `stloc`, gated on a kind-9 initializer | **2** — `CDeclSibling`, `CallHolder::ReadViaDeclaredCall` | **0**, and the census above says why |
+  | **MUT-PL** — the plan-local refusal | `ReadsPlanLocal` deleted from the door | **BUILD FAILS** — `Error: Build failed: The opcode does not use this plan-local entry.` The guard is load-bearing and the hazard is real in a buildable program | **`IL_DIFFS=0`**, md5 unchanged — the refusal costs the live corpus NOTHING, measured rather than hoped |
+  | **MUT-S** — the routed sibling map | the C# call site passes an EMPTY `Dictionary<string, ColumnarSiblingCallFacts>` | **`IL_DIFFS=0`** | **`IL_DIFFS=0`** |
+  | **MUT-CS** — the same empty map TOGETHER WITH `MUT-C`'s marker (a TWO-FILE cycle) | vs **MUT-C**: **exactly 1** — `Program::CReturnSibling`, the bare sibling call, LOSES its marker while `CReturnExternalStatic` and `ReadViaCall` keep theirs | vs **MUT-C**: **`IL_DIFFS=0`** — the sibling map decides ZERO live corpus bodies, because both live claims are an instance-member call and an external static | |
+
+  ⚠ **MUT-S IS VACUOUS BY CONSTRUCTION AND IT IS RECORDED AS SUCH RATHER THAN QUIETLY DROPPED.** A body
+  that stops being claimed is emitted by the HOST — and the host's bytes are the same bytes, which is the
+  entire point of the byte-identity argument. So a routing mutation alone can never move a row: it can
+  only change WHO produced it. The estate's routed-map block is what pins the routing (claimed with the
+  map, DECLINED with an empty one), and `MUT-CS` below makes the same fact visible in bytes by combining
+  the empty map with `MUT-C`'s marker, so a body that loses the marker is exactly a body the map decided.
+  This is the same class of honesty `015-B6` applied to its `C10` non-isolation.
+
+  **MUT-C IS THE FIRST NEW CLAIM CLASS TO MOVE THE LIVE CORPUS SINCE `015-B5`'s `MUT-F`.** `015-B6` added
+  four classes and moved ZERO live bodies. The direct-call composite moves two, by name, and the byte
+  edit is visible in both: `…6f080000062a` → `…6f0800000625262a` and `…280f00000a2a` →
+  `…280f00000a25262a` — the `25 26` is `dup; pop`.
+
+  **THE UNMOVED ONES ARE AS INFORMATIVE AS THE MOVED ONES.** `Point::GetDistance`
+  (`return Math.Sqrt(x * x + y * y)`) does not move because the direct-call owner types its arguments with
+  `allowPrimitiveBinary: false` at the root, so a binary argument declines the whole call — a
+  pre-existing owner rule, unchanged here. `IssueService::GetAll` does not move for the equality-ceiling
+  reason recorded below.
+
+  **THE INSTRUMENT IS NEW AND ITS TARGET DEFINITION IS STATED RATHER THAN INHERITED.** The big corpus is
+  the gate's own Step 8/9 definition — `find examples tests/fixtures -name project.yml` (**22**) plus
+  every single-file example not covered by one (**38**) = **60** targets — copied to `/private/tmp`
+  with `bin`, `obj`, `nsharp` and `node_modules` excluded, so nothing it does touches the repo tree. The
+  dumper reads only the N#-PRODUCED assembly per target (never the referenced runtime DLLs, which are
+  identical copies and pure noise) and keys each row by `assembly|Type::Method#rownumber`, so a
+  name collision cannot hide a diff. That is why the row and assembly counts differ from `015-B6`'s
+  numbers: a different instrument, deliberately narrower.
+
+  ### THE COVERAGE TABLES
+
+  | | |
+  |---|---|
+  | the door's ledger | **34** kinds, unchanged |
+  | N# door, CLAIMED | **9** — 0/1/2/3 scalar literal, 4 bool, 6 identifier, 11 unary, 62 nameof, **9 call** |
+  | N# door, DECLINED | **25**, every one named rather than fallen through |
+  | identifier selection kinds claimed | **5 of 8** — unchanged (the routed facts arrived for the CALL arm, not for this filter) |
+  | driver statement kinds claimed | **2** — Return and the `:=` declaration, unchanged |
+  | the three deliberately-unrouted binding facts | **0 remain** — `ExactSourceTypes`, `OverflowCheckingEnabled` and `SiblingCallables` are all routed |
+
+  ### ⚠ THE `==` → `TypesEquivalent` COERCION IS *NOT* A CHEAP ITEM, AND THE MEASUREMENT SAYS SO
+
+  `015-B5` and `015-B6` both queued it as a one-line raise. At this tip it is a **110-line, five-function
+  private C# cone** with **109 call sites** in the emitter:
+
+  | helper | extent | lines |
+  |---|---|---|
+  | `TypesEquivalent` | `ColumnarIlEmitter.cs:15669–15716` | 48 |
+  | `IsByRefType` | `:15718–15732` | 15 |
+  | `IsSzArrayType` | `:15734–15750` | 17 |
+  | `TryGetElementType` | `:15752–15766` | 15 |
+  | `IsSameEnumType` | `:15768–15782` | 15 |
+
+  There is **no N# counterpart anywhere** — a whole-file scan of `BootstrapServices` finds zero
+  definitions and zero uses outside this driver's own comment. Raising the driver's claim rule means
+  PORTING that cone (its enum arm, its by-ref and SZ-array recursions, and its `TypeBuilder`
+  instantiation comparison), which is a slice with its own oracle and its own diff — not a coercion that
+  rides along behind a composite claim. It is NOT taken here, and the reason is a count rather than a
+  budget excuse.
+
+  **THE BODY IT WOULD BUY IS NAMED AND ITS BYTES ARE ON RECORD.** `IssueTracker.IssueService::GetAll`
+  (`examples/17-issue-tracker/backend/Service.nl:69`, and its mirror in `tests/fixtures/issue-tracker`)
+  is `{ return store.GetAll() }` — `02 7b1c000004 6f28000006 2a` — a shape every other gate admits, and
+  it does not move under `MUT-C` while `UserService::GetUserEmail` (the same shape returning `string?`)
+  does. The difference is the declared type: `List<Issue>` is a closed generic over a source
+  `TypeBuilder`, so the call's result and the declared return type are two distinct
+  `TypeBuilderInstantiation` objects and `==` separates them. That is the equality ceiling, standing
+  exactly where `015-B5` said it stands, now with the moved/unmoved pair as its evidence.
+
+  ### ⚠ THE ADOPTED-NEGATIVE-LITERAL CLASS IS ALSO NAMED RATHER THAN TAKEN
+
+  `015-B6` priced it as "a pool entry rather than a lowering", which is true of the EMISSION and false
+  of the CLAIM RULE: what it costs is faithfully reproducing `TryEmitIntLiteralAsType`'s suffix test
+  (`text[^1] is 'u' or 'U' or 'l' or 'L' or 'm' or 'M'`) and its documented off-by-one MinValue range —
+  `sbyte.MaxValue` / `short.MaxValue` / `int.MaxValue` as the NEGATIVE magnitude ceiling, because the
+  pipeline rejects `v: sbyte = -128` with NL202 (defect bundle #14). A SUBSET of that arithmetic is a
+  silent divergence, which is the one outcome that must be impossible, so it needs its own diff. Not
+  taken; `IsHostAdoptedReturnShape` continues to refuse the shape WHOLE, which is the safe direction.
+
+  ### THE `015-B8` BRIEF — PRICED BY THIS SLICE'S MEASUREMENTS
+
+  1. **THE SCRATCH-PLAN CONTRACT IS THE FIRST ITEM, AND IT IS A CRASH RATHER THAN A COVERAGE GAP.**
+     `ColumnarDirectCallPlanner.TryGetPlannableValueType:1473`, `ColumnarConstructionPlanner:2330` and
+     `ColumnarInstanceMemberPlanner:296` each build a FRESH schema-v3 scratch plan with an empty local
+     pool and append a value into it to discover its type. A plan-local read appends `ldloc <index>`
+     into that pool and throws. `ReadsPlanLocal` declines the reachable case; the other two sites are
+     NOT guarded, and whether they are reachable from a claimed body is the first thing B8 must
+     measure rather than assume. The fix is a scratch plan that can REPRESENT a pool it does not emit,
+     which means `ColumnarCodePlanExecutor.ValidateAllUsed` (`:1340`, called at `:712` and `:1064`)
+     must learn the difference between a pool entry that is dead and one that is a mirror. That is a
+     shared-validator contract change and needs its own control walk.
+  2. **THE `TypesEquivalent` PORT IS A SLICE, NOT A COERCION** — 110 lines over five private C# helpers
+     with 109 emitter call sites, priced above. Its payoff is named and measured:
+     `IssueTracker.IssueService::GetAll` in both issue-tracker corpora, which `MUT-C` proves is
+     unmoved today while the same shape at a non-generic type moves.
+  3. **THE ADOPTED NEGATIVE LITERAL** — the suffix test plus the off-by-one MinValue range, priced
+     above. A superset narrows safely; a subset diverges silently.
+  4. **THE REMAINING COMPOSITES, IN CENSUS ORDER.** With kind 9 claimed, the door's declined side still
+     holds binary (12), ternary (13), `new` (15), cast (16), member access (8), index access (10) and
+     the object/array-literal pair. The BINARY owner is the one whose byte behaviour depends on a fact
+     this slice has now routed (`OverflowCheckingEnabled` → `add` vs `add.ovf`), so it is the first
+     that can be claimed without a new routing move — and the first whose claim must prove the flag in
+     bytes rather than by the reachability census recorded above.
+  5. **THE GAUNTLET FIXTURE IS NOT AN EMITTER TARGET AND SHOULD STOP BEING QUOTED AS ONE.**
+     `tests/fixtures/systems-gauntlet/06-pooled-boundary/sample.nl` does not compile, has no
+     `project.yml`, and exists to feed the systems ANALYSIS census. Any future census of "bodies the
+     driver could claim" must be taken over BUILDABLE sources, or it will keep producing targets no
+     emitter can reach.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-B6`: THE NINE-OWNER GATE WIDENING AND THE STATEMENT
   LOOP'S BIRTH. THE DECODE OVERTURNS THE BRIEF ON ALL THREE MOVES — THE NINE GATES ARE REAL BUT THE
   "COMPOSITE" THEY BLOCK IS NOT REACHED THROUGH ONE DISPATCHER; KIND 24 CANNOT PUBLISH INTO
   `bindings.Locals` AT ALL BECAUSE A PLAN HAS NO `ILGenerator`; AND THE FRAGMENT RULE IS DECIDED BY
