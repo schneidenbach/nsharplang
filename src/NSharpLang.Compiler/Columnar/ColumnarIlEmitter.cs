@@ -6002,16 +6002,22 @@ internal sealed class ColumnarIlEmitter
     // unreachable code).
     private bool EmitBody(int bodyRoot, bool isVoid)
     {
-        // KIND-20 FRONT DOOR (015-B3): the first ORDINARY USER body the plan-row IR claims end to end.
-        // Offered ahead of every field below, because the shape ColumnarMethodBodyPlanner accepts —
-        // a block whose one statement returns a literal of exactly the declared return type — can hold
-        // no lambda, local, branch or region, so a claimed body needs none of that state. The claim is
+        // KIND-20 FRONT DOOR (015-B3, widened in 015-B4): the ORDINARY USER bodies the plan-row IR
+        // claims end to end — a literal return, a bool return, a bare parameter return, and the void
+        // arity. Offered ahead of every field below, because every shape ColumnarMethodBodyPlanner
+        // accepts can hold no lambda, local, branch or region, so a claimed body needs none of that
+        // state. The binding facts are the same live maps the expression path routes to N#; they are
+        // correct at this point precisely because no claimed shape can lift anything. The claim is
         // total: the planner produces every byte or it declines and this method emits as it always did.
         // An ASYNC body is excluded because its returns wrap and leave to a shared tail (below).
-        if (!isVoid && _asyncReturnType == null)
+        if (_asyncReturnType == null)
         {
             var bodyPlan = new ColumnarCodePlan();
-            if (ColumnarMethodBodyPlanner.TryPlanLiteralReturnBody(_nodes, _source, bodyRoot, _returnType, bodyPlan))
+            if (ColumnarMethodBodyPlanner.TryPlanBody(
+                    _nodes, _source, bodyRoot, _returnType, isVoid, _paramOrdinals, _paramTypes, _locals,
+                    _enumRegistry, _liftedLocals, _boxedCaptures, _currentStruct, _enclosingType,
+                    _structRegistry.Values, _unionRegistry.Values, _tupleNamesByVariable,
+                    _enclosingBindingNames, _siblings.Keys, _visibleLocalFuncs, _typeParameters, bodyPlan))
             {
                 ColumnarCodePlanExecutor.Execute(bodyPlan, _il);
                 return true;
@@ -9606,19 +9612,10 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // Whether the subtree rooted at `idx` contains a Return statement (kind 20) anywhere. Expression kinds are 0-19,
-    // so a kind-20 node only ever appears in statement position — walking all children is safe.
-    private bool ContainsReturnStatement(int idx)
-    {
-        if (_nodes.Kind(idx) == 20)
-            return true;
-        for (var n = 0; n < _nodes.ChildCount(idx); n++)
-        {
-            if (ContainsReturnStatement(Child(idx, n)))
-                return true;
-        }
-        return false;
-    }
+    // Whether the subtree rooted at `idx` contains a Return statement (kind 20) anywhere — the ctor
+    // paths' `return`-is-forbidden guard. A pure node-table statement-shape predicate, so it is owned
+    // by ColumnarMethodBodyPlanner beside the termination rule (015-B4).
+    private bool ContainsReturnStatement(int idx) => ColumnarMethodBodyPlanner.ContainsReturnStatement(_nodes, idx);
 
     // Emit `idx` as a value on the stack and report its CLR type via `type`. Returns false (declining the whole
     // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives

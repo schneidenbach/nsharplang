@@ -164,9 +164,9 @@ test "a package header admits a public top level function and it is callable acr
 
 // STATEMENT KIND 20 GETS ITS FIRST NON-SYNTHESIZED CONSUMER, AND THIS IS WHAT THAT MEANS IN SOURCE.
 // Each body below is a BLOCK whose single statement returns a LITERAL whose natural type IS the
-// declared return type — the exact shape `ColumnarMethodBodyPlanner.TryPlanLiteralReturnBody` claims.
-// A claimed body does not reach the host's kind-20 arm at all: the plan-row IR emits every byte of it
-// through `ColumnarCodePlanExecutor`, ending in the `ret` row.
+// declared return type — one of the shapes `ColumnarMethodBodyPlanner.TryPlanBody` claims. A claimed
+// body does not reach the host's kind-20 arm at all: the plan-row IR emits every byte of it through
+// `ColumnarCodePlanExecutor`, ending in the `ret` row.
 //
 // THE ESTATE CANNOT PROVE THIS AND SAYS SO. Its blocks drive the planner directly over a hand-built
 // node table, which shows the plan is right but not that the COMPILER routes real syntax into it.
@@ -207,13 +207,9 @@ func DriverDecimal(): decimal {
 
 // THE DECLINE SIDE, AS SOURCE. These are bodies the driver deliberately does NOT claim, and every one
 // of them must still run — a decline that broke the host's path would be worse than no driver at all.
-// A `bool` literal is kind 4 and belongs to a different owner; an unsuffixed integer on a
-// non-`int` function goes through the host's target-typed ADOPTION pre-pass, which emits different
-// rows than the literal owner would, which is exactly why the claim rule is type EQUALITY.
-
-func DriverBool(): bool {
-    return true
-}
+// An unsuffixed integer on a non-`int` function goes through the host's target-typed ADOPTION
+// pre-pass, which emits different rows than the literal owner would, which is exactly why the claim
+// rule is type EQUALITY. (`015-B3` also listed `return true` here; `015-B4` claims it, so it moved.)
 
 func DriverAdoptedShort(): short {
     return 42
@@ -240,8 +236,131 @@ test "the ordinary body driver claims a literal return in every literal family i
 }
 
 test "the bodies the ordinary body driver declines still run on the host path" {
-    assert DriverBool()
     assert DriverAdoptedShort() == 42
     assert DriverAdoptedLong() == 42L
     assert DriverTwoStatements() == 42
+}
+
+
+// ---- 015-B4: the driver's three new claim classes, in real source -------------------------------
+
+// A BOOL literal is kind 4 and belongs to the boolean owner, which is a schema-v1 producer — so
+// claiming it needed that owner to learn a method-body append, not merely a widened gate.
+
+func DriverBoolTrue(): bool {
+    return true
+}
+
+func DriverBoolFalse(): bool {
+    return false
+}
+
+// A PARAMETER read. THE ORDINAL RANGE IS THE POINT: `015-B3`'s brief warned that ordinals >= 4 might
+// diverge because the host's `EmitLoadArgument` narrows to `ldarg.s` while the executor keeps the long
+// `ldarg`. It does not, because an ordinary parameter READ never reaches `EmitLoadArgument` — the
+// production expression path routes every bare identifier through `ColumnarBoundIdentifierPlanner` and
+// the same `ColumnarCodePlanExecutor.EmitArgument`. `DriverParam5` is the shape that would have broken
+// if that decode were wrong, so it is compiled and RUN rather than reasoned about.
+
+func DriverParam0(a: int): int {
+    return a
+}
+
+func DriverParam1(_a: int, b: string): string {
+    return b
+}
+
+func DriverParam5(_a: int, _b: int, _c: int, _d: int, _e: int, f: string): string {
+    return f
+}
+
+class DriverInstance {
+    Seed: int
+
+    constructor(seed: int) {
+        Seed = seed
+    }
+
+    // An INSTANCE method: arg 0 is `this`, so this parameter is ordinal 1.
+    func Echo(value: int): int {
+        return value
+    }
+
+    // The VOID arity on an instance member, both shapes.
+    func Idle() {
+    }
+
+    func IdleBare() {
+        return
+    }
+}
+
+// An EXPLICIT constructor with an EMPTY body: `EmitBody`'s literal `isVoid: true` call site, reached
+// after the caller has already emitted the base chain and the field initializers, so a claimed body
+// must append its `ret` after them and nothing else.
+class DriverEmptyCtor {
+    Tag: int = 7
+
+    constructor() {
+    }
+}
+
+func DriverVoidEmpty() {
+}
+
+func DriverVoidBare() {
+    return
+}
+
+// THE NULLABLE GUARD, AS SOURCE. Equality holds — the parameter and the return type are the same
+// `int?` — and the driver still declines, because `IsSupportedNullable` is the one host pre-pass gated
+// on the RETURN TYPE and it owns the whole return when it fires.
+func DriverNullablePassthrough(v: int?): int? {
+    return v
+}
+
+// A CurrentField read is a different selection kind and stays with the host.
+class DriverFielded {
+    Count: int
+
+    constructor(count: int) {
+        Count = count
+    }
+
+    func Read(): int {
+        return Count
+    }
+}
+
+test "the ordinary body driver claims a boolean return in both directions" {
+    assert DriverBoolTrue()
+    assert !DriverBoolFalse()
+}
+
+test "the ordinary body driver claims a parameter return at ordinals inside and outside the narrowed range" {
+    assert DriverParam0(19) == 19
+    assert DriverParam1(1, "two") == "two"
+    assert DriverParam5(1, 2, 3, 4, 5, "six") == "six"
+    instance := new DriverInstance(3)
+    assert instance.Echo(11) == 11
+}
+
+test "the ordinary body driver claims both void shapes on free functions members and constructors" {
+    DriverVoidEmpty()
+    DriverVoidBare()
+    instance := new DriverInstance(3)
+    instance.Idle()
+    instance.IdleBare()
+    assert instance.Seed == 3
+    empty := new DriverEmptyCtor()
+    assert empty.Tag == 7
+}
+
+test "the identifier bodies the driver refuses still run on the host path" {
+    passthrough := DriverNullablePassthrough(5)
+    assert passthrough != null
+    unwrapped := must passthrough
+    assert unwrapped == 5
+    fielded := new DriverFielded(23)
+    assert fielded.Read() == 23
 }

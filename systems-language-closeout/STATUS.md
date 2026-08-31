@@ -1,6 +1,56 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-31 (**TASK 015 SUB-SLICE `015-B3` — STATEMENT KIND 20 (`Return`). THE MANDATE'S
+Last updated: 2026-08-31 (**TASK 015 SUB-SLICE `015-B4` — THE ORDINARY-BODY DRIVER'S CLAIM GOES FROM
+ONE LITERAL FAMILY TO FOUR CLASSES, AND THE DECODE RETIRES B3's `Ldarg_S` HAZARD — see the Cursor
+block.** The decode was written before any production file was touched and it **OVERTURNS THE BRIEF
+TWICE**. First: B3 priced `return <parameter>` as "an exact reproduction of the host's
+`EmitLoadArgument`" with ordinals ≥ 4 as the recorded hazard. **`EmitLoadArgument` IS NOT ON THAT
+PATH** — `EmitExpressionCore` routes every expression through `ColumnarRangeIndexPlanner` before its
+own switch, `FacadeRootMayNeedFacts` admits `IdentifierExpression` unconditionally, and the bound
+identifier owner's `Ldarg` row becomes bytes in `ColumnarCodePlanExecutor.EmitArgument` — the same
+executor the driver uses. So the driver REPRODUCES NOTHING; it calls the same owner and is
+byte-identical by construction, at every ordinal. **The claim-class dump reads
+`Program::P4|fe0904002a` and `Program::P5|fe0905002a` on BOTH CLIs** — long-form `ldarg`, then `ret` —
+which settles it in bytes and retires the caveat instead of carrying it. Second: B3's brief said to
+widen the boolean owner "exactly as `ValidateAppendInputs` was widened"; **it cannot be**, because that
+owner's wall is STRUCTURAL rather than a predicate — schema v1 admits exactly one instruction and no
+`ret` at all — so the widening is an additional append entry point, with `Plan` re-expressed through
+it so ONE decision about a boolean row survives. **AND THE DECODE FOUND A GUARD THE BRIEF DID NOT
+NAME**: six of the host's seven target-typed pre-passes gate on the NODE KIND, but
+`IsSupportedNullable` gates on the RETURN TYPE, so `(x: int?): int? { return x }` satisfies type
+equality exactly and would have been wrongly claimed — B3's literal driver was immune only by
+accident. **FOUR CLAIM CLASSES NOW, EACH WITH ITS OWN BYTE DIFF AND ITS OWN MUTATION**: the literal
+family, `true`/`false`, a bare parameter read (filtered to the `Parameter` selection alone, six other
+selection kinds declining), and the void arity (`{ }` and `{ return }`, gated on the return type AND
+`isVoid` because three of the seven `EmitBody` call sites pass a literal `true`). **The emitter goes
+20,893 → 20,890 (−3 / −3)** with compiler C# steady at **10 files** — the front door costs +6 and a
+second pure statement-shape predicate (`ContainsReturnStatement`, the ctor paths' `return`-is-forbidden
+guard) pays −10, so the ratchet is satisfied by DELETION again. **TWO INSTRUMENTS, BECAUSE ONE IS
+BLIND TO HALF THE SLICE**: the big corpus reproduces `IL_DIFFS=0 / EXIT_DIFFS=0` on both pairings at
+md5 `96162a3980881868eb450cf61485404a` over **8,408 rows / 120 assembly files / 59 targets all exiting
+0**, and a dedicated claim-class corpus (**40 rows**, md5 `c481edaba4253fab439d42328d5c932c`) exists
+because a signature-aware census proves the big corpus has **ZERO** buildable whole-body
+`{ return true/false }` and **ZERO** buildable `{ return <parameter> }`. **THE PER-CLASS MUTATIONS ARE
+WHAT PROVE EACH CLAIM LIVE**: 5 / 3 / 6 / 5 of 40 in the claim-class corpus and 3 / 0 / 0 / 4 of 8,408
+in the big one — and **the two zeroes are PREDICTED by the census, not discovered**, while the void
+mutation moved exactly the four empty bodies the census named, site for site. `MUT-L` also reproduces
+B3's three moved rows BY NAME on an instrument rebuilt from scratch. **THE CONTROL WALK RAN TWICE AND
+BOTH RUNS ARE RECORDED**: run 1 (`7,097 / 0` both ends) caught that `W2` breaks a block this slice did
+not write — `ColumnarCodePlan.tests.nl:137` has pinned the `true`/`false` row choice all along, B3's
+`C4` lesson repeating — and that `W4` and `W5` broke the SAME block, so neither isolated the other.
+The over-claim was corrected in the contract header, the nullable guard was split into its own block,
+**and a `plan == null` guard the refactor had silently dropped — pinned by nothing, so invisible to a
+green run — was put back**. Run 2 on the shipped tree is **8 of 8**, pristine-bracketed
+**`7,098 / 0`** both ends with all three files `sha256`-verified back, and `W4`/`W5` now break one
+block each. Evidence: estate **7,090 → 7,098** over **16** contract blocks; native `columnar-emit-facts`
+**17 → 21**; live-tree **`checkedFiles=402`, 246 errors on BOTH CLIs ROW-FOR-ROW identical even in
+ORDER**; format gate clean; audit **17 / 18 pre-repin → 18 / 18** with the two-key repin taken LAST
+and every value read from the audit's own `OWN004`/`OWN005`/`OWN008` output (emitter row
+`20893/19874` → `20890/19871`, `text-v1:c7427eab235f4e95` → `text-v1:2858d1ade6fc37b1`; head
+`head-v1:a66a697f7a3d2a9f` → **`head-v1:2e0c2a5aa72bebf1`** in BOTH keys, old head absent everywhere);
+manifest **391, no BOM**. **THE FRESH ISOLATED GATE IS GREEN ON THE TREE THAT SHIPS — `GATE RC=0`, `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 19s** from a `/private/tmp` byte copy with the log outside it, launched detached, zero stray `NSharpLang.Benchmarks.csproj` in the copy, and all eight changed files `sha256`-verified IDENTICAL between the working tree and the copy BEFORE and AFTER the run. Inside it: unit **`Passed: 596`** (the baseline exactly), estate **`Passed: 7098`**, all **47** native projects, `tests/native/ownership-audit` on the repinned ratchet, the format contract gate ×4, `dotnet new` templates, every example project, the single-file examples, `nlc check` on examples, and the IL verification gate — **"All 67 N# assemblies pass IL verification (no new errors vs baseline)"**, which is the independent confirmation that the bodies the driver now emits at four claim classes are VERIFIABLE and not merely runnable. NOT COMMITTED.)
+
+Last updated (prior): 2026-08-31 (**TASK 015 SUB-SLICE `015-B3` — STATEMENT KIND 20 (`Return`). THE MANDATE'S
 ITEM 2 WAS ALREADY DONE, AND WHAT WAS ACTUALLY MISSING IS NOW BUILT: THE PLAN-ROW IR EMITS ITS FIRST
 ORDINARY *USER* BODIES — see the Cursor block.** The decode was written before any production file was
 touched and it **OVERTURNS THE BRIEF BY CENSUS**: the `Return` ROW (`Ret()` = **42**), its
@@ -5158,7 +5208,311 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B3`: STATEMENT KIND 20 (`Return`). THE DECODE
+- Active sub-slice (015 arc, THIS TURN — **`015-B4`: THE DRIVER'S CLAIM WIDENS FROM ONE LITERAL FAMILY
+  TO FOUR CLASSES. THE DECODE OVERTURNS B3's ITEM-2 HAZARD — THE HOST'S `EmitLoadArgument` IS NOT ON
+  THE PARAMETER PATH — AND FINDS ONE GUARD THE BRIEF DID NOT NAME. NOT COMMITTED.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED, AT `5d36d569e`
+
+  #### THE TIP, RE-MEASURED RATHER THAN INHERITED
+
+  | reading | value |
+  |---|---|
+  | `ColumnarIlEmitter.cs` | **20,893 / 19,874** |
+  | compiler C# files | **10** |
+  | ratchet manifest | **391**, no BOM (`7b 0a 20`) |
+  | two-key head | `head-v1:a66a697f7a3d2a9f` |
+  | emitter ratchet row | `20893 / 19874`, `text-v1:c7427eab235f4e95`, epoch ceiling **21,723 / 20,646** |
+  | estate, PRISTINE FIRST | **7,090 / 0** |
+  | working tree | CLEAN — B3 was committed as `5d36d569e` |
+
+  #### ITEM 1 — BOOL LITERALS: THE SECOND OWNER WITH *NOT* THE SAME WALL
+
+  B3's brief said to widen `ColumnarBooleanLiteralPlanner` "exactly as `ValidateAppendInputs` was
+  widened". **IT CANNOT BE.** The scalar owner's wall was one predicate. This owner's wall is
+  STRUCTURAL: it is a schema-**v1** producer, and v1's `AppendInstruction` throws on a second row and
+  on any opcode but `LdcI4_0`/`LdcI4_1`. There is no gate to relax — v1 cannot carry a `ret` by
+  construction. So the widening is an ADDITIONAL append entry point that dispatches on the plan's
+  schema (v4 takes `AppendInstructionWithoutOperand`, which admits both constants through
+  `IsNoOperandOpcode`'s whole `ldc.i4.m1..ldc.i4.8` range), with `Plan` re-expressed through it so
+  exactly ONE decision about a boolean literal's row survives in the file.
+
+  Census: whole-BODY `{ return true/false }` is **4** repo-wide and **0** in the buildable corpus. The
+  case is uniformity of ownership, not volume — said plainly, because the any-block count (3,099)
+  would overstate it by three orders of magnitude.
+
+  #### ⚠ ITEM 2 — THE BRIEF'S `Ldarg_S` HAZARD DOES NOT EXIST, AND THE REASON MATTERS
+
+  B3's brief priced `return <parameter>` as "an exact reproduction of the host's `EmitLoadArgument`",
+  with the recorded caveat that ordinals ≥ 4 diverge (`ldarg.s` in C#, the long `ldarg` in N#).
+  **BOTH HALVES ARE WRONG, IN THE SAME WAY: `EmitLoadArgument` IS NOT ON THIS PATH.**
+
+  `EmitExpressionCore` (`:9677`) routes EVERY expression through
+  `ColumnarRangeIndexPlanner.TryEmitFromFacts` BEFORE its own switch; `FacadeRootMayNeedFacts`
+  (`:257`) returns **true** for `IdentifierExpression` unconditionally; the facade's bound-identifier
+  arm hands it to `ColumnarBoundIdentifierPlanner`, whose Parameter arm appends an `Ldarg` row that
+  `ColumnarCodePlanExecutor.EmitArgument` (`:381`) turns into bytes. The C# `EmitLoadArgument`
+  (`:19041`) serves only the by-ref deref arm, the lifted-param box init and the closure construction
+  site — never an ordinary parameter READ. Consequences: there is nothing to reproduce (the driver
+  calls the SAME owner and is byte-identical BY CONSTRUCTION), and **no ordinal cap is needed**.
+
+  The N# build is then B3's wall in a second owner, one line: `TryAppend`'s gate demanded
+  `ScalarSchemaVersion()` exactly. Every appender its Parameter arm reaches is v4-legal —
+  `AddType`/`AddArgument` share the v3 building gate, `AppendArgumentInstruction` and
+  `IsValidInstructionOperand`'s argument arm are schema-agnostic, and `MethodBodyStackDelta` gives an
+  `ArgumentOperand` row **+1**.
+
+  The claim is FILTERED to one selection kind. `TryAppend` has SEVEN arms; the driver resolves first
+  (`TryResolve` is pure) and claims only `Parameter`. That keeps one claim class per corpus diff.
+
+  Census: whole-BODY `{ return <name> }` is **59** repo-wide; the buildable corpus has **ZERO** (its
+  one instance, `tests/fixtures/systems-gauntlet/09-native-interop/sample.nl:11`, has no `project.yml`
+  and is never built; the other six are FIELD/PROPERTY reads this slice does not claim). **THE BIG
+  CORPUS THEREFORE CANNOT PROVE THIS CLASS LIVE** — which is why a dedicated claim-class corpus exists.
+
+  #### ITEM 3 — THE VOID ARITY, AND WHY THE GATE IS NOT `isVoid`
+
+  Two shapes, one byte. `{ }` emits nothing and reaches `EmitBody`'s TRAILING `ret`; `{ return }`
+  takes kind 20's void arm. `EmitProtectedReturnTail(isVoid: true)` is a no-op when
+  `_protectedDoneCreated` is false — read, not assumed.
+
+  **THE GATE IS THE RETURN TYPE *AND* `isVoid`.** Three of the seven `EmitBody` call sites pass a
+  literal `isVoid: true` (constructors `:5802`, test bodies `:5904`) or compute it from a delegate
+  return type, and only `_returnType == typeof(void)` reproduces the host's own test. N# cannot spell
+  `typeof(void)`, so the marker is `ColumnarCodePlanExecutor.IsVoidType` — the same name test the
+  height model uses for `voidReturn ? 0 : 1`.
+
+  Census: **28** whole `{ }` bodies repo-wide, **4** in the corpus. Bare `{ return }`: **0** as a whole
+  body.
+
+  #### THE ONE PRE-PASS THAT IS NOT KIND-GATED — A GUARD THE BRIEF DID NOT NAME
+
+  Six of the host's seven target-typed pre-passes gate on the NODE KIND. The seventh,
+  `ColumnarTypeOfPlanner.IsSupportedNullable` (`:6519`), gates on the RETURN TYPE, and when it holds
+  the host routes the WHOLE return through `TryEmitValueAsNullable`. B3's literal driver was immune by
+  ACCIDENT — no literal's natural type is a `Nullable<T>`. **THE PARAMETER CLASS IS NOT**:
+  `(x: int?): int? { return x }` satisfies type equality exactly. An explicit guard is added at the top
+  of the driver, covering every value class at once.
+
+  #### THE EQUALITY CEILING IS NOT RAISED
+
+  Every class keeps type EQUALITY (`==`, a strict subset of the host's `TypesEquivalent`). No coercion
+  is reproduced, so the host's seven coercions stay provably unreached. The one new admission rule is a
+  DECLINE, not a widening.
+
+  ### THE CUT
+
+  | | |
+  |---|---|
+  | the driver | `TryPlanLiteralReturnBody` → `TryPlanBody`: four claim classes, the nullable guard, and the `Kind == Parameter` filter |
+  | widening 1 | `ColumnarBooleanLiteralPlanner.TryAppendLiteral` — v1 ‖ v4, with `Plan` re-expressed through it |
+  | widening 2 | `ColumnarBoundIdentifierPlanner.TryAppend`'s gate admits a method-body plan — B3's widening, second owner |
+  | C# deleted | `ContainsReturnStatement`'s 13-line body — the ctor paths' `return`-is-forbidden guard, a pure node-table predicate, moves to N# beside `AlwaysReturns` |
+  | C# added | the front door widens and routes the same live binding facts `:9677` routes |
+  | contracts | seven estate blocks, four native blocks |
+
+  Everything below this line is the record written AFTER the build; the decode above is unedited.
+
+  ### WHAT LANDED
+
+  | file | change |
+  |---|---|
+  | `ColumnarMethodBodyPlanner.nl` | `TryPlanLiteralReturnBody` → `TryPlanBody`: four claim classes, the return-type nullable guard, the `Kind == Parameter` filter, and `ContainsReturnStatement` moved in from C# |
+  | `ColumnarBooleanLiteralPlanner.nl` | new `TryAppendLiteral` (schema-v1 ‖ schema-v4); `Plan` re-expressed through it so ONE decision survives |
+  | `ColumnarBoundIdentifierPlanner.nl` | `TryAppend`'s gate admits a method-body plan alongside v3 — B3's widening, second owner, one line |
+  | `ColumnarIlEmitter.cs` | the front door widens and routes the same live binding facts `:9677` routes; `ContainsReturnStatement`'s 13-line body becomes a 4-line delegation. **20,893 → 20,890 (−3 / −3)**; compiler C# steady at **10 files** |
+  | `ColumnarMethodBodyFacts.tests.nl` | **8** new estate blocks (16 in the file) |
+  | `columnar-emit-facts/DeclarationAndLiteralEmitFacts.tests.nl` | **4** new native blocks; `columnar-emit-facts` **17 → 21** |
+
+  **THE EMITTER SHRINKS, SO THE RATCHET IS SATISFIED BY DELETION.** The front door costs +6 lines and
+  the second statement-shape predicate pays −10. The epoch ceiling (21,723) was never approached; the
+  point is the direction, not the headroom.
+
+  ### THE CORPUS COMPARISON — TWO INSTRUMENTS, BECAUSE ONE IS BLIND TO HALF THE SLICE
+
+  | instrument | pairing | verdict |
+  |---|---|---|
+  | **big corpus** (`examples` + `tests/fixtures`, the gate's own Step 8/9 target definition, the one repo-relative-DLL fixture removed) | ctlA vs ctlB | **`IL_DIFFS=0`, `EXIT_DIFFS=0`**, md5 **`96162a3980881868eb450cf61485404a`** |
+  | | ctlA vs SLICE | **`IL_DIFFS=0`, `EXIT_DIFFS=0`**, same md5. **8,408 rows / 120 assembly files / 61 assemblies / 59 targets, all exiting 0** |
+  | **claim-class corpus** (five single-file programs built OUTSIDE the repo) | ctlA vs SLICE | **`IL_DIFFS=0`**, md5 **`c481edaba4253fab439d42328d5c932c`**, **40 rows** |
+
+  ### THE PER-CLASS MUTATIONS — WHAT PROVES EACH CLAIM LIVE
+
+  Byte-identity cannot tell a claiming driver from a declining one, so each class gets a mutation that
+  changes its bytes without changing its meaning: `dup; pop` before the `ret` for the value classes,
+  `ldc.i4.0; pop` for the void class (an empty stack cannot be duplicated).
+
+  | mutation | claim-class corpus | big corpus |
+  |---|---|---|
+  | **MUT-L** literal | **5 of 40** | **3 of 8,408** — `AutoGeneratedHelper::GetValue`, `DocumentError::Tag`, `WeatherTag::Count` |
+  | **MUT-B** bool | **3 of 40** | **0 of 8,408** |
+  | **MUT-P** parameter | **6 of 40** — ordinals 0, 1, 3, 4, 5 and the `this`-shifted instance method | **0 of 8,408** |
+  | **MUT-V** void | **5 of 40** — two free functions, two instance members, one EMPTY CONSTRUCTOR | **4 of 8,408** — `AnalyzedClass::RiskyOperation` + three `Dispose` |
+
+  `EXIT_DIFFS=0` on every mutated pass, and every mutated program still ran.
+
+  **THE TWO ZEROES ARE PREDICTED, NOT DISCOVERED.** A signature-aware source census taken BEFORE the
+  mutations finds **0** buildable whole-body `{ return true/false }` and **0** buildable whole-body
+  `{ return <parameter> }` in the corpus, and predicts exactly **4** whole empty void bodies —
+  `examples/10-interop/QualifiedAttributes.nl:39` plus three in `tests/fixtures/external-base-interface`.
+  MUT-V moved exactly those four, site for site. That agreement is what makes the two zeroes a MEASURED
+  ABSENCE rather than a silent failure, and it is why the claim-class corpus exists at all.
+
+  **MUT-L REPRODUCES B3 INDEPENDENTLY.** B3's instrument no longer exists on disk; this one was rebuilt
+  from scratch and moves exactly the three bodies B3 named, by name.
+
+  ### THE `Ldarg_S` OVERTURN, SETTLED IN BYTES
+
+  The claim-class dump reads **`Program::P4|fe0904002a`** and **`Program::P5|fe0905002a`** on BOTH
+  CLIs — `ldarg 4`/`ldarg 5` in the LONG form, then `ret`. B3's brief predicted a divergence there;
+  there is none, because the host's `EmitLoadArgument` is not on the parameter-read path. No ordinal
+  cap is imposed, and the caveat is retired rather than carried forward.
+
+  ### THE NULLABLE GUARD COSTS A CLAIM THAT WOULD HAVE BEEN IDENTICAL, AND THAT IS SAID
+
+  The claim-class dump shows `Program::NullablePass|022a` — the host's lifted owner emits exactly
+  `ldarg.0; ret` for `(v: int?): int? { return v }`. Equality would have been RIGHT there. It is still
+  not a proof: the lifted owner is free to emit otherwise for shapes that body does not cover, and the
+  driver's whole contract is that it can promise every byte. The guard stays, and the cost is recorded
+  rather than hidden.
+
+  ### THE FACTS THAT ARE *NOT* ROUTED, AS A BOUNDARY RATHER THAN A LICENCE
+
+  The production identifier path hands the bindings three things the front door does not:
+  `ExactSourceTypesForBody()`, `_overflowCheckingEnabled` and `SiblingCallFacts()`. Two cost real work
+  per call and the door runs on EVERY body. They are safe to omit because `TryResolve`'s Parameter arm
+  is decided entirely by four maps — `BoxedCaptures`, `LiftedLocals`, `Locals`, `ParameterOrdinals`/
+  `ParameterTypes` — and all four ARE routed; the omitted three are read only by
+  `TryResolveCurrentInstance` and the exact-source-type lookups, which sit AFTER the parameter arm and
+  belong to selection kinds the driver declines. **The moment a later slice claims `CurrentField` or
+  `CurrentProperty`, those three become mandatory.**
+
+  ### THE CONTROL WALK — RUN 1 IS A RESULT AND IS THEN SUPERSEDED; RUN 2 IS THE WALK OF RECORD
+
+  Restore is COPY-BASED with a `sha256` gate — never `git checkout --`, because the tree carries
+  uncommitted slice work. Every mutation must find its EXACT target text (all eight anchors were
+  re-verified to resolve exactly once BEFORE run 2 was launched) and must leave a tree that COMPILES.
+
+  **RUN 1 WAS COMPLETE AND PRISTINE-BRACKETED (`7,097 / 0` both ends, all three files `sha256`-verified
+  back) AND IT FOUND TWO THINGS THAT HAD TO CHANGE**, so it is recorded and superseded rather than
+  quietly discarded:
+
+  | finding | what it was | what was done |
+  |---|---|---|
+  | **`W2` broke a block this slice did not write** | `ColumnarCodePlan.tests.nl:137` has pinned `true` → `ldc.i4.1`, `false` → `ldc.i4.0` and the not-owned decline ALL ALONG through the schema-v1 surface. The new bool block's opcode/`Plan` assertions partly RE-ASSERT existing pins | the block is KEPT and its header corrected to name what is genuinely new — the row landing in a schema-v4 METHOD BODY, followed by `ret`, executing as a body — and to call the `Plan` assertions a refactor drift check rather than a new pin. **This is B3's `C4` lesson repeating, caught the same way, left visible** |
+  | **`W4` and `W5` broke the SAME block** | the `Kind == Parameter` filter and the return-type nullable guard are two different mechanisms asserted in one block, so neither control isolated the other | the guard was SPLIT into its own block, and asked more completely: the class that needed it, BOTH literal classes that were immune only by accident, and the two directions proving it is about the RETURN TYPE rather than nullables in general |
+
+  **AND ONE DEFECT NO TEST WOULD EVER HAVE CAUGHT.** B3's `ColumnarBooleanLiteralPlanner.Plan` guarded
+  `nodes == null || source == null || plan == null` behind one message; factoring the first two into a
+  helper LOST THE THIRD. **Nothing in the estate pins it** — which is exactly why it would have
+  survived a green run. Found by reading the committed file against the new one, and put back.
+
+  Run 2, on the shipped tree with all three amendments:
+
+  | control | mutation | result | blocks broken |
+  |---|---|---|---|
+  | **PRISTINE FIRST** | — | **`7,098 / 0`** | — |
+  | **W1** | the boolean owner's method-body appender removed | **`7,096 / 2`** | the bool claim + the boolean widening — the coupling |
+  | **W2** | `false` plans the `true` row | **`7,096 / 2`** | the bool claim + `BooleanPlannerConsumesTheLiveParserNodeKindLedger` (**not this slice's**) |
+  | **W3** | the bound-identifier v4 widening reverted | **`7,094 / 4`** | the widening block AND all three blocks that touch the parameter path, because without it the first append THROWS — the shared-owner coupling, measured |
+  | **W4** | the `Kind == Parameter` filter dropped | **`7,097 / 1`** | the selection-filter block ALONE |
+  | **W5** | the nullable guard removed | **`7,097 / 1`** | the nullable block ALONE — the split working |
+  | **W6** | the void gate trusts `isVoid` alone | **`7,097 / 1`** | the void block |
+  | **W7** | any single statement counts as a bare void body | **`7,097 / 1`** | the void block |
+  | **W8** | the return search never matches its own node | **`7,097 / 1`** | the return-search block |
+  | **PRISTINE LAST** | — | **`7,098 / 0`**, all three files `sha256`-verified back to the captured bytes | — |
+
+  `W6` and `W7` share a block DELIBERATELY: both are the void class's own shape rules and the block
+  asserts each explicitly. That is not the `W4`/`W5` defect repeating — those were two unrelated
+  mechanisms; these are one class asked twice.
+
+  ### TWO INSTRUMENT DEFECTS, BOTH RECORDED RATHER THAN ROUTED AROUND
+
+  | defect | how it surfaced | what was done |
+  |---|---|---|
+  | the corpus harness copied `bin`/`obj` | the working repo carries them and a fresh worktree does not, so the first SLICE pass dumped **18,574** rows against the baseline's **8,408** — two structurally different corpora, not a diff | every pass now starts from source only; all three passes re-run from scratch, and ctlA vs ctlB re-established byte-identity BEFORE any slice pass was compared |
+  | the run-1 walk was piped through `tail -40` | progress was invisible until exit — the recorded "never pipe through tail" hazard, walked into anyway | run 2 was launched unpiped, and its harness additionally records the FAILING BLOCK NAMES per case rather than only counts, which is what made the `W4`/`W5` overlap legible |
+
+  ### THE REST OF THE BAR
+
+  | check | result |
+  |---|---|
+  | estate count-diff | **7,090 → 7,098**, exactly the eight new blocks (16 in the contract file), pristine-bracketed both ends |
+  | big corpus | **`IL_DIFFS=0` / `EXIT_DIFFS=0`** on both pairings, md5 **`96162a3980881868eb450cf61485404a`**, **8,408 rows / 120 assembly files / 61 assemblies / 59 targets exiting 0** — re-confirmed on the FINAL tree after the amendments |
+  | claim-class corpus | **`IL_DIFFS=0`**, md5 **`c481edaba4253fab439d42328d5c932c`**, **40 rows** — re-confirmed on the FINAL tree |
+  | per-class mutations | 5/3/6/5 of 40 in the claim-class corpus; 3/0/0/4 of 8,408 in the big one, the two zeroes predicted by census and MUT-V's four sites matching it exactly |
+  | native suites | `columnar-emit-facts` **17 → 21**, all green |
+  | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **`checkedFiles=402`** on BOTH CLIs, **246** errors, summary `{errors 246, warnings 0, info 0}` on both, **ROW-FOR-ROW IDENTICAL EVEN IN ORDER** (`added=0 removed=0`). No production `.nl` was added this slice, so 402 is B3's count unchanged |
+  | `nlc format --check` | "All files are properly formatted." |
+  | `tests/native/ownership-audit` | **17 / 18 BEFORE the repin** (`OWN004` + `OWN005` on `ColumnarIlEmitter.cs`, the ratchet noticing the shrink) — **18 / 18 after** |
+  | ratchet repin (two-key, taken LAST) | emitter row `currentLines` **20893 → 20890**, `currentNonBlankLines` **19874 → 19871**, `currentFingerprint` **`text-v1:c7427eab235f4e95` → `text-v1:2858d1ade6fc37b1`**; `reviewedHeadFingerprint` **`head-v1:a66a697f7a3d2a9f` → `head-v1:2e0c2a5aa72bebf1`** in BOTH keys (the JSON header AND `OwnershipPolicy.ReviewedHeadFingerprint`), with **ZERO** occurrences of the old head left anywhere under `tests/native/ownership-audit`. Every value was READ FROM THE AUDIT's own `OWN004`/`OWN005`/`OWN008` output rather than computed by hand |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`) |
+  | compiler C# files | **10** — unchanged |
+  | C# build warnings | **4**, all pre-existing `CS8604`s at `:2880–2881`, far from every line this slice touched and unmoved by it |
+  | working tree | exactly **8** files, all modifications, no new files: 3 production `.nl`, 1 estate contract, 1 emitter, 1 native contract, 2 ratchet — plus this STATUS. Every instrument, corpus, baseline worktree and log lives under `/private/tmp`; none was written into the repo |
+
+  ### THE `015-B5` BRIEF — PRICED BY THIS SLICE'S MEASUREMENTS
+
+  **ITEM 4, THE STATEMENT LOOP, IS THE WHOLE OF B5 — AND ITS REAL COST IS NOT THE STATEMENT WALK.** A
+  multi-statement body needs an APPEND-MODE expression front door: today's expression owners are
+  reached through `ColumnarRangeIndexPlanner.TryEmitFromFacts`, which `PrepareV3()`s the plan and
+  `Execute`s it into the `ILGenerator` immediately, so it cannot contribute rows to an open v4 body.
+
+  **THE GOOD NEWS IS MEASURED: MOST OWNERS ALREADY HAVE THE ENTRY POINT.** A census of
+  `static func TryAppend*` per owner at this tip — `ColumnarConstructionPlanner` **20**,
+  `ColumnarPrimitiveBinaryPlanner` **8**, `ColumnarDirectCallPlanner` **6**,
+  `ColumnarRangeIndexPlanner` **5**, `ColumnarInstanceMemberPlanner` **3**,
+  `ColumnarBoundIdentifierPlanner` **2** (v4-admitted by THIS slice),
+  `ColumnarExternalStaticMemberPlanner` **2**, `ColumnarTypeOfPlanner` **1**, and
+  `ColumnarConditionalPlanner` **0**. So B5's expression half is mostly the SAME one-line schema
+  widening B3 and B4 each took twice — a v3 gate becoming v3-or-v4 — with `ColumnarConditionalPlanner`
+  the one owner that needs an append entry BUILT.
+
+  **EACH WIDENING STILL OWES ITS OWN CORPUS DIFF AND ITS OWN PER-CLASS MUTATION.** This slice's two
+  zeroes are the argument: the big corpus is BLIND to a class it contains no buildable instance of, so
+  a `IL_DIFFS=0` over it proves nothing about that class in either direction. The dedicated
+  claim-class corpus has to grow alongside every new claim.
+
+  **THE SIX REMAINING IDENTIFIER CLASSES ARE EACH A SEPARATE DIFF**: `CurrentField`,
+  `CurrentProperty`, `Local`, `LiftedLocal`, `BoxedCapture`, `ByRefParameter`. The current-instance
+  pair also makes the three UNROUTED facts (`ExactSourceTypes`, the overflow flag, sibling callables)
+  MANDATORY at the door, and routing them eagerly costs real work on every body — so that slice must
+  either route them lazily or accept the cost with a measurement.
+
+  **AND `AlwaysReturns` FINALLY GETS ITS SECOND CONSUMER** — a multi-statement body needs it to decide
+  the trailing `ret`, which is exactly why B3 moved it to N# rather than later.
+
+  **THE COVERAGE TABLE STILL DOES NOT MOVE, AND THAT WAS RE-MEASURED RATHER THAN ASSUMED.** At the
+  final tree: C# `EmitStatement` **21** kinds (20,21,22,23,24,25,26,27,28,29,30,40,41,48,49,51,56,61,
+  62,72,73), N# `EmitStatement` **10** (23,24,25,26,27,28,29,40,48,72) — both exactly B3's numbers,
+  extracted by brace-matching the two switch bodies rather than by a line-window grep. This slice adds
+  no arm to the N# statement walk; it widens a SECOND, independent body path. The honest new number is
+  that the plan-row IR now emits **FOUR** classes of ordinary user body instead of one. The
+  kind-coverage table starts moving at B5.
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/private/tmp` byte copy (`.git`, `bin`,
+  `obj`, `node_modules`, `artifacts` and `.claude/worktrees/` excluded), the log written OUTSIDE the
+  copy, `pgrep -f test-all-core.sh` clean first, launched DETACHED, **zero stray
+  `NSharpLang.Benchmarks.csproj` in the copy**, and all eight changed files `sha256`-verified IDENTICAL
+  between the working tree and the copy BOTH before and after the run — so nothing drifted under it.
+  The baseline worktree this slice used for the corpus comparison lives at `/private/tmp/b4-baseline`,
+  OUTSIDE the repo, so the nested-worktree hazard never applied.
+
+  **`GATE RC=0`, `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 19s.** Inside it: unit
+  **`Passed: 596`** (the baseline exactly), estate **`Passed: 7098`**, all **47** native
+  `✓ PASSED` lines including `tests/native/ownership-audit` on the repinned ratchet, the format
+  contract gate ("All files are properly formatted." × 4), `dotnet new` templates, every example
+  project, the single-file examples, `nlc check` on examples, and the IL verification gate — **"All 67
+  N# assemblies pass IL verification (no new errors vs baseline)"**, which is the independent
+  confirmation that the bodies the driver now emits at FOUR claim classes are VERIFIABLE and not merely
+  runnable.
+
+  Only `STATUS.md` changed after the copy was taken — it is neither compiled nor tested by the gate,
+  and that is said rather than glossed.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-B3`: STATEMENT KIND 20 (`Return`). THE DECODE
   OVERTURNS THE MANDATE'S ITEM 2 — THE ROW, THE EXECUTOR ARM AND THE HEIGHT MODEL ALREADY EXIST AND
   ARE LOAD-BEARING; WHAT IS MISSING IS A *DRIVER*. NOT COMMITTED.**)
 

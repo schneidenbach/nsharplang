@@ -153,8 +153,16 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
-            throw new InvalidOperationException("Bound-identifier append requires an open schema-v3 plan.")
+        // A schema-v4 METHOD BODY is admitted alongside v3, and without the open-fragment ceremony v3
+        // carries: v4 is a documented superset with a FLAT operation stream and no fragments at all.
+        // This is the SAME widening `ColumnarScalarLiteralPlanner.ValidateAppendInputs` took, in the
+        // second owner that hit the same wall, and it is what lets an ordinary method body reach the
+        // ONE owner of lexical identifier reads instead of growing a second copy of the decision.
+        // Only the Parameter arm is reachable from a method body today — `ColumnarMethodBodyPlanner`
+        // resolves first and claims that selection kind alone, so the other six arms stay v3-only
+        // until each gets its own byte-level corpus diff.
+        if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Bound-identifier append requires an open schema-v3 or method-body plan.")
         }
 
         selection := EmptySelection()
