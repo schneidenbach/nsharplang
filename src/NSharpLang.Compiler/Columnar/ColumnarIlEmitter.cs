@@ -9237,72 +9237,22 @@ internal sealed class ColumnarIlEmitter
     // (the FAMILY-access clone wrapper `with` lowers through — calling MemberwiseClone cross-type is
     // unverifiable IL, calling the public wrapper is not). Virtual + matching signatures make
     // Equals/GetHashCode implicit overrides of object's.
+    // PASS 0e's three bodies are planned by ColumnarRecordValueMemberPlanner and replayed by the
+    // plan-row executor. Both owners are N#; nothing here writes IL.
     private static void SynthesizeRecordValueMembers(ColumnarStructDef def)
     {
-        var tb = def.Builder;
         if (!def.Methods.ContainsKey("Equals"))
         {
             var equals = def.DefineSynthesizedRecordEquals();
-            var eil = equals.GetILGenerator();
-            var returnFalse = eil.DefineLabel();
-            var compareFields = eil.DefineLabel();
-            eil.Emit(OpCodes.Ldarg_1);
-            eil.Emit(OpCodes.Brfalse, returnFalse);
-            eil.Emit(OpCodes.Ldarg_1);
-            eil.Emit(OpCodes.Isinst, tb);
-            eil.Emit(OpCodes.Dup);
-            eil.Emit(OpCodes.Brtrue, compareFields);
-            eil.Emit(OpCodes.Pop);
-            eil.Emit(OpCodes.Br, returnFalse);
-            eil.MarkLabel(compareFields);
-            var other = eil.DeclareLocal(tb);
-            // A boxed VALUE record must unbox before the typed store; a reference record stores the
-            // isinst result directly.
-            if (!def.IsReference)
-                eil.Emit(OpCodes.Unbox_Any, tb);
-            eil.Emit(OpCodes.Stloc, other);
-            foreach (var fieldName in def.FieldOrder)
-            {
-                var field = def.Fields[fieldName];
-                var comparer = typeof(EqualityComparer<>).MakeGenericType(field.FieldType);
-                eil.Emit(OpCodes.Call, comparer.GetProperty(nameof(EqualityComparer<int>.Default))!.GetGetMethod()!);
-                eil.Emit(OpCodes.Ldarg_0);
-                eil.Emit(OpCodes.Ldfld, field);
-                eil.Emit(OpCodes.Ldloc, other);
-                eil.Emit(OpCodes.Ldfld, field);
-                eil.Emit(OpCodes.Callvirt, comparer.GetMethod(nameof(Equals), new[] { field.FieldType, field.FieldType })!);
-                eil.Emit(OpCodes.Brfalse, returnFalse);
-            }
-            eil.Emit(OpCodes.Ldc_I4_1);
-            eil.Emit(OpCodes.Ret);
-            eil.MarkLabel(returnFalse);
-            eil.Emit(OpCodes.Ldc_I4_0);
-            eil.Emit(OpCodes.Ret);
+            ColumnarCodePlanExecutor.Execute(
+                ColumnarRecordValueMemberPlanner.BuildEqualsPlan(def), equals.GetILGenerator());
         }
 
         if (!def.Methods.ContainsKey("GetHashCode"))
         {
             var hash = def.DefineSynthesizedRecordGetHashCode();
-            var hil = hash.GetILGenerator();
-            var acc = hil.DeclareLocal(typeof(int));
-            hil.Emit(OpCodes.Ldc_I4, 17);
-            hil.Emit(OpCodes.Stloc, acc);
-            foreach (var fieldName in def.FieldOrder)
-            {
-                var field = def.Fields[fieldName];
-                var comparer = typeof(EqualityComparer<>).MakeGenericType(field.FieldType);
-                hil.Emit(OpCodes.Ldloc, acc);
-                hil.Emit(OpCodes.Ldc_I4, 23);
-                hil.Emit(OpCodes.Mul);
-                hil.Emit(OpCodes.Call, comparer.GetProperty(nameof(EqualityComparer<int>.Default))!.GetGetMethod()!);
-                hil.Emit(OpCodes.Ldarg_0);
-                hil.Emit(OpCodes.Ldfld, field);
-                hil.Emit(OpCodes.Callvirt, comparer.GetMethod(nameof(GetHashCode), new[] { field.FieldType })!);
-                hil.Emit(OpCodes.Add);
-                hil.Emit(OpCodes.Stloc, acc);
-            }
-            hil.Emit(OpCodes.Ldloc, acc);
-            hil.Emit(OpCodes.Ret);
+            ColumnarCodePlanExecutor.Execute(
+                ColumnarRecordValueMemberPlanner.BuildGetHashCodePlan(def), hash.GetILGenerator());
         }
 
         SynthesizeRecordCloneMember(def);
@@ -9321,11 +9271,8 @@ internal sealed class ColumnarIlEmitter
         var clone = tb.DefineMethod(
             "<Clone>$", MethodAttributes.Public | MethodAttributes.HideBySig,
             tb, Type.EmptyTypes);
-        var cil = clone.GetILGenerator();
-        cil.Emit(OpCodes.Ldarg_0);
-        cil.Emit(OpCodes.Call, typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic)!);
-        cil.Emit(OpCodes.Castclass, tb);
-        cil.Emit(OpCodes.Ret);
+        ColumnarCodePlanExecutor.Execute(
+            ColumnarRecordValueMemberPlanner.BuildClonePlan(def), clone.GetILGenerator());
         def.RecordClone = clone;
     }
 

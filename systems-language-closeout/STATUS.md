@@ -1,6 +1,58 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-30 (**TASK 015 SUB-SLICE `015-B2` STAGE 1 — THE OPCODE-ALLOWLIST WIDENING.
+Last updated: 2026-08-31 (**TASK 015 SUB-SLICE `015-B2` STAGE 2 — PASS 0e MOVES TO N# BYTE-FOR-BYTE,
+AND THE CONTROL WALK OVERTURNS THIS SLICE'S OWN DECODE — see the Cursor block.** The republish was
+verified INDEPENDENTLY before any edit: packed kernel md5 `1b34d0c9864797378f5a775ebdf84858`, the
+UTF-16 scan reading **1** for each of the five names, **1** for the `Ldarga` control and **0** for
+`Ldarg_S`, and **PROBE D — stage 1's wall probe re-run — now reads `Build succeeded` where it read
+`NL103` before**, reverted `sha256`-exact. **PASS 0e's TWO GUARDS WERE RE-VERIFIED AND B1's WORDING
+CORRECTED**: `fieldsBaked` does not "skip synthesis", it calls `SynthesizeRecordCloneMember` DIRECTLY,
+so `<Clone>$` has two call sites and is reached on a path where field types may be builder-bound —
+sound only because it touches no field type at all. **THE CUT**: `UnboxAny()` = **165** (collision
+check: 108 short constants, all distinct, 165 free), admitted in `AppendTypeInstruction` under the
+method-body schema, an explicit **delta 0** in the method-body height model, an executor emit arm, and
+`EmitArgument` — the four-way ordinal narrowing that needs **NO new row constant**, because the row
+stays `Ldarg` (−503) and narrowing is an executor concern exactly as it already is for locals;
+**`Ldarga` never narrows**. `ColumnarRecordValueMemberPlanner.nl` (**230 lines**) takes PASS 0e's 90
+raw-`ILGenerator` lines over an ALREADY-N#-owned `ColumnarStructDef`, and **the emitter goes 20,976 →
+20,923 (−53 / −53)** with compiler C# steady at **10 files**. **THE CORPUS SAYS THE MOVE IS
+BYTE-IDENTICAL**: control-first (ctlA vs ctlB `IL_DIFFS=0`), the corpus carries **249** `Equals` /
+`GetHashCode` / `<Clone>$` rows and **ZERO changed**; the **165** rows that DO change are all the
+narrowing, **every one shorter, none longer**, long-form `ldarg` falling **449 → 3** — and the
+surviving 3 are **all ordinal 4**, the recorded `Ldarg_S` caveat visible as a number. **AND THE
+NARROWING'S OWN CONTROL IS THE SHARPEST EVIDENCE IN THE SLICE**: delete the four short-form branches
+and the ONLY rows that stop matching the hand-written IL are **55, ALL of them record value members** —
+the narrowing is not incidental to the PASS 0e move, it IS what makes it byte-identical. **THE
+CONTROL WALK THEN OVERTURNED THIS SLICE'S OWN PRE-EDIT DECODE.** The decode claimed PASS 0e needed
+four typed-stack gaps closed; a control that reverted one of them **BROKE NOTHING (`7082 / 0`)**, and
+chasing that vacuity found the real shape: `Validate` dispatches by schema, `ApplyInstruction` is the
+TYPED model and runs for **v2/v3 ONLY**, while a schema-v4 body runs `ValidateMethodBodyStack`, a
+HEIGHT model that does not type branch conditions — and `Isinst`/`UnboxAny`/`Pop` are all
+method-body-ONLY by construction. **So all three typed arms this slice added were unreachable in
+every schema, and they were DELETED rather than left in as harmless — a deletion that changed not one
+emitted byte (`SLICE4` vs `SLICE3` = 0), which is itself the proof they were dead.** The three estate
+blocks written against the wrong diagnosis were RE-SCOPED, not deleted: they still pin real,
+previously unpinned behaviour. **THE HARNESS WAS DEFECTIVE TWICE AND BOTH DEFECTS ARE RECORDED**: its
+restore used `git checkout --` on a file carrying UNCOMMITTED work and wiped this slice's own edits
+(re-applied, then PROVED byte-identical in emission before anything was trusted), and two mutations
+renamed members that do not exist, breaking the BUILD rather than the behaviour — rewritten as
+compile-checked and re-run. Final walk: pristine **`7082 / 0`**; **C1 ABORTS at 918 with `Test host
+process crashed`** because a narrowing `ldarga` loads a value where an address was required (the fault
+is the proof); **C2 breaks FIVE blocks because 164 is `Stelem()`**, an unplanned exact demonstration
+that 165 was the free value; C3 and C4 each break the unbox.any block alone, at replay and at plan
+construction respectively. Evidence: estate **7,076 → 7,082** over **285** files; native `record-with`
+**12** / `readonly-init` **18** / `as-boxing` **16**; live-tree **`checkedFiles=401`, 246 errors on
+BOTH CLIs ROW-FOR-ROW identical**, the new production owner adding **zero** diagnostic rows; audit
+**17 / 18 pre-repin → 18 / 18** with the two-key repin taken LAST (emitter row `20976/19955` →
+`20923/19902`, `text-v1:f9200d6387a64a4d` → `text-v1:ed2d86f2f117ab45`; head
+`head-v1:fd53ebb53ffa009c` → **`head-v1:d90a1b66873472e3`** in BOTH keys, old head absent everywhere);
+manifest **391, no BOM**. **THE FRESH ISOLATED GATE IS GREEN ON THE FINAL TREE — `GATE EXIT 0`, `ALL
+TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 35s** — carrying unit **596**, estate **7,082**, all
+**47** native projects, the audit **18 / 18**, the format gate ×4 and the IL verification gate (**67**
+assemblies, no new errors vs baseline), which is the independent confirmation that the narrowed bodies
+and the planned record members are VERIFIABLE and not merely runnable. NOT COMMITTED.)
+
+Last updated (prior): 2026-08-30 (**TASK 015 SUB-SLICE `015-B2` STAGE 1 — THE OPCODE-ALLOWLIST WIDENING.
 FIVE ROWS LAND, NOTHING EMITTED MOVES, AND THE SECOND HALF OF THE WALL IS DEMONSTRATED RATHER THAN
 ASSERTED — see the Cursor block.** B1 recorded the wall; this stage RE-MEASURED it before editing.
 **IT IS ONE ALLOWLIST, NOT TWO**: a declaration census over every `.cs` and `.nl` in `src/` and
@@ -5057,8 +5109,263 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B2` STAGE 1: THE OPCODE-ALLOWLIST WIDENING. THE
-  FIRST HALF OF A TWO-STAGE TOOLSET WALL. NOT COMMITTED.**)
+- Active sub-slice (015 arc, THIS TURN — **`015-B2` STAGE 2: THE ROWS GET THEIR CONSUMERS AND PASS 0e
+  MOVES TO N#. NOT COMMITTED.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
+
+  #### THE REPUBLISH IS VERIFIED INDEPENDENTLY, NOT TAKEN ON REPORT
+
+  The packed kernel at `~/.nuget/packages/nsharplang.sdk/0.1.0/tools/` reads md5
+  **`1b34d0c9864797378f5a775ebdf84858`** and the UTF-16 scan reproduces stage 1's published recipe
+  exactly: **1** for each of `Ldarg_0`/`Ldarg_1`/`Ldarg_2`/`Ldarg_3`/`Unbox_Any`, **1** for the
+  `Ldarga` discriminating control, **0** for `Ldarg_S`/`Starg`/`Ldftn`.
+
+  **PROBE D — THE EXACT REVERSE OF STAGE 1's PROBE C.** The same consumer stage 1 used to demonstrate
+  the wall was written back into `ColumnarCodePlanExecutor.nl`, now spelling all five names, and
+  `BootstrapServices` was built: **`Build succeeded`**, where the identical probe read
+  `NL103 emit.call.instance-member-unmodeled` before the republish. Reverted, `sha256` re-verified
+  IDENTICAL (`a541385066b46b86…`). **The wall is down, measured from both sides.**
+
+  #### PASS 0e's TWO UPSTREAM GUARDS RE-VERIFIED — AND B1's WORDING CORRECTED
+
+  | guard | line | what it actually does |
+  |---|---|---|
+  | no generic record | `4913–4914` | `if (def.GenericParameters != null) continue;` — holds exactly as recorded, and it is what makes the `TypeBuilder` operands legal: `ValidateStorableType` (`ColumnarCodePlanExecutor.nl:1279`) rejects only void, by-ref and **generic type definitions**, so a non-generic record's `tb` is a storable plan type and a legal plan-local type |
+  | `fieldsBaked` | `4915–4931` | **NOT "skip synthesis" as B1's prose said.** The test is `ColumnarTypeOfPlanner.ContainsBuilderBoundType(fieldType)`, and when it fails the code does not skip — it calls **`SynthesizeRecordCloneMember(def)` directly**. So `<Clone>$` has TWO call sites (`4931` and `9308`) and is reached on a path where field types MAY be builder-bound; only `Equals`/`GetHashCode` are gated. `SynthesizeRecordCloneMember` touches no field type at all (only `tb` and `object::MemberwiseClone`), so the path is sound — but a planner that assumed baked fields for the clone would have been wrong |
+
+  #### ⚠ THE NEXT SUBSECTION IS THE DECODE AS IT WAS WRITTEN, AND IT IS WRONG
+
+  It is left standing because the control walk overturned it and the overturning is the most useful
+  thing in this slice. **The claim "PASS 0e needs four validator gaps closed" was a MISDIAGNOSIS**,
+  reached by reading `ApplyInstruction` and never checking which validator a schema-v4 plan actually
+  runs through. See "THE CONTROL WALK OVERTURNED THE DECODE" below for the measured truth and for
+  what was removed as a result.
+
+  #### THE VALIDATOR GAPS — FOUR, NOT ONE, AND EVERY ONE MEASURED AT THE TIP
+
+  The mandate's list assumes PASS 0e needs one new row and one new arm. **IT NEEDS FOUR GAPS CLOSED,
+  and they were found by reading the typed stack model rather than by trusting the row vocabulary.**
+  `ApplyInstruction` (`ColumnarCodePlanExecutor.nl:1559–1867`, 309 lines) is the TYPED model, and a
+  census of the opcodes it names finds:
+
+  | opcode | arm in `ApplyInstruction`? | consequence |
+  |---|---|---|
+  | `Castclass`, `Box`, `Dup`, `Ldnull`, `Initobj`, `Ldtoken`, `Br`, `Brfalse`, `Brtrue` | **yes** | — |
+  | **`Isinst`** | **NO** | and the chain ends with **no `else { throw }`**, so an `isinst` row is silently modelled as having NO stack effect: after `isinst tb` the validator still believes the ORIGINAL `object` is on the stack, not `tb`. `isinst` is emittable and admitted today but **not typed** |
+  | **`Pop`** | **NO** | B1 gave `Pop` an explicit `−1` in the HEIGHT model; the TYPED model never pops it, so the two models disagree about `pop` |
+  | `Ret`, `Throw`, `Leave` | no | terminators, handled outside the typed chain — not a gap |
+
+  **AND THE CONDITION MODEL IS THE FOURTH GAP**: `IsBooleanCondition` (`:2562`) accepts **only** an
+  exact `bool` or a literal I4 of 0/1. PASS 0e's `Equals` branches on REFERENCES twice — `ldarg.1;
+  brfalse` (a null test on `object`) and `isinst; dup; brtrue` (a null test on the isinst result) —
+  and **both would throw today**. A null test on a reference is ordinary CIL; the model simply has
+  never seen one because every prior method-body producer branched on a comparison result.
+
+  **THE MERGE MODEL, BY CONTRAST, IS ALREADY SUFFICIENT AND THAT WAS CHECKED RATHER THAN ASSUMED**:
+  `MergeState` (`:1431`) demands equal stack COUNT and then merges SHAPES through a divergence walk,
+  so `compareFields` — reached only by `brtrue` with the `dup`'d value still on the stack, i.e. at
+  height 1 — is a legal merge target. PASS 0e's `dup`/`brtrue`/`pop` idiom is plannable.
+
+  #### THE THREE HEIGHT SITES, DISAMBIGUATED
+
+  The mandate names three; they are not three of a kind. `:605` and `:966` are **used-pool marking**
+  loops that already handle `TypeOperand` generically and need NO change. Only `:843` is a height
+  site, and there `Unbox_Any` wants delta **0** — which the existing `return 0` fallback would give
+  by accident. It is written explicitly anyway, because a row whose delta is right only because it
+  fell off the end of a chain is not pinned.
+
+  #### THE LDARG NARROWING NEEDS NO NEW ROW CONSTANT — RE-CONFIRMED AT THE TIP
+
+  `EmitInstruction`'s `ArgumentOperand` arm (`:307–312`) is the ONLY place an argument row becomes
+  bytes, and `ApplyInstruction`'s argument arm (`:1590–1595`) types it from
+  `plan.ArgumentTypeIndices` without consulting the opcode beyond `Ldarga`. So narrowing is purely an
+  emit concern, exactly as it already is for locals, and the row stays `Ldarg` (−503).
+
+  ### THE CUT
+
+  | | |
+  |---|---|
+  | new row | `ColumnarCodePlanContract.UnboxAny()` = **165**, admitted in `AppendTypeInstruction` under the METHOD-BODY schema exactly as `Isinst` is, with an explicit delta of **0** in the height model |
+  | new executor arm | `EmitInstruction`'s `TypeOperand` arm gains `il.Emit(OpCodes.Unbox_Any, …)` — the spelling stage 1 unblocked |
+  | the narrowing | `EmitArgument(il, opCodeValue, ordinal)` replaces the inline two-line arm: ordinals 0..3 take `OpCodes.Ldarg_0..3`, everything else keeps the long form, and **`Ldarga` never narrows** because `Ldarga_S` was deliberately not admitted. **No new row constant** — the row stays `Ldarg` (−503) and narrowing is an executor concern, exactly as `Emit(OpCode, LocalBuilder)` already narrows locals |
+| ~~three typed-stack gaps~~ | **NOT PART OF THE CUT.** Three arms were added to `ApplyInstruction` on a misdiagnosis, the control walk proved them unreachable, and they were deleted with zero byte change. See "THE CONTROL WALK OVERTURNED THE DECODE" |
+  | PASS 0e moves to N# | `ColumnarRecordValueMemberPlanner.nl` — **230 lines**, `BuildEqualsPlan` / `BuildGetHashCodePlan` / `BuildClonePlan` over a `ColumnarStructDef`, which is ALREADY N#-owned, so the field-order walk moved too |
+  | C# deleted | **the emitter goes 20,976 → 20,923 (−53 lines, −53 non-blank)**; the three raw-`ILGenerator` bodies become three `Execute(plan, il)` calls. Compiler C# steady at **10 files** |
+
+  ### THE CORPUS IL COMPARISON — THE EXPECTATION WAS IDENTITY, AND THE DIVERGENCE IS ENUMERATED
+
+  Same instrument and discipline as stage 1: one fixed corpus, copied fresh per pass, only the CLI
+  swapped; a `System.Reflection.Metadata` method-body dump that is MVID-free by construction.
+
+  | pairing | verdict |
+  |---|---|
+  | ctlA vs ctlB (baseline `b99b7dc6f` twice) | **`IL_DIFFS=0`, `EXIT_DIFFS=0`** — the instrument is sound |
+  | ctlA vs SLICE | **165 of 5,803 rows changed**, `EXIT_DIFFS=0` |
+  | SLICE vs SLICE2 (the same tree after `nlc format` touched the new owner) | **`IL_DIFFS=0`** — the formatting pass cannot move a byte, proved rather than assumed |
+
+  **PASS 0e's OWN MOVE IS BYTE-IDENTICAL, WHICH IS THE CLAIM THAT MATTERED**: the corpus carries
+  **249** `Equals` / `GetHashCode` / `<Clone>$` method rows and **ZERO of them changed**. Ninety lines
+  of hand-written `ILGenerator` became a plan and came back out as the same bytes.
+
+  **EVERY ONE OF THE 165 CHANGED ROWS IS THE NARROWING, AND IT IS AN IMPROVEMENT, NOT A REGRESSION.**
+  The change is `FE 09 00 00` (`ldarg 0`, four bytes) becoming `02` (`ldarg.0`, one byte) — and it
+  reaches every EXISTING plan-row producer, not just PASS 0e, because they all route through the one
+  `ArgumentOperand` arm. The classification is exhaustive:
+
+  | check | result |
+  |---|---|
+  | changed rows where the slice body is LONGER | **0** |
+  | changed rows where the slice body is SHORTER | **165 of 165** |
+  | rows that gained a long-form `ldarg` | **0** |
+  | long-form `ldarg` occurrences across the corpus | **449 → 3** |
+  | what the surviving 3 are | **all ordinal 4**, in `IssueService::CreateIssue` and `TaskService::AddTask` — **exactly the recorded `Ldarg_S` caveat, visible as a number** |
+  | build targets exiting 0 | **59 of 59, on every pass** |
+
+  ### THE CONTROL WALK OVERTURNED THE DECODE, AND THE DEAD CODE IT EXPOSED WAS DELETED
+
+  **`C4` — reverting `IsBranchCondition` to the Boolean-only test — BROKE NOTHING: `7082 / 0`.** That
+  is a vacuity signal, and chasing it found the real shape of the validator:
+
+  | validator | reached from | what it is |
+  |---|---|---|
+  | `ApplyInstruction` (`:1594`) | `ValidateRecursiveSemantics` → `ValidateControlFlowAndFragments` | the **TYPED** model — and it runs for the **v2/v3** schemas ONLY |
+  | `ValidateMethodBodyStack` (`:721`) | `ValidateMethodBodySemantics` | what a **schema-v4 method body** actually runs: a **HEIGHT** model, which does not type branch conditions at all |
+
+  `Validate` (`:173`) dispatches on `SchemaVersion`, and a method body never reaches
+  `ApplyInstruction`. **AND THE THREE ROWS IN QUESTION ARE METHOD-BODY-ONLY BY CONSTRUCTION**:
+  `Isinst` and `UnboxAny` are admitted by `AppendTypeInstruction` only under `IsMethodBodySchema()`,
+  and `Pop` only through `IsMethodBodyNoOperandOpcode`. So the three typed arms this slice added to
+  `ApplyInstruction` were **unreachable in every schema — dead code**, and the `brfalse`/`brtrue`
+  reference relaxation was unreachable for the case that motivated it.
+
+  **THEY WERE DELETED RATHER THAN LEFT IN AS HARMLESS.** An unreachable validator arm asserts a
+  guarantee the product does not make, and it is exactly the false belief that produced the wrong
+  decode in the first place. `IsReferenceStackValue` and `IsBranchCondition` went with them and the
+  two branch arms were restored to their original text verbatim. **THE DELETION CHANGED NOT ONE
+  EMITTED BYTE — `SLICE4` vs `SLICE3` = 0 diffs — which is the proof that the code really was dead.**
+
+  **WHAT PASS 0e ACTUALLY NEEDED, MEASURED RATHER THAN INFERRED**, is four things and none of them is
+  a typed-stack arm: the `UnboxAny` row constant, its admission in `AppendTypeInstruction`, its delta
+  in the **method-body** height model (`:843` — the live site), its executor emit arm, and the
+  narrowing. The method-body validator already accepted reference branching, the `dup`/`brtrue`/`pop`
+  idiom and a label merged at a non-empty stack depth; nothing had ever pinned that, and now three
+  blocks do.
+
+  **THE THREE ESTATE BLOCKS WRITTEN AGAINST THE WRONG DIAGNOSIS WERE RE-SCOPED, NOT DELETED.** They
+  still pin real, previously unpinned behaviour — `isinst` narrowing into a plan local of the target
+  type, the record-`Equals` branch skeleton executing over references, and the height model refusing
+  an empty-stack `pop` — but they no longer claim to be closing gaps that were never open.
+
+  ### THE CONTROL WALK — PRISTINE-BRACKETED, COMPILE-CHECKED, AND RUN AGAINST THE FINAL SHAPE
+
+  Restore is COPY-BASED with a `sha256` gate. **THE FIRST HARNESS WAS DEFECTIVE AND THE DEFECT IS
+  RECORDED RATHER THAN ROUTED AROUND**: it restored with `git checkout --`, which reverts to HEAD —
+  and the file carried UNCOMMITTED slice work, so the "restore" wiped this slice's own executor edits.
+  They were re-applied and the rebuilt tree PROVED byte-identical (`SLICE2` vs `SLICE3` = 0 diffs)
+  before anything else was trusted. **TWO MUTATIONS WERE ALSO DEFECTIVE ON THEIR FIRST RUN** — they
+  renamed a contract member to one that does not exist, which breaks the BUILD rather than the
+  behaviour, and the bar asks for compile-checked mutations. Both were rewritten and re-run.
+
+  | control | mutation | result |
+  |---|---|---|
+  | **PRISTINE FIRST** | — | **`7082 / 0`** |
+  | **C1** | `ldarga` is made to narrow | **the run ABORTS at 918 of 7,082 — `Test host process crashed : Fatal error`.** The body loads the argument's VALUE where it asked for its ADDRESS, so the mutation emits IL that faults the runtime. The fault is the proof, and the partial total is reported rather than hidden |
+  | **C2** | `UnboxAny()` returns 164 | **`7077 / 5`** — the unbox.any block AND **four pre-existing `stelem` blocks**, because **164 is `Stelem()`**. An unplanned but exact demonstration that the constant space is dense and that 165 was genuinely the free value the collision check found |
+  | **C3** | the executor emits `castclass` where the row says `unbox.any` | **`7081 / 1`** — the unbox.any block alone |
+  | **C4** | the row's admission is removed from `AppendTypeInstruction` | **`7081 / 1`** — the unbox.any block alone, this time refused at plan construction rather than at replay |
+  | **C4′ (the one that found the bug)** | `IsBranchCondition` reverted to Boolean-only | **`7082 / 0` — BROKE NOTHING**, which is what exposed the misdiagnosis and led to the deletion above |
+
+  Every restore `sha256`-verified against the captured pristine bytes.
+
+  ### THE NARROWING'S COUPLING CONTROL — AT BYTE LEVEL, WHICH IS WHERE IT LIVES
+
+  The estate cannot see encodings, so the narrowing's coupling was proved on the corpus instead: the
+  four `Ldarg_N` branches were deleted from `EmitArgument`, the compiler rebuilt, and the corpus run
+  again against the SAME pinned baseline.
+
+  | pass | rows changed vs baseline | of which record value members |
+  |---|---|---|
+  | full stage 2 | **165** | **0** |
+  | **stage 2 MINUS the narrowing** | **55** | **55 — ALL of them** |
+
+  **THAT IS THE WHOLE ARGUMENT IN TWO ROWS.** Without the narrowing, the only bodies that stop
+  matching the hand-written IL are exactly the record members PASS 0e just moved — because the
+  hand-written C# wrote `ldarg.0` and a long-form plan row cannot. With it, they match to the byte and
+  the 165 changed rows are all OTHER planned bodies getting shorter. The narrowing is not incidental
+  to the PASS 0e move; it is the thing that makes it byte-identical.
+
+  **AND THE CONTROL HARNESS ITSELF HAD TO BE FIXED, WHICH IS RECORDED RATHER THAN QUIETLY REPAIRED**:
+  its first version restored the mutated file with `git checkout --`, which reverts to HEAD — and the
+  file carried UNCOMMITTED slice work, so the restore wiped this slice's own executor edits instead of
+  undoing the mutation. The edits were re-applied, the rebuilt tree was proved to emit **byte-identical
+  IL to the pre-incident tree** (`SLICE2` vs `SLICE3` = **0 diffs**), and every later control restores
+  from a captured byte copy with a `sha256` gate that stops the walk if it does not match.
+
+  ### THE ESTATE CONTRACTS
+
+  `ColumnarRecordValueMemberFacts.tests.nl` — **six** blocks. **BYTE WIDTH IS NOT PINNED HERE AND THE
+  FILE SAYS SO**: `ILGenerator.ILOffset` is not on the modeled surface, so the estate cannot measure
+  how many bytes a row became; the corpus is the authority for width and these blocks are the
+  authority for meaning.
+
+  | block | what it pins |
+  |---|---|
+  | the narrowing at every ordinal | a five-int-argument body, one `ldarg` row per ordinal 0..4, EXECUTED — answers 100/101/102/103/104, so a wrong ordinal returns a different argument. Ordinal 4 is the long-form fallback and still answers |
+  | `ldarga` never narrows | `ldarga 0; ldind.i4; ret` executes and returns the argument through a managed pointer |
+  | the method-body schema owns `unbox.any` | `UnboxAny() == 165`; a boxed `4242` round-trips through `ldarg.0; unbox.any int32; ret`; a non-method-body plan REFUSES the row at the appender |
+  | `isinst` types its result | `ldarg.0; isinst string; stloc; ldloc; ret` — the exact shape the missing arm would have mistyped, since the model believed the SOURCE was still on the stack. Hits return the string, misses return null |
+  | references branch, and the dup-test-discard idiom validates | the record-`Equals` skeleton — `brfalse` on an `object`, `dup`/`brtrue`/`pop` on an `isinst` result — executes and answers 1/0/0 for a hit, a wrong type and null. It also proves a label merged at a NON-EMPTY stack depth is legal |
+  | `pop` is typed as well as counted | popping an empty stack is refused at validation rather than replayed |
+
+  Estate **`Passed: 7082, Failed: 0`** — 7,076 + exactly the six new blocks, over **285** files.
+
+  **AND PASS 0e's END-TO-END PROOF IS NATIVE, NOT ESTATE**: fabricating a `TypeBuilder`-backed
+  `ColumnarStructDef` in the estate would cost more scaffolding than it proves, while
+  `tests/native/record-with` (**12**), `readonly-init` (**18**) and `as-boxing` (**16**) already run
+  real records built by the real pipeline — all green — and the corpus's 249 unchanged record rows
+  prove the bytes. That split is deliberate and stated rather than a gap.
+
+  ### THE REST OF THE BAR
+
+  | check | result |
+  |---|---|
+  | probe D (the republish, verified independently) | packed kernel md5 **`1b34d0c9864797378f5a775ebdf84858`**; UTF-16 scan **1** for each of the five, **1** for the `Ldarga` control, **0** for `Ldarg_S`; and the stage-1 wall probe re-run in `ColumnarCodePlanExecutor.nl` now reads **`Build succeeded`** where it read NL103 before. Reverted, `sha256` re-verified (`a541385066b46b86…`) |
+  | estate count-diff | **7,076 → 7,082**, exactly the six new blocks, **285** files |
+  | native record suites | `record-with` **12**, `readonly-init` **18**, `as-boxing` **16** — all green through the N#-planned members |
+  | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **`checkedFiles=401`, 246 errors on BOTH CLIs, ROW-FOR-ROW IDENTICAL even in ORDER** (`added=0 removed=0`), histogram unchanged to the digit. 400 → 401 is the one new production `.nl`, and it adds **zero** diagnostic rows |
+  | `nlc format --check` | the new production owner was FORMATTED to canonical form and the gate reads "All files are properly formatted." The formatting pass was then PROVED byte-neutral by re-running the corpus against the formatted tree (`SLICE` vs `SLICE2` = **0 diffs**) |
+  | `tests/native/ownership-audit` | **17 / 18 BEFORE the repin** (the ratchet noticing the emitter shrink — `OWN004` and `OWN005` on `ColumnarIlEmitter.cs`), **18 / 18 after** |
+  | ratchet repin (two-key, LAST) | emitter row `currentLines` **20976 → 20923**, `currentNonBlankLines` **19955 → 19902**, `currentFingerprint` **`text-v1:f9200d6387a64a4d` → `text-v1:ed2d86f2f117ab45`**; `reviewedHeadFingerprint` **`head-v1:fd53ebb53ffa009c` → `head-v1:d90a1b66873472e3`** in BOTH keys (the JSON header AND `OwnershipPolicy.ReviewedHeadFingerprint`), with **zero** occurrences of the old head left anywhere under `tests/native/ownership-audit` |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`) |
+  | compiler C# files | **10** — unchanged |
+  | working tree | **8** files: 3 modified product (`ColumnarCodePlan.nl`, `ColumnarCodePlanExecutor.nl`, `ColumnarIlEmitter.cs`), 2 new (`ColumnarRecordValueMemberPlanner.nl`, `ColumnarRecordValueMemberFacts.tests.nl`), 2 ratchet, plus this STATUS. Every instrument, corpus, probe and log lives in `/private/tmp`; none was written into the repo |
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/private/tmp` byte copy (`.git`, `bin`,
+  `obj`, `node_modules`, `artifacts` and `.claude/worktrees/` excluded), the log written OUTSIDE the
+  copy, `pgrep -f test-all-core.sh` clean first, launched DETACHED, **zero stray
+  `NSharpLang.Benchmarks.csproj` in the copy**, and all **eight** changed/added files `sha256`-verified
+  IDENTICAL between the working tree and the copy before the run.
+
+  **THE GATE WAS RUN TWICE AND ONLY THE SECOND ONE COUNTS.** The first (`GATE EXIT 0`, 22m 48s) ran
+  on the tree that still carried the three unreachable validator arms. They were deleted, the tree
+  re-verified byte-identical in emission, and **the gate re-run from a fresh copy on the FINAL tree:
+  `GATE EXIT 0`, `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 35s**, all EIGHT files
+  `sha256`-verified IDENTICAL between the working tree and the copy. Both runs carried identical
+  numbers; the second is the one that describes what ships.
+
+  **`GATE EXIT 0`, `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 35s.** Inside it: unit
+  **`Passed: 596`** (the baseline exactly), estate **`Passed: 7082`**, all **47** native `✓ PASSED`
+  lines, `tests/native/ownership-audit` **18 / 18**, the format contract gate ("All files are properly
+  formatted." × 4), `dotnet new` templates, every example project, the single-file examples, `nlc
+  check` on examples, and the IL verification gate — **"All 67 N# assemblies pass IL verification (no
+  new errors vs baseline)"**, which is the independent confirmation that the narrowed bodies and the
+  planned record members are VERIFIABLE and not merely runnable.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-B2` STAGE 1: THE OPCODE-ALLOWLIST WIDENING. THE
+  FIRST HALF OF A TWO-STAGE TOOLSET WALL. COMMITTED as `b99b7dc6f`.**)
 
   ### THE WALL, RE-MEASURED AT `9bd9aa222` — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
 

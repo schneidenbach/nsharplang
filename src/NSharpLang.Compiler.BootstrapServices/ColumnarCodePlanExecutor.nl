@@ -305,11 +305,7 @@ class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.StringOperand() {
             il.Emit(OpCodes.Ldstr, plan.StringValues[operandIndex])
         } else if operandKind == ColumnarCodePlanContract.ArgumentOperand() {
-            if opCodeValue == ColumnarCodePlanContract.Ldarga() {
-                il.Emit(OpCodes.Ldarga, (short)plan.ArgumentOrdinals[operandIndex])
-            } else {
-                il.Emit(OpCodes.Ldarg, (short)plan.ArgumentOrdinals[operandIndex])
-            }
+            EmitArgument(il, opCodeValue, plan.ArgumentOrdinals[operandIndex])
         } else if operandKind == ColumnarCodePlanContract.AmbientLocalOperand() {
             EmitLocal(il, opCodeValue, plan.AmbientLocals[operandIndex])
         } else if operandKind == ColumnarCodePlanContract.PlanLocalOperand() {
@@ -353,6 +349,8 @@ class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Castclass, plan.Types[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Isinst() {
                 il.Emit(OpCodes.Isinst, plan.Types[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.UnboxAny() {
+                il.Emit(OpCodes.Unbox_Any, plan.Types[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
                 il.Emit(OpCodes.Initobj, plan.Types[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Newarr() {
@@ -362,6 +360,37 @@ class ColumnarCodePlanExecutor {
             } else {
                 il.Emit(OpCodes.Ldelem, plan.Types[operandIndex])
             }
+        }
+    }
+
+    // THE ARGUMENT ROW IS ONE ROW AND FOUR ENCODINGS. `Emit(OpCode, LocalBuilder)` narrows locals to
+    // their short forms by itself, so a plan's local rows already match hand-written IL byte for byte —
+    // but `Emit(OpCode, short)` does NOT narrow `Ldarg`: it writes the two-byte `0xFE 0x09` form
+    // verbatim. Narrowing is therefore an EXECUTOR concern here exactly as it is an ILGenerator concern
+    // for locals, and the plan row stays `Ldarg` with an ArgumentOperand — no new row constant exists
+    // for the short forms, because the row's IDENTITY did not change, only its encoding.
+    //
+    // Ordinals 4..255 keep the long form. `Ldarg_S` would encode them in one byte, but it carries a
+    // `System.Byte` operand that the emitter's modeled operand surface does not admit, so admitting it
+    // is a two-half widening (opcode name AND operand type) that has deliberately not been taken. A
+    // planned body with four or more argument slots is therefore three bytes per load larger than the
+    // hand-written IL it replaces — correct, and not yet byte-identical.
+    //
+    // `Ldarga` must NOT narrow: `Ldarga_S` is not admitted either, so every address-of-argument row
+    // keeps the long form regardless of ordinal.
+    static func EmitArgument(il: ILGenerator, opCodeValue: short, ordinal: int) {
+        if opCodeValue == ColumnarCodePlanContract.Ldarga() {
+            il.Emit(OpCodes.Ldarga, (short)ordinal)
+        } else if ordinal == 0 {
+            il.Emit(OpCodes.Ldarg_0)
+        } else if ordinal == 1 {
+            il.Emit(OpCodes.Ldarg_1)
+        } else if ordinal == 2 {
+            il.Emit(OpCodes.Ldarg_2)
+        } else if ordinal == 3 {
+            il.Emit(OpCodes.Ldarg_3)
+        } else {
+            il.Emit(OpCodes.Ldarg, (short)ordinal)
         }
     }
 
@@ -843,6 +872,12 @@ class ColumnarCodePlanExecutor {
         if operandKind == ColumnarCodePlanContract.TypeOperand() {
             if opCodeValue == ColumnarCodePlanContract.Ldtoken() {
                 return 1
+            }
+            // unbox.any pops the boxed reference and pushes the typed value: net zero. The fallback
+            // below would give zero anyway, but a delta that is right only because it fell off the end
+            // of a chain is not pinned, so it is stated.
+            if opCodeValue == ColumnarCodePlanContract.UnboxAny() {
+                return 0
             }
             if opCodeValue == ColumnarCodePlanContract.Initobj() {
                 return -1
