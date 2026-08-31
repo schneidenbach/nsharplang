@@ -159,3 +159,89 @@ test "a package header admits a public top level function and it is callable acr
     assert buildExplicit() == "explicit"
     assert buildExplicit().Length == 8
 }
+
+// ---- 015-B3: the ordinary-body driver, in the only place it can be proved ------------------------
+
+// STATEMENT KIND 20 GETS ITS FIRST NON-SYNTHESIZED CONSUMER, AND THIS IS WHAT THAT MEANS IN SOURCE.
+// Each body below is a BLOCK whose single statement returns a LITERAL whose natural type IS the
+// declared return type — the exact shape `ColumnarMethodBodyPlanner.TryPlanLiteralReturnBody` claims.
+// A claimed body does not reach the host's kind-20 arm at all: the plan-row IR emits every byte of it
+// through `ColumnarCodePlanExecutor`, ending in the `ret` row.
+//
+// THE ESTATE CANNOT PROVE THIS AND SAYS SO. Its blocks drive the planner directly over a hand-built
+// node table, which shows the plan is right but not that the COMPILER routes real syntax into it.
+// These are ordinary N# compiled by the real pipeline, so a driver that produced a wrong row, a wrong
+// value or a missing `ret` would not merely fail an assertion — the project would not run.
+
+func DriverInt(): int {
+    return 42
+}
+
+func DriverLong(): long {
+    return 42L
+}
+
+func DriverULong(): ulong {
+    return 42UL
+}
+
+func DriverDouble(): double {
+    return 2.5
+}
+
+func DriverFloat(): float {
+    return 2.5f
+}
+
+func DriverChar(): char {
+    return 'Z'
+}
+
+func DriverString(): string {
+    return "claimed"
+}
+
+func DriverDecimal(): decimal {
+    return 2.5m
+}
+
+// THE DECLINE SIDE, AS SOURCE. These are bodies the driver deliberately does NOT claim, and every one
+// of them must still run — a decline that broke the host's path would be worse than no driver at all.
+// A `bool` literal is kind 4 and belongs to a different owner; an unsuffixed integer on a
+// non-`int` function goes through the host's target-typed ADOPTION pre-pass, which emits different
+// rows than the literal owner would, which is exactly why the claim rule is type EQUALITY.
+
+func DriverBool(): bool {
+    return true
+}
+
+func DriverAdoptedShort(): short {
+    return 42
+}
+
+func DriverAdoptedLong(): long {
+    return 42
+}
+
+func DriverTwoStatements(): int {
+    n := 40
+    return n + 2
+}
+
+test "the ordinary body driver claims a literal return in every literal family it owns" {
+    assert DriverInt() == 42
+    assert DriverLong() == 42L
+    assert DriverULong() == 42UL
+    assert DriverDouble() == 2.5
+    assert DriverFloat() == 2.5f
+    assert (int)DriverChar() == 90
+    assert DriverString() == "claimed"
+    assert DriverDecimal() == 2.5m
+}
+
+test "the bodies the ordinary body driver declines still run on the host path" {
+    assert DriverBool()
+    assert DriverAdoptedShort() == 42
+    assert DriverAdoptedLong() == 42L
+    assert DriverTwoStatements() == 42
+}

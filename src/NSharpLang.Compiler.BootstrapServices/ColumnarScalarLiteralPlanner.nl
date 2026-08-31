@@ -438,10 +438,19 @@ class ColumnarScalarLiteralPlanner {
         }
     }
 
+    // A schema-v4 METHOD BODY is admitted alongside v3, and it is admitted WITHOUT the open-fragment
+    // requirement rather than with a faked one: v4 is a documented superset of v3 that carries a FLAT
+    // operation stream and no fragments at all (`PrepareMethodBody` does not even reserve fragment
+    // capacity), while every appender this owner reaches for — Int32/Int64/Single/Double/String and the
+    // decimal constructor — is already v4-legal. Widening the gate is what lets the ONE literal owner
+    // this file's header promises serve a method body as well as an expression fragment.
     static func ValidateAppendInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
         ValidateRootInputs(nodes, source, node, plan)
-        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
-            throw new InvalidOperationException("Scalar literals can only append to an open schema-v3 plan.")
+        if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Scalar literals can only append to an open schema-v3 or method-body plan.")
+        }
+        if plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion() {
+            return
         }
         if plan.FragmentCount <= 0 || plan.FragmentCompleted == null || plan.FragmentCompleted.Length < plan.FragmentCount {
             throw new InvalidOperationException("Scalar literals require an open expression fragment.")

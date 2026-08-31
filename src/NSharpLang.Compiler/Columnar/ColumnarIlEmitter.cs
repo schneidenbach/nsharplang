@@ -6002,6 +6002,21 @@ internal sealed class ColumnarIlEmitter
     // unreachable code).
     private bool EmitBody(int bodyRoot, bool isVoid)
     {
+        // KIND-20 FRONT DOOR (015-B3): the first ORDINARY USER body the plan-row IR claims end to end.
+        // Offered ahead of every field below, because the shape ColumnarMethodBodyPlanner accepts —
+        // a block whose one statement returns a literal of exactly the declared return type — can hold
+        // no lambda, local, branch or region, so a claimed body needs none of that state. The claim is
+        // total: the planner produces every byte or it declines and this method emits as it always did.
+        // An ASYNC body is excluded because its returns wrap and leave to a shared tail (below).
+        if (!isVoid && _asyncReturnType == null)
+        {
+            var bodyPlan = new ColumnarCodePlan();
+            if (ColumnarMethodBodyPlanner.TryPlanLiteralReturnBody(_nodes, _source, bodyRoot, _returnType, bodyPlan))
+            {
+                ColumnarCodePlanExecutor.Execute(bodyPlan, _il);
+                return true;
+            }
+        }
         // The body root anchors the never-mutated capture scan (L3a): a lambda may capture an enclosing
         // local/param only when NOTHING in this whole body writes it. Null inside a lambda's own
         // sub-emitter (EmitExpression is entered directly), so nested capture chains decline.
@@ -9085,56 +9100,11 @@ internal sealed class ColumnarIlEmitter
     }
 
     /// <summary>
-    /// Whether this statement always exits via a return — the same columnar subset as the diagnostics pass
-    /// (Return; a Block whose any statement returns; an If with an else where both branches return). Used to
-    /// guarantee the emitted `if` has no fall-through.
+    /// Whether this statement always exits via a return. The rule is N#-owned
+    /// (ColumnarMethodBodyPlanner.AlwaysReturns) — the columnar mirror of the diagnostics pass's
+    /// AnalyzerStatementTermination.AlwaysReturns, which asks the same question of AST statements.
     /// </summary>
-    private bool AlwaysReturns(int idx)
-    {
-        switch (_nodes.Kind(idx))
-        {
-            case 20: // Return
-            case 48: // Throw — always exits (E1).
-                return true;
-            case 72: // YieldStatement — a value-less `yield break` (0 children) terminates the iterator,
-                     // exactly like return/throw; a `yield <value>` (1 child) produces a value and continues.
-                return _nodes.ChildCount(idx) == 0;
-            case 49: // Try — the analyzer's rule VERBATIM: exits iff the TRY block exits AND there is at
-            {        // least ONE catch AND every catch clause's block exits. The FINALLY (a trailing
-                     // kind-25 child) is IGNORED — probe-pinned: a zero-catch `try {return} finally {}`
-                     // NEVER satisfies always-returns (the pipeline demands a trailing return, NL305).
-                if (!AlwaysReturns(Child(idx, 0)))
-                    return false;
-                var sawCatch = false;
-                for (var n = 1; n < _nodes.ChildCount(idx); n++)
-                {
-                    var clause = Child(idx, n);
-                    if (_nodes.Kind(clause) != 50)
-                        continue; // the finally block — ignored by the analyzer's rule.
-                    sawCatch = true;
-                    if (!AlwaysReturns(Child(clause, _nodes.ChildCount(clause) - 1)))
-                        return false;
-                }
-
-                return sawCatch;
-            }
-            case 25: // Block
-                for (var n = 0; n < _nodes.ChildCount(idx); n++)
-                {
-                    if (AlwaysReturns(Child(idx, n)))
-                        return true;
-                }
-
-                return false;
-            case 27: // If [cond, then, else?]
-                return _nodes.ChildCount(idx) == 3 && AlwaysReturns(Child(idx, 1)) && AlwaysReturns(Child(idx, 2));
-            case 51: // Lock [lockee, body] — exits iff the body exits (probe-pinned: `lock s { return 1 }`
-                     // with no trailing return satisfies the analyzer).
-                return AlwaysReturns(Child(idx, 1));
-            default:
-                return false;
-        }
-    }
+    private bool AlwaysReturns(int idx) => ColumnarMethodBodyPlanner.AlwaysReturns(_nodes, idx);
 
     // The registered struct/record/class def whose TypeBuilder IS this builder, or null.
     private ColumnarStructDef? FindDefByBuilder(TypeBuilder builder)
