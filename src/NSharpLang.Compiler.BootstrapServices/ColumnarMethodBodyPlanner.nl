@@ -27,6 +27,13 @@ import System.Reflection.Emit
 //   2. THE DRIVER — the front door that claims a whole body for the plan path, or declines it whole.
 //      There is no partial claim: a body the driver accepts produces every byte of its own IL, and a
 //      body it declines never touches the plan at all.
+//
+//   3. THE APPEND-MODE EXPRESSION DOOR — the kind-keyed dispatch that turns ONE expression into rows on
+//      an already-open method-body plan. The production expression path cannot do this: it reaches the
+//      owners through `ColumnarRangeIndexPlanner.TryEmitFromFacts`, which `PrepareV3()`s the plan and
+//      `Execute`s it into the `ILGenerator` on the spot, so it can never contribute rows to an open
+//      body. The door is that path's append-mode counterpart, and it prepares, seals and executes
+//      nothing.
 class ColumnarMethodBodyPlanner {
 
     // Whether this statement always exits via a return — the same columnar subset as the diagnostics
@@ -144,6 +151,13 @@ class ColumnarMethodBodyPlanner {
     //   B  `{ return true }` / `{ return false }` — the boolean owner's row                (015-B4)
     //   P  `{ return <parameter> }` — ColumnarBoundIdentifierPlanner's Parameter selection (015-B4)
     //   V  `{ }` and `{ return }` on a VOID body — a single bare `ret`                     (015-B4)
+    //   F  `{ return <instance field> }` — the CurrentField selection                      (015-B5)
+    //   R  `{ return <instance property> }` — the CurrentProperty selection                (015-B5)
+    //   X  `{ return <ref/out parameter> }` — the ByRefParameter selection                 (015-B5)
+    //
+    // The value classes all reach the plan through ONE door — `TryAppendReturnValue` — rather than
+    // through a chain of special cases, so a class the door does not claim cannot arrive here by
+    // accident.
     //
     // THE CLAIM RULE IS TYPE *EQUALITY*, NOT ASSIGNABILITY, AND THAT IS STILL THE POINT. The host's
     // kind-20 arm runs SEVEN target-typed pre-passes before it evaluates the expression and SEVEN
@@ -211,26 +225,18 @@ class ColumnarMethodBodyPlanner {
             return false
         }
 
+        // The bindings are built ONCE, before the plan is opened, and handed to the expression door.
+        // `FromRawFacts` wraps the caller's live dictionaries by reference and copies only the type
+        // parameters (a handful of entries at most), so the cost is an allocation on the narrow set of
+        // bodies that are already exactly `{ return <expression> }`. The statement loop will reuse this
+        // one binding set across every statement rather than rebuilding it per row.
         value := nodes.Child(statement, 0)
-        kind := nodes.Kind(value)
+        bindings := ColumnarFragmentBindings.FromRawFacts(parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters)
+        bindings.SetEnclosingTypeDefinition(enclosingTypeDefinition)
+
         plan.PrepareMethodBody()
         valueType := typeof(int)
-        if ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) {
-            if !ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, value, plan, out valueType) {
-                return false
-            }
-        } else if kind == ColumnarExpressionNodeKind.BoolLiteralExpression() {
-            if !ColumnarBooleanLiteralPlanner.TryAppendLiteral(nodes, source, value, plan) {
-                return false
-            }
-            valueType = typeof(bool)
-        } else if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
-            bindings := ColumnarFragmentBindings.FromRawFacts(parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters)
-            bindings.SetEnclosingTypeDefinition(enclosingTypeDefinition)
-            if !TryAppendParameterRead(nodes, source, value, bindings, plan, out valueType) {
-                return false
-            }
-        } else {
+        if !TryAppendReturnValue(nodes, source, value, bindings, plan, out valueType) {
             return false
         }
 
@@ -259,28 +265,150 @@ class ColumnarMethodBodyPlanner {
         return nodes.Kind(statement) == 20 && nodes.ChildCount(statement) == 0
     }
 
-    // THE PARAMETER CLASS (P). `ColumnarBoundIdentifierPlanner` is the SOLE owner of lexical
+    // THE APPEND-MODE EXPRESSION FRONT DOOR.
+    //
+    // Turns ONE expression into rows on an already-open schema-v4 method-body plan, or declines it
+    // without touching the plan. It dispatches on the EXPRESSION KIND to the owners' own append entries
+    // — the same owners the production expression path reaches — so every claim is byte-identical BY
+    // CONSTRUCTION rather than by imitation. `ExecuteV3` and `ExecuteMethodBody` share one
+    // `EmitInstruction`, so reproducing the ROW SEQUENCE is the whole of reproducing the bytes.
+    //
+    // THE DOOR IS TOTAL. Every kind in `ExpressionKindLedger` is answered by exactly one of
+    // `IsClaimedExpressionKind` and `IsDeclinedExpressionKind` — a partition the estate asserts rather
+    // than a property this comment claims. There is no anonymous fall-through: a kind outside the
+    // ledger is one the parser does not put in value position, and it declines with the rest.
+    //
+    // ⚠ WHY EVERY CLAIMED KIND IS A LEAF, AND WHY THAT IS A MEASUREMENT RATHER THAN CAUTION. Nine of
+    // the twelve owners on the value surface assert an open schema-**v3** plan in their own
+    // `ValidateAppendInputs` and `throw` otherwise — a HARD CRASH out of the compiler, not a decline:
+    // `ColumnarConstructionPlanner`, `ColumnarDirectCallPlanner`, `ColumnarExternalStaticMemberPlanner`,
+    // `ColumnarInstanceMemberPlanner`, `ColumnarNameOfPlanner`, `ColumnarNullableArgumentLowering`,
+    // `ColumnarUnaryLiteralPlanner`, `ColumnarPrimitiveBinaryPlanner` and `ColumnarTypeOfPlanner`. Only
+    // `ColumnarScalarLiteralPlanner` and `ColumnarBoundIdentifierPlanner` are widened, and
+    // `ColumnarConditionalPlanner` — which has no such gate — recurses its operands straight into the
+    // nine. So a COMPOSITE claim (`return a + b`, `return f(x)`, `return cond ? a : b`) cannot be taken
+    // until those nine gates are widened together: claiming one and pre-scanning its operands to prove
+    // no un-widened owner is reachable would be a SECOND COPY of the dispatcher's routing decision.
+    // Every kind claimed here appends its own rows and recurses into nothing.
+    static func TryAppendReturnValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        kind := nodes.Kind(node)
+        if !IsClaimedExpressionKind(kind) {
+            return false
+        }
+
+        // 0 Int, 1 Float, 2 Char, 3 String — one owner, four kinds, and the decimal suffix inside it.
+        if ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) {
+            return ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, node, plan, out resultType)
+        }
+        // 4 Bool — a different owner and therefore a different claim class, not a fifth literal.
+        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression() {
+            if !ColumnarBooleanLiteralPlanner.TryAppendLiteral(nodes, source, node, plan) {
+                return false
+            }
+            resultType = typeof(bool)
+            return true
+        }
+        // 6 Identifier — four of the sole identifier owner's seven selection kinds.
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+            return TryAppendIdentifierRead(nodes, source, node, bindings, plan, out resultType)
+        }
+        // Unreachable while the claimed set and the arms above agree, and that agreement is exactly
+        // what the estate's partition block asserts. A kind added to the claimed set without its own
+        // arm lands here and DECLINES rather than silently taking a neighbouring owner's route.
+        return false
+    }
+
+    // The kinds the door takes. Each is a LEAF whose owner is already method-body-schema aware.
+    static func IsClaimedExpressionKind(kind: int): bool {
+        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression()
+    }
+
+    // The kinds the door refuses, named one by one rather than left to a fall-through. The reason is
+    // uniform and worth stating once: each is either a COMPOSITE (its owner recurses into the value
+    // surface, where the nine un-widened gates throw) or a form whose host lowering is not a plan-row
+    // owner at all. None is "not yet supported" — each is a body whose bytes this door cannot promise.
+    static func IsDeclinedExpressionKind(kind: int): bool {
+        // 5 NullLiteral (the host's target-typed kind-20 pre-pass owns it), 7 Parenthesized (recurses),
+        // 8 MemberAccess, 9 Call, 10 IndexAccess, 11 Unary — every one a composite.
+        if kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.ParenthesizedExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() {
+            return true
+        }
+        // 12 Binary, 13 Ternary, 15 New, 16 Cast, 36 ObjectInitializer, 55 TypeOf, 58 ArrayLiteral,
+        // 62 NameOf, 69 Range — the named composites, plus the two owners whose append entries exist
+        // but whose gates are still v3-only.
+        if kind == ColumnarExpressionNodeKind.BinaryExpression() || kind == ColumnarExpressionNodeKind.TernaryExpression() || kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.CastExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() {
+            return true
+        }
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() {
+            return true
+        }
+        // The kinds the parser produces in value position that have no named accessor on the ledger
+        // class. They are spelled here exactly as `ColumnarIlEmitter.EmitExpressionCore` spells them.
+        // 17 Tuple, 18 Match, 39 Lambda, 42 BareNew, 44 PostfixUnary, 45 Must.
+        if kind == 17 || kind == 18 || kind == 39 || kind == 42 || kind == 44 || kind == 45 {
+            return true
+        }
+        // 46 Is, 47 As, 52 With, 53 Await, 57 CheckedContext, 59 AnonymousObjectInitializer,
+        // 64 SpreadArgument.
+        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 57 || kind == 59 || kind == 64
+    }
+
+    // THE LEDGER THE DOOR PARTITIONS — every node kind the parser can produce in a return-VALUE
+    // position, taken from `ColumnarExpressionNodeKind` and from the kinds
+    // `ColumnarIlEmitter.EmitExpressionCore` and its pre-switch owners handle. It exists so the
+    // totality property is a fact something can assert, not a promise a comment makes: for every kind
+    // here, exactly one of `IsClaimedExpressionKind` and `IsDeclinedExpressionKind` holds.
+    static func ExpressionKindLedger(): int[] {
+        return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 36, 39, 42, 44, 45, 46, 47, 52, 53, 55, 57, 58, 59, 62, 64, 69]
+    }
+
+    // THE IDENTIFIER CLASSES. `ColumnarBoundIdentifierPlanner` is the SOLE owner of lexical
     // identifier-value reads, and the production expression path already routes every bare identifier
     // through it — `EmitExpressionCore` calls `ColumnarRangeIndexPlanner.TryEmitFromFacts` before its
-    // own switch, and that facade admits `IdentifierExpression` unconditionally. So this driver calls
-    // the SAME owner rather than reproducing it, which is what makes the claim byte-identical BY
-    // CONSTRUCTION rather than by imitation — including the argument narrowing, since both sides reach
+    // own switch, and that facade admits `IdentifierExpression` unconditionally. So this door calls
+    // the SAME owner rather than reproducing it, which is what makes each claim byte-identical BY
+    // CONSTRUCTION — including the argument narrowing, since both sides reach
     // `ColumnarCodePlanExecutor.EmitArgument` and therefore agree at every ordinal, not just 0..3.
     //
-    // The resolve runs FIRST and is pure, so a selection this driver does not claim never mutates the
-    // plan. ONLY `Parameter` is claimed: BoxedCapture, LiftedLocal, Local, ByRefParameter, CurrentField
-    // and CurrentProperty each decline to the host, because each is its own claim class and owes its
-    // own corpus diff.
-    static func TryAppendParameterRead(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+    // The resolve runs FIRST and is pure, so a selection this door does not claim never mutates the
+    // plan. FOUR of the owner's seven selection kinds are claimed:
+    //
+    //   P  Parameter        `ldarg <n>`                                   (015-B4)
+    //   F  CurrentField     `ldarg.0; ldfld <f>`                          (015-B5)
+    //   R  CurrentProperty  `ldarg.0; call|callvirt get_<p>`              (015-B5)
+    //   X  ByRefParameter   `ldarg <n>; ldind.<t>`                        (015-B5)
+    //
+    // THE THREE UNCLAIMED ONES ARE UNREACHABLE, NOT UNTRUSTED, and that is the whole reason they wait:
+    // `Local` needs a preceding declaration statement, `LiftedLocal` needs a lambda to lift into, and
+    // `BoxedCapture` needs a closure display frame. None can occur in a body whose entire content is
+    // one `return <identifier>`, so claiming them here would be a claim no corpus could exercise in
+    // either direction. They arrive with the statement loop, which is what first makes them possible.
+    //
+    // The current-instance pair reads `bindings.CurrentInstance` and NOTHING else beyond what the
+    // parameter class already read: `ExactSourceTypes`, the overflow flag and the sibling-callable
+    // facts are consumed only by `TryResolveSelectedSourceType`, `ColumnarPrimitiveBinaryPlanner` and
+    // `ColumnarDirectCallPlanner` respectively — all of them on the COMPOSITE surface this door
+    // declines. So the three deliberately-unrouted facts stay unrouted, and become mandatory when a
+    // composite class is claimed rather than when this filter widens.
+    static func TryAppendIdentifierRead(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
         selection := ColumnarBoundIdentifierPlanner.EmptySelection()
         if !ColumnarBoundIdentifierPlanner.TryResolve(nodes, source, node, bindings, out selection) {
             return false
         }
-        if selection.Kind != ColumnarBoundIdentifierKind.Parameter {
+        if !IsClaimedIdentifierSelection(selection.Kind) {
             return false
         }
 
         return ColumnarBoundIdentifierPlanner.TryAppend(nodes, source, node, bindings, plan, out resultType)
+    }
+
+    static func IsClaimedIdentifierSelection(selectionKind: ColumnarBoundIdentifierKind): bool {
+        return selectionKind == ColumnarBoundIdentifierKind.Parameter || selectionKind == ColumnarBoundIdentifierKind.ByRefParameter || selectionKind == ColumnarBoundIdentifierKind.CurrentField || selectionKind == ColumnarBoundIdentifierKind.CurrentProperty
     }
 }

@@ -707,17 +707,15 @@ test "the body driver claims a parameter return at every ordinal and runs it" {
     assert stringPlan.OperationCount == 2
 }
 
-// The claim is filtered to ONE selection kind. `ColumnarBoundIdentifierPlanner` resolves seven, and
-// six of them are their own future claim classes with their own diffs — so each is asked here, in the
-// negative, rather than left to an argument about what the corpus happens to contain.
+// The claim is FILTERED. `ColumnarBoundIdentifierPlanner` resolves seven selection kinds; `015-B4`
+// claimed one and `015-B5` claims four, so the three that remain are asked here in the negative rather
+// than left to an argument about what the corpus happens to contain. (`ByRefParameter` moved OUT of
+// this block when B5 claimed it — see the by-ref block below. That is a pin this slice deliberately
+// flipped, not one it quietly dropped.)
 test "the body driver claims only the parameter selection and refuses every other binding" {
     // Type EQUALITY, from both sides.
     assert !MethodBodyFactsPlanParameterBody("x", 0, typeof(int), typeof(long), new ColumnarCodePlan())
     assert !MethodBodyFactsPlanParameterBody("x", 0, typeof(long), typeof(int), new ColumnarCodePlan())
-
-    // A BY-REF parameter resolves as ByRefParameter — `ldarg` plus a typed `ldind`, which is a
-    // different row shape and therefore a different claim class.
-    assert !MethodBodyFactsPlanParameterBody("r", 0, typeof(int).MakeByRefType(), typeof(int), new ColumnarCodePlan())
 
     // An ordinary LOCAL shadows nothing here: it is simply a different selection kind (`ldloc`).
     holder := MethodBodyFactsDynamicMethod("NSharpB4LocalHolder", typeof(int))
@@ -909,4 +907,328 @@ test "the scalar literal owner appends into a method body and still refuses the 
     assert throws InvalidOperationException {
         ColumnarScalarLiteralPlanner.TryAppendLiteral(literalNodes, "9", 2, recursive, out recursiveType)
     }
+}
+
+
+// ---- 015-B5 — THE APPEND-MODE EXPRESSION FRONT DOOR ----
+//
+// THE SLICE'S DECODE OVERTURNED TWO OF ITS OWN BRIEF'S ITEMS AND THESE BLOCKS ARE WHERE THAT IS PINNED.
+// The brief said `ColumnarConditionalPlanner` was the one owner needing an append entry BUILT; its
+// entries exist (`TryPlanTernary`, `TryPlanShortCircuit`) and are simply not spelled `TryAppend*`. It
+// also said the current-instance pair would make three deliberately-unrouted binding facts mandatory;
+// none of the three is read anywhere on the identifier path, so the pair costs nothing new.
+//
+// WHAT THE SLICE ACTUALLY BUILT is a TOTAL, kind-keyed expression door and three more identifier
+// classes behind it. The door's claimed set is small for a MEASURED reason rather than a cautious one:
+// nine of the twelve owners on the value surface assert an open schema-v3 plan and THROW on a method
+// body, so every composite is a crash rather than a decline until those nine gates are widened
+// together. The partition block below is what makes "total" a fact instead of a promise.
+
+// ---- shared fixtures for the current-instance pair ----
+//
+// The current-instance facts are built from a RUNTIME type, exactly the way
+// `ColumnarBoundIdentifierPlanner.tests.nl` builds its own — which is the only route the estate has,
+// since `TryPlanBody`'s `currentInstance` parameter is a `ColumnarStructDef` over a `TypeBuilder`. The
+// door takes the bindings directly, so these blocks exercise the thing this slice built.
+
+class ColumnarMethodBodyCurrentClassProbe {
+    Field: int
+
+    constructor(value: int) {
+        Field = value
+    }
+
+    Value: int => Field
+}
+
+struct ColumnarMethodBodyCurrentStructProbe {
+    Field: int
+
+    constructor(value: int) {
+        Field = value
+    }
+
+    Value: int => Field
+}
+
+func MethodBodyFactsRequiredField(owner: Type, name: string): FieldInfo {
+    field := owner.GetField(name)
+    if field == null {
+        throw new InvalidOperationException("Required current-instance field was not found.")
+    }
+    return field
+}
+
+func MethodBodyFactsRequiredGetter(owner: Type, name: string): MethodInfo {
+    getter := owner.GetMethod(name, new Type[](0))
+    if getter == null {
+        throw new InvalidOperationException("Required current-instance getter was not found.")
+    }
+    return getter
+}
+
+func MethodBodyFactsEmptyBindings(): ColumnarFragmentBindings {
+    return ColumnarFragmentBindings.FromRawFacts(
+        MethodBodyFactsNoOrdinals(),
+        MethodBodyFactsNoTypes(),
+        MethodBodyFactsLocals(),
+        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
+        new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal),
+        null,
+        null,
+        new ColumnarStructDef[](0),
+        new ColumnarUnionDef[](0),
+        new Dictionary<string, string[]>(StringComparer.Ordinal),
+        new string[](0),
+        new string[](0),
+        new string[](0),
+        new Dictionary<string, Type>(StringComparer.Ordinal))
+}
+
+// Bindings whose ONLY fact is a current instance carrying one field and one property.
+func MethodBodyFactsCurrentBindings(owner: Type, isReference: bool): ColumnarFragmentBindings {
+    facts := new ColumnarCurrentInstanceFacts(owner, isReference)
+    facts.Fields["Field"] = MethodBodyFactsRequiredField(owner, "Field")
+    facts.Properties["Value"] = new ColumnarCurrentPropertyFact(MethodBodyFactsRequiredGetter(owner, "get_Value"), typeof(int), 0)
+    bindings := MethodBodyFactsEmptyBindings()
+    bindings.CurrentInstance = facts
+    return bindings
+}
+
+// One expression through the door, into a fresh method-body plan, terminated exactly as the driver
+// terminates it. This is the driver's own value path with the body shape held constant.
+func MethodBodyFactsDoorPlan(name: string, bindings: ColumnarFragmentBindings, returnType: Type, plan: ColumnarCodePlan): bool {
+    nodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    plan.PrepareMethodBody()
+    valueType := typeof(int)
+    if !ColumnarMethodBodyPlanner.TryAppendReturnValue(nodes, name, 2, bindings, plan, out valueType) {
+        return false
+    }
+    if valueType != returnType {
+        return false
+    }
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+    plan.CompleteMethodBody(returnType)
+    return true
+}
+
+
+// ---- BLOCK 11 — THE DOOR IS TOTAL ----
+//
+// Totality is the door's whole safety argument, so it is asserted rather than asserted-about: for
+// EVERY kind on the ledger exactly one of the two predicates holds, and the ledger is the union of
+// `ColumnarExpressionNodeKind` with the kinds `ColumnarIlEmitter.EmitExpressionCore` and its
+// pre-switch owners handle. A kind that fell out of both predicates would be a silent hole; a kind
+// that satisfied both would mean the door claims and declines the same shape.
+test "the expression door partitions its whole kind ledger with no hole and no overlap" {
+    ledger := ColumnarMethodBodyPlanner.ExpressionKindLedger()
+    assert ledger.Length == 34
+
+    claimed := 0
+    i := 0
+    while i < ledger.Length {
+        kind := ledger[i]
+        isClaimed := ColumnarMethodBodyPlanner.IsClaimedExpressionKind(kind)
+        isDeclined := ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(kind)
+        // Exactly one — never neither (a hole) and never both (a contradiction).
+        assert isClaimed != isDeclined
+        if isClaimed {
+            claimed = claimed + 1
+        }
+        i = i + 1
+    }
+
+    // SIX claimed kinds: the four scalar-literal kinds, bool, and identifier. The count is pinned so a
+    // widening cannot arrive without a block that says what it claims.
+    assert claimed == 6
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.StringLiteralExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BoolLiteralExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IdentifierExpression())
+
+    // The composites the nine un-widened owner gates would THROW on are declined, one by one — the
+    // shapes a body most often returns, and the ones B6 unlocks.
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CallExpression())
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NewExpression())
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression())
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+
+    // And a DECLINED kind declines at the door without touching the plan, which is what lets the
+    // driver reuse one plan object across a decline.
+    untouched := new ColumnarCodePlan()
+    untouched.PrepareMethodBody()
+    callNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.CallExpression(), "f")
+    callType := typeof(int)
+    assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(callNodes, "f", 2, MethodBodyFactsEmptyBindings(), untouched, out callType)
+    assert untouched.OperationCount == 0
+
+    // A kind OFF the ledger entirely — 25 is a statement block, which never reaches value position —
+    // is neither claimed nor declined by name, and the door still refuses it.
+    assert !ColumnarMethodBodyPlanner.IsClaimedExpressionKind(25)
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(25)
+    blockNodes := MethodBodyFactsLiteralBody(25, "x")
+    blockType := typeof(int)
+    assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(blockNodes, "x", 2, MethodBodyFactsEmptyBindings(), untouched, out blockType)
+    assert untouched.OperationCount == 0
+}
+
+
+// ---- BLOCK 12 — THE BY-REF PARAMETER CLASS (X) ----
+//
+// `015-B4` pinned this shape as a DECLINE and named it a future claim class; this is that future. A
+// ref/out parameter READ is `ldarg <n>` plus one typed `ldind` — two rows where the plain parameter
+// class has one — and the selection carries the ELEMENT type as its result, so type equality is asked
+// against the element rather than against the `T&`.
+test "the body driver claims a by-ref parameter return and derefs it through the typed ldind table" {
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanParameterBody("r", 0, typeof(int).MakeByRefType(), typeof(int), plan)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.LdindI4()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+    // The argument slot is an ADDRESS fact, which is what keeps `ldarga` off it.
+    assert plan.ArgumentCount == 1
+    assert plan.ArgumentIsAddress[0]
+
+    refTypes := new Type[](1)
+    refTypes[0] = typeof(int).MakeByRefType()
+    method := MethodBodyFactsDynamicMethodWith("NSharpB5ByRefBody", typeof(int), refTypes)
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToInt32(method.Invoke(target, MethodBodyFactsIntArguments(1, 63))) == 63
+
+    // EQUALITY IS AGAINST THE ELEMENT. `ref int` on an `int` function claims; the same parameter on a
+    // `long` function does not, and neither does a plain `int` parameter on a body that expected the
+    // deref — the two classes cannot be substituted for one another.
+    assert !MethodBodyFactsPlanParameterBody("r", 0, typeof(int).MakeByRefType(), typeof(long), new ColumnarCodePlan())
+
+    // An element OUTSIDE the typed-ldind table — decimal has no `ldind` form — resolves to nothing and
+    // stays with the host's `Ldobj` deref arm. The claim is the table, not "any by-ref".
+    assert !MethodBodyFactsPlanParameterBody("r", 0, typeof(decimal).MakeByRefType(), typeof(decimal), new ColumnarCodePlan())
+}
+
+
+// ---- BLOCK 13 — THE CURRENT-FIELD CLASS (F) ----
+//
+// A bare instance-FIELD read inside an instance body. This is the identifier class the BUILDABLE
+// corpus actually contains — `return issues` in the issue-tracker store, and the three explicit
+// `get { return <backing field> }` accessor bodies in `PropertiesAndNestedTypes.nl` — which is why it
+// is taken ahead of the three that need a statement loop first.
+//
+// ⚠ THIS BLOCK ASKS ONLY THE FIELD, AND THAT SPLIT IS THE CONTROL WALK'S DOING. Written once as a
+// single "current-instance pair" block over both receivers, dropping CurrentField and dropping
+// CurrentProperty broke the SAME three blocks, so neither control isolated the other — `015-B4`'s
+// `W4`/`W5` lesson repeating, caught the same way. The blocks are now split by MEMBER; each still
+// asks both receiver kinds, because the receiver is one class's own row decision rather than a
+// second mechanism.
+test "the expression door claims a current field on a reference and on a value receiver" {
+    bindings := MethodBodyFactsCurrentBindings(typeof(ColumnarMethodBodyCurrentClassProbe), true)
+
+    fieldPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsDoorPlan("Field", bindings, typeof(int), fieldPlan)
+    assert fieldPlan.OperationCount == 3
+    assert fieldPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert fieldPlan.ArgumentOrdinals[0] == 0
+    assert !fieldPlan.ArgumentIsAddress[0]
+    assert fieldPlan.OpCodeValues[1] == ColumnarCodePlanContract.Ldfld()
+    assert fieldPlan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+
+    probeTypes := new Type[](1)
+    probeTypes[0] = typeof(ColumnarMethodBodyCurrentClassProbe)
+    probeArguments := new object[](1)
+    MethodBodyFactsSetArgument(probeArguments, 0, new ColumnarMethodBodyCurrentClassProbe(45))
+    fieldMethod := MethodBodyFactsDynamicMethodWith("NSharpB5CurrentFieldBody", typeof(int), probeTypes)
+    ColumnarCodePlanExecutor.Execute(fieldPlan, fieldMethod.GetILGenerator())
+    fieldTarget: object? = null
+    assert Convert.ToInt32(fieldMethod.Invoke(fieldTarget, probeArguments)) == 45
+
+    // A VALUE receiver takes the other half of the row decision: the argument slot becomes an ADDRESS.
+    // The rows are asserted rather than executed, because the interesting fact is the choice.
+    valuePlan := new ColumnarCodePlan()
+    assert MethodBodyFactsDoorPlan("Field", MethodBodyFactsCurrentBindings(typeof(ColumnarMethodBodyCurrentStructProbe), false), typeof(int), valuePlan)
+    assert valuePlan.ArgumentCount == 1
+    assert valuePlan.ArgumentOrdinals[0] == 0
+    assert valuePlan.ArgumentIsAddress[0]
+    assert valuePlan.OpCodeValues[1] == ColumnarCodePlanContract.Ldfld()
+
+    // A name the current instance does not carry resolves to NOTHING rather than to a guess.
+    assert !MethodBodyFactsDoorPlan("Missing", MethodBodyFactsCurrentBindings(typeof(ColumnarMethodBodyCurrentClassProbe), true), typeof(int), new ColumnarCodePlan())
+
+    // Type EQUALITY still rules: an `int` field on a `long` body is the host's business.
+    assert !MethodBodyFactsDoorPlan("Field", MethodBodyFactsCurrentBindings(typeof(ColumnarMethodBodyCurrentClassProbe), true), typeof(long), new ColumnarCodePlan())
+}
+
+
+// ---- BLOCK 13a — THE CURRENT-PROPERTY CLASS (R) ----
+//
+// Not the same class as the field: a property read is a receiver plus a getter CALL, and the CALL FORM
+// is chosen by the receiver kind — `callvirt` for a reference instance, a non-virtual `call` for a
+// value one. Both directions are asked, because a rule that only ever answered `callvirt` would pass a
+// one-sided sweep and then emit an invalid virtual call on a struct.
+test "the expression door claims a current property and picks the call form from the receiver" {
+    probeTypes := new Type[](1)
+    probeTypes[0] = typeof(ColumnarMethodBodyCurrentClassProbe)
+    probeArguments := new object[](1)
+    MethodBodyFactsSetArgument(probeArguments, 0, new ColumnarMethodBodyCurrentClassProbe(45))
+
+    propertyPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsDoorPlan("Value", MethodBodyFactsCurrentBindings(typeof(ColumnarMethodBodyCurrentClassProbe), true), typeof(int), propertyPlan)
+    assert propertyPlan.OperationCount == 3
+    assert propertyPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert !propertyPlan.ArgumentIsAddress[0]
+    assert propertyPlan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
+    assert propertyPlan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+
+    propertyMethod := MethodBodyFactsDynamicMethodWith("NSharpB5CurrentPropertyBody", typeof(int), probeTypes)
+    ColumnarCodePlanExecutor.Execute(propertyPlan, propertyMethod.GetILGenerator())
+    propertyTarget: object? = null
+    assert Convert.ToInt32(propertyMethod.Invoke(propertyTarget, probeArguments)) == 45
+
+    // A VALUE receiver: the address plus the non-virtual form.
+    valuePlan := new ColumnarCodePlan()
+    assert MethodBodyFactsDoorPlan("Value", MethodBodyFactsCurrentBindings(typeof(ColumnarMethodBodyCurrentStructProbe), false), typeof(int), valuePlan)
+    assert valuePlan.ArgumentIsAddress[0]
+    assert valuePlan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    // …and the two forms are genuinely distinct rows, so the pair of assertions above is a choice.
+    assert ColumnarCodePlanContract.Call() != ColumnarCodePlanContract.Callvirt()
+
+    // Type EQUALITY: an `int` property on a `long` body is the host's business.
+    assert !MethodBodyFactsDoorPlan("Value", MethodBodyFactsCurrentBindings(typeof(ColumnarMethodBodyCurrentClassProbe), true), typeof(long), new ColumnarCodePlan())
+}
+
+
+// ---- BLOCK 14 — THE SELECTION FILTER, BOTH WAYS ----
+//
+// The door claims FOUR of the owner's seven selection kinds. The filter is asked directly, in both
+// directions, so a widening that quietly admits all seven breaks here rather than in a corpus nobody
+// has an instance in. THE THREE UNCLAIMED ONES ARE UNREACHABLE, NOT UNTRUSTED: `Local` needs a
+// preceding declaration statement, `LiftedLocal` needs a lambda to lift into, and `BoxedCapture` needs
+// a closure display frame. A body whose whole content is `return <identifier>` can hold none of them,
+// which is why claiming them would be a claim no corpus could exercise in either direction.
+test "the identifier filter claims exactly four selection kinds and refuses the other three" {
+    assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.Parameter)
+    assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.ByRefParameter)
+    assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.CurrentField)
+    assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.CurrentProperty)
+
+    assert !ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.Local)
+    assert !ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.LiftedLocal)
+    assert !ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.BoxedCapture)
+    assert !ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.None)
+
+    // The filter runs on a PURE resolve, so an unclaimed selection never mutates the plan — the
+    // property the driver relies on when it hands one plan object to a door that may decline.
+    holder := MethodBodyFactsDynamicMethod("NSharpB5LocalFilterHolder", typeof(int))
+    localBindings := MethodBodyFactsEmptyBindings()
+    localBindings.Locals["n"] = holder.GetILGenerator().DeclareLocal(typeof(int))
+    localNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), "n")
+    untouched := new ColumnarCodePlan()
+    untouched.PrepareMethodBody()
+    localType := typeof(int)
+    assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(localNodes, "n", 2, localBindings, untouched, out localType)
+    assert untouched.OperationCount == 0
 }

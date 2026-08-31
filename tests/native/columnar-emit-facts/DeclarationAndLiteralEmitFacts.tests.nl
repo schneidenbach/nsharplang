@@ -319,7 +319,15 @@ func DriverNullablePassthrough(v: int?): int? {
     return v
 }
 
-// A CurrentField read is a different selection kind and stays with the host.
+
+// ---- 015-B5: the three identifier classes the expression door adds, in real source --------------
+//
+// `015-B4` recorded `DriverFielded.Read` here as a DECLINE — "a CurrentField read is a different
+// selection kind and stays with the host". `015-B5` CLAIMS it, so the comment is corrected rather
+// than deleted: this is the same source, the same bytes, and a different owner writing them.
+
+// A bare instance-FIELD read. This is the shape the buildable corpus actually contains — the
+// issue-tracker store's `func GetAll(): List<Issue> { return issues }` is exactly it.
 class DriverFielded {
     Count: int
 
@@ -331,6 +339,59 @@ class DriverFielded {
         return Count
     }
 }
+
+// A bare instance-PROPERTY read. Not the same class as the field: the rows are a receiver plus a
+// getter CALL, so it is claimed and proved separately.
+class DriverPropertied {
+    Count: int
+
+    constructor(count: int) {
+        Count = count
+    }
+
+    Doubled: int => Count * 2
+
+    func Read(): int {
+        return Doubled
+    }
+}
+
+// A VALUE-TYPE receiver takes the same two classes down the other half of the row decision: the
+// argument slot is an address and a property getter is a non-virtual `call`.
+struct DriverValueFielded {
+    Count: int
+
+    constructor(count: int) {
+        Count = count
+    }
+
+    Doubled: int => Count * 2
+
+    func ReadField(): int {
+        return Count
+    }
+
+    func ReadProperty(): int {
+        return Doubled
+    }
+}
+
+// A ref/out parameter READ — `ldarg` plus one typed `ldind`, two rows where a plain parameter has
+// one. The write below is the host's; only the bare `return v` body is claimed.
+func DriverRefRead(ref v: int): int {
+    return v
+}
+
+func DriverRefBump(ref v: int) {
+    v = v + 1
+}
+
+// THE OUT-OF-TABLE BY-REF ELEMENT IS PINNED IN THE ESTATE RATHER THAN HERE, AND THE REASON IS A
+// SEPARATE, PRE-EXISTING EMITTER GAP. `func f(ref v: decimal): decimal { return v }` DECLARES fine, but
+// any CALL that passes a `ref decimal` argument fails columnar emission outright — measured on the
+// `b440f294f` baseline CLI as well as on this tree, so it is not this slice's doing and not this
+// slice's to fix. The decline it would have proved (`decimal` has no `ldind` form, so the selection
+// never resolves) is asserted directly at the planner in `ColumnarMethodBodyFacts.tests.nl`.
 
 test "the ordinary body driver claims a boolean return in both directions" {
     assert DriverBoolTrue()
@@ -361,6 +422,21 @@ test "the identifier bodies the driver refuses still run on the host path" {
     assert passthrough != null
     unwrapped := must passthrough
     assert unwrapped == 5
+}
+
+test "the expression door claims a current field and a current property on both receiver kinds" {
     fielded := new DriverFielded(23)
     assert fielded.Read() == 23
+    propertied := new DriverPropertied(23)
+    assert propertied.Read() == 46
+    valued := new DriverValueFielded(9)
+    assert valued.ReadField() == 9
+    assert valued.ReadProperty() == 18
+}
+
+test "the expression door claims a by-ref parameter read and derefs it" {
+    v := 63
+    assert DriverRefRead(ref v) == 63
+    DriverRefBump(ref v)
+    assert DriverRefRead(ref v) == 64
 }

@@ -5208,7 +5208,405 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B4`: THE DRIVER'S CLAIM WIDENS FROM ONE LITERAL FAMILY
+- Active sub-slice (015 arc, THIS TURN — **`015-B5`: THE APPEND-MODE EXPRESSION FRONT DOOR. THE DECODE
+  OVERTURNS TWO OF B4's BRIEF ITEMS BY MEASUREMENT — THE CONDITIONAL OWNER'S APPEND ENTRY ALREADY
+  EXISTS, AND THE CURRENT-INSTANCE PAIR DOES *NOT* MAKE THE THREE UNROUTED FACTS MANDATORY — AND FINDS
+  THE REAL WALL B6 MUST CLIMB: NINE OWNER GATES THAT *THROW* ON A METHOD-BODY PLAN. NOT COMMITTED.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED, AT `b440f294f`
+
+  #### THE TIP, RE-MEASURED RATHER THAN INHERITED
+
+  | reading | value |
+  |---|---|
+  | `ColumnarIlEmitter.cs` | **20,890 / 19,871** |
+  | compiler C# files (excluding `obj/`) | **10** |
+  | ratchet manifest | **391**, no BOM (`7b 0a 20`) |
+  | two-key head | `head-v1:2e0c2a5aa72bebf1` |
+  | estate, PRISTINE FIRST | **7,098 / 0** |
+  | `ColumnarMethodBodyFacts.tests.nl` | **16** blocks |
+  | `columnar-emit-facts` | **21** blocks (11 + 10) |
+  | native projects with `*.tests.nl` | **46** + the BootstrapServices contract line = the gate's **47** |
+  | live tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | `checkedFiles=402`, `results` **246**, summary `{errors 246, warnings 0, info 0}` |
+  | working tree | CLEAN — B4 was committed as `b440f294f` |
+
+  #### ⚠ OVERTURN 1 — THE APPEND-MODE EXPRESSION FRONT DOOR ALREADY EXISTS, AND IT IS NOT WHERE THE BRIEF LOOKED
+
+  B4's brief priced B5 as *"today's expression owners are reached through
+  `ColumnarRangeIndexPlanner.TryEmitFromFacts`, which `PrepareV3()`s the plan and `Execute`s it into the
+  `ILGenerator` immediately, so it cannot contribute rows to an open v4 body."* **THAT IS TRUE OF THE
+  *ROOT* FACADE AND FALSE OF THE VALUE SURFACE UNDERNEATH IT.**
+  `ColumnarRangeIndexPlanner.TryAppendPlannableValueCore` (`:405`) is ALREADY a kind-keyed, append-mode
+  dispatcher over the owners' append entries — literals, `nameof`, `typeof`, bool, identifier, member
+  access, call, binary, `new`/object-initializer/array-literal, unary, cast, range, ternary, index
+  access — and it neither prepares nor executes a plan. It is the shape B5 was asked to build.
+
+  #### ⚠ OVERTURN 2 — `ColumnarConditionalPlanner` DOES NOT NEED AN ENTRY BUILT; THE CENSUS INSTRUMENT WAS BLIND
+
+  B4 counted `static func TryAppend*` per owner and read **0** for `ColumnarConditionalPlanner`,
+  concluding it is *"the one owner that needs an append entry BUILT."* **ITS APPEND ENTRIES EXIST AND
+  ARE LIVE**: `TryPlanTernary` (`:119`) and `TryPlanShortCircuit` (`:160`) both append into an
+  already-open fragment and are called from `TryAppendPlannableValueCore`'s Binary and Ternary arms.
+  They are simply not spelled `TryAppend*`. The count of 0 is an artifact of the instrument's name
+  prefix, not a gap in the estate.
+
+  Re-verified census at this tip (same instrument, whole list rather than the nine B4 named):
+
+  | owner | `static func TryAppend*` | B4 |
+  |---|---|---|
+  | `ColumnarConstructionPlanner` | 20 | 20 ✓ |
+  | `ColumnarPrimitiveBinaryPlanner` | 8 | 8 ✓ |
+  | `ColumnarScalarLiteralPlanner` | **7** | not listed (B3's owner) |
+  | `ColumnarDirectCallPlanner` | 6 | 6 ✓ |
+  | `ColumnarRangeIndexPlanner` | 5 | 5 ✓ |
+  | `ColumnarUnaryLiteralPlanner` | **3** | not listed |
+  | `ColumnarInstanceMemberPlanner` | 3 | 3 ✓ |
+  | `ColumnarNullableArgumentLowering` | **2** | not listed |
+  | `ColumnarExternalStaticMemberPlanner` | 2 | 2 ✓ |
+  | `ColumnarDirectCallConstructedConversions` | **2** | not listed |
+  | `ColumnarBoundIdentifierPlanner` | 2 | 2 ✓ |
+  | `ColumnarTypeOfPlanner` | 1 | 1 ✓ |
+  | `ColumnarSourceImplicitConversionResolver` / `…NameOfPlanner` / `…MethodBodyPlanner` / `…ExtensionMethodResolver` / `…BooleanLiteralPlanner` | 1 each | not listed |
+  | `ColumnarConditionalPlanner` | 0 — **but see above** | 0, mis-read as a gap |
+
+  **17 owner files carry append entries, not 9.** Every count B4 did give is exact.
+
+  #### THE REAL WALL — NINE OWNER GATES THAT *THROW*, NOT DECLINE, ON A METHOD-BODY PLAN
+
+  The v4 plan itself is ready. Measured, not assumed:
+
+  | mechanism | verdict for schema v4 |
+  |---|---|
+  | every pool adder and row appender (`AddType`/`AddField`/`AddMethodWithSignature`/`AppendFieldInstruction`/`AppendMethodInstruction`/`AppendArgumentInstruction`/`AppendStringInstruction`/`AppendTypeInstruction`/`AppendLabelInstruction`/`AppendMarkLabel`/`DefineLabel`/`BeginFragment`/`CompleteFragment`) | **admits v4** — all gate on `EnsureV2Building`/`EnsureV3Building`, and `EnsureV3Building` names v4 as a documented superset |
+  | `ValidateSealedStructure` | v4 requires only `ResultType != null && OperationCount > 0`; `IsValidInstructionOperand`'s v3-only opcode arms are reached only from `HasValidV2Rows`, which v4 never runs |
+  | `AppendV2Row` | v4 rows may carry fragment owner **-1** by construction (a flat stream) |
+  | `ValidateMethodBodyStack` / `MethodBodyStackDelta` | already models every operand family the value surface emits — argument, local, field, method, constructor, type, and the no-operand arithmetic/conversion/`ldind` ranges |
+  | row → bytes | `ExecuteV3` and `ExecuteMethodBody` **share `EmitInstruction`**. Byte identity across schemas is BY CONSTRUCTION; the only thing a claim must reproduce is the ROW SEQUENCE |
+
+  **WHAT BLOCKS COMPOSITES IS THE OWNERS' OWN `ValidateAppendInputs`.** Nine of them assert an open
+  schema-**v3** plan and `throw new InvalidOperationException` otherwise — a HARD CRASH, not a decline:
+  `ColumnarConstructionPlanner:249`, `ColumnarDirectCallPlanner:104`,
+  `ColumnarExternalStaticMemberPlanner:69`, `ColumnarInstanceMemberPlanner:129`,
+  `ColumnarNameOfPlanner:103`, `ColumnarNullableArgumentLowering:271`,
+  `ColumnarUnaryLiteralPlanner:192`, `ColumnarPrimitiveBinaryPlanner:645`, `ColumnarTypeOfPlanner:93`.
+  Only `ColumnarScalarLiteralPlanner:449` (B3) and `ColumnarBoundIdentifierPlanner:164` (B4) are
+  widened; `ColumnarConditionalPlanner` has no such gate at all, but its operands recurse straight into
+  the nine.
+
+  **SO EVERY COMPOSITE CLASS IS OFF THE TABLE FOR THIS SLICE, AND THE REASON IS NOT CAUTION.** A body
+  like `{ return a + Foo() }` would reach `TryAppendCall` on a v4 plan and THROW out of the compiler.
+  The only safe alternatives are (a) widen all nine gates as one coherent change — which buys nothing
+  until a composite class is claimed, so it would land as dead code, or (b) pre-scan the operand kinds
+  to prove no un-widened owner is reachable — which is a SECOND COPY of the dispatcher's routing
+  decision, exactly what this codebase forbids. **B5 therefore claims LEAF classes only**, and the nine
+  gates become B6's named, priced first move.
+
+  #### ⚠ OVERTURN 3 — THE CURRENT-INSTANCE PAIR DOES NOT MAKE THE THREE UNROUTED FACTS MANDATORY
+
+  B4 recorded: *"The moment a later slice claims `CurrentField` or `CurrentProperty`, those three
+  [`ExactSourceTypes`, `_overflowCheckingEnabled`, `SiblingCallFacts`] become mandatory."* **A read of
+  every consumer says otherwise**, and it is a whole-repo grep rather than an argument:
+
+  | fact | its ONLY production readers | on the identifier path? |
+  |---|---|---|
+  | `ExactSourceTypes` | `ColumnarFragmentBindings.TryResolveSelectedSourceType` (`:205–210`) | **no** — named-type resolution for construction/calls |
+  | `OverflowCheckingEnabled` | `ColumnarPrimitiveBinaryPlanner:322` | **no** |
+  | `SiblingCallables` | `ColumnarDirectCallPlanner:467`, `bindings.HasSiblingCallable` | **no** |
+
+  `TryResolve` reads exactly `BoxedCaptures`, `LiftedLocals`, `Locals`, `ParameterOrdinals`,
+  `ParameterTypes`, `IsBlocked` (lifted/boxed/enclosing NAMES) and `CurrentInstance`;
+  `TryResolveCurrentInstance` reads `CurrentInstance` alone, through
+  `ColumnarCurrentInstanceFacts.TryFindField`/`TryFindProperty`. **All are already routed.** So the
+  current-instance pair costs NOTHING new at the door, and the lazy-vs-eager question B4 posed does not
+  arise. The three facts stay unrouted, and the boundary is re-stated where it now really sits: they
+  become mandatory when a COMPOSITE class is claimed, not when the identifier arm widens.
+
+  #### WHAT THE HOST'S KIND-20 ARM DOES TO A KIND-6 RETURN — RE-READ, NOT INHERITED
+
+  The six kind-gated pre-passes (`IsAdoptableUnionConstruction`, `TryEmitTargetTypedNewAsType`,
+  `TryEmitIntLiteralAsType`, `TryEmitCollectionLiteralAsType`, `TryEmitArrayLiteralAsType`,
+  `TryEmitNullLiteralAsType`, `:6500–6524`) all decline an `IdentifierExpression`, so the three NEW
+  classes sit behind exactly the same guard B4's parameter class did. The seventh
+  (`IsSupportedNullable`, `:6525`) gates on the RETURN TYPE and its explicit decline is already in the
+  driver. The seven coercions at `:6538` are all behind `!TypesEquivalent(retType, _returnType)`, and
+  the door's rule stays `==` — a strict subset — so none is reachable.
+
+  #### THE CLAIM CLASSES THIS SLICE CAN AND CANNOT TAKE, BY REACHABILITY
+
+  `ColumnarBoundIdentifierPlanner.TryAppend` already implements all SEVEN selection arms in append
+  mode; the driver's `Kind == Parameter` filter is the only thing holding six of them back. Which are
+  reachable from a body whose whole content is `return <identifier>`:
+
+  | class | reachable in a one-statement body? | this slice |
+  |---|---|---|
+  | `Parameter` | yes | already claimed (B4) |
+  | **`CurrentField`** | **yes** — a bare instance-field read | **TAKEN** |
+  | **`CurrentProperty`** | **yes** — a bare instance-property read | **TAKEN** |
+  | **`ByRefParameter`** | **yes** — `func f(ref x: int): int { return x }` | **TAKEN** |
+  | `Local` | **no** — needs a preceding declaration statement | B6, with the statement loop |
+  | `LiftedLocal` | **no** — lifting requires a lambda in the body | B6 |
+  | `BoxedCapture` | **no** — requires a closure display frame | B6 |
+
+  Stack arithmetic for the three new rows, read off `MethodBodyStackDelta` rather than assumed:
+  `CurrentField` = `ldarg.0`(+1) + `ldfld`(0) = 1; `CurrentProperty` = `ldarg.0`(+1) +
+  `call`/`callvirt` over a declared 0-arg instance signature (1−0−1 = 0) = 1; `ByRefParameter` =
+  `ldarg`(+1) + `ldind.<t>` (the no-operand fall-through, pop-one push-one = 0) = 1. All three satisfy
+  the `Ret` arm's `expected = 1` for a value body.
+
+  #### THE FILE — WHY THE DOOR STAYS IN `ColumnarMethodBodyPlanner.nl`
+
+  The mandate allows a sibling. It is not taken: the file's own header already declares it holds *"the
+  two things an ordinary body needs that are not instructions"*, the door is the driver's own dispatch
+  and has exactly one caller, and B6's statement loop lands beside it. A new file for a function only
+  this file calls would spread one decision across two owners for no reader's benefit.
+
+  #### THE CUT
+
+  | | |
+  |---|---|
+  | the door | `TryAppendReturnValue` — TOTAL kind-keyed dispatch over EVERY expression kind, claim-or-decline, no fall-through |
+  | claim classes added | `CurrentField`, `CurrentProperty`, `ByRefParameter` — the identifier filter widens from one selection kind to four |
+  | schema widenings | **NONE NEEDED** — the two owners the leaf classes reach were widened by B3 and B4 |
+  | statement loop | **NOT TAKEN** — measured: a claimable statement needs a claimable expression in a composite position, and the nine gates throw there. It is B6's, behind the widenings |
+  | C# | the front door's comment tells the truth about what it now claims; no behavioural change at the call site |
+  | contracts | estate blocks in `ColumnarMethodBodyFacts.tests.nl`, native blocks in `columnar-emit-facts` |
+
+  Everything below this line is the record written AFTER the build; the decode above is unedited.
+
+  ### WHAT LANDED
+
+  | file | change |
+  |---|---|
+  | `ColumnarMethodBodyPlanner.nl` | the append-mode expression door: `TryAppendReturnValue` + `IsClaimedExpressionKind` + `IsDeclinedExpressionKind` + `ExpressionKindLedger`; `TryAppendParameterRead` → `TryAppendIdentifierRead` with `IsClaimedIdentifierSelection` widening the filter from ONE selection kind to FOUR; the bindings built once ahead of the door rather than inside one arm |
+  | `ColumnarIlEmitter.cs` | the front door's comment tells the truth about what it now claims. **20,890 → 20,890 (−0 / −0)**, byte-for-byte the same line and non-blank counts; compiler C# steady at **10 files**. No behavioural change at the call site: the same seven arguments, the same `_asyncReturnType == null` gate |
+  | `ColumnarMethodBodyFacts.tests.nl` | **5** new estate blocks (**16 → 21** in the file), plus one existing block's by-ref assertion FLIPPED from decline to claim and moved to its own block |
+  | `columnar-emit-facts/DeclarationAndLiteralEmitFacts.tests.nl` | **2** new native blocks (**21 → 23** across the suite); `DriverFielded` re-labelled from a recorded DECLINE to a claim — same source, same bytes, a different owner writing them |
+
+  **NO SCHEMA WIDENING WAS NEEDED, AND THAT IS THE DECODE PAYING OFF.** B3 and B4 each spent a
+  one-line owner widening; this slice spends none, because both owners the leaf classes reach were
+  already widened and every pool adder and row appender in `ColumnarCodePlan` admits v4 by
+  construction. The nine that do NOT are precisely the ones no claimed kind reaches.
+
+  ### THE CORPUS COMPARISON — TWO INSTRUMENTS, BOTH REBUILT FROM SCRATCH
+
+  | instrument | pairing | verdict |
+  |---|---|---|
+  | **big corpus** (`examples` + `tests/fixtures`, the gate's own Step 8/9 target definition, the one repo-relative-DLL fixture removed from BOTH sides) | ctlA vs ctlB | **`IL_DIFFS=0`**, md5 **`60206e201c3d028fd1ead5ecbf31217f`** |
+  | | ctlA vs SLICE | **`IL_DIFFS=0`**, same md5. **6,784 rows / 91 assemblies / 59 targets / 0 build failures** |
+  | **claim-class corpus** (one program built OUTSIDE the repo holding every claimed class and the refused shapes) | ctlA vs SLICE | **`IL_DIFFS=0`**, md5 **`b26a0dd7e80065e41548078b749f05b7`**, **93 rows**, identical stdout, `RUNRC=0` |
+
+  **EXIT CODES AGREE ON 58 OF 59 TARGETS, AND THE 59th IS PROVED FLAKY RATHER THAN EXPLAINED AWAY.**
+  `examples/14-minimal-api` is a web server; it recorded `TIMEOUT` in one pass and `134` in another
+  **on the SAME baseline CLI** (ctlA vs ctlB), so the variation is the target's, not the slice's — and
+  since the emitted bytes are identical no behavioural difference is possible anyway.
+
+  ### THE PER-CLASS MUTATIONS — WHAT PROVES EACH CLAIM LIVE
+
+  Byte-identity cannot tell a claiming door from a declining one, so each class gets a mutation that
+  changes its bytes without changing its meaning: `dup; pop` before the trailing `ret` for the value
+  classes, `ldc.i4.0; pop` for the void class. Each was applied to the pristine source with an anchor
+  proved to resolve EXACTLY once, rebuilt, run over BOTH corpora, and restored `sha256`-exact.
+
+  | mutation | claim-class corpus | big corpus |
+  |---|---|---|
+  | **MUT-F** CurrentField | **3 of 93** — `Holder::ReadField`, `Holder::ReadLabel`, `Point::ReadField` (reference AND value receivers) | **5 of 6,784** — `Box::GetValue`, `MemoryStore::Read`, and `BankAccount::get_AccountNumber` / `get_Balance` / `get_TransactionCount` |
+  | **MUT-R** CurrentProperty | **2 of 93** — `Holder::ReadProperty`, `Point::ReadProperty` | **0 of 6,784** — a MEASURED absence, predicted by census |
+  | **MUT-X** ByRefParameter | **2 of 93** — `Program::XRead`, `Program::XReadLong` | **0 of 6,784** — a MEASURED absence, predicted by census |
+  | **MUT-L** literal (B3's class) | **5 of 93** — int, long, string, char, double | **3 of 6,784** — `AutoGeneratedHelper::GetValue`, `DocumentError::Tag`, `WeatherTag::Count` |
+  | **MUT-B** bool (B4's class) | **2 of 93** | **0 of 6,784** |
+  | **MUT-P** parameter (B4's class) | **6 of 93** — ordinals 0, 1, 3, 4, 5 and the `this`-shifted instance method | **0 of 6,784** |
+  | **MUT-V** void (B4's class) | **3 of 93** — two free functions and one instance member | **4 of 6,784** — `AnalyzedClass::RiskyOperation` + three `Dispose` |
+
+  Every mutated pass: `build fails 0`, claim-class `RUNRC=0` with **identical stdout**, and `exit diffs
+  0` everywhere except MUT-L, whose 2 are the already-characterised `14-minimal-api` flake.
+
+  **THE FOUR EARLIER CLASSES REPRODUCE B4's NUMBERS ON AN INSTRUMENT BUILT FROM SCRATCH.** B4's
+  instrument no longer exists on disk; this one moves exactly the three literal bodies B4 named, by
+  name, and exactly the four void bodies B4 named, by name. **THE DRIVER NOW CLAIMS TWELVE LIVE
+  CORPUS BODIES WHERE B4 CLAIMED SEVEN** — 3 literal + 4 void + 5 current-field.
+
+  **THE THREE `BankAccount` GETTERS ARE THE FIND, AND MY OWN CENSUS MISSED THEM.** They are not
+  auto-properties: they are explicit `get { return <backing field> }` accessor bodies at
+  `examples/06-classes-and-records/PropertiesAndNestedTypes.nl:26–52`. A source census that looks for
+  `func`-shaped bodies cannot see an accessor block, so the census under-counted and the MUTATION is
+  the authority. Said plainly rather than presented as a prediction that came true.
+
+  ### ⚠ THE EQUALITY CEILING COSTS TWO CORPUS BODIES, AND THE PROBE SAYS SO IN BYTES
+
+  `IssueStore::GetAll` (`examples/17-issue-tracker/backend` and `tests/fixtures/issue-tracker`) has the
+  exact class-F byte shape — the dump reads `027b270000042a` = `ldarg.0; ldfld; ret` — and it did NOT
+  move under MUT-F. The hypothesis was type equality over closed generics, so a PROBE was added to the
+  claim-class corpus rather than an argument to this record: `Bag::GetAll` returning `List<Item>` over
+  a source `Item`. It dumps `027b050000042a`, the identical shape, and it does not move either. **The
+  field's type and the declared return type are two distinct `TypeBuilderInstantiation` objects, so
+  `==` fails where the host's `TypesEquivalent` succeeds.** Raising the rule to `TypesEquivalent` is
+  exactly the kind of one-at-a-time coercion the mandate reserves for its own slice with its own diff;
+  it is NOT taken here, and the cost — two live corpus bodies the door could have claimed — is recorded
+  rather than hidden.
+
+  ### TWO INSTRUMENT DEFECTS, BOTH FOUND BY THE INSTRUMENT DISAGREEING WITH ITSELF
+
+  | defect | how it surfaced | what was done |
+  |---|---|---|
+  | **`timeout(1)` does not exist on this machine**, so the corpus harness's every "run the target" step returned **127** | the claim-class pass printed `RUNRC=127` next to a program that plainly worked | replaced with a portable poll-and-kill watchdog. The first big-corpus passes were therefore BLIND to execution — recorded as such — and all three passes were re-run. The honest picture is now visible: **15** targets exit 0, **2** abort (the two issue-tracker backends), **1** is a web server that does not terminate, **3** are libraries, **38** are Step-9 single files that the gate builds but does not run |
+  | **restoring the SOURCE is not restoring the COMPILER** | after `MUT-F` the claim-class pairing read **6 IL diffs** — `25 26` = `dup; pop` — against a tree whose `sha256` was pristine | the mutation runner rebuilds the CLI INSIDE its restore. The sha256 gate proves the source came back; it says nothing about the binary that source produced, and a stale binary reads exactly like a slice divergence. Every corpus number in this record was taken after a verified pristine rebuild (`cc` md5 reproduced twice) |
+
+  ### THE CONTROL WALK — AND IT CAUGHT `015-B4`'s ISOLATION LESSON REPEATING
+
+  Restore is COPY-BASED with a `sha256` gate — never `git checkout --`, because the tree carries
+  uncommitted slice work. All nine anchors were verified to resolve EXACTLY once before the walk was
+  launched, every mutation leaves a tree that compiles, and the walk ran UNPIPED.
+
+  | control | mutation | result | blocks broken |
+  |---|---|---|---|
+  | **PRISTINE FIRST** | — | **`7,103 / 0`** | — |
+  | **W1** | the identifier filter admits every selection kind | **`7,101 / 2`** | B4's parameter-filter block + B5's filter block — the two that own the question |
+  | **W2** | `CurrentField` drops out of the claimed selections | **`7,101 / 2`** | the current-FIELD block + the filter block |
+  | **W3** | `CurrentProperty` drops out | **`7,101 / 2`** | the current-PROPERTY block + the filter block |
+  | **W4** | `ByRefParameter` drops out | **`7,101 / 2`** | the by-ref block + the filter block |
+  | **W5** | a HOLE in the partition (the call kind is neither claimed nor declined) | **`7,102 / 1`** | the totality block ALONE |
+  | **W6** | an OVERLAP in the partition (parenthesized is claimed AND declined) | **`7,102 / 1`** | the totality block ALONE |
+  | **W7** | the ledger loses a kind | **`7,102 / 1`** | the totality block ALONE |
+  | **W8** | the door mutates the plan on a decline | **`7,102 / 1`** | the totality block ALONE |
+  | **W9** | the owner's current-property receiver picks the wrong call form | **`7,099 / 4`** | B5's two pair blocks AND two PRE-EXISTING owner blocks (`BoundIdentifierPlannerOwnsExactClassAndStructCurrentInstanceRoots`, `RangePlannerRecursivelyConsumesCurrentFieldsAndProperties`) — the shared-owner coupling, measured |
+  | **PRISTINE LAST** | — | **`7,103 / 0`**, both files `sha256`-verified back to the captured bytes | — |
+
+  ⚠ **W2 AND W3 FIRST BROKE THE SAME THREE BLOCKS, AND THAT WAS A DEFECT.** The current-instance pair
+  was written as two blocks split by RECEIVER (reference / value), each asking BOTH members — so
+  dropping `CurrentField` and dropping `CurrentProperty` were indistinguishable, and neither control
+  isolated the other. **That is `015-B4`'s `W4`/`W5` lesson repeating in a new shape.** The blocks were
+  re-split by MEMBER — one for the field, one for the property, each still asking both receiver kinds
+  because the receiver is that class's own row decision rather than a second mechanism — and the two
+  controls were re-run: each now breaks its own class's block plus the filter block, and nothing else.
+  The table above is the walk of record, with W2/W3's re-measured rows.
+
+  **W1's TWO BLOCKS AND W2–W4's SHARED SECOND BLOCK ARE NOT THE SAME DEFECT.** The filter block is a
+  DIRECT assertion over `IsClaimedIdentifierSelection`'s seven answers; it is supposed to break on any
+  change to the claimed set. Each class block breaking alongside it is the coupling being visible, not
+  two mechanisms sharing a block.
+
+  ### THE COVERAGE TABLES — ONE DOES NOT MOVE, AND THE OTHER IS NEW
+
+  **THE STATEMENT TABLE DOES NOT MOVE, RE-MEASURED RATHER THAN ASSUMED.** By brace-matching the two
+  switch bodies at the final tree: C# `EmitStatement` **21** kinds (20,21,22,23,24,25,26,27,28,29,30,
+  40,41,48,49,51,56,61,62,72,73); N# `EmitStatement` **10** (23,24,25,26,27,28,29,40,48,72) — exactly
+  B3's and B4's numbers. This slice adds no arm to the N# statement walk. **THE MANDATE EXPECTED IT TO
+  START MOVING HERE AND IT DOES NOT, AND THE REASON IS ITEM 3 BELOW.**
+
+  **WHAT IS NEW IS AN EXPRESSION TABLE, WHICH DID NOT EXIST BEFORE THIS SLICE**, because until now
+  nothing on the plan path answered an expression kind at all:
+
+  | | |
+  |---|---|
+  | the door's ledger | **34** kinds — the union of `ColumnarExpressionNodeKind` with what `EmitExpressionCore`'s switch and its five pre-switch owners handle |
+  | C# `EmitExpressionCore` switch | **27** case kinds; the other seven (2, 4, 5, 39, 55, 62, 69) are reached by the pre-switch owners or by the kind-20 pre-passes |
+  | N# door, CLAIMED | **6** — 0/1/2/3 scalar literal, 4 bool, 6 identifier |
+  | N# door, DECLINED | **28**, every one named rather than fallen through |
+  | identifier selection kinds claimed | **4 of 7** — Parameter, ByRefParameter, CurrentField, CurrentProperty |
+
+  ### ⚠ WHY THERE IS NO STATEMENT-LOOP CONSUMER, MEASURED RATHER THAN DEFERRED
+
+  The mandate asked for a first consumer — a body of `<planned statements>; return <claimable expr>` —
+  "if the door's coverage permits a coherent one". **IT DOES NOT, AND THE MEASUREMENT IS SPECIFIC.**
+
+  1. **The cheapest statement is kind 24 (`x := 5`), and it is not a consumer of this door — it is the
+     statement loop itself.** Its initializer would be claimable, but the driver would then have to
+     DECLARE a plan-local, emit the store, and PUBLISH the new name into `bindings.Locals` so the
+     identifier owner can resolve it on the next statement. That publication is the statement loop's
+     defining machinery, not a body that happens to use the door.
+  2. **Every OTHER statement kind needs a composite expression**, and a composite reaches one of the
+     nine `ValidateAppendInputs` gates and THROWS out of the compiler rather than declining.
+  3. **A v4 plan can hold exactly ONE root fragment.** `ColumnarCodePlan.BeginFragment(-1, …)` requires
+     `FragmentCount == 0`; a second root throws *"A recursive code-plan fragment must be nested under
+     the current open fragment."* Every composite owner opens a root fragment, so even with the nine
+     gates widened, a body with two composite statements needs that rule relaxed for the method-body
+     schema — one line, and B6's first move rather than a surprise it discovers.
+
+  Building a consumer anyway would have meant a claim the corpus cannot exercise, which is exactly the
+  failure mode this slice's own two measured zeroes exist to avoid.
+
+  ### THE REST OF THE BAR
+
+  | check | result |
+  |---|---|
+  | estate count-diff | **7,098 → 7,103**, exactly the five new blocks (**16 → 21** in the contract file), pristine-bracketed both ends |
+  | big corpus | **`IL_DIFFS=0`** on ctlA-vs-ctlB and ctlA-vs-SLICE, md5 **`60206e201c3d028fd1ead5ecbf31217f`**, **6,784 rows / 91 assemblies / 59 targets / 0 build failures**; exits agree on **58 of 59**, the 59th proved flaky on a baseline-vs-baseline pairing |
+  | claim-class corpus | **`IL_DIFFS=0`**, md5 **`b26a0dd7e80065e41548078b749f05b7`**, **93 rows**, `RUNRC=0`, stdout identical |
+  | per-class mutations | 7 classes, each anchored to resolve exactly once, rebuilt and restored `sha256`-exact; **12 live big-corpus bodies** across the four classes that have any |
+  | native suites | `columnar-emit-facts` **21 → 23**, all green |
+  | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **`checkedFiles=402`** on BOTH CLIs, **246** results, summary `{errors 246, warnings 0, info 0}` on both, **ROW-FOR-ROW IDENTICAL EVEN IN ORDER** (`added=0 removed=0`). No production `.nl` file was added, so 402 is B3's count unchanged |
+  | `nlc format --check` | "All files are properly formatted." |
+  | `tests/native/ownership-audit` | **17 / 18 BEFORE the repin** — exactly ONE violation, `OWN005` fingerprint drift on `ColumnarIlEmitter.cs`, and **no `OWN004`**, because the file's line counts did not move at all — **18 / 18 after** |
+  | ratchet repin (two-key, taken LAST) | `currentLines`/`currentNonBlankLines` **unchanged at 20890 / 19871**; `currentFingerprint` **`text-v1:2858d1ade6fc37b1` → `text-v1:74a1dfe70d8d01ce`**; `reviewedHeadFingerprint` **`head-v1:2e0c2a5aa72bebf1` → `head-v1:be442a48eab08ecf`** in BOTH keys (the JSON header AND `OwnershipPolicy.ReviewedHeadFingerprint`), with **ZERO** occurrences of the old head left anywhere under `tests/native/ownership-audit`. Every value was READ FROM the audit's own `OWN005`/`OWN008` output rather than computed by hand |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`) |
+  | compiler C# files | **10** — unchanged |
+  | working tree | exactly **7** files, all modifications, no new files: 2 production/contract `.nl` in BootstrapServices, 1 emitter, 1 native contract, 2 ratchet — plus this STATUS. Every instrument, corpus, baseline worktree and log lives under `/private/tmp`; none was written into the repo |
+
+  ### THE `015-B6` BRIEF — PRICED BY THIS SLICE'S MEASUREMENTS
+
+  **B6 IS THE STATEMENT LOOP, AND ITS FIRST MOVE IS NOT THE LOOP.** It is the three structural
+  widenings that make any composite expression reachable from a method body at all. All three are
+  measured here, none is speculative, and none of them can be skipped by claiming a narrower class:
+
+  1. **The nine `ValidateAppendInputs` gates** — `ColumnarConstructionPlanner:249`,
+     `ColumnarDirectCallPlanner:104`, `ColumnarExternalStaticMemberPlanner:69`,
+     `ColumnarInstanceMemberPlanner:129`, `ColumnarNameOfPlanner:103`,
+     `ColumnarNullableArgumentLowering:271`, `ColumnarUnaryLiteralPlanner:192`,
+     `ColumnarPrimitiveBinaryPlanner:645`, `ColumnarTypeOfPlanner:93`. Each is the SAME one-line
+     v3-or-v4 widening B3 and B4 each took once. **They must go together**, because the value
+     surface's dispatcher routes by operand kind and a pre-scan that predicts which owner an operand
+     reaches would be a second copy of that routing decision.
+  2. **`BeginFragment`'s single-root rule** must admit a new root fragment in a method-body plan.
+  3. **The three unrouted facts become mandatory HERE** — `ExactSourceTypes` for
+     `TryResolveSelectedSourceType`, `_overflowCheckingEnabled` for the primitive-binary planner, and
+     `SiblingCallFacts` for the direct-call planner — because those are exactly the composite owners.
+     B4 predicted this cost would land with the current-instance pair; it does not, it lands with the
+     composites, and the eager-vs-lazy measurement B4 asked for belongs to B6.
+
+  **THEN THE LOOP, AND ITS SHAPE IS ALREADY KNOWN.** Kind 24 (`:=`) is the cheapest arm: declare a
+  plan-local, append the initializer through the door, `stloc`, and PUBLISH the name into
+  `bindings.Locals` — which is what makes `Local` (and later `LiftedLocal`, `BoxedCapture`) reachable
+  for the first time. `AlwaysReturns` finally gets its second consumer there, deciding the trailing
+  `ret`.
+
+  **THE HIGHEST-VALUE EXPRESSION CLASS IS MEASURED, NOT GUESSED.** A whole-body single-return census
+  of the buildable corpus at this tip: **binary/unary 12**, call 4, `new` 4, member-access 3,
+  short-circuit 3, identifier 2, literal 2, empty 3. So `ColumnarPrimitiveBinaryPlanner` is the first
+  composite worth claiming after the widenings — and the corpus census under-counts, since it cannot
+  see accessor bodies (this slice's MUT-F found five class-F bodies where the census predicted two).
+
+  **AND ONE COERCION IS NOW WORTH ITS OWN SLICE ON EVIDENCE RATHER THAN ON PRINCIPLE.** Raising the
+  claim rule from `==` to the host's `TypesEquivalent` would take `IssueStore::GetAll` in both
+  issue-tracker corpora — two live bodies whose byte shape the door already produces and whose only
+  disagreement is two distinct `TypeBuilderInstantiation` objects for the same closed generic. That is
+  the first coercion with a corpus diff waiting for it.
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/private/tmp` byte copy (`.git`, `bin`,
+  `obj`, `node_modules`, `artifacts` and `.claude/worktrees/` excluded), the log written OUTSIDE the
+  copy, `pgrep -f test-all-core.sh` clean first, launched DETACHED, and all six changed non-STATUS
+  files `sha256`-verified IDENTICAL between the working tree and the copy BOTH before and after the
+  run — so nothing drifted under it.
+
+  **`ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 36s.** Inside it: unit **`Passed: 596`**
+  (the baseline exactly), estate **`Passed: 7103`**, all **47** native `✓ PASSED` lines including
+  `tests/native/ownership-audit` on the repinned ratchet, the format contract gate ("All files are
+  properly formatted." × 4), `dotnet new` templates, every example project, the single-file examples,
+  `nlc check` on examples, and the IL verification gate — **"All 67 N# assemblies pass IL verification
+  (no new errors vs baseline)"**, which is the independent confirmation that the bodies the door now
+  emits at SEVEN claim classes are VERIFIABLE and not merely runnable.
+
+  **THE BENCHMARK CSPROJ CHECK IS WORTH STATING PRECISELY.** The copy contains **zero**
+  `NSharpLang.Benchmarks.csproj`, which is correct rather than a gap: this branch's `benchmarks/`
+  carries no project file at all, and the only three in the repo live under `.claude/worktrees/` —
+  exactly the nested-worktree hazard, excluded from the copy by construction. The baseline worktree
+  this slice used lives at `/private/tmp/b5-baseline`, OUTSIDE the repo, for the same reason.
+
+  Only `STATUS.md` changed after the copy was taken — it is neither compiled nor tested by the gate,
+  and that is said rather than glossed.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-B4`: THE DRIVER'S CLAIM WIDENS FROM ONE LITERAL FAMILY
   TO FOUR CLASSES. THE DECODE OVERTURNS B3's ITEM-2 HAZARD — THE HOST'S `EmitLoadArgument` IS NOT ON
   THE PARAMETER PATH — AND FINDS ONE GUARD THE BRIEF DID NOT NAME. NOT COMMITTED.**)
 

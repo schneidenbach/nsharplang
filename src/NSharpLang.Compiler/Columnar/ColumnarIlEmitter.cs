@@ -6002,13 +6002,13 @@ internal sealed class ColumnarIlEmitter
     // unreachable code).
     private bool EmitBody(int bodyRoot, bool isVoid)
     {
-        // KIND-20 FRONT DOOR (015-B3, widened in 015-B4): the ORDINARY USER bodies the plan-row IR
-        // claims end to end — a literal return, a bool return, a bare parameter return, and the void
-        // arity. Offered ahead of every field below, because every shape ColumnarMethodBodyPlanner
-        // accepts can hold no lambda, local, branch or region, so a claimed body needs none of that
-        // state. The binding facts are the same live maps the expression path routes to N#; they are
-        // correct at this point precisely because no claimed shape can lift anything. The claim is
-        // total: the planner produces every byte or it declines and this method emits as it always did.
+        // KIND-20 FRONT DOOR (015-B3, widened in B4 and B5): the ORDINARY USER bodies the plan-row IR
+        // claims end to end — the void arity, and a return of a literal, a bool, a parameter, a ref/out
+        // parameter, an instance field or an instance property. Offered ahead of every field below,
+        // because every shape ColumnarMethodBodyPlanner accepts holds no lambda, local, branch or
+        // region, so a claimed body needs none of that state; the binding facts are the same live maps
+        // the expression path routes to N# and are correct here precisely because nothing can lift. The
+        // claim is total: the planner produces every byte or it declines and this method emits as ever.
         // An ASYNC body is excluded because its returns wrap and leave to a shared tail (below).
         if (_asyncReturnType == null)
         {
