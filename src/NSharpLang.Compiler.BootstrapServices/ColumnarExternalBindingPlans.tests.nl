@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Reflection.Emit
 
 func AssertSupportedOpcode(name: string) {
     plan := ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", name)
@@ -165,8 +166,94 @@ test "recursive code plans own every required opcode field" {
         i = i + 1
     }
 
-    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Unbox_Any").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Ldarg_S").IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Ldsflda").IsSupported
+}
+
+// 015-B2 STAGE 1 — THE OPCODE-ALLOWLIST WIDENING, PINNED FROM THE ONLY SIDE THAT CAN SEE IT YET.
+//
+// This estate compiles under the PACKAGED SDK, so it cannot spell `OpCodes.Ldarg_0` or
+// `OpCodes.Unbox_Any` at all until the toolset is republished — that is the whole shape of the wall.
+// What it CAN do is ask the surface whether it admits them, and check each admitted name against the
+// runtime `OpCodes` table through reflection, which needs no modeled member reference and is therefore
+// the one bridge available on this side of the republish. The end-to-end proof that the names EMIT and
+// EXECUTE lives in `tests/native/reflection-emit-bootstrap`, which the freshly built CLI compiles.
+// The five names are split across THREE blocks rather than gathered into one, because one block
+// cannot tell three different mistakes apart: dropping a name, filing a name in the wrong family
+// half, and admitting a name that should stay out are separate failures and each earns its own
+// verdict.
+func NewlyAdmittedOpcodeNames(): string[] {
+    admitted := new string[](5)
+    admitted[0] = "Ldarg_0"
+    admitted[1] = "Ldarg_1"
+    admitted[2] = "Ldarg_2"
+    admitted[3] = "Ldarg_3"
+    admitted[4] = "Unbox_Any"
+    return admitted
+}
+
+test "the argument short forms and unbox.any join the modeled OpCodes allowlist" {
+    admitted := NewlyAdmittedOpcodeNames()
+    i := 0
+    while i < admitted.Length {
+        AssertSupportedOpcode(admitted[i])
+        // A typo would be admitted just as happily as a real opcode, so every admitted name is checked
+        // against the runtime table it claims to name. Reflection is the one bridge that reaches that
+        // table without spelling a member the packaged SDK cannot yet bind.
+        assert typeof(OpCodes).GetField(admitted[i]) != null
+        i = i + 1
+    }
+}
+
+test "each newly admitted opcode lands in the allowlist family half that owns its kind" {
+    // The three family predicates are a linter-guard split of ONE authority, so a name filed in the
+    // wrong half still answers true overall — which is exactly why the halves are pinned separately.
+    assert ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName("Ldarg_0")
+    assert ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName("Ldarg_1")
+    assert ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName("Ldarg_2")
+    assert ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName("Ldarg_3")
+    assert !ColumnarExternalBindingPlans.IsSupportedObjectModelOpCodeMemberName("Ldarg_0")
+    assert !ColumnarExternalBindingPlans.IsSupportedComputeOpCodeMemberName("Ldarg_0")
+
+    assert ColumnarExternalBindingPlans.IsSupportedObjectModelOpCodeMemberName("Unbox_Any")
+    assert !ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName("Unbox_Any")
+    assert !ColumnarExternalBindingPlans.IsSupportedComputeOpCodeMemberName("Unbox_Any")
+
+    // Whichever half a name sits in, the head must still answer for it.
+    admitted := NewlyAdmittedOpcodeNames()
+    i := 0
+    while i < admitted.Length {
+        assert ColumnarExternalBindingPlans.IsSupportedOpCodeMemberName(admitted[i])
+        i = i + 1
+    }
+}
+
+test "the opcode-allowlist widening is exactly five names wide" {
+    // `Ldarg_S` and its siblings cover argument ordinals 4..255 and are a DIFFERENT widening: they
+    // carry a `System.Byte` operand, which the emit-operand surface does not admit, so binding them
+    // would pick the `int` overload and write a four-byte operand behind a one-byte opcode. They are
+    // left out deliberately, and that is pinned here rather than left to be rediscovered.
+    rejected := new string[](5)
+    rejected[0] = "Ldarg_S"
+    rejected[1] = "Ldarga_S"
+    rejected[2] = "Starg"
+    rejected[3] = "Starg_S"
+    rejected[4] = "Ldftn"
+
+    j := 0
+    while j < rejected.Length {
+        // Every one is a REAL field on the runtime table, so their refusal is a decision about the
+        // modeled surface and not an accident of spelling.
+        assert typeof(OpCodes).GetField(rejected[j]) != null
+        assert !ColumnarExternalBindingPlans.IsSupportedOpCodeMemberName(rejected[j])
+        assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", rejected[j]).IsSupported
+        j = j + 1
+    }
+
+    // The operand type their admission would require, measured rather than assumed.
+    assert !ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Byte")
+    assert ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Int16")
+    assert ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Type")
 }
 
 test "external static selections accept short and fully qualified owner names" {

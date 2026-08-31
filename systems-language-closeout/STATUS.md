@@ -1,6 +1,63 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-28 (**TASK 015 SUB-SLICE `015-B1` — THE LOCALS-AS-LOCALS BINDING MODE. THE
+Last updated: 2026-08-30 (**TASK 015 SUB-SLICE `015-B2` STAGE 1 — THE OPCODE-ALLOWLIST WIDENING.
+FIVE ROWS LAND, NOTHING EMITTED MOVES, AND THE SECOND HALF OF THE WALL IS DEMONSTRATED RATHER THAN
+ASSERTED — see the Cursor block.** B1 recorded the wall; this stage RE-MEASURED it before editing.
+**IT IS ONE ALLOWLIST, NOT TWO**: a declaration census over every `.cs` and `.nl` in `src/` and
+`tests/` finds the modeled `OpCodes` surface declared exactly once — `ColumnarExternalBindingPlans`'s
+`IsSupportedOpCodeMemberName` over three family predicates (**33 / 42 / 33 = 108** names), consumed
+at **one** site — with **no C#, analyzer or plan-validator copy**, so "all relevant halves move
+together" is satisfied by one half, and the three-way split is a linter-guard artefact the file
+itself documents. **THE IR's ROW VOCABULARY IS A DIFFERENT SURFACE AND IS DELIBERATELY NOT TOUCHED**:
+a contract constant is a bare `return 165` and needs nothing modeled, but the EXECUTOR arm that
+honours it must spell `OpCodes.Unbox_Any` — so the constant and its arm must land together, in stage
+2, and stage 1 is the allowlist alone. **WHAT PASS 0e NEEDS WAS RE-DERIVED FROM THE TIP, NOT FROM
+PROSE**: its 90 extent lines spell 21 distinct opcodes and **exactly three are missing — `Ldarg_0`,
+`Ldarg_1`, `Unbox_Any`**; the landed set is **FIVE** (`Ldarg_0`(2) / `Ldarg_1`(3) / `Ldarg_2`(4) /
+`Ldarg_3`(5) into the VALUE half, `Unbox_Any`(165) into the OBJECT-MODEL half, **108 → 113**),
+because the executor has ONE argument-narrowing site and the CIL short-form ordinal family is
+exactly four — a chain answering only 0 and 1 would be byte-wrong for 2 and 3. **THE NEXT WALL IS
+RECORDED RATHER THAN HALF-TAKEN**: `Ldarg_S` (ordinals 4..255) is NOT a one-name widening — it needs
+a `System.Byte` emit operand that `IsSupportedEmitOperand`'s thirteen types do not include — so it is
+left out deliberately and pinned as left out. **ZERO C# CHANGES**: the emitter stays **20,976 /
+19,955**, compiler C# stays **10 files**, and the ratchet is untouched — **the two-key head stays
+`head-v1:fd53ebb53ffa009c` and NO REPIN WAS TAKEN, a consequence PREDICTED IN WRITING before the
+audit ran** (the manifest's 381 entries contain no `.nl`), with the audit reading **18 / 18** and the
+blank-line control **17 / 18** on a byte-exact restore. **THREE PROBES BRACKET THE WALL FROM BOTH
+SIDES**: ten single-opcode projects read the five as **NL103 → OK** and the out-of-scope controls
+`Ldarg_S`/`Starg`/`Ldobj` as **NL103 → still NL103**, with two already-admitted controls (`Nop`,
+`Castclass`) OK on both sides proving the decline is about the NAME and not the call shape; and
+**PROBE C spells a consumer INSIDE `ColumnarCodePlanExecutor.nl` and it STILL declines NL103 in the
+very tree where the widening landed**, because `BootstrapServices` compiles under the PACKAGED SDK —
+the wall stated as a build error rather than an argument. **THE ROWS ALONE CHANGE NOTHING EMITTED**:
+a `System.Reflection.Metadata` method-body dump (MVID-free by construction) over one fixed corpus
+reads **`IL_DIFFS=0` / `EXIT_DIFFS=0` on ALL THREE pairings** — ctlA-vs-ctlB, ctlA-vs-SLICE,
+ctlB-vs-SLICE — over **44 assemblies / 5,803 rows / 4,507 DISTINCT rows**, all **59** targets exiting
+`0`, the three dumps byte-identical at md5 `f1e1d702ccab9e244cb839109d740bc7`. **THE CONTRACTS PROVE
+THE ROWS FROM THE ONLY TWO SIDES AVAILABLE**: the estate (packaged SDK, cannot spell them) gains
+**THREE** blocks that ask the surface and check every name against the runtime `OpCodes` table by
+reflection, and `tests/native/reflection-emit-bootstrap` (freshly built CLI, the only place they CAN
+be spelled) gains **three PARAMETER-SHAPED blocks that emit and INVOKE** — four one-`ldarg.N` bodies
+answering 10/20/30/40, a composed body answering 1234, and `unbox.any` over both a value and a
+reference arm — and **those native files do not compile at all on the pre-widening CLI**, which is a
+coupling control that needed no mutation. **THE CONTROL WALK WAS RUN TWICE AND THE FIRST RUN IS
+RECORDED AS A DEFECTIVE INSTRUMENT**: against a single-block draft all four mutations broke the SAME
+block, so the contract was split three ways and re-run — **C2 (right name, wrong family half) now
+breaks ONLY the family-half block while admission still passes, and C4 (a typo the surface admits
+happily) breaks ONLY the reflection assert** — with pristine **`7076 / 0`** first and every restore
+`sha256`-verified. Evidence: estate **7,073 → 7,076** over the same **284** files; native project
+**2 → 5**; live-tree **`checkedFiles=400`, 246 errors on BOTH CLIs, ROW-FOR-ROW identical even in
+ORDER**; manifest **391, no BOM**; format gate clean. **THE FRESH ISOLATED GATE IS GREEN — `GATE EXIT
+0`, `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 53s from a `/private/tmp` byte copy with
+the log outside it, launched detached** — carrying unit **596**, estate **7,076** (the PRISTINE-LAST
+bracket, taken independently), all **47** native projects, the audit **18 / 18**, the format gate ×4
+and the IL verification gate (**67** assemblies, no new errors vs baseline) — **and the real feed at
+`~/.nuget/local-feed` is UNTOUCHED, newest package still 2026-08-18, so the republish is still
+entirely the user's to take.** **STAGE 2 IS SPECIFIED SITE BY SITE IN THE CURSOR BLOCK, AND ONE OF
+ITS FINDINGS IS THAT THE LDARG SHORT FORMS NEED NO NEW ROW CONSTANT AT ALL** — narrowing belongs to
+the executor exactly as it already does for locals. NOT COMMITTED.)
+
+Last updated (prior): 2026-08-28 (**TASK 015 SUB-SLICE `015-B1` — THE LOCALS-AS-LOCALS BINDING MODE. THE
 DECODE OVERTURNS THE PREMISE AND THE MODE GETS ITS FIRST NON-ITERATOR CONSUMER — see the Cursor
 block.** The mandate names one blocker: "THE IR BINDS LOCALS AS HOISTED FIELDS". **THAT IS NOT WHAT
 THE IR DOES AT THIS TIP, AND THE DERIVATION SAYS SO BY MEASUREMENT.** `ColumnarCodePlan` has
@@ -62,7 +119,7 @@ estate **7,073**, all **47** native projects, the ownership audit **18 / 18**, t
 gate ×4 and the IL verification gate (**67** assemblies, no new errors vs baseline). **`015-B2` IS NOW
 SPECIFIED BY MEASUREMENT: the argument-row vocabulary (`Ldarg_0..3`) comes FIRST and is repack-gated,
 then PASS 0e (90 extent lines, decoded here, needing `unbox.any` = 165), and only THEN the statement
-kinds — starting at 20, because nothing else can terminate a body.** NOT COMMITTED.)
+kinds — starting at 20, because nothing else can terminate a body.** COMMITTED as `9bd9aa222`.)
 
 Last updated (prior): 2026-08-28 (**TASK 015 SUB-SLICE `015-A6` — `IsSupportedType`, THE CENTRE OF THE
 TYPE-ADMISSIBILITY FAMILY, IS REROUTED TO ITS N# OWNER AND THE A-ARC CLOSES. THE EMITTER'S
@@ -5000,8 +5057,345 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B1`: THE LOCALS-AS-LOCALS BINDING MODE. THE OPENING
-  SLICE OF THE BODY-PLANNER GENERALISATION. NOT COMMITTED.**)
+- Active sub-slice (015 arc, THIS TURN — **`015-B2` STAGE 1: THE OPCODE-ALLOWLIST WIDENING. THE
+  FIRST HALF OF A TWO-STAGE TOOLSET WALL. NOT COMMITTED.**)
+
+  ### THE WALL, RE-MEASURED AT `9bd9aa222` — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
+
+  #### WHICH ALLOWLIST, AND HOW MANY HALVES — MEASURED, NOT ASSUMED
+
+  The mandate allows for the wall to live in the emitter's modeled-`OpCodes` surface, in
+  `ColumnarCodePlan`'s row vocabulary, or in both. **IT IS ONE SURFACE, DECLARED ONCE, CONSUMED
+  ONCE.** A declaration census over every `.cs` and `.nl` under `src/` and `tests/` finds the
+  modeled `OpCodes` allowlist in exactly one file:
+
+  | half | where | shape |
+  |---|---|---|
+  | the allowlist head | `ColumnarExternalBindingPlans.nl:908` `IsSupportedOpCodeMemberName` | a three-way `||` over the family predicates |
+  | family 1 — constants, locals/arguments, indirect loads | `:913` `IsSupportedValueOpCodeMemberName` | **33** names |
+  | family 2 — branches, calls, arithmetic, comparisons, conversions | `:918` `IsSupportedComputeOpCodeMemberName` | **42** names |
+  | family 3 — object model, fields, arrays, terminators/regions | `:923` `IsSupportedObjectModelOpCodeMemberName` | **33** names |
+  | the single consumer | `:289` | `(typeName == "OpCodes" || typeName == "System.Reflection.Emit.OpCodes") && IsSupportedOpCodeMemberName(memberName)` → a `Field` static-member plan whose value type is `System.Reflection.Emit.OpCode` |
+
+  **108 admitted names, one consumer, and NO SECOND COPY**: no `.cs` file anywhere in `src/` or
+  `tests/` mentions `System.Reflection.Emit.OpCodes` as a modeled surface, there is no analyzer-side
+  list, and the plan-schema validators do not carry one either. So "all relevant halves move
+  together" is satisfied by **one** half — measured, and the split into three family predicates is
+  a linter-guard artefact (the file says so at `:906`: a single 120-clause `||` chain overflows the
+  legacy linter's 100-deep expression-visit guard), not three independent authorities.
+
+  #### THE IR's ROW VOCABULARY IS A DIFFERENT SURFACE, AND IT IS NOT STAGE-1 WORK
+
+  `ColumnarCodePlanContract`'s opcode constants (**108** of them, coincidentally the same count) are
+  bare integer returns — `Pop()` is `return 38`, nothing modeled is spelled — so a NEW row constant
+  is not itself repack-gated. **WHAT IS GATED IS THE EXECUTOR ARM**: `ColumnarCodePlanExecutor`
+  `EmitInstruction` must spell `il.Emit(OpCodes.Unbox_Any, …)` to honour the row, and the argument
+  arm (`:307–312`) must spell `OpCodes.Ldarg_0..3` to narrow. A row constant landed WITHOUT its
+  executor arm would leave an IR that accepts a row nothing can emit, so the constant and the arm
+  must land together — in stage 2. **STAGE 1 IS THEREFORE THE ALLOWLIST ALONE.**
+
+  #### WHAT PASS 0e NEEDS, PRECISELY — RE-DERIVED FROM THE TIP, NOT FROM B1's PROSE
+
+  `SynthesizeRecordValueMembers` (`ColumnarIlEmitter.cs:9240–9309`) and
+  `SynthesizeRecordCloneMember` (`:9311–9330`) — **90 extent lines**, two `DeclareLocal`s (`other:
+  tb`, `acc: int`), reproducing B1's decode exactly. The 21 distinct opcodes those three bodies
+  spell are `Ldarg_0`, `Ldarg_1`, `Brfalse`, `Brtrue`, `Br`, `Isinst`, `Dup`, `Pop`, `Unbox_Any`,
+  `Stloc`, `Ldloc`, `Ldfld`, `Call`, `Callvirt`, `Castclass`, `Ldc_I4`, `Ldc_I4_0`, `Ldc_I4_1`,
+  `Mul`, `Add`, `Ret`. Against the 108-name allowlist **exactly three are missing: `Ldarg_0`,
+  `Ldarg_1`, `Unbox_Any`.**
+
+  #### THE WHOLE GAP, SO THE CHOICE IS A CHOICE AND NOT AN OVERSIGHT
+
+  The C# emitter spells **100** distinct `OpCodes.X` members; **17** are not admitted:
+  `Bge`, `Blt`, `Bne_Un`, `Constrained`, `Ldarg_0`, `Ldarg_1`, `Ldarg_2`, `Ldarg_3`, `Ldarg_S`,
+  `Ldarga_S`, `Ldftn`, `Ldobj`, `Starg`, `Starg_S`, `Stind_Ref`, `Stobj`, `Unbox_Any`.
+
+  **THE ROW SET THIS STAGE LANDS IS FIVE**: `Ldarg_0` (`0x02`), `Ldarg_1` (`0x03`), `Ldarg_2`
+  (`0x04`), `Ldarg_3` (`0x05`) into the VALUE family, and `Unbox_Any` (`0xA5` = 165) into the
+  OBJECT-MODEL family. `Ldarg_2`/`Ldarg_3` are not needed by PASS 0e and are landed anyway for a
+  measured reason: the executor has **ONE** argument-narrowing site, and a chain that can only
+  answer ordinals 0 and 1 would fall back to the non-narrowing two-byte `0xFE 0x09` form for
+  ordinals 2 and 3 — byte-wrong against the C# `EmitLoadArgument` it must reproduce. The CIL
+  short-form ordinal family is exactly four, so four is the complete answer, not a generous one.
+
+  #### THE NEXT WALL, RECORDED RATHER THAN ABSORBED
+
+  `Ldarg_S` covers ordinals 4..255 and the C# `EmitLoadArgument` (`:19124–19139`) uses it, so a
+  planned body with four or more argument slots will still emit the long form after stage 2.
+  **IT IS NOT A ONE-NAME WIDENING**: `il.Emit(OpCodes.Ldarg_S, x)` needs a `System.Byte` operand,
+  and `IsSupportedEmitOperand` (`:903`) admits thirteen operand types with `System.Byte` **not**
+  among them; binding the `int` overload instead would write a four-byte operand behind a one-byte
+  opcode. The same is true of `Ldarga_S` and `Starg_S`. So the short-form argument family beyond
+  ordinal 3 is a TWO-half widening (opcode name AND operand type) and is deliberately left out of
+  this stage rather than half-taken; ordinals ≥ 4 stay on the long form until that widening is
+  taken deliberately.
+
+  #### THE PIN SWEEP — AND THE ONE STANDING PIN THIS WIDENING FALSIFIES
+
+  A sweep for the five names over every `.nl`, `.tests.nl` and `.cs` in `src/`, `tests/` and
+  `examples/` finds **exactly one** mention anywhere in the repository:
+  `ColumnarExternalBindingPlans.tests.nl:168` asserts
+  `!GetStaticMemberPlan("OpCodes", "Unbox_Any").IsSupported` — **a standing NEGATIVE pin that this
+  stage makes false**, so the widening cannot be additive-only in the estate: that assert must flip
+  or move. Nothing else in the estate, the native corpus or the C# suite names `Ldarg_0..3` or
+  `Unbox_Any` at all.
+
+  #### PROBE A — THE WALL, DEMONSTRATED AT THE PRISTINE TIP
+
+  Ten single-file N# library projects, each spelling ONE `OpCodes` member in the smallest shape the
+  emitter can decline, built with the CLI built from `9bd9aa222` in a worktree OUTSIDE the repo
+  (`/private/tmp/b2-baseline`):
+
+  | probe | shape | verdict at the pristine tip |
+  |---|---|---|
+  | `Nop` (CONTROL, admitted, no operand) | `il.Emit(OpCodes.Nop)` | **OK** |
+  | `Castclass` (CONTROL, admitted, `Type` operand) | `il.Emit(OpCodes.Castclass, t)` | **OK** |
+  | `Ldarg_0` / `Ldarg_1` / `Ldarg_2` / `Ldarg_3` | `il.Emit(OpCodes.Ldarg_N)` | **NL103 `emit.call.instance-member-unmodeled`** |
+  | `Unbox_Any` | `il.Emit(OpCodes.Unbox_Any, t)` | **NL103 `emit.call.instance-member-unmodeled`** |
+  | `Ldarg_S` / `Starg` / `Ldobj` (OUT-OF-SCOPE controls) | same shapes | **NL103** — and they must STILL decline after the edit |
+
+  The two controls prove the decline is about the NAME and not the call shape: the identical
+  `Emit(OpCode)` and `Emit(OpCode, Type)` spellings compile when the name is admitted. This
+  reproduces B1's recorded wall verbatim, including the decline site string.
+
+  #### BASELINE READINGS RE-DERIVED AT THE TIP BEFORE ANY EDIT
+
+  | reading | value | reproduces |
+  |---|---|---|
+  | `ColumnarIlEmitter.cs` | **20,976 lines / 19,955 non-blank** | B1's published row exactly |
+  | compiler C# files | **10** | the A-arc baseline |
+  | allowlist names | **108** (33 / 42 / 33) | — |
+  | estate `.tests.nl` files / `test` blocks | **284 / 7,073** | B1's published estate exactly |
+  | ratchet manifest | **381 entries, 0 of them `.nl`**, head `head-v1:fd53ebb53ffa009c` | the mandate's head exactly |
+
+  **AND THE RATCHET CONSEQUENCE FOLLOWS FROM THAT LAST ROW**: the manifest tracks only non-N#
+  files, `ReviewedHeadFingerprint` is computed over the manifest entries alone, and this stage
+  edits no `.cs`, `.csproj`, `.json`, `.sh`, `.ts` or `.yml` file. **A REPIN IS THEREFORE PREDICTED
+  TO BE UNNECESSARY, AND THE PREDICTION IS WRITTEN HERE BEFORE THE AUDIT IS RUN** so the 18/18 that
+  follows is a confirmation rather than a discovery.
+
+  ### THE CUT
+
+  | | |
+  |---|---|
+  | rows landed, VALUE half | `Ldarg_0`, `Ldarg_1`, `Ldarg_2`, `Ldarg_3` — `IsSupportedValueOpCodeMemberName` **33 → 37** |
+  | rows landed, OBJECT-MODEL half | `Unbox_Any` — `IsSupportedObjectModelOpCodeMemberName` **33 → 34** |
+  | allowlist total | **108 → 113**, still one head, one consumer, no second copy |
+  | C# touched | **NONE.** The emitter stays **20,976 / 19,955**, compiler C# stays **10 files**, and no `.cs` line moves — an allowlist widening is an N#-only edit by construction |
+  | contract-constant reservation checked for stage 2 | the contract's **108** `short` opcode constants are all distinct and **165 is free**, so `UnboxAny()` will not collide |
+
+  ### PROBE B AND THE OUT-OF-SCOPE CONTROLS — THE WALL AFTER THE EDIT
+
+  The same ten probe projects, rebuilt with the CLI built from the slice tree:
+
+  | probe | pristine tip | slice |
+  |---|---|---|
+  | `Nop`, `Castclass` (CONTROLS, already admitted) | OK | **OK** |
+  | `Ldarg_0`, `Ldarg_1`, `Ldarg_2`, `Ldarg_3`, `Unbox_Any` | NL103 | **OK** |
+  | `Ldarg_S`, `Starg`, `Ldobj` (OUT-OF-SCOPE CONTROLS) | NL103 | **NL103 — still declined** |
+
+  **FIVE NAMES MOVED AND NOTHING ELSE DID**, which is the whole claim of a minimal widening stated
+  as a measurement.
+
+  ### THE CONTRACTS
+
+  **THE NATIVE HALF — `tests/native/reflection-emit-bootstrap/OpcodeAllowlistWidening.nl` (152 lines)
+  AND `.tests.nl` (3 blocks).** Native projects are compiled by `dotnet $CLI_DLL test --project`,
+  i.e. by the CLI built from THIS tree, so this is the only place in the repository that can spell
+  the new names at all. The bodies are deliberately **PARAMETER-SHAPED** — `ldarg.N` means nothing
+  in a method without an argument N, which is exactly what B1's static parameterless wrapper could
+  not offer — and every one is INVOKED, so a name that binds but emits the wrong instruction fails
+  on the ANSWER, not on the compile.
+
+  | block | what it pins |
+  |---|---|
+  | each short form on its own ordinal | four four-argument `DynamicMethod` bodies, one `Ldarg_N` each, invoked with `(10, 20, 30, 40)` → **10 / 20 / 30 / 40**. One opcode per body, so no ordinal can hide behind another |
+  | the four compose in one body | `ldarg.0 ldarg.1 add ldarg.2 add ldarg.3 add ret`, weighted `(1000, 200, 30, 4)` → **1234**, plus a zero case and a signed cancelling case. A repeated or omitted ordinal moves the total |
+  | `unbox.any` over both arms | `unbox.any int32` on a boxed `42` and `-7`, and `unbox.any string` on a reference — the value arm is what a record STRUCT needs and `castclass` cannot express, the reference arm is the record CLASS shape |
+
+  Native project **2 → 5** blocks, `Passed: 5, Failed: 0`.
+
+  **AND THE NATIVE HALF IS ITS OWN COUPLING CONTROL, WITHOUT A SOURCE MUTATION**: the identical
+  files built with the PRE-WIDENING CLI do not compile at all — `nlc test --project` reports
+  `"error": "Test build failed."` with the columnar-emission decline on
+  `OpcodeAllowlistWidening.nl`. Revert the five names and these contracts stop existing.
+
+  **THE ESTATE HALF — THREE new blocks in `ColumnarExternalBindingPlans.tests.nl`.** The estate
+  compiles under the PACKAGED SDK and therefore cannot spell `OpCodes.Ldarg_0` until the republish;
+  what it can do is ask the surface whether it admits the names, and check each admitted name against
+  the runtime `OpCodes` table by REFLECTION (`typeof(OpCodes).GetField(name)`), which needs no
+  modeled member reference and is the one bridge available on this side of the wall.
+
+  | block | what it pins |
+  |---|---|
+  | the five names join the allowlist | each is admitted, its static-member plan is a `Field` on `System.Reflection.Emit.OpCodes` yielding `OpCode`, and **each is a real field on the runtime table** — a typo would otherwise be admitted just as happily as an opcode |
+  | each lands in the family half that owns its KIND | `Ldarg_0..3` VALUE and neither OBJECT-MODEL nor COMPUTE; `Unbox_Any` OBJECT-MODEL and neither VALUE nor COMPUTE; and the head still answers for all five. The three predicates are a linter-guard split of ONE authority, so a name in the wrong half still answers true overall — which is exactly why the halves are pinned apart |
+  | the widening is EXACTLY five names wide | `Ldarg_S`, `Ldarga_S`, `Starg`, `Starg_S` and `Ldftn` are all REAL OpCodes fields and all still refused, so their absence is a decision and not a spelling accident; and the `System.Byte` emit operand their admission would require is pinned as still absent |
+
+  **THE THREE-WAY SPLIT IS NOT COSMETIC.** A first pass wrote all of this as ONE block, and the
+  control walk was run against it — **every one of the four mutations broke the same single block**,
+  so the walk could not show that each mistake is caught by the assert written for it. The block was
+  split and the walk re-run. The first walk's numbers are recorded below alongside the second, because
+  a control design that had to be corrected is evidence about the instrument, not something to hide.
+
+  **THE ONE STANDING PIN WAS FLIPPED RATHER THAN DELETED**: the pre-existing negative assert on
+  `Unbox_Any` at `:168` became false, so it was re-pointed at `Ldarg_S` — a name that is still
+  refused for a recorded reason — leaving that block with the same two negative pins it had.
+
+  ### THE CORPUS IL BYTE-COMPARISON — THREE PASSES, CONTROL FIRST
+
+  ONE fixed corpus (`examples/` — **82 `.nl` sources**, source-set `sha256`
+  `4f58063d63f5b0a85bdfb0f8d8d89607e1b1168253340e734502272e212c08d3` — plus `tests/fixtures`),
+  copied fresh per pass into `/private/tmp`, with only the CLI swapped. The instrument is a
+  `System.Reflection.Metadata` method-body dump — name, method attributes, `maxstack`, `localsInit`,
+  the LOCAL SIGNATURE BLOB, the raw IL bytes as hex, and every exception region — **MVID-free by
+  construction** (raw file bytes are useless here: a fresh MVID per build makes two identical passes
+  differ) and sorted, so a diff is a code diff.
+
+  | pairing | verdict |
+  |---|---|
+  | ctlA vs ctlB (baseline CLI twice) | **`IL_DIFFS=0`, `EXIT_DIFFS=0`** |
+  | **ctlA vs SLICE** | **`IL_DIFFS=0`, `EXIT_DIFFS=0`** |
+  | **ctlB vs SLICE** | **`IL_DIFFS=0`, `EXIT_DIFFS=0`** |
+
+  **44 assemblies / 23 distinct assembly identities / 5,803 method rows / 4,507 DISTINCT rows**, and
+  **all 59 build targets exit `0` on every pass**. The three dumps are byte-identical files —
+  md5 **`f1e1d702ccab9e244cb839109d740bc7`** on all three. The rows alone changed NOTHING emitted,
+  which is what an additive allowlist is supposed to do, and the control pass proves the instrument
+  would have said so.
+
+  **ONE CORPUS TARGET WAS REMOVED AND IT IS SAID SO RATHER THAN GLOSSED**:
+  `tests/fixtures/external-static-relative-dll` resolves a DLL through a path relative to the REPO,
+  so it can never build from a copy. Its first run showed it failing in every pass — a phantom
+  floor of exactly the kind A6's corrected coupling instrument was built to remove — so it was
+  dropped from the corpus rather than left in as a target that fails identically on both sides.
+
+  ### PROBE C — WHY THIS IS TWO STAGES AND NOT ONE
+
+  The claim that the widened allowlist cannot be CONSUMED in the same slice that lands it was not
+  taken from B1's prose; it was measured again here. A single production consumer was written into
+  `ColumnarCodePlanExecutor.nl` — `static func B2ProbeShortFormArgumentLoad(il: ILGenerator)` doing
+  nothing but `il.Emit(OpCodes.Ldarg_0)` — and `BootstrapServices` was built:
+
+  ```
+  error NL103: … Declined at emit.call.instance-member-unmodeled: instance call
+  'ILGenerator.Emit' with 1 argument(s) is not modeled in
+  'ColumnarCodePlanExecutor.B2ProbeShortFormArgumentLoad' (ColumnarCodePlanExecutor.nl:369:9)
+  ```
+
+  **IN THE VERY TREE WHERE THE WIDENING HAS ALREADY LANDED.** `BootstrapServices` is compiled by the
+  PACKAGED SDK, which still carries the pre-widening allowlist, so the rows this stage adds are
+  invisible to the compiler that reads this source until the toolset is republished. The probe was
+  reverted and the file's `sha256` re-verified IDENTICAL (`a541385066b46b86…` before and after).
+  **That is the wall, stated as a build error rather than as an argument, and it is why stage 2's
+  consumers are listed below rather than written.**
+
+  ### THE CONTROL WALK — PRISTINE-BRACKETED, AND RUN TWICE BECAUSE THE FIRST DESIGN WAS WEAK
+
+  Every mutation is applied to the PRODUCT (C4 also to the one contract line it isolates), the whole
+  estate is run, and the tree is restored with a `sha256` bracket that the driver verifies before it
+  will continue.
+
+  **THE FIRST WALK IS RECORDED BECAUSE IT FAILED AS AN INSTRUMENT, NOT AS A RESULT.** Against the
+  single-block first draft, all four mutations broke the SAME block (C1 `7073/1`, C2 `7073/1`,
+  C3 `7072/2`, C4 `7073/1`, every restore verified) — four different mistakes, one indistinguishable
+  verdict. The contract was split into three blocks and the walk re-run; this is the walk that counts:
+
+  | | mutation | result |
+  |---|---|---|
+  | **PRISTINE FIRST** | — | **`7076 / 0`** |
+  | **C1** | `Ldarg_2` deleted from the VALUE family | **`7074 / 2`** — breaks the admission block AND the family-half block, which is right: a deleted name falsifies both claims |
+  | **C2** | `Unbox_Any` moved from the OBJECT-MODEL family to the VALUE family | **`7075 / 1`** — breaks **ONLY** the family-half block. The admission block still passes, because the head still answers true. **This is the failure the one-block draft could not see** |
+  | **C3** | `Ldarg_S` admitted | **`7074 / 2`** — breaks the exactness block AND the pre-existing `RecursiveCodePlansOwnEveryRequiredOpcodeField`, whose negative pin this slice re-pointed; it leaves the admission and family-half blocks untouched |
+  | **C4** | the typo `Unbox_Anyy` admitted in the product AND the contract pointed at it | **`7075 / 1`** — breaks **ONLY** the admission block, and inside it only the reflection assert: `AssertSupportedOpcode` PASSES, because the surface admits the typo just as happily as an opcode. **This is what the runtime-table bridge is for, isolated** |
+
+  Every restore `sha256`-verified; the tree returned to `ColumnarExternalBindingPlans.nl`
+  `83aedcaf62f2d64d…` and `.tests.nl` `d2e718713efaaada…` after each control.
+
+  ### THE REST OF THE BAR
+
+  | check | result |
+  |---|---|
+  | estate count-diff | **`Total: 7076`** — 7,073 + exactly the THREE new blocks, over the SAME **284** `.tests.nl` files (this stage adds no estate file), confirmed two ways: the runner's total and an independent `test "` census |
+  | native project | `reflection-emit-bootstrap` **2 → 5** blocks, `Passed: 5, Failed: 0`; all **47** gated native projects unchanged in count (the contracts joined an existing project rather than adding one) |
+  | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **`checkedFiles=400`, 246 errors on BOTH CLIs over the SAME sources, ROW-FOR-ROW IDENTICAL — `added=0 removed=0`, and equal even in ORDER** — with the histogram reproducing B1's to the digit (`NL202` 85, `NL402` 68, `NL905` 26, `NL012` 20, `NL011` 17, `NL301` 16, `NL010` 7, `NL303` 3, `NL412` 3, `NL002` 1). 400 stays 400 because this stage adds no production `.nl` |
+  | `nlc format --check --project src/NSharpLang.Compiler.BootstrapServices` | **"All files are properly formatted."** |
+  | `tests/native/ownership-audit` | **18 / 18, WITH NO REPIN** — exactly as predicted before the audit was run, because the manifest tracks only non-N# files and this stage touches none |
+  | ratchet NON-VACUITY | appending ONE blank line to `ColumnarIlEmitter.cs` takes the audit to **17 / 18**; the byte was removed, the file's `sha256` re-verified IDENTICAL (`14a2e15268051537…` before and after, `git diff` empty) and the audit re-read **18 / 18**. The ratchet is live; it simply has nothing to say about an `.nl`-only change |
+  | two-key head | **UNCHANGED at `head-v1:fd53ebb53ffa009c`** in both keys; epoch triple untouched (**381** / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1`); the emitter row untouched at `20976/19955/text-v1:f9200d6387a64a4d` |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`), byte-for-byte unmodified |
+  | compiler C# files | **10** — unchanged; `ColumnarIlEmitter.cs` **20,976 / 19,955** — unchanged |
+  | working tree | exactly **5** files: 2 modified (`ColumnarExternalBindingPlans.nl`, `ColumnarExternalBindingPlans.tests.nl`), 2 new native contracts, plus this STATUS. **No ratchet file, no `.cs` file, no `project.yml`.** Every instrument, corpus, probe and log lives in `/private/tmp` or the scratchpad; none was written into the repo |
+
+  ### THE UTF-16 KERNEL SCAN — THE RECIPE FOR VERIFYING THE REPUBLISH
+
+  The compiled kernel carries the allowlist as UTF-16 string literals, so a republish can be verified
+  without running anything. On the PRE-widening `NSharpLang.Compiler.BootstrapServices.dll` the scan
+  reads **`Ldarg_0` 0, `Ldarg_1` 0, `Ldarg_2` 0, `Ldarg_3` 0, `Unbox_Any` 0, `Ldarg_S` 0** and
+  **`Ldarga` 1** — the already-admitted control proving the scan discriminates rather than simply
+  finding nothing. **After the repack the packed kernel must read 1 for each of the five and STILL 0
+  for `Ldarg_S`.**
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/private/tmp` byte copy (`.git`, `bin`,
+  `obj`, `node_modules`, `artifacts` and `.claude/worktrees/` excluded), the log written OUTSIDE the
+  copy, `pgrep -f test-all-core.sh` clean first, and launched DETACHED so no turn boundary could
+  signal it. All **five** changed/added files `sha256`-verified IDENTICAL between the working tree
+  and the copy before the run, and **zero stray `NSharpLang.Benchmarks.csproj` in the copy** — the
+  three that exist live only under `.claude/worktrees/`, which the copy excludes, and the baseline
+  worktree this slice used for the corpus comparison lives at `/private/tmp/b2-baseline`, OUTSIDE the
+  repo, so the nested-worktree hazard never applied.
+
+  **`GATE EXIT 0`, `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 53s.** Inside it: unit
+  **`Passed: 596`** (the baseline exactly), estate **`Passed: 7076`** — **which is this slice's
+  PRISTINE-LAST bracket, taken independently in an isolated tree** — all **47** native `✓ PASSED`
+  lines including `reflection-emit-bootstrap` at **`Passed: 5`**, `tests/native/ownership-audit`
+  **18 / 18**, the format contract gate ("All files are properly formatted." × 4), `dotnet new`
+  templates, every example project, the single-file examples, `nlc check` on examples, and the IL
+  verification gate (**"All 67 N# assemblies pass IL verification (no new errors vs baseline)"**).
+
+  **AND THE CARRIED FEED PROHIBITION HELD**: the gate's own Step 4 packs and installs an SDK, so the
+  real feed was checked afterwards — `~/.nuget/local-feed` is UNTOUCHED, its newest package still
+  dated **2026-08-18**, because the isolated gate packs into its own feed. **The republish is still
+  entirely the user's to take.**
+
+  ### THE `015-B2` STAGE-2 CONSUMPTION LIST — EVERY SITE NAMED AT THIS TIP
+
+  Nothing below is written yet, because nothing below can be SPELLED yet. Every item names the exact
+  site the republished toolset unblocks.
+
+  1. **`ColumnarCodePlan.nl` — the row.** Add `UnboxAny(): short { return 165 }` to
+     `ColumnarCodePlanContract` (**165 is verified free**: the contract's 108 `short` opcode
+     constants are all distinct and none is 165), and admit it in `AppendTypeInstruction`
+     (`:1122`) under the method-body schema, the way `Isinst` is admitted there today.
+  2. **`ColumnarCodePlanExecutor.nl` — the two arms.**
+     (a) `EmitInstruction`'s `TypeOperand` arm (`:347–364`) gains an `UnboxAny` branch before the
+     `Ldelem` fallback — `il.Emit(OpCodes.Unbox_Any, plan.Types[operandIndex])`, the spelling this
+     stage unblocks. (b) The stack-height model's `TypeOperand` sites (`:605`, `:843`, `:966`) must
+     give it a delta of 0 and push the operand type's kind.
+  3. **`ColumnarCodePlanExecutor.nl` — the narrowing, and it needs NO new row constant.** The
+     `ArgumentOperand` arm (`:307–312`) becomes an ordinal chain: 0..3 emit `OpCodes.Ldarg_0..3`
+     through the no-operand overload, everything else keeps `Emit(OpCodes.Ldarg, (short)ordinal)`.
+     **The plan row stays `Ldarg` (−503) with an `ArgumentOperand`** — narrowing is an EXECUTOR
+     concern exactly as it already is for locals, where the row says `Stloc` and
+     `Emit(OpCode, LocalBuilder)` narrows. **`Ldarga` must NOT narrow** (`Ldarga_S` is not admitted
+     and cannot be until the `System.Byte` operand widening), and that asymmetry deserves its own
+     contract rather than a comment.
+  4. **PASS 0e.** `ColumnarIlEmitter.cs`'s `SynthesizeRecordValueMembers` (`:9240–9309`, 70 extent
+     lines) and `SynthesizeRecordCloneMember` (`:9311–9330`, 20) — 90 lines of raw `ILGenerator`,
+     two IL locals — move to a new N# planner. Both upstream guards still hold at this tip
+     (`def.GenericParameters != null → continue`, and `fieldsBaked`), so no plan local is ever a
+     generic definition and every `EqualityComparer<T>` closes over a runtime type.
+  5. **The corpus reach is already measured and it is not thin**: the fixed corpus dump carries
+     **249** `Equals` / `GetHashCode` / `<Clone>$` method rows, against B1's two entry-point
+     wrappers.
+  6. **THE ONE CAVEAT TO CARRY**: after stage 2, argument ordinals **≥ 4 still emit the long form**.
+     PASS 0e's bodies have at most two argument slots so stage 2 is unaffected, but the first
+     planned body with four or more slots will differ from the C# `EmitLoadArgument` by three bytes
+     per load until `Ldarg_S` + a `System.Byte` emit operand are taken as their own two-half
+     widening.
+  SLICE OF THE BODY-PLANNER GENERALISATION. COMMITTED as `9bd9aa222`.**)
 
   ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
 
