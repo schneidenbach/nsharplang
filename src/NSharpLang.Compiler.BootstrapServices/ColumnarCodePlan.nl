@@ -1031,11 +1031,24 @@ class ColumnarCodePlan {
         if fragmentKind < 0 || sourceNodeIndex < 0 {
             throw new ArgumentOutOfRangeException("fragmentKind")
         }
+        // 015-B6 — A METHOD BODY ADMITS MANY ROOT FRAGMENTS; THE EXPRESSION SCHEMAS ADMIT EXACTLY ONE.
+        // A body is a sequence of INDEPENDENT expression trees (one per statement, plus the return
+        // value), and nothing in the v4 payload gives two of them a parent/child relation:
+        // `ValidateMethodBodySemantics` and `ExecuteMethodBodyRows` never read `FragmentCount` or
+        // `OperationOwnerFragmentIndices` at all, and `ValidateSealedStructure`'s v4 arm asks only for a
+        // result type and a non-empty stream. The alternative — ONE fragment spanning the whole body —
+        // was rejected by measurement rather than taste: `CompleteFragment` refuses a `System.Void`
+        // result outside a schema-v3 root fragment, so a spanning root is not expressible for the void
+        // arity at all, and it would have to invent a result type the body does not have.
+        //
+        // The relaxation is narrow on purpose. A new root is admitted only BETWEEN trees — nothing may
+        // be open — so the nesting rule still governs everything INSIDE one tree, unchanged, on every
+        // schema.
         if FragmentCount == 0 {
             if parentIndex != -1 {
                 throw new InvalidOperationException("The root code-plan fragment must have no parent.")
             }
-        } else if OpenFragmentCount == 0 || parentIndex != OpenFragmentIndices[OpenFragmentCount - 1] {
+        } else if !(IsMethodBodySchema() && parentIndex == -1 && OpenFragmentCount == 0) && (OpenFragmentCount == 0 || parentIndex != OpenFragmentIndices[OpenFragmentCount - 1]) {
             throw new InvalidOperationException("A recursive code-plan fragment must be nested under the current open fragment.")
         }
 

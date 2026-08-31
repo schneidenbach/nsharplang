@@ -32,21 +32,35 @@ class ColumnarNameOfPlanner {
     static func Plan(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
         ValidateRootInputs(nodes, source, node, plan)
         plan.PrepareV3()
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.NameOfExpression() {
+        resultType := typeof(string)
+        if !TryAppendRoot(nodes, source, node, plan, out resultType) {
             return plan.Status
+        }
+
+        plan.CompleteV3(resultType)
+        return plan.Status
+    }
+
+    // THE ROOT-APPEND SEQUENCE, OWNED ONCE (015-B6). `Plan` wraps it between `PrepareV3` and
+    // `CompleteV3`; `ColumnarMethodBodyPlanner`'s expression door calls the same function on an open
+    // schema-v4 method body. The root fragment is not ceremony here — `ValidateAppendInputs` below
+    // demands an open fragment, and this is what supplies one on either schema. A decline rolls the
+    // plan back to the caller's exact state.
+    static func TryAppendRoot(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(string)
+        if nodes == null || source == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.NameOfExpression() {
+            return false
         }
 
         checkpoint := plan.CreateCheckpoint()
         fragment := plan.BeginFragment(-1, nodes.Kind(node), node)
-        resultType := typeof(string)
         if !TryAppendNameOf(nodes, source, node, plan, out resultType) {
             plan.Rollback(checkpoint)
-            return plan.Status
+            return false
         }
 
         plan.CompleteFragment(fragment, resultType)
-        plan.CompleteV3(resultType)
-        return plan.Status
+        return true
     }
 
     static func TryAppendNameOf(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
@@ -100,8 +114,15 @@ class ColumnarNameOfPlanner {
 
     static func ValidateAppendInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
         ValidateRootInputs(nodes, source, node, plan)
-        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
-            throw new InvalidOperationException("Nameof expressions can only append to an open schema-v3 plan.")
+        // 015-B6: a schema-v4 METHOD BODY is admitted alongside v3. This gate threw — a hard crash out
+        // of the compiler, not a decline — on every method-body plan, and ALL NINE owners that carried
+        // it were widened in ONE move because the value surface routes by operand kind: admitting a
+        // subset would mean pre-scanning operands to predict which owner they reach, which is a second
+        // copy of the dispatcher's own decision.
+        // It appends one ldstr; the open-fragment invariant below is unchanged and v4 satisfies
+        // it with a root fragment.
+        if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Nameof expressions can only append to an open schema-v3 or method-body plan.")
         }
         if plan.FragmentCount <= 0 || plan.FragmentCompleted == null || plan.FragmentCompleted.Length < plan.FragmentCount {
             throw new InvalidOperationException("Nameof expressions require an open fragment.")

@@ -6002,14 +6002,14 @@ internal sealed class ColumnarIlEmitter
     // unreachable code).
     private bool EmitBody(int bodyRoot, bool isVoid)
     {
-        // KIND-20 FRONT DOOR (015-B3, widened in B4 and B5): the ORDINARY USER bodies the plan-row IR
-        // claims end to end — the void arity, and a return of a literal, a bool, a parameter, a ref/out
-        // parameter, an instance field or an instance property. Offered ahead of every field below,
-        // because every shape ColumnarMethodBodyPlanner accepts holds no lambda, local, branch or
-        // region, so a claimed body needs none of that state; the binding facts are the same live maps
-        // the expression path routes to N# and are correct here precisely because nothing can lift. The
-        // claim is total: the planner produces every byte or it declines and this method emits as ever.
-        // An ASYNC body is excluded because its returns wrap and leave to a shared tail (below).
+        // BODY FRONT DOOR (015-B3, widened in B4, B5 and B6): the ORDINARY USER bodies the plan-row IR
+        // claims end to end — the void arity, and a run of `:=` declarations ending in a return of a
+        // literal, a bool, an identifier, a unary over a literal, or a `nameof`. Offered ahead of every
+        // field below, because no shape ColumnarMethodBodyPlanner accepts holds a lambda, a branch or a
+        // region, so a claimed body needs none of that state; its LOCALS are declared in the plan's own
+        // pool rather than here, so none of this emitter's live maps is written. The claim is total: the
+        // planner produces every byte or it declines and this method emits as ever. An ASYNC body is
+        // excluded because its returns wrap and leave to a shared tail (below).
         if (_asyncReturnType == null)
         {
             var bodyPlan = new ColumnarCodePlan();

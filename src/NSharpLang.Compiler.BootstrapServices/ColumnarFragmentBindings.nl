@@ -12,6 +12,14 @@ class ColumnarFragmentBindings {
     ParameterOrdinals: Dictionary<string, int>
     ParameterTypes: Dictionary<string, Type>
     Locals: Dictionary<string, LocalBuilder>
+    // 015-B6 — LOCALS THE *PLAN* DECLARES, WHICH `Locals` ABOVE STRUCTURALLY CANNOT HOLD. A method-body
+    // plan is built with no `ILGenerator` in reach: the executor materialises each plan local with
+    // `ILGenerator.DeclareLocal` at replay, in pool order, so no `LocalBuilder` exists while the body is
+    // being planned. The statement loop publishes one entry here per claimed `:=`, and the sole
+    // identifier owner resolves later reads of that name from here. Empty on every schema-v3 path —
+    // nothing but the method-body driver ever writes it — so the visibility predicates below that
+    // consult it are unchanged for the recursive expression schemas.
+    PlanLocals: Dictionary<string, (Index: int, ValueType: Type)>
     Enums: Dictionary<string, ColumnarEnumDef>
     LiftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>
     BoxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>
@@ -55,6 +63,7 @@ class ColumnarFragmentBindings {
         ParameterOrdinals = parameterOrdinals
         ParameterTypes = parameterTypes
         Locals = locals
+        PlanLocals = new Dictionary<string, (Index: int, ValueType: Type)>(StringComparer.Ordinal)
         Enums = enums
         LiftedLocals = new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
         BoxedCaptures = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
@@ -301,7 +310,28 @@ class ColumnarFragmentBindings {
     // a delegate invoke or reports the ambiguous method/value collision, so the direct-call planner
     // must yield the whole subtree for that legacy handling.
     func IsSiblingShadowedByValue(name: string): bool {
-        return Locals.ContainsKey(name) || ParameterOrdinals.ContainsKey(name) || LiftedLocals.ContainsKey(name) || BoxedCaptures.ContainsKey(name)
+        return Locals.ContainsKey(name) || PlanLocals.ContainsKey(name) || ParameterOrdinals.ContainsKey(name) || LiftedLocals.ContainsKey(name) || BoxedCaptures.ContainsKey(name)
+    }
+
+    // 015-B6 — EVERY NAME A BODY'S OWN CODE CAN SEE, INCLUDING THE ONES THE PLAN ITSELF DECLARED. This
+    // is the N# counterpart of the emitter's `IsVisibleBindingName`, with the plan-local tier added:
+    // the statement loop asks it before it declares a `:=`, because re-binding a visible name is the
+    // pipeline's NL316 and the driver must decline rather than shadow.
+    func IsVisibleBindingName(name: string): bool {
+        return Locals.ContainsKey(name) || PlanLocals.ContainsKey(name) || ParameterOrdinals.ContainsKey(name) || LiftedLocals.ContainsKey(name) || BoxedCaptures.ContainsKey(name) || ContainsName(enclosingNames, name)
+    }
+
+    // Publish one plan-declared local. The pool index and the value type are the plan's own facts; the
+    // name is the source binding. Refusing an overlap here rather than overwriting is deliberate — a
+    // second binding of a visible name is a DRIVER defect, not a shadowing rule to model.
+    func DeclarePlanLocal(name: string, index: int, valueType: Type) {
+        if name == null || name.Length == 0 || index < 0 || valueType == null {
+            throw new InvalidOperationException("A plan-declared local requires a non-empty name, a pool index and a value type.")
+        }
+        if IsVisibleBindingName(name) {
+            throw new InvalidOperationException("A plan-declared local cannot rebind a name the body can already see.")
+        }
+        PlanLocals[name] = (Index: index, ValueType: valueType)
     }
 
     func HasParameterOrdinal(ordinal: int): bool {
@@ -315,7 +345,7 @@ class ColumnarFragmentBindings {
     }
 
     func IsValueBinding(name: string): bool {
-        return Locals.ContainsKey(name) || ParameterOrdinals.ContainsKey(name) || ParameterTypes.ContainsKey(name) || IsBlocked(name) || HasCurrentInstanceValue(name)
+        return Locals.ContainsKey(name) || PlanLocals.ContainsKey(name) || ParameterOrdinals.ContainsKey(name) || ParameterTypes.ContainsKey(name) || IsBlocked(name) || HasCurrentInstanceValue(name)
     }
 
     func HasCurrentInstanceValue(name: string): bool {

@@ -642,8 +642,15 @@ class ColumnarPrimitiveBinaryPlanner {
 
     static func ValidateAppendInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int) {
         ValidateRootInputs(nodes, source, node, bindings, handles, plan)
-        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
-            throw new InvalidOperationException("Primitive binary expressions can only append to an open schema-v3 plan.")
+        // 015-B6: a schema-v4 METHOD BODY is admitted alongside v3. This gate threw — a hard crash out
+        // of the compiler, not a decline — on every method-body plan, and ALL NINE owners that carried
+        // it were widened in ONE move because the value surface routes by operand kind: admitting a
+        // subset would mean pre-scanning operands to predict which owner they reach, which is a second
+        // copy of the dispatcher's own decision.
+        // Its two operands recurse through the shared value dispatcher, so it could not be
+        // admitted alone.
+        if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Primitive binary expressions can only append to an open schema-v3 or method-body plan.")
         }
         if parentFragment < 0 || parentFragment >= plan.FragmentCount || plan.FragmentCompleted == null || plan.FragmentCompleted.Length <= parentFragment || plan.FragmentCompleted[parentFragment] {
             throw new InvalidOperationException("Primitive binary expressions require an open parent expression fragment.")

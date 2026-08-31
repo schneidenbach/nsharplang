@@ -4,11 +4,17 @@ import System
 import System.Reflection
 import System.Reflection.Emit
 
+
+// The storage tiers a bare identifier can name. `Local` and `PlanLocal` are the same source-level
+// thing and two different handles: `Local` is an AMBIENT `LocalBuilder` the emitter already created,
+// while `PlanLocal` (015-B6) is a slot the PLAN declared and the executor materialises at replay,
+// which is the only tier a method-body plan can create for itself.
 enum ColumnarBoundIdentifierKind {
     None,
     BoxedCapture,
     LiftedLocal,
     Local,
+    PlanLocal,
     Parameter,
     ByRefParameter,
     CurrentField,
@@ -19,6 +25,10 @@ class ColumnarBoundIdentifierSelection {
     Kind: ColumnarBoundIdentifierKind
     ResultType: Type
     Ordinal: int
+    // The plan's own local-pool index for a `PlanLocal` selection, and -1 for every other kind.
+    // It is deliberately NOT folded into `Ordinal`: that field is an ARGUMENT ordinal, and one
+    // integer meaning two different addressing spaces is how a wrong slot becomes a silent read.
+    PlanLocalIndex: int
     Local: LocalBuilder?
     FirstField: FieldInfo?
     ValueField: FieldInfo?
@@ -27,10 +37,11 @@ class ColumnarBoundIdentifierSelection {
     CurrentInstanceType: Type?
     CurrentInstanceIsAddress: bool
 
-    constructor(kind: ColumnarBoundIdentifierKind, resultType: Type, ordinal: int, local: LocalBuilder?, firstField: FieldInfo?, valueField: FieldInfo?, getter: MethodInfo?, declaringType: Type?, currentInstanceType: Type?, currentInstanceIsAddress: bool) {
+    constructor(kind: ColumnarBoundIdentifierKind, resultType: Type, ordinal: int, planLocalIndex: int, local: LocalBuilder?, firstField: FieldInfo?, valueField: FieldInfo?, getter: MethodInfo?, declaringType: Type?, currentInstanceType: Type?, currentInstanceIsAddress: bool) {
         Kind = kind
         ResultType = resultType
         Ordinal = ordinal
+        PlanLocalIndex = planLocalIndex
         Local = local
         FirstField = firstField
         ValueField = valueField
@@ -72,7 +83,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        if bindings.BoxedCaptures.ContainsKey(name) || bindings.LiftedLocals.ContainsKey(name) || bindings.Locals.ContainsKey(name) || bindings.IsBlocked(name) {
+        if bindings.BoxedCaptures.ContainsKey(name) || bindings.LiftedLocals.ContainsKey(name) || bindings.Locals.ContainsKey(name) || bindings.PlanLocals.ContainsKey(name) || bindings.IsBlocked(name) {
             return true
         }
 
@@ -158,9 +169,11 @@ class ColumnarBoundIdentifierPlanner {
         // This is the SAME widening `ColumnarScalarLiteralPlanner.ValidateAppendInputs` took, in the
         // second owner that hit the same wall, and it is what lets an ordinary method body reach the
         // ONE owner of lexical identifier reads instead of growing a second copy of the decision.
-        // Only the Parameter arm is reachable from a method body today — `ColumnarMethodBodyPlanner`
-        // resolves first and claims that selection kind alone, so the other six arms stay v3-only
-        // until each gets its own byte-level corpus diff.
+        // FIVE of the eight arms are reachable from a method body — `ColumnarMethodBodyPlanner`
+        // resolves first and filters — and each of the five arrived with its own byte-level corpus
+        // diff: Parameter (015-B4), ByRefParameter/CurrentField/CurrentProperty (015-B5), PlanLocal
+        // (015-B6). `Local` is not among them and cannot be: it names a `LocalBuilder` the driver has
+        // no `ILGenerator` with which to create.
         if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
             throw new InvalidOperationException("Bound-identifier append requires an open schema-v3 or method-body plan.")
         }
@@ -193,6 +206,14 @@ class ColumnarBoundIdentifierPlanner {
             localIndex := plan.AddAmbientLocal(RequiredLocal(selection.Local, "Local selection has no local."))
 
             plan.AppendAmbientLocalInstruction(ColumnarCodePlanContract.Ldloc(), localIndex)
+        } else if selection.Kind == ColumnarBoundIdentifierKind.PlanLocal {
+            // A PLAN-DECLARED local read (015-B6). There is no pool entry to add: the slot was
+            // declared when the statement loop claimed its `:=`, and the executor turns it into a
+            // real `LocalBuilder` — in pool order, before the first row replays — with the same
+            // `ILGenerator.DeclareLocal` the emitter would have called. One `ldloc` row over the
+            // pool index is therefore the identical instruction, including its short form, which
+            // `ILGenerator.Emit(OpCode, LocalBuilder)` selects from the slot ordinal on both paths.
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), selection.PlanLocalIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.Parameter {
             argumentIndex := GetOrAddArgument(plan, selection.Ordinal, selection.ResultType, false)
 
@@ -416,6 +437,7 @@ class ColumnarBoundIdentifierPlanner {
         hasBoxed := bindings.BoxedCaptures.ContainsKey(name)
         hasLifted := bindings.LiftedLocals.ContainsKey(name)
         hasLocal := bindings.Locals.ContainsKey(name)
+        hasPlanLocal := bindings.PlanLocals.ContainsKey(name)
         hasOrdinal := bindings.ParameterOrdinals.ContainsKey(name)
         hasParameterType := bindings.ParameterTypes.ContainsKey(name)
         if hasOrdinal != hasParameterType {
@@ -423,6 +445,29 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         hasParameter := hasOrdinal
+
+        // 015-B6 — THE PLAN-DECLARED TIER, AND ITS OVERLAP IS A DEFECT RATHER THAN A SHADOWING RULE.
+        // `ColumnarFragmentBindings.DeclarePlanLocal` refuses to publish a name the body can already
+        // see, so a name in BOTH the plan-local map and any other tier means the driver published
+        // through some other route. Say so loudly instead of silently preferring one storage handle.
+        if hasPlanLocal {
+            if hasBoxed || hasLifted || hasLocal || hasParameter {
+                throw new InvalidOperationException("A plan-declared local cannot overlap another live value binding.")
+            }
+
+            planLocal := bindings.PlanLocals[name]
+            planLocalIndex := planLocal.Item1
+            planLocalType := planLocal.Item2
+            if planLocalIndex < 0 || planLocalType == null {
+                throw new InvalidOperationException("Plan-declared-local facts must identify a pool index and a value type.")
+            }
+
+            RequireStorableValueType(planLocalType, "Plan-declared-local facts must identify a storable local.")
+
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.PlanLocal, planLocalType, -1, planLocalIndex, null, null, null, null, null, null, false)
+
+            return true
+        }
 
         if hasBoxed {
             if hasLifted || hasLocal || hasParameter {
@@ -442,7 +487,7 @@ class ColumnarBoundIdentifierPlanner {
             }
 
             valueField := ResolveStrongBoxValueField(boxField.get_FieldType(), valueType)
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BoxedCapture, valueType, -1, null, boxField, valueField, null, null, currentInstanceType, false)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BoxedCapture, valueType, -1, -1, null, boxField, valueField, null, null, currentInstanceType, false)
 
             return true
         }
@@ -464,7 +509,7 @@ class ColumnarBoundIdentifierPlanner {
             }
 
             valueField := ResolveStrongBoxValueField(boxLocal.get_LocalType(), valueType)
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.LiftedLocal, valueType, -1, boxLocal, null, valueField, null, null, null, false)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.LiftedLocal, valueType, -1, -1, boxLocal, null, valueField, null, null, null, false)
 
             return true
         }
@@ -482,7 +527,7 @@ class ColumnarBoundIdentifierPlanner {
             localType := local.get_LocalType()
             RequireStorableValueType(localType, "Ordinary-local facts must identify a storable local.")
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.Local, localType, -1, local, null, null, null, null, null, false)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.Local, localType, -1, -1, local, null, null, null, null, null, false)
 
             return true
         }
@@ -509,14 +554,14 @@ class ColumnarBoundIdentifierPlanner {
                     return false
                 }
 
-                selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.ByRefParameter, elementType, ordinal, null, null, null, null, null, null, false)
+                selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.ByRefParameter, elementType, ordinal, -1, null, null, null, null, null, null, false)
 
                 return true
             }
 
             RequireStorableValueType(parameterType, "Ordinary-parameter facts must identify a storable value type.")
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.Parameter, parameterType, ordinal, null, null, null, null, null, null, false)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.Parameter, parameterType, ordinal, -1, null, null, null, null, null, null, false)
 
             return true
         }
@@ -568,7 +613,7 @@ class ColumnarBoundIdentifierPlanner {
             fieldType := selectedField.get_FieldType()
             RequireStorableValueType(fieldType, "Current-instance field facts must identify a storable value type.")
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentField, fieldType, 0, null, selectedField, null, null, selectedDeclaringType, receiverType, !root.IsReference)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentField, fieldType, 0, -1, null, selectedField, null, null, selectedDeclaringType, receiverType, !root.IsReference)
 
             return true
         }
@@ -589,7 +634,7 @@ class ColumnarBoundIdentifierPlanner {
                 selectedDeclaringType = receiverType
             }
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentProperty, propertyType, 0, null, null, null, selectedGetter, selectedDeclaringType, receiverType, !root.IsReference)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentProperty, propertyType, 0, -1, null, null, null, selectedGetter, selectedDeclaringType, receiverType, !root.IsReference)
 
             return true
         }
@@ -741,7 +786,7 @@ class ColumnarBoundIdentifierPlanner {
     }
 
     static func EmptySelection(): ColumnarBoundIdentifierSelection {
-        return new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.None, typeof(int), -1, null, null, null, null, null, null, false)
+        return new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.None, typeof(int), -1, -1, null, null, null, null, null, null, false)
     }
 
     static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {

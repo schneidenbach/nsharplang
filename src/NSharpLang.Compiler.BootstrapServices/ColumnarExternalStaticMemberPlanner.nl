@@ -66,8 +66,14 @@ class ColumnarExternalStaticMemberPlanner {
             return false
         }
 
-        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
-            throw new InvalidOperationException("External static-member append requires an open schema-v3 plan.")
+        // 015-B6: a schema-v4 METHOD BODY is admitted alongside v3. This gate threw — a hard crash out
+        // of the compiler, not a decline — on every method-body plan, and ALL NINE owners that carried
+        // it were widened in ONE move because the value surface routes by operand kind: admitting a
+        // subset would mean pre-scanning operands to predict which owner they reach, which is a second
+        // copy of the dispatcher's own decision.
+        // It appends a static load and recurses into nothing, but its callers are composites.
+        if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("External static-member append requires an open schema-v3 or method-body plan.")
         }
 
         ownerName := ""

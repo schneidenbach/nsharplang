@@ -440,3 +440,93 @@ test "the expression door claims a by-ref parameter read and derefs it" {
     DriverRefBump(ref v)
     assert DriverRefRead(ref v) == 64
 }
+
+
+// ---- 015-B6: the two composite classes, and the statement loop, in real source -------------------
+//
+// The nine owner gates that THREW on a method-body plan are open, and these are the bodies that prove
+// it in compiled source rather than in a hand-built node table. `~3` is a true COMPOSITE: its owner
+// opens a nested operand fragment inside the door's root fragment and recurses into the scalar-literal
+// owner. The declaration bodies below are the first ones whose RETURN reads a name the DRIVER created.
+//
+// ⚠ `func DriverNegative(): int { return -5 }` IS DELIBERATELY ABSENT, AND ITS ABSENCE IS THE FINDING.
+// The host's kind-20 arm ADOPTS a unary minus over an unsuffixed integer literal and emits the value
+// PRE-NEGATED — `ldc.i4.s -5`, with no `neg` row — on every signed target including `int`. `015-B5`
+// recorded those pre-passes as provably unreached under type equality; that holds for the POSITIVE
+// adoption arm and fails for the negative one, and a corpus byte diff is what found it. The door
+// refuses that one shape in RETURN position and claims it as an INITIALIZER, which is exactly what
+// `DriverDeclaredNegative` below is.
+
+func DriverBitNot(): int {
+    return ~3
+}
+
+func DriverNotTrue(): bool {
+    return !true
+}
+
+func DriverNegFloat(): double {
+    return -2.5
+}
+
+func DriverNameOf(count: int): string {
+    return nameof(count)
+}
+
+func DriverDeclared(): int {
+    x := 11
+    return x
+}
+
+func DriverDeclaredChain(): int {
+    a := 13
+    b := a
+    return b
+}
+
+func DriverDeclaredNegative(): int {
+    n := -17
+    return n
+}
+
+func DriverDeclaredFromParameter(p: int): int {
+    q := p
+    return q
+}
+
+// TWO composite statements in one body — two ROOT fragments on one method-body plan, which the
+// single-root rule refused outright before this slice.
+func DriverTwoComposites(): int {
+    n := -19
+    return ~21
+}
+
+class DriverDeclaringMember {
+    Count: int
+
+    constructor(count: int) {
+        Count = count
+    }
+
+    func ReadDeclared(): int {
+        z := Count
+        return z
+    }
+}
+
+test "the expression door claims both composite classes in real source" {
+    assert DriverBitNot() == -4
+    assert !DriverNotTrue()
+    assert DriverNegFloat() == -2.5
+    assert DriverNameOf(0) == "count"
+}
+
+test "the statement loop claims a declaration and the return that reads it in real source" {
+    assert DriverDeclared() == 11
+    assert DriverDeclaredChain() == 13
+    assert DriverDeclaredNegative() == -17
+    assert DriverDeclaredFromParameter(51) == 51
+    assert DriverTwoComposites() == -22
+    member := new DriverDeclaringMember(29)
+    assert member.ReadDeclared() == 29
+}

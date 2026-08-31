@@ -1038,18 +1038,21 @@ test "the expression door partitions its whole kind ledger with no hole and no o
         i = i + 1
     }
 
-    // SIX claimed kinds: the four scalar-literal kinds, bool, and identifier. The count is pinned so a
-    // widening cannot arrive without a block that says what it claims.
-    assert claimed == 6
+    // EIGHT claimed kinds: the four scalar-literal kinds, bool, identifier, and — since 015-B6 — the
+    // two composites whose owners the emitter reaches through their own facade ahead of the value
+    // cascade. The count is pinned so a widening cannot arrive without a block that says what it claims.
+    assert claimed == 8
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.StringLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BoolLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IdentifierExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.UnaryExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.NameOfExpression())
 
-    // The composites the nine un-widened owner gates would THROW on are declined, one by one — the
-    // shapes a body most often returns, and the ones B6 unlocks.
+    // The composites that remain declined are declined one by one. Their gates are open now; what
+    // holds them back is the emitter's ELEVEN-ARM root cascade, which a claim must enter arm by arm.
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CallExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NewExpression())
@@ -1203,17 +1206,22 @@ test "the expression door claims a current property and picks the call form from
 
 // ---- BLOCK 14 — THE SELECTION FILTER, BOTH WAYS ----
 //
-// The door claims FOUR of the owner's seven selection kinds. The filter is asked directly, in both
-// directions, so a widening that quietly admits all seven breaks here rather than in a corpus nobody
-// has an instance in. THE THREE UNCLAIMED ONES ARE UNREACHABLE, NOT UNTRUSTED: `Local` needs a
-// preceding declaration statement, `LiftedLocal` needs a lambda to lift into, and `BoxedCapture` needs
-// a closure display frame. A body whose whole content is `return <identifier>` can hold none of them,
-// which is why claiming them would be a claim no corpus could exercise in either direction.
-test "the identifier filter claims exactly four selection kinds and refuses the other three" {
+// The door claims FIVE of the owner's eight selection kinds. The filter is asked directly, in both
+// directions, so a widening that quietly admits all eight breaks here rather than in a corpus nobody
+// has an instance in.
+//
+// ⚠ `Local` IS STILL REFUSED AFTER THE STATEMENT LOOP LANDED, WHICH IS THE OPPOSITE OF WHAT `015-B5`
+// PREDICTED. B5 recorded `Local` as arriving "with the statement loop". It did not: `Local` names an
+// AMBIENT `LocalBuilder` the emitter already made, and the driver never holds an `ILGenerator` with
+// which to make one. The loop's locals live in the PLAN's pool and resolve as `PlanLocal`. The other
+// two unclaimed kinds are unreachable rather than untrusted — `LiftedLocal` needs a lambda to lift
+// into and `BoxedCapture` needs a closure display frame, and no claimed kind can contain a lambda.
+test "the identifier filter claims exactly five selection kinds and refuses the other three" {
     assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.Parameter)
     assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.ByRefParameter)
     assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.CurrentField)
     assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.CurrentProperty)
+    assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.PlanLocal)
 
     assert !ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.Local)
     assert !ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(ColumnarBoundIdentifierKind.LiftedLocal)
@@ -1231,4 +1239,584 @@ test "the identifier filter claims exactly four selection kinds and refuses the 
     localType := typeof(int)
     assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(localNodes, "n", 2, localBindings, untouched, out localType)
     assert untouched.OperationCount == 0
+}
+
+
+// ---- 015-B6 — THE NINE-OWNER GATE WIDENING AND THE STATEMENT LOOP ----
+//
+// THREE THINGS LAND HERE, AND EACH OVERTURNED ITS BRIEF.
+//
+// 1. NINE OWNER GATES asserted an open schema-v3 plan and THREW on a method body — a hard crash out of
+//    the compiler rather than a decline. They were widened in ONE move, because the value surface
+//    routes by operand kind and admitting a subset would mean pre-scanning operands to predict which
+//    owner they reach, which is a second copy of the dispatcher's own decision. Each gets its own block
+//    below: the append entry must DECLINE on a method-body plan and still THROW on the recursive
+//    schema, so a gate that quietly loses its schema test breaks exactly one block.
+//
+// 2. THE STATEMENT LOOP could not publish the binding the brief described. `ColumnarFragmentBindings.Locals`
+//    is a `Dictionary<string, LocalBuilder>`, and a plan is built with no `ILGenerator` in reach — the
+//    executor materialises locals at replay. So the published binding is a PLAN-LOCAL, and the sole
+//    identifier owner gained a selection tier for it rather than the driver growing a second resolver.
+//
+// 3. THE FRAGMENT RULE resolved to MANY ROOTS rather than one spanning fragment, and by measurement
+//    rather than taste: the v4 validator and the v4 executor never read a fragment column at all, and
+//    `CompleteFragment` refuses a void result outside a schema-v3 root fragment, so a body-spanning
+//    root is not even expressible for the void arity.
+
+// ---- shared fixtures ----
+
+// A method-body plan with ONE open root fragment — what the owners whose gates also demand an open
+// fragment need before their append entry may be called at all.
+func MethodBodyFactsOpenRootMethodBody(): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    plan.BeginFragment(-1, ColumnarExpressionNodeKind.BinaryExpression(), 0)
+    return plan
+}
+
+func MethodBodyFactsOpenRootRecursive(): ColumnarCodePlan {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV2()
+    plan.BeginFragment(-1, ColumnarExpressionNodeKind.BinaryExpression(), 0)
+    return plan
+}
+
+func MethodBodyFactsHandles(): ColumnarRangeIndexHandles {
+    return ColumnarRangeIndexHandles.Resolve()
+}
+
+// `{ return <operator><literal> }` — a UNARY composite: the operator node owns a nested operand
+// fragment, and the operand is a scalar literal.
+func MethodBodyFactsUnaryBody(operatorText: string, literalKind: int, literalText: string): ColumnarNodeTable {
+    kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.UnaryExpression(), literalKind)
+    childCounts := MethodBodyFactsInts4(1, 1, 1, 0)
+    children := MethodBodyFactsInts3(1, 2, 3)
+    valueStarts := MethodBodyFactsInts4(0, 0, 0, operatorText.Length)
+    valueLengths := MethodBodyFactsInts4(0, 0, operatorText.Length, literalText.Length)
+    return MethodBodyFactsNodes(kinds, childCounts, children, valueStarts, valueLengths, operatorText.Length + literalText.Length)
+}
+
+// `{ return nameof(<name>) }` — the target is a bare identifier.
+func MethodBodyFactsNameOfBody(name: string, targetKind: int): ColumnarNodeTable {
+    kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.NameOfExpression(), targetKind)
+    childCounts := MethodBodyFactsInts4(1, 1, 1, 0)
+    children := MethodBodyFactsInts3(1, 2, 3)
+    valueStarts := MethodBodyFactsInts4(0, 0, 0, 0)
+    valueLengths := MethodBodyFactsInts4(0, 0, 0, name.Length)
+    return MethodBodyFactsNodes(kinds, childCounts, children, valueStarts, valueLengths, name.Length)
+}
+
+// `{ <name> := <literal>; return <name> }` — the smallest body that needs a binding the DRIVER made.
+func MethodBodyFactsDeclareThenReturnBody(name: string, literalKind: int, literalText: string): ColumnarNodeTable {
+    kinds := MethodBodyFactsInts5(25, 24, literalKind, 20, ColumnarExpressionNodeKind.IdentifierExpression())
+    childCounts := MethodBodyFactsInts5(2, 1, 0, 1, 0)
+    children := MethodBodyFactsInts4(1, 3, 2, 4)
+    valueStarts := MethodBodyFactsInts5(0, 0, name.Length, 0, 0)
+    valueLengths := MethodBodyFactsInts5(0, name.Length, literalText.Length, 0, name.Length)
+    return MethodBodyFactsNodes(kinds, childCounts, children, valueStarts, valueLengths, name.Length + literalText.Length)
+}
+
+// `{ a := <literal>; b := a; return b }` — the shape that proves a LATER statement consumes what an
+// EARLIER one published, which is the whole point of the loop.
+func MethodBodyFactsDeclareChainBody(first: string, second: string, literalText: string): ColumnarNodeTable {
+    kinds := MethodBodyFactsInts7(25, 24, 0, 24, ColumnarExpressionNodeKind.IdentifierExpression(), 20, ColumnarExpressionNodeKind.IdentifierExpression())
+    childCounts := MethodBodyFactsInts7(3, 1, 0, 1, 0, 1, 0)
+    children := MethodBodyFactsInts6(1, 3, 5, 2, 4, 6)
+    firstStart := 0
+    secondStart := first.Length
+    literalStart := first.Length + second.Length
+    valueStarts := MethodBodyFactsInts7(0, firstStart, literalStart, secondStart, firstStart, 0, secondStart)
+    valueLengths := MethodBodyFactsInts7(0, first.Length, literalText.Length, second.Length, first.Length, 0, second.Length)
+    return MethodBodyFactsNodes(kinds, childCounts, children, valueStarts, valueLengths, first.Length + second.Length + literalText.Length)
+}
+
+// `{ a := <op><literal>; return <op><literal> }` — TWO composite statements, therefore TWO root
+// fragments in one method-body plan. This is the shape the single-root rule refused before this slice.
+// The two operators are separate parameters because the RETURN position cannot carry `-` over an
+// integer literal: the host's kind-20 arm adopts that shape itself.
+func MethodBodyFactsTwoCompositeBody(name: string, firstOperator: string, firstText: string, secondOperator: string, secondText: string): ColumnarNodeTable {
+    kinds := MethodBodyFactsInts7(25, 24, ColumnarExpressionNodeKind.UnaryExpression(), 0, 20, ColumnarExpressionNodeKind.UnaryExpression(), 0)
+    childCounts := MethodBodyFactsInts7(2, 1, 1, 0, 1, 1, 0)
+    children := MethodBodyFactsInts6(1, 4, 2, 3, 5, 6)
+    firstOperatorAt := name.Length
+    firstAt := firstOperatorAt + firstOperator.Length
+    secondOperatorAt := firstAt + firstText.Length
+    secondAt := secondOperatorAt + secondOperator.Length
+    valueStarts := MethodBodyFactsInts7(0, 0, firstOperatorAt, firstAt, 0, secondOperatorAt, secondAt)
+    valueLengths := MethodBodyFactsInts7(0, name.Length, firstOperator.Length, firstText.Length, 0, secondOperator.Length, secondText.Length)
+    return MethodBodyFactsNodes(kinds, childCounts, children, valueStarts, valueLengths, secondAt + secondText.Length)
+}
+
+func MethodBodyFactsInts7(a: int, b: int, c: int, d: int, e: int, f: int, g: int): int[] {
+    result := new int[](7)
+    result[0] = a
+    result[1] = b
+    result[2] = c
+    result[3] = d
+    result[4] = e
+    result[5] = f
+    result[6] = g
+    return result
+}
+
+
+// ---- BLOCKS 22-30 — THE NINE GATES, ONE BLOCK EACH ----
+//
+// Every block asks the SAME two questions of one owner: does its append entry reach its own logic on a
+// method-body plan (decline, not crash), and does it still refuse the recursive schema? The inputs are
+// deliberately shaped to be DECLINED on their merits, because what is under test is the GATE and not
+// the owner. Before this slice every one of these was `assert throws` on both sides.
+
+test "the construction owner's gate admits a method body and still refuses the recursive schema" {
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.NewExpression(), 0)
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacy := false
+    resultType := typeof(int)
+    body := MethodBodyFactsOpenRootMethodBody()
+    assert !ColumnarConstructionPlanner.TryAppend(nodes, "n", 0, MethodBodyFactsEmptyBindings(), MethodBodyFactsHandles(), body, 0, 0, out ownership, out legacy, out resultType)
+    assert body.OperationCount == 0
+
+    recursive := MethodBodyFactsOpenRootRecursive()
+    assert throws InvalidOperationException {
+        ColumnarConstructionPlanner.TryAppend(nodes, "n", 0, MethodBodyFactsEmptyBindings(), MethodBodyFactsHandles(), recursive, 0, 0, out ownership, out legacy, out resultType)
+    }
+}
+
+test "the direct-call owner's gate admits a method body and still refuses the recursive schema" {
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.CallExpression(), 1)
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacy := false
+    resultType := typeof(int)
+    body := MethodBodyFactsOpenRootMethodBody()
+    assert !ColumnarDirectCallPlanner.TryAppendCall(nodes, "f", 0, MethodBodyFactsEmptyBindings(), MethodBodyFactsHandles(), body, 0, 0, out ownership, out legacy, out resultType)
+    assert body.OperationCount == 0
+
+    recursive := MethodBodyFactsOpenRootRecursive()
+    assert throws InvalidOperationException {
+        ColumnarDirectCallPlanner.TryAppendCall(nodes, "f", 0, MethodBodyFactsEmptyBindings(), MethodBodyFactsHandles(), recursive, 0, 0, out ownership, out legacy, out resultType)
+    }
+}
+
+test "the external static-member owner's gate admits a method body and still refuses the recursive schema" {
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.MemberAccessExpression(), 1)
+    resultType := typeof(int)
+    body := MethodBodyFactsOpenRootMethodBody()
+    assert !ColumnarExternalStaticMemberPlanner.TryAppendStaticMember(nodes, "m", 0, MethodBodyFactsEmptyBindings(), body, out resultType)
+    assert body.OperationCount == 0
+
+    recursive := MethodBodyFactsOpenRootRecursive()
+    assert throws InvalidOperationException {
+        ColumnarExternalStaticMemberPlanner.TryAppendStaticMember(nodes, "m", 0, MethodBodyFactsEmptyBindings(), recursive, out resultType)
+    }
+}
+
+test "the instance-member owner's gate admits a method body and still refuses the recursive schema" {
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.MemberAccessExpression(), 1)
+    resultType := typeof(int)
+    body := MethodBodyFactsOpenRootMethodBody()
+    assert !ColumnarInstanceMemberPlanner.TryAppend(nodes, "m", 0, MethodBodyFactsEmptyBindings(), body, 0, out resultType)
+    assert body.OperationCount == 0
+
+    recursive := MethodBodyFactsOpenRootRecursive()
+    assert throws InvalidOperationException {
+        ColumnarInstanceMemberPlanner.TryAppend(nodes, "m", 0, MethodBodyFactsEmptyBindings(), recursive, 0, out resultType)
+    }
+}
+
+test "the nameof owner's gate admits a method body and still refuses the recursive schema" {
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.NameOfExpression(), 0)
+    resultType := typeof(string)
+    body := MethodBodyFactsOpenRootMethodBody()
+    assert !ColumnarNameOfPlanner.TryAppendNameOf(nodes, "n", 0, body, out resultType)
+    assert body.OperationCount == 0
+
+    recursive := MethodBodyFactsOpenRootRecursive()
+    assert throws InvalidOperationException {
+        ColumnarNameOfPlanner.TryAppendNameOf(nodes, "n", 0, recursive, out resultType)
+    }
+}
+
+test "the nullable-argument lowering's gate admits a method body and still refuses the recursive schema" {
+    body := MethodBodyFactsOpenRootMethodBody()
+    assert !ColumnarNullableArgumentLowering.TryAppendValueLift(body, typeof(int), typeof(string))
+    assert body.OperationCount == 0
+
+    recursive := MethodBodyFactsOpenRootRecursive()
+    assert throws InvalidOperationException {
+        ColumnarNullableArgumentLowering.TryAppendValueLift(recursive, typeof(int), typeof(string))
+    }
+}
+
+test "the unary-literal owner's gate admits a method body and still refuses the recursive schema" {
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.UnaryExpression(), 0)
+    resultType := typeof(int)
+    body := MethodBodyFactsOpenRootMethodBody()
+    assert !ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(nodes, "-", 0, body, 0, out resultType)
+    assert body.OperationCount == 0
+
+    recursive := MethodBodyFactsOpenRootRecursive()
+    assert throws InvalidOperationException {
+        ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(nodes, "-", 0, recursive, 0, out resultType)
+    }
+}
+
+test "the primitive-binary owner's gate admits a method body and still refuses the recursive schema" {
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.BinaryExpression(), 0)
+    resultType := typeof(int)
+    nestedOwnership := ColumnarDirectCallOwnership.NotOwned
+    body := MethodBodyFactsOpenRootMethodBody()
+    assert !ColumnarPrimitiveBinaryPlanner.TryAppend(nodes, "+", 0, MethodBodyFactsEmptyBindings(), MethodBodyFactsHandles(), body, 0, 0, out resultType, out nestedOwnership)
+    assert body.OperationCount == 0
+
+    recursive := MethodBodyFactsOpenRootRecursive()
+    assert throws InvalidOperationException {
+        ColumnarPrimitiveBinaryPlanner.TryAppend(nodes, "+", 0, MethodBodyFactsEmptyBindings(), MethodBodyFactsHandles(), recursive, 0, 0, out resultType, out nestedOwnership)
+    }
+}
+
+test "the typeof owner's gate admits a method body and still refuses the recursive schema" {
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.TypeOfExpression(), 1)
+    resultType := typeof(Type)
+    body := MethodBodyFactsOpenRootMethodBody()
+    assert !ColumnarTypeOfPlanner.TryAppendTypeOf(nodes, "t", 0, MethodBodyFactsEmptyBindings(), body, out resultType)
+    assert body.OperationCount == 0
+
+    recursive := MethodBodyFactsOpenRootRecursive()
+    assert throws InvalidOperationException {
+        ColumnarTypeOfPlanner.TryAppendTypeOf(nodes, "t", 0, MethodBodyFactsEmptyBindings(), recursive, out resultType)
+    }
+}
+
+
+// ---- BLOCK 31 — THE COMPOSED-INPUT PROBE: A COMPOSITE CLAIMS END TO END ----
+//
+// The nine widenings buy nothing until a composite actually claims, and `015-B5` refused to land them
+// for exactly that reason. This is the proof that they are not dead code: a UNARY over a scalar
+// literal makes its owner open a nested operand fragment INSIDE the root fragment on a method-body
+// plan and recurse into a second owner. Two fragments, three rows, one runnable body.
+test "the door claims a unary literal composite and nests its operand fragment on a method body" {
+    plan := new ColumnarCodePlan()
+    nodes := MethodBodyFactsUnaryBody("~", 0, "3")
+    assert MethodBodyFactsPlanBody(nodes, "~3", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), plan)
+
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Not()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+    assert plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+
+    // TWO fragments — the root the door opened and the operand fragment the owner nested under it.
+    // This is the fragment machinery running on a schema it had never run on before.
+    assert plan.FragmentCount == 2
+    assert plan.FragmentParentIndices[0] == -1
+    assert plan.FragmentParentIndices[1] == 0
+    assert plan.OpenFragmentCount == 0
+
+    method := MethodBodyFactsDynamicMethod("NSharpB6UnaryBody", typeof(int))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToInt32(method.Invoke(target, MethodBodyFactsNoArguments())) == -4
+
+    // A FLOAT operand negates through the same owner to a `neg` row, so the claim is the owner's and
+    // not one operator's — and a float child is outside the kind-20 arm's integer adoption entirely.
+    negPlan := new ColumnarCodePlan()
+    negNodes := MethodBodyFactsUnaryBody("-", 1, "2.5")
+    assert MethodBodyFactsPlanBody(negNodes, "-2.5", typeof(double), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), negPlan)
+    assert negPlan.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
+    assert negPlan.FragmentCount == 2
+
+    // And a unary whose operand is NOT a literal is refused by the owner, which rolls the root fragment
+    // back so the plan the driver hands on is untouched.
+    declined := new ColumnarCodePlan()
+    declined.PrepareMethodBody()
+    declinedNodes := MethodBodyFactsUnaryBody("~", ColumnarExpressionNodeKind.IdentifierExpression(), "n")
+    declinedType := typeof(int)
+    assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(declinedNodes, "~n", 2, MethodBodyFactsEmptyBindings(), declined, out declinedType)
+    assert declined.OperationCount == 0
+    assert declined.FragmentCount == 0
+}
+
+// ---- BLOCK 31b — ⚠ THE RETURN POSITION IS NOT THE VALUE POSITION ----
+//
+// A BYTE DIFF FOUND THIS, NOT AN ARGUMENT, and it overturns `015-B5`'s reading of its own guard. B5
+// recorded the kind-20 arm's seven target-typed pre-passes as "provably unreached" because the claim
+// rule is type EQUALITY. That holds for `TryEmitIntLiteralAsType`'s POSITIVE arm, which claims only
+// byte/sbyte/short/ushort/uint/long/ulong — and fails for its NEGATIVE arm, which takes a unary minus
+// over an unsuffixed decimal integer literal on EVERY signed target, `int` included, and emits the
+// value PRE-NEGATED with no `neg` row at all.
+//
+// The host's kind-24 arm runs no pre-pass, so the same shape is claimable as an INITIALIZER and refused
+// as a RETURN. Both directions are asserted here, because one door serving two positions is precisely
+// the mistake the diff caught.
+test "the return door refuses the shape the kind-20 arm adopts and the initializer door claims it" {
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5"), "-5", 2)
+    // A FLOAT child, a different operator, and a bare literal are all outside the adopted shape.
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 1, "2.5"), "-2.5", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("~", 0, "3"), "~3", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsLiteralBody(0, "5"), "5", 2)
+
+    // AS A RETURN: refused, and the plan is untouched.
+    returnPlan := new ColumnarCodePlan()
+    returnNodes := MethodBodyFactsUnaryBody("-", 0, "5")
+    assert !MethodBodyFactsPlanBody(returnNodes, "-5", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), returnPlan)
+
+    // AS AN INITIALIZER: claimed, and it lowers to `ldc.i4 5; neg; stloc` — which is exactly what the
+    // host's own kind-24 arm writes, since it reaches the unary owner rather than an adoption pass.
+    initializerPlan := new ColumnarCodePlan()
+    initializerNodes := MethodBodyFactsTwoCompositeBody("n", "-", "19", "~", "3")
+    assert MethodBodyFactsPlanBody(initializerNodes, "n-19~3", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), initializerPlan)
+    assert initializerPlan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert initializerPlan.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
+    assert initializerPlan.OpCodeValues[2] == ColumnarCodePlanContract.Stloc()
+}
+
+// ---- BLOCK 32 — THE SECOND COMPOSITE ARM ----
+//
+// `nameof` is the other owner whose gate the emitter reaches through its OWN facade ahead of the value
+// cascade, so its claim is byte-identical against a single owner. Its gate demands an open fragment as
+// well as the right schema, and the door's root fragment is what supplies one.
+test "the door claims a nameof composite on a method body and refuses an unnamed target" {
+    plan := new ColumnarCodePlan()
+    nodes := MethodBodyFactsNameOfBody("total", ColumnarExpressionNodeKind.IdentifierExpression())
+    assert MethodBodyFactsPlanBody(nodes, "total", typeof(string), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), plan)
+
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
+    assert plan.StringCount == 1
+    assert plan.StringValues[0] == "total"
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ret()
+    assert plan.FragmentCount == 1
+
+    method := MethodBodyFactsDynamicMethod("NSharpB6NameOfBody", typeof(string))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToString(method.Invoke(target, MethodBodyFactsNoArguments()), CultureInfo.InvariantCulture) == "total"
+
+    // A `nameof` whose target is a literal is not a name at all — declined, plan untouched.
+    declined := new ColumnarCodePlan()
+    declined.PrepareMethodBody()
+    declinedNodes := MethodBodyFactsNameOfBody("7", 0)
+    declinedType := typeof(string)
+    assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(declinedNodes, "7", 2, MethodBodyFactsEmptyBindings(), declined, out declinedType)
+    assert declined.OperationCount == 0
+    assert declined.FragmentCount == 0
+}
+
+// ---- BLOCK 33 — THE FRAGMENT DECISION ----
+//
+// A method body is a sequence of INDEPENDENT expression trees, so its plan admits a NEW ROOT fragment
+// per tree; the recursive expression schemas still admit exactly one. The relaxation is narrow on
+// purpose: a new root is admitted only BETWEEN trees. With a fragment still open, a second root is the
+// same error it always was, so nothing inside one tree changed.
+test "a method-body plan admits many root fragments and the recursive schemas admit exactly one" {
+    body := new ColumnarCodePlan()
+    body.PrepareMethodBody()
+    first := body.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    assert first == 0
+    body.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    body.CompleteFragment(first, typeof(int))
+
+    second := body.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    assert second == 1
+    assert body.FragmentParentIndices[1] == -1
+    body.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    body.CompleteFragment(second, typeof(int))
+    assert body.FragmentCount == 2
+
+    // With a fragment OPEN, a second root is still refused on the method-body schema — the relaxation
+    // is between trees, never inside one.
+    nested := new ColumnarCodePlan()
+    nested.PrepareMethodBody()
+    nested.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    assert throws InvalidOperationException {
+        nested.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    }
+
+    // The scalar expression schema keeps the single-root rule exactly as it was.
+    scalar := new ColumnarCodePlan()
+    scalar.PrepareV3()
+    scalarRoot := scalar.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    scalar.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    scalar.CompleteFragment(scalarRoot, typeof(int))
+    assert throws InvalidOperationException {
+        scalar.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    }
+
+    // And so does the recursive schema.
+    recursive := new ColumnarCodePlan()
+    recursive.PrepareV2()
+    recursiveRoot := recursive.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    recursive.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    recursive.CompleteFragment(recursiveRoot, typeof(int))
+    assert throws InvalidOperationException {
+        recursive.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    }
+}
+
+// ---- BLOCK 34 — THE STATEMENT LOOP'S SMALLEST BODY ----
+//
+// `x := 5; return x` is the first body whose RETURN reads a name the DRIVER created. Four rows, one
+// plan local, and the executor turns that pool entry into a real slot before the first row replays.
+test "the statement loop claims a declaration and the return that reads it" {
+    plan := new ColumnarCodePlan()
+    nodes := MethodBodyFactsDeclareThenReturnBody("x", 0, "5")
+    assert MethodBodyFactsPlanBody(nodes, "x5", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), plan)
+
+    assert plan.OperationCount == 4
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Stloc()
+    assert plan.OperandKinds[1] == ColumnarCodePlanContract.PlanLocalOperand()
+    assert plan.OperandIndices[1] == 0
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ldloc()
+    assert plan.OperandKinds[2] == ColumnarCodePlanContract.PlanLocalOperand()
+    assert plan.OperandIndices[2] == 0
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Ret()
+
+    // ONE plan local, of the initializer's inferred type. No ambient local is touched — the driver has
+    // no `ILGenerator` with which to make one.
+    assert plan.PlanLocalCount == 1
+    assert plan.AmbientLocalCount == 0
+    assert plan.Types[plan.PlanLocalTypeIndices[0]] == typeof(int)
+
+    method := MethodBodyFactsDynamicMethod("NSharpB6DeclareBody", typeof(int))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToInt32(method.Invoke(target, MethodBodyFactsNoArguments())) == 5
+
+    // A string initializer takes the same two-row declaration through a different literal.
+    stringPlan := new ColumnarCodePlan()
+    stringNodes := MethodBodyFactsDeclareThenReturnBody("s", 3, "\"hi\"")
+    assert MethodBodyFactsPlanBody(stringNodes, "s\"hi\"", typeof(string), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), stringPlan)
+    assert stringPlan.PlanLocalCount == 1
+    assert stringPlan.Types[stringPlan.PlanLocalTypeIndices[0]] == typeof(string)
+    stringMethod := MethodBodyFactsDynamicMethod("NSharpB6DeclareStringBody", typeof(string))
+    ColumnarCodePlanExecutor.Execute(stringPlan, stringMethod.GetILGenerator())
+    stringTarget: object? = null
+    assert Convert.ToString(stringMethod.Invoke(stringTarget, MethodBodyFactsNoArguments()), CultureInfo.InvariantCulture) == "hi"
+}
+
+// ---- BLOCK 35 — A LATER STATEMENT CONSUMES WHAT AN EARLIER ONE PUBLISHED ----
+//
+// One declaration proves the plumbing; a CHAIN proves the loop. `b := a` resolves `a` through the sole
+// identifier owner's new plan-local tier, so the published binding is doing real work rather than
+// merely existing.
+test "the statement loop publishes bindings that later statements read" {
+    plan := new ColumnarCodePlan()
+    nodes := MethodBodyFactsDeclareChainBody("a", "b", "7")
+    assert MethodBodyFactsPlanBody(nodes, "ab7", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), plan)
+
+    assert plan.OperationCount == 6
+    assert plan.PlanLocalCount == 2
+    assert plan.OperandIndices[1] == 0
+    assert plan.OperandIndices[2] == 0
+    assert plan.OperandIndices[3] == 1
+    assert plan.OperandIndices[4] == 1
+    assert plan.OpCodeValues[5] == ColumnarCodePlanContract.Ret()
+
+    method := MethodBodyFactsDynamicMethod("NSharpB6DeclareChainBody", typeof(int))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToInt32(method.Invoke(target, MethodBodyFactsNoArguments())) == 7
+}
+
+// ---- BLOCK 36 — TWO COMPOSITE STATEMENTS, TWO ROOT FRAGMENTS, ONE BODY ----
+//
+// This is where the loop and the fragment relaxation meet. Before this slice the SECOND composite
+// statement threw "A recursive code-plan fragment must be nested under the current open fragment" out
+// of the compiler; now each expression tree gets its own root.
+test "the statement loop claims two composite statements in one method body" {
+    plan := new ColumnarCodePlan()
+    nodes := MethodBodyFactsTwoCompositeBody("n", "-", "4", "~", "9")
+    assert MethodBodyFactsPlanBody(nodes, "n-4~9", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), plan)
+
+    // FOUR roots-and-operands: the declaration's unary root plus its operand, and the return's.
+    assert plan.FragmentCount == 4
+    assert plan.FragmentParentIndices[0] == -1
+    assert plan.FragmentParentIndices[1] == 0
+    assert plan.FragmentParentIndices[2] == -1
+    assert plan.FragmentParentIndices[3] == 2
+    assert plan.OpenFragmentCount == 0
+    assert plan.OperationCount == 6
+
+    method := MethodBodyFactsDynamicMethod("NSharpB6TwoCompositeBody", typeof(int))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToInt32(method.Invoke(target, MethodBodyFactsNoArguments())) == -10
+}
+
+// ---- BLOCK 37 — THE DECLARATION REFUSES WHAT THE HOST REFUSES ----
+//
+// The host's kind-24 arm declines a name the body can already see (the pipeline's NL316) and an
+// initializer whose inferred type is off the supported surface. The driver must decline in exactly
+// those cases, because a claim there would be a body whose bytes it cannot promise.
+test "the statement loop refuses a shadowing declaration and an unclaimable local type" {
+    // `p` is a PARAMETER. Re-binding it is a diagnostic, not a lowering.
+    shadowPlan := new ColumnarCodePlan()
+    shadowNodes := MethodBodyFactsDeclareThenReturnBody("p", 0, "5")
+    assert !MethodBodyFactsPlanBody(shadowNodes, "p5", typeof(int), false, MethodBodyFactsOrdinals("p", 0), MethodBodyFactsTypes("p", typeof(int)), MethodBodyFactsLocals(), shadowPlan)
+
+    // A name an ENCLOSING body binds is equally visible, and the emitter's own visibility test says so.
+    enclosing := MethodBodyFactsEmptyBindings()
+    assert !enclosing.IsVisibleBindingName("q")
+    outerNames := new string[](1)
+    outerNames[0] = "q"
+    enclosingBound := ColumnarFragmentBindings.FromRawFacts(MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal), null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), outerNames, new string[](0), new string[](0), new Dictionary<string, Type>(StringComparer.Ordinal))
+    assert enclosingBound.IsVisibleBindingName("q")
+
+    // The type gate is the host's, in the host's order: an open generic parameter and an array of one
+    // are admitted.
+    //
+    // ⚠ THE BY-REF AND POINTER ROWS BELOW PASS EVEN WITHOUT THEIR GUARD, AND A CONTROL PROVED IT. The
+    // guard exists for the `SymbolType` defect — a BUILDER pointer or by-ref reports `IsSZArray` TRUE,
+    // so `T*` and `T&` over a builder generic parameter would take the array arm and be claimed. The
+    // estate can only hand this function RUNTIME types, and for those `ColumnarTypeOfPlanner.IsSupportedType`
+    // already refuses by-ref and pointer on its own, so removing the guard changes NO answer any block
+    // here can ask. These two rows therefore pin the ANSWER and not the guard; the guard's own reason
+    // is written where it lives, and it is the same builder-only landmine `IsSupportedType` documents.
+    assert ColumnarMethodBodyPlanner.IsClaimedLocalType(typeof(int))
+    assert ColumnarMethodBodyPlanner.IsClaimedLocalType(typeof(string))
+    assert ColumnarMethodBodyPlanner.IsClaimedLocalType(typeof(int[]))
+    assert !ColumnarMethodBodyPlanner.IsClaimedLocalType(typeof(int).MakeByRefType())
+    assert !ColumnarMethodBodyPlanner.IsClaimedLocalType(typeof(int).MakePointerType())
+    assert !ColumnarMethodBodyPlanner.IsClaimedLocalType(MethodBodyFactsVoidType())
+    assert !ColumnarMethodBodyPlanner.IsClaimedLocalType(typeof(Dictionary<string, int>).GetGenericTypeDefinition())
+}
+
+// ---- BLOCK 38 — THE PLAN-LOCAL SELECTION TIER ----
+//
+// `Locals` names an AMBIENT `LocalBuilder` the emitter already made; `PlanLocals` names a slot the plan
+// owns. They are different storage tiers, so they are different selection kinds — folding the plan's
+// pool index into `Ordinal` (an ARGUMENT ordinal) is how a wrong slot becomes a silent read.
+test "a plan-declared local resolves as its own selection tier and refuses every overlap" {
+    bindings := MethodBodyFactsEmptyBindings()
+    bindings.DeclarePlanLocal("v", 3, typeof(long))
+    assert bindings.PlanLocals.ContainsKey("v")
+    assert bindings.IsVisibleBindingName("v")
+    assert bindings.IsValueBinding("v")
+
+    nodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), "v")
+    selection := ColumnarBoundIdentifierPlanner.EmptySelection()
+    assert ColumnarBoundIdentifierPlanner.TryResolve(nodes, "v", 2, bindings, out selection)
+    assert selection.Kind == ColumnarBoundIdentifierKind.PlanLocal
+    assert selection.PlanLocalIndex == 3
+    assert selection.Ordinal == -1
+    assert selection.ResultType == typeof(long)
+    assert ColumnarMethodBodyPlanner.IsClaimedIdentifierSelection(selection.Kind)
+
+    // Publishing over a visible name is a DRIVER defect, so it throws rather than shadowing.
+    assert throws InvalidOperationException {
+        bindings.DeclarePlanLocal("v", 4, typeof(int))
+    }
+
+    // And so is a plan local that overlaps another live tier, which only a route around
+    // `DeclarePlanLocal` could produce.
+    overlapping := MethodBodyFactsEmptyBindings()
+    overlapping.PlanLocals["p"] = (Index: 0, ValueType: typeof(int))
+    overlapping.ParameterOrdinals["p"] = 0
+    overlapping.ParameterTypes["p"] = typeof(int)
+    overlapNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), "p")
+    overlapSelection := ColumnarBoundIdentifierPlanner.EmptySelection()
+    assert throws InvalidOperationException {
+        ColumnarBoundIdentifierPlanner.TryResolve(overlapNodes, "p", 2, overlapping, out overlapSelection)
+    }
 }

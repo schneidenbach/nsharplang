@@ -34,21 +34,38 @@ class ColumnarUnaryLiteralPlanner {
     static func Plan(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
         ValidateRootInputs(nodes, source, node, plan)
         plan.PrepareV3()
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.UnaryExpression() {
+        resultType := typeof(int)
+        if !TryAppendRoot(nodes, source, node, plan, out resultType) {
             return plan.Status
+        }
+
+        plan.CompleteV3(resultType)
+        return plan.Status
+    }
+
+    // THE ROOT-APPEND SEQUENCE, OWNED ONCE (015-B6). A unary literal root is a checkpoint, a root
+    // fragment, the append, and the fragment's completion — the same four steps whether the plan is a
+    // standalone schema-v3 expression (`Plan` wraps this between `PrepareV3` and `CompleteV3`) or an
+    // open schema-v4 METHOD BODY (`ColumnarMethodBodyPlanner`'s expression door calls it directly).
+    // Both callers therefore produce the SAME row sequence, which is the whole of producing the same
+    // bytes: the emitter's `EmitExpressionCore` reaches this owner's `TryEmit` ahead of every other
+    // route, so a body the door claims here cannot diverge from the body the host would have emitted.
+    // A decline rolls the plan back to the caller's exact state and opens no fragment.
+    static func TryAppendRoot(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        if nodes == null || source == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.UnaryExpression() {
+            return false
         }
 
         checkpoint := plan.CreateCheckpoint()
         fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.UnaryExpression(), node)
-        resultType := typeof(int)
         if !TryAppendUnaryLiteral(nodes, source, node, plan, fragment, out resultType) {
             plan.Rollback(checkpoint)
-            return plan.Status
+            return false
         }
 
         plan.CompleteFragment(fragment, resultType)
-        plan.CompleteV3(resultType)
-        return plan.Status
+        return true
     }
 
     // Append one admitted unary literal to an already-open parent fragment. A decline rolls back
@@ -189,8 +206,15 @@ class ColumnarUnaryLiteralPlanner {
 
     static func ValidateAppendInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, parentFragment: int) {
         ValidateRootInputs(nodes, source, node, plan)
-        if plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
-            throw new InvalidOperationException("Unary literals can only append to an open schema-v3 plan.")
+        // 015-B6: a schema-v4 METHOD BODY is admitted alongside v3. This gate threw — a hard crash out
+        // of the compiler, not a decline — on every method-body plan, and ALL NINE owners that carried
+        // it were widened in ONE move because the value surface routes by operand kind: admitting a
+        // subset would mean pre-scanning operands to predict which owner they reach, which is a second
+        // copy of the dispatcher's own decision.
+        // It opens a NESTED operand fragment and recurses into the scalar literal owner, which B3
+        // widened.
+        if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Unary literals can only append to an open schema-v3 or method-body plan.")
         }
         if parentFragment < 0 || parentFragment >= plan.FragmentCount || plan.FragmentCompleted == null || plan.FragmentCompleted.Length <= parentFragment || plan.FragmentCompleted[parentFragment] {
             throw new InvalidOperationException("Unary literals require an open parent expression fragment.")
