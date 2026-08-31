@@ -467,6 +467,12 @@ class ColumnarCodePlanContract {
     static func Stsfld(): short {
         return 128
     }
+    // pop (0x26) discards the top evaluation-stack value. A method body needs it because a body is a
+    // STATEMENT sequence: a call whose value the body does not consume must be balanced explicitly,
+    // where an expression fragment always has a consumer for its single result.
+    static func Pop(): short {
+        return 38
+    }
     static func Leave(): short {
         return 221
     }
@@ -487,10 +493,10 @@ class ColumnarCodePlanContract {
         return opCodeValue == Ldloc() || opCodeValue == Ldloca() || opCodeValue == Stloc()
     }
 
-    // Method-body opcodes (schema v4) that take no operand: ret and throw. Isinst/Stsfld/Leave carry
-    // Type/Field/Label operands and are recognized by their respective operand-typed appenders.
+    // Method-body opcodes (schema v4) that take no operand: ret, throw and pop. Isinst/Stsfld/Leave
+    // carry Type/Field/Label operands and are recognized by their respective operand-typed appenders.
     static func IsMethodBodyNoOperandOpcode(opCodeValue: short): bool {
-        return opCodeValue == Ret() || opCodeValue == Throw()
+        return opCodeValue == Ret() || opCodeValue == Throw() || opCodeValue == Pop()
     }
 }
 

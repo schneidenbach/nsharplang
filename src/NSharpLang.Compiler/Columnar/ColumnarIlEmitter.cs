@@ -5933,27 +5933,19 @@ internal sealed class ColumnarIlEmitter
                     if (paramTypesByFunc[mainIndex].Count != 0)
                         return false; // an async main with parameters has no modeled wrapper — decline.
 
+                    // The wrapper is a STATIC, parameterless, non-iterator method body whose awaiter is an
+                    // ordinary IL local, so it is planned in the plan-row IR's locals-as-locals binding
+                    // mode (PlanLocalOperand rows) rather than the hoisted-field mode the state machines
+                    // use. ColumnarAsyncEntryPointPlanner owns both the signature rule and the body.
                     var innerReturn = asyncInnerByFunc[mainIndex];
-                    var wrapperReturn = innerReturn == typeof(int) || innerReturn == typeof(uint)
-                        ? innerReturn
-                        : typeof(void);
                     var wrapper = type.DefineMethod(
                         "__NSharpEntryPoint",
                         MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig,
-                        wrapperReturn,
+                        ColumnarAsyncEntryPointPlanner.WrapperReturnType(innerReturn),
                         Type.EmptyTypes);
-                    var wrapperIl = wrapper.GetILGenerator();
-                    wrapperIl.Emit(OpCodes.Call, entryPointMethod);
-                    var getAwaiter = wrappedReturn.GetMethod("GetAwaiter", Type.EmptyTypes)!;
-                    wrapperIl.Emit(getAwaiter.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, getAwaiter);
-                    var awaiterType = getAwaiter.ReturnType;
-                    var awaiterLocal = wrapperIl.DeclareLocal(awaiterType);
-                    wrapperIl.Emit(OpCodes.Stloc, awaiterLocal);
-                    wrapperIl.Emit(OpCodes.Ldloca_S, awaiterLocal);
-                    wrapperIl.Emit(OpCodes.Call, awaiterType.GetMethod("GetResult", Type.EmptyTypes)!);
-                    if (wrapperReturn == typeof(void) && innerReturn != typeof(void))
-                        wrapperIl.Emit(OpCodes.Pop);
-                    wrapperIl.Emit(OpCodes.Ret);
+                    ColumnarCodePlanExecutor.Execute(
+                        ColumnarAsyncEntryPointPlanner.BuildWrapperPlan(entryPointMethod, type, wrappedReturn, innerReturn),
+                        wrapper.GetILGenerator());
                     entryPointMethod = wrapper;
                 }
             }

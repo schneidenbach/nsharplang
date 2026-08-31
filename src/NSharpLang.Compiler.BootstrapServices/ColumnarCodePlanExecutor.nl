@@ -518,6 +518,8 @@ class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Ret)
         } else if opCodeValue == ColumnarCodePlanContract.Throw() {
             il.Emit(OpCodes.Throw)
+        } else if opCodeValue == ColumnarCodePlanContract.Pop() {
+            il.Emit(OpCodes.Pop)
         }
     }
 
@@ -903,6 +905,11 @@ class ColumnarCodePlanExecutor {
         }
         if (opCodeValue >= ColumnarCodePlanContract.StelemI1() && opCodeValue <= ColumnarCodePlanContract.StelemRef()) {
             return -3
+        }
+        // `pop` sits between dup and call in the single-byte encoding and belongs to no arithmetic
+        // range, so it needs its own row: discarding a value is the only pop-one push-nothing shape.
+        if opCodeValue == ColumnarCodePlanContract.Pop() {
+            return -1
         }
         // Neg/Not, the conversion family, the typed byref loads, and ldlen are all pop-one push-one.
         return 0

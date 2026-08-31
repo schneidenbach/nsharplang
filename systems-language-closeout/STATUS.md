@@ -1,6 +1,70 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-28 (**TASK 015 SUB-SLICE `015-A6` — `IsSupportedType`, THE CENTRE OF THE
+Last updated: 2026-08-28 (**TASK 015 SUB-SLICE `015-B1` — THE LOCALS-AS-LOCALS BINDING MODE. THE
+DECODE OVERTURNS THE PREMISE AND THE MODE GETS ITS FIRST NON-ITERATOR CONSUMER — see the Cursor
+block.** The mandate names one blocker: "THE IR BINDS LOCALS AS HOISTED FIELDS". **THAT IS NOT WHAT
+THE IR DOES AT THIS TIP, AND THE DERIVATION SAYS SO BY MEASUREMENT.** `ColumnarCodePlan` has
+**THREE** binding classes, not one — `FieldOperand`, `AmbientLocalOperand` and **`PlanLocalOperand`,
+which IS locals-as-locals** — and it is complete at every layer: the row vocabulary
+(`Ldloc`/`Ldloca`/`Stloc`), the plan-side pool (`DeclarePlanLocal`, `PlanLocalTypeIndices`, full
+checkpoint/rollback), the executor's `ILGenerator.DeclareLocal` in BOTH replay paths, the schema
+validator, and a **definite-assignment bitset with a join merge** in the stack validator. It is not
+dormant: **five production N# owners** use it at 33 instruction sites, **including
+`ColumnarIteratorPlanner` itself** (3 declares / 8 rows). The mandate also asked whether the executor
+is C#: **NO — zero C# files declare `ColumnarCodePlan`, `ColumnarCodePlanContract` or
+`ColumnarCodePlanExecutor`; both files are N#**, so there is no mechanical C# side to extend and the
+021 contract shape does not apply. **WHAT WAS SPECIALISED TO THE ITERATOR IS THE PLANNER, NOT THE
+IR**: `ColumnarIteratorBodyPlanner` binds user identifiers to hoisted fields by NAME at **eight**
+sites through one lookup family, because every schema-v4 body in the estate is a state-machine member
+whose locals must survive a suspend. **AND NONE OF THE 14 PLANNING SITES COULD BE THE FIRST CONSUMER
+— ALL FOURTEEN ARE STATE-MACHINE MEMBERS** — while no USER body can be either, because **statement
+kind 20 (`Return`) is unplanned and a body cannot terminate without it**; that, not "the cheapest
+local-declaring kind", is the measured answer to the mandate's pricing question. **THE FIRST ROUTE
+ATTEMPTED WAS WALLED AND THE WALL IS RECORDED**: PASS 0e's synthesized record members were built and
+then abandoned, because `ILGenerator.Emit(OpCode, LocalBuilder)` narrows locals to their short forms
+but `Emit(OpCode, short)` never narrows `Ldarg` — and the short-form row is blocked by the emitter's
+modeled `OpCodes` allowlist (`NL103`), which **cannot be widened in the same build**: BootstrapServices
+compiles under the PACKAGED SDK, so it is repack-gated, and packing mid-slice is a carried
+prohibition. The attempt was reverted whole. **WHAT SHIPPED IS THE ONE NON-ITERATOR BODY THAT NEEDS NO
+ARGUMENT ROW AT ALL**: `__NSharpEntryPoint`, the shim an async `main` requires — STATIC, PARAMETERLESS,
+and carrying an awaiter that is an **ORDINARY IL LOCAL**. **`ColumnarAsyncEntryPointPlanner.nl` (98
+lines) now owns both its signature rule and its body**; the emitter's raw-`ILGenerator` block dies and
+**the emitter goes 20,984 → 20,976 (−8 lines, −8 non-blank, 413 members unchanged)**. The IR gains
+exactly one row — **`Pop` = 38**, method-body-only, because a body is a statement sequence that can
+produce a value nothing consumes (108 contract constants, no collision). **THE CORPUS COMPARISON RAN
+CONTROL-FIRST WITH AN INSTRUMENT BUILT FOR IT** — a `System.Reflection.Metadata` method-body dump
+(name, `maxstack`, `localsInit`, local-signature blob, raw IL hex, exception regions) that is MVID-free
+by construction, because raw file bytes differ between two identical passes — and reads **`IL_DIFFS=0`
+over 112 assemblies / 4,046 rows** for ctlA-vs-ctlB, ctlA-vs-SLICE and ctlB-vs-SLICE alike, with
+`EXIT_DIFFS=0` on all 56 targets and **792 DISTINCT method rows** proving non-vacuity. **AND THE
+CHANGE IS REACHED**: the corpus's **2** `__NSharpEntryPoint` bodies are byte-identical across the
+swap, their IL showing `0A` (`stloc.0`) and `1200` (`ldloca.s 0`) — the executor's long-form rows
+narrowed to exactly the encodings the deleted C# wrote by hand. Evidence: estate **`Passed: 7073`**
+(7,068 + exactly the 5 new blocks, confirmed by an independent parse of all **284** files);
+`ColumnarAsyncEntryPointFacts.tests.nl` **242 lines / 5 blocks**, written after a pin sweep that found
+**ZERO** estate mentions of the wrapper, the planner, the return-type rule or `Pop`; **FIVE controls,
+every one breaking a named block** (C5 breaks three; **C1's run ABORTS at 5,256 of 7,073 because the
+mutation emits a body that faults the host — the fault is the proof**), with pristine passes at 7073
+first and last and every restore `sha256`-verified; live-tree **400 / 246 on BOTH CLIs row-for-row
+`added=0 removed=0`** with identical histograms (399 → 400 is the one new production `.nl`, and it
+adds zero diagnostic rows); ownership audit **17 / 18 pre-repin** (failing exactly
+`RepositoryNonNSharpOwnershipMatchesTheE0GrowthBaseline`), **18 / 18 after**, blank-line vacuity
+control **17 / 18** with a byte-exact restore (`14a2e152…`); manifest **391 lines, no BOM**. **THE
+TWO-KEY REPIN WAS TAKEN LAST AND ITS INSTRUMENT PROVED ITSELF FIRST** — it reproduced all three stored
+fingerprints from the stored rows before touching anything, and its FIRST run read `epochfacts`
+MISMATCH and was corrected rather than trusted: emitter row
+`20984/19963/text-v1:bcd86782b7ed0a82` → **`20976/19955/text-v1:f9200d6387a64a4d`**, head
+**`head-v1:d03089d6dd7266c4` → `head-v1:fd53ebb53ffa009c`** in BOTH keys, **epoch triple UNCHANGED**
+(381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1`). **THE FRESH ISOLATED GATE IS
+GREEN ON THE FINAL TREE — `ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 33s from a `/tmp`
+byte copy with the log outside it, launched detached**, carrying unit **596** (the baseline exactly),
+estate **7,073**, all **47** native projects, the ownership audit **18 / 18**, the format contract
+gate ×4 and the IL verification gate (**67** assemblies, no new errors vs baseline). **`015-B2` IS NOW
+SPECIFIED BY MEASUREMENT: the argument-row vocabulary (`Ldarg_0..3`) comes FIRST and is repack-gated,
+then PASS 0e (90 extent lines, decoded here, needing `unbox.any` = 165), and only THEN the statement
+kinds — starting at 20, because nothing else can terminate a body.** NOT COMMITTED.)
+
+Last updated (prior): 2026-08-28 (**TASK 015 SUB-SLICE `015-A6` — `IsSupportedType`, THE CENTRE OF THE
 TYPE-ADMISSIBILITY FAMILY, IS REROUTED TO ITS N# OWNER AND THE A-ARC CLOSES. THE EMITTER'S
 TYPE-ADMISSIBILITY AUTHORITY IS NOW ENTIRELY N#'s — see the Cursor block.** All three members were
 RE-DERIVED from the tip before any edit: the member-extent instrument reproduces A5's published
@@ -4936,8 +5000,327 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-A6`: `IsSupportedType` — THE CENTRE OF THE
-  TYPE-ADMISSIBILITY FAMILY, AND THE STAGE THAT ENDS THE A-ARC. NOT COMMITTED.**)
+- Active sub-slice (015 arc, THIS TURN — **`015-B1`: THE LOCALS-AS-LOCALS BINDING MODE. THE OPENING
+  SLICE OF THE BODY-PLANNER GENERALISATION. NOT COMMITTED.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
+
+  The mandate names one blocker: "**THE IR BINDS LOCALS AS HOISTED FIELDS** (the iterator heritage —
+  state-machine locals live on the closure class), so generalizing to ordinary method bodies needs a
+  mode where locals are IL locals." The A-arc's method says derive at the tip before editing.
+  **THE DERIVATION OVERTURNS THE PREMISE, AND IT IS OVERTURNED BY MEASUREMENT, NOT BY ARGUMENT.**
+
+  #### THE OWNERSHIP QUESTION THE MANDATE ASKED — ANSWERED FIRST
+
+  "the executor IS C#? CHECK". **NO. BOTH ARE N#, AND NO C# FILE DECLARES EITHER.** A declaration
+  census over every `.cs` in `src/` and `tests/` finds **zero** declarations of `ColumnarCodePlan`,
+  `ColumnarCodePlanContract` or `ColumnarCodePlanExecutor`. The declarations are:
+
+  | class | file | lines |
+  |---|---|---|
+  | `ColumnarCodePlanIdentity`, `ColumnarCodePlanContract`, `ColumnarCodePlanCheckpoint`, `ColumnarCodePlan` | `ColumnarCodePlan.nl` | **2,155** |
+  | `ColumnarCodePlanStackValueKind`, `ColumnarCodePlanStackNode`, `ColumnarCodePlanStackState`, `ColumnarCodePlanExecutor` | `ColumnarCodePlanExecutor.nl` | **2,625** |
+
+  So there is no C# side to extend mechanically, and the 021 contract shape does not apply: **every
+  layer of this IR is already N#-owned**. The only C# is the 14 `Execute(` call sites in
+  `ColumnarIlEmitter.cs` (lines 3701–3850), each of which hands a plan and an `ILGenerator` across.
+
+  #### THE BINDING MODEL AT THIS TIP — THE IR HAS **THREE** BINDING CLASSES, NOT ONE
+
+  `ColumnarCodePlanContract` names thirteen operand kinds. Three of them bind a storage slot:
+
+  | operand kind | value | what the row means | who owns the slot |
+  |---|---|---|---|
+  | `FieldOperand` = 7 | field-pool index | `ldfld`/`ldflda`/`stfld` against a `FieldInfo` | the **type** (a hoisted state-machine field) |
+  | **`PlanLocalOperand` = 8** | plan-local index | `ldloc`/`ldloca`/`stloc` against a slot the **executor declares** | the **plan** — `il.DeclareLocal` at execution |
+  | `AmbientLocalOperand` = 4 | ambient-local index | the same three opcodes against a `LocalBuilder` the planner was **handed** | an outside emitter |
+
+  **`PlanLocalOperand` IS THE LOCALS-AS-LOCALS MODE, AND IT ALREADY EXISTS AT EVERY LAYER.** The
+  decode drove each layer rather than inferring from the row kind:
+
+  | layer | what is already there |
+  |---|---|
+  | row vocabulary | `Ldloc()` 6, `Ldloca()` 7, `Stloc()` 8 (`ColumnarCodePlan.nl:442–450`) with `IsLocalOpcode` gating the appenders |
+  | plan-side pool | `PlanLocalCount` / `PlanLocalTypeIndices`, `DeclarePlanLocal(typeIndex)` (`:997`), `AppendPlanLocalInstruction(op, idx)` (`:1164`), capacity growth (`:1936`), and **full checkpoint/rollback participation** (`:1244`, `:1289`, `:1369`) |
+  | executor-side `LocalBuilder` management | `ExecuteMethodBodyRows` (`:199–203`) **and** `ExecuteRecursiveRows` (`:265–269`) both open with `planLocals[i] = il.DeclareLocal(plan.Types[plan.PlanLocalTypeIndices[i]])`; `EmitInstruction` (`:315`) routes `PlanLocalOperand` to `EmitLocal` |
+  | schema validator | shape checks on `PlanLocalTypeIndices` (`:1604`), in-range type indices (`:1678`), operand-index range (`:1808`), `ValidateAllUsed(usedPlanLocals, "plan local", …)` in **both** validators (`:681`, `:1022`), `ValidateStorableType(…, "plan local", …)` (`:1071`) |
+  | **stack validator** | `ColumnarCodePlanStackState.AssignedPlanLocalWords` — a **definite-assignment bitset** with `IsPlanLocalAssigned` / `MarkPlanLocalAssigned` (`:132`, `:139`), an `UnassignedPlanLocalAddress` stack-value kind carrying `PlanLocalAddressIndex` for the ldloca-then-initobj/ctor idiom (`:26`, `:50`, `:92`), a **join merge** that intersects the bitsets on a label merge (`:1437`), and `ApplyLocal` (`:1871`) which **throws** on `ldloc` of an unassigned plan local |
+
+  **AND IT IS NOT DORMANT INFRASTRUCTURE — IT SHIPS.** A census of every production `.nl` (tests
+  excluded) finds the pool used by **five** owners, and the ambient class by a sixth:
+
+  | owner | `DeclarePlanLocal` sites | `AppendPlanLocalInstruction` sites |
+  |---|---|---|
+  | `ColumnarRangeIndexPlanner.nl` | 8 (+1 local wrapper) | 18 |
+  | **`ColumnarIteratorPlanner.nl`** | **3** | **8** |
+  | `ColumnarConstructionPlanner.nl` | 1 | 3 |
+  | `ColumnarInstanceMemberPlanner.nl` | 1 | 2 |
+  | `ColumnarNullableArgumentLowering.nl` | 1 | 2 |
+  | `ColumnarBoundIdentifierPlanner.nl` | — (3 `AddAmbientLocal`) | — (3 ambient) |
+
+  **THE ITERATOR PLANNER ITSELF ALREADY EMITS IL LOCALS.** `BuildGuardedMoveNextPlan` declares a
+  `bool` result local (`:1392`), the async core declares an exception local (`:1438`), and
+  `BuildDisposeAsyncPlan` declares a `ValueTask` local it takes the ADDRESS of (`:1549`). So the
+  claim "the IR binds locals as hoisted fields" is false even of the file the claim was made about.
+
+  #### SO WHAT IS ACTUALLY SPECIALISED TO THE ITERATOR — MEASURED
+
+  The specialisation is **one layer above the IR**: `ColumnarIteratorBodyPlanner`, the only thing in
+  the estate that plans the USER's statement tree, has **no name→slot indirection at all**. A user
+  identifier is bound to a hoisted field, by name, at the point of use:
+
+  ```
+  static func FieldPool(emit: ColumnarMoveNextEmit, name: string): int {
+      return emit.Plan.AddField(emit.Context.FieldForName(name))
+  }
+  ```
+
+  and every read/write goes `LoadThis(emit)` → `Ldfld`/`Stfld` → `FieldPool(emit, name)`. The
+  user-name binding sites are exactly these, and there are **eight**:
+
+  | site | line | what it binds |
+  |---|---|---|
+  | `AppendIdentifierRead` | 1859–1871 | every identifier READ (hoisted field, else `<>__this`.member) |
+  | kind 40 (typed decl) | 1899 | the declared local's STORE |
+  | kind 24 (`:=` decl) | 1908 | the declared local's STORE |
+  | kind 23 (assignment) | 1927 | the assignment target's STORE |
+  | kind 29 (for..in, array) | 2007–2009 | source / induction index / element var |
+  | `EmitEnumerableForIn` | 2073–2074 | enumerator / element var |
+  | `EmitPostfixStep` | 2571 | the `++`/`--` target |
+  | `HasHoistedField` gate | 1860, 1997 | the ONLY question asked about a name |
+
+  `ColumnarIteratorEmitContext` offers exactly one lookup family — `HasHoistedField` /
+  `FieldForName` / `FieldCanonicalForName` — all three over `FieldNames[]`. **There is no slot
+  abstraction to give a second answer to.**
+
+  #### WHICH OF THE 14 PLANNING SITES WOULD CONSUME LOCALS MODE FIRST — THE MEASURED ANSWER IS NONE
+
+  All 14 `ColumnarCodePlanExecutor.Execute(` sites in the emitter (3701–3850) are iterator/async
+  state-machine MEMBERS: `MoveNext`, `get_Current` ×2, `Reset`, `Dispose`, `GetEnumerator` ×2, the
+  factory, `MoveNextCore`, `MoveNextAsync`, `DisposeAsync`, `GetAsyncEnumerator`, the async factory.
+  **Not one of them is an ordinary method body**, so no existing site can be the first consumer of
+  locals mode — the first consumer has to be a NEW site.
+
+  #### AND NO ORDINARY *USER* BODY CAN BE THE FIRST CONSUMER IN THIS SLICE — ALSO MEASURED
+
+  The coverage table gives statement kinds 23,24,25,26,27,28,29,40,48,72 and expression kinds
+  0,4,6,7,9,12,44. **Statement kind 20 (`Return`) is NOT among them**, and an ordinary method body
+  cannot terminate without it. So the minimal totally-claimable user body — `x := 42; return x` —
+  is blocked on kind 20 no matter how cheap the local-declaring kinds are. That is the measured
+  answer to "which of the 11 unplanned statement kinds is cheapest": **the question has a forced
+  answer rather than a cheap one — 20 is mandatory before ANY user body is claimable**, and a
+  partial claim with the C# sub-emitter finishing the body is the shadow route A6's closing brief
+  forbids by name.
+
+  #### THE CONSEQUENCE FOR THIS SLICE — RE-PRICED
+
+  The mode does not need to be built; it needs a **non-iterator method-body consumer that proves it
+  outside the heritage that was blamed for it**, and it needs that consumer to kill C#. The one
+  available at this tip is **PASS 0e — the synthesized record value members**, which are:
+
+  | | |
+  |---|---|
+  | what | `Equals(object)`, `GetHashCode()`, `<Clone>$` synthesized on every non-generic record |
+  | where | `ColumnarIlEmitter.cs` `SynthesizeRecordValueMembers` (**70 extent lines**, 9248–9317) and `SynthesizeRecordCloneMember` (**20**, 9319–9338) |
+  | how emitted today | **raw `ILGenerator`**, 45 `Emit` calls, `DefineLabel`/`MarkLabel`, and **two `DeclareLocal`s** — `other: tb` and `acc: int` |
+  | why it is a locals-as-locals proof | both are ORDINARY IL LOCALS in an ORDINARY method body — no state machine, no hoisting, nothing to fall back on |
+  | why it is claimable TOTALLY | the bodies are SYNTHESIZED, not parsed — there is no user syntax to decline, so coverage is 100% by construction and no shadow route exists |
+  | two pre-existing guards remove the two hazards | `if (def.GenericParameters != null) continue;` (4914) means **no generic record ever reaches PASS 0e**, so no plan local is ever a generic type definition (`ValidateStorableType` would throw); `fieldsBaked` (4916–4927) means **every field type is a baked runtime type**, so every `EqualityComparer<T>` instantiation is over a runtime type |
+
+  **THE ROW VOCABULARY THE MODE GAINS**: the three bodies need `pop` and `unbox.any`, which the
+  contract does not have (`Isinst` 117, `Castclass` 116, `Dup` 37, `Ldc.I4` 32, `Mul` 90, `Add` 88,
+  `Call` 40, `Callvirt` 111, `Ldarg` −503, `Ldfld` 123, `Ret` 42, `Ldloc`/`Ldloca`/`Stloc` 6/7/8,
+  `Br`/`Brfalse`/`Brtrue` 56/57/58 all already exist). `pop` is `0x26` = **38** and `unbox.any` is
+  `0xA5` = **165**, in the file's established convention that an opcode constant is
+  `OpCode.Value`. **`GetHashCode` needs ZERO new opcodes** — it is the cheapest of the three and is
+  the mode's minimal end-to-end proof; `Equals` is what pays for the two new rows.
+
+  #### BASELINE READINGS RE-DERIVED AT THE TIP BEFORE ANY EDIT
+
+  | reading | value | reproduces |
+  |---|---|---|
+  | `ColumnarIlEmitter.cs` | **20,984 lines / 19,963 non-blank** | A6's published row exactly |
+  | `ColumnarCodePlan.nl` / `ColumnarCodePlanExecutor.nl` | **2,155 / 2,625** | the reopening decode exactly |
+  | `ColumnarIteratorPlanner.nl` | 2,631 | — |
+  | `Execute(` sites in the emitter | **14** | the reopening decode exactly |
+  | C# `EmitStatement` case labels | **21** (25,49,51,48,56,20,24,40,41,27,23,26,28,29,73,30,21,22,61,62,72) | the coverage table exactly |
+  | N# `EmitStatement` kinds | **10** (23,24,25,26,27,28,29,40,48,72) | the coverage table exactly |
+  | compiler C# files | 10 | the A-arc baseline |
+
+  ### THE FIRST ROUTE ATTEMPTED WAS WALLED, AND THE WALL IS RECORDED RATHER THAN ROUTED AROUND
+
+  PASS 0e (the synthesized record `Equals`/`GetHashCode`/`<Clone>$`) was built first and then
+  ABANDONED, because it cannot be made byte-identical at this tip. The reason is worth more than the
+  attempt:
+
+  `ILGenerator.Emit(OpCode, LocalBuilder)` NARROWS `Ldloc`/`Stloc`/`Ldloca` to their short forms
+  itself, so a plan's local rows already match hand-written IL byte-for-byte. **`Emit(OpCode, short)`
+  does not narrow `Ldarg`** — it writes the two-byte `0xFE 0x09` form verbatim. Every PASS 0e body
+  begins `ldarg.0`, so planning it would have inflated every record's members by three bytes per
+  field. The fix is a short-form `Ldarg_0` row, and it is **BLOCKED BY THE PINNED TOOLSET**:
+  `il.Emit(OpCodes.Ldarg_0)` declines with `NL103 emit.call.instance-member-unmodeled` because
+  `ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName` — the emitter's modeled `OpCodes`
+  allowlist, itself N#-owned — lists `Ldarg` and `Ldarga` but no short form. **Adding the name and
+  rebuilding does NOT lift the wall, and that was MEASURED, not assumed**: `BootstrapServices` is
+  compiled by the PACKAGED SDK, so a widened allowlist only takes effect after a repack, and
+  repacking the feed mid-slice is a carried prohibition. The attempt was reverted whole
+  (`git checkout` on four files, one new file deleted; the tree returned to `87afbcb39` exactly).
+
+  **THAT IS B2's OPENING MOVE, NOW SPECIFIED**: add `Ldarg_0`(2)/`Ldarg_1`(3)/`Ldarg_2`(4)/
+  `Ldarg_3`(5) to the allowlist, let a gate repack the SDK, and only then can any `this`-bearing
+  body — PASS 0e's three, and every ordinary instance method — be planned byte-exactly.
+
+  ### WHAT WAS BUILT INSTEAD — AND WHY IT IS THE RIGHT FIRST CONSUMER
+
+  `__NSharpEntryPoint`, the synchronous shim an ASYNC `main` needs, at
+  `ColumnarIlEmitter.cs:5940–5957`. It is the one non-iterator body at this tip that is **STATIC and
+  PARAMETERLESS** — so it needs no argument row at all — and still **declares an IL local**:
+
+  ```
+  var awaiterLocal = wrapperIl.DeclareLocal(awaiterType);
+  wrapperIl.Emit(OpCodes.Stloc, awaiterLocal);
+  wrapperIl.Emit(OpCodes.Ldloca_S, awaiterLocal);
+  ```
+
+  No state machine, no closure class, nothing to hoist onto: the awaiter is an ordinary IL local.
+  The body is SYNTHESIZED rather than parsed, so coverage is total by construction and there is no
+  shadow route — the planner claims the whole body or nothing. A parameterised async main is
+  declined UPSTREAM, so the planner never sees one.
+
+  ### THE CUT
+
+  | | |
+  |---|---|
+  | new N# owner | `ColumnarAsyncEntryPointPlanner.nl` — **98 lines**, `WrapperReturnType` + `BuildWrapperPlan` + three helpers |
+  | row vocabulary gained | **`Pop()` = 38** (`0x26`) — contract constant, `IsMethodBodyNoOperandOpcode`, `EmitWithoutOperand`, and an explicit `−1` in `MethodBodyNoOperandDelta`. A body is a STATEMENT sequence and can produce a value nothing consumes; an expression fragment always has a consumer, which is why the row is method-body-only and the fragment appender refuses it |
+  | opcode-value collision check | **NONE** — 108 short constants in the contract, 38 unique |
+  | C# deleted | the 12-line raw-`ILGenerator` block plus the inline return-type rule; **the emitter goes 20,984 → 20,976 (−8 lines, −8 non-blank)**, 413 members unchanged (no member deleted; the cut is inside `TryEmitColumnarAssembly`) |
+  | ownership moved | the wrapper's SIGNATURE rule moved to N# as well, so the `DefineMethod` return type and the body that must satisfy it cannot drift apart |
+  | declared-signature pool | the entry point is a `MethodBuilder` with no readable reflection surface, so it enters through `AddMethodWithSignature` — the treatment every other builder handle gets |
+
+  ### THE CORPUS IL COMPARISON — THREE PASSES, CONTROL FIRST
+
+  ONE fixed corpus (`examples/`, **82 `.nl` sources**, source-set `sha256` pinned at
+  `3abaa537…`), copied fresh per pass, only the CLI swapped. Raw file bytes are useless here (a fresh
+  MVID per build makes two identical passes differ), so the instrument is a **method-body dump**
+  built for this slice: `System.Reflection.Metadata` over every `MethodDefinition`, emitting the
+  member name, `maxstack`, `localsInit`, the LOCAL SIGNATURE BLOB and the raw IL bytes as hex, plus
+  every exception region — MVID-free by construction and sorted, so a diff is a code diff.
+
+  | pairing | verdict |
+  |---|---|
+  | ctlA vs ctlB (baseline `87afbcb39` twice) | **`IL_DIFFS=0`** over **112 assemblies / 4,046 rows**, `EXIT_DIFFS=0` |
+  | **ctlA vs SLICE** | **`IL_DIFFS=0`**, `EXIT_DIFFS=0` |
+  | **ctlB vs SLICE** | **`IL_DIFFS=0`** |
+
+  All 56 build targets exit `0` on every pass, and the dump is non-vacuous — 792 DISTINCT method
+  rows across the 112 assemblies.
+
+  **AND THE CHANGE IS REACHED, WHICH IS THE HALF A GREEN DIFF DOES NOT PROVE ON ITS OWN.** The
+  corpus contains **2** `__NSharpEntryPoint` bodies (`examples/08-async/AsyncStreams.nl` and
+  `examples/16-task-cli/Program.nl`), and both rows are byte-identical across the swap:
+
+  ```
+  Program::__NSharpEntryPoint maxstack=1 localsInit=True localBlob=07011161
+      il=2853000006 283700000A 0A 1200 283800000A 2A
+  ```
+
+  `0A` is `stloc.0` and `1200` is `ldloca.s 0` — **the executor's long-form `Stloc`/`Ldloca` rows
+  narrowed to exactly the encodings the deleted C# wrote by hand**, which is the mechanism the
+  abandoned PASS 0e route needed and `ldarg` does not provide.
+
+  **ONE ARM IS NOT REACHED BY THE CORPUS AND IT IS SAID SO RATHER THAN GLOSSED**: both corpus
+  wrappers are the `Task`/void case, so the `Pop` row's production arm (an async main returning a
+  non-void, non-exit-code result) is exercised by the CONTRACTS only. The corpus has zero such
+  programs.
+
+  ### THE ESTATE CONTRACTS
+
+  `ColumnarAsyncEntryPointFacts.tests.nl` — **242 lines / 5 blocks**, written after a pin sweep that
+  found **ZERO** estate blocks naming `__NSharpEntryPoint`, `ColumnarAsyncEntryPointPlanner`, the
+  wrapper's return-type rule, or `ColumnarCodePlanContract.Pop`. The wrapper's shape was reachable
+  only through two example programs' emitted IL.
+
+  | block | what it pins |
+  |---|---|
+  | binds its awaiter as an IL local, not a hoisted field | `PlanLocalCount==1`, the local's type is `TaskAwaiter`, `AmbientLocalCount==0`, **`FieldCount==0` and ZERO field ROWS**, `ArgumentCount==0`, exactly two plan-local rows (one `Stloc`, one `Ldloca`, zero `Ldloc`), schema v4 |
+  | forwards only an exit code | `int`/`uint` forward; void/`string`/`bool`/`long` become void; the void plan carries no `Pop` |
+  | the method-body schema owns pop | the v3 fragment appender REFUSES the row; a body that pushes-discards-returns validates; the same body WITHOUT the discard fails the height model |
+  | the body EXECUTES as a real method | the plan is replayed into a static parameterless void `DynamicMethod` and INVOKED; replay after execution is refused (single-use) |
+  | the planner refuses what it cannot drive | an awaitable with no `GetAwaiter`; a declared signature that does not match its handle fails VALIDATION (which is where it belongs — the emitter reaches the executor through `Execute`, and `Execute` validates) |
+
+  Estate **`Passed: 7073, Failed: 0`** — 7,068 + exactly the 5 new blocks — confirmed two
+  independent ways: the runner's total, and a from-scratch parse of all **284** BootstrapServices
+  `.tests.nl` files counting **7,073** `test` blocks.
+
+  ### THE FIVE CONTROLS — EVERY ONE BREAKS A NAMED BLOCK
+
+  Pristine FIRST at **7073 / 0** and pristine LAST at **7073 / 0**, every restore `sha256`-verified.
+
+  | control | mutation | result |
+  |---|---|---|
+  | **C1** | the awaiter is loaded BY VALUE (`Ldloc`) instead of by address | breaks `…BindsItsAwaiterAsAnILLocalNotAHoistedField` — **and the run ABORTS at 5,256 of 7,073**, because the mutation emits a body that faults the host. The fault is the proof, and the partial total is reported rather than hidden |
+  | **C2** | the wrapper forwards EVERY inner result | breaks `…ForwardsOnlyAnExitCodeAndVoidsEverythingElse` (7073) |
+  | **C3** | `pop` is not a method-body no-operand row | breaks `…OwnsPopAndTheExpressionFragmentsRefuseIt` (7073) |
+  | **C4** | `pop` has stack delta 0 in the height model | breaks the same block (7073) — so the row's PRESENCE and its DELTA are pinned separately |
+  | **C5** | the discard arm fires on a VOID inner result instead | breaks **THREE** blocks: the return-type rule, the execution block and the planner-refusal block (7073) |
+
+  ### THE REST OF THE BAR
+
+  | check | result |
+  |---|---|
+  | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **`checkedFiles=400`, 246 errors on BOTH CLIs over the SAME sources, ROW-FOR-ROW `added=0 removed=0`**, histograms identical to the digit (`NL202` 85, `NL402` 68, `NL905` 26, `NL012` 20, `NL011` 17, `NL301` 16, `NL010` 7, `NL412` 3, `NL303` 3, `NL002` 1). 399 → 400 is exactly the one new production `.nl`, and it adds **zero** diagnostic rows |
+  | `tests/native/ownership-audit` | **17 / 18 BEFORE the repin**, failing exactly `RepositoryNonNSharpOwnershipMatchesTheE0GrowthBaseline` (the ratchet noticing the shrink); **18 / 18 after** |
+  | ratchet NON-VACUITY | appending ONE blank line to `ColumnarIlEmitter.cs` takes the audit to **17 / 18** on the same block; the byte was removed and the file's `sha256` re-verified IDENTICAL (`14a2e152…` before and after), and the audit re-read **18 / 18** |
+  | repin instrument CONTROL | it **reproduced ALL THREE stored fingerprints from the stored rows before changing anything** and refuses to apply otherwise — which is what proves its FNV-1a over UTF-16 code units, its `AppendFactString`/`AppendFactInt` framing and its line/non-blank counting match `OwnershipAudit.nl`. Its FIRST run read `epochfacts` MISMATCH and the instrument was corrected (it had folded `State` into the epoch fact string, which `EpochFactFingerprint` does not) — the control caught the instrument, which is what it is for |
+  | ratchet repin (two-key, LAST) | emitter row `currentLines` **20984 → 20976**, `currentNonBlankLines` **19963 → 19955**, `currentFingerprint` **`text-v1:bcd86782b7ed0a82` → `text-v1:f9200d6387a64a4d`**; `reviewedHeadFingerprint` **`head-v1:d03089d6dd7266c4` → `head-v1:fd53ebb53ffa009c`** in BOTH keys (JSON header AND `OwnershipPolicy.ReviewedHeadFingerprint`) |
+  | epoch triple | **UNCHANGED** — 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1`; the emitter row's `epochLines` 21,723 / `epochNonBlankLines` 20,646 untouched |
+  | manifest | **391 lines, no BOM** (first three bytes `7b 0a 20`) |
+  | `nlc format --check` | the new production owner was FORMATTED to canonical form and passes. The measurement behind that decision: **54 of 55** production `Columnar*.nl` pass the file-list form, so the canonical form IS the standard for production `.nl` — unlike `.tests.nl`, where A6 measured 45 of 68 committed files FAILING it and ruled that reformatting one would make it the outlier. The new contract file is therefore left as its 67 siblings are, and A6's filed formatter defect stands unchanged |
+  | compiler C# files | **10** — unchanged |
+  | working tree | exactly **7** files: 2 new (`ColumnarAsyncEntryPointPlanner.nl`, `ColumnarAsyncEntryPointFacts.tests.nl`), 3 modified product (`ColumnarCodePlan.nl`, `ColumnarCodePlanExecutor.nl`, `ColumnarIlEmitter.cs`), 2 ratchet (`non-nsharp-growth-ratchet.v1.json`, `OwnershipAudit.nl`), plus this STATUS. Every instrument, corpus and log lives in the scratchpad or `/tmp`; none was written into the repo |
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/tmp` byte copy (`.git`, `bin`, `obj`,
+  `node_modules`, `artifacts` and `.claude/worktrees/` excluded; **zero stray
+  `NSharpLang.Benchmarks.csproj` in the copy, verified** — the baseline worktree this slice used for
+  the corpus comparison lives at `/private/tmp/b1-baseline`, OUTSIDE the repo, so the nested-worktree
+  hazard never applied), the log written OUTSIDE it, `pgrep -f test-all-core.sh` clean first, and
+  launched DETACHED so no turn boundary could signal it. All **seven** changed/added files
+  `sha256`-verified **IDENTICAL** between the working tree and the copy before the run.
+
+  **`ALL TESTS PASSED`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 33s.** Inside it: unit **`Passed: 596`**
+  (the baseline exactly), estate **`Passed: 7073`**, **47** native `✓ PASSED` lines,
+  `tests/native/ownership-audit` **18 / 18**, the **format contract gate** ("All files are properly
+  formatted." × 4), `dotnet new` templates, every example project, the single-file examples, `nlc
+  check` on examples, and the **IL verification gate** ("All **67** N# assemblies pass IL verification
+  (no new errors vs baseline)").
+
+  ### THE `015-B2` BRIEF — RE-PRICED BY THIS SLICE'S MEASUREMENTS
+
+  1. **THE ARGUMENT-ROW VOCABULARY COMES FIRST, AND IT IS REPACK-GATED.** `Ldarg_0..Ldarg_3` must
+     reach `ColumnarExternalBindingPlans`'s allowlist and be PACKED before any `this`-bearing body
+     can be planned byte-exactly. That is a one-line change that cannot be consumed in the same
+     slice that makes it — it must land, a gate must repack the SDK, and the next slice uses it.
+  2. **THEN PASS 0e**, which is already decoded here: 90 extent lines of raw `ILGenerator` across
+     `SynthesizeRecordValueMembers` (70) and `SynthesizeRecordCloneMember` (20), two IL locals, and
+     two further rows to add (`pop` now exists; `unbox.any` = `0xA5` = 165 does not). Its two
+     upstream guards — no generic record reaches synthesis, every field type is baked — remove both
+     hazards, and 40 corpus files declare records, so the comparison would be far less thin than
+     this slice's two wrappers.
+  3. **ONLY THEN THE STATEMENT KINDS.** The coverage table's price is unchanged, but its ORDER is
+     now measured: **kind 20 (`Return`) is mandatory before ANY user body is claimable**, because a
+     body must terminate and no other kind can do it. "The cheapest local-declaring kind" is not the
+     question — 24 and 40 are already planned, in field mode, and re-binding them to plan locals is
+     nearly free once a driver exists. The driver is what kind 20 unlocks.
+  4. **THE SHADOW-ROUTE CONSTRAINT IS UNCHANGED AND THIS SLICE RESPECTED IT.** Every body the
+     plan-row IR claims, it claims WHOLE. A per-body all-or-nothing claim with a total-coverage
+     precondition is the established pattern (the iterator route already works that way); claiming
+     PART of a body and letting the C# sub-emitter finish it is the shadow route A6 forbade.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-A6`: `IsSupportedType` — THE CENTRE OF THE
+  TYPE-ADMISSIBILITY FAMILY, AND THE STAGE THAT ENDS THE A-ARC. COMMITTED as `87afbcb39`.**)
 
   ### THE PRE-EDIT DERIVATION — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED
 
