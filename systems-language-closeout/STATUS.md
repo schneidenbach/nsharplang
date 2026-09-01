@@ -1,6 +1,47 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-09-01 (**TASK 015 SUB-SLICE `015-B10` — THE INDEX OWNER'S VALUE SURFACE, THE `S2`
+Last updated: 2026-09-01 (**TASK 015 SUB-SLICE `015-B11` — THE `Module` NAME (STAGE 1), THE ADOPTED
+NEGATIVE LITERAL, AND THE INSTANCE-MEMBER OWNER'S RECEIVER SURFACE — see the Cursor block.** The
+decode was written before any production file was touched and it **OVERTURNS THE BRIEF ON ITEM 5's
+SITE COUNT**: `ColumnarInstanceMemberPlanner:190` and `:310` are not the same decision — `:310` is
+reached ONLY from `ClaimsRoot`, which asks about a plan ROOT, and `015-B10`'s own rule says a root
+inherits nothing, so **ONE** site moves and the other stays plain BY RULE. **AND THE MEASUREMENT
+OVERTURNS THE BRIEF TWICE MORE.** FINDING 1: the widened list is **NECESSARY AND NOT SUFFICIENT** —
+with `System.Reflection.Module` on both of `ColumnarExternalBindingPlans`' tables, `a.get_Module()`
+still declined `NL103`, its decline merely MOVING from `emit.declaration.function-return` to
+`emit.return.expression`, because `System.Type`'s bindable members are a SECOND, explicit per-member
+table and `get_Assembly` had a row there while `get_Module` did not; a differential probe
+(`get_Assembly` compiles, `get_Module` does not, same receiver, same arity, same abstract-property
+shape) is what found it, and **DECLARABLE AND BINDABLE ARE TWO ADMISSIONS**. FINDING 2: brief item 3
+is **DEAD** — a twelve-shape probe under the door marker at both sides shows every operand shape the
+door can reach is ALREADY claimed inside a return-position binary (`a + b`, `(a + b) * c`,
+`Id(a) + b`, `items[i] + 1`, `box.V + b`, `a < b`, `string + string`); what declines there is four
+OTHER door kinds (ternary, short-circuit, `checked(…)`, member-access root), so the next live gain is
+a door-kind widening. FINDING 3: the injected-row liveness marker **DOES NOT SURVIVE A SCHEMA-V3
+FRAGMENT** and broke three corpus projects on both sides, so the instrument was REBUILT rather than
+trusted. **STAGE 1 IS PROVEN IN BOTH DIRECTIONS AND EXECUTED**: `Q2` — the exact
+`SameDeclaredIdentity` shape — is `NL103` on the tip CLI and on the slice CLI prints `same` then
+`different` across a real module boundary, while `BootstrapServices` keeps compiling under the
+packaged SDK unchanged and no feed is packed. Estate **7,151 → 7,158** (both MEASURED, +7 = exactly
+the seven new blocks); native emit-facts **29 → 30**; corpus `IL_DIFFS=0` control-first (ctlA vs ctlB
+first, then ctlA vs SLICE, same md5 `204807f153050d801853eab90961eda7`, non-vacuity proven by a
+one-character perturbation) and the per-class claim-corpus diff **`IL_DIFFS=0`** with four bodies
+changing OWNER and none changing BYTES. The marker mutation moves **4** claim rows (every one
+predicted, by name) and **0** live rows (predicted 0). `S3`/`S4` RE-MEASURED unreached under a
+`cliTAG` rebuilt twice, the second time to remove a tag that could have MASKED them. **AND A FOURTH FINDING THE SLICE FOUND IN ITS OWN
+WORK**: the narrowing made this predicate read the OPERAND's text for the first time, which is a
+CRASH exposure (`ColumnarNodeTable.Text` is a bare `Substring`) the host guards and the tip never
+had — a span guard and its own contract block landed, after the first gate was already running, and
+both gates are reported. The control walk **8/8 with all eight per-control predictions written before
+the results and all eight exact**, seven of them single-block isolations, a clean pristine bracket at
+`7,158 / 0` and every restore `sha256`-verified. The live-tree row-for-row walk is clean: 403/242 on both CLIs, identical even in
+order, and **no new diagnostic code** against the tip tree. **ZERO C# TOUCHED** — emitter stays
+**20,784 / 19,768**, compiler C# **10** files, two-key ratchet unrepinned at
+`head-v1:9717a7390756f51c`, audit 18/18. **BOTH fresh isolated gates are `ALL TESTS PASSED` / 126-0 /
+22m 33s**, unit 596, IL verification 67/67, and the second one — on the guarded tree that ships — is
+the verdict of record. NOT COMMITTED.)
+
+Last updated (prior): 2026-09-01 (**TASK 015 SUB-SLICE `015-B10` — THE INDEX OWNER'S VALUE SURFACE, THE `S2`
 CONSTRUCTION SCRATCH, AND THE `TypesEquivalent` PORT. THE ARC'S FIRST EMITTER-SHRINKING SLICE — see the
 Cursor block.** The decode was written before any production file was touched and it **OVERTURNS THE
 BRIEF ON ITEM 1's SCOPE**: the index owner does not carry ONE narrow value surface, it carries **SIX**
@@ -5274,7 +5315,562 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B10`: THE INDEX OWNER'S VALUE SURFACE, THE S2
+- Active sub-slice (015 arc, THIS TURN — **`015-B11`: THE `Module` NAME (STAGE 1), THE ADOPTED
+  NEGATIVE LITERAL, AND THE INSTANCE-MEMBER OWNER'S RECEIVER SURFACE. THE DECODE OVERTURNS THE BRIEF
+  ON ITEM 2's SHAPE AND ON ITEM 5's SITE COUNT.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED, AT `dd9f56863`
+
+  #### THE TIP, RE-MEASURED RATHER THAN INHERITED
+
+  | reading | value | matches the brief |
+  |---|---|---|
+  | working tree at `dd9f56863` | **CLEAN** (`git status --short` empty) | — |
+  | `ColumnarIlEmitter.cs` | **20,784** lines; the manifest row reads `currentLines 20784 / currentNonBlankLines 19768` | ✓ |
+  | compiler C# files (excluding `obj/`, `bin/`) | **10** | ✓ |
+  | ratchet manifest | **391** lines, no BOM (first three bytes `7b 0a 20`) | ✓ |
+  | two-key head | `head-v1:9717a7390756f51c` in the JSON header (line 7) AND `OwnershipAudit.nl:241` | ✓ (read from both keys, never inherited) |
+  | epoch triple | `381` / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` | ✓ |
+
+  #### ITEM 1 — THE `Module` DECLINE IS REPRODUCED IN TWO SHAPES BEFORE THE LIST IS TOUCHED
+
+  A pristine tip CLI was built in a `git worktree` at `/private/tmp/b11/tipwt` (outside the repo, so
+  no nested-worktree gate hazard) and two probes were compiled by it:
+
+  | probe | source | tip CLI verdict |
+  |---|---|---|
+  | `Q1` | `func ModuleOf(a: Type): Module { return a.get_Module() }` | `NL103`, `decline site=emit.declaration.function-return`, "function return type `Module` could not be resolved" |
+  | `Q2` | `am := a.get_Module()` — the EXACT shape `ColumnarTypeEquivalenceFacts.SameDeclaredIdentity` would use | `NL103`, `decline site=emit.local.initializer`, "local initializer expression emission declined for `am`" |
+
+  `Q2` reproduces `015-B10`'s FINDING 1 in bytes rather than inheriting it, and `Q1` shows the same
+  absence reaches a SECOND site the brief never names — the declaration surface, not just the local
+  initializer. `System.Reflection.Module` is absent from BOTH of the owner's tables:
+  `TryGetRuntimeTypeName` (the canonical→runtime map, `:60–149`) and `IsSupportedRuntimeTypeName`
+  (the admission list, `:151–154`). Widening one without the other would admit a name nothing can
+  resolve, so both rows land together.
+
+  ⚠ **STAGE 1 ONLY, AND THE STAGE BOUNDARY IS A BUILD FACT RATHER THAN A CONVENTION.**
+  `NSharpLang.Compiler.BootstrapServices` is `<Project Sdk="NSharpLang.Sdk" />`, so its own `.nl`
+  compiles under the PACKAGED SDK from `~/.nuget/local-feed`, while `Cli.csproj` takes it as a
+  `ProjectReference` — the widened list therefore reaches the LIVE CLI on the next `dotnet build
+  src/NSharpLang.Cli` and reaches the SOURCE LANGUAGE of `BootstrapServices` only after the
+  coordinator repacks. That is why the detour in `ColumnarTypeEquivalenceFacts` stays this slice and
+  deletes in `015-B12`, and why no feed is packed here.
+
+  #### ⚠ OVERTURN 1 — ITEM 2's RANGE HALF IS NOT DEAD, BUT IT IS REACHABLE THROUGH EXACTLY ONE VALUE, AND THE DOOR'S OWN EQUALITY RULE IS WHY
+
+  The brief prices item 2 as "the suffix test PLUS the off-by-one MinValue range". Both halves were
+  read from the host (`ColumnarIlEmitter.cs:15336–15404`) and then intersected with the door's own
+  claim rule, which is what the brief does not do.
+
+  The host adopts `-<int literal>` at a return iff: the last character is not `u/U/l/L/m/M`; the text
+  parses with `ulong.TryParse`; the target is not `byte/ushort/uint/ulong`; and the magnitude is
+  `<= sbyte.MaxValue` (sbyte target), `<= short.MaxValue` (short target) or `<= int.MaxValue`
+  (everything else, `int` and `long` included).
+
+  The DOOR, meanwhile, claims a body only when `valueType == returnType` (`ColumnarMethodBodyPlanner`
+  `:299`). `ColumnarUnaryLiteralPlanner` types `-<unsuffixed int literal>` as **`int`** and nothing
+  else. So:
+
+  | target | can the door ever claim this shape? | what the pre-pass does |
+  |---|---|---|
+  | `sbyte` / `short` / `byte` / `ushort` / `uint` / `ulong` / `long` | **NO** — the value types `int`, equality fails first | irrelevant |
+  | `int` | yes | `min = int.MaxValue` |
+
+  **THEREFORE THE TARGET-DEPENDENT PART OF THE RANGE IS UNREACHABLE AT THE DOOR AND A FIXED
+  `int.MaxValue` CEILING IS A PROVABLE SUPERSET OF THE ADOPTED SET FOR EVERY TARGET** — `sbyte`'s 127
+  and `short`'s 32,767 are both inside it, and the four unsigned targets adopt nothing at all. No
+  return type has to be threaded into `IsHostAdoptedReturnShape`, which is the shape the brief's
+  wording implies.
+
+  ⚠ **AND THE RANGE HALF IS STILL NOT DEAD, BECAUSE ONE VALUE SITS BETWEEN THE TWO OWNERS.**
+  `ColumnarUnaryLiteralPlanner.TryAppendMinimumMagnitude` (`:157–172`) already claims exactly one
+  magnitude the ordinary literal owner cannot represent: `2147483648`, emitted PRE-NEGATED as
+  `ldc.i4 -2147483648` with no `neg`. The host's pre-pass DECLINES that value (`2147483648 >
+  int.MaxValue`) and falls through to its ordinary unary emission — which is this same owner. So
+  `return -2147483648` on an `int` function is claimable and byte-identical, and it is the ONE value
+  the range half buys.
+
+  #### ITEM 2 — THE PARSE DIMENSION IS ALSO A SUPERSET, AND THAT IS MEASURED FROM THE TWO PARSERS RATHER THAN ASSUMED
+
+  The host uses `ulong.TryParse(text)`, which rejects `0x…`, `0b…`, `0o…` and `_` separators. N#
+  already owns `NumericLiteralFacts.TryParseUnsignedIntegerMagnitude` (`:140–180`), which ACCEPTS all
+  four. The predicate is therefore built so that every disagreement falls on the REFUSING side:
+
+  ```
+  refuse (host may adopt)  iff  kind-11 "-" over an IntLiteral
+                                AND the operand's LAST character is not u/U/l/L/m/M
+                                AND ( the magnitude parse FAILS  OR  magnitude <= 2147483647 )
+  ```
+
+  `-0x10` and `-1_000` parse in N# and not in the host: N# refuses, the host would have emitted
+  ordinarily — a narrowing, never a divergence. An unparseable text refuses. The suffix test is the
+  host's own `text[^1]` test transcribed literally (last character only, so `5UL` and `5LU` both
+  decline through it exactly as the host does), NOT `NumericLiteralFacts.GetIntegerSuffix`, which
+  scans a whole suffix run and does not know `m`/`M`.
+
+  **WHAT ITEM 2 ACTUALLY BUYS, COUNTED OVER THE TREE**: `return -<suffixed int literal>` — one site,
+  `tests/native/scalar-code-plan/ScalarCodePlan.tests.nl:44` (`return -1L`) — plus `return
+  -2147483648`. Every one of the **899** `return -<digits>` sites in the tree is an unsuffixed
+  in-range literal that the host DOES adopt and that this door must keep refusing; that census is the
+  reason the item is a faithfulness move rather than a liveness move, and it is stated as a count.
+
+  #### ⚠ OVERTURN 2 — ITEM 5 NAMES TWO SITES; ONLY **ONE** OF THEM MAY MOVE, AND `015-B10`'s OWN RULE IS WHY
+
+  `ColumnarInstanceMemberPlanner:190` and `:310` do both append a composed receiver on the plain
+  surface, but they answer different questions:
+
+  | site | function | reached from | position |
+  |---|---|---|---|
+  | `:190` | `TryAppend` | `ColumnarRangeIndexPlanner.TryAppendPlannableValueCore:458` — the shared value dispatcher, which HOLDS `allowPrimitiveBinary` and drops it at the call | NESTED — inherits |
+  | `:310` | `TryGetComposedReceiverType` (the `S3` scratch) | `ClaimsRoot:68` ONLY | a plan **ROOT** |
+
+  `015-B10` settled this exact question for `ColumnarRangeIndexPlanner.Plan:200`: "a root has no
+  enclosing position to inherit from, exactly as it has no parent fragment to point at". `:310` is
+  that same root, in the fourth owner, so it STAYS PLAIN — and `Plan:109`, the other caller of
+  `TryAppend`, must pass the plain surface for the same reason. Moving `:310` would make the TYPE side
+  WIDER than the APPEND side for a root, which is the mirror image of `015-B9`'s overturn 1 and just
+  as wrong.
+
+  So item 5 is **one** threaded parameter and **one** moved site, not two.
+
+  #### THE SYNTAX GATE DOES NOT BLOCK ITEM 5, AND THAT IS READ FROM THE SOURCE RATHER THAN HOPED
+
+  `ColumnarDirectCallPlanner.IsAdmittedValueSyntax:1533` returns `true` for a `MemberAccessExpression`
+  WITHOUT recursing into its receiver, so `items[i + 1].X` is syntactically admitted today and the
+  only thing refusing it is the plain surface at `:190`. Had the gate recursed, threading `:190` alone
+  would have been inert and the item would have needed a second move.
+
+  #### THE PROBE BATTERY, BUILT AND RUN ON THE TIP CLI BEFORE ANY EDIT
+
+  | probe | shape | tip CLI |
+  |---|---|---|
+  | `R1` | `Use(items[i].X)` over `Pt[]` — the plain-selector control | builds |
+  | `R2` | `Use(items[i + 1].X)` over `Pt[]` — the item-5 target | builds |
+  | `R3` | `Use(names[i + 1].Length)` over `string[]` | builds |
+  | `R4` | `Use(names[i].Length)` over `string[]` — control | builds |
+
+  ⚠ **AND THAT IS THE POINT WORTH RECORDING RATHER THAN GLOSSING: "BUILDS" IS NOT "CLAIMED".** All
+  four compile at the tip because the HOST emits them; the arc's question is which rows the N# PLAN
+  owns. A build probe can only prove a CAPABILITY gain (item 1), never a liveness gain, so item 5's
+  movement is measured by the marker mutation and the corpus IL diff, never by these four.
+
+  #### THE CUT
+
+  Items **1, 2, 4 and 5** are taken. Item **3** is CENSUSED and named rather than built: the door's
+  kind-12 arm already claims a binary return root (`015-B9`), so the remaining 24 BINARY-ish bodies
+  decline inside `ColumnarPrimitiveBinaryPlanner`'s OWN admitted-syntax rule, not at the door — a
+  widening of that owner is a slice with its own operand oracle and its own diff, exactly as
+  `015-B8` priced the `TypesEquivalent` port.
+
+  #### THE PREDICTIONS, WRITTEN BEFORE THE FIRST EDIT
+
+  | # | prediction |
+  |---|---|
+  | P1 | `Q1` and `Q2` BUILD on the slice CLI and still `NL103` on the tip CLI; `Q2` prints `True` then `False`, which is what proves the widened list carries the SEMANTICS and not merely the name |
+  | P2 | `BootstrapServices` itself keeps compiling unchanged — `ColumnarTypeEquivalenceFacts.nl` is NOT edited this slice, so the estate cannot notice the widening except through the two new list assertions |
+  | P3 | the estate rises by the number of new `.tests.nl` blocks and by nothing else; every pre-existing block stays green |
+  | P4 | `IsHostAdoptedReturnShape` narrows: `-1` (int fn) stays REFUSED, `-1L` (long fn) and `-2147483648` (int fn) become CLAIMED. The corpus IL is UNCHANGED on both corpora, because the door emits what the host emitted |
+  | P5 | the marker mutation moves **0** live big-corpus bodies for item 2 (the tree holds no `return -1L` / `return -2147483648` outside a native test project) and a small number of PROBE claim rows |
+  | P6 | item 5 moves at least the `R2` shape from host-emitted to plan-claimed; whether any BIG-CORPUS body moves is UNKNOWN before the mutation and will be reported as measured, not as hoped |
+  | P7 | `S3` stays UNREACHED under `cliTAG` even after item 5 lands, because `:310` is deliberately left plain and the door still declines member access at a root; `S4` also stays unreached |
+  | P8 | ZERO C# files change, so the two-key ratchet needs no repin and the emitter stays at `20,784 / 19,768` |
+
+  #### THE CONTROL-WALK PREDICTIONS, WRITTEN BEFORE THE FIRST CONTROL RAN
+
+  | control | mutation | predicted blocks broken |
+  |---|---|---|
+  | `C1` | the ADMISSION list loses `System.Reflection.Module`; the canonical map keeps it | `TheDeclaringModuleIsOnBothRuntimeTypeTablesByBothSpellings` **ALONE** |
+  | `C2` | the CANONICAL map loses `Module`; the admission list keeps it | the same block **ALONE**, through its other half |
+  | `C3` | `IsHostAdoptedReturnShape` loses the SUFFIX test | `TheAdoptedReturnPredicateReproducesThePrePassesSuffixTest` **ALONE** |
+  | `C4` | `IsHostAdoptedReturnShape` loses the RANGE test (every unsuffixed literal reads as adopted) | `TheAdoptedReturnPredicateCapsAtIntMaxValue…` **AND** `TheDoorNowClaimsTheMinimumMagnitudeReturn…` — **TWO** |
+  | `C5` | an UNPARSEABLE magnitude returns `false` (an unproven decline becomes a decline) | the caps block **ALONE** |
+  | `C6` | the composed INDEX receiver goes back to the plain surface whatever the position | `TheInstanceMemberOwnerInheritsTheValueSurface…` **ALONE** |
+  | `C7` | the ROOT type side takes the CONSTRUCTION surface — **the move the decode REJECTED** | `TheInstanceMemberRootKeepsThePlainSurface…` **ALONE** |
+  | `C8` | the SPAN guard is deleted, so an unreadable literal span reaches `Text` | `TheAdoptedReturnPredicateRefusesALiteralOperandThatCarriesNoSpan` **ALONE** — added with FINDING 4, and its prediction written before it ran like the other seven |
+
+  ⚠ `C7` IS THE CONTROL THAT EARNS OVERTURN 2. If brief item 5 had been taken at face value — both
+  sites widened — `C7` is the tree that would have shipped, and the block it breaks is the one that
+  says a root's two sides must agree. A control that fails to break anything there would mean the
+  decode's refusal was unmeasured.
+
+  ### WHAT LANDED
+
+  | item | move |
+  |---|---|
+  | 1 | `System.Reflection.Module` on **BOTH** of `ColumnarExternalBindingPlans`' tables — the canonical map (`TryGetRuntimeTypeName`) and the admission list (`IsSupportedRuntimeTypeName`) — **plus a `get_Module` row on `GetInstanceCallPlan`'s `System.Type` member table**, which FINDING 1 proves was a second, independent admission the brief did not know about. STAGE 1: no detour deleted, no feed packed |
+  | 2 | `IsHostAdoptedReturnShape` narrowed from "the whole shape" to the pre-pass's own two tests — the literal `text[^1]` suffix test and an `int.MaxValue` magnitude ceiling — with every parse disagreement built to fall on the refusing side |
+  | 5 | `allowPrimitiveBinary` threaded from `ColumnarRangeIndexPlanner.TryAppendPlannableValueCore:458` into `ColumnarInstanceMemberPlanner.TryAppend` and onto its composed INDEX receiver. **ONE** site moved, not the brief's two — `TryGetComposedReceiverType` stays plain by the root rule |
+  | 3 | CENSUSED and **OVERTURNED** — see FINDING 2. Not built |
+  | 4 | RE-MEASURED under a rebuilt `cliTAG`: `S3` and `S4` still unreached. Not a change |
+
+  Seven new estate blocks, one new native block, **ZERO C# files touched**.
+
+  ### ⚠ FINDING 1 — THE LIST IS NECESSARY AND **NOT SUFFICIENT**, AND A PROBE SAID SO BEFORE THE CONTRACT DID
+
+  `015-B10` recorded the wall as "`System.Reflection.Module` is not on
+  `IsSupportedRuntimeTypeName`'s list … put it on that list at the next SDK repack and this detour
+  deletes itself". That is HALF the wall. With the name on both tables and nothing else, the tip's
+  `Q1` decline MOVED but did not disappear:
+
+  | build | `Q1` (`func ModuleOf(a: Type): Module { return a.get_Module() }`) |
+  |---|---|
+  | tip CLI | `NL103` at `emit.declaration.function-return` — the TYPE cannot be resolved |
+  | list-only CLI | `NL103` at `emit.return.expression` — the type resolves, **the CALL does not bind** |
+  | slice CLI | **builds, and prints `System.Private.CoreLib.dll`** |
+
+  The second admission was found by a DIFFERENTIAL probe rather than by reading: `a.get_Assembly()`
+  compiled on the list-only CLI and `a.get_Module()` did not, over the same receiver, the same arity
+  and the same abstract-property shape. `System.Type`'s bindable members are an EXPLICIT per-member
+  table inside `ColumnarExternalBindingPlans.GetInstanceCallPlan` (`get_Assembly`, `get_BaseType`,
+  `get_AssemblyQualifiedName`, `GetElementType`, eleven `get_Is…` predicates, …) and `get_Assembly`
+  had a row there while `get_Module` had none. `a.get_TypeHandle()` compiles on BOTH sides because it
+  falls through that table to the ORDINARY reflective resolver, which is why it was never evidence
+  either way.
+
+  **DECLARABLE AND BINDABLE ARE TWO ADMISSIONS**, and a slice that had shipped only the list would
+  have handed `015-B12` a detour it still could not delete.
+
+  ### ⚠ FINDING 2 — THE BINARY FAMILY AT RETURN POSITION IS ALREADY CLAIMED, SO BRIEF ITEM 3's PREMISE IS WRONG
+
+  Item 3 says "the next live gain is in the binary family at return position, not index". A twelve-shape
+  probe project built under the door marker at BOTH the tip and the slice says otherwise:
+
+  | shape | tip | slice |
+  |---|---|---|
+  | `a + b` / `(a + b) * c` / `a < b` / `a + b` over `string` | **CLAIMED** | CLAIMED |
+  | `Id(a) + b` (CALL operand) | **CLAIMED** | CLAIMED |
+  | `items[i] + 1` (INDEX operand) | **CLAIMED** | CLAIMED |
+  | `box.V + b` (MEMBER operand) | **CLAIMED** | CLAIMED |
+  | `a && b` | declined | declined |
+  | `checked(a + 1)` | declined | declined |
+  | `a > b ? a : b` | declined | declined |
+  | `new Box(a + b).V` | declined | declined |
+
+  **EVERY OPERAND SHAPE THE DOOR CAN REACH IS ALREADY CLAIMED INSIDE A RETURN-POSITION BINARY.** The
+  four that decline are not binaries the owner refuses — they are FOUR OTHER DOOR KINDS at the root:
+  short-circuit (the conditional owner's roots), `checked(…)` (kind 57), the ternary (kind 13) and a
+  member access (kind 8). So the next live gain is a DOOR-KIND widening, and `015-B12`'s brief says so
+  with this table rather than repeating item 3.
+
+  ### ⚠ FINDING 3 — THE INJECTED-ROW MARKER DOES NOT SURVIVE A SCHEMA-V3 FRAGMENT, AND THE INSTRUMENT WAS REBUILT RATHER THAN TRUSTED
+
+  The first liveness instrument carried TWO markers in one build — `ldc.i4.0; pop` at the door and
+  `ldc.i4.1; pop` at the instance-member owner's composed receiver. The second one **broke three
+  corpus projects on BOTH sides**, first with `The opcode does not use an operand-free row` (`pop` is a
+  schema-**v4** opcode and that append site can be v3) and then, with the guard relaxed, with
+  `Schema-v3 receiver for 'field' must have an exact semantic type` — the injected rows perturb the
+  fragment the receiver's semantic type is read from. A comparison over a corpus 3 projects smaller
+  on both sides would have been a quieter instrument, not a correct one, so the injected marker was
+  REMOVED and item 5's reachability was measured by the TAG instrument instead. The door marker alone
+  then reproduced the untagged corpus exactly — **25 built / 3 failed on both sides**.
+
+  ### ⚠ FINDING 4 — THE NARROWING CREATED A CRASH EXPOSURE THIS PREDICATE DID NOT HAVE, AND THE SELF-CHECK CAUGHT IT AFTER THE FIRST GATE WAS ALREADY RUNNING
+
+  `ColumnarNodeTable.Text` is a bare `source.Substring(valueStarts[i], valueLengths[i])`. The host's
+  `TryEmitIntLiteralAsType` opens with `_nodes.ValueStart(node) < 0 → return false` precisely because
+  of that: a literal node carrying no span would THROW out of the compiler instead of declining.
+
+  Until this slice `IsHostAdoptedReturnShape` never read the OPERAND's text — its last line was a
+  pure `Kind(operand) == IntLiteralExpression()` test — so it had no such exposure. **THE NARROWING IS
+  WHAT INTRODUCED ONE**, on a predicate that runs over the returned expression of EVERY body the
+  driver inspects, claimed or not. The span guard is therefore this predicate's own obligation rather
+  than an inherited nicety, and an unreadable span REFUSES, the same safe direction the unparseable
+  magnitude takes.
+
+  ⚠ **THE HONEST ORDERING IS RECORDED RATHER THAN TIDIED.** The exposure was found by re-reading the
+  new code against the host's, AFTER the first isolated gate had already been launched on a copy that
+  did not carry the guard. That gate was allowed to finish (never signalled), its verdict is reported
+  below as the PRE-GUARD run, and a SECOND fresh isolated gate on the guarded tree is the verdict of
+  record. The estate gained a SEVENTH block for the guard alone — its own block, so control `C8` can
+  isolate it from the two range controls — and the walk was extended to **8** controls.
+
+  ### THE MEASUREMENTS
+
+  | measurement | tip | slice |
+  |---|---|---|
+  | estate (`-p:NSharpExcludeTests=false --force-evaluate` restore, MEASURED on the pristine tip worktree, not inherited) | **`7,151 / 0`** | **`7,158 / 0`** — **+7, exactly the seven new blocks** |
+  | native `columnar-emit-facts` | **29** | **30** |
+  | `tests/native/ownership-audit` | 18 / 18 | **18 / 18, NO REPIN** — `git diff --stat -- '*.cs'` is EMPTY |
+  | `ColumnarIlEmitter.cs` | 20,784 / 19,768 | **unchanged** |
+  | compiler C# files | 10 | **10** |
+  | ratchet | `head-v1:9717a7390756f51c` both keys, manifest 391 lines, no BOM (`7b 0a 20`), epoch triple `381` / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` | **byte-for-byte untouched** |
+  | `nlc format --check` | — | "All files are properly formatted." on all four gate projects AND on `tests/native/columnar-emit-facts` |
+
+  ### THE CORPUS IL COMPARISON — CONTROL-FIRST, AND THE NORMALISER PROVEN NON-VACUOUS
+
+  A `System.Reflection.Metadata` method-body dump (MVID-free by construction: no header, no GUIDs,
+  rows sorted by `<relpath>|<Type>::<Method>|<hex il>`) over **25 built projects / 25 assemblies /
+  425 rows**, framework and runtime assemblies excluded by name so the two sides compare only
+  N#-emitted output.
+
+  | pairing | result |
+  |---|---|
+  | **ctlA vs ctlB** (the SAME tip CLI, twice) | **`IL_DIFFS=0`**, md5 `204807f153050d801853eab90961eda7` — the determinism control, run FIRST |
+  | **ctlA vs SLICE** | **`IL_DIFFS=0`**, the SAME md5 |
+  | NON-VACUITY | a ONE-character perturbation of a single dump row produces **4** diff lines, so the comparison is not blind |
+  | build failures | the SAME **3** on all three sides (`external-static-relative-dll`, `nsharp-systems-cli`, `nsharp-systems-lib`) |
+  | spot check | `IssueTracker.IssueService::GetAll` reads `027B1C0000046F280000062A` — byte-for-byte the sequence `015-B8` recorded, so this corpus overlaps the arc's |
+
+  ### THE PER-CLASS IL DIFF — THE MOVED CLAIMS ARE BYTE-IDENTICAL TO WHAT THE HOST WROTE
+
+  A twelve-function claim project built UNMARKED by the tip CLI and by the slice CLI: **`IL_DIFFS=0`**.
+  Four bodies changed OWNER and none changed BYTES:
+
+  | body | shape | bytes (identical on both sides) |
+  |---|---|---|
+  | `A2` | `return -1L` on a `long` fn | `21 0100000000000000 65 2A` — `ldc.i8 1; neg; ret` |
+  | `A3` | `return -2147483648` on an `int` fn | `20 00000080 65 2A` — `ldc.i4 int.MinValue; neg; ret` |
+  | `B2` | `Use(items[i + 1].X)` | `0203 17 58 A3… 1200 7B… 28… 2A` |
+  | `B3` | `Use(names[i + 1].Length)` | `0203 17 58 9A 6F… 28… 2A` |
+
+  ### THE LIVENESS MUTATION — 4 CLAIM ROWS, 0 LIVE ROWS, BOTH PREDICTED
+
+  `MUT-DOOR` appends `ldc.i4.0; pop` (`1626`) immediately before the value arm's `ret`, so a body the
+  DOOR claims ends `16262A` and nothing else does. It was built at the TIP and on the SLICE and each
+  was diffed against its own unmarked corpus.
+
+  | corpus | tip | slice | movement |
+  |---|---|---|---|
+  | big (25 assemblies, 425 rows) | **16** marked | **16** marked | **0 live bodies** — predicted 0 in `P5` |
+  | claim (12 functions, 14 rows) | **4** marked | **8** marked | **+4 claim rows** |
+
+  Marker non-vacuity: exactly **16** of 425 rows differ between the unmarked and marked tip corpora —
+  the sixteen marked bodies and nothing else.
+
+  **THE FOUR MOVED CLAIM ROWS, AND THE FIVE THAT DELIBERATELY DID NOT MOVE:**
+
+  | probe | shape | tip | slice | why |
+  |---|---|---|---|---|
+  | `A2` | `return -1L` (long fn) | declined | **CLAIMED** | item 2, suffix half |
+  | `A3` | `return -2147483648` (int fn) | declined | **CLAIMED** | item 2, range half |
+  | `B2` | `Use(items[i + 1].X)` | declined | **CLAIMED** | item 5 |
+  | `B3` | `Use(names[i + 1].Length)` | declined | **CLAIMED** | item 5 |
+  | `A1` | `return -1` (int fn) | declined | declined | the host ADOPTS it — the refusal the diff found in `015-B5` still stands |
+  | `A6` | `return -2147483647` | declined | declined | in range, adopted |
+  | `A4` | `return -0x10` | declined | declined | the PARSE disagreement, refused on purpose |
+  | `A5` / `B1` / `B4` | `return 5`, literal selectors | CLAIMED | CLAIMED | controls, unmoved |
+  | `B5` | `Use(new Pt(items[i + 1].X).X)` | declined | declined | a member access over a `new` — named as remainder |
+
+  ### ITEM 4 — `S3` AND `S4` RE-MEASURED, NOT ASSUMED
+
+  A `cliTAG` in which `ColumnarInstanceMemberPlanner.TryGetComposedReceiverType` (`S3`) and
+  `ColumnarRangeIndexPlanner.FacadeSelectorMayProduceIndexOrRange` (`S4`) THROW a tagged exception the
+  moment they are handed a NON-EMPTY plan-local vocabulary — `015-B9`'s instrument, re-armed on this
+  tree. **All 25 buildable corpus projects build clean and the 3 failures are the pre-existing ones,
+  so neither tag ever fires.** `S3` and `S4` remain unreached from any claimed body, `P7` exactly.
+  The six item-1/item-5 probes also build clean under it.
+
+  ⚠ **AND A THIRD TAG, RUN FIRST, IS WHY THE `S3`/`S4` READING IS TRUSTWORTHY.** The first `cliTAG`
+  also armed the item-5 append site, and `B11TAG-IM` fired in **three** corpus projects
+  (`examples/16-task-cli`, `examples/17-issue-tracker/backend`, `tests/fixtures/issue-tracker`) —
+  proof the widened site is on a LIVE path even though no big-corpus body's CLAIM changed, because the
+  instances reached there carry plain selectors that were already claimable. That tag throws before
+  `S3`/`S4` could be reached in those three projects, so it was REMOVED and the corpus re-run with
+  `S3`/`S4` alone. The two-run split is the difference between "no tag fired" and "no tag fired that
+  was not masked".
+
+  ### THE ESTATE CONTROL WALK — 8/8, EVERY PREDICTION WRITTEN FIRST AND EVERY ONE EXACT
+
+  Restore is COPY-BASED with a `sha256` gate over the three mutated production files — never
+  `git checkout --`, because the tree carries uncommitted slice work. Every step printed
+  `restore: sha256 OK`. The walk was run TWICE and only the second run is reported: FINDING 4's span
+  guard changed the tree under it, so the whole walk was re-run against the tree that ships rather
+  than patched with one extra control. (The first run's C1–C7 matched these results exactly, one
+  block lower on every count because the guard's block did not exist yet.)
+
+  | control | mutation | result | blocks broken |
+  |---|---|---|---|
+  | **PRISTINE FIRST** | — | **`7,158 / 0`** | — |
+  | **C1** | the ADMISSION list loses `Module` | **`7,157 / 1`** | `TheDeclaringModuleIsOnBothRuntimeTypeTablesByBothSpellings` **ALONE** |
+  | **C2** | the CANONICAL map loses `Module` | **`7,157 / 1`** | the same block **ALONE**, through its other half |
+  | **C3** | the SUFFIX test is deleted | **`7,157 / 1`** | `TheAdoptedReturnPredicateReproducesThePrePasssSuffixTest` **ALONE** |
+  | **C4** | the RANGE test is deleted | **`7,156 / 2`** | `…CapsAtIntMaxValueAndEveryParseDisagreementRefuses` **AND** `TheDoorNowClaimsTheMinimumMagnitudeReturn…` |
+  | **C5** | an unparseable magnitude returns `false` | **`7,157 / 1`** | the caps block **ALONE** |
+  | **C6** | the composed index receiver goes back to the plain surface | **`7,157 / 1`** | `TheInstanceMemberOwnerInheritsTheValueSurface…` **ALONE** |
+  | **C7** | the ROOT type side takes the construction surface | **`7,157 / 1`** | `TheInstanceMemberRootKeepsThePlainSurface…` **ALONE** |
+  | **C8** | the SPAN guard is deleted | **`7,157 / 1`** | `TheAdoptedReturnPredicateRefusesALiteralOperandThatCarriesNoSpan` **ALONE** |
+  | **PRISTINE LAST** | — | **`7,158 / 0`**, all restores `sha256`-verified, zero mismatches | — |
+
+  ⚠ **C1 VS C2 IS THE PAIR THAT PROVES THE TWO TABLES ARE ONE DECISION** — a canonical the map
+  resolves but the list refuses is a name nothing can declare a local of, and each half alone breaks
+  the block. **C3 VS C4 VS C5 SEPARATES THE THREE DIMENSIONS THE BRIEF TREATED AS TWO**: the suffix
+  test, the magnitude ceiling and the unparseable case are independent, and only C4 reaches two blocks
+  because only the ceiling is what the end-to-end min-magnitude claim rides on. **C6 VS C7 IS THE
+  WALK'S POINT**: the NESTED surface and the ROOT surface are separate decisions in the same owner,
+  and C7 is the tree that would have shipped had brief item 5 been taken at face value. **C8 IS THE
+  ONE THE SLICE ADDED TO ITSELF** — without the guard the assertion does not fail, it THROWS
+  `ArgumentOutOfRangeException` out of the predicate, which is precisely the failure mode FINDING 4
+  exists to prevent.
+
+  **ONE CONTROL WAS CONSIDERED AND REJECTED AS VACUOUS, IN WRITING, BEFORE THE WALK RAN**: deleting
+  the `get_Module` row from `GetInstanceCallPlan`. No estate block can see it — `BootstrapServices`
+  compiles under the PACKAGED SDK and cannot spell `Module` at all — so the estate would have stayed
+  at `7,158 / 0` and the control would have proved nothing. Its coupling is proved WITHOUT a mutation
+  instead: `tests/native/columnar-emit-facts` gains a block that **does not compile on the tip CLI**,
+  which is the same no-mutation-needed coupling control `015-B8` used for the opcode rows.
+
+  ### THE STAGE-1 PROOF, IN BOTH DIRECTIONS AND EXECUTED
+
+  | probe | tip CLI | slice CLI |
+  |---|---|---|
+  | `Q1` `func ModuleOf(a: Type): Module { return a.get_Module() }` | `NL103` `emit.declaration.function-return` | **builds; prints `System.Private.CoreLib.dll`** |
+  | `Q2` the EXACT `SameDeclaredIdentity` shape, executed | `NL103` `emit.local.initializer` | **builds; prints `same` then `different`** |
+  | `Q10` `a.get_Module().get_Name()` (no local) | `NL103` `emit.return.expression` | builds |
+  | `Q15` two assembly-qualified foreign types | `NL103` `emit.print.expression` | **builds; prints `System.Private.Uri.dll`, `System.Text.RegularExpressions.dll`** |
+
+  `Q2` is the one that matters: it is the two-reference `Object.ReferenceEquals` comparison
+  `ColumnarTypeEquivalenceFacts.SameDeclaredIdentity` performs, and it answers `same` for two CoreLib
+  types and `different` across a module boundary. **THE SEMANTICS, NOT MERELY THE NAME.**
+
+  ⚠ AND THE OTHER HALF OF THE TWO-STAGE BOUNDARY IS MEASURED TOO: `BootstrapServices` still compiles
+  UNCHANGED — the estate's 7,151 pre-existing blocks are all green, `ColumnarTypeEquivalenceFacts.nl`
+  is NOT edited this slice, and the detour's comment still says what it says. `tests/native` is the
+  only place in the tree that can spell `Module` today, which is exactly why the executed contract
+  lives there.
+
+  ### THE LIVE-TREE ROW-FOR-ROW WALK — WHICH IS LOAD-BEARING AND WAS NOT SKIPPED
+
+  | check | result |
+  |---|---|
+  | `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json`, TWO CLIs on the SAME (slice) tree | **`checkedFiles=403`** and **242** results on BOTH, summary `{errors 242, warnings 0, info 0}` on both, **ROW-FOR-ROW IDENTICAL EVEN IN ORDER** (`added=0 removed=0`) |
+  | TIP tree/TIP CLI vs SLICE tree/SLICE CLI (the SOURCE delta, measured separately) | 403 / **241** → 403 / **242**. **NO NEW DIAGNOSTIC CODE APPEARS** — the per-code histogram is identical except `NL402 63 → 64`, the pre-existing false-positive family, and the moved rows are line-shift churn in `ColumnarInstanceMemberPlanner.nl` plus the ONE new call site the `if`/`else` surface split introduces |
+
+  `015-B10`'s port shipped three new `NL011`s past a green estate, a green native gate and
+  `IL_DIFFS=0`, and only this walk caught them. It is run here for the same reason and it is clean.
+
+  ### THE COVERAGE TABLES
+
+  | | |
+  |---|---|
+  | the door's ledger | **34** kinds, unchanged — this slice widens no door kind |
+  | N# door, CLAIMED | **10**, unchanged |
+  | N# door, DECLINED | **24**, unchanged |
+  | driver statement kinds claimed | **2**, unchanged |
+  | owners the door enters through their own root sequence | **4**, unchanged |
+  | `IsHostAdoptedReturnShape`'s refused set | **the whole `-<int literal>` shape → the pre-pass's own adopted set** (unsuffixed AND magnitude `<= int.MaxValue`, with unparseable refusing) |
+  | `ColumnarInstanceMemberPlanner` composed-receiver appends on the PLAIN surface | **2 → 1**. The one that remains is `TryGetComposedReceiverType`, and it remains BY RULE (a root inherits nothing) |
+  | owners carrying the inherited value surface | **3 → 4** (`ColumnarDirectCallPlanner` 015-B9, `ColumnarConstructionPlanner` 015-B9, `ColumnarRangeIndexPlanner` 015-B10, `ColumnarInstanceMemberPlanner` THIS SLICE) |
+  | type-discovery scratch sites | **4**; **4** carry the local-vocabulary mirror; **2** carry the nested-value frame; **2** reachable from a claimed body (`S1`, `S2`) — `S3`/`S4` RE-MEASURED unreached |
+  | `System.Type`'s bindable member table (`GetInstanceCallPlan`) | **+1 row** (`get_Module`) |
+  | `IsSupportedRuntimeTypeName` | **31 → 32** literal names plus the two computed predicates |
+  | compiler C# files | **10**, unchanged |
+  | `ColumnarIlEmitter.cs` | **20,784 / 19,768**, unchanged |
+
+  ### THE WORKING TREE AND THE INSTRUMENTS
+
+  Exactly **9** files, all modifications, **no new files**: 3 BootstrapServices production `.nl`
+  (`ColumnarExternalBindingPlans`, `ColumnarMethodBodyPlanner`, `ColumnarInstanceMemberPlanner`) — plus
+  `ColumnarRangeIndexPlanner.nl` for the one threaded argument — 3 BootstrapServices contract `.nl`,
+  1 native contract `.nl`, and this STATUS.
+
+  Every instrument, corpus, baseline, mutation snapshot and log lives under `/private/tmp/b11`; none
+  was written into the repo. The pristine tip is a `git worktree` at `/private/tmp/b11/tipwt` (outside
+  the repo, so no nested-worktree gate hazard). The marker and tag trees are `rsync` copies at
+  `/private/tmp/b11/markTIP`, `/private/tmp/b11/markSLICE` and `/private/tmp/b11/tagSLICE`, so **no
+  mutation for the liveness or reachability instruments was ever applied to the working tree** — only
+  the estate control walk touches it, and it restores under `sha256` at every step. NOT COMMITTED.
+
+  ### THE PRE-EXISTING OBSERVATIONS THIS SLICE RECORDS RATHER THAN FIXES
+
+  | observation | evidence |
+  |---|---|
+  | the BootstrapServices live tree is known-red with pre-existing `NL402` false positives | 241 at the tip tree, 242 on the slice tree; no new CODE, and the two CLIs agree row-for-row on the same tree |
+  | `tests/fixtures/external-static-relative-dll` does not build | identical build failure on all five corpus sides, as in `015-B7`..`015-B10` |
+  | `templates/nsharp-systems-cli` and `templates/nsharp-systems-lib` do not build under a bare `nlc build` | identical on all five corpus sides; they are systems-mode templates the gate builds through its own path, not a regression this slice introduced |
+  | `typeof(Uri)` is not on the `typeof` owner's admitted surface | measured (`Q13` declines at `emit.local.initializer`), which is why the cross-module contract resolves its foreign type by assembly-qualified name instead |
+
+  ### THE `015-B12` BRIEF — PRICED BY THIS SLICE'S MEASUREMENTS
+
+  1. **STAGE 2: DELETE THE DETOUR — AND VERIFY THE PACKAGE BEFORE, NOT AFTER.**
+     `ColumnarTypeEquivalenceFacts.SameDeclaredIdentity` (`:197–210`) reads `Type.Module` through
+     `typeof(Type).GetProperty("Module")` + two `PropertyInfo.GetValue` calls plus a null-guard
+     `throw`. After the coordinator republishes, that whole cone collapses to
+     `return Object.ReferenceEquals(a.get_Module(), b.get_Module())`, and the 11-line comment at
+     `:186–196` that names the wall goes with it.
+     ⚠ **THE FIRST STEP IS NOT THE EDIT, IT IS A PACKAGED-SDK PROBE.** The live CLI proving
+     `a.get_Module()` emits is `015-B11`'s evidence and is NOT evidence about the package. B12 must
+     spell `a.get_Module()` inside `BootstrapServices` itself and see the PACKAGED SDK compile it —
+     the same shape as `015-B8`'s PROBE C, which declined `NL103` "in the very tree where the
+     widening landed" and is the reason this boundary is two-stage at all. If that probe declines,
+     the republish did not carry both rows and the slice STOPS there rather than papering over it.
+     ⚠ **AND BOTH ROWS MUST BE PRESENT, NOT ONE.** FINDING 1 proved declarable and bindable are
+     independent admissions: `IsSupportedRuntimeTypeName` alone left `a.get_Module()` declining at
+     `emit.return.expression`. The packaged-SDK probe must therefore be the CALL, never a bare
+     `Module`-typed declaration, or it will pass on half a republish.
+     **THE VERIFICATION IS A LITERAL SCAN, AND IT IS COUNTED IN UTF-16 CODE UNITS.** After the edit,
+     scan `ColumnarTypeEquivalenceFacts.nl` for the residue by exact literal — `GetProperty(`,
+     `GetValue(`, `"Module"`, `moduleProperty` — and assert **zero** occurrences of each, measured the
+     way the growth ratchet measures text (UTF-16 code units, `\n`-joined), so a stray non-ASCII
+     character in the surrounding prose cannot shift an offset and hide a survivor. The file's own
+     line count and `text-v1` fingerprint should be recorded before and after; the ratchet itself does
+     NOT move (the file is `.nl`, and no C# is touched), which is exactly why the scan has to be the
+     proof instead.
+     **THE CONTROL THAT MUST STILL FIRE**: `015-B10`'s `C4` — "declared identity drops the MODULE half
+     and keeps only the name" — broke `DeclaredIdentityRefusesTwoSameNamedBuildersFromDifferentModules`
+     ALONE. Re-run it against the REWRITTEN function. If it stops breaking that block, the rewrite
+     weakened the predicate, which is the one thing this port may never do.
+  2. **⚠ ITEM 3's PREMISE IS DEAD — DO NOT RE-QUEUE "THE BINARY FAMILY AT RETURN POSITION".**
+     FINDING 2 measured all twelve operand shapes under the door marker at both the tip and the slice:
+     `a + b`, `(a + b) * c`, `Id(a) + b`, `items[i] + 1`, `box.V + b`, `a < b` and `string + string`
+     are ALL already claimed. What declines at return position is four OTHER door kinds, and that is
+     the queue, in the order their evidence is cheapest:
+     | kind | shape | owner it would enter |
+     |---|---|---|
+     | 13 ternary | `a > b ? a : b` | `ColumnarConditionalPlanner.TryPlanTernary` — already exists, already reached as a NESTED value |
+     | short-circuit | `a && b` | `ColumnarConditionalPlanner.TryPlanShortCircuit` — same owner, same note |
+     | 57 `checked(…)` | `checked(a + 1)` | the host's `EmitExpressionWithOverflowChecking`, whose flag this driver ALREADY routes (`OverflowCheckingEnabled`) — the first door kind whose only missing piece is the door arm |
+     | 8 member access | `new Box(a + b).V`, `items[i].X` at a ROOT | `ColumnarInstanceMemberPlanner.Plan`, which exists and is entered nowhere from the door |
+     The ternary and short-circuit share ONE owner, so they are one slice with two arms, and kind 57
+     is the one whose routing debt is already paid.
+  3. **THE MEMBER-ACCESS ROOT IS ALSO WHAT UNBLOCKS `S3`.** `S3`
+     (`TryGetComposedReceiverType`) is reached ONLY from `ClaimsRoot`, and `ClaimsRoot` is asked only
+     about a member-access ROOT — a door kind that is still declined. So `S3` cannot become reachable
+     until item 2's kind-8 arm lands, and the standing re-measurement can be stated that way rather
+     than re-run blind. `S4` has no such single gate and still gets the `cliTAG` treatment.
+     ⚠ **AND WHEN KIND 8 LANDS, `TryGetComposedReceiverType`'s PLAIN surface becomes load-bearing
+     rather than inert**: `015-B11`'s `C7` is the control that proves the root's type side and append
+     side agree, and it must be re-run against the new arm.
+  4. **THE ADOPTED-NEGATIVE-LITERAL FAMILY IS CLOSED, AND WHAT REPLACES IT IS THE POSITIVE ARM.**
+     `TryEmitIntLiteralAsType`'s POSITIVE arm claims byte/sbyte/short/ushort/uint/long/ulong targets,
+     and `015-B5` argued it "provably unreached" by type equality. That argument was right for the
+     positive arm and wrong for the negative one, and `015-B11` fixed the negative one. Nothing needs
+     doing for the positive arm — but the ARGUMENT should be re-derived once, in bytes, the way the
+     negative arm's was, rather than continuing to be inherited from `015-B5`'s prose.
+  5. **THE NEXT OWNER-SCOPE INSTANCE, IF ONE IS LEFT.** Four owners now carry the inherited value
+     surface. A census of the remaining `TryAppend*` entry points that take a plan and a parent
+     fragment but NO surface parameter is the cheap way to learn whether the family is closed;
+     `015-B11` did not run it, and saying so is better than implying the count is zero.
+
+  ### THE FRESH ISOLATED GATE — RUN TWICE, AND THE SECOND ONE IS THE VERDICT OF RECORD
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/private/tmp` byte copy (`.git`, `bin`,
+  `obj`, `node_modules`, `artifacts` and `.claude/worktrees/` excluded), the log written OUTSIDE the
+  copy, `pgrep -f test-all-core.sh` reading EMPTY first, launched DETACHED, and all **9** changed
+  files `sha256`-verified IDENTICAL between the working tree and the copy before the run. The copy
+  contains **zero** `NSharpLang.Benchmarks.csproj`, which is correct rather than a gap: this branch's
+  `benchmarks/` carries no project file and the only ones in the repo live under `.claude/worktrees/`,
+  excluded by construction.
+
+  | run | tree | verdict |
+  |---|---|---|
+  | **GATE 1** | PRE-GUARD (FINDING 4 landed after it was launched; it was allowed to finish and never signalled) | **`ALL TESTS PASSED`**, **126 `✓ PASSED` / 0 `✗ FAILED`**, 22m 33s, unit **`Passed: 596`**, estate **`Passed: 7157`**, IL verification **"All 67 N# assemblies pass IL verification (no new errors vs baseline)"** |
+  | **GATE 2** | THE TREE THAT SHIPS | **`ALL TESTS PASSED`**, **126 `✓ PASSED` / 0 `✗ FAILED`**, 22m 33s, unit **`Passed: 596`** (the baseline exactly), estate **`Passed: 7158`** (the bracket exactly), all **47** native `✓ PASSED` lines — `tests/native/ownership-audit` among them ON THE UNCHANGED RATCHET, and `tests/native/columnar-emit-facts` on the new block — the format contract gate ×4, `dotnet new` templates, all 22 example projects, the 38 single-file examples, `nlc check` on examples, and the IL verification gate: **"All 67 N# assemblies pass IL verification (no new errors vs baseline)"** |
+
+  All **9** changed files were `sha256`-verified identical between the working tree and the copy BOTH
+  before and after the gate-2 run, and the copy itself is byte-identical before and after — so nothing
+  drifted under it. Only `STATUS.md` changed in the working tree after the copy was taken; it is
+  neither compiled nor tested by the gate, and that is said rather than glossed. The IL verification
+  line is the independent confirmation that the four bodies whose OWNER moved — `return -1L`,
+  `return -2147483648`, `Use(items[i + 1].X)` and `Use(names[i + 1].Length)` — are VERIFIABLE and not
+  merely byte-equal.
+
+  ⚠ Reporting a superseded gate rather than quietly discarding it is the point: the guard is a
+  three-line refusal that cannot change any well-formed program's bytes, and gate 1 is the evidence
+  that everything ELSE in the slice was already green before it landed. It is not a substitute for
+  gate 2 and is not offered as one.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-B10`: THE INDEX OWNER'S VALUE SURFACE, THE S2
   CONSTRUCTION SCRATCH, AND THE `TypesEquivalent` PORT — THE ARC'S FIRST EMITTER-SHRINKING SLICE. THE
   DECODE OVERTURNS THE BRIEF ON ITEM 1's SCOPE: THE INDEX OWNER DOES NOT CARRY *ONE* NARROW VALUE
   SURFACE, IT CARRIES **SIX** APPENDS ON THE PLAIN SURFACE ACROSS **FIVE** FUNCTIONS, AND THE SELECTOR

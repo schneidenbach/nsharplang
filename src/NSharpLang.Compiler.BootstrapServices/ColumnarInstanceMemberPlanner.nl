@@ -106,7 +106,12 @@ class ColumnarInstanceMemberPlanner {
             fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), candidate)
 
             resultType := typeof(int)
-            if !TryAppend(nodes, source, candidate, bindings, plan, fragment, out resultType) {
+            // 015-B11 — A ROOT PASSES THE PLAIN SURFACE, AND THAT IS THE SAME RULE `015-B10` APPLIED TO
+            // `ColumnarRangeIndexPlanner.Plan`'s true root: a root has no enclosing position to inherit
+            // a surface FROM, exactly as it has no parent fragment to point at. `ClaimsRoot`'s type side
+            // (`TryGetComposedReceiverType`) answers the same question the same way, so the two sides of
+            // a ROOT member access agree — which is the invariant `015-B9`'s overturn 1 was about.
+            if !TryAppend(nodes, source, candidate, bindings, plan, fragment, false, out resultType) {
                 plan.Rollback(checkpoint)
                 return plan.Status
             }
@@ -120,7 +125,15 @@ class ColumnarInstanceMemberPlanner {
         }
     }
 
-    static func TryAppend(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, parentFragment: int, out resultType: Type): bool {
+    // ⚠ 015-B11 — `allowPrimitiveBinary` IS THE POSITION'S SURFACE, INHERITED RATHER THAN CHOSEN.
+    // This owner's composed-receiver append is reached from the shared value dispatcher
+    // (`ColumnarRangeIndexPlanner.TryAppendPlannableValueCore`'s member-access arm), which HOLDS the
+    // surface of the position the whole expression occupies and, until this slice, dropped it at the
+    // call. So `Callee(items[i + 1].X)` declined inside an expression the dispatcher otherwise
+    // claimed while `Callee(items[i].X)` did not — the FOURTH instance of the family `015-B9` closed
+    // twice in the call owner and `015-B10` closed at five sites in the index/range owner. The
+    // parameter is REQUIRED rather than defaulted, so every caller states its own position.
+    static func TryAppend(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, parentFragment: int, allowPrimitiveBinary: bool, out resultType: Type): bool {
         resultType = typeof(int)
         if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(node) != 1 {
             return false
@@ -185,9 +198,18 @@ class ColumnarInstanceMemberPlanner {
                 if nodes.Kind(receiverNode) == ColumnarExpressionNodeKind.IndexAccessExpression() {
                     // A List/array/string element receiver plans as a self-contained value fragment
                     // through the range/index owner, then composes with the ordinary member
-                    // selection below (`issues[i].Id`).
+                    // selection below (`issues[i].Id`). 015-B11: the element's SELECTOR inherits the
+                    // surface of the position this whole member access occupies, so `issues[i + 1].Id`
+                    // is claimable wherever `issues[i].Id` already was.
                     handles := ColumnarRangeIndexHandles.Resolve()
-                    if !ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, receiverNode, bindings, handles, plan, parentFragment, 0, out receiverType) {
+                    receiverPlanned := false
+                    if allowPrimitiveBinary {
+                        receiverPlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, receiverNode, bindings, handles, plan, parentFragment, 0, out receiverType)
+                    } else {
+                        receiverPlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, receiverNode, bindings, handles, plan, parentFragment, 0, out receiverType)
+                    }
+
+                    if !receiverPlanned {
                         plan.Rollback(checkpoint)
                         return false
                     }
@@ -304,6 +326,12 @@ class ColumnarInstanceMemberPlanner {
         if kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
             // A List/array/string element receiver's type comes from planning the index access into
             // a throwaway schema-v3 plan; the open root fragment enables ordinary int indexing.
+            //
+            // ⚠ 015-B11 — THIS SITE STAYS ON THE PLAIN SURFACE ON PURPOSE, AND THAT IS NOT THE SAME
+            // DECISION AS `TryAppend`'s. Its only caller is `ClaimsRoot`, which asks about a plan
+            // ROOT, and a root inherits nothing — the identical ruling `015-B10` recorded at
+            // `ColumnarRangeIndexPlanner.Plan`. Widening it would make this owner's TYPE side wider
+            // than its APPEND side for a root, which is the mirror image of `015-B9`'s overturn 1.
             scratch.PrepareV3()
             rootFragment := scratch.BeginFragment(-1, kind, receiverNode)
             handles := ColumnarRangeIndexHandles.Resolve()

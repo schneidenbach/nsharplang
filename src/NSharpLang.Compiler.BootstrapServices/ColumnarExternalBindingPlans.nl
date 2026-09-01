@@ -106,6 +106,16 @@ class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.ParameterInfo"
         } else if canonical == "EventInfo" || canonical == "System.Reflection.EventInfo" {
             runtimeTypeName = "System.Reflection.EventInfo"
+        } else if canonical == "Module" || canonical == "System.Reflection.Module" {
+            // 015-B11 — THE DECLARING MODULE, WHICH IS A TYPE-IDENTITY FACT RATHER THAN A CONVENIENCE.
+            // `Type.Module` is the second half of "one declared name inside one module is one type":
+            // one process emits many dynamic assemblies, so two distinct builders CAN share a
+            // `FullName` and a name-only test silently equates them. Every other member the identity
+            // walk reads — `MethodInfo`, `FieldInfo`, `PropertyInfo`, `ParameterInfo`, `EventInfo`,
+            // `AssemblyName`, `RuntimeTypeHandle` — was already on this table; the absence of `Module`
+            // was an omission of the same family rather than a rule, and it cost
+            // `ColumnarTypeEquivalenceFacts.SameDeclaredIdentity` a reflective detour.
+            runtimeTypeName = "System.Reflection.Module"
         } else if canonical == "Index" || canonical == "System.Index" {
             runtimeTypeName = "System.Index"
         } else if canonical == "Range" || canonical == "System.Range" {
@@ -150,7 +160,7 @@ class ColumnarExternalBindingPlans {
 
     static func IsSupportedRuntimeTypeName(runtimeTypeName: string?): bool {
         name := runtimeTypeName ?? ""
-        return name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name) || IsXmlLinqTypeName(name)
+        return name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Reflection.Module" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name) || IsXmlLinqTypeName(name)
     }
 
     // THE LINQ-TO-XML SURFACE, AS SEVEN NAMES. `XContainer` is on the list although no source line
@@ -616,6 +626,16 @@ class ColumnarExternalBindingPlans {
             }
             if memberName == "get_Assembly" && count == 0 {
                 return VirtualCall(receiver, memberName, Empty(), "System.Reflection.Assembly")
+            }
+            // 015-B11 — THE DECLARING MODULE, AND THE SECOND HALF OF A TWO-PART ADMISSION.
+            // `IsSupportedRuntimeTypeName` makes `Module` a DECLARABLE type; this row is what makes
+            // `a.Module` a BINDABLE call. A probe proved they are independent: with only the name on
+            // the list, `a.get_Module()` still declined at `emit.return.expression` while
+            // `a.get_Assembly()` — the neighbouring abstract property, which HAS a row here —
+            // compiled. `get_TypeHandle` reaches the ordinary reflective resolver instead because its
+            // result is a VALUE type the executor's stack model already carries.
+            if memberName == "get_Module" && count == 0 {
+                return VirtualCall(receiver, memberName, Empty(), "System.Reflection.Module")
             }
             if memberName == "IsAssignableFrom" && count == 1 && argumentTypeNames[0] == "System.Type" {
                 return VirtualCall(receiver, memberName, One("System.Type"), "System.Boolean")

@@ -1316,6 +1316,18 @@ func MethodBodyFactsUnaryBody(operatorText: string, literalKind: int, literalTex
     return MethodBodyFactsNodes(kinds, childCounts, children, valueStarts, valueLengths, operatorText.Length + literalText.Length)
 }
 
+// `{ return -<literal> }` whose LITERAL node carries NO SPAN (`valueStart = -1`, `valueLength = 0`).
+// `ColumnarNodeTable.Text` would throw on it, which is why the host guards the span before reading it
+// and why 015-B11's narrowed predicate has to as well.
+func MethodBodyFactsUnarySpanlessOperand(operatorText: string): ColumnarNodeTable {
+    kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.UnaryExpression(), ColumnarExpressionNodeKind.IntLiteralExpression())
+    childCounts := MethodBodyFactsInts4(1, 1, 1, 0)
+    children := MethodBodyFactsInts3(1, 2, 3)
+    valueStarts := MethodBodyFactsInts4(0, 0, 0, -1)
+    valueLengths := MethodBodyFactsInts4(0, 0, operatorText.Length, 0)
+    return MethodBodyFactsNodes(kinds, childCounts, children, valueStarts, valueLengths, operatorText.Length)
+}
+
 // `{ return nameof(<name>) }` — the target is a bare identifier.
 func MethodBodyFactsNameOfBody(name: string, targetKind: int): ColumnarNodeTable {
     kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.NameOfExpression(), targetKind)
@@ -1434,12 +1446,12 @@ test "the instance-member owner's gate admits a method body and still refuses th
     nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.MemberAccessExpression(), 1)
     resultType := typeof(int)
     body := MethodBodyFactsOpenRootMethodBody()
-    assert !ColumnarInstanceMemberPlanner.TryAppend(nodes, "m", 0, MethodBodyFactsEmptyBindings(), body, 0, out resultType)
+    assert !ColumnarInstanceMemberPlanner.TryAppend(nodes, "m", 0, MethodBodyFactsEmptyBindings(), body, 0, false, out resultType)
     assert body.OperationCount == 0
 
     recursive := MethodBodyFactsOpenRootRecursive()
     assert throws InvalidOperationException {
-        ColumnarInstanceMemberPlanner.TryAppend(nodes, "m", 0, MethodBodyFactsEmptyBindings(), recursive, 0, out resultType)
+        ColumnarInstanceMemberPlanner.TryAppend(nodes, "m", 0, MethodBodyFactsEmptyBindings(), recursive, 0, false, out resultType)
     }
 }
 
@@ -1588,6 +1600,108 @@ test "the return door refuses the shape the kind-20 arm adopts and the initializ
     assert initializerPlan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
     assert initializerPlan.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
     assert initializerPlan.OpCodeValues[2] == ColumnarCodePlanContract.Stloc()
+}
+
+// ---- BLOCK 31c — 015-B11: THE ADOPTED SET IS NOW THE PRE-PASS'S OWN, NOT THE WHOLE SHAPE ----
+//
+// `015-B5`..`015-B10` refused every `-<int literal>` return because a SUBSET of what
+// `TryEmitIntLiteralAsType` adopts is a silent divergence while a SUPERSET is only a narrowing. That
+// asymmetry still governs; what this block pins is that the superset is now TIGHT, and that every
+// disagreement between the host's spelling and N#'s falls on the REFUSING side.
+test "the adopted-return predicate reproduces the pre-pass's suffix test" {
+    // UNSUFFIXED AND IN RANGE — the host adopts, so the door must keep refusing.
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5"), "-5", 2)
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "1"), "-1", 2)
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "2147483647"), "-2147483647", 2)
+
+    // A SUFFIX — the host's own test is `text[^1] is 'u' or 'U' or 'l' or 'L' or 'm' or 'M'`, the LAST
+    // character only, so `5UL` and `5LU` both fall out of the adopted set through it. The pre-pass
+    // declines and the host emits ordinarily, which is the unary owner — the same owner the door
+    // enters — so the door may claim these.
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5L"), "-5L", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5l"), "-5l", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5U"), "-5U", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5u"), "-5u", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5UL"), "-5UL", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5LU"), "-5LU", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5m"), "-5m", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "5M"), "-5M", 2)
+}
+
+test "the adopted-return predicate caps at int.MaxValue and every parse disagreement refuses" {
+    // ⚠ THE ONE MAGNITUDE THE RANGE HALF BUYS. `ColumnarUnaryLiteralPlanner.TryAppendMinimumMagnitude`
+    // claims exactly `2147483648`, emitting it PRE-NEGATED with no `neg`; the pre-pass declines it
+    // (`2147483648 > int.MaxValue`) and falls through to that same owner. Nothing else between the two
+    // owners is both claimable here and unadopted there.
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "2147483648"), "-2147483648", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "4000000000"), "-4000000000", 2)
+
+    // THE CEILING IS FIXED AT int.MaxValue AND NO RETURN TYPE IS THREADED, WHICH IS A PROOF RATHER
+    // THAN A SIMPLIFICATION: the pre-pass's ceiling is sbyte.MaxValue / short.MaxValue / int.MaxValue
+    // by target and its four unsigned targets adopt nothing, so int.MaxValue is a superset for every
+    // target — and the door's own equality rule means `int` is the only target that can ever reach
+    // this predicate's answer.
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "127"), "-127", 2)
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "128"), "-128", 2)
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "32768"), "-32768", 2)
+
+    // THE PARSE DIMENSION. `ulong.TryParse` rejects hex/binary/octal/underscored texts;
+    // `NumericLiteralFacts.TryParseUnsignedIntegerMagnitude` accepts all four. Each therefore parses
+    // HERE, compares in range and REFUSES — a claim given up, never a byte changed.
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "0x10"), "-0x10", 2)
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "0b101"), "-0b101", 2)
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "1_000"), "-1_000", 2)
+
+    // A text neither parser can read is an UNPROVEN decline, and an unproven decline is not a decline.
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 0, "99999999999999999999999"), "-99999999999999999999999", 2)
+
+    // The non-adopted operators and the float child are unchanged by the narrowing.
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("-", 1, "2.5"), "-2.5", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnaryBody("~", 0, "3"), "~3", 2)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsLiteralBody(0, "5"), "5", 2)
+}
+
+// ⚠ AN UNREADABLE SPAN REFUSES RATHER THAN CRASHING, AND THAT OBLIGATION IS NEW.
+// `ColumnarNodeTable.Text` is a bare `source.Substring(valueStarts[i], valueLengths[i])`, so a
+// literal node carrying no span throws out of the compiler instead of declining. Until 015-B11 this
+// predicate never read the OPERAND's text and had no such exposure; the host's own
+// `ValueStart(node) < 0 → return false` guard became this predicate's obligation the moment it
+// started to. The block is its own so a control can isolate the guard from the two range tests.
+test "the adopted-return predicate refuses a literal operand that carries no span" {
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(MethodBodyFactsUnarySpanlessOperand("-"), "-", 2)
+}
+
+test "the door now claims the minimum-magnitude return the pre-pass declines" {
+    // END TO END, not merely through the predicate: `{ return -2147483648 }` on an `int` function
+    // plans to `ldc.i4 -2147483648; neg; ret`, which is exactly what the host's ordinary unary arm
+    // writes for the value its adoption pre-pass refuses — `EmitExpressionCore` reaches THIS owner
+    // ahead of every other route, so the claim is byte-identical by construction.
+    //
+    // ⚠ THE `neg` IS NOT A ROUNDING ERROR AND THE POOL VALUE IS NOT A TYPO. `2147483648` cannot be
+    // loaded as an `int` at all, so `TryAppendMinimumMagnitude` pools the ALREADY-NEGATED
+    // `-2147483648` and lets the operator's own `neg` run over it; two's complement negation maps
+    // `int.MinValue` to itself, so the pair is exact. That is the owner's existing spelling, and this
+    // block pins it rather than changing it.
+    plan := new ColumnarCodePlan()
+    nodes := MethodBodyFactsUnaryBody("-", 0, "2147483648")
+    assert MethodBodyFactsPlanBody(nodes, "-2147483648", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), plan)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+    assert plan.Int32Count == 1
+    assert plan.Int32Values[0] == -2147483648
+
+    method := MethodBodyFactsDynamicMethod("NSharpB11MinMagnitudeReturn", typeof(int))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToInt32(method.Invoke(target, MethodBodyFactsNoArguments())) == -2147483648
+
+    // And the in-range sibling is STILL refused, so the narrowing did not open the shape the diff
+    // caught.
+    refused := new ColumnarCodePlan()
+    refusedNodes := MethodBodyFactsUnaryBody("-", 0, "5")
+    assert !MethodBodyFactsPlanBody(refusedNodes, "-5", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), refused)
 }
 
 // ---- BLOCK 32 — THE SECOND COMPOSITE ARM ----

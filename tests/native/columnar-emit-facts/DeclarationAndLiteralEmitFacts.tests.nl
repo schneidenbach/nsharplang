@@ -1,6 +1,7 @@
 namespace NSharpLang.ColumnarEmitFacts.Tests
 
 import Demo
+import System
 
 
 // THE FOUR REMAINING `ColumnarCompiler.TryEmitProgram` CASES, ON THE SAME ROUTE THE FILE BESIDE
@@ -832,4 +833,113 @@ test "the index owner inherits its value surface and the construction scratch de
     // The owner's own numeric surface still bounds the selector, and the `015-B9` shapes still hold.
     assert DriverIndexArgument() == 4
     assert DriverIndexSelectorArgument() == 4
+}
+
+// ---- 015-B11 — THE `Module` NAME (STAGE 1), THE ADOPTED NEGATIVE LITERAL, AND THE INSTANCE-MEMBER
+// RECEIVER SURFACE ----
+//
+// ⚠ THE FIRST TWO FUNCTIONS BELOW ARE THE STAGE-1 PROOF, AND THEY ONLY WORK BECAUSE OF WHERE THIS
+// FILE LIVES. `src/NSharpLang.Compiler.BootstrapServices` compiles under the PACKAGED SDK from the
+// local feed, so its own `.nl` cannot spell a type the tree has only just admitted; a
+// `tests/native` project compiles under the CLI the gate has just BUILT, so it can. That split is
+// the whole two-stage boundary: the list widens here, the estate keeps compiling unchanged, and the
+// reflective `PropertyInfo.GetValue` detour in `ColumnarTypeEquivalenceFacts.SameDeclaredIdentity`
+// deletes in `015-B12` after the coordinator republishes.
+//
+// ⚠ AND THE WIDENING TOOK TWO ROWS RATHER THAN ONE, WHICH A PROBE PROVED BEFORE THIS FILE ASSERTED
+// IT. With only `System.Reflection.Module` on `IsSupportedRuntimeTypeName`, `a.get_Module()` still
+// declined at `emit.return.expression` while the neighbouring `a.get_Assembly()` compiled — because
+// `System.Type`'s bindable members are an EXPLICIT table in `GetInstanceCallPlan` and `get_Assembly`
+// had a row there while `get_Module` did not. Declarable and bindable are two admissions.
+func B11ModuleName(a: Type): string {
+    m := a.get_Module()
+    return m.get_Name()
+}
+
+// The exact predicate the detour exists for: two DECLARED identities are one type only when the
+// module halves are the same reference.
+func B11SameModule(a: Type, b: Type): bool {
+    am := a.get_Module()
+    bm := b.get_Module()
+    return Object.ReferenceEquals(am, bm)
+}
+
+// A type from ANOTHER module, resolved by assembly-qualified name because `typeof(Uri)` is not on
+// the `typeof` owner's admitted surface. `System.Uri` is type-forwarded out of CoreLib into
+// `System.Private.Uri`, which is what makes the pair below a genuine cross-module comparison rather
+// than a tautology.
+func B11ForeignModuleType(): Type {
+    resolved := Type.GetType("System.Uri, System.Private.Uri")
+    if resolved == null {
+        throw new InvalidOperationException("System.Uri must resolve by assembly-qualified name.")
+    }
+
+    return resolved
+}
+
+// THE ADOPTED NEGATIVE LITERAL. `-2147483648` is the ONE magnitude the host's return-position
+// adoption pre-pass declines (`2147483648 > int.MaxValue`) and the unary owner claims, emitting it
+// PRE-NEGATED with no `neg`; `-1L` is the suffix half. `-1` on an `int` function is the control that
+// the host still adopts and this door still refuses.
+func B11MinimumMagnitude(): int {
+    return -2147483648
+}
+
+func B11SuffixedNegative(): long {
+    return -1L
+}
+
+func B11AdoptedNegative(): int {
+    return -1
+}
+
+struct B11Point {
+    X: int
+
+    constructor(x: int) {
+        X = x
+    }
+}
+
+func B11Use(v: int): int {
+    return v + 1
+}
+
+// THE INSTANCE-MEMBER RECEIVER SURFACE — a member access whose index receiver carries a BINARY
+// selector, in an argument position the shared dispatcher already claims.
+func B11MemberOverBinarySelector(items: B11Point[], i: int): int {
+    return B11Use(items[i + 1].X)
+}
+
+func B11MemberOverLiteralSelector(items: B11Point[]): int {
+    return B11Use(items[1].X)
+}
+
+func B11StringElementMember(names: string[], i: int): int {
+    return B11Use(names[i + 1].Length)
+}
+
+test "the declaring module binds, the adopted negative literal narrows, and the member receiver inherits its surface" {
+    // STAGE 1, EXECUTED. Both halves of the identity read run, and they answer correctly for a pair
+    // that shares a module and a pair that does not.
+    assert B11ModuleName(typeof(int)) == "System.Private.CoreLib.dll"
+    assert B11ModuleName(B11ForeignModuleType()) == "System.Private.Uri.dll"
+    assert B11SameModule(typeof(int), typeof(string))
+    assert !B11SameModule(typeof(int), B11ForeignModuleType())
+
+    // THE ADOPTED NEGATIVE LITERAL, IN VALUES.
+    assert B11MinimumMagnitude() == -2147483648
+    assert B11SuffixedNegative() == -1L
+    assert B11AdoptedNegative() == -1
+
+    // THE INSTANCE-MEMBER RECEIVER SURFACE.
+    points := [new B11Point(10), new B11Point(20), new B11Point(30)]
+    assert B11MemberOverBinarySelector(points, 0) == 21
+    assert B11MemberOverLiteralSelector(points) == 21
+
+    names := new string[](3)
+    names[0] = "a"
+    names[1] = "bb"
+    names[2] = "ccc"
+    assert B11StringElementMember(names, 0) == 3
 }

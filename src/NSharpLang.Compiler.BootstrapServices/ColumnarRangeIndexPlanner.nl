@@ -455,7 +455,7 @@ class ColumnarRangeIndexPlanner {
             }
 
             if !planned {
-                planned = ColumnarInstanceMemberPlanner.TryAppend(nodes, source, node, bindings, plan, fragment, out resultType)
+                planned = ColumnarInstanceMemberPlanner.TryAppend(nodes, source, node, bindings, plan, fragment, allowPrimitiveBinary, out resultType)
             }
         } else if kind == ColumnarExpressionNodeKind.CallExpression() {
             ownership := ColumnarDirectCallOwnership.NotOwned

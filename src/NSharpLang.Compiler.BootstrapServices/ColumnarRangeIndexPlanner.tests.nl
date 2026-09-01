@@ -193,6 +193,36 @@ func ColumnarRangePlannerBinaryReceiverAccess(): ColumnarRangePlannerTestTree {
     return builder.Build(root)
 }
 
+// `names[1 + 1].Length` — a MEMBER ACCESS whose receiver is an ordinary index with a BINARY
+// selector. 015-B11: the shape the instance-member owner refused while the dispatcher around it
+// claimed the same selector everywhere else.
+func ColumnarRangePlannerMemberOverBinarySelector(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "names")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    operatorStart := builder.AddToken("+")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    selector := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(left, right))
+    access := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    memberStart := builder.AddToken("Length")
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, 6, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
+
+    return builder.Build(root)
+}
+
+// `names[1].Length` — the SAME member access with an ordinary literal selector. The control that
+// proves the decline above belongs to the BINARY and not to the member access or the index.
+func ColumnarRangePlannerMemberOverLiteralSelector(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "names")
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    access := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    memberStart := builder.AddToken("Length")
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, 6, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
+
+    return builder.Build(root)
+}
+
 func ColumnarRangePlannerFromEndIndexedCount(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
@@ -1078,6 +1108,61 @@ test "the index owner inherits the value surface of the position it is planned i
     plainReceiverPlan.PrepareV3()
     plainReceiverType := typeof(int)
     assert !ColumnarRangeIndexPlanner.TryAppendPlannableValue(receiver.Nodes, receiver.Source, receiver.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), plainReceiverPlan, -1, 0, out plainReceiverType)
+}
+
+// ---- THE FOURTH OWNER IN THE SAME FAMILY (015-B11) ----
+//
+// The shared value dispatcher HOLDS `allowPrimitiveBinary` and, until this slice, dropped it when it
+// handed a member access to the instance-member owner. The pin is again the SAME NODE through both
+// surfaces, so the difference is the surface and not the shape.
+test "the instance-member owner inherits the value surface of the position it is planned in" {
+    tree := ColumnarRangePlannerMemberOverBinarySelector()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "names", 0, typeof(string[]))
+
+    constructionPlan := new ColumnarCodePlan()
+    constructionPlan.PrepareV3()
+    constructionFragment := constructionPlan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), tree.Root)
+    constructionType := typeof(string)
+    assert ColumnarInstanceMemberPlanner.TryAppend(tree.Nodes, tree.Source, tree.Root, bindings, constructionPlan, constructionFragment, true, out constructionType)
+    assert constructionType == typeof(int)
+
+    plainPlan := new ColumnarCodePlan()
+    plainPlan.PrepareV3()
+    plainFragment := plainPlan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), tree.Root)
+    plainType := typeof(string)
+    assert !ColumnarInstanceMemberPlanner.TryAppend(tree.Nodes, tree.Source, tree.Root, bindings, plainPlan, plainFragment, false, out plainType)
+
+    // The ordinary literal selector claims on BOTH surfaces, so the decline above is the BINARY's:
+    // the plain surface did not become narrower, it simply never carried a binary.
+    literal := ColumnarRangePlannerMemberOverLiteralSelector()
+    literalPlan := new ColumnarCodePlan()
+    literalPlan.PrepareV3()
+    literalFragment := literalPlan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), literal.Root)
+    literalType := typeof(string)
+    assert ColumnarInstanceMemberPlanner.TryAppend(literal.Nodes, literal.Source, literal.Root, bindings, literalPlan, literalFragment, false, out literalType)
+    assert literalType == typeof(int)
+}
+
+// ⚠ AND THE ROOT SIDE DELIBERATELY DOES NOT MOVE. `ClaimsRoot` types a composed receiver through the
+// S3 scratch, which stays PLAIN because a root inherits nothing — the same ruling 015-B10 recorded
+// for the index owner's own `Plan`. The pair below is what proves the TYPE side and the APPEND side
+// of a ROOT still answer identically, which is the invariant 015-B9's overturn 1 was about.
+test "the instance-member root keeps the plain surface on both its type and append sides" {
+    binary := ColumnarRangePlannerMemberOverBinarySelector()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "names", 0, typeof(string[]))
+
+    binaryReceiverType := typeof(string)
+    assert !ColumnarInstanceMemberPlanner.TryGetComposedReceiverType(binary.Nodes, binary.Source, binary.Nodes.Child(binary.Root, 0), bindings, out binaryReceiverType)
+    assert !ColumnarInstanceMemberPlanner.ClaimsRoot(binary.Nodes, binary.Source, binary.Root, bindings)
+
+    // The literal selector is what shows the root refusal above is the BINARY's and not the root's.
+    literal := ColumnarRangePlannerMemberOverLiteralSelector()
+    literalReceiverType := typeof(int)
+    assert ColumnarInstanceMemberPlanner.TryGetComposedReceiverType(literal.Nodes, literal.Source, literal.Nodes.Child(literal.Root, 0), bindings, out literalReceiverType)
+    assert literalReceiverType == typeof(string)
+    assert ColumnarInstanceMemberPlanner.ClaimsRoot(literal.Nodes, literal.Source, literal.Root, bindings)
 }
 
 // The ROOT is the one append that stays plain, and it is not an oversight: a root has no enclosing

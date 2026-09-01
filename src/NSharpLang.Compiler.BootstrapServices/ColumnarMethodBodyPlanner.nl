@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import NSharpLang.Compiler
 
 
 // Statement kind 20 (`Return`) as an ORDINARY METHOD BODY sees it.
@@ -448,18 +449,84 @@ class ColumnarMethodBodyPlanner {
     // claims only byte/sbyte/short/ushort/uint/long/ulong, and false of the NEGATIVE arm, which has no
     // such target restriction. The corpus said so in bytes before this comment said it in words.
     //
-    // The shape is refused WHOLE rather than by reproducing the pre-pass's suffix and range arithmetic.
-    // A superset of what the pre-pass claims can only narrow this door — the excess declines and the
-    // host emits as ever — while a subset would be a silent divergence, which is the one outcome that
-    // must be impossible. `-2.5` (a FLOAT literal child), `-5L` (a suffixed child) and `~3` / `!true`
-    // (other operators) are outside the pre-pass and stay claimed in both positions.
+    // ⚠ 015-B11 — THE SHAPE IS NO LONGER REFUSED WHOLE; THE PRE-PASS'S OWN TWO TESTS ARE REPRODUCED,
+    // AND EVERY DISAGREEMENT BETWEEN THE TWO SPELLINGS IS BUILT TO FALL ON THE REFUSING SIDE.
+    //
+    // `015-B5` through `015-B10` refused every `-<int literal>` return because a subset of what the
+    // pre-pass claims is a SILENT DIVERGENCE while a superset is only a narrowing. That is still the
+    // governing asymmetry; what changed is that the superset is now the TIGHT one rather than the
+    // whole shape, and the two halves are priced separately:
+    //
+    // THE SUFFIX HALF is the host's `text[^1] is 'u' or 'U' or 'l' or 'L' or 'm' or 'M'` transcribed
+    // LITERALLY — the last character only. `5UL` and `5LU` both end in a suffix character, so both
+    // decline through it exactly as the host does. `NumericLiteralFacts.GetIntegerSuffix` is NOT used
+    // here on purpose: it scans a whole suffix run and does not know `m`/`M`, so it would answer a
+    // different question than the one the host asks.
+    //
+    // THE RANGE HALF caps at `int.MaxValue` with NO target threading, and that is a PROOF rather than
+    // a simplification. The pre-pass's ceiling is `sbyte.MaxValue` / `short.MaxValue` / `int.MaxValue`
+    // by target, and its four unsigned targets adopt nothing at all — so `int.MaxValue` is a superset
+    // of the adopted magnitude for EVERY target. It is also the only ceiling this door can ever be
+    // asked about: the door claims a body only when `valueType == returnType`, and
+    // `ColumnarUnaryLiteralPlanner` types `-<unsuffixed int literal>` as `int` and nothing else, so a
+    // return type of `sbyte`/`short`/`long`/anything unsigned fails the equality test before this
+    // predicate's answer can matter.
+    //
+    // AND THE RANGE HALF IS NOT DEAD, BECAUSE ONE MAGNITUDE SITS BETWEEN THE TWO OWNERS.
+    // `ColumnarUnaryLiteralPlanner.TryAppendMinimumMagnitude` claims exactly `2147483648`, emitting it
+    // PRE-NEGATED as `ldc.i4 -2147483648` with no `neg`; the pre-pass declines that value
+    // (`2147483648 > int.MaxValue`) and falls through to its ordinary unary emission, which IS that
+    // same owner. `return -2147483648` on an `int` function is therefore claimable and byte-identical.
+    //
+    // THE PARSE DIMENSION IS A SUPERSET TOO, MEASURED FROM THE TWO PARSERS. The host uses
+    // `ulong.TryParse`, which rejects `0x…`/`0b…`/`0o…` and `_` separators;
+    // `NumericLiteralFacts.TryParseUnsignedIntegerMagnitude` accepts all four. Every one of those
+    // texts therefore parses HERE, compares in range, and REFUSES — the host would have emitted it
+    // ordinarily, so the disagreement costs a claim and can never cost bytes. A text that parses in
+    // neither also refuses, because an unproven decline is not a decline.
+    //
+    // `-2.5` (a FLOAT literal child) and `~3` / `!true` (other operators) never reach the pre-pass at
+    // all and stay claimed in both positions, as before.
     static func IsHostAdoptedReturnShape(nodes: ColumnarNodeTable, source: string, node: int): bool {
         if nodes.Kind(node) != ColumnarExpressionNodeKind.UnaryExpression() || nodes.ChildCount(node) != 1 || nodes.Text(source, node) != "-" {
             return false
         }
 
         operand := nodes.Child(node, 0)
-        return operand >= 0 && operand < nodes.Kinds.Length && nodes.Kind(operand) == ColumnarExpressionNodeKind.IntLiteralExpression()
+        if operand < 0 || operand >= nodes.Kinds.Length || nodes.Kind(operand) != ColumnarExpressionNodeKind.IntLiteralExpression() {
+            return false
+        }
+
+        // ⚠ THE SPAN GUARD IS THE HOST'S OWN AND IT IS NOT BELT-AND-BRACES. `TryEmitIntLiteralAsType`
+        // opens with `_nodes.ValueStart(node) < 0 → return false` for a reason: `ColumnarNodeTable.Text`
+        // is a bare `source.Substring(valueStarts[i], valueLengths[i])`, so a literal node carrying no
+        // span would THROW out of the compiler rather than decline. Until this slice this predicate
+        // never read the OPERAND's text and had no such exposure; reading it is what makes the guard
+        // this predicate's own obligation rather than an inherited one. An unreadable span refuses,
+        // which is the same safe direction as an unparseable magnitude below.
+        valueStart := nodes.ValueStart(operand)
+        valueLength := nodes.ValueLengths[operand]
+        if valueStart < 0 || valueLength <= 0 || valueLength > source.Length || valueStart > source.Length - valueLength {
+            return true
+        }
+
+        text := nodes.Text(source, operand)
+        length := text.Length
+        if length == 0 {
+            return true
+        }
+
+        last := text[length - 1]
+        if last == 'u' || last == 'U' || last == 'l' || last == 'L' || last == 'm' || last == 'M' {
+            return false
+        }
+
+        magnitude := 0UL
+        if !NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(text, out magnitude) {
+            return true
+        }
+
+        return magnitude <= 2147483647UL
     }
 
     // The kind-keyed dispatcher itself, in the position where no host pre-pass runs: a `:=`

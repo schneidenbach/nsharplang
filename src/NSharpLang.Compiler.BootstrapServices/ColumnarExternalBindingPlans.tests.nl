@@ -1206,6 +1206,30 @@ test "the reflected nullability types are on the runtime type surface" {
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(null)
 }
 
+test "the declaring module is on both runtime-type tables by both spellings" {
+    // 015-B11 STAGE 1. `Type.Module` is the second half of "one declared name inside one module is
+    // one type" — the test host emits one dynamic assembly per case, so two distinct builders CAN
+    // share a FullName and a name-only identity test silently equates them. Every other member the
+    // identity walk reads was already on these two tables; `Module` was an omission of the same
+    // family, and `ColumnarTypeEquivalenceFacts.SameDeclaredIdentity` paid for it with a reflective
+    // `PropertyInfo.GetValue` detour that 015-B12 deletes once the SDK carries this row.
+    AssertRuntimeType("Module", "System.Reflection.Module")
+    AssertRuntimeType("System.Reflection.Module", "System.Reflection.Module")
+
+    // Both tables move together or neither moves: a canonical the map resolves but the admission
+    // list refuses is a name nothing can declare a local of, which is the shape of the NL103 this
+    // row removes.
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Module")
+
+    // Spelling stays exact in both directions, as it is for every neighbouring row.
+    unknownModuleName := ""
+    assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName("module", out unknownModuleName)
+    assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName("Modules", out unknownModuleName)
+    assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName("System.Module", out unknownModuleName)
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("Module")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.ModuleBuilder")
+}
+
 test "the attribute-data sequence identities are computed, not spelled" {
     // GetCustomAttributesData and ConstructorArguments answer closed IList<T>. A local of that
     // type is what the attribute walk binds, so the closed identity must be on the surface — and
