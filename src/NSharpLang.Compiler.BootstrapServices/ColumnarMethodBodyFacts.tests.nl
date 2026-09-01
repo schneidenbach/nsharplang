@@ -1856,6 +1856,13 @@ func MethodBodyFactsSiblings(name: string, facts: ColumnarSiblingCallFacts): Dic
     return result
 }
 
+func MethodBodyFactsSiblings2(firstName: string, firstFacts: ColumnarSiblingCallFacts, secondName: string, secondFacts: ColumnarSiblingCallFacts): Dictionary<string, ColumnarSiblingCallFacts> {
+    result := new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal)
+    result[firstName] = firstFacts
+    result[secondName] = secondFacts
+    return result
+}
+
 // `{ return <Owner>.<Member>(<literal>) }`, or with a non-empty `localName`,
 // `{ <localName> := <Owner>.<Member>(<literal>)  return <localName> }`. The local's token is added to
 // the source FIRST so the identifier read and the declaration share one span.
@@ -1879,19 +1886,40 @@ func MethodBodyFactsIdentifierCallBody(memberName: string, argumentName: string)
     return MethodBodyFactsWrapValueInBody(builder, call, 0, "")
 }
 
-// `{ <name> := <Member>()  return <Member>(<name>) }` — the exact body the claim-class corpus crashed
-// on: a declaration whose initializer is a call, and a return whose call READS that plan local.
-func MethodBodyFactsDeclareThenCallReturnBody(memberName: string, localName: string): ColumnarRangePlannerTestTree {
+// `{ <name> := <initMember>()  return <returnMember>(<name>) }` — the exact body the `015-B7` claim-class
+// corpus CRASHED on, and the body `015-B8`'s scratch-plan mirror makes claimable. The two member names
+// differ because `SiblingCallables` is keyed by name and the two calls have different arities.
+func MethodBodyFactsDeclareThenCallReturnBody(initMember: string, returnMember: string, localName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     nameStart := builder.AddToken(localName)
-    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
+    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
     initCall := DirectCallAppendCall(builder, initCallee, DirectCallNoArguments())
     declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initCall))
-    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
+    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), returnMember)
     argument := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), nameStart, localName.Length, nameStart, localName.Length, new int[](0))
     returnCall := DirectCallAppendCall(builder, returnCallee, DirectCallOneArgument(argument))
     statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(returnCall))
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
+}
+
+// The same shape with TWO declarations, only the SECOND of which the returned call reads. It is the
+// body that exercises the mirror's all-used exemption: the scratch that types the argument carries both
+// slots as vocabulary and references exactly one of them.
+func MethodBodyFactsTwoDeclareThenCallReturnBody(initMember: string, returnMember: string, first: string, second: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    firstStart := builder.AddToken(first)
+    secondStart := builder.AddToken(second)
+    firstCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
+    firstCall := DirectCallAppendCall(builder, firstCallee, DirectCallNoArguments())
+    firstDeclaration := builder.AddNode(24, firstStart, first.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(firstCall))
+    secondCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
+    secondCall := DirectCallAppendCall(builder, secondCallee, DirectCallNoArguments())
+    secondDeclaration := builder.AddNode(24, secondStart, second.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(secondCall))
+    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), returnMember)
+    argument := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), secondStart, second.Length, secondStart, second.Length, new int[](0))
+    returnCall := DirectCallAppendCall(builder, returnCallee, DirectCallOneArgument(argument))
+    statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(returnCall))
+    return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts3(firstDeclaration, secondDeclaration, statement)))
 }
 
 // The same qualified shape with NO arguments, which is what a void member needs.
@@ -2146,46 +2174,106 @@ test "the direct-call root sequence produces the same rows through Plan and thro
 }
 
 
-// ---- BLOCK 45 — ⚠ THE PLAN-LOCAL-INSIDE-A-CALL REFUSAL ----
+// ---- BLOCK 45 — ⚠ THE SHAPE `015-B7` DECLINED WHOLE, NOW CLAIMED (015-B8) ----
 //
-// THE CLAIM-CLASS CORPUS FOUND THIS AS A COMPILER CRASH, NOT AS AN ARGUMENT: `n := Callee(3)` followed
-// by `return Callee(n)` came back `Build failed: The opcode does not use this plan-local entry.` The
-// direct-call owner types each argument by planning it into a FRESH schema-v3 SCRATCH plan whose local
-// pool is EMPTY, and the sole identifier owner appends `ldloc <pool index>` for a plan local, so the
-// index does not exist there. Mirroring the pool into the scratch is not the alternative either —
-// `ValidateAllUsed` throws on any declared plan local no row references — so the refusal stands until a
-// slice changes the scratch plan's contract.
+// `n := Ping()` followed by `return Take(n)` is the body the `015-B7` claim-class corpus CRASHED the
+// compiler on — `Build failed: The opcode does not use this plan-local entry.` The direct-call owner
+// types each argument by planning it into a FRESH schema-v3 scratch plan, and that plan's local pool was
+// empty, so `ldloc <the body's pool index>` had no index to name. `015-B7` refused the whole body;
+// `015-B8` gives the scratch the body's local VOCABULARY instead, and the shape claims.
 //
-// The block asserts BOTH sides of the narrowness, because a guard that refused too much would be a
-// retreat from the class rather than a fix: a plan-local read INSIDE the call is refused, the same
-// binding read OUTSIDE the call is claimed, and the predicate itself answers false when no plan local
-// exists at all.
-test "a call whose subtree reads a plan local is refused and the same binding outside a call is claimed" {
-    facts := DirectCallSiblingFacts("MethodBodyFactsPlanLocalHost", "Ping", new Type[](0), typeof(int))
-    siblings := MethodBodyFactsSiblings("Ping", facts)
+// The rows are the proof that nothing about the CLAIM changed shape: the declaration's call, its store,
+// the read, the returned call, the `ret`. And the door's own plan is STORAGE, never a mirror — the
+// mirror lives and dies inside the owner's scratch.
+test "the door claims a declaration whose local is read inside the returned call" {
+    initFacts := DirectCallSiblingFacts("MethodBodyFactsPlanLocalHost", "Ping", new Type[](0), typeof(int))
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    takeFacts := DirectCallSiblingFacts("MethodBodyFactsPlanLocalHost", "Take", oneInt, typeof(int))
+    siblings := MethodBodyFactsSiblings2("Ping", initFacts, "Take", takeFacts)
 
-    // `n := Ping()` then `return n` — the plan local is read in RETURN position, outside any call.
-    outside := MethodBodyFactsBareCallBody("Ping", "n")
-    outsidePlan := new ColumnarCodePlan()
-    assert MethodBodyFactsPlanCallBody(outside, typeof(int), MethodBodyFactsNoSourceTypes(), siblings, outsidePlan)
-    assert outsidePlan.PlanLocalCount == 1
+    inside := MethodBodyFactsDeclareThenCallReturnBody("Ping", "Take", "n")
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(inside, typeof(int), MethodBodyFactsNoSourceTypes(), siblings, plan)
 
-    // The predicate is FALSE on the same tree with EMPTY bindings — no plan locals, nothing to refuse —
-    // and TRUE once a plan local of that name exists. Both directions, on one tree.
+    assert plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+    assert plan.OperationCount == 5
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Stloc()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ldloc()
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[4] == ColumnarCodePlanContract.Ret()
+    assert plan.Methods[plan.OperandIndices[0]].get_Name() == "Ping"
+    assert plan.Methods[plan.OperandIndices[3]].get_Name() == "Take"
+
+    // The BODY's pool is storage. A mirror is the scratch's business alone, and a plan that carried one
+    // could not be replayed at all.
+    assert plan.PlanLocalCount == 1
+    assert !plan.PlanLocalIsMirror[0]
+    assert !plan.HasPlanLocalMirror()
+    assert plan.OpenFragmentCount == 0
+}
+
+
+// ---- BLOCK 46 — THE MULTI-LOCAL BODY, WHICH IS THE ALL-USED EXEMPTION END TO END ----
+//
+// Two declarations and a return whose call reads only the SECOND. The scratch that types that argument
+// carries BOTH slots as vocabulary and references exactly one, so the body cannot be claimed unless the
+// pool's all-used rule distinguishes a mirror from a dead entry. It is the corner the `015-B7` record
+// predicted would block a mirror — and, per the `015-B8` decode, the ONLY corner that rule blocks, since
+// a single-local body's scratch satisfies all-used with its one read and dies on definite assignment
+// instead.
+test "the door claims two declarations when the returned call reads only the second" {
+    initFacts := DirectCallSiblingFacts("MethodBodyFactsTwoLocalHost", "Ping", new Type[](0), typeof(int))
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    takeFacts := DirectCallSiblingFacts("MethodBodyFactsTwoLocalHost", "Take", oneInt, typeof(int))
+    siblings := MethodBodyFactsSiblings2("Ping", initFacts, "Take", takeFacts)
+
+    body := MethodBodyFactsTwoDeclareThenCallReturnBody("Ping", "Take", "p", "q")
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(body, typeof(int), MethodBodyFactsNoSourceTypes(), siblings, plan)
+
+    assert plan.PlanLocalCount == 2
+    assert plan.OperationCount == 7
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Stloc()
+    assert plan.OperandIndices[1] == 0
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Stloc()
+    assert plan.OperandIndices[3] == 1
+    // The read is of the SECOND slot, and the first is never read by the body at all.
+    assert plan.OpCodeValues[4] == ColumnarCodePlanContract.Ldloc()
+    assert plan.OperandIndices[4] == 1
+    assert plan.OpCodeValues[6] == ColumnarCodePlanContract.Ret()
+}
+
+
+// ---- BLOCK 47 — THE VOCABULARY ITSELF: INDEXED BY POOL INDEX, AND EMPTY OFF THE DOOR'S PATH ----
+//
+// `ColumnarFragmentBindings.PlanLocalMirrorTypes` is what every scratch site arms its plan with. Two
+// facts make the arming safe to place on the SHARED expression path: it is indexable by the enclosing
+// plan's pool index (not by entry count), and it is EMPTY wherever no plan local was published — which
+// is every path but the method-body door, because `DeclarePlanLocal` has exactly one production caller.
+test "the plan-local mirror vocabulary is indexed by pool index and empty without plan locals" {
     bindings := MethodBodyFactsEmptyBindings()
-    read := MethodBodyFactsIdentifierCallBody("Ping", "n")
-    assert !ColumnarMethodBodyPlanner.ReadsPlanLocal(read.Nodes, read.Source, read.Root, bindings, 0)
-    bindings.DeclarePlanLocal("n", 0, typeof(int))
-    assert ColumnarMethodBodyPlanner.ReadsPlanLocal(read.Nodes, read.Source, read.Root, bindings, 0)
+    assert bindings.PlanLocalMirrorTypes().Length == 0
 
-    // A name the bindings do NOT hold is not refused, so the scan is about the plan-local tier rather
-    // than about identifiers in general.
-    other := MethodBodyFactsIdentifierCallBody("Ping", "q")
-    assert !ColumnarMethodBodyPlanner.ReadsPlanLocal(other.Nodes, other.Source, other.Root, bindings, 0)
+    bindings.DeclarePlanLocal("first", 0, typeof(int))
+    bindings.DeclarePlanLocal("third", 2, typeof(string))
+    vocabulary := bindings.PlanLocalMirrorTypes()
 
-    // And the DOOR declines the whole body rather than reaching the owner: `n := Ping()` then
-    // `return Ping(n)`. Without the guard this call throws out of the compiler.
-    inside := MethodBodyFactsDeclareThenCallReturnBody("Ping", "n")
-    insidePlan := new ColumnarCodePlan()
-    assert !MethodBodyFactsPlanCallBody(inside, typeof(int), MethodBodyFactsNoSourceTypes(), siblings, insidePlan)
+    // Sized by the HIGHEST index rather than by the entry count, so index 2 is index 2.
+    assert vocabulary.Length == 3
+    assert vocabulary[0] == typeof(int)
+    assert vocabulary[2] == typeof(string)
+    // The gap carries a filler. No name can spell an unpublished slot, so nothing can reference it, and
+    // the mirror rule exempts it from the all-used check exactly as it exempts every other mirror.
+    assert vocabulary[1] == typeof(int)
+
+    // Armed onto a scratch, the vocabulary becomes three mirror slots at those indices.
+    scratch := new ColumnarCodePlan()
+    scratch.EnablePlanLocalMirror(vocabulary)
+    scratch.PrepareV3()
+    assert scratch.PlanLocalCount == 3
+    assert scratch.Types[scratch.PlanLocalTypeIndices[2]] == typeof(string)
+    assert scratch.PlanLocalIsMirror[2]
 }

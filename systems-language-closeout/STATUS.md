@@ -1,6 +1,27 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-31 (**TASK 015 SUB-SLICE `015-B7` — THE DIRECT-CALL COMPOSITE — see the Cursor
+Last updated: 2026-08-31 (**TASK 015 SUB-SLICE `015-B8` — THE SCRATCH-PLAN CONTRACT — see the Cursor
+block.** The decode was written before any production file was touched and it **OVERTURNS THE BRIEF ON
+BOTH OF ITS FACTUAL CLAIMS**. First: there are **FOUR** type-discovery scratch sites, not three — the
+brief's census misses `ColumnarRangeIndexPlanner:353` — and a corpus measurement (nine probe shapes, each
+built alone with the plan-local refusal disabled and every site tagged) proves only **ONE** of the four is
+reachable from a claimed body. Second, and load-bearing: **`ValidateAllUsed` IS NOT THE RULE THAT BLOCKS A
+MIRROR IN THE SHAPE THAT CRASHES.** The executor carries TWO independent plan-local rules, the all-used
+rule and a definite-assignment rule the brief never names, and because all-used runs FIRST a one-local
+body's scratch sails past it on its single read and dies on assignment — so the fix the brief specified
+would not have fixed `n := f(3); return g(n)`. Both rules now separate a MIRROR from a DEAD entry and
+neither is weakened for storage; a mandatory four-corner control pins that a real dead slot and a real
+read-before-store still throw, beside a mirror that does not. **THE SLICE ALSO FINDS THAT `015-B7`'s GUARD
+WAS EIGHT TIMES WIDER THAN ITS RECORD SAYS**: eight of nine probe shapes crashed without it, and the mirror
+CLAIMS six of them — the two index-access shapes still decline, in the owner, for reasons predating this
+slice, so what changed for those is an ordinary decline in place of a hard throw. Estate **7,127 → 7,133**;
+native emit-facts **26 → 27**; both corpora `IL_DIFFS=0`; the two-marker liveness mutation moves **6** claim
+rows (five ARGUMENT, one RECEIVER) and **0** live-corpus rows, predicted 0 from a census first; the control
+walk 8/8 with **all six per-control predictions written before the results and all six exact**, two of them
+single-block isolations and a clean pristine bracket. **ZERO C# TOUCHED**, so the ratchet needs no repin and
+the emitter stands at **20,890 / 19,871**. Gate `ALL TESTS PASSED` / `GATE EXIT 0`. NOT COMMITTED.)
+
+Last updated (prior): 2026-08-31 (**TASK 015 SUB-SLICE `015-B7` — THE DIRECT-CALL COMPOSITE — see the Cursor
 block.** The decode was written before any production file was touched and it **OVERTURNS THE BRIEF ON
 TWO OF ITS FOUR ITEMS**. First: the overflow flag is not "a byte divergence to measure and handle" at
 this door — it is **PROVABLY `false` at every `EmitBody` entry** (the field starts false, is written at
@@ -5203,7 +5224,344 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B7`: THE DIRECT-CALL COMPOSITE. THE DECODE OVERTURNS
+- Active sub-slice (015 arc, THIS TURN — **`015-B8`: THE SCRATCH-PLAN CONTRACT. THE DECODE OVERTURNS
+  THE BRIEF ON BOTH OF ITS FACTUAL CLAIMS — THERE ARE **FOUR** TYPE-DISCOVERY SCRATCH SITES, NOT THREE,
+  AND ONLY **ONE** OF THEM IS REACHABLE FROM A CLAIMED BODY (MEASURED, NOT ARGUED); AND `ValidateAllUsed`
+  IS **NOT THE RULE THAT BLOCKS A MIRROR** IN THE SHAPE THAT ACTUALLY CRASHES — A SECOND, DEEPER RULE
+  THE BRIEF NEVER NAMES FIRES FIRST.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED, AT `4265cec9a`
+
+  #### THE TIP, RE-MEASURED RATHER THAN INHERITED
+
+  | reading | value | matches the brief |
+  |---|---|---|
+  | `ColumnarIlEmitter.cs` | **20,890 / 19,871** | ✓ |
+  | compiler C# files (excluding `obj/`, `bin/`) | **10** | ✓ |
+  | ratchet manifest | **391**, no BOM (`7b 0a 20`) | ✓ |
+  | two-key head | `head-v1:6bc1f1b6f58f020d` (JSON header AND `OwnershipPolicy.ReviewedHeadFingerprint`) | ✓ (read from the audit, never inherited) |
+  | working tree | CLEAN — B7 committed as `4265cec9a` | — |
+  | estate, BASELINE | **`7,127 / 0`** | ✓ |
+  | native projects with a sibling `*.tests.nl` | **46** + the BootstrapServices contract line = **47** | ✓ |
+  | `columnar-emit-facts` blocks | **26** (11 + 15) | brief said "~27"; the measured value is 26 |
+  | `ColumnarMethodBodyFacts.tests.nl` | **45** blocks | — |
+  | `ColumnarCodePlan.nl` / `ColumnarCodePlanExecutor.nl` / `ColumnarMethodBodyPlanner.nl` | **2,181 / 2,667 / 666** | — |
+
+  #### ⚠ OVERTURN 1 — THERE ARE **FOUR** TYPE-DISCOVERY SCRATCH SITES, AND THE BRIEF'S THIRD IS NOT WHAT IT SAYS
+
+  `new ColumnarCodePlan()` appears at **22** production sites. Eighteen of them build REAL, EXECUTED
+  method-body plans from a struct definition (`ColumnarIteratorPlanner` ×14,
+  `ColumnarRecordValueMemberPlanner` ×3, `ColumnarAsyncEntryPointPlanner` ×1) and can never receive a
+  user expression subtree. The remaining **FOUR** append an arbitrary user subtree into a fresh,
+  empty-pool plan purely to read its RESULT TYPE back:
+
+  | | site | prepares | validates | what it types |
+  |---|---|---|---|---|
+  | **S1** | `ColumnarDirectCallPlanner.TryGetPlannableValueType:1473` | itself (`PrepareV3`) | yes (`CompleteV3` + `Validate`) | each call ARGUMENT (`:1411`) and the call RECEIVER (`:850`) |
+  | **S2** | `ColumnarConstructionPlanner.ValueSyntaxIsAdmitted:2330` | itself | yes | an initializer / element / array-length value |
+  | **S3** | `ColumnarInstanceMemberPlanner.TryGetComposedReceiverType:296` | **only on its index-access arm**; the other four arms let the callee's own `Plan()` prepare | **no** — it never seals or validates | a composed instance-member RECEIVER |
+  | **S4** | `ColumnarRangeIndexPlanner.FacadeSelectorMayProduceIndexOrRange:353` | **not at all** — `ColumnarInstanceMemberPlanner.TryGetType` → `Plan()` prepares it | no | an index SELECTOR spelled as a member access |
+
+  **S4 IS NOT IN THE BRIEF AT ALL**, and S3 is not the single-shaped thing the brief describes: two of
+  the four sites hand a plan to a callee that prepares it, so any fix that mirrors "right after my own
+  `PrepareV3()`" cannot reach them. That is a design constraint the brief's framing hides, and it is
+  what picks the design below.
+
+  #### THE REACHABILITY MEASUREMENT — A CORPUS UNDER `MUT-PL`, NOT AN ARGUMENT
+
+  The brief says "whether they are reachable from a claimed body is the first thing B8 must measure
+  rather than assume." It was measured: `ReadsPlanLocal`'s decline was disabled, each scratch site was
+  wrapped in a tagging `catch` that prefixes `[S1]`…`[S4]` onto whatever escapes it, the CLI was rebuilt,
+  and **eleven single-shape projects** were built one at a time.
+
+  | shape | body | result under `MUT-PL` |
+  |---|---|---|
+  | **P1** | `n := Callee(3)` / `return Callee(n)` | **`[S1]`** — the B7 crash |
+  | **P2** | `_a := Callee(1)` / `b := Callee(2)` / `return Callee(b)` | **`[S1]`** |
+  | **P3** | `n := Callee(3)` / `return Math.Abs(n)` | **`[S1]`** |
+  | **P4** | `n := Callee(3)` / `return Callee(Callee(n))` | **`[S1][S1]`** — nested, both hops through S1 |
+  | **P5** | `arr := MakeArray()` / `return Callee(arr[0])` | **`[S1]`** |
+  | **P6** | `s := MakeText()` / `return Callee(s.Length)` | **`[S1]`** |
+  | **P7** | `h := MakeHolder()` / `return h.Take(4)` | **`[S1]`** — the plan local as a call RECEIVER |
+  | **P8** | `n := Callee(3)` / `return Callee(n + 1)` | **BUILDS** — the root types arguments with `allowPrimitiveBinary: false`, so a binary argument declines the call before any scratch is opened |
+  | **P9** | `arr := MakeArray()` / `s := MakeText()` / `return Callee(arr[s.Length - 4])` | **`[S1]`** |
+  | **C1** | `n := Callee(3)` / `return n` | BUILDS (claimed today) |
+  | **C2** | `return Callee(7)` | BUILDS (claimed today) |
+
+  **EVERY REACHABLE CRASH IS S1. S2, S3 AND S4 ARE NOT REACHED FROM ANY CLAIMED BODY AT THIS TIP** — the
+  door declines kinds 15/36/58 (construction), 8 (member access) and 10 (index access) at the ROOT, and
+  the only path into S2 from inside a call needs `allowPrimitiveBinary`, which the root call sets false.
+  So the crash class is exactly "a plan local anywhere inside a claimed call's subtree", and `ReadsPlanLocal`
+  guards **eight of the nine** probe shapes rather than the one the B7 record's narrowness argument named.
+
+  #### ⚠ OVERTURN 2 — `ValidateAllUsed` IS NOT THE RULE THAT BLOCKS A MIRROR IN THE SHAPE THAT CRASHES. A SECOND RULE FIRES FIRST, AND THE BRIEF NEVER NAMES IT
+
+  The brief (and B7's own comment at `ColumnarMethodBodyPlanner:532–537`) says mirroring fails because
+  `ValidateAllUsed` "throws on any declared plan local no row references". That is true — and it is not
+  what stops **P1**. `ColumnarCodePlanExecutor` carries **TWO INDEPENDENT PLAN-LOCAL RULES**, in this order:
+
+  | | rule | where | what it throws | which mirror it blocks |
+  |---|---|---|---|---|
+  | **R1** | every pool entry must be referenced by some row | `ValidateAllUsed:1340`, called at `:712` (v4) and `:1064` (v2/v3) | "… plan local pool contains hidden unused state." | a mirror the scratch does **not** read — **P2**'s `_a` |
+  | **R2** | a plan local must be **assigned before `ldloc`** | `ApplyLocal:1916`, reached from `ValidateControlFlowAndFragments:1390` | "… plan locals must be assigned before ldloc." | a mirror the scratch **does** read — **P1**, the actual crash shape |
+
+  R1 runs first (`:1053–1064` precedes `:1073`), so a naive mirror of a ONE-local body whose scratch reads
+  that local sails past R1 and dies on R2. **The brief's fix would not have fixed P1.** Both rules are
+  load-bearing and both are already pinned by pre-existing estate blocks —
+  `"schema v2 executor rejects exact bool uint int and long ulong confusion"`'s unused-local arm (R1) and
+  `"schema v2 executor requires straight-line plan-local assignment"` (R2) — so both must keep throwing for
+  a genuinely dead entry, and the control walk has to break each independently.
+
+  R2's exemption is not a weakening, and the reason is an invariant of the door rather than a convenience:
+  `TryAppendLocalDeclaration` appends `stloc <slot>` **before** it calls `bindings.DeclarePlanLocal`
+  (`ColumnarMethodBodyPlanner:350–351`), so a name is only ever visible to a later statement AFTER the outer
+  plan has stored it. A mirror therefore enters a scratch **already assigned**, which is exactly what the
+  outer body proves about it.
+
+  #### THE THIRD RULE THE MIRROR MUST NOT BREAK — A MIRROR CAN NEVER BE EXECUTED
+
+  `ExecuteV3:265` and `ExecuteMethodBody:199` call `il.DeclareLocal` once per pool entry. A mirror is
+  vocabulary, not storage: replaying it would declare a slot the body never uses and silently shift nothing
+  today but everything the moment pool index and slot ordinal stop agreeing. Every one of the four scratch
+  plans is validated-or-inspected and **never executed** (S1 and S2 call `Validate` only; S3 and S4 never even
+  seal), so `Execute` can refuse a mirrored plan outright — a guard that is total rather than conditional.
+
+  #### THE MIRROR'S INERTNESS OFF THE DOOR'S PATH IS A CENSUS, NOT A HOPE
+
+  `bindings.PlanLocals` has exactly **ONE** production writer — `ColumnarMethodBodyPlanner:351`. Every other
+  path (the whole schema-v3 production expression cascade, every owner facade, every `TryGetType`) sees an
+  EMPTY map, so the armed vocabulary is a zero-length array and the mirror declares nothing. That is why all
+  four sites can be armed without a byte moving anywhere but inside a claimed body.
+
+  #### THE CUT
+
+  | | |
+  |---|---|
+  | move 1 | `ColumnarCodePlan` learns the mirror: a `PlanLocalIsMirror` column, `EnablePlanLocalMirror(vocabulary)` armable on a FRESH plan, materialised by `PrepareV2`/`PrepareV3`/`PrepareMethodBody` after `Reset()`. Arming BEFORE the prepare is what lets S3 and S4 — which do not prepare their own plans — carry a mirror at all |
+  | move 2 | `ColumnarCodePlanExecutor` learns the two exemptions: R1 keeps its exact rule for the other eleven pools and gains a plan-local-specific companion that exempts mirrors; R2's `states[0]` seeds every mirror bit assigned. Plus the `Execute` refusal |
+  | move 3 | `ColumnarFragmentBindings.PlanLocalMirrorTypes()` — the vocabulary, indexed by POOL INDEX (an absent index is unreferenceable by construction and carries a filler) |
+  | move 4 | the FOUR scratch sites arm their plan |
+  | move 5 | `ReadsPlanLocal` and its call in the door's kind-9 arm are DELETED — the contract now holds |
+  | NOT taken | the `TypesEquivalent` port (`015-B8` brief item 2) and the adopted negative literal (item 3). Both are their own slices with their own oracles; neither is a coercion that rides behind a contract change |
+
+  Everything below this line is the record written AFTER the build; the decode above is unedited.
+
+  ### WHAT LANDED
+
+  | file | change |
+  |---|---|
+  | `ColumnarCodePlan.nl` | the mirror becomes part of the IR: a `PlanLocalIsMirror` column beside `PlanLocalTypeIndices`, a `planLocalMirrorTypes` vocabulary that `Reset` deliberately does NOT clear, `EnablePlanLocalMirror` (armable only on a fresh plan; refuses a null vocabulary and a null slot), `HasPlanLocalMirror`, and `MaterialisePlanLocalMirror` called by ALL THREE prepares. `DeclarePlanLocal` writes `false` on every slot it hands out, so a rolled-back index cannot inherit a stale flag |
+  | `ColumnarCodePlanExecutor.nl` | the TWO rules learn the difference: `ValidatePlanLocalsUsed` replaces the plan-local call of `ValidateAllUsed` at BOTH validators and exempts a mirror while keeping the dead-entry rule exact (the other ELEVEN pools still call the untouched `ValidateAllUsed`); `SeedMirrorAssignments` marks every mirror assigned in the entry state, which is the rule the `015-B8` brief never named; and `Execute` refuses a mirrored plan outright |
+  | `ColumnarFragmentBindings.nl` | `PlanLocalMirrorTypes()` — the vocabulary, sized by the HIGHEST published pool index rather than by entry count so it is indexable by pool index, with a filler for a gap no name can spell |
+  | `ColumnarDirectCallPlanner.nl` | the one REACHABLE scratch site arms the mirror |
+  | `ColumnarConstructionPlanner.nl`, `ColumnarInstanceMemberPlanner.nl`, `ColumnarRangeIndexPlanner.nl` | the three UNREACHABLE scratch sites arm it too, each saying so |
+  | `ColumnarMethodBodyPlanner.nl` | `ReadsPlanLocal` and its guard in the kind-9 arm are GONE — **666 → 626 lines** |
+  | `ColumnarCodePlan.tests.nl` | **2** new estate blocks (46 → 48) |
+  | `ColumnarCodePlanExecutor.tests.nl` | **2** new estate blocks (98 → 100) |
+  | `ColumnarMethodBodyFacts.tests.nl` | BLOCK 45 REWRITTEN from a refusal into a claim, plus **2** new blocks (45 → 47) |
+  | `columnar-emit-facts/DeclarationAndLiteralEmitFacts.tests.nl` | **1** new native block (**26 → 27**, all green) over six new bodies |
+  | `ColumnarIlEmitter.cs` | **UNTOUCHED**. This slice changes no C# at all, so the growth ratchet needs **no repin**: `20,890 / 19,871` and **10** compiler C# files, exactly as at the tip |
+  ### ⚠ FINDING — `ReadsPlanLocal` WAS GUARDING EIGHT SHAPES, NOT ONE, AND THE MIRROR CLAIMS SIX OF THEM
+
+  `015-B7`'s record describes its refusal as narrow: "only `return g(x)` — a plan-local read INSIDE a
+  call — is refused." That is true as a sentence and misleading as a scope. The probe corpus measured the
+  guard's real extent: of nine declaration-then-call shapes, **EIGHT crashed** without it — a bare sibling
+  argument, a second-of-two local, an external static, a nested call, an index-access argument, a member
+  access over the local, a call RECEIVER, and an index selector that is itself a member access. Only the
+  binary-argument shape survived, and only because the direct-call root types arguments with
+  `allowPrimitiveBinary: false` and declines before any scratch opens.
+
+  **AND THE CLAIM CLASS IS SMALLER THAN THE CRASH CLASS — SIX, NOT EIGHT.** The two index-access shapes
+  still do not claim: the scratch types them now, and the owner declines an index access in argument
+  position for pre-existing reasons of its own. So `ReadsPlanLocal` was refusing bodies the owner would
+  have declined anyway. What the mirror changes for those two is not the outcome but the MECHANISM: an
+  ordinary decline instead of a hard throw out of the compiler. That distinction is invisible in bytes —
+  which is why it took the marker mutation to see it at all.
+  ### THE MEASUREMENTS
+
+  | check | result |
+  |---|---|
+  | estate, BASELINE (measured at `4265cec9a` before any edit) | **`7,127 / 0`** |
+  | estate, SLICE | **`7,133 / 0`** — exactly the SIX new blocks |
+  | claim corpus, ctlA vs ctlB | **`IL_DIFFS=0`** — the instrument is deterministic |
+  | claim corpus, ctlA vs SLICE | **`IL_DIFFS=0`**, md5 **`cb90addd24fdb78b61788a5a8ce9a857`**, **110 rows / 11 targets / 0 build failures** |
+  | big corpus, ctlA vs SLICE | **`IL_DIFFS=0`**, md5 **`13d2574e141ee851f7d61fca17b977d0`**. **885 rows / 59 assemblies / 60 targets**, the ONE build failure (`tests/fixtures/external-static-relative-dll`) identical on both sides |
+  | `nlc format --check` | "All files are properly formatted." on all four gate projects AND on `tests/native/columnar-emit-facts` |
+  | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **`checkedFiles=402`** on BOTH CLIs, **246** results, summary `{errors 246, warnings 0, info 0}` on both, **ROW-FOR-ROW IDENTICAL EVEN IN ORDER** (`added=0 removed=0`) |
+  | native `columnar-emit-facts` | **26 → 27**, all green (`total 27, passed 27, failed 0`) |
+  | `tests/native/ownership-audit` | **18 / 18 with NO REPIN** — this slice touches no C# at all, so there is no `OWN004` line-count question and no `OWN005` fingerprint drift to answer |
+  | ratchet, unchanged | manifest **391 lines, no BOM** (`7b 0a 20`); two-key head still `head-v1:6bc1f1b6f58f020d` in BOTH keys; `ColumnarIlEmitter.cs` **20,890 / 19,871**; compiler C# **10** files |
+  | native projects with `*.tests.nl` | **46** + the BootstrapServices contract line = the gate's **47** |
+  ### THE ESTATE CONTROL WALK
+
+  Restore is COPY-BASED with a `sha256` gate — never `git checkout --`, because the tree carries
+  uncommitted slice work. Every anchor was verified to resolve EXACTLY once before its case ran, each case
+  ran UNPIPED into its own log, and **the six per-control predictions were written down BEFORE any result
+  was read.** All six matched exactly, block name for block name.
+
+  | control | mutation | result | blocks broken |
+  |---|---|---|---|
+  | **PRISTINE FIRST** | — | **`7,133 / 0`** | — |
+  | **C1** | the all-used exemption is removed (a mirror must be referenced again) | **`7,131 / 2`** | `…MirrorIsExemptFromBothPoolRules…` and the door's TWO-DECLARATION block |
+  | **C2** | the definite-assignment exemption is removed (`SeedMirrorAssignments` never runs) | **`7,129 / 4`** | C1's two PLUS the door's SINGLE-declaration block and the execute-refusal block |
+  | **C3** | `Execute`'s mirror refusal never fires | **`7,132 / 1`** | the execute-refusal block **ALONE** |
+  | **C4** | the arming freshness guard never fires | **`7,132 / 1`** | the arming-refusal block **ALONE** |
+  | **C5** | `PlanLocalMirrorTypes` always returns an empty vocabulary | **`7,130 / 3`** | the vocabulary block and BOTH door blocks |
+  | **C6** | a materialised mirror is never MARKED as one | **`7,127 / 6`** | **BROADLY** — every mirror-dependent block in the estate |
+  | **PRISTINE LAST** | — | **`7,133 / 0`**, all restores `sha256`-verified, zero mismatches | — |
+
+  ⚠ **C1 VS C2 IS THE WALK'S POINT, AND IT IS THE DECODE'S OVERTURN 2 TURNED INTO A CONTROL.** The two
+  rules are not two spellings of one rule: C1 (all-used) leaves the SINGLE-local door claim standing and
+  only the TWO-local one falls, while C2 (definite assignment) takes BOTH. That is exactly the asymmetry
+  the decode predicted from reading the validator — a one-local scratch satisfies all-used with its single
+  read and dies on assignment instead — and it is why a fix that changed only `ValidateAllUsed`, as the
+  brief specified, would not have fixed the shape that crashes.
+
+  **C3 AND C4 EACH BREAKING EXACTLY ONE BLOCK IS THE SECOND POINT.** The two guards this slice invented
+  that are not exemptions — the replay refusal and the arming precondition — are pinned by one block
+  apiece and nothing else in the estate depends on either.
+
+  **C6 IS A COUPLING CONTROL AND IS RECORDED AS ONE.** Marking is what every other mechanism reads, so a
+  mutation to it breaks all six; it isolates nothing and is not offered as isolation.
+
+  ### ⚠ THE DEAD-ENTRY CONTROL, WHICH IS MANDATORY AND IS NOT ONE OF THE SIX
+
+  An exemption that also swallowed a real defect would be worse than the crash it replaced, so the
+  separation is asserted directly rather than inferred from the walk. `APlanLocalMirrorIsExemptFromBoth
+  PoolRulesAndADeadStorageSlotStillFails` builds FOUR plans on the same pool shape and pins all four
+  corners:
+
+  | corner | plan | outcome |
+  |---|---|---|
+  | R2 exempt | a mirror the plan READS and never stores | **validates** |
+  | R1 exempt | a mirror the plan never touches at all | **validates** |
+  | **R1 still fires** | a mirror PLUS an ordinary declared slot no row references | **throws** `"plan local pool contains hidden unused state"` |
+  | **R2 still fires** | a mirror PLUS an ordinary slot read before it is stored | **throws** `"plan locals must be assigned before ldloc"` |
+
+  The exemption is therefore PER SLOT, not per pool: a plan that carries vocabulary has not bought itself
+  the right to hide storage. And the estate's two PRE-EXISTING dead-entry blocks — the unused-local arm of
+  `"schema v2 executor rejects exact bool uint int and long ulong confusion"` and
+  `"schema v2 executor requires straight-line plan-local assignment"` — are untouched and still green,
+  which is the independent half of the same claim.
+  ### THE PER-CLASS MUTATION — TWO MARKERS IN ONE BUILD, SO ATTRIBUTION IS A BYTE PATTERN
+
+  Byte identity cannot tell a claiming door from a declining one, and a decline-side mutation is vacuous
+  by construction (a body that stops being claimed is emitted by the HOST, and the host's bytes are the
+  same bytes — the lesson `015-B7` recorded about its own `MUT-S`). So the liveness mutation is a MARKER
+  mutation, and it carries TWO markers in ONE CLI build so each claim class is attributed by the bytes it
+  gains rather than by a second run: `dup; pop` (`25 26`) when a call's ARGUMENT subtree reads a plan
+  local, `ldc.i4.0; pop` (`16 26`) when its RECEIVER subtree does.
+
+  **THE PREDICTION WAS WRITTEN FIRST AND IT WAS WRONG BY TWO, WHICH IS THE FINDING.** Eight of the nine
+  probe shapes crashed under `MUT-PL`, so eight were predicted to move. **SIX moved.**
+
+  | shape | body | marker | moved |
+  |---|---|---|---|
+  | **P1** | `n := Callee(3)` / `return Take(n)` | `2526` | ✓ `…0a0628030000062a` → `…0a06280300000625262a` |
+  | **P2** | two locals, the call reads the SECOND | `2526` | ✓ — `stloc.0`/`stloc.1`, `ldloc.1`: the all-used exemption in bytes |
+  | **P3** | `return Math.Abs(n)` | `2526` | ✓ an external static |
+  | **P4** | `return Take(Take(n))` | `2526` | ✓ the local one call deeper than the root |
+  | **P6** | `return Take(s.Length)` | `2526` | ✓ a member access over the local |
+  | **P7** | `holder := MakeHolder()` / `return holder.Take(4)` | `1626` | ✓ the RECEIVER class, exactly one body |
+  | **P5** | `return Callee(arr[0])` | — | ✗ **UNMOVED** |
+  | **P9** | `return Callee(arr[s.Length - 4])` | — | ✗ **UNMOVED** |
+  | **P8** | `return Callee(n + 1)` | — | ✗ unmoved, and predicted so: the root types arguments with `allowPrimitiveBinary: false` |
+  | **C1/C2** | `return n`, `return Callee(7)` | — | unmoved — already claimed at the tip |
+
+  ⚠ **THE CRASH CLASS IS BROADER THAN THE CLAIM CLASS, AND P5/P9 ARE THE PROOF.** An index-access
+  argument CRASHED under `MUT-PL` — so the scratch really did open and really did append `ldloc` — and it
+  still does not CLAIM with the mirror in place, because the direct-call owner declines an index access
+  in argument position for its own pre-existing reasons. `015-B7`'s `ReadsPlanLocal` was therefore
+  refusing bodies the owner would have declined anyway; what the mirror changes is that those declines
+  now happen NORMALLY instead of throwing out of the compiler. Their unmoved bytes say it plainly:
+  P5 keeps `06 16 94` (`ldloc.0; ldc.i4.0; ldelem.i4`) and P8 keeps `06 17 58` (`ldloc.0; ldc.i4.1; add`)
+  — the host's rows, untouched.
+
+  | mutation | claim corpus (110 rows) | big corpus (885 rows) |
+  |---|---|---|
+  | **MUT-PL2**, both markers | **6 moved** — five `2526`, one `1626` | **0 moved**, and it was PREDICTED 0 before the run |
+
+  **THE BIG CORPUS'S ZERO IS A CENSUS RESULT, NOT A GAP IN THE INSTRUMENT.** A scan of every `.nl` under
+  `examples/` and `tests/fixtures/` for "one or more `:=` declarations followed by a `return` whose
+  expression names one of them" finds exactly **THREE** bodies, and every one is blocked by something
+  this slice does not touch: `WeatherService.nl:58` returns a TUPLE (kind 17, declined), `Store.nl:63`
+  returns an interpolated string (declined), and `Endpoints.nl:59` sits in a body full of assignments and
+  an `if`, which the door's "N declarations then ONE return" shape refuses outright. So the live corpus
+  gains nothing today — the mirror image of `015-B7`'s finding that the REFUSAL cost the live corpus
+  nothing — and the claim corpus is where the class is proven in bytes.
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/private/tmp` byte copy (`.git`, `bin`,
+  `obj`, `node_modules`, `artifacts` and `.claude/worktrees/` excluded), the log written OUTSIDE the copy,
+  `pgrep -f test-all-core.sh` reading **0** first, launched DETACHED, and all **12** changed non-STATUS
+  files `sha256`-verified IDENTICAL between the working tree and the copy BOTH before and after the run —
+  so nothing drifted under it.
+
+  **`ALL TESTS PASSED`, `GATE EXIT 0`, 126 `✓ PASSED` / 0 `✗ FAILED`.** Inside it: unit
+  **`Passed: 596`** (the baseline exactly), estate **`Passed: 7133`** (the bracket exactly), all **47**
+  native `✓ PASSED` lines — `tests/native/ownership-audit` among them on the UNCHANGED ratchet, and
+  `tests/native/columnar-emit-facts` on the new mirror block — the format contract gate ×4, `dotnet new`
+  templates, all 22 example projects, the 38 single-file examples, `nlc check` on examples, and the IL
+  verification gate: **"All 67 N# assemblies pass IL verification (no new errors vs baseline)"**, which is
+  the independent confirmation that the bodies the door now claims through a mirrored scratch are
+  VERIFIABLE and not merely runnable.
+
+  **THE BENCHMARK CSPROJ CHECK AGAIN MATTERS.** The copy contains **zero** `NSharpLang.Benchmarks.csproj`
+  — correct rather than a gap: this branch's `benchmarks/` carries no project file, and the only ones in
+  the repo live under `.claude/worktrees/`, excluded from the copy by construction.
+
+  Only `STATUS.md` changed after the copy was taken — it is neither compiled nor tested by the gate, and
+  that is said rather than glossed.
+
+  ### THE WORKING TREE AND THE INSTRUMENTS
+
+  Exactly **13** files, all modifications, **no new files**: 8 BootstrapServices production `.nl`, 3
+  BootstrapServices contract `.nl`, 1 native contract `.nl`, plus this STATUS. **ZERO C# files** — which
+  is why the growth ratchet needs no repin and why `ColumnarIlEmitter.cs` stands untouched at
+  `20,890 / 19,871`. Every instrument, corpus, baseline, mutation snapshot and log lives under
+  `/private/tmp/b8`; none was written into the repo. NOT COMMITTED.
+  ### THE COVERAGE TABLES
+
+  | | |
+  |---|---|
+  | the door's ledger | **34** kinds, unchanged |
+  | N# door, CLAIMED | **9** — unchanged in COUNT; what changed is that kind 9's claim is no longer punched through by a plan-local read |
+  | N# door, DECLINED | **25**, unchanged |
+  | driver statement kinds claimed | **2** — Return and the `:=` declaration, unchanged |
+  | type-discovery scratch sites | **4**; **4** armed; **1** reachable from a claimed body today |
+  | plan-local rules the executor enforces | **2**; both now separate a mirror from a dead slot; neither is weakened for storage |
+  | the door's remaining self-imposed refusals | **0** — `IsSupportedNullable` and the position rules are the host's, not the door's |
+
+  ### THE `015-B9` BRIEF — PRICED BY THIS SLICE'S MEASUREMENTS
+
+  1. **THE INDEX-ACCESS ARGUMENT IS A NEWLY-NAMED GAP AND IT IS CHEAPER THAN IT LOOKS.** `P5`
+     (`return Callee(arr[0])`) and `P9` both CRASHED under `MUT-PL` and still do not CLAIM: the scratch
+     types them fine now, and the direct-call owner declines an index access in argument position for its
+     own reasons. That decline is now an ordinary decline rather than a crash, so it can be measured
+     properly — which is the first thing B9 should do, because the shape is common in real source.
+  2. **THE BINARY COMPOSITE (kind 12) IS TWO MOVES, NOT ONE.** `015-B7` named it next because
+     `OverflowCheckingEnabled` is routed. This slice adds the second half: `P8`
+     (`return Callee(n + 1)`) declines not at the DOOR but at the direct-call root, which types its
+     arguments with `allowPrimitiveBinary: false`. Claiming kind 12 at the door and admitting a binary
+     ARGUMENT inside a claimed call are separate decisions with separate diffs.
+  3. **THE `TypesEquivalent` PORT IS STILL A SLICE, NOT A COERCION** — 110 lines over five private C#
+     helpers with 109 emitter call sites. Payoff unchanged and still measured:
+     `IssueTracker.IssueService::GetAll` in both issue-tracker corpora.
+  4. **THE ADOPTED NEGATIVE LITERAL** — the suffix test plus the off-by-one MinValue range. A superset
+     narrows safely; a subset diverges silently. Unchanged.
+  5. **THE THREE INERT SCRATCH SITES ARE NOW SAFE TO REACH, AND THAT IS THE POINT OF ARMING THEM.**
+     `ColumnarConstructionPlanner`, `ColumnarInstanceMemberPlanner` and `ColumnarRangeIndexPlanner` each
+     carry the mirror today for zero live effect. The moment the door claims construction (15/36/58),
+     member access (8) or index access (10), those sites start receiving plan locals — and they will
+     type them instead of throwing. Any B9+ widening should CONFIRM that with its own probe rather than
+     assume this slice covered it.
+  6. **A CENSUS OVER BUILDABLE SOURCES REMAINS THE RULE.** The declaration-then-return census run here
+     found three live candidates and all three are blocked by a declined RETURN kind or by not being a
+     claimable body shape at all. The corpus's next real gains are the return-position composites
+     (tuple, interpolated string, ternary), not more work on the call door.
+
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-B7`: THE DIRECT-CALL COMPOSITE. THE DECODE OVERTURNS
   THE BRIEF ON TWO OF ITS FOUR ITEMS — THE OVERFLOW FLAG IS *PROVABLY FALSE* AT EVERY `EmitBody`
   ENTRY RATHER THAN A DIVERGENCE TO HANDLE, AND THE CENSUS'S "FIVE OF SIX" IS NOT THE CLAIM THE
   COMPOSITE ACTUALLY BUYS — AND IT FINDS A *NEW* HARD-CRASH HAZARD THE B6 OWNERS DID NOT HAVE: A

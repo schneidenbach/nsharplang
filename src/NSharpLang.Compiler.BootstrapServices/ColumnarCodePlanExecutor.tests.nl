@@ -3705,3 +3705,113 @@ test "schema v4 validator rejects a ret inside a protected region" {
         ColumnarCodePlanExecutor.Validate(plan)
     }
 }
+
+
+// ---- 015-B8 — THE MIRROR EXEMPTIONS, AND THE DEAD ENTRY THEY DO NOT COVER ----
+//
+// A type-discovery scratch appends an expression into a fresh plan to read its result type back. When
+// that expression names a local the ENCLOSING body declared, the sole identifier owner appends
+// `ldloc <that body's pool index>`, so the scratch has to be able to REPRESENT the slot. Two independent
+// rules stood in the way, and only one of them is the rule the `015-B7` record named:
+//
+//   R1  every pool entry must be referenced by some row (`ValidateAllUsed`) — this is what refuses a
+//       mirror the scratch does NOT read
+//   R2  a plan local must be assigned before `ldloc` (`ApplyLocal`) — this is what refuses a mirror the
+//       scratch DOES read, and it is the rule the actual crash shape hits, because R1 runs first and a
+//       single read satisfies it
+//
+// Both are exempted for mirrors and NEITHER is weakened for storage. The block proves all four corners
+// on one pool, because an exemption that also swallowed a real defect would be worse than the crash.
+test "a plan-local mirror is exempt from both pool rules and a dead storage slot still fails" {
+    intOnly := new Type[](1)
+    intOnly[0] = typeof(int)
+
+    // R2's corner. The scratch READS the mirror and never stores it. An ordinary slot in this exact
+    // shape is refused by "plan locals must be assigned before ldloc" — the block below proves that
+    // still holds — and the mirror passes because the enclosing body stored it before publishing the
+    // name that reaches this plan at all.
+    read := new ColumnarCodePlan()
+    read.EnablePlanLocalMirror(intOnly)
+    read.PrepareV2()
+    readRoot := read.BeginFragment(-1, 1900, 0)
+    read.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), 0)
+    read.CompleteFragment(readRoot, typeof(int))
+    read.CompleteV2(typeof(int))
+    ColumnarCodePlanExecutor.Validate(read)
+
+    // R1's corner. The scratch carries the vocabulary and never touches it — the multi-local body, where
+    // only one of the declared names appears inside the call being typed.
+    unread := new ColumnarCodePlan()
+    unread.EnablePlanLocalMirror(intOnly)
+    unread.PrepareV2()
+    unreadRoot := unread.BeginFragment(-1, 1901, 0)
+    unread.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    unread.CompleteFragment(unreadRoot, typeof(int))
+    unread.CompleteV2(typeof(int))
+    ColumnarCodePlanExecutor.Validate(unread)
+
+    // ⚠ THE CONTROL THAT MATTERS MOST: a REAL dead entry in the SAME plan as a mirror still fails. The
+    // exemption is per-slot, not per-pool, so a plan that mirrors vocabulary has not bought itself the
+    // right to hide storage it never uses.
+    deadBesideMirror := new ColumnarCodePlan()
+    deadBesideMirror.EnablePlanLocalMirror(intOnly)
+    deadBesideMirror.PrepareV2()
+    deadRoot := deadBesideMirror.BeginFragment(-1, 1902, 0)
+    deadBesideMirror.DeclarePlanLocal(deadBesideMirror.AddType(typeof(int)))
+    deadBesideMirror.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), 0)
+    deadBesideMirror.CompleteFragment(deadRoot, typeof(int))
+    deadBesideMirror.CompleteV2(typeof(int))
+    deadMessage := ""
+    try {
+        ColumnarCodePlanExecutor.Validate(deadBesideMirror)
+    } catch ex: InvalidOperationException {
+        deadMessage = ex.Message
+    }
+    assert deadMessage.Contains("plan local pool contains hidden unused state")
+
+    // And R2 still refuses an ORDINARY slot read before it is stored, beside a mirror that is fine.
+    unassignedBesideMirror := new ColumnarCodePlan()
+    unassignedBesideMirror.EnablePlanLocalMirror(intOnly)
+    unassignedBesideMirror.PrepareV2()
+    unassignedRoot := unassignedBesideMirror.BeginFragment(-1, 1903, 0)
+    own := unassignedBesideMirror.DeclarePlanLocal(unassignedBesideMirror.AddType(typeof(int)))
+    unassignedBesideMirror.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), own)
+    unassignedBesideMirror.CompleteFragment(unassignedRoot, typeof(int))
+    unassignedBesideMirror.CompleteV2(typeof(int))
+    unassignedMessage := ""
+    try {
+        ColumnarCodePlanExecutor.Validate(unassignedBesideMirror)
+    } catch ex: InvalidOperationException {
+        unassignedMessage = ex.Message
+    }
+    assert unassignedMessage.Contains("plan locals must be assigned before ldloc")
+}
+
+// ⚠ VOCABULARY IS NOT STORAGE, SO A MIRRORED PLAN CAN NEVER BE REPLAYED. Both replay paths declare one
+// `LocalBuilder` per pool entry, in pool order — which is exactly what makes "pool index i is slot i"
+// true for a body the method-body driver claims end to end. Executing a mirror would declare a slot the
+// body never uses and break that identity silently, so `Execute` refuses the plan outright. Every scratch
+// that arms a mirror is validated or inspected and then thrown away, so the bar costs nothing and closes
+// the one route by which a typing convenience could reach emitted IL.
+test "an executor refuses to replay a plan that mirrors plan locals" {
+    intOnly := new Type[](1)
+    intOnly[0] = typeof(int)
+
+    mirrored := new ColumnarCodePlan()
+    mirrored.EnablePlanLocalMirror(intOnly)
+    mirrored.PrepareV2()
+    root := mirrored.BeginFragment(-1, 1904, 0)
+    mirrored.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), 0)
+    mirrored.CompleteFragment(root, typeof(int))
+    mirrored.CompleteV2(typeof(int))
+    // It VALIDATES — the refusal is about replay, not about well-formedness.
+    ColumnarCodePlanExecutor.Validate(mirrored)
+
+    executeMessage := ""
+    try {
+        ExecutorRunV3ScalarPlan(mirrored, typeof(int))
+    } catch ex: InvalidOperationException {
+        executeMessage = ex.Message
+    }
+    assert executeMessage.Contains("type-discovery scratch and cannot be executed")
+}

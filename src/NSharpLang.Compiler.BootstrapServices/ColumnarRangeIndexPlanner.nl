@@ -350,7 +350,12 @@ class ColumnarRangeIndexPlanner {
         }
 
         if kind == ColumnarExpressionNodeKind.MemberAccessExpression() && nodes.ChildCount(node) == 1 {
+            // 015-B8 — the FOURTH type-discovery scratch, which the B8 brief's census of three did not
+            // name. It never prepares its own plan (`ColumnarInstanceMemberPlanner.Plan` does), so it too
+            // arms the mirror at construction. Inert at this tip and armed for the same reason as the
+            // other two inert sites.
             memberPlan := new ColumnarCodePlan()
+            memberPlan.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
             memberType := typeof(int)
             return ColumnarInstanceMemberPlanner.ClaimsRoot(nodes, source, node, bindings) && ColumnarInstanceMemberPlanner.TryGetType(nodes, source, node, bindings, memberPlan, out memberType) && (memberType == typeof(Index) || memberType == typeof(Range))
         }

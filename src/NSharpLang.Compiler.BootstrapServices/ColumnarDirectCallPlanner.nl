@@ -1470,7 +1470,13 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
+        // 015-B8 — THE ONE SCRATCH SITE A CLAIMED BODY ACTUALLY REACHES, MEASURED RATHER THAN ASSUMED.
+        // Nine declaration-then-call probe shapes were built one at a time with the plan-local refusal
+        // disabled and every scratch site tagged: EIGHT crashed and all eight crashed HERE — arguments,
+        // receivers, external statics, nested calls, index and member receivers alike. The mirror is what
+        // lets this scratch represent the enclosing body's slots while it types them.
         scratch := new ColumnarCodePlan()
+        scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
         scratch.PrepareV3()
         valuePlanned := false
         if allowPrimitiveBinary {

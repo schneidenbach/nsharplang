@@ -502,11 +502,13 @@ class ColumnarMethodBodyPlanner {
         // read and DISCARDED on purpose: they steer the host's decline-vs-legacy choice for a call the
         // owner would not plan, and this driver has exactly one answer for all of them, which is to
         // decline the whole body and let the host make that choice itself.
+        //
+        // 015-B8 LIFTED THIS ARM'S PLAN-LOCAL REFUSAL. `015-B7` declined WHOLE any call whose subtree read
+        // a plan local, because the owner types its arguments in a fresh scratch plan whose local pool was
+        // empty and the append threw out of the compiler. The scratch now carries the body's local
+        // VOCABULARY — see `ColumnarCodePlan.EnablePlanLocalMirror` — so the shape the guard existed to
+        // refuse is the shape this arm now claims.
         if kind == ColumnarExpressionNodeKind.CallExpression() {
-            if ReadsPlanLocal(nodes, source, node, bindings, 0) {
-                return false
-            }
-
             ownership := ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning := false
             return ColumnarDirectCallPlanner.TryAppendRoot(nodes, source, node, bindings, plan, out ownership, out legacyWholeSubtreePlanning, out resultType)
@@ -514,48 +516,6 @@ class ColumnarMethodBodyPlanner {
         // Unreachable while the claimed set and the arms above agree, and that agreement is exactly
         // what the estate's partition block asserts. A kind added to the claimed set without its own
         // arm lands here and DECLINES rather than silently taking a neighbouring owner's route.
-        return false
-    }
-
-    // ⚠ A PLAN LOCAL CANNOT CROSS INTO A CALL'S OWN TYPE DISCOVERY, AND THIS REFUSAL IS A MEASURED
-    // HARD-CRASH GUARD RATHER THAN A TASTE. THE CLAIM-CLASS CORPUS PRODUCED THE CRASH; NO REVIEW DID.
-    //
-    // `ColumnarDirectCallPlanner.TryGetPlannableValueType` discovers each argument's type by planning it
-    // into a FRESH schema-v3 SCRATCH plan, and that plan's local pool is EMPTY. The sole identifier
-    // owner appends `ldloc <pool index>` for a plan local (`ColumnarBoundIdentifierPlanner:216`), and an
-    // index the scratch does not have throws "The opcode does not use this plan-local entry" straight
-    // out of the compiler — which is exactly what `n := Callee(3)` followed by `return Callee(n)` did
-    // before this guard existed. It is a THROW, not a wrong byte, and it was reachable only once the
-    // statement loop (015-B6) and the call claim (015-B7) coexisted: neither slice alone could produce
-    // a body where a plan local is read inside a call.
-    //
-    // MIRRORING THE POOL INTO THE SCRATCH IS *NOT* THE FIX, AND THAT WAS MEASURED TOO.
-    // `ColumnarCodePlanExecutor.ValidateAllUsed` demands that EVERY declared plan local be referenced by
-    // some row, on both the v3 and the method-body validator, so a mirrored pool with one read fails
-    // validation instead of throwing at the append. Making a scratch plan able to REPRESENT a pool it
-    // does not emit is a plan-contract change to the shared validator, and it belongs in a slice with
-    // its own diff and its own control rather than smuggled in behind a composite claim.
-    //
-    // Until then a call whose subtree reads a plan local is declined WHOLE. The cost is measured, not
-    // guessed: `x := f(1)` followed by `return x` still CLAIMS (the return is an identifier, not a
-    // call), `return f(7)` still claims, and only a plan-local read INSIDE a call's subtree — the shape
-    // `return g(x)` — is refused.
-    static func ReadsPlanLocal(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, depth: int): bool {
-        if bindings.PlanLocals.Count == 0 || depth > 200 || node < 0 || node >= nodes.Kinds.Length {
-            return false
-        }
-        if nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression() && bindings.PlanLocals.ContainsKey(nodes.Text(source, node)) {
-            return true
-        }
-
-        n := 0
-        while n < nodes.ChildCount(node) {
-            if ReadsPlanLocal(nodes, source, nodes.Child(node, n), bindings, depth + 1) {
-                return true
-            }
-
-            n = n + 1
-        }
         return false
     }
 

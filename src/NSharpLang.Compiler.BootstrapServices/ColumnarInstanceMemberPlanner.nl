@@ -293,7 +293,13 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
+        // 015-B8 — armed BEFORE the prepare, which is the whole reason the mirror is a property of the
+        // PLAN rather than a step after `PrepareV3()`: only the index-access arm below prepares this
+        // scratch itself, and the other four hand it to a callee whose own `Plan()` prepares it. Inert at
+        // this tip (no claimed body reaches a composed receiver), armed because the family's contract is
+        // one contract.
         scratch := new ColumnarCodePlan()
+        scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
         kind := nodes.Kind(receiverNode)
         if kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
             // A List/array/string element receiver's type comes from planning the index access into

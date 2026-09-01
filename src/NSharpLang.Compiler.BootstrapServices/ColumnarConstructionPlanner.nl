@@ -2327,7 +2327,13 @@ class ColumnarConstructionPlanner {
             return false
         }
 
+        // 015-B8 — armed for the same reason as the direct-call site, and INERT today: no claimed body
+        // reaches this scratch (the door declines the construction kinds at the root, and the only path in
+        // from inside a call needs `allowPrimitiveBinary`, which the root call sets false), so the
+        // vocabulary is zero-length here at this tip. It is armed anyway because the contract belongs to
+        // the SCRATCH FAMILY rather than to whichever member of it happens to be reachable this week.
         scratch := new ColumnarCodePlan()
+        scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
         scratch.PrepareV3()
         resultType := typeof(int)
         if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, handles, scratch, -1, depth, out resultType) || resultType.FullName == "System.Void" {

@@ -154,6 +154,15 @@ class ColumnarCodePlanExecutor {
         if il == null {
             throw new InvalidOperationException("Columnar code-plan IL generator cannot be null.")
         }
+        // 015-B8 — A MIRRORED PLAN IS VOCABULARY, NOT STORAGE, SO IT CAN NEVER BE REPLAYED. Both replay
+        // paths call `il.DeclareLocal` once per pool entry, in pool order, which is precisely what makes
+        // "pool index i is slot i" true for a body the driver claims end to end. A mirror would declare a
+        // slot the body never uses and break that identity silently. Every scratch that arms a mirror is
+        // validated-or-inspected and thrown away, so this bar costs nothing and closes the one way a
+        // typing convenience could reach emitted IL.
+        if plan.HasPlanLocalMirror() {
+            throw new InvalidOperationException("A code plan that mirrors plan locals is a type-discovery scratch and cannot be executed.")
+        }
 
         if plan.SchemaVersion == ColumnarCodePlanContract.CurrentSchemaVersion() {
             ExecuteV1(plan, il)
@@ -709,7 +718,7 @@ class ColumnarCodePlanExecutor {
         ValidateAllUsed(usedMethods, "method", schemaName)
         ValidateAllUsed(usedConstructors, "constructor", schemaName)
         ValidateAllUsed(usedFields, "field", schemaName)
-        ValidateAllUsed(usedPlanLocals, "plan local", schemaName)
+        ValidatePlanLocalsUsed(plan, usedPlanLocals, schemaName)
 
         ValidateMethodBodyStack(plan, schemaName, labelMarkIndex, labelLeaveTarget, insideRegion)
     }
@@ -1061,7 +1070,7 @@ class ColumnarCodePlanExecutor {
         ValidateAllUsed(usedMethods, "method", schemaName)
         ValidateAllUsed(usedConstructors, "constructor", schemaName)
         ValidateAllUsed(usedFields, "field", schemaName)
-        ValidateAllUsed(usedPlanLocals, "plan local", schemaName)
+        ValidatePlanLocalsUsed(plan, usedPlanLocals, schemaName)
         i = 0
         while i < plan.LabelCount {
             if labelMarkIndices[i] < 0 || !labelReferenced[i] {
@@ -1347,10 +1356,45 @@ class ColumnarCodePlanExecutor {
         }
     }
 
+    // 015-B8 — THE ONE POOL THAT CAN HOLD A NON-STORAGE ENTRY, AND THE DIFFERENCE THE VALIDATOR HAS TO
+    // KNOW. `ValidateAllUsed` above keeps its exact rule, unchanged, for the other ELEVEN pools: an entry
+    // nothing references is hidden unused state and a real defect. The plan-local pool is the only one a
+    // type-discovery scratch can populate with VOCABULARY — mirrors of the enclosing body's slots, carried
+    // so the scratch's rows can name a local by that body's pool index while the scratch types it.
+    //
+    // A DEAD entry and a MIRROR are still separated, and that separation is the whole contract: a mirror is
+    // exempt because it is declared vocabulary the plan never claimed to store, while an ordinary declared
+    // slot no row touches remains exactly the defect it always was.
+    static func ValidatePlanLocalsUsed(plan: ColumnarCodePlan, used: bool[], schemaName: string) {
+        i := 0
+        while i < used.Length {
+            if !used[i] && !plan.PlanLocalIsMirror[i] {
+                throw new InvalidOperationException(schemaName + " plan local pool contains hidden unused state.")
+            }
+            i += 1
+        }
+    }
+
+    // A mirror enters the plan ALREADY ASSIGNED, and that is a fact the enclosing body proves rather than a
+    // convenience: the statement loop appends `stloc <slot>` BEFORE it publishes the name
+    // (`ColumnarMethodBodyPlanner`'s declaration arm), so a name is only ever visible to a later expression
+    // after the outer plan has stored it. Seeding the entry state is therefore the honest model, and it
+    // leaves the definite-assignment rule itself untouched for every slot the plan actually owns.
+    static func SeedMirrorAssignments(plan: ColumnarCodePlan, state: ColumnarCodePlanStackState) {
+        i := 0
+        while i < plan.PlanLocalCount {
+            if plan.PlanLocalIsMirror[i] {
+                state.MarkPlanLocalAssigned(i)
+            }
+            i += 1
+        }
+    }
+
     static func ValidateControlFlowAndFragments(plan: ColumnarCodePlan, labelMarkIndices: int[], schemaName: string, schemaNameLower: string) {
         stateCapacity := plan.OperationCount + 1
         states := new ColumnarCodePlanStackState[](stateCapacity)
         states[0] = new ColumnarCodePlanStackState(plan.PlanLocalCount)
+        SeedMirrorAssignments(plan, states[0])
         startingFragmentHeads := new int[](stateCapacity)
         startingFragmentNext := new int[](plan.FragmentCount)
         endingFragmentHeads := new int[](stateCapacity)

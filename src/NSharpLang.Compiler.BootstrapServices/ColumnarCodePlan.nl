@@ -615,6 +615,11 @@ class ColumnarCodePlan {
 
     PlanLocalCount: int
     PlanLocalTypeIndices: int[]
+    // 015-B8 — WHICH POOL ENTRIES ARE *MIRRORS* RATHER THAN STORAGE. A mirror is a slot the plan carries
+    // so its rows can NAME the enclosing body's local by that body's own pool index, for TYPING only. It
+    // is never stored into by this plan, never required to be referenced by it, and never replayed: a
+    // mirrored plan is a type-discovery scratch and `ColumnarCodePlanExecutor.Execute` refuses it.
+    PlanLocalIsMirror: bool[]
     LabelCount: int
 
     FragmentCount: int
@@ -625,6 +630,11 @@ class ColumnarCodePlan {
     FragmentSourceNodeIndices: int[]
     FragmentResultTypes: Type[]
     FragmentCompleted: bool[]
+
+    // The armed mirror VOCABULARY, indexed by the enclosing body's pool index. It is CONFIGURATION rather
+    // than state: `Reset` deliberately leaves it alone, so whichever `Prepare*` opens this plan — the
+    // scratch site's own, or a callee's — materialises the same vocabulary.
+    planLocalMirrorTypes: Type[]
 
     OpenFragmentCount: int
     OpenFragmentIndices: int[]
@@ -688,6 +698,8 @@ class ColumnarCodePlan {
 
         PlanLocalCount = 0
         PlanLocalTypeIndices = new int[](0)
+        PlanLocalIsMirror = new bool[](0)
+        planLocalMirrorTypes = new Type[](0)
         LabelCount = 0
 
         FragmentCount = 0
@@ -743,6 +755,51 @@ class ColumnarCodePlan {
         Lifecycle = ColumnarCodePlanLifecycle.Sealed
     }
 
+    // 015-B8 — ARM THIS PLAN AS A TYPE-DISCOVERY SCRATCH OVER AN ENCLOSING BODY'S LOCAL VOCABULARY.
+    //
+    // A scratch plan discovers an expression's type by APPENDING that expression into a fresh plan and
+    // reading the result back. When the expression reads a local the enclosing body declared, the sole
+    // identifier owner appends `ldloc <that body's pool index>` — an index a fresh pool does not have, so
+    // the append threw straight out of the compiler. The vocabulary here gives the scratch those indices
+    // and their types WITHOUT giving it their storage: the entries are mirrors, and the executor's two
+    // plan-local rules exempt them (a mirror need not be referenced, and it enters already assigned,
+    // because the enclosing body stored it before this expression could name it).
+    //
+    // It is armed BEFORE any `Prepare*` on purpose. Two of the four scratch sites hand their plan to a
+    // callee that prepares it, so a "mirror right after my own prepare" API could not reach them.
+    func EnablePlanLocalMirror(vocabulary: Type[]) {
+        if Lifecycle != ColumnarCodePlanLifecycle.Empty || OperationCount != 0 || PlanLocalCount != 0 {
+            throw new InvalidOperationException("A plan-local mirror can only be armed on a fresh code plan.")
+        }
+        if vocabulary == null {
+            throw new ArgumentNullException("vocabulary")
+        }
+        i := 0
+        while i < vocabulary.Length {
+            if vocabulary[i] == null {
+                throw new InvalidOperationException("A plan-local mirror vocabulary cannot carry a null slot type.")
+            }
+            i = i + 1
+        }
+        planLocalMirrorTypes = vocabulary
+    }
+
+    // True once the armed vocabulary has been materialised into the pool. It is the executor's execution
+    // bar: vocabulary is not storage, so a mirrored plan is a scratch and can never be replayed.
+    func HasPlanLocalMirror(): bool {
+        return planLocalMirrorTypes.Length > 0
+    }
+
+    func MaterialisePlanLocalMirror() {
+        i := 0
+        while i < planLocalMirrorTypes.Length {
+            typeIndex := AddType(planLocalMirrorTypes[i])
+            mirrorIndex := DeclarePlanLocal(typeIndex)
+            PlanLocalIsMirror[mirrorIndex] = true
+            i = i + 1
+        }
+    }
+
     func PrepareV2() {
         Reset()
         SchemaVersion = ColumnarCodePlanContract.RecursiveSchemaVersion()
@@ -751,6 +808,7 @@ class ColumnarCodePlan {
         EnsureFragmentCapacity(4)
         EnsureOpenFragmentCapacity(4)
         EnsureBranchCapacity(4)
+        MaterialisePlanLocalMirror()
     }
 
     func PrepareV3() {
@@ -765,6 +823,7 @@ class ColumnarCodePlan {
         EnsureSingleCapacity(4)
         EnsureDoubleCapacity(4)
         EnsureStringCapacity(4)
+        MaterialisePlanLocalMirror()
     }
 
     // Open a schema-v4 method body for building: a flat operation stream (no fragments) that admits
@@ -779,6 +838,7 @@ class ColumnarCodePlan {
         EnsureSingleCapacity(4)
         EnsureDoubleCapacity(4)
         EnsureStringCapacity(4)
+        MaterialisePlanLocalMirror()
     }
 
     func AddType(value: Type): int {
@@ -1015,6 +1075,10 @@ class ColumnarCodePlan {
         EnsurePlanLocalCapacity(PlanLocalCount + 1)
         index := PlanLocalCount
         PlanLocalTypeIndices[index] = typeIndex
+        // Storage by default. `MaterialisePlanLocalMirror` is the ONE writer that flips a slot to mirror,
+        // and it does so immediately after declaring it — so a slot rolled back and re-declared is storage
+        // again rather than inheriting the flag of whatever occupied that index before it.
+        PlanLocalIsMirror[index] = false
         PlanLocalCount = PlanLocalCount + 1
         return index
     }
@@ -1627,7 +1691,7 @@ class ColumnarCodePlan {
     }
 
     func HasValidV2ColumnsAndPools(): bool {
-        if OperationCount <= 0 || TypeCount < 0 || Int32Count < 0 || ArgumentCount < 0 || AmbientLocalCount < 0 || MethodCount < 0 || ConstructorCount < 0 || FieldCount < 0 || PlanLocalCount < 0 || LabelCount < 0 || FragmentCount <= 0 || OperationKinds == null || OpCodeValues == null || OperandKinds == null || OperandIndices == null || OperationOwnerFragmentIndices == null || OperationKinds.Length < OperationCount || OpCodeValues.Length < OperationCount || OperandKinds.Length < OperationCount || OperandIndices.Length < OperationCount || OperationOwnerFragmentIndices.Length < OperationCount || Types == null || Types.Length < TypeCount || Int32Values == null || Int32Values.Length < Int32Count || ArgumentOrdinals == null || ArgumentTypeIndices == null || ArgumentIsAddress == null || ArgumentOrdinals.Length < ArgumentCount || ArgumentTypeIndices.Length < ArgumentCount || ArgumentIsAddress.Length < ArgumentCount || AmbientLocals == null || AmbientLocals.Length < AmbientLocalCount || Methods == null || Methods.Length < MethodCount || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < MethodCount || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < MethodCount || MethodReturnTypes == null || MethodReturnTypes.Length < MethodCount || MethodParameterTypes == null || MethodParameterTypes.Length < MethodCount || MethodIsStatic == null || MethodIsStatic.Length < MethodCount || MethodIsAbstract == null || MethodIsAbstract.Length < MethodCount || Constructors == null || Constructors.Length < ConstructorCount || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < ConstructorCount || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < ConstructorCount || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < ConstructorCount || Fields == null || Fields.Length < FieldCount || FieldUsesDeclaredSignature == null || FieldUsesDeclaredSignature.Length < FieldCount || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < FieldCount || FieldValueTypes == null || FieldValueTypes.Length < FieldCount || FieldIsStatic == null || FieldIsStatic.Length < FieldCount || PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < PlanLocalCount {
+        if OperationCount <= 0 || TypeCount < 0 || Int32Count < 0 || ArgumentCount < 0 || AmbientLocalCount < 0 || MethodCount < 0 || ConstructorCount < 0 || FieldCount < 0 || PlanLocalCount < 0 || LabelCount < 0 || FragmentCount <= 0 || OperationKinds == null || OpCodeValues == null || OperandKinds == null || OperandIndices == null || OperationOwnerFragmentIndices == null || OperationKinds.Length < OperationCount || OpCodeValues.Length < OperationCount || OperandKinds.Length < OperationCount || OperandIndices.Length < OperationCount || OperationOwnerFragmentIndices.Length < OperationCount || Types == null || Types.Length < TypeCount || Int32Values == null || Int32Values.Length < Int32Count || ArgumentOrdinals == null || ArgumentTypeIndices == null || ArgumentIsAddress == null || ArgumentOrdinals.Length < ArgumentCount || ArgumentTypeIndices.Length < ArgumentCount || ArgumentIsAddress.Length < ArgumentCount || AmbientLocals == null || AmbientLocals.Length < AmbientLocalCount || Methods == null || Methods.Length < MethodCount || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < MethodCount || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < MethodCount || MethodReturnTypes == null || MethodReturnTypes.Length < MethodCount || MethodParameterTypes == null || MethodParameterTypes.Length < MethodCount || MethodIsStatic == null || MethodIsStatic.Length < MethodCount || MethodIsAbstract == null || MethodIsAbstract.Length < MethodCount || Constructors == null || Constructors.Length < ConstructorCount || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < ConstructorCount || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < ConstructorCount || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < ConstructorCount || Fields == null || Fields.Length < FieldCount || FieldUsesDeclaredSignature == null || FieldUsesDeclaredSignature.Length < FieldCount || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < FieldCount || FieldValueTypes == null || FieldValueTypes.Length < FieldCount || FieldIsStatic == null || FieldIsStatic.Length < FieldCount || PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < PlanLocalCount || PlanLocalIsMirror == null || PlanLocalIsMirror.Length < PlanLocalCount {
             return false
         }
 
@@ -1960,8 +2024,10 @@ class ColumnarCodePlan {
     }
 
     func EnsurePlanLocalCapacity(minimum: int) {
-        if PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < minimum {
-            PlanLocalTypeIndices = GrowIntArray(PlanLocalTypeIndices, NextCapacity(PlanLocalTypeIndices == null ? 0 : PlanLocalTypeIndices.Length, minimum))
+        if PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < minimum || PlanLocalIsMirror == null || PlanLocalIsMirror.Length < minimum {
+            capacity := NextCapacity(PlanLocalTypeIndices == null ? 0 : PlanLocalTypeIndices.Length, minimum)
+            PlanLocalTypeIndices = GrowIntArray(PlanLocalTypeIndices, capacity)
+            PlanLocalIsMirror = GrowBoolArray(PlanLocalIsMirror, capacity)
         }
     }
 

@@ -1755,3 +1755,72 @@ test "schema v2 exact declared method API rejects null signature facts" {
         plan.AddFieldWithSignature(field, typeof(ValueTuple<int, int>), null, false)
     }
 }
+
+
+// ---- 015-B8 — THE PLAN-LOCAL MIRROR: ARMING, MATERIALISATION, AND WHAT IT IS NOT ----
+//
+// A mirror is the enclosing body's local VOCABULARY carried into a type-discovery scratch: the slot
+// indices and their types, so the scratch's rows can name a local the way the outer plan names it,
+// while the scratch types the expression that reads it. It is armed on a FRESH plan rather than after a
+// prepare, and that is forced rather than chosen — two of the four scratch sites hand their plan to a
+// callee whose own `Plan()` prepares it, so an "arm after my prepare" API could not reach them.
+test "a plan-local mirror is armed on a fresh plan and materialised by every prepare" {
+    vocabulary := new Type[](2)
+    vocabulary[0] = typeof(int)
+    vocabulary[1] = typeof(string)
+
+    // The arming is inert until a prepare: a fresh plan still reports an empty pool.
+    scalar := new ColumnarCodePlan()
+    scalar.EnablePlanLocalMirror(vocabulary)
+    assert scalar.PlanLocalCount == 0
+    assert scalar.HasPlanLocalMirror()
+
+    scalar.PrepareV3()
+    assert scalar.PlanLocalCount == 2
+    assert scalar.PlanLocalIsMirror[0]
+    assert scalar.PlanLocalIsMirror[1]
+    assert scalar.Types[scalar.PlanLocalTypeIndices[0]] == typeof(int)
+    assert scalar.Types[scalar.PlanLocalTypeIndices[1]] == typeof(string)
+
+    // A slot the plan declares for ITSELF after the mirror is storage, at the next index up — which is
+    // what keeps the mirror's indices identical to the enclosing body's.
+    own := scalar.DeclarePlanLocal(scalar.AddType(typeof(long)))
+    assert own == 2
+    assert !scalar.PlanLocalIsMirror[2]
+
+    // The vocabulary is CONFIGURATION rather than state, so whichever prepare opens the plan
+    // materialises it — the recursive schema and the method-body schema alike.
+    recursive := new ColumnarCodePlan()
+    recursive.EnablePlanLocalMirror(vocabulary)
+    recursive.PrepareV2()
+    assert recursive.PlanLocalCount == 2
+    assert recursive.PlanLocalIsMirror[1]
+
+    body := new ColumnarCodePlan()
+    body.EnablePlanLocalMirror(vocabulary)
+    body.PrepareMethodBody()
+    assert body.PlanLocalCount == 2
+    assert body.PlanLocalIsMirror[0]
+
+    // An EMPTY vocabulary is the off-the-door case, and it declares nothing at all — which is why every
+    // schema-v3 expression path can arm the mirror without a byte moving.
+    empty := new ColumnarCodePlan()
+    empty.EnablePlanLocalMirror(new Type[](0))
+    assert !empty.HasPlanLocalMirror()
+    empty.PrepareV3()
+    assert empty.PlanLocalCount == 0
+}
+
+test "a plan-local mirror refuses a used plan a null vocabulary and a null slot" {
+    used := new ColumnarCodePlan()
+    used.PrepareV3()
+    assert throws InvalidOperationException { used.EnablePlanLocalMirror(new Type[](0)) }
+
+    fresh := new ColumnarCodePlan()
+    assert throws ArgumentNullException { fresh.EnablePlanLocalMirror(null) }
+
+    holed := new Type[](2)
+    holed[0] = typeof(int)
+    assert throws InvalidOperationException { fresh.EnablePlanLocalMirror(holed) }
+    assert !fresh.HasPlanLocalMirror()
+}

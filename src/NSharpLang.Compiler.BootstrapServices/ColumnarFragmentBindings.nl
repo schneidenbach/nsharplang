@@ -334,6 +334,43 @@ class ColumnarFragmentBindings {
         PlanLocals[name] = (Index: index, ValueType: valueType)
     }
 
+    // 015-B8 — THE LOCAL VOCABULARY A TYPE-DISCOVERY SCRATCH CARRIES, INDEXED BY THE ENCLOSING PLAN'S POOL
+    // INDEX. A scratch plan discovers an expression's type by appending it into a fresh plan; when that
+    // expression reads one of these names, the sole identifier owner appends `ldloc <Index>`, so the
+    // scratch must be able to REPRESENT that index and its type. It never stores into the slot and never
+    // replays it — see `ColumnarCodePlan.EnablePlanLocalMirror`.
+    //
+    // The array is sized by the HIGHEST published index rather than by the entry count, so it is indexable
+    // by pool index directly. A gap can only exist if some slot was declared without publishing a name,
+    // and no name can reach an unpublished slot — nothing can spell it — so the filler type is
+    // unreferenceable by construction and the mirror rule exempts it from the all-used check.
+    //
+    // EMPTY ON EVERY PATH BUT THE METHOD-BODY DOOR: `DeclarePlanLocal` above has exactly one production
+    // caller, so every schema-v3 expression path arms a zero-length vocabulary and declares no mirror at
+    // all.
+    func PlanLocalMirrorTypes(): Type[] {
+        highest := -1
+        for pair in PlanLocals {
+            entry := pair.Value
+            index := entry.Item1
+            if index > highest {
+                highest = index
+            }
+        }
+        vocabulary := new Type[](highest + 1)
+        i := 0
+        while i < vocabulary.Length {
+            vocabulary[i] = typeof(int)
+            i = i + 1
+        }
+        for pair in PlanLocals {
+            slot := pair.Value
+            slotIndex := slot.Item1
+            vocabulary[slotIndex] = slot.Item2
+        }
+        return vocabulary
+    }
+
     func HasParameterOrdinal(ordinal: int): bool {
         for pair in ParameterOrdinals {
             if pair.Value == ordinal {

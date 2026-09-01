@@ -587,3 +587,88 @@ test "the expression door claims a direct call in both positions in real source"
     holder := new DriverCallHolder(37)
     assert holder.ReadViaCall() == 37
 }
+
+
+// ---- 015-B8: a plan local read INSIDE a claimed call ----------------------------------------------
+//
+// `015-B7` declined every one of these bodies WHOLE, and it had to: the direct-call owner types each
+// argument and receiver by planning it into a fresh scratch plan whose local pool was empty, so
+// `ldloc <the body's pool index>` named an index that did not exist and threw straight out of the
+// compiler. `015-B8` gives the scratch the body's local VOCABULARY — mirror slots it can name and type
+// but never stores or replays — and the whole class becomes claimable.
+//
+// The bodies below are the two POSITIONS the class splits into, measured rather than assumed: a plan
+// local inside an ARGUMENT subtree (four spellings of it) and a plan local as the call's RECEIVER. A
+// two-marker liveness mutation moves exactly these and no others.
+
+func DriverMirrorTake(value: int): int {
+    return value + 1
+}
+
+// ARGUMENT — the exact shape the `015-B7` claim-class corpus crashed the compiler on.
+func DriverMirrorArgument(): int {
+    n := DriverCallee(3)
+    return DriverMirrorTake(n)
+}
+
+// ARGUMENT, TWO LOCALS — only the second is read inside the call, so the scratch carries a slot it
+// never references. That is the pool's all-used rule meeting a mirror, in real source.
+func DriverMirrorSecondOfTwo(): int {
+    _first := DriverCallee(1)
+    second := DriverCallee(5)
+    return DriverMirrorTake(second)
+}
+
+// ARGUMENT, EXTERNAL STATIC callee rather than a sibling.
+func DriverMirrorExternalStatic(): int {
+    n := DriverCallee(-8)
+    return Math.Abs(n)
+}
+
+// ARGUMENT, NESTED — the local is read one call deeper than the claimed root.
+func DriverMirrorNested(): int {
+    n := DriverCallee(3)
+    return DriverMirrorTake(DriverMirrorTake(n))
+}
+
+// ARGUMENT, a MEMBER ACCESS over the plan local rather than a bare read.
+func DriverMirrorMemberOfLocal(): int {
+    text := DriverMirrorText()
+    return DriverMirrorTake(text.Length)
+}
+
+func DriverMirrorText(): string {
+    return "abcd"
+}
+
+class DriverMirrorHolder {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    func Take(value: int): int {
+        return value + Value
+    }
+}
+
+func DriverMirrorMakeHolder(): DriverMirrorHolder {
+    return new DriverMirrorHolder(2)
+}
+
+// RECEIVER — the plan local is the instance the call is made ON, which is a different door position
+// from every argument above and gets its own marker in the liveness mutation.
+func DriverMirrorReceiver(): int {
+    holder := DriverMirrorMakeHolder()
+    return holder.Take(4)
+}
+
+test "the expression door claims a call whose subtree reads a plan local" {
+    assert DriverMirrorArgument() == 4
+    assert DriverMirrorSecondOfTwo() == 6
+    assert DriverMirrorExternalStatic() == 8
+    assert DriverMirrorNested() == 5
+    assert DriverMirrorMemberOfLocal() == 5
+    assert DriverMirrorReceiver() == 6
+}
