@@ -1044,10 +1044,12 @@ test "the expression door partitions its whole kind ledger with no hole and no o
         i = i + 1
     }
 
-    // TEN claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites 015-B6
-    // took, the direct CALL (015-B7) and the primitive BINARY (015-B9). The count is pinned so a
-    // widening cannot arrive without a block that says what it claims.
-    assert claimed == 10
+    // ELEVEN claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites 015-B6
+    // took, the direct CALL (015-B7), the primitive BINARY (015-B9) and the TERNARY (015-B12). The count
+    // is pinned so a widening cannot arrive without a block that says what it claims — this assertion
+    // is the reason `015-B12`'s widening could not land silently, and it was REWRITTEN by that slice
+    // (10 -> 11) rather than relaxed.
+    assert claimed == 11
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression())
@@ -1058,17 +1060,18 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.NameOfExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CallExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression())
 
     // The composites that remain declined are declined one by one. Their gates are open now; what
     // holds them back is the emitter's ELEVEN-ARM root cascade, which a claim must enter arm by arm.
-    // ⚠ `CallExpression` LEFT THIS LIST in 015-B7 and `BinaryExpression` in 015-B9; both are asserted
-    // CLAIMED above. `MemberAccess` did not, and the asymmetry is deliberate — a call's CALLEE may be a
-    // member access, which the call owner resolves itself, and a binary's OPERAND may be one, which the
-    // binary owner resolves itself, but a bare member access in value position is a different owner's
-    // shape.
+    // ⚠ `CallExpression` LEFT THIS LIST in 015-B7, `BinaryExpression` in 015-B9 and `TernaryExpression`
+    // in 015-B12; all three are asserted CLAIMED above. `MemberAccess` did not, and the asymmetry is
+    // deliberate — a call's CALLEE may be a member access, which the call owner resolves itself, and a
+    // binary's OPERAND may be one, which the binary owner resolves itself, but a bare member access in
+    // value position is a different owner's shape.
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NewExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression())
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CastExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
 
     // And a DECLINED kind declines at the door without touching the plan, which is what lets the
@@ -2530,24 +2533,33 @@ test "the binary root sequence produces the same rows through Plan and through t
 }
 
 
-// ---- BLOCK 50 — THE KIND MOVED SIDES, AND THE SHORT-CIRCUIT FAMILY DID NOT COME WITH IT ----
+// ---- BLOCK 50 — THE KIND MOVED SIDES, AND `015-B12` BROUGHT THE SHORT-CIRCUIT FAMILY WITH IT ----
 //
-// `&&`/`||` are kind-12 nodes the CONDITIONAL owner roots, not this one, and the door does not carry a
-// second copy of that judgement: the owner's own `IsAdmittedSyntax` refuses them, so the body declines
-// whole and the host emits it exactly as before.
-test "the door claims the binary kind and still declines the short-circuit family" {
+// ⚠ THIS BLOCK IS A REWRITE, AND THE THING IT USED TO ASSERT IS WORTH RECORDING RATHER THAN ERASING.
+// From `015-B9` to `015-B11` it asserted the door DECLINED a `&&` body, with the reason: "`&&`/`||`
+// are kind-12 nodes the CONDITIONAL owner roots, not this one, and the door does not carry a second
+// copy of that judgement". Both halves of that reason are still TRUE — what changed in `015-B12` is
+// that the door now has an ARM into the conditional owner, so "not this owner's" stopped meaning "not
+// claimable". The block therefore keeps its subject and inverts its verdict.
+//
+// What it still proves, and what no other block proves, is that ONE node kind reaches TWO owners and
+// the door picks between them the way the emitter's cascade does.
+test "the door claims the binary kind and now claims the short-circuit family too" {
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
     assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
 
     shortCircuit := MethodBodyFactsBinaryBody("&&", ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.BoolLiteralExpression(), "false")
     plan := new ColumnarCodePlan()
-    assert !MethodBodyFactsPlanCallBody(shortCircuit, typeof(bool), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+    assert MethodBodyFactsPlanCallBody(shortCircuit, typeof(bool), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+    // The conditional owner is the only kind-12 owner that branches, so the labels are the signature
+    // of WHICH owner served this body — a claim alone would not distinguish them.
+    assert plan.LabelCount == 2
 
-    // The claimed family in the same position, so the decline above is the OPERATOR's and not the
-    // bool type's.
+    // The claimed family in the same position, and it takes the OTHER owner: no labels at all.
     equality := MethodBodyFactsBinaryBody("==", ColumnarExpressionNodeKind.IntLiteralExpression(), "3", ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
     equalityPlan := new ColumnarCodePlan()
     assert MethodBodyFactsPlanCallBody(equality, typeof(bool), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), equalityPlan)
+    assert equalityPlan.LabelCount == 0
 }
 
 
@@ -2676,4 +2688,97 @@ test "the door claims a call whose index argument carries a binary selector" {
     assert plan.OpCodeValues[7] == ColumnarCodePlanContract.Call()
     assert plan.OpCodeValues[8] == ColumnarCodePlanContract.Ret()
     assert plan.OpenFragmentCount == 0
+}
+
+
+// ---- 015-B12: THE DOOR'S KIND-12 SPLIT, AND THE FIRST CLAIMED KIND WHOSE ROWS BRANCH ----
+
+// ⚠ THE SPLIT IS THE WHOLE OF THE SHORT-CIRCUIT CLAIM, AND IT LIVES IN ONE PLACE ON PURPOSE.
+// `a && b` and `a + b` are the SAME node kind and DIFFERENT owners. `IsClaimedExpressionKind` answers
+// for the kind and deliberately says nothing about the owner; the arm inside `TryAppendValue` asks the
+// operator, exactly as the emitter's cascade does. This block asserts the door routes each to the
+// owner that would have served it, by observing the ROWS each owner writes rather than by naming one.
+test "the expression door routes a kind-12 binary to the owner its operator selects" {
+    andTree := ConditionalShortCircuitLiteralTree("&&", "true", "false")
+    andPlan := new ColumnarCodePlan()
+    andPlan.PrepareMethodBody()
+    andType := typeof(int)
+    assert ColumnarMethodBodyPlanner.TryAppendValue(andTree.Nodes, andTree.Source, andTree.Root, MethodBodyFactsEmptyBindings(), andPlan, out andType)
+    assert andType == typeof(bool)
+    // The conditional owner is the only kind-12 owner that defines labels; the binary owner defines none.
+    assert andPlan.LabelCount == 2
+
+    // ⚠ THE BITWISE PROBE IS OVER *INTS*, AND THAT IS A MEASURED CONSTRAINT RATHER THAN A PREFERENCE.
+    // `TryAppendBitwise` refuses an operand type that is neither int-promotable nor long/ulong/uint nor
+    // a bitwise enum, and `bool` is none of those — so `true & false` declines for a TYPE reason that
+    // would have masked the routing question this block exists to ask.
+    bitTree := ConditionalIntBinaryTree("&", "3", "5")
+    bitPlan := new ColumnarCodePlan()
+    bitPlan.PrepareMethodBody()
+    bitType := typeof(bool)
+    assert ColumnarMethodBodyPlanner.TryAppendValue(bitTree.Nodes, bitTree.Source, bitTree.Root, MethodBodyFactsEmptyBindings(), bitPlan, out bitType)
+    assert bitType == typeof(int)
+    assert bitPlan.LabelCount == 0
+}
+
+// The ternary arm, and the property that made this claim worth checking at all: it is the FIRST kind
+// the door claims whose rows BRANCH. `DefineLabel`/`Brfalse`/`Br`/`MarkLabel` were only ever appended
+// to a schema-v3 plan before this slice, and a method body is schema v4.
+test "the expression door claims a ternary onto an open method-body plan, labels and all" {
+    tree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    resultType := typeof(int)
+    assert ColumnarMethodBodyPlanner.TryAppendValue(tree.Nodes, tree.Source, tree.Root, MethodBodyFactsEmptyBindings(), plan, out resultType)
+    assert resultType == typeof(int)
+    assert plan.LabelCount == 2
+
+    // Exactly one MarkLabel row per label, which is the invariant the executor's label classification
+    // enforces and the reason a branch is legal in a method body rather than merely appendable to one.
+    marks := 0
+    i := 0
+    while i < plan.OperationCount {
+        if plan.OperationKinds[i] == ColumnarCodePlanContract.MarkLabelOperation() {
+            marks = marks + 1
+        }
+        i = i + 1
+    }
+    assert marks == 2
+}
+
+// The same claim through the door's OTHER entry. `TryAppendLocalDeclaration` and `TryAppendReturnValue`
+// share one dispatcher, so a widening reaches both — and a widening that reached only one would be a
+// silent asymmetry no other contract measures.
+test "the ternary claim reaches the initializer door as well as the return door" {
+    tree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+
+    returnPlan := new ColumnarCodePlan()
+    returnPlan.PrepareMethodBody()
+    returnType := typeof(int)
+    assert ColumnarMethodBodyPlanner.TryAppendReturnValue(tree.Nodes, tree.Source, tree.Root, MethodBodyFactsEmptyBindings(), returnPlan, out returnType)
+    assert returnType == typeof(int)
+
+    // `IsHostAdoptedReturnShape` cannot pre-empt this shape: its FIRST test demands a unary node, and a
+    // ternary is not one — so the return door and the value door agree here by construction.
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(tree.Nodes, tree.Source, tree.Root)
+
+    valuePlan := new ColumnarCodePlan()
+    valuePlan.PrepareMethodBody()
+    valueType := typeof(int)
+    assert ColumnarMethodBodyPlanner.TryAppendValue(tree.Nodes, tree.Source, tree.Root, MethodBodyFactsEmptyBindings(), valuePlan, out valueType)
+    assert valuePlan.OperationCount == returnPlan.OperationCount
+}
+
+// A ternary whose ARMS DISAGREE is refused by the owner, and the refusal must be ATOMIC at the door:
+// the plan a driver hands in has to come back usable, because the driver goes on to let the host emit
+// the body it just declined.
+test "a mixed-arm ternary declines at the door and leaves the plan clean" {
+    tree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.StringLiteralExpression(), "s")
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    resultType := typeof(int)
+    assert !ColumnarMethodBodyPlanner.TryAppendValue(tree.Nodes, tree.Source, tree.Root, MethodBodyFactsEmptyBindings(), plan, out resultType)
+    assert plan.OperationCount == 0
+    assert plan.FragmentCount == 0
+    assert plan.LabelCount == 0
 }

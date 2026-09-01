@@ -1,6 +1,59 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-09-01 (**TASK 015 SUB-SLICE `015-B11` — THE `Module` NAME (STAGE 1), THE ADOPTED
+Last updated: 2026-09-01 (**TASK 015 SUB-SLICE `015-B12` — STAGE 2 OF THE `Module` BOUNDARY, AND THE
+CONDITIONAL OWNER'S TWO DOOR ARMS — see the Cursor block.** The decode was written before any
+production file was touched and it **OVERTURNS THE BRIEF ON ITEM 5's PREMISE**: the census it asks for
+— `TryAppend*` entry points taking a plan and a parent fragment but NO surface parameter — returns
+**28 of 73** hits and **ZERO** real ones, because the surface is not a parameter on a `TryAppend*`
+signature (`allowPrimitiveBinary` appears in exactly TWO signatures in the tree) but the CHOICE
+BETWEEN TWO NAMED FORWARDERS at a call site. Censused that way there are NINE plain call sites, six
+already accounted for by rule or by an earlier slice, and **THE INHERITED-SURFACE FAMILY IS CLOSED AT
+FOUR OWNERS**; the three that remain live in ONE owner and are a DIFFERENT question, named as such.
+**STAGE 2 IS EXECUTED, AND THE PACKAGE WAS VERIFIED BEFORE THE EDIT IN TWO INDEPENDENT WAYS** — a
+UTF-16 scan of the EXTRACTED SDK's own DLL (`get_Module` ×1, `System.Reflection.Module` ×1, both
+UTF-16-only) and, decisively, TWO probes spelled inside `BootstrapServices` and COMPILED by the
+packaged SDK: `M1` the CALL (`015-B8`'s PROBE C shape, and `015-B11`'s FINDING 1 is why it may not be
+a bare declaration) and `M2` the DECLARABLE admission, both read back OUT of the emitted assembly and
+then deleted with the file verified byte-pristine. `SameDeclaredIdentity` is now
+`Object.ReferenceEquals(a.get_Module(), b.get_Module())`; the detour and its 11-line wall comment are
+gone; the residue scan is **`GetProperty(` 0 / `GetValue(` 0 / `"Module"` 0 / `moduleProperty` 0** in
+UTF-16 code units, down from 1/2/1/4, with the file at **211 → 200 lines** and
+`text-v1:e23df49d1944965d → text-v1:ec3a14d6037eb047`. **THE SCAN CAUGHT A SURVIVOR IN THIS SLICE'S
+OWN REPLACEMENT PROSE** (`GetProperty(` read 1, not 0) and that is reported rather than tidied.
+`015-B10`'s `C4` still breaks its ONE block against the rewritten function. **ITEM 2's FIRST ENTRY IS
+BUILT: the ternary (kind 13) and the short-circuit `&&`/`||` (kind 12) through ONE `TryAppendRoot`
+factored out of `ColumnarConditionalPlanner.Plan`** — the `015-B7`/`015-B9` factoring applied a third
+time — and it is **THE FIRST CLAIMED KIND WHOSE ROWS BRANCH**, so labels reach a schema-v4 method body
+for the first time. The route was DERIVED rather than assumed, and the reason `&&` reaches the
+conditional owner at all is a LENGTH fact: the binary owner's `HasExactOperatorText` tests
+`length == expected.Length` before it compares text, so two-character `&&` can never match
+one-character `&`. **ELEVEN LIVE CORPUS BODIES MOVE OWNER, TEN PREDICTED BY NAME**, and the eleventh —
+`Vector2D::op_Equality` — is a NAMED census blind spot (`func operator ==(` has no `\w+` name for the
+census's regex to match), found by the marker rather than by reading. Estate **7,158 → 7,166** (both
+MEASURED, +8 = exactly the eight new blocks); native emit-facts **30 → 32** and `nlc test` reports
+32/32; corpus `IL_DIFFS=0` control-first over **68 projects / 41 built / 1,721 keys** (ctlA vs ctlB
+first, then ctlA vs SLICE, same md5 `dbe8824dd4561bbc9861633e018bad3c`), and **`IL_DIFFS=0` over the
+1,560 keys of the tree that SHIPS** once the one project whose SOURCE this slice changed is set
+aside. **THE COMPARISON WAS CORRECTED MID-SLICE FROM `diff` TO KEY-BASED** after `diff` mis-reported
+by two rows at 320 changes. The marker mutation moves **8** claim rows (every one predicted, by name)
+and **11** live rows. **TWO PRE-EXISTING ESTATE BLOCKS ARE REWRITTEN AND SAID SO** — the partition
+count (10 → 11) and BLOCK 50, which asserted the door DECLINED `&&` — plus a stale native comment the
+corpus exposed. The control walk is **9 controls, 5 EXACT (four of them single-block isolations)**,
+three honest SUPERSETS with their mechanism named, and **ONE REAL FINDING**: `C3` hard-coded the root
+fragment's kind and **THE WHOLE 7,166-BLOCK ESTATE STAYED GREEN**, proving this slice's own new comment
+FALSE — `HasValidV2Fragments` never compares a fragment's recorded kind with its source node. The
+comment was corrected, the estate given the assertion it had been standing in for, and `C3` re-run
+**EXACT and single-block**, inside a clean pristine bracket at `7,166 / 0`. The live-tree row-for-row
+walk is clean: **403/242 on both CLIs, identical even in order, `added=0 removed=0` against the tip
+tree and the per-code histogram identical in EVERY entry** — this one does not even move `NL402`.
+**ZERO C# TOUCHED** — emitter stays **20,784 / 19,768**, compiler C# **10** files, two-key ratchet
+unrepinned at `head-v1:9717a7390756f51c`. **THE FRESH ISOLATED GATE IS `ALL TESTS PASSED` /
+`GATE EXIT 0` / 126-0 / 21m 50s**, unit **596** (the baseline exactly), estate **7,166** (the bracket
+exactly), 47 native `✓ PASSED`, IL verification 67/67 — which matters more here than in any earlier
+slice of this arc, because a branching claim's mis-marked label is a verification failure rather than
+a wrong value. NOT COMMITTED.)
+
+Last updated (prior): 2026-09-01 (**TASK 015 SUB-SLICE `015-B11` — THE `Module` NAME (STAGE 1), THE ADOPTED
 NEGATIVE LITERAL, AND THE INSTANCE-MEMBER OWNER'S RECEIVER SURFACE — see the Cursor block.** The
 decode was written before any production file was touched and it **OVERTURNS THE BRIEF ON ITEM 5's
 SITE COUNT**: `ColumnarInstanceMemberPlanner:190` and `:310` are not the same decision — `:310` is
@@ -5315,7 +5368,535 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B11`: THE `Module` NAME (STAGE 1), THE ADOPTED
+- Active sub-slice (015 arc, THIS TURN — **`015-B12`: STAGE 2 OF THE `Module` BOUNDARY, AND THE
+  CONDITIONAL OWNER'S TWO DOOR ARMS. THE DECODE CONFIRMS THE BRIEF ON ITEM 1 AND OVERTURNS IT ON
+  ITEM 5's PREMISE: THE `TryAppend*`-WITHOUT-A-SURFACE CENSUS THE BRIEF ASKS FOR RETURNS **28** RAW
+  HITS AND **ZERO** REAL ONES — THE SURFACE IS NOT A PARAMETER ON A `TryAppend*` SIGNATURE, IT IS THE
+  CHOICE BETWEEN TWO NAMED FORWARDERS AT A CALL SITE, AND CENSUSED THAT WAY THE FAMILY IS **CLOSED**.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED, AT `b57c661a0`
+
+  #### THE TIP, RE-MEASURED RATHER THAN INHERITED
+
+  | reading | value | matches the brief |
+  |---|---|---|
+  | working tree at `b57c661a0` | **CLEAN** (`git status --short` empty) | — |
+  | `ColumnarIlEmitter.cs` | **20,784 / 19,768** | ✓ |
+  | compiler C# files (`src/NSharpLang.Compiler`, excluding `obj/`, `bin/`) | **10** | ✓ |
+  | ratchet manifest | **391** lines, no BOM (first three bytes `7b 0a 20`) | ✓ |
+  | two-key head | `head-v1:9717a7390756f51c` in the JSON header (`:7`) AND in `OwnershipAudit.nl:241` | ✓ (read from BOTH keys) |
+  | epoch triple | `381` / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` | ✓ |
+  | `columnar-emit-facts` blocks | **30** (11 + 19) | ✓ |
+
+  #### ⚠ THE PACKAGE IS VERIFIED **BEFORE** THE EDIT, IN TWO INDEPENDENT WAYS, AND THE SECOND ONE IS A COMPILE
+
+  The brief is emphatic that the live CLI proving `a.get_Module()` emits is `015-B11`'s evidence and
+  says nothing about the PACKAGE. Both checks were run on the packaged SDK, ahead of every production
+  edit:
+
+  | check | instrument | result |
+  |---|---|---|
+  | **STATIC** — is the widened table even in the shipped bytes? | UTF-16 literal scan of `~/.nuget/packages/nsharplang.sdk/0.1.0/tools/NSharpLang.Compiler.BootstrapServices.dll` (the EXTRACTED cache, which is what a build actually loads — not the `.nupkg`) | `get_Module` **×1**, `System.Reflection.Module` **×1**, both in UTF-16 and **zero** in UTF-8, which is what a metadata string heap looks like. Reproduces the coordinator's count independently |
+  | **DYNAMIC** — does the packaged SDK COMPILE the shape? | two temporary probes spelled inside `ColumnarTypeEquivalenceFacts.nl` itself and built with `dotnet build` (`015-B8`'s PROBE C shape) | **`Build succeeded. 0 Warning(s) 0 Error(s)`**, 2m 09s, with `Emitting N# IL assembly` in the log (a real emit, not an incremental skip) |
+
+  **THE DYNAMIC PROBE IS DELIBERATELY TWO PROBES, BECAUSE FINDING 1 PROVED ONE ADMISSION IS NOT TWO.**
+
+  | probe | spelling | admission it tests |
+  |---|---|---|
+  | **`M1`** | `return Object.ReferenceEquals(a.get_Module(), b.get_Module())` | the **BINDABLE** one — `ColumnarExternalBindingPlans.GetInstanceCallPlan`'s explicit `System.Type` member table, the row `015-B11` found by differential probe. This is the CALL the brief demands, and it is the exact shape the real edit ships |
+  | **`M2`** | `probeModule := a.get_Module()` then `probeModule != null` | the **DECLARABLE** one — `IsSupportedRuntimeTypeName`, exercised through a local whose INFERRED type is `System.Reflection.Module`: the exact `emit.local.initializer` site `015-B10` recorded as `NL103` |
+
+  Both probe method names were then read back OUT of the emitted assembly
+  (`obj/Debug/net10.0/NSharpLang.Compiler.BootstrapServices.dll`) — `ProbeM1ModuleCallBinds` ×1,
+  `ProbeM2ModuleTypeDeclares` ×1 — so the green build is evidence about THESE bodies rather than about
+  a build that skipped them. **The probes were then deleted and the file verified byte-pristine
+  against `b57c661a0` (`git diff --exit-code` empty) before the real edit began.**
+
+  #### ⚠ THE STAGE-2 RESIDUE SCAN IS BASELINED BEFORE THE EDIT, NOT ONLY AFTER
+
+  A post-edit "zero occurrences" is only half a proof — zero is also what a scan of the wrong file
+  returns. The pristine file was scanned FIRST with the same instrument, so each needle has a
+  non-zero **before** to fall from:
+
+  | needle (exact literal) | pristine `b57c661a0` |
+  |---|---|
+  | `GetProperty(` | **1** |
+  | `GetValue(` | **2** |
+  | `"Module"` (the STRING LITERAL, quotes included) | **1** |
+  | `moduleProperty` | **4** |
+
+  pristine file: **211 lines**, **9,472 UTF-16 code units**, `text-v1:e23df49d1944965d`, and **11
+  non-ASCII characters** in its prose. That last number is exactly why the brief demands UTF-16 code
+  units: a byte-offset scan over this file counts a different alphabet than the ratchet does.
+
+  ⚠ **AND THE `"Module"` NEEDLE IS THE QUOTED FORM ON PURPOSE.** The file's header table (`:23`)
+  contains `` `Module` `` in backticks — prose that DESCRIBES the rule and must survive. Scanning for
+  a bare `Module` would count that line and could never reach zero; scanning for `"Module"` counts the
+  `GetProperty("Module")` argument and nothing else, which is the residue the brief actually names.
+
+  #### ⚠ ITEM 5's PREMISE IS OVERTURNED: "A `TryAppend*` WITH NO SURFACE PARAMETER" IS THE WRONG CENSUS
+
+  Taken literally, the brief's census — `TryAppend*` entry points that take a plan and a parent
+  fragment but no surface parameter — returns **28 of 73** `TryAppend*` functions, and every one of
+  them is a false positive. The surface is NOT a parameter that a value-appending function either has
+  or lacks: `allowPrimitiveBinary` appears in exactly **two** signatures in the whole tree
+  (`ColumnarRangeIndexPlanner.TryAppendPlannableValueCore` and
+  `ColumnarInstanceMemberPlanner.TryAppend`), and every other owner selects a surface by CALLING one
+  of two named forwarders:
+
+  | forwarder | surface | meaning |
+  |---|---|---|
+  | `ColumnarRangeIndexPlanner.TryAppendPlannableValue` | PLAIN (`allowPrimitiveBinary = false`) | no primitive binary, no construction, in this position |
+  | `ColumnarRangeIndexPlanner.TryAppendConstructionValue` | RICH (`allowPrimitiveBinary = true`) | the wider one |
+
+  So the census that answers the brief's QUESTION is a census of **PLAIN call sites**, and there are
+  **nine**, of which one is the forwarder's own body:
+
+  | # | site | verdict |
+  |---|---|---|
+  | 1 | `ColumnarRangeIndexPlanner:408` | the forwarder itself — not a site |
+  | 2 | `ColumnarRangeIndexPlanner:200` (`Plan`'s TRUE ROOT) | **PLAIN BY RULE** — `015-B10`'s root rule: a root has no enclosing position to inherit from |
+  | 3 | `ColumnarInstanceMemberPlanner:338` (`TryGetComposedReceiverType`) | **PLAIN BY RULE** — `015-B11`'s ruling: reached only from `ClaimsRoot`, which asks about a ROOT |
+  | 4 | `ColumnarInstanceMemberPlanner:209` (`TryAppend`) | already SURFACE-DRIVEN — this is the one site `015-B11` moved; the plain call is the `else` of `if allowPrimitiveBinary` |
+  | 5 | `ColumnarDirectCallPlanner:1282` (`AppendArguments`) | already SURFACE-DRIVEN — the `else` of `if allowPrimitiveBinary` (`015-B9`) |
+  | 6 | `ColumnarDirectCallPlanner:1522` (`TryGetPlannableValueType`) | already SURFACE-DRIVEN — the type side of the same fork (`015-B9`) |
+  | 7 | `ColumnarDirectCallPlanner:611` (`TryAppendDelegateInvoke`) | a delegate-invoke ARGUMENT |
+  | 8 | `ColumnarDirectCallPlanner:1040` (`AppendExtensionReceiver`) | an extension-method RECEIVER |
+  | 9 | `ColumnarDirectCallPlanner:1208` (`AppendExplicitReceiver`) | an explicit instance RECEIVER |
+
+  **THE FAMILY THE BRIEF IS ASKING ABOUT — an owner that hard-codes PLAIN for an INNER position that
+  ought to inherit — IS CLOSED AT FOUR OWNERS.** Rows 7–9 are the only hard-coded-plain inner
+  positions left, they all live in ONE owner, and they are a DIFFERENT question from the one `015-B9`
+  through `015-B11` answered: each is an argument or receiver of a call the owner is planning, and
+  `015-B9` already threaded that owner's argument surface explicitly (`AppendArguments`) after
+  measuring it. Widening rows 7–9 is a candidate for a later slice with its own corpus diff; it is
+  **not** an instance of the inherited-surface family, and saying that is better than counting it as
+  one. `015-B11` did not run this census and said so; this is the answer.
+
+  #### ⚠ ITEM 2 — THE ROUTE FOR THE TWO ARMS IS MEASURED, NOT ASSUMED, AND IT IS ONE OWNER
+
+  The brief queues four door kinds and says the ternary and short-circuit "share ONE owner, so they
+  are one slice with two arms". That is confirmed in the tree, and the ROUTE — which owner the
+  EMITTER actually reaches for each shape, since byte identity is against that owner and no other —
+  was derived rather than assumed:
+
+  | step | ternary `a > b ? a : b` (kind 13) | short-circuit `a && b` (kind 12) |
+  |---|---|---|
+  | the four PRE-CASCADE owners in `EmitExpressionCore` (boolean, unary-literal, scalar-literal, `nameof`) | none has an arm for kind 13 | none has an arm for kind 12 |
+  | `ColumnarRangeIndexPlanner.FacadeRootMayNeedFacts` | **admits** — its FIRST test is `ColumnarConditionalPlanner.MayPlanRoot` | **admits**, same first test |
+  | cascade arm 1 — `ColumnarConstructionPlanner.MayPlanRoot` | no (15/36/58) | no |
+  | cascade arm 2 — `ColumnarDirectCallPlanner.MayPlanRoot` | no (kind 9) | no |
+  | cascade arm 3 — `ColumnarPrimitiveBinaryPlanner.MayPlanRoot` | no (kind 12 only) | **no — and this is the load-bearing one** |
+  | cascade arm 4 — `ColumnarConditionalPlanner.MayPlanRoot` | **YES** | **YES** |
+
+  ⚠ **ARM 3's REFUSAL OF `&&` IS A LENGTH FACT, AND IT IS WORTH WRITING DOWN.**
+  `ColumnarPrimitiveBinaryPlanner.MayPlanRoot` ends in `IsClaimedOperatorText`, whose bitwise arm asks
+  `HasExactOperatorText(…, "&")`. That helper tests `length == expected.Length` BEFORE it compares
+  text, so a two-character `&&` can never match a one-character `&`. The two owners partition kind 12
+  by operator LENGTH, not by a shared list, and `&&`/`||` therefore fall past arm 3 to arm 4 rather
+  than being claimed-then-declined by the binary owner. Had they matched, arm 3 would have returned
+  `legacyWholeSubtreePlanning = true` and the conditional arm would be dead code.
+
+  **SO BOTH SHAPES ROUTE TO `ColumnarConditionalPlanner`, AND THE DOOR MUST ENTER THAT OWNER'S OWN
+  ROOT SEQUENCE** — the same `015-B7`/`015-B9` factoring, for the same reason: `Plan` wraps the
+  sequence between `PrepareV3()` and `CompleteV3()`, and an open schema-v4 METHOD BODY may do neither.
+  The sequence to factor out of `Plan` is exactly: `UnwrapParentheses` → the ternary/short-circuit
+  admission test → `CreateCheckpoint` → `BeginFragment(-1, kind, candidate)` → `TryPlanTernary` or
+  `TryPlanShortCircuit` at depth 0 → `CompleteFragment`, with `Rollback` on both the decline and the
+  throw paths. `BeginFragment`'s `kind` argument is the CANDIDATE's kind (13 or 12), which is why the
+  factored function cannot hard-code one.
+
+  ⚠ **THE ONE MECHANISM THIS CLAIM NEEDS THAT NO PRIOR CLAIM USED: LABELS.** Every kind the door
+  claims today (literal, bool, identifier, unary, `nameof`, call, binary) is straight-line. The
+  conditional owner is the first to append `DefineLabel` / `AppendLabelInstruction` /
+  `AppendMarkLabel` rows. Three independent checks say a METHOD BODY carries them:
+
+  | check | reading |
+  |---|---|
+  | `ColumnarCodePlan.DefineLabel` (`:1123`) | `EnsureV2Building()` only — no schema test |
+  | `ColumnarCodePlan.AppendLabelInstruction` (`:1299`) | admits `Br`/`Brfalse`/`Brtrue` in ANY schema; only `Leave` is method-body-gated. So the ternary's `Brfalse`+`Br` and the short-circuit's `Brfalse`/`Brtrue`+`Br` are already legal rows on a v4 plan |
+  | `ColumnarCodePlanExecutor.ExecuteMethodBodyRows` (`:207–243`) | pre-defines `plan.LabelCount` labels and services `MarkLabelOperation`, row for row identical to `ExecuteRecursiveRows` (`:273–298`) — the same shared `EmitInstruction` the door's comment relies on |
+
+  This is a PREDICTION, not yet a proof, and it is the thing this slice's IL diff is for. `015-B11`'s
+  FINDING 3 is the standing warning that a row shape can be legal in one schema and fatal in another.
+
+  #### ⚠ ITEM 3 — `S3` STAYS UNREACHED, AND THIS SLICE CAN SAY SO WITHOUT RE-RUNNING THE TAG
+
+  The brief's own reasoning is checked and holds at this tip: `TryGetComposedReceiverType` is called
+  from exactly one place (`ColumnarInstanceMemberPlanner`'s `ClaimsRoot`), `ClaimsRoot` is asked only
+  from the cascade's kind-8 arm, and kind 8 (member access) is on
+  `ColumnarMethodBodyPlanner.IsDeclinedExpressionKind`'s list. This slice does NOT land the kind-8
+  arm, so `S3` is unreached for a reason that is now structural rather than measured, and `015-B11`'s
+  `C7` control is correspondingly NOT re-run — there is no new arm to run it against. Both facts are
+  reported as they are rather than as a green tag.
+
+  #### ⚠ ITEM 4 — THE POSITIVE ARM, RE-DERIVED IN BYTES RATHER THAN INHERITED FROM `015-B5`'s PROSE
+
+  Recorded below with the measurement, not here: the derivation is a byte reading and belongs with the
+  other byte readings.
+
+  #### THE CAP, NAMED WITH ITS REMAINDER
+
+  Items 1 (STAGE 2), 2's FIRST entry (the conditional owner's two arms), 3, 4 and 5 are this slice.
+  The brief's item-2 queue keeps its remaining two entries for `015-B13`, in the brief's own order:
+  `checked(…)` (kind 57) and the member-access ROOT (kind 8) — and the latter is still what unblocks
+  `S3`.
+
+  ### WHAT LANDED
+
+  | brief item | outcome |
+  |---|---|
+  | 1 | **STAGE 2 EXECUTED.** The package was verified FIRST — statically (a UTF-16 scan of the extracted SDK's own `BootstrapServices` DLL) and dynamically (two probes spelled inside `BootstrapServices` and COMPILED by the packaged SDK). `SameDeclaredIdentity` collapsed to `Object.ReferenceEquals(a.get_Module(), b.get_Module())`; the detour and its 11-line wall comment deleted; the residue scan is **0 / 0 / 0 / 0** in UTF-16 code units; `015-B10`'s `C4` still breaks its one block against the rewritten function |
+  | 2 | **FIRST ENTRY BUILT: the conditional owner's TWO arms** (ternary kind 13 and the short-circuit kind-12 binaries), through one `TryAppendRoot` factored out of `Plan` — the `015-B7`/`015-B9` factoring, applied a third time. `checked(…)` and the member-access ROOT are named as `015-B13`'s |
+  | 3 | `S3` reported as unreached STRUCTURALLY rather than re-tagged, and `C7` correspondingly NOT re-run — there is no kind-8 arm to run it against. Stated as it is |
+  | 4 | **RE-DERIVED IN BYTES.** Five probes compiled and read; the derivation holds and the byte readings are below |
+  | 5 | **CENSUSED, AND THE BRIEF'S PREMISE OVERTURNED** — see the decode. The family is CLOSED at four owners; the literal census returns 28 false positives |
+
+  Eight new estate blocks, two new native blocks, TWO pre-existing blocks rewritten and said so,
+  **ZERO C# files touched**.
+
+  ### ⚠ THE STAGE-2 RESIDUE SCAN — VERBATIM, IN UTF-16 CODE UNITS, BEFORE AND AFTER
+
+  | reading | pristine `b57c661a0` | the tree that ships |
+  |---|---|---|
+  | lines | **211** | **200** |
+  | UTF-16 code units | **9,472** | **8,787** |
+  | `text-v1` fingerprint | **`text-v1:e23df49d1944965d`** | **`text-v1:ec3a14d6037eb047`** |
+  | non-ASCII characters in the file | **11** | **8** |
+  | literal `GetProperty(` | **1** | **0** |
+  | literal `GetValue(` | **2** | **0** |
+  | literal `"Module"` (quotes included) | **1** | **0** |
+  | literal `moduleProperty` | **4** | **0** |
+
+  ⚠ **THE SCAN CAUGHT A SURVIVOR IN THE SLICE'S OWN PROSE, AND THAT IS REPORTED RATHER THAN TIDIED.**
+  The first spelling of the replacement comment described the deleted code as a
+  "`typeof(Type).GetProperty(…)` + `GetValue` detour". The post-edit scan therefore read
+  `GetProperty( → 1`, not 0. The comment was reworded to "a reflective `PropertyInfo` detour over
+  `System.Type`" and the scan re-run. A scan that only ever ran once, after a satisfying edit, would
+  have reported zero for three needles and quietly passed the fourth.
+
+  The header table at `:23` still reads `` `Module` `` in backticks, and that is the intended
+  survivor: it DESCRIBES the rule the function implements. Scanning for a bare `Module` could never
+  have reached zero; the quoted needle is the argument text and nothing else.
+
+  The ratchet does NOT move (the file is `.nl`; `git diff --stat -- '*.cs'` is EMPTY), which is exactly
+  why the scan is the proof instead.
+
+  ### ⚠ THE PACKAGED-SDK PROBE — RUN BEFORE THE EDIT, IN TWO INDEPENDENT WAYS, AND THE SECOND IS A COMPILE
+
+  | check | reading |
+  |---|---|
+  | STATIC — the EXTRACTED cache `~/.nuget/packages/nsharplang.sdk/0.1.0/tools/NSharpLang.Compiler.BootstrapServices.dll` | `get_Module` **×1 UTF-16, ×0 UTF-8**; `System.Reflection.Module` **×1 UTF-16, ×0 UTF-8** — a metadata string heap, and the coordinator's count reproduced independently |
+  | DYNAMIC — `PROBE M1` (the CALL: `Object.ReferenceEquals(a.get_Module(), b.get_Module())`) and `PROBE M2` (the DECLARABLE admission: a local whose inferred type is `Module`), both spelled inside `ColumnarTypeEquivalenceFacts.nl` and built by the packaged SDK | **`Build succeeded. 0 Warning(s) 0 Error(s)`**, 2m 09s, `Emitting N# IL assembly` present in the log |
+  | the probes REACHED the emitted assembly | `ProbeM1ModuleCallBinds` ×1 and `ProbeM2ModuleTypeDeclares` ×1 read back OUT of `obj/Debug/net10.0/NSharpLang.Compiler.BootstrapServices.dll` — so the green build is evidence about THESE bodies, not about a build that skipped them |
+  | the probes were then REMOVED | `git diff --exit-code` on that file is EMPTY before the real edit begins |
+
+  `015-B11`'s FINDING 1 is why the dynamic probe is two probes and why the first is the CALL: a
+  republish carrying only `IsSupportedRuntimeTypeName` would have passed a bare-declaration probe and
+  still left the detour undeletable.
+
+  ### THE MEASUREMENTS
+
+  | measurement | tip `b57c661a0` | slice |
+  |---|---|---|
+  | estate (`-p:NSharpExcludeTests=false --force-evaluate` restore, MEASURED on the pristine tip worktree, not inherited) | **`7,158 / 0`** | **`7,166 / 0`** — **+8, exactly the eight new blocks** |
+  | native `columnar-emit-facts` blocks | **30** (11 + 19) | **32** (11 + 21), and `nlc test` reports **32 passed / 0 failed** |
+  | `tests/native/conditional` | — | **8 passed / 0 failed** |
+  | `ColumnarIlEmitter.cs` | 20,784 / 19,768 | **unchanged** |
+  | compiler C# files | 10 | **10** |
+  | ratchet | `head-v1:9717a7390756f51c` both keys, manifest 391 lines, no BOM (`7b 0a 20`), epoch triple `381` / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` | **byte-for-byte untouched — `git diff --stat -- '*.cs'` is EMPTY, so NO REPIN** |
+  | `nlc format --check` | — | "All files are properly formatted." on all four gate projects AND on `tests/native/columnar-emit-facts` |
+
+  ### THE CORPUS IL COMPARISON — CONTROL-FIRST, KEY-BASED, AND THE NORMALISER PROVEN NON-VACUOUS
+
+  A `System.Reflection.Metadata` method-body dump (MVID-free by construction: no header, no GUIDs,
+  rows `<assembly>|<Type>::<Method>|<hex il>`) over **68 corpus projects** — `examples/`,
+  `templates/`, `tests/fixtures/` and `tests/native/` — of which **41 build** and **27 fail
+  IDENTICALLY on every side** (`md5` of the failure list is the same on all three). Only the
+  project's OWN emitted assembly is dumped, taken from `project.yml`'s `name:`, so `xunit`/`testhost`
+  DLLs copied into `bin/` are excluded by construction rather than by a name blacklist.
+
+  ⚠ **THE COMPARISON IS KEY-BASED, NOT `diff`-BASED, AND THAT CORRECTION MATTERS.** A first pass used
+  `diff` on the two sorted dumps and reported **324** differing rows where only **322** bodies carried
+  the marker — a two-row discrepancy that turned out to be `diff` ALIGNING LINES when hundreds of
+  values change, not a real byte movement (the two "extra" rows were byte-identical when read
+  directly). Comparing by `<assembly>|<Type>::<Method>` instead reconciles exactly: **320 keys marked,
+  320 keys changed**, and the 322-vs-320 line gap is two duplicate keys in the dump.
+
+  | pairing | result |
+  |---|---|
+  | **ctlA vs ctlB** (the SAME tip DLL, twice, fresh work tree each) — the determinism control, run FIRST | **`IL_DIFFS=0`**, md5 `dbe8824dd4561bbc9861633e018bad3c`, 41 assemblies / 1,727 rows / **1,721 keys** |
+  | **ctlA vs SLICE** | **`IL_DIFFS=0`**, the SAME md5 |
+  | **ctlA vs the TREE THAT SHIPS**, excluding the ONE project whose SOURCE this slice changed (`tests/native/columnar-emit-facts`) | **`IL_DIFFS=0` over 1,560 keys** |
+  | inside that one project, the pre-existing body whose OWNER moved (`Program::DriverShortCircuit`) | **byte-identical**: `023906000000033801000000162a` on both |
+  | the 56 rows that DO change inside that project | all **56 have the same byte LENGTH** — metadata-token renumbering from the added members, not a different lowering |
+  | NON-VACUITY, dump level | a ONE-character perturbation of a single row produces **4** diff lines |
+  | NON-VACUITY, marker level | **320** keys change between the unmarked and marked tip corpora and **320** bodies carry the marker — the same 320, no third row |
+
+  ### THE PER-CLASS IL DIFF — THE MOVED CLAIMS ARE BYTE-IDENTICAL TO WHAT THE HOST WROTE
+
+  All ELEVEN bodies whose owner moved, read from the UNMARKED tip and UNMARKED slice corpora:
+
+  | body | bytes (identical on both sides) |
+  |---|---|
+  | `Program::And` (`a && b`) | `023906000000033801000000162a` |
+  | `Program::Or` (`a \|\| b`) | `023a06000000033801000000172a` |
+  | `Program::AndPersisted` (`result := a && b`) | `023906000000033801000000160a062a` |
+  | `Program::OrPersisted` | `023a06000000033801000000170a062a` |
+  | `Program::AndThenOr` (`a && b \|\| c`) | `023906000000033801000000163a06000000043801000000172a` |
+  | `Program::SelectByBoth` (`a && b ? t : f`) | `023906000000033801000000163906000000043801000000052a` |
+  | `Program::MaxOfTwo` (`l >= r ? l : r`) | `0203fe0416fe013906000000023801000000032a` |
+  | `Program::Label` (`flag ? "yes" : "no"`) | `02390a0000007201000070380500000072090000702a` |
+  | `Program::NestedTernaryInAnd` (`(c ? x : y) && z`) | `023906000000033801000000043906000000053801000000162a` |
+  | `Program::DriverShortCircuit` | `023906000000033801000000162a` |
+  | `Vector2D::op_Equality` | `027b03000004037b03000004fe013913000000027b04000004037b04000004fe013801000000162a` |
+
+  ### THE LIVENESS MUTATION — +8 CLAIM ROWS AND **11** LIVE ROWS, WITH THE PREDICTIONS WRITTEN FIRST
+
+  `MUT-DOOR` appends `ldc.i4.0; pop` immediately before the value arm's `ret` in
+  `ColumnarMethodBodyPlanner.TryPlanBody`, so a body the DOOR claims ends `16 26 2a` and nothing else
+  does. It was applied to the PRISTINE tip worktree and to the slice; both restores are
+  `sha256`-verified against pre-mutation hashes and the tip worktree reads `git status --short` EMPTY
+  afterwards.
+
+  | corpus | tip | slice | movement |
+  |---|---|---|---|
+  | claim (13 probe bodies + 6 positive-arm bodies) | **4** marked | **12** marked | **+8 claim rows** |
+  | big (41 assemblies, 1,721 keys) | **320** marked | **331** marked | **+11 LIVE bodies** |
+
+  **THE CLAIM CORPUS: 8 MOVED, ALL 8 PREDICTED BY NAME, AND 6 THAT DELIBERATELY DID NOT MOVE.**
+
+  | probe | shape | tip | slice | predicted |
+  |---|---|---|---|---|
+  | `T1Max` | `a > b ? a : b` | declined | **CLAIMED** | ✓ |
+  | `T2Pick` | `c ? a : b` | declined | **CLAIMED** | ✓ |
+  | `T3Arms` | `a > b ? a + b : a - b` | declined | **CLAIMED** | ✓ |
+  | `T4Text` | `c ? "yes" : "no"` (string result) | declined | **CLAIMED** | ✓ |
+  | `T5And` / `T6Or` | `a && b` / `a \|\| b` | declined | **CLAIMED** | ✓ |
+  | `T7AndCompare` | `a > 0 && b > 0` | declined | **CLAIMED** | ✓ |
+  | `C4bTernaryInit` | `m := a > b ? a : b; return m` | declined | **CLAIMED** | ✓ — the door's OTHER entry |
+  | `C1Add`, `C2BitAnd`, `C4Bare`, `P2PosInt` | the unmoving floor | CLAIMED | CLAIMED | ✓ |
+  | `C3MemberRoot` (`p.X`) | kind 8 | declined | declined | ✓ — `015-B13`'s |
+  | `P1PosByte`, `P3PosLong`, `P4PosUint`, `P5PosShort` | ITEM 4 | declined | declined | ✓ |
+
+  `C2BitAnd` is the load-bearing control: a ONE-character `&` is a kind-12 binary exactly as `&&` is,
+  and if the door's new split had leaked it would have changed owner without changing kind. It did not.
+
+  **THE BIG CORPUS: 11 LIVE BODIES, 10 PREDICTED BY NAME, AND THE 11th IS A NAMED CENSUS BLIND SPOT.**
+
+  Nine are in `tests/native/conditional/Conditional.nl` (`And`, `Or`, `AndPersisted`, `OrPersisted`,
+  `AndThenOr`, `SelectByBoth`, `MaxOfTwo`, `Label`, `NestedTernaryInAnd`) and the tenth is
+  `DriverShortCircuit`, predicted conditionally on its project building — it did.
+
+  ⚠ **THE ELEVENTH WAS NOT PREDICTED, AND THE REASON IS EXACT RATHER THAN VAGUE.**
+  `OperatorOverloading.dll|Vector2D::op_Equality` is
+  `static func operator ==(a: Vector2D, b: Vector2D): bool { return a.X == b.X && a.Y == b.Y }` — a
+  short-circuit at return position, squarely in scope. The census missed it because its
+  function-header regex is `func\s+(\w+)\s*\(`, and `func operator ==(` has no `\w+` name. The census
+  was ALREADY corrected once before the mutation ran (its first pass classified only the RETURN root
+  and missed the two `:=`-initializer bodies, which is recorded in the predictions file as an
+  amendment rather than an overwrite); this second blind spot the census could not correct itself, and
+  the marker is what found it. That is the argument for running the mutation even when the census
+  looks complete.
+
+  Three bodies in `Conditional.nl` were predicted NOT to move and did not: `SelectElement` (its `:=`
+  is an ARRAY LITERAL, kind 58, and its return is an INDEX ACCESS, kind 10 — both still declined) and
+  `AndRightEvaluations` / `OrRightEvaluations` (their bodies contain an `if`, and the driver claims
+  only `:=` statements followed by one `return`).
+
+  ### ⚠ ITEM 4 — THE POSITIVE ARM, RE-DERIVED IN BYTES RATHER THAN INHERITED FROM `015-B5`'s PROSE
+
+  `TryEmitIntLiteralAsType`'s POSITIVE arm claims byte/sbyte/short/ushort/uint through `Ldc_I4` and
+  long/ulong through `Ldc_I8`; `int` is not one of its targets and falls to its closing `return false`.
+  `015-B5` argued the arm "provably unreached" by type equality. The argument is CORRECT, and here it
+  is in bytes rather than in prose — five bodies compiled, read, and put under the door marker:
+
+  | probe | source | emitted bytes | door marker |
+  |---|---|---|---|
+  | `P1PosByte` | `func P1PosByte(): byte { return 5 }` | `1b 2a` | **absent** |
+  | `P2PosInt` | `func P2PosInt(): int { return 5 }` | `1b **1626** 2a` | **PRESENT** |
+  | `P3PosLong` | `func P3PosLong(): long { return 5 }` | `21 0500000000000000 2a` — `ldc.i8` | **absent** |
+  | `P4PosUint` | `func P4PosUint(): uint { return 5 }` | `1b 2a` | **absent** |
+  | `P5PosShort` | `func P5PosShort(): short { return 300 }` | `20 2c010000 2a` — the LONG-form `ldc.i4` | **absent** |
+
+  **THE DERIVATION, STATED FROM THESE BYTES.** The door claims a body only when
+  `valueType == returnType`, and `ColumnarScalarLiteralPlanner` types an unsuffixed integer literal as
+  `int` and nothing else. `int` is precisely the one target the positive arm does NOT claim, so the
+  arm's target set and the door's claimable return type are DISJOINT — and the marker column is the
+  measurement of that: the only positive-arm probe the door claims is the one whose target the arm
+  refuses. The disjointness is also LOAD-BEARING rather than cosmetic, which `P3PosLong` is what
+  proves: at `long` the host writes `ldc.i8 5` where the door's scalar owner would have written the
+  `int` spelling, so a claim there would have changed bytes. (`P1PosByte` and `P4PosUint` happen to
+  coincide with the `int` spelling; that coincidence is why the `long` probe is in the set.)
+
+  ### ⚠ ITEM 3 — `S3` IS UNREACHED STRUCTURALLY, AND `C7` IS NOT RE-RUN, AND BOTH ARE SAID PLAINLY
+
+  `TryGetComposedReceiverType` has exactly one caller (`ColumnarInstanceMemberPlanner.ClaimsRoot`),
+  `ClaimsRoot` is asked only from the cascade's kind-8 arm, and kind 8 remains on
+  `IsDeclinedExpressionKind`'s list — this slice did not build that arm. `S3` is therefore unreached
+  for a STRUCTURAL reason at this tip rather than an empirically-tagged one, and `015-B11`'s `C7` is
+  NOT re-run because there is no new arm to run it against. Re-running a tag to produce a green line
+  would have been evidence about nothing.
+
+  ### THE CONTROL WALK — 9 CONTROLS, ALL PREDICTIONS WRITTEN BEFORE THE RESULTS, AND ONE IS A FINDING
+
+  Every control is one deliberate perturbation of THIS slice's new code, applied to the pristine tree,
+  `sha256`-restored, with the broken-block set predicted in advance.
+
+  | control | perturbation | predicted | actual | verdict |
+  |---|---|---|---|---|
+  | **C1** | STAGE 2: drop the MODULE half, keep the name — `015-B10`'s `C4`, re-run against the REWRITTEN function | `declared identity refuses two same-named builders from different modules` | the same, ALONE | **EXACT**, single-block |
+  | **C2** | delete the door's short-circuit branch, sending every kind 12 to the binary owner | 2 named blocks | the same 2 | **EXACT** |
+  | **C3** | hard-code the root fragment's kind to `TernaryExpression()` | 1 block | **NOTHING BROKE** | ⚠ **FINDING** — see below |
+  | **C4** | drop `TernaryExpression` from `IsClaimedExpressionKind`, keeping the arm | the ledger-partition block | that block **plus the two ternary-claim blocks** | SUPERSET, explained: the kind filter runs BEFORE the arm |
+  | **C5** | remove `Rollback` on the decline path | the mixed-arm block | that block **plus 3 pre-existing rollback blocks** | SUPERSET, explained: the rollback is shared by both wrappers |
+  | **C6** | reinstate the throwing `ValidateRootInputs` at the append entry | the null-contract block | the same, ALONE | **EXACT**, single-block |
+  | **C7** | add `&&` to the binary owner's bitwise operator list | the operator-partition block | the same, ALONE | **EXACT**, single-block |
+  | **C8** | make `&&`'s merge constant `ldc.i4.1`, the same as `\|\|`'s | 1 block | that block **plus the pre-existing short-circuit lowering block** | SUPERSET, explained |
+  | **C3 re-run** | the same perturbation, against the instrument C3 proved was MISSING | `the conditional root-append sequence covers both short-circuit operators` | the same, ALONE | **EXACT**, single-block |
+
+  Pristine bracket around the re-run: **`7,166 / 0` before and `7,166 / 0` after**, and every restore
+  `sha256`-verified identical to its pre-mutation hash.
+
+  ### ⚠ WHAT `C3` FOUND, AND WHY IT IS THE MOST USEFUL RESULT IN THE WALK
+
+  `C3` hard-coded the root fragment's recorded kind to `TernaryExpression()` for BOTH arms — so a
+  short-circuit binary would carry a fragment claiming to be a ternary — and **the entire 7,166-block
+  estate stayed green.**
+
+  The comment this slice had written on `TryAppendRoot` claimed that hard-coding "would have produced a
+  fragment whose recorded kind disagreed with its source node, which is exactly the disagreement
+  `HasValidV2Fragments` exists to catch". **That claim was FALSE.** `HasValidV2Fragments` asks only
+  `FragmentKinds[i] >= 0`; it never compares the recorded kind against the kind of the node
+  `FragmentSourceNodeIndices[i]` points at. The fragment kind is DESCRIPTIVE metadata that no invariant
+  in the plan enforces.
+
+  Two things were done rather than one. The comment was CORRECTED to say what is true, naming `C3` as
+  the reason. And the estate was given the assertion the comment had been standing in for — both arms'
+  root fragments now assert their recorded kind and source node directly (13 for the ternary, 12 for
+  the short-circuit, and explicitly `!= TernaryExpression()` for the latter). `C3` re-run against that
+  is EXACT and single-block. A comment asserting a property nothing measures is the failure mode this
+  arc exists to prevent, and it was found in this slice's own new prose.
+
+  ### THE LIVE-TREE ROW-FOR-ROW WALK — LOAD-BEARING, AND NOT SKIPPED
+
+  | check | result |
+  |---|---|
+  | `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json`, TWO CLIs on the SAME (slice) tree | **`checkedFiles=403`** and **242** results on BOTH, summary `{errors 242, warnings 0, info 0}` on both, **ROW-FOR-ROW IDENTICAL EVEN IN ORDER** |
+  | TIP tree/TIP CLI vs SLICE tree/SLICE CLI (the SOURCE delta) | **403 / 242 → 403 / 242**, **`added=0 removed=0`**, and the per-code histogram is IDENTICAL in every entry: `NL002 1, NL010 7, NL011 17, NL012 20, NL202 85, NL301 16, NL303 3, NL402 64, NL412 3, NL905 26`. **NO NEW DIAGNOSTIC CODE, AND NO NEW ROW OF ANY CODE** |
+
+  `015-B10`'s port shipped three new `NL011`s past a green estate, a green native gate and
+  `IL_DIFFS=0`, and only this walk caught them. It is run here for the same reason and it is clean —
+  and unlike `015-B11`'s, this one does not even move the `NL402` count.
+
+  ### THE COVERAGE TABLES
+
+  | | |
+  |---|---|
+  | the door's ledger | **34** kinds, unchanged — the widening moves a kind BETWEEN the two sides, it does not add one |
+  | N# door, CLAIMED | **10 → 11** (`TernaryExpression` joins) |
+  | N# door, DECLINED | **24 → 23** |
+  | kinds claimed by TWO owners | **1** — kind 12, split by operator LENGTH at the door's arm |
+  | driver statement kinds claimed | **2**, unchanged |
+  | owners the door enters through their own root sequence | **4 → 5** (`ColumnarConditionalPlanner` joins) |
+  | claimed kinds whose rows BRANCH | **0 → 1** — the first `DefineLabel`/`Brfalse`/`Br`/`MarkLabel` rows on a schema-v4 method body |
+  | owners carrying the inherited value surface | **4**, unchanged; the census says the family is CLOSED |
+  | hard-coded-PLAIN inner positions remaining | **3**, all in `ColumnarDirectCallPlanner` (`TryAppendDelegateInvoke:611`, `AppendExtensionReceiver:1040`, `AppendExplicitReceiver:1208`) — a DIFFERENT question, named as such |
+  | type-discovery scratch sites | **4**; `S3` unreached STRUCTURALLY (kind 8 still declined), `S4` unchanged |
+  | compiler C# files | **10**, unchanged |
+  | `ColumnarIlEmitter.cs` | **20,784 / 19,768**, unchanged |
+
+  ### THE FRESH ISOLATED GATE
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/private/tmp` byte copy (`.git`, `bin`,
+  `obj`, `node_modules`, `artifacts` and `.claude/worktrees/` excluded), the log written OUTSIDE the
+  copy, `pgrep -f test-all-core.sh` reading EMPTY first, launched DETACHED and never signalled, and
+  all **6** changed CODE files `sha256`-verified IDENTICAL between the working tree and the copy BOTH
+  before and after the run. The copy contains **zero** `NSharpLang.Benchmarks.csproj`, which is
+  correct rather than a gap: this branch's `benchmarks/` carries no project file and the only ones in
+  the repo live under `.claude/worktrees/`, excluded by construction.
+
+  | reading | value |
+  |---|---|
+  | verdict | **`ALL TESTS PASSED`**, **`GATE EXIT 0`** |
+  | steps | **126 `✓ PASSED` / 0 `✗ FAILED`** |
+  | duration | **1,310 s** (21 m 50 s) |
+  | unit | **`Passed: 596`** — the baseline EXACTLY |
+  | estate | **`Passed: 7166`** — the bracket EXACTLY |
+  | native `✓ PASSED` lines | **47**, `tests/native/ownership-audit` among them ON THE UNCHANGED RATCHET, and `tests/native/columnar-emit-facts` on the two new blocks |
+  | IL verification | **"All 67 N# assemblies pass IL verification (no new errors vs baseline)"** |
+  | formatting gate | "All files are properly formatted." ×4 |
+
+  The IL verification line is the independent confirmation that the eleven bodies whose OWNER moved —
+  nine in `Conditional.nl`, `DriverShortCircuit`, and `Vector2D::op_Equality` — are VERIFIABLE and not
+  merely byte-equal. That matters more here than in any earlier slice of this arc: this is the first
+  claim whose rows BRANCH, so a mis-marked label would be an IL-verification failure rather than a
+  wrong value.
+
+  Only `STATUS.md` changed in the working tree after the copy was taken; it is neither compiled nor
+  tested by the gate, and that is said rather than glossed.
+
+  ### THE `015-B13` BRIEF — PRICED BY THIS SLICE'S MEASUREMENTS
+
+  1. **THE DOOR-KIND QUEUE, CONTINUED, IN THE SAME ORDER — AND ITEM 2's REMAINDER IS EXACTLY TWO.**
+     `015-B11`'s FINDING 2 named four door kinds; `015-B12` took the two that share the conditional
+     owner. What is left, cheapest evidence first:
+
+     | kind | shape | owner it would enter | what is already paid for |
+     |---|---|---|---|
+     | 57 `checked(…)` | `checked(a + 1)` | the host's `EmitExpressionWithOverflowChecking`, whose `OverflowCheckingEnabled` flag this driver ALREADY routes | the ROUTING debt. This is still the kind whose only missing piece is the door arm |
+     | 8 member access | `new Box(a + b).V`, `items[i].X` at a ROOT | `ColumnarInstanceMemberPlanner.Plan`, entered from the cascade's kind-8 arm through `ClaimsRoot` | the owner exists and `015-B11` widened its receiver surface |
+
+     Take `checked(…)` FIRST. It is the smaller of the two and it does not change what any other
+     contract can see; kind 8 pulls in `ClaimsRoot`, `S3` and `C7` together and deserves its own slice.
+
+  2. **⚠ KIND 8 IS STILL WHAT UNBLOCKS `S3`, AND `015-B12` DID NOT MOVE THAT.** `S3`
+     (`TryGetComposedReceiverType`) is reached ONLY from `ClaimsRoot`, `ClaimsRoot` only from the
+     cascade's kind-8 arm, and kind 8 is still on `IsDeclinedExpressionKind`. `015-B11`'s `C7` — the
+     control that proves the root's TYPE side and APPEND side agree — must be re-run against the kind-8
+     arm the moment it lands, and `TryGetComposedReceiverType`'s PLAIN surface becomes load-bearing at
+     the same instant. `015-B12` reported `S3` unreached STRUCTURALLY rather than re-tagging it; that
+     reporting stays correct until the kind-8 arm exists and is worthless afterwards.
+
+  3. **⚠ THE FRAGMENT KIND IS UNENFORCED METADATA, AND `015-B12` ONLY FIXED ITS OWN TWO SITES.**
+     `C3` proved `HasValidV2Fragments` never compares `FragmentKinds[i]` with the kind of the node
+     `FragmentSourceNodeIndices[i]` points at. `015-B12` added that assertion for the CONDITIONAL
+     owner's two arms only. Every other `BeginFragment` caller in the tree is still unchecked, and a
+     hard-coded or copy-pasted kind at any of them would be invisible to the whole estate. The complete
+     fix is a validator arm, not more per-owner assertions — but it needs the node table at validation
+     time, which `ColumnarCodePlan` does not carry. Worth pricing before it is worth building; the
+     cheap interim is a census of `BeginFragment` call sites whose `fragmentKind` argument is a
+     LITERAL rather than a read of `nodes.Kind(...)`.
+
+  4. **THE `TryAppend*` SURFACE FAMILY IS CLOSED; THE THREE REMAINING PLAIN SITES ARE A DIFFERENT
+     QUESTION.** `015-B12`'s census (see its decode) found the inherited-surface family closed at four
+     owners. Three hard-coded-PLAIN inner positions remain, all in `ColumnarDirectCallPlanner`:
+     `TryAppendDelegateInvoke:611` (a delegate-invoke ARGUMENT), `AppendExtensionReceiver:1040` and
+     `AppendExplicitReceiver:1208` (two RECEIVERS). Widening them is a candidate slice with its own
+     corpus diff, and it should be framed as "the call owner's argument and receiver surfaces" rather
+     than as another instance of the inherited-surface family — `015-B9` already threaded that owner's
+     ordinary argument surface explicitly after measuring it, and these three were left out of that
+     threading.
+
+  5. **THE CORPUS GREW AND ITS BLIND SPOTS ARE NAMED — INHERIT THE HARNESS, NOT THE NUMBERS.**
+     `015-B12`'s corpus is **68 projects / 41 built / 1,721 keys**, up from `015-B11`'s 25/425, because
+     it added `tests/native/` — which is where the conditional bodies actually live. Two things must
+     carry forward:
+     * The comparison is **KEY-BASED**, not `diff`-based. `diff` on two sorted dumps mis-reported by
+       two rows at 320 changes; aligning on `<assembly>|<Type>::<Method>` reconciles exactly.
+     * The liveness CENSUS has a known blind spot: its function-header regex cannot spell
+       `func operator ==(`, which is how `Vector2D::op_Equality` escaped `015-B12`'s prediction. Fix
+       the regex before trusting a census, and run the marker anyway.
+     * **27 corpus projects fail identically on every side**, and two of them
+       (`examples/17-issue-tracker/backend`, `tests/fixtures/issue-tracker`) fail on
+       `emit.declaration.method-param: method parameter type 'WebApplication' could not be resolved`.
+       That decline is PRE-EXISTING and reproduces with the ORIGINAL csproj and the REAL packaged SDK,
+       so it is not a harness artefact — but it means two live `IsPriorityName` bodies carrying a
+       claimed shape are invisible to the corpus. Whether `WebApplication` should resolve at emit is
+       its own question and nobody has asked it in this arc.
+
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-B11`: THE `Module` NAME (STAGE 1), THE ADOPTED
   NEGATIVE LITERAL, AND THE INSTANCE-MEMBER OWNER'S RECEIVER SURFACE. THE DECODE OVERTURNS THE BRIEF
   ON ITEM 2's SHAPE AND ON ITEM 5's SITE COUNT.**)
 

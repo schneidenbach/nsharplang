@@ -718,7 +718,11 @@ func DriverBinaryMixed(left: int, right: long): long {
     return left + right
 }
 
-// DECLINED for a different reason: `&&` is the CONDITIONAL owner's root, never this one's.
+// ⚠ `015-B12` MOVED THIS BODY'S OWNER, AND THE COMMENT THAT STOOD HERE IS THE REASON IT COULD.
+// It read "DECLINED for a different reason: `&&` is the CONDITIONAL owner's root, never this one's",
+// and both halves were true — but the conclusion stopped one step short. `&&` IS the conditional
+// owner's root, and `015-B12` gave the door an arm that enters that owner, so this body is CLAIMED
+// now. Its bytes did not move (the corpus diff says so); only its owner did.
 func DriverShortCircuit(left: bool, right: bool): bool {
     return left && right
 }
@@ -942,4 +946,120 @@ test "the declaring module binds, the adopted negative literal narrows, and the 
     names[1] = "bb"
     names[2] = "ccc"
     assert B11StringElementMember(names, 0) == 3
+}
+
+
+// ---- 015-B12: THE CONDITIONAL OWNER'S TWO DOOR ARMS, AS SOURCE THE REAL PIPELINE COMPILES ---------
+
+// THE FIRST CLAIMED KIND WHOSE ROWS BRANCH. Every body the door claimed before this slice lowers to a
+// straight line; a ternary and a short-circuit lower to a BRANCH-MERGE, so these bodies are the first
+// to put `DefineLabel`/`Brfalse`/`Br`/`MarkLabel` rows on a schema-v4 METHOD BODY rather than on a
+// standalone schema-v3 expression. The estate proves the rows are right; only a real compiled body
+// proves the EXECUTOR marks those labels when it walks a method body, and a wrong branch target here
+// would not fail an assertion — it would fail IL verification or run the wrong arm.
+
+func DoorTernaryMax(a: int, b: int): int {
+    return a > b ? a : b
+}
+
+// A ternary with REFERENCE-typed arms, so the arm-agreement rule is exercised off the int path.
+func DoorTernaryLabel(flag: bool): string {
+    return flag ? "yes" : "no"
+}
+
+func DoorShortCircuitAnd(left: bool, right: bool): bool {
+    return left && right
+}
+
+func DoorShortCircuitOr(left: bool, right: bool): bool {
+    return left || right
+}
+
+// The short-circuit through the door's OTHER entry: a `:=` INITIALIZER rather than a return. The two
+// entries share one dispatcher, and a widening that reached only one would be a silent asymmetry.
+func DoorShortCircuitPersisted(left: bool, right: bool): bool {
+    outcome := left && right
+    return outcome
+}
+
+// A ternary whose CONDITION is itself a short-circuit — one owner entered twice, once as a root and
+// once as a nested value.
+func DoorTernaryOverShortCircuit(a: bool, b: bool, whenTrue: int, whenFalse: int): int {
+    return a && b ? whenTrue : whenFalse
+}
+
+// ⚠ THE SEMANTIC THE ROWS EXIST TO PRESERVE: `&&` MUST NOT EVALUATE ITS RIGHT OPERAND WHEN THE LEFT IS
+// FALSE. A branch-merge that merely computed the right answer while evaluating both operands would
+// pass every value assertion above and still be wrong, so the side effect is counted rather than
+// assumed.
+class DoorEvaluationProbe {
+    Calls: int
+
+    constructor() {
+        this.Calls = 0
+    }
+
+    func Observe(value: bool): bool {
+        this.Calls = this.Calls + 1
+        return value
+    }
+}
+
+func DoorAndRightCalls(left: bool): int {
+    probe := new DoorEvaluationProbe()
+    outcome := left && probe.Observe(true)
+    if outcome {
+        return probe.Calls + 100
+    }
+
+    return probe.Calls
+}
+
+func DoorOrRightCalls(left: bool): int {
+    probe := new DoorEvaluationProbe()
+    outcome := left || probe.Observe(false)
+    if outcome {
+        return probe.Calls + 100
+    }
+
+    return probe.Calls
+}
+
+test "the expression door claims the conditional composite and both of its arms run correctly" {
+    assert DoorTernaryMax(7, 3) == 7
+    assert DoorTernaryMax(3, 7) == 7
+    assert DoorTernaryMax(4, 4) == 4
+
+    assert DoorTernaryLabel(true) == "yes"
+    assert DoorTernaryLabel(false) == "no"
+
+    // Both operators over the whole truth table — a branch-merge with a swapped opcode would show here.
+    assert DoorShortCircuitAnd(true, true)
+    assert !DoorShortCircuitAnd(true, false)
+    assert !DoorShortCircuitAnd(false, true)
+    assert !DoorShortCircuitAnd(false, false)
+
+    assert DoorShortCircuitOr(true, true)
+    assert DoorShortCircuitOr(true, false)
+    assert DoorShortCircuitOr(false, true)
+    assert !DoorShortCircuitOr(false, false)
+
+    assert DoorShortCircuitPersisted(true, true)
+    assert !DoorShortCircuitPersisted(false, true)
+
+    assert DoorTernaryOverShortCircuit(true, true, 11, 22) == 11
+    assert DoorTernaryOverShortCircuit(true, false, 11, 22) == 22
+    assert DoorTernaryOverShortCircuit(false, true, 11, 22) == 22
+}
+
+test "the claimed short circuit still refuses to evaluate its right operand" {
+    // `false && f()` never calls f: 0 evaluations, and the result was false so no +100.
+    assert DoorAndRightCalls(false) == 0
+    // `true && f()` calls it once, and f returned true, so the result was true: 1 + 100.
+    assert DoorAndRightCalls(true) == 101
+
+    // `true || f()` never calls f, and the result was true: 0 + 100.
+    assert DoorOrRightCalls(true) == 100
+    // `false || f()` calls it once, and f returned false: 1 evaluation, no bonus.
+    assert DoorOrRightCalls(false) == 1
 }

@@ -183,29 +183,18 @@ class ColumnarTypeEquivalenceFacts {
     // test host emits one per case), so two distinct builders CAN carry the same `FullName`, and a
     // name-only test would silently equate two unrelated types.
     //
-    // ⚠ THE ONE PLACE THIS PORT IS NOT A DIRECT TRANSCRIPTION, AND EXACTLY WHY.
-    // The C# owner reads `a.Module` directly. `System.Reflection.Module` is NOT on
-    // `ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName`'s list — `MethodInfo`, `FieldInfo`,
-    // `PropertyInfo`, `ParameterInfo`, `AssemblyName` and `RuntimeTypeHandle` all are — so the packaged
-    // bootstrap SDK that compiles THIS file declines `a.get_Module()` at emit with `NL103`
-    // (`emit.local.initializer`). The property is therefore read REFLECTIVELY: that invokes the very
-    // same getter and compares the very same two references, so it is a faithful spelling rather than a
-    // weaker predicate — and weakening a type-identity predicate is the one thing this port may not do.
-    // It is also off the hot path by construction: the `FullName` test above returns false first for
-    // every ordinary mismatch, so the reflective read runs only for two DISTINCT builders sharing a name.
-    // Put `System.Reflection.Module` on that list at the next SDK repack and this detour deletes itself.
+    // The module read is a DIRECT transcription of the C# owner's `a.Module` as of `015-B12`. It was
+    // not always: `015-B10` shipped this line as a reflective `PropertyInfo` detour over `System.Type`
+    // because `System.Reflection.Module` was on neither of the bootstrap SDK's two admission tables,
+    // and `015-B11` put it on both — the canonical/supported RUNTIME-TYPE tables that make the type
+    // DECLARABLE, and `GetInstanceCallPlan`'s explicit `System.Type` member table that makes
+    // `get_Module` BINDABLE. Those are two independent admissions and the first alone was not enough,
+    // which is why the boundary took two slices and a republish between them.
     static func SameDeclaredIdentity(a: Type, b: Type): bool {
         if !string.Equals(a.get_FullName(), b.get_FullName(), StringComparison.Ordinal) {
             return false
         }
 
-        moduleProperty := typeof(Type).GetProperty("Module")
-        if moduleProperty == null {
-            throw new InvalidOperationException("System.Type must expose a Module property.")
-        }
-
-        aModule := moduleProperty.GetValue(a)
-        bModule := moduleProperty.GetValue(b)
-        return Object.ReferenceEquals(aModule, bModule)
+        return Object.ReferenceEquals(a.get_Module(), b.get_Module())
     }
 }

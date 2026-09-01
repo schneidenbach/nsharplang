@@ -420,11 +420,17 @@ class ColumnarMethodBodyPlanner {
     // external-static-member and instance-member each get their OWN root facade, and only range/index
     // roots fall through to the shared append dispatcher. So a composite claim must call THAT owner's
     // own root sequence; guessing a single entry point would be a second, divergent routing policy.
-    // FOUR owners are entered that way now — the unary-literal owner and `nameof`, which the emitter
+    // FIVE owners are entered that way now — the unary-literal owner and `nameof`, which the emitter
     // reaches through their own facade AHEAD of the cascade, the DIRECT-CALL owner, which the cascade's
-    // second arm owns for every call root (015-B7), and the PRIMITIVE-BINARY owner, which the cascade's
-    // third arm owns for every claimed-operator binary root (015-B9). Byte identity is against one owner
-    // apiece. The rest wait for their own diffs. The three binding facts the earlier slices deliberately
+    // second arm owns for every call root (015-B7), the PRIMITIVE-BINARY owner, which the cascade's
+    // third arm owns for every claimed-operator binary root (015-B9), and the CONDITIONAL owner, which
+    // the cascade's FOURTH arm owns for every ternary root and every `&&`/`||` root (015-B12). Byte
+    // identity is against one owner apiece. The rest wait for their own diffs.
+    //
+    // ⚠ THE CONDITIONAL CLAIM IS THE FIRST WHOSE ROWS BRANCH. Every kind claimed before it lowers to a
+    // straight line, so `015-B12` is where the plan's LABEL rows first have to survive a method body —
+    // a schema question `015-B11`'s FINDING 3 is the standing warning about, answered here by the
+    // executor rather than by assumption. The three binding facts the earlier slices deliberately
     // left unrouted — `ExactSourceTypes`, the overflow flag and the sibling-callable map — ARE routed as
     // of the call claim, and as of the binary claim ALL THREE have a live consumer on the claimed
     // surface: the overflow flag is what `ColumnarPrimitiveBinaryPlanner` turns into `add` vs `add.ovf`.
@@ -597,8 +603,33 @@ class ColumnarMethodBodyPlanner {
         // owner's own `IsAdmittedSyntax` is what refuses them, so the door does not carry a second copy
         // of that judgement. The overflow flag this driver routes is what the owner turns into
         // `add` vs `add.ovf`; it is the first CONSUMER of that fact on the claimed surface.
+        //
+        // 015-B12 SPLIT THIS ARM IN TWO ALONG THE OPERATOR'S LENGTH. `&&` and `||` are kind-12 binaries
+        // that belong to the CONDITIONAL owner, and until this slice the door sent every kind 12 to the
+        // binary owner, whose `IsAdmittedSyntax` then refused them — a decline that was correct but
+        // final. The door now asks the same question the emitter's cascade asks, in the same order.
         if kind == ColumnarExpressionNodeKind.BinaryExpression() {
+            if ColumnarConditionalPlanner.IsShortCircuitBinary(nodes, source, node) {
+                return ColumnarConditionalPlanner.TryAppendRoot(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out resultType)
+            }
             return ColumnarPrimitiveBinaryPlanner.TryAppendRoot(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out resultType)
+        }
+        // 13 Ternary — THE CONDITIONAL COMPOSITE (015-B12), and the FIRST claimed kind whose rows are not
+        // straight-line: the owner appends `DefineLabel`/`Brfalse`/`Br`/`MarkLabel` rows, which every
+        // earlier claim avoided entirely. `ColumnarCodePlan.AppendLabelInstruction` admits
+        // `Br`/`Brfalse`/`Brtrue` in ANY schema (only `Leave` is method-body-gated) and
+        // `ColumnarCodePlanExecutor.ExecuteMethodBodyRows` pre-defines `LabelCount` labels and services
+        // `MarkLabelOperation` row for row exactly as `ExecuteRecursiveRows` does — so a branch-merge is
+        // a method-body row sequence, not a schema-v3 privilege.
+        //
+        // Like the binary arm, this one needs no companion to `IsHostAdoptedReturnShape`: the host's
+        // kind-20 arm runs seven target-typed pre-passes, six of them gated on the node kind
+        // (15/36/42 union construction, 63 target-typed `new`, 11-with-`-`/0 int literal, 58 collection
+        // and array literal, 5 null) and the seventh on the RETURN TYPE, which this driver already
+        // refuses through `IsSupportedNullable`. Neither 13 nor a short-circuit 12 is in that set, so
+        // ZERO pre-passes reach either shape.
+        if kind == ColumnarExpressionNodeKind.TernaryExpression() {
+            return ColumnarConditionalPlanner.TryAppendRoot(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out resultType)
         }
         // Unreachable while the claimed set and the arms above agree, and that agreement is exactly
         // what the estate's partition block asserts. A kind added to the claimed set without its own
@@ -606,10 +637,16 @@ class ColumnarMethodBodyPlanner {
         return false
     }
 
-    // The kinds the door takes. Each owner is method-body-schema aware; four of them (unary, `nameof`,
-    // direct call, primitive binary) reach that state only through `015-B6`'s nine-gate widening.
+    // The kinds the door takes. Each owner is method-body-schema aware; five of them (unary, `nameof`,
+    // direct call, primitive binary, conditional) reach that state only through `015-B6`'s nine-gate
+    // widening.
+    //
+    // ⚠ KIND 12 IS CLAIMED BY TWO OWNERS, NOT ONE, AND THIS PREDICATE DELIBERATELY DOES NOT SAY WHICH.
+    // A `&&` binary and a `+` binary are the same kind and different owners; the split lives in
+    // `TryAppendValue`'s arm, where the emitter's own cascade makes it. Duplicating the operator test
+    // here would be a second copy of that judgement, and the two copies could disagree.
     static func IsClaimedExpressionKind(kind: int): bool {
-        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.BinaryExpression()
+        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.BinaryExpression() || kind == ColumnarExpressionNodeKind.TernaryExpression()
     }
 
     // The kinds the door refuses, named one by one rather than left to a fall-through. The reason is
@@ -626,13 +663,13 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.ParenthesizedExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
             return true
         }
-        // 13 Ternary, 15 New, 16 Cast, 36 ObjectInitializer, 55 TypeOf, 58 ArrayLiteral, 69 Range — the
-        // named composites. Their gates are widened now, but the emitter reaches each of them through
+        // 15 New, 16 Cast, 36 ObjectInitializer, 55 TypeOf, 58 ArrayLiteral, 69 Range — the named
+        // composites. Their gates are widened now, but the emitter reaches each of them through
         // `ColumnarRangeIndexPlanner.TryEmitFromFacts`'s eleven-arm ROOT CASCADE, and a claim here must
         // reproduce that arm's exact entry. Each arrives with its own corpus diff. 12 Binary LEFT THIS
         // LIST in `015-B9`, which is also what made the routed overflow flag load-bearing rather than
-        // merely carried.
-        if kind == ColumnarExpressionNodeKind.TernaryExpression() || kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.CastExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() {
+        // merely carried, and 13 TERNARY left it in `015-B12` through the cascade's FOURTH arm.
+        if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.CastExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() {
             return true
         }
         if kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() {
