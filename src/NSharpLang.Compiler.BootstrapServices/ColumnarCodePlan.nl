@@ -636,6 +636,10 @@ class ColumnarCodePlan {
     // scratch site's own, or a callee's — materialises the same vocabulary.
     planLocalMirrorTypes: Type[]
 
+    // The armed NESTED-VALUE FRAME (015-B9) — the second dimension of the same scratch-framing idea, and
+    // configuration for the same reason. See `EnableNestedValueFrame`.
+    nestedValueFrame: bool
+
     OpenFragmentCount: int
     OpenFragmentIndices: int[]
     Generation: int
@@ -700,6 +704,7 @@ class ColumnarCodePlan {
         PlanLocalTypeIndices = new int[](0)
         PlanLocalIsMirror = new bool[](0)
         planLocalMirrorTypes = new Type[](0)
+        nestedValueFrame = false
         LabelCount = 0
 
         FragmentCount = 0
@@ -788,6 +793,38 @@ class ColumnarCodePlan {
     // bar: vocabulary is not storage, so a mirrored plan is a scratch and can never be replayed.
     func HasPlanLocalMirror(): bool {
         return planLocalMirrorTypes.Length > 0
+    }
+
+    // THE NESTED-VALUE FRAME (015-B9) — the OTHER thing a type-discovery scratch has to say about the
+    // enclosing expression, beside the mirror's local vocabulary: WHERE the value it is typing will
+    // actually be appended.
+    //
+    // The value surface asks that question through the sign of the parent fragment
+    // (`ColumnarRangeIndexPlanner`'s `allowOrdinaryIntIndex = parentFragment >= 0`), and the rule behind it
+    // is about plan ROOTS — an ordinary `arr[0]` at a root belongs to the host, because the facade only
+    // owns an index root whose selector may produce `Index`/`Range`. A scratch that plans a call ARGUMENT
+    // at `-1` therefore answers a question about a position the value can never occupy, and refuses at the
+    // TYPE step exactly what `AppendArguments` would have planned at the APPEND step.
+    //
+    // ⚠ THE FAITHFUL FIX — open the enclosing fragment in the scratch and nest the value under it — IS NOT
+    // EXPRESSIBLE, AND THE PAYLOAD'S OWN RULE IS WHY. `HasValidV2Fragments` refuses a child fragment whose
+    // row range equals its parent's (`start == parentStart && end == parentEnd`), and a wrapper around ONE
+    // value always spans exactly that value. It was tried first and `CompleteV3` rejected the scratch on
+    // the very first corpus target. So the frame is DECLARED rather than fabricated: no rows are invented,
+    // the plan's structure is untouched, and the one question the position was a proxy for is answered
+    // directly.
+    func EnableNestedValueFrame() {
+        if Lifecycle != ColumnarCodePlanLifecycle.Empty || OperationCount != 0 || FragmentCount != 0 {
+            throw new InvalidOperationException("A nested-value frame can only be armed on a fresh code plan.")
+        }
+        nestedValueFrame = true
+    }
+
+    // Whether this plan types a value whose real home is inside another expression's fragment. It is
+    // FALSE on every production plan — only a type-discovery scratch arms it — so a rule that consults it
+    // cannot change what an emitted plan does.
+    func HasNestedValueFrame(): bool {
+        return nestedValueFrame
     }
 
     func MaterialisePlanLocalMirror() {

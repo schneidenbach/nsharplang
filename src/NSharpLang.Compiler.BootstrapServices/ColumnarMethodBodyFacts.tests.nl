@@ -1044,10 +1044,10 @@ test "the expression door partitions its whole kind ledger with no hole and no o
         i = i + 1
     }
 
-    // NINE claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites 015-B6
-    // took, and — since 015-B7 — the direct CALL. The count is pinned so a widening cannot arrive
-    // without a block that says what it claims.
-    assert claimed == 9
+    // TEN claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites 015-B6
+    // took, the direct CALL (015-B7) and the primitive BINARY (015-B9). The count is pinned so a
+    // widening cannot arrive without a block that says what it claims.
+    assert claimed == 10
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression())
@@ -1057,13 +1057,15 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.UnaryExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.NameOfExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CallExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
 
     // The composites that remain declined are declined one by one. Their gates are open now; what
     // holds them back is the emitter's ELEVEN-ARM root cascade, which a claim must enter arm by arm.
-    // ⚠ `CallExpression` LEFT THIS LIST in 015-B7 and is asserted CLAIMED above; `MemberAccess` did
-    // not, and the asymmetry is deliberate — a call's CALLEE may be a member access, which the call
-    // owner resolves itself, but a bare member access in value position is a different owner's shape.
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
+    // ⚠ `CallExpression` LEFT THIS LIST in 015-B7 and `BinaryExpression` in 015-B9; both are asserted
+    // CLAIMED above. `MemberAccess` did not, and the asymmetry is deliberate — a call's CALLEE may be a
+    // member access, which the call owner resolves itself, and a binary's OPERAND may be one, which the
+    // binary owner resolves itself, but a bare member access in value position is a different owner's
+    // shape.
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NewExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression())
@@ -2276,4 +2278,237 @@ test "the plan-local mirror vocabulary is indexed by pool index and empty withou
     assert scratch.PlanLocalCount == 3
     assert scratch.Types[scratch.PlanLocalTypeIndices[2]] == typeof(string)
     assert scratch.PlanLocalIsMirror[2]
+}
+
+
+// `{ return <left> <operator> <right> }`. The OPERATOR's own token carries the node's value span,
+// which is what `IsClaimedOperatorText` reads to decide the family.
+func MethodBodyFactsBinaryBody(operatorText: string, leftKind: int, leftText: string, rightKind: int, rightText: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    left := builder.AddLeaf(leftKind, leftText)
+    operatorStart := builder.AddToken(operatorText)
+    right := builder.AddLeaf(rightKind, rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(statement)))
+}
+
+// `{ return <member>(<left> <operator> <right>) }` — a binary in ARGUMENT position, which is a
+// different decision from the one above and is the direct-call owner's rather than the door's.
+func MethodBodyFactsCallBinaryArgumentBody(memberName: string, operatorText: string, leftText: string, rightText: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), leftText)
+    operatorStart := builder.AddToken(operatorText)
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    call := DirectCallAppendCall(builder, callee, DirectCallOneArgument(binary))
+    return MethodBodyFactsWrapValueInBody(builder, call, 0, "")
+}
+
+// `{ <local> := <initMember>()  return <returnMember>(<local>[0]) }` — the `015-B8` P5 shape: an
+// ordinary int index over a plan local, in argument position.
+func MethodBodyFactsDeclareThenIndexArgumentBody(initMember: string, returnMember: string, localName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    nameStart := builder.AddToken(localName)
+    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
+    initCall := DirectCallAppendCall(builder, initCallee, DirectCallNoArguments())
+    declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initCall))
+    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), returnMember)
+    receiver := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), nameStart, localName.Length, nameStart, localName.Length, new int[](0))
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
+    indexAccess := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, nameStart, localName.Length, MethodBodyFactsInts2(receiver, selector))
+    call := DirectCallAppendCall(builder, returnCallee, DirectCallOneArgument(indexAccess))
+    statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(call))
+    return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
+}
+
+
+// ---- BLOCK 48 — THE PRIMITIVE-BINARY COMPOSITE IN RETURN POSITION (class PB, 015-B9) ----
+//
+// The third owner the door enters through its own root sequence, and the first whose consumer of the
+// routed OVERFLOW flag is live rather than latent. The rows are the owner's rows plus the driver's
+// `ret`, and the body is EXECUTED so the claim is not merely a shape.
+test "the door claims a primitive binary as a return value and executes it" {
+    tree := MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression(), "2", ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    assert plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+    assert plan.OperationCount == 4
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Add()
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Ret()
+    assert plan.OpenFragmentCount == 0
+    assert plan.PlanLocalCount == 0
+
+    method := MethodBodyFactsDynamicMethod("NSharpB9BinaryBody", typeof(int))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToInt32(method.Invoke(target, MethodBodyFactsNoArguments())) == 5
+
+    // A SECOND operator family through the same arm, so the claim is the owner's rather than one
+    // operator's — and the result type is what the door then matches against the return type.
+    productPlan := new ColumnarCodePlan()
+    product := MethodBodyFactsBinaryBody("*", ColumnarExpressionNodeKind.IntLiteralExpression(), "6", ColumnarExpressionNodeKind.IntLiteralExpression(), "7")
+    assert MethodBodyFactsPlanCallBody(product, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), productPlan)
+    assert productPlan.OpCodeValues[2] == ColumnarCodePlanContract.Mul()
+
+    // TYPE EQUALITY IS STILL THE RULE. The same rows on a `long` body are refused by the driver, not
+    // by the owner, because an int result is not a long return type.
+    longPlan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression(), "2", ColumnarExpressionNodeKind.IntLiteralExpression(), "3"), typeof(long), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), longPlan)
+}
+
+
+// ---- BLOCK 49 — THE BINARY ROOT SEQUENCE IS ONE SEQUENCE, NOT TWO ----
+//
+// The same block `015-B7` wrote for the direct-call owner, for the same reason: the door's claim is
+// byte-identical BY CONSTRUCTION only if the rows it appends are the rows `Plan` produces. `Plan` and
+// `TryAppendRoot` now differ in exactly the wrapper — `PrepareV3`/`CompleteV3` versus an already-open
+// method body — and in nothing else.
+test "the binary root sequence produces the same rows through Plan and through the door" {
+    tree := MethodBodyFactsBinaryBody("-", ColumnarExpressionNodeKind.IntLiteralExpression(), "9", ColumnarExpressionNodeKind.IntLiteralExpression(), "4")
+    statement := tree.Nodes.Child(tree.Root, 0)
+    expression := tree.Nodes.Child(statement, 0)
+
+    viaPlan := new ColumnarCodePlan()
+    assert ColumnarPrimitiveBinaryPlanner.Plan(tree.Nodes, tree.Source, expression, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), viaPlan) == ColumnarFragmentPlanStatus.Planned
+
+    viaDoor := new ColumnarCodePlan()
+    viaDoor.PrepareMethodBody()
+    doorResult := typeof(long)
+    assert ColumnarPrimitiveBinaryPlanner.TryAppendRoot(tree.Nodes, tree.Source, expression, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), viaDoor, out doorResult)
+
+    assert doorResult == viaPlan.ResultType
+    assert viaDoor.OperationCount == viaPlan.OperationCount
+    row := 0
+    while row < viaPlan.OperationCount {
+        assert viaDoor.OpCodeValues[row] == viaPlan.OpCodeValues[row]
+        assert viaDoor.OperandKinds[row] == viaPlan.OperandKinds[row]
+        row = row + 1
+    }
+
+    assert viaPlan.SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+    assert viaDoor.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+    assert viaDoor.OpenFragmentCount == 0
+}
+
+
+// ---- BLOCK 50 — THE KIND MOVED SIDES, AND THE SHORT-CIRCUIT FAMILY DID NOT COME WITH IT ----
+//
+// `&&`/`||` are kind-12 nodes the CONDITIONAL owner roots, not this one, and the door does not carry a
+// second copy of that judgement: the owner's own `IsAdmittedSyntax` refuses them, so the body declines
+// whole and the host emits it exactly as before.
+test "the door claims the binary kind and still declines the short-circuit family" {
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
+
+    shortCircuit := MethodBodyFactsBinaryBody("&&", ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.BoolLiteralExpression(), "false")
+    plan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(shortCircuit, typeof(bool), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    // The claimed family in the same position, so the decline above is the OPERATOR's and not the
+    // bool type's.
+    equality := MethodBodyFactsBinaryBody("==", ColumnarExpressionNodeKind.IntLiteralExpression(), "3", ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+    equalityPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(equality, typeof(bool), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), equalityPlan)
+}
+
+
+// ---- BLOCK 51 — A BINARY *ARGUMENT* IS THE OTHER HALF, AND IT IS THE CALL OWNER'S DECISION ----
+//
+// `015-B8`'s `P8` (`return Callee(n + 1)`) declined at the direct-call ROOT rather than at the door,
+// because every one of that owner's eight argument sites passed `allowPrimitiveBinary: false` while the
+// CONSTRUCTION owner passed true for the same dispatcher. `ArgumentsAdmitPrimitiveBinary` is that
+// decision with one name and one home; the rows below are the binary's rows INSIDE the call's.
+test "the door claims a call whose argument is a primitive binary" {
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    facts := DirectCallSiblingFacts("MethodBodyFactsBinaryArgumentHost", "Take", oneInt, typeof(int))
+
+    tree := MethodBodyFactsCallBinaryArgumentBody("Take", "+", "2", "3")
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsSiblings("Take", facts), plan)
+
+    assert plan.OperationCount == 5
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Add()
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Call()
+    assert plan.Methods[plan.OperandIndices[3]].get_Name() == "Take"
+    assert plan.OpCodeValues[4] == ColumnarCodePlanContract.Ret()
+
+    // The rule is ONE decision, and it is the one the type side and the append side both read.
+    assert ColumnarDirectCallPlanner.ArgumentsAdmitPrimitiveBinary()
+}
+
+
+// ---- BLOCK 52 — THE INDEX-ACCESS ARGUMENT, AND THE ROOT RULE IT DID NOT WEAKEN ----
+//
+// `015-B8`'s `P5` (`arr := Make()  return Take(arr[0])`). The owner never had an "index in argument
+// position" rule: it had a ROOT rule (`allowOrdinaryIntIndex = parentFragment >= 0`) that its
+// type-discovery scratch applied to a value that is never at a root. The scratch now DECLARES the frame
+// it types in, and the two sides agree.
+test "the door claims a call whose argument is an ordinary index over a plan local" {
+    makeFacts := DirectCallSiblingFacts("MethodBodyFactsIndexArgumentHost", "Make", new Type[](0), typeof(int[]))
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    takeFacts := DirectCallSiblingFacts("MethodBodyFactsIndexArgumentHost", "Take", oneInt, typeof(int))
+    siblings := MethodBodyFactsSiblings2("Make", makeFacts, "Take", takeFacts)
+
+    tree := MethodBodyFactsDeclareThenIndexArgumentBody("Make", "Take", "arr")
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(int), MethodBodyFactsNoSourceTypes(), siblings, plan)
+
+    // The declaration's call and store, then the argument's three rows — the array, the ordinary int
+    // selector and the element load — then the call and the `ret`.
+    assert plan.OperationCount == 7
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Stloc()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ldloc()
+    // The selector is a POOLED `ldc.i4` row; the executor is what narrows it to the compact form.
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.LdcI4()
+    assert plan.Int32Values[plan.OperandIndices[3]] == 0
+    assert plan.OpCodeValues[4] == ColumnarCodePlanContract.LdelemI4()
+    assert plan.OpCodeValues[5] == ColumnarCodePlanContract.Call()
+    assert plan.Methods[plan.OperandIndices[5]].get_Name() == "Take"
+    assert plan.OpCodeValues[6] == ColumnarCodePlanContract.Ret()
+    assert plan.PlanLocalCount == 1
+    assert plan.Types[plan.PlanLocalTypeIndices[0]] == typeof(int[])
+
+}
+
+
+// ---- BLOCK 53 — THE ROOT RULE THE FRAME DID NOT WEAKEN ----
+//
+// An exemption that also swallowed the rule it exempts would be worse than the decline it replaced, so
+// the separation is asserted directly rather than inferred. An ordinary int index at a REAL plan root
+// still belongs to the host — the facade only owns an index root whose selector may produce
+// Index/Range — and a plan with no declared frame answers the question by POSITION exactly as it always
+// did. The two halves differ in ONE armed bit and in nothing else: same node, same position, same
+// bindings.
+test "an ordinary index still declines at a plan root and claims under a declared frame" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "values", 0, typeof(int[]))
+    rootTree := MethodBodyFactsOrdinaryIndexTree("values", "0")
+
+    rootPlan := new ColumnarCodePlan()
+    rootPlan.PrepareV3()
+    rootType := typeof(int)
+    assert !ColumnarRangeIndexPlanner.TryAppendPlannableValue(rootTree.Nodes, rootTree.Source, rootTree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), rootPlan, -1, 0, out rootType)
+
+    // The SAME node, the SAME position, on a plan that declares the frame a scratch really types in.
+    framedPlan := new ColumnarCodePlan()
+    framedPlan.EnableNestedValueFrame()
+    framedPlan.PrepareV3()
+    framedType := typeof(string)
+    assert ColumnarRangeIndexPlanner.TryAppendPlannableValue(rootTree.Nodes, rootTree.Source, rootTree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), framedPlan, -1, 0, out framedType)
+    assert framedType == typeof(int)
+}
+
+// `<name>[<selector>]` as a bare expression tree — the root position the facade leaves to the host.
+func MethodBodyFactsOrdinaryIndexTree(name: string, selectorText: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), selectorText)
+    return builder.Build(builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(receiver, selector)))
 }

@@ -212,7 +212,7 @@ class ColumnarDirectCallPlanner {
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         argumentOwnership := ColumnarDirectCallOwnership.NotOwned
-        if !TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, false, argumentTypes, argumentFacts, out argumentOwnership) {
+        if !TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, ArgumentsAdmitPrimitiveBinary(), argumentTypes, argumentFacts, out argumentOwnership) {
             if argumentOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
             } else {
@@ -456,7 +456,7 @@ class ColumnarDirectCallPlanner {
         argumentIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, receiverType, false)
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
             return false
         }
 
@@ -483,7 +483,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
             return false
         }
 
@@ -680,7 +680,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, facts.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, facts.ParameterTypes, argumentFacts) {
             return false
         }
 
@@ -847,6 +847,10 @@ class ColumnarDirectCallPlanner {
 
         receiverType := typeof(int)
         receiverOwnership := ColumnarDirectCallOwnership.NotOwned
+        // The RECEIVER surface stays the plain one: its append side (`AppendReceiver`) is the plain
+        // dispatcher, and a type side that admitted more than the append side would only manufacture
+        // declines one step later. What it DOES gain from `015-B9` is the enclosing frame, so a receiver
+        // types in the position it is appended into exactly as an argument does.
         if !TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, false, out receiverType, out receiverOwnership) || IsVoidType(receiverType) {
             if receiverOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
@@ -1004,7 +1008,7 @@ class ColumnarDirectCallPlanner {
         }
 
         leadingParameterTypes := ColumnarExtensionMethodResolver.ExplicitParameterTypes(parameterTypes, explicitCount)
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, argumentTypes, leadingParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts) {
             return false
         }
 
@@ -1057,7 +1061,7 @@ class ColumnarDirectCallPlanner {
         }
 
         leadingParameterTypes := ExtensionLeadingTypes(parameterTypes, explicitCount)
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, argumentTypes, leadingParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts) {
             return false
         }
 
@@ -1121,7 +1125,7 @@ class ColumnarDirectCallPlanner {
             }
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
             return false
         }
 
@@ -1145,7 +1149,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, false, inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
             return false
         }
 
@@ -1209,6 +1213,25 @@ class ColumnarDirectCallPlanner {
             ColumnarInstanceMemberPlanner.AppendTemporaryAddress(plan, receiverType)
         }
 
+        return true
+    }
+
+    // THE ARGUMENT VALUE SURFACE, DECIDED ONCE (015-B9).
+    //
+    // `allowPrimitiveBinary` selects between the dispatcher's two value surfaces: the PLAIN one and the
+    // one that also admits a primitive binary and a construction. Until this slice every one of this
+    // owner's eight argument sites passed a hard-coded `false`, while the CONSTRUCTION owner reached the
+    // same dispatcher through `TryAppendConstructionValue` with `true` — so `new Foo(a + b)` was
+    // claimable and `Foo(a + b)` was not, for no reason either owner stated. That asymmetry was an
+    // owner-scope artifact of the construction slice, not a rule about calls, and it cost the live corpus
+    // real bodies (`Point::GetDistance`, `return Math.Sqrt(x * x + y * y)`).
+    //
+    // The decision lives here rather than at the eight sites so it has ONE name, ONE home and ONE
+    // mutation anchor. The TYPE side (`TryGetArgumentTypes`) and the APPEND side (`AppendArguments`) must
+    // read the same answer: a type side that admitted more would defer the decline by one step, and a
+    // type side that admitted less would refuse a shape the append would have planned — which is exactly
+    // the bug the enclosing-frame fix above removes.
+    static func ArgumentsAdmitPrimitiveBinary(): bool {
         return true
     }
 
@@ -1456,6 +1479,19 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
+    // ⚠ THE SCRATCH TYPES A VALUE IN THE FRAME IT WILL BE APPENDED INTO, NOT AT A PLAN ROOT (015-B9).
+    //
+    // `enclosingNode` is the node whose fragment this value will be appended UNDER — the call that owns
+    // the argument list or the receiver, the `new`/array literal that owns an element or a length — and the
+    // scratch opens that node's own fragment before the value is planned. That
+    // is not decoration: `ColumnarRangeIndexPlanner`'s value dispatcher decides one thing from the sign
+    // of the parent fragment, `allowOrdinaryIntIndex = parentFragment >= 0`, and the rule it feeds is
+    // about plan ROOTS ("an ordinary `arr[0]` at a root belongs to the host, because the facade only owns
+    // an index root whose selector may produce Index/Range"). An argument is never a root — `AppendArguments`
+    // always appends it under the call's fragment — so a scratch that planned it at `-1` asked about a
+    // position the value can never occupy and refused `f(arr[0])` at the TYPE step while the APPEND step
+    // admitted it. The two sides now ask the same question. `015-B8` measured the old refusal from the
+    // outside as "the owner declines an index access in argument position"; there was never such a rule.
     static func TryGetPlannableValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, allowPrimitiveBinary: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(int)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
@@ -1477,6 +1513,7 @@ class ColumnarDirectCallPlanner {
         // lets this scratch represent the enclosing body's slots while it types them.
         scratch := new ColumnarCodePlan()
         scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
+        scratch.EnableNestedValueFrame()
         scratch.PrepareV3()
         valuePlanned := false
         if allowPrimitiveBinary {

@@ -63,24 +63,57 @@ class ColumnarPrimitiveBinaryPlanner {
     static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
         ValidateRootInputs(nodes, source, node, bindings, handles, plan)
         plan.PrepareV3()
+        resultType := typeof(int)
+        if !TryAppendRoot(nodes, source, node, bindings, handles, plan, out resultType) {
+            return plan.Status
+        }
+
+        plan.CompleteV3(resultType)
+        return plan.Status
+    }
+
+    // THE ROOT-APPEND SEQUENCE, OWNED ONCE (015-B9) — the same factoring `015-B7` applied to the
+    // direct-call owner, for the same reason. A binary root is an admission test, a checkpoint, a root
+    // fragment, the append and the fragment's completion; whether the plan around it is a standalone
+    // schema-v3 expression (`Plan` wraps this between `PrepareV3` and `CompleteV3`) or an open schema-v4
+    // METHOD BODY (`ColumnarMethodBodyPlanner`'s expression door calls it directly) is the wrapper's
+    // business, not the sequence's. Both callers therefore produce the SAME row sequence, which is the
+    // whole of producing the same bytes.
+    //
+    // Byte identity for a claimed binary is against ONE owner, and the route is measured rather than
+    // assumed: `ColumnarIlEmitter.EmitExpressionCore` offers four pre-cascade owners first (boolean,
+    // unary-literal, scalar-literal, `nameof`) and none has a binary arm, then
+    // `ColumnarRangeIndexPlanner.TryEmitFromFacts` answers `FacadeRootMayNeedFacts` for kind 12 with THIS
+    // class's `MayPlanRoot`, and inside the cascade the construction arm answers only 15/36/58 and the
+    // direct-call arm only kind 9 — so the THIRD arm, `TryEmitRoot`, owns every claimed-operator binary
+    // root. `&&`/`||` are not claimed operators here; they are the conditional owner's roots, and the
+    // same `IsAdmittedSyntax` that refuses them for `Plan` refuses them for the door.
+    //
+    // The null contract is the softer one the second caller needs: `Plan` still THROWS through
+    // `ValidateRootInputs` before it gets here, so its behaviour is unchanged, and a door that hands this
+    // a null table declines instead of crashing.
+    static func TryAppendRoot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        if nodes == null || source == null || bindings == null || handles == null || plan == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
         candidate := UnwrapParentheses(nodes, node)
         if candidate < 0 || !IsAdmittedSyntax(nodes, source, candidate, 0) {
-            return plan.Status
+            return false
         }
 
         checkpoint := plan.CreateCheckpoint()
         try {
             fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.BinaryExpression(), candidate)
-            resultType := typeof(int)
             nestedOwnership := ColumnarDirectCallOwnership.NotOwned
             if !TryAppend(nodes, source, candidate, bindings, handles, plan, fragment, 0, out resultType, out nestedOwnership) {
                 plan.Rollback(checkpoint)
-                return plan.Status
+                return false
             }
 
             plan.CompleteFragment(fragment, resultType)
-            plan.CompleteV3(resultType)
-            return plan.Status
+            return true
         } catch ex: Exception {
             plan.Rollback(checkpoint)
             throw ex

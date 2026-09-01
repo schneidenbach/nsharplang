@@ -672,3 +672,81 @@ test "the expression door claims a call whose subtree reads a plan local" {
     assert DriverMirrorMemberOfLocal() == 5
     assert DriverMirrorReceiver() == 6
 }
+
+
+// ---- 015-B9 — THE BINARY COMPOSITE, AND THE TWO ARGUMENT SHAPES THE CALL OWNER NOW ADMITS ----
+//
+// Three claims in real source, and they are three DIFFERENT decisions:
+//
+//   1. the DOOR claims kind 12, entering `ColumnarPrimitiveBinaryPlanner`'s own root sequence — the
+//      third owner reached that way, and the first live consumer of the routed overflow flag;
+//   2. the CALL owner admits a primitive binary as an ARGUMENT, which every one of its eight argument
+//      sites refused with a hard-coded `false` while the construction owner passed `true`;
+//   3. the CALL owner's type-discovery scratch stops describing an argument as a plan ROOT, which is
+//      what refused an ordinary `arr[0]` at the type step while the append step admitted it.
+//
+// The last two bodies are `015-B8`'s `P5` and `P9` verbatim — the two shapes that slice measured as
+// crashing under its probe and still declining with its fix.
+
+func DriverBinaryAdd(left: int, right: int): int {
+    return left + right
+}
+
+// The binary's LEFT operand is a plan local, so the statement loop and the composite meet.
+func DriverBinaryOverLocal(): int {
+    n := DriverCallee(3)
+    return n * 2
+}
+
+// String concatenation is one of the owner's named families, and its result type is what the door then
+// matches against the return type.
+func DriverBinaryConcat(text: string): string {
+    return text + "!"
+}
+
+// ARGUMENT — `015-B8`'s `P8`, the one probe shape that did not even crash under its mutation because
+// the call declined before any scratch opened.
+func DriverBinaryArgument(): int {
+    n := DriverCallee(3)
+    return DriverMirrorTake(n + 1)
+}
+
+// DECLINED, and correct anyway: mixed-width operands are outside the owner's exact numeric surface, so
+// the host emits this body exactly as it always did.
+func DriverBinaryMixed(left: int, right: long): long {
+    return left + right
+}
+
+// DECLINED for a different reason: `&&` is the CONDITIONAL owner's root, never this one's.
+func DriverShortCircuit(left: bool, right: bool): bool {
+    return left && right
+}
+
+func DriverIndexMakeArray(): int[] {
+    return [3, 4, 5]
+}
+
+// ARGUMENT — `015-B8`'s `P5`: an ordinary int index over a plan local.
+func DriverIndexArgument(): int {
+    values := DriverIndexMakeArray()
+    return DriverMirrorTake(values[0])
+}
+
+// ARGUMENT — `015-B8`'s `P9`: the selector is itself a binary over a member access on a second local.
+func DriverIndexSelectorArgument(): int {
+    values := DriverIndexMakeArray()
+    text := DriverMirrorText()
+    return DriverMirrorTake(values[text.Length - 4])
+}
+
+test "the expression door claims the binary composite and the arguments a call now admits" {
+    assert DriverBinaryAdd(2, 3) == 5
+    assert DriverBinaryOverLocal() == 6
+    assert DriverBinaryConcat("a") == "a!"
+    assert DriverBinaryArgument() == 5
+    assert DriverBinaryMixed(2, 3) == 5
+    assert !DriverShortCircuit(true, false)
+    assert DriverShortCircuit(true, true)
+    assert DriverIndexArgument() == 4
+    assert DriverIndexSelectorArgument() == 4
+}

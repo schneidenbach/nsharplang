@@ -1,6 +1,29 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-08-31 (**TASK 015 SUB-SLICE `015-B8` — THE SCRATCH-PLAN CONTRACT — see the Cursor
+Last updated: 2026-09-01 (**TASK 015 SUB-SLICE `015-B9` — THE BINARY COMPOSITE AND THE INDEX-ACCESS
+ARGUMENT — see the Cursor block.** The decode was written before any production file was touched and it
+**OVERTURNS THE BRIEF ON ITEM 1**: the index-access argument is not refused by an argument-position rule,
+because no such rule exists. The only rule in reach is about plan ROOTS — `allowOrdinaryIntIndex =
+parentFragment >= 0`, "an ordinary `arr[0]` at a root belongs to the host" — and the direct-call owner's
+type-discovery SCRATCH applied it to a value that is never at a root, so the TYPE side refused exactly
+what the APPEND side would have planned. Item 2's second move is likewise an owner-scope artifact rather
+than a rule: `allowPrimitiveBinary` is `false` at all EIGHT of that owner's argument sites while the
+CONSTRUCTION owner passes `true` to the same dispatcher, so `new Foo(a + b)` was claimable and
+`Foo(a + b)` was not. **THE FAITHFUL FIX FOR THE FRAME WAS TRIED FIRST AND THE PAYLOAD'S OWN RULE REFUSED
+IT** — `HasValidV2Fragments` rejects a child fragment whose row range equals its parent's, and a wrapper
+around one value always does — so the frame is DECLARED (`EnableNestedValueFrame`) rather than fabricated.
+**THIS IS THE ARC'S LARGEST LIVENESS MOVE: 17 LIVE CORPUS BODIES**, by name, where `015-B6` moved 0,
+`015-B7` moved 2 and `015-B8` moved 0 — `Point::GetDistance` (`Math.Sqrt(x * x + y * y)`, the body
+`015-B7` named as blocked by exactly this rule) among them, plus a LOCAL FUNCTION the census did not
+predict. Estate **7,133 → 7,141**; native emit-facts **27 → 28**; both corpora `IL_DIFFS=0` with the big
+corpus md5 **BYTE-IDENTICAL to `015-B8`'s**; the marker mutation moves **54** claim rows and **17** live
+rows against a written prediction that was right except for two named misses. A PRE-EXISTING adversarial
+estate block is REWRITTEN and said so. The control walk 7/7 with **all five per-control predictions
+written before the results and all five exact**, two of them single-block isolations and a clean pristine
+bracket. **ZERO C# TOUCHED**, so the ratchet needs no repin and the emitter stands at **20,890 / 19,871**.
+Gate `ALL TESTS PASSED` / `GATE EXIT 0` / 126-0, IL verification 67/67. NOT COMMITTED.)
+
+Last updated (prior): 2026-08-31 (**TASK 015 SUB-SLICE `015-B8` — THE SCRATCH-PLAN CONTRACT — see the Cursor
 block.** The decode was written before any production file was touched and it **OVERTURNS THE BRIEF ON
 BOTH OF ITS FACTUAL CLAIMS**. First: there are **FOUR** type-discovery scratch sites, not three — the
 brief's census misses `ColumnarRangeIndexPlanner:353` — and a corpus measurement (nine probe shapes, each
@@ -5224,7 +5247,377 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B8`: THE SCRATCH-PLAN CONTRACT. THE DECODE OVERTURNS
+- Active sub-slice (015 arc, THIS TURN — **`015-B9`: THE BINARY COMPOSITE AND THE INDEX-ACCESS
+  ARGUMENT. THE DECODE OVERTURNS THE BRIEF ON ITEM 1 — THE INDEX-ACCESS ARGUMENT IS **NOT** DECLINED
+  BY AN ARGUMENT-POSITION RULE AT ALL. THE OWNER'S RULE IS ABOUT PLAN *ROOTS*, AND THE TYPE-DISCOVERY
+  SCRATCH MISLABELS EVERY ARGUMENT AS A ROOT: THE APPEND SIDE ALREADY ADMITS THE SHAPE THE TYPE SIDE
+  REFUSES. AND ITEM 2's SECOND MOVE IS AN OWNER-SCOPE ARTIFACT RATHER THAN A RULE — THE CONSTRUCTION
+  OWNER ALREADY ADMITS A BINARY ARGUMENT AND THE CALL OWNER DOES NOT.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED, AT `109bfa015`
+
+  #### THE TIP, RE-MEASURED RATHER THAN INHERITED
+
+  | reading | value | matches the brief |
+  |---|---|---|
+  | `ColumnarIlEmitter.cs` | **20,890 / 19,871** | ✓ |
+  | compiler C# files (excluding `obj/`, `bin/`) | **10** | ✓ |
+  | ratchet manifest | **391** lines, no BOM (`7b 0a 20`) | ✓ |
+  | two-key head | `head-v1:6bc1f1b6f58f020d` in the JSON header AND `OwnershipAudit.nl:241` | ✓ (read from both keys, never inherited) |
+  | working tree | CLEAN — B8 committed as `109bfa015` | — |
+  | `columnar-emit-facts` blocks | **27** (11 + 16) | ✓ |
+  | `ColumnarMethodBodyPlanner.nl` | **626** lines | — |
+  | `ColumnarPrimitiveBinaryPlanner.nl` / `ColumnarDirectCallPlanner.nl` | **659** / **1,779** lines | — |
+
+  #### ⚠ OVERTURN 1 — THE INDEX-ACCESS ARGUMENT IS NOT REFUSED BY AN ARGUMENT RULE. IT IS REFUSED BY A *ROOT* RULE THAT THE SCRATCH APPLIES IN THE WRONG PLACE
+
+  The `015-B8` brief says "the direct-call owner declines an index access in argument position for its
+  own reasons". There is no such rule. The only rule in reach is
+  `ColumnarRangeIndexPlanner.TryPlanIndexAccess`'s `allowOrdinaryIntIndex`, and its value is computed at
+  the single call site (`:483`) as **`parentFragment >= 0`** — that is, "I am not the ROOT of this plan".
+  It exists because the facade only owns an index-access ROOT whose selector may produce `Index`/`Range`
+  (`FacadeRootMayBeOwned`); an ordinary `arr[0]` at a root belongs to the host.
+
+  Now put the two sides of the direct-call owner beside each other:
+
+  | side | call | `parentFragment` | ordinary `arr[0]` |
+  |---|---|---|---|
+  | TYPE discovery (`TryGetPlannableValueType:1483/1485`) | `TryAppendPlannableValue(..., scratch, **-1**, ...)` | **-1** | **REFUSED** |
+  | APPEND (`AppendArguments:1256/1258`) | `TryAppendPlannableValue(..., plan, **parentFragment**, ...)` | the CALL fragment, `>= 0` | **ADMITTED** |
+
+  **THE TWO SIDES DISAGREE, AND THE TYPE SIDE IS THE ONE THAT IS WRONG.** An argument is never a plan
+  root — it is always appended under the call's own fragment — so typing it at `-1` asks a question about
+  a position the value will never occupy. The same misprediction covers the RECEIVER site (`:850`), whose
+  append (`:1183`) also runs at `>= 0`. `P5`/`P9` are therefore not "declined for the owner's own
+  reasons": they are declined by a scratch that describes the wrong position, and the fix is to make the
+  scratch reproduce the frame the value will really be appended into rather than to relax any rule.
+
+  There are exactly **FOUR** `parentFragment = -1` value appends in the tree, and only two of them are
+  scratches: `ColumnarRangeIndexPlanner.Plan:200` is the facade's TRUE root and must keep root behaviour;
+  `ColumnarConstructionPlanner:2339` is the S2 scratch and carries the SAME misprediction for an
+  initializer/element value (named here, measured below, and not fixed in this slice).
+
+  #### ⚠ OVERTURN 2 — `allowPrimitiveBinary` IS NOT A RULE THE CALL OWNER HOLDS. IT IS A FLAG NO CALL SITE EVER SETS
+
+  `allowPrimitiveBinary` is a parameter of three functions and a hard-coded literal at **eight** call
+  sites inside `ColumnarDirectCallPlanner` — one type-discovery (`:215`) and seven `AppendArguments`
+  (`:459, :486, :683, :1007, :1060, :1124, :1148`) — and **every one of them passes `false`**. The
+  CONSTRUCTION owner, meanwhile, reaches the same dispatcher through `TryAppendConstructionValue`, whose
+  whole difference is that the flag is `true`. So at this tip `new Foo(a + b)` is claimable and
+  `Foo(a + b)` is not, for no reason either owner states. That is an owner-scope artifact of the
+  construction slice (`6746c1b2c`, the only commit that touches the flag), not a rule about calls — and
+  it is what `P8` measured from the outside in `015-B8`.
+
+  #### THE HOST'S RETURN PRE-PASSES DO NOT FIRE ON A BINARY, AND THAT IS READ FROM THE SOURCE RATHER THAN ASSUMED
+
+  The kind-20 arm runs seven target-typed pre-passes before it evaluates the returned expression. Six are
+  NODE-KIND gated and one is RETURN-TYPE gated:
+
+  | pre-pass | gate | kind 12 |
+  |---|---|---|
+  | `IsAdoptableUnionConstruction` | kind 15/36/42 | no |
+  | `TryEmitTargetTypedNewAsType` | kind 42 | no |
+  | `TryEmitIntLiteralAsType` | kind 0, or kind 11 `-` over kind 0 | no |
+  | `TryEmitCollectionLiteralAsType` | kind 58 | no |
+  | `TryEmitArrayLiteralAsType` | kind 58 | no |
+  | `TryEmitNullLiteralAsType` | kind 5 | no |
+  | `TryEmitValueAsNullable` | `IsSupportedNullable(_returnType)` | already refused by the door's own guard |
+
+  **ZERO pre-passes reach a kind-12 return value.** So the binary claim needs no new `IsHostAdoptedReturnShape`
+  companion — the door's existing guard is about a UNARY minus over an int literal and stays exactly as it is.
+
+  #### THE ROUTE FOR A KIND-12 ROOT, MEASURED THE SAME WAY `015-B7` MEASURED THE CALL
+
+  `EmitExpressionCore` offers four pre-cascade owners first (boolean, unary-literal, scalar-literal,
+  `nameof`) — none has a binary arm — and then `ColumnarRangeIndexPlanner.TryEmitFromFacts`, whose
+  `FacadeRootMayNeedFacts` answers kind 12 with `ColumnarPrimitiveBinaryPlanner.MayPlanRoot`. Inside the
+  cascade the construction arm answers only 15/36/58 and the direct-call arm only kind 9, so the THIRD arm
+  — `ColumnarPrimitiveBinaryPlanner.TryEmitRoot` — owns every claimed-operator binary root. Byte identity
+  for a kind-12 claim is against ONE owner, and the door reaches it by calling the same root sequence
+  `Plan` calls. `&&`/`||` are excluded by `MayPlanRoot` and belong to the conditional owner; the door
+  declines them by construction because the same admission test refuses them.
+
+  #### THE TIP'S DOOR-CLAIM CENSUS — A MARKER BUILD OVER 22 BUILDABLE PROJECTS, NOT A READING
+
+  A `MUT-DOOR` CLI was built at the tip: `TryPlanBody` appends `dup; pop` (`25 26`) when the returned
+  expression is kind 12 and `ldc.i4.0; pop` (`16 26`) otherwise, so every body the DOOR claims is visible
+  in bytes and the binary class is separable from the rest. The claim corpus is `015-B8`'s eleven probes
+  plus **eleven new ones** (22 targets, 220 rows, 0 build failures).
+
+  **52 rows carry a marker at the tip**, and every one of them is `16 26`: `MakeText` and `Zero` in all 22
+  projects (the literal class) plus the eight `015-B8` probe bodies `C1 C2 P1 P2 P3 P4 P6 P7`. **NOT ONE
+  of the eleven new probe bodies is claimed, and neither is `Callee` (`return v + 1`) or `Holder::Take`
+  (`return v + Value`) in any of the 22 projects** — the binary bodies the corpus has carried since
+  `015-B7` and never claimed.
+
+  #### THE CUT
+
+  | | |
+  |---|---|
+  | move 1 | `ColumnarPrimitiveBinaryPlanner.TryAppendRoot` — the root sequence factored out of `Plan` exactly as `015-B7` factored the direct-call owner's, and the door's kind-12 arm calls it. Kind 12 moves from the declined list to the claimed list |
+  | move 2 | the direct-call owner's ARGUMENT surface admits a primitive binary — one named decision (`ArgumentsAdmitPrimitiveBinary()`), not eight literals, so the control walk has one anchor and the rule has one home. The RECEIVER surface is left alone: its append side is the plain surface and the two must agree |
+  | move 3 | the type-discovery scratch reproduces the frame the value will be appended into — an enclosing CALL fragment — so an ordinary `arr[0]` argument or receiver types exactly as it will append. This is the fix for `P5`/`P9` and it deletes a misprediction rather than relaxing a rule |
+  | NOT taken | the S2 construction scratch's identical misprediction (measured, named, and left with its own decline pinned); the `TypesEquivalent` port; the adopted negative literal. Each is its own slice with its own oracle |
+
+  #### THE PREDICTIONS, WRITTEN BEFORE THE FIRST EDIT
+
+  Under `MUT-DOOR` on the slice, these bodies gain a marker that the tip does not have:
+
+  | body | marker | why |
+  |---|---|---|
+  | `Callee` (`return v + 1`) ×22, `Holder::Take` (`return v + Value`) ×22 | `25 26` | move 1 |
+  | `N1 a + b`, `N2 n * 2`, `N7 a / b`, `N10 s + "x"`, `N14 a - 1` | `25 26` | move 1 |
+  | `N11 Callee(2 + 3)`, `N12 Callee(x + y)`, `P8 Callee(n + 1)` | `16 26` | move 2 |
+  | `N13 Callee(arr[0])`, `P5 Callee(arr[0])`, `P9 Callee(arr[s.Length - 4])` | `16 26` | move 3 |
+  | `N6 a && b` | none | the conditional owner's root, refused by the same admission test |
+  | `N8 arr[0]` (return root) | none | kind 10 is still on the declined list |
+  | `N9 (a: int, b: long): long { a + b }` | none | mixed-width, refused by the owner |
+  | `MakeArray`, `MakeHolder`, `Main` | none | array literal, `new`, and a void body that is not bare |
+
+  Everything below this line is the record written AFTER the build; the decode above is unedited.
+
+  ### WHAT LANDED
+
+  | file | change |
+  |---|---|
+  | `ColumnarPrimitiveBinaryPlanner.nl` | `TryAppendRoot` — the root sequence factored out of `Plan` exactly as `015-B7` factored the direct-call owner's, with the softer null contract the second caller needs. `Plan` is now `ValidateRootInputs` + `PrepareV3` + that sequence + `CompleteV3`, and its behaviour is unchanged step for step |
+  | `ColumnarMethodBodyPlanner.nl` | the door's kind-12 arm, and kind 12 moved from the declined list to the claimed one. The claimed count is **9 → 10**; class `PB` joins the ledger and class `C` is recorded as WIDENED rather than given a new letter, because both new argument shapes are the call owner's decisions |
+  | `ColumnarDirectCallPlanner.nl` | `ArgumentsAdmitPrimitiveBinary()` — the argument value surface as ONE named decision instead of eight hard-coded `false`s; and the type-discovery scratch now arms `EnableNestedValueFrame()`, which is what stops it describing an argument as a plan root |
+  | `ColumnarCodePlan.nl` | `EnableNestedValueFrame` / `HasNestedValueFrame` — the second dimension of `015-B8`'s scratch-framing idea, armable only on a fresh plan, configuration that `Reset` leaves alone, and FALSE on every production plan |
+  | `ColumnarRangeIndexPlanner.nl` | the index rule reads `parentFragment >= 0 \|\| plan.HasNestedValueFrame()`. A real plan still answers by POSITION; only a scratch can declare |
+  | `ColumnarCodePlan.tests.nl` | **2** new estate blocks (48 → 50) |
+  | `ColumnarMethodBodyFacts.tests.nl` | **6** new estate blocks (47 → 53) and the ledger-partition block repinned from **9** claimed kinds to **10** |
+  | `ColumnarDirectCallAdversarial.tests.nl` | **1 PRE-EXISTING BLOCK REWRITTEN** — see the finding below. Block count unchanged |
+  | `columnar-emit-facts/DeclarationAndLiteralEmitFacts.tests.nl` | **1** new native block (**27 → 28**, all green) over nine new bodies |
+  | `ColumnarIlEmitter.cs` | **UNTOUCHED**. This slice changes no C# at all: the ratchet needs **no repin**, `20,890 / 19,871` and **10** compiler C# files stand exactly as at the tip |
+
+  ### ⚠ FINDING 1 — THE FAITHFUL FIX WAS TRIED FIRST AND THE PAYLOAD'S OWN RULE REFUSED IT
+
+  The decode's move 3 was "open the enclosing fragment in the scratch and nest the value under it" — the
+  frame reproduced rather than declared. It was built, and the FIRST corpus target failed to build:
+  `Error: Build failed: Columnar code-plan schema v3 cannot seal an invalid payload.`
+  `HasValidV2Fragments` refuses a child fragment whose row range EQUALS its parent's
+  (`start == parentStart && end == parentEnd`), and a wrapper around exactly one value always spans
+  exactly that value. In a real call the argument is a proper sub-range because the call fragment also
+  carries the receiver, the other arguments and the call row; a scratch has none of those.
+
+  So the frame is **declared, not fabricated**: no rows invented, plan structure untouched, and the one
+  question the parent's sign was a proxy for is answered directly. That is also why the arming lives on
+  the PLAN rather than in a parameter — it is the same kind of statement as `015-B8`'s mirror ("this plan
+  is a scratch, and here is what it is standing in for"), and the two dimensions are independent.
+
+  ### ⚠ FINDING 2 — THE SLICE OVERTURNS A PRE-EXISTING ESTATE ASSERTION, AND SAYS SO
+
+  `ColumnarDirectCallAdversarial.tests.nl`'s `"direct-call planner marks later-owner children as a
+  whole-subtree boundary"` pinned `AdversarialWholeSubtreeOwner.Consume(value + 1)` as DECLINED. That
+  block was pinning the artifact of Overturn 2, not a rule: the call owner had no reason to refuse a
+  binary argument that the construction owner accepts through the same dispatcher. The block is REWRITTEN
+  rather than deleted, and it now pins both halves — the binary argument CLAIMS, and a mixed-width
+  binary argument is still a whole-subtree boundary, so the argument surface widened while the owner's
+  own operand rule did not. The corpus is what makes the rewrite safe rather than convenient:
+  `IL_DIFFS=0` on both corpora says the bytes for that shape are the host's bytes either way.
+
+  ### ⚠ FINDING 3 — `P9` STILL DOES NOT CLAIM, AND THE REASON IS A THIRD INSTANCE OF THE SAME FAMILY
+
+  The predictions said `P5` and `P9` would both claim. **`P5` claims; `P9` does not**, and the marker
+  mutation is what says so. `P9` is `Callee(arr[s.Length - 4])`: the index access is admitted now, but
+  `TryPlanIndexAccess` types its SELECTOR with `TryAppendPlannableValue` — the PLAIN surface — so a
+  BINARY selector is refused inside an index the owner otherwise claims. That is the same shape of gap
+  `015-B9` fixed twice over (a value surface narrower than the one the enclosing owner uses), in a third
+  place, and it is `015-B10`'s to take rather than something this slice quietly widened.
+
+  ### THE MEASUREMENTS
+
+  | check | result |
+  |---|---|
+  | estate, BASELINE (measured at `109bfa015` before any edit) | **`7,133 / 0`** |
+  | estate, SLICE | **`7,141 / 0`** — exactly the EIGHT new blocks |
+  | claim corpus, ctlA vs SLICE | **`IL_DIFFS=0`** over **22 targets / 220 rows / 0 build failures** |
+  | big corpus, ctlA vs SLICE | **`IL_DIFFS=0`**, md5 **`13d2574e141ee851f7d61fca17b977d0`** — **BYTE-IDENTICAL TO `015-B8`'s RECORDED MD5**. **885 rows / 59 assemblies / 60 targets**, the ONE build failure (`tests/fixtures/external-static-relative-dll`) identical on both sides |
+  | native `columnar-emit-facts` | **27 → 28**, all green (`total 28, passed 28, failed 0`) |
+  | `tests/native/ownership-audit` | **18 / 18 with NO REPIN** — zero C# touched, so there is no `OWN004` line-count question and no `OWN005` fingerprint drift to answer |
+  | ratchet, unchanged | manifest **391** lines, no BOM (`7b 0a 20`); two-key head still `head-v1:6bc1f1b6f58f020d`; `ColumnarIlEmitter.cs` **20,890 / 19,871**; compiler C# **10** files |
+
+  ### ⚠ THE LIVENESS MUTATION — 17 LIVE BODIES, WHICH IS THE ARC'S LARGEST MOVE
+
+  `MUT-DOOR` marks every body the DOOR claims and separates the binary class by the marker it uses:
+  `dup; pop` (`25 26`) when the returned expression is kind 12, `ldc.i4.0; pop` (`16 26`) otherwise. It
+  was built at the TIP and on the SLICE and each was diffed against its own unmarked corpus, so a moved
+  row is a body the door claims and nothing else.
+
+  | corpus | tip | slice | new |
+  |---|---|---|---|
+  | claim (22 targets, 220 rows) | **52** marked | **106** marked | **+54** |
+  | big (59 assemblies, 885 rows) | **10** marked | **27** marked | **+17 LIVE BODIES** |
+
+  The claim corpus's 54: `Callee` (`return v + 1`) and `Holder::Take` (`return v + Value`) in ALL 22
+  projects — 44 bodies the corpus has carried unclaimed since `015-B7` — plus `N1 a + b`, `N2 n * 2`,
+  `N7 a / b`, `N10 s + "x"`, `N14 a - 1` (move 1), `N11 Callee(2 + 3)`, `N12 Callee(x + y)`,
+  `P8 Callee(n + 1)` (move 2) and `N13 Callee(arr[0])`, `P5 Callee(arr[0])` (move 3). Markers split
+  **49** `2526` / **57** `1626`, which is the predicted split exactly.
+
+  **THE 17 LIVE BODIES, BY NAME:**
+
+  | body | shape | move |
+  |---|---|---|
+  | `PrimaryConstructors.dll Point::GetDistance` | `Math.Sqrt(x * x + y * y)` | 2 — **the body `015-B7` named as blocked by exactly this rule** |
+  | `TestExample.Calculator::Add`, `::Subtract`, `::Multiply` | `a + b`, `a - b`, `a * b` | 1 |
+  | `PreprocessorDirectives.Calculator::Add`, `::Multiply` | `a + b`, `x * y` | 1 |
+  | `ExtensionMethods Program::IsPositive`, `::IsEven`, `::IsEmpty`, `::IsAdult` | `n > 0`, `n % 2 == 0`, `s.Length == 0`, `p.Age >= 18` | 1 |
+  | `RecordsAndInterfaces Circle::GetArea`, `Rectangle::GetArea` | `Pi * Radius * Radius`, `Width * Height` | 1 |
+  | `TaskCli.Models.Filter::HasPriority`, `::HasQuery`, `::HasStatus`, `::HasTag` | `X.Length > 0` over an implicit-this property | 1 |
+  | `LocalFunctions Program::<ProcessData>g__1` | a LOCAL FUNCTION, `return value * 2` | 1 |
+
+  **THE CENSUS MISSED ONE AND MISPREDICTED ONE, AND BOTH ARE RECORDED.** The census walked only
+  top-level and member `func` declarations, so `<ProcessData>g__1` — a LOCAL function nested inside
+  another body — was not on the predicted list; it claims, and its sibling local function `IsValid`
+  (`value > 0 && value < 100`) does NOT, which puts block 50's short-circuit rule in the live corpus by
+  accident. And `RecordsAndInterfaces Square::CalculatePerimeter` was predicted to claim and does not:
+  `4 * Side` is an unsuffixed INT literal times a `double` field, which is mixed width and outside the
+  owner's exact numeric surface — the same rule probe `N9` and the native `DriverBinaryMixed` body pin.
+
+  Every predicted NON-claim held: `CheckedUnchecked SafeAdd` (kind 57 at the root), `RecordStructs Scale`
+  (kind 15), both `FindByPriority` (a lambda argument), `HasCamelCaseNamingConvention` (reference/null
+  equality), `GetDomain` (ternary), `Store::FormatLine` (interpolated string),
+  `WeatherService::GetMinMaxTemp` (tuple) and `::GetHotDaysSummary`.
+
+  ### THE ESTATE CONTROL WALK
+
+  Restore is COPY-BASED with a `sha256` gate — never `git checkout --`, because the tree carries
+  uncommitted slice work. Each case ran UNPIPED into its own log, and **all five per-control predictions
+  were written down BEFORE any result was read. All five matched exactly, block name for block name.**
+
+  | control | mutation | result | blocks broken |
+  |---|---|---|---|
+  | **PRISTINE FIRST** | — | **`7,141 / 0`** | — |
+  | **C1** | the door's kind-12 arm never fires | **`7,139 / 2`** | `TheDoorClaimsAPrimitiveBinaryAsAReturnValueAndExecutesIt`, `TheDoorClaimsTheBinaryKindAndStillDeclinesTheShortCircuitFamily` |
+  | **C2** | `ArgumentsAdmitPrimitiveBinary()` returns false | **`7,139 / 2`** | `DirectCallPlannerClaimsAPrimitiveBinaryArgumentAndStillBoundsOneItDoesNotOwn`, `TheDoorClaimsACallWhoseArgumentIsAPrimitiveBinary` |
+  | **C3** | the index rule never consults the frame | **`7,139 / 2`** | `TheDoorClaimsACallWhoseArgumentIsAnOrdinaryIndexOverAPlanLocal`, `AnOrdinaryIndexStillDeclinesAtAPlanRootAndClaimsUnderADeclaredFrame` |
+  | **C4** | the scratch never arms the frame | **`7,140 / 1`** | the door block **ALONE** |
+  | **C5** | the frame's freshness guard never throws | **`7,140 / 1`** | `ANestedValueFrameRefusesAPlanThatHasAlreadyBeenUsed` **ALONE** |
+  | **PRISTINE LAST** | — | **`7,141 / 0`**, all restores `sha256`-verified, zero mismatches | — |
+
+  ⚠ **C3 VS C4 IS THE WALK'S POINT.** The RULE and its ARMING are separable and the estate can tell them
+  apart: C3 (the rule never consults the frame) takes the plan-level block that states the rule with no
+  owner in the picture AND the door body; C4 (nothing arms it) takes the door body ALONE, because the
+  rule still works and simply never hears about the frame. C5 is the second single-block isolation, and
+  it is the guard that keeps the frame a statement about a WHOLE plan rather than something a plan can
+  acquire halfway through.
+
+  **C1 AND C2 SEPARATE THE TWO HALVES OF THE BINARY COMPOSITE, WHICH IS EXACTLY THE `015-B8` BRIEF'S
+  CLAIM THAT IT IS TWO MOVES.** Turning the door's arm off leaves every binary-ARGUMENT block standing;
+  narrowing the argument surface leaves every binary-RETURN block standing. Neither mutation reaches the
+  other's blocks — which is what "two decisions with separate diffs" means when it is measured.
+
+  ### THE REMAINING CONTRACT CHECKS
+
+  | check | result |
+  |---|---|
+  | `nlc format --check` | "All files are properly formatted." on all four gate projects (`examples`, `templates`, `tests/fixtures/issue-tracker`, `src/NSharpLang.Compiler.BootstrapServices`) AND on `tests/native/columnar-emit-facts` |
+  | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | **`checkedFiles=402`** on BOTH CLIs, **246** results, summary `{errors 246, warnings 0, info 0}` on both, **ROW-FOR-ROW IDENTICAL EVEN IN ORDER** (`added=0 removed=0`) |
+  | `tests/native/columnar-emit-facts` on the slice CLI | `total 28, passed 28, failed 0` |
+  | `tests/native/ownership-audit` on the slice CLI | `total 18, passed 18, failed 0` |
+
+  ### THE THREE INERT MIRROR SITES, RE-MEASURED RATHER THAN ASSUMED (`015-B9` BRIEF ITEM 5)
+
+  The brief says each inert site gets its reachability RE-MEASURED when a widening lands, so it was
+  measured rather than argued. A fourth CLI (`cliTAG`) was built in which `S2`
+  (`ColumnarConstructionPlanner.ValueSyntaxIsAdmitted`), `S3`
+  (`ColumnarInstanceMemberPlanner.TryGetComposedReceiverType`) and `S4`
+  (`ColumnarRangeIndexPlanner.FacadeSelectorMayProduceIndexOrRange`) THROW a tagged exception the moment
+  they are handed a non-empty plan-local vocabulary — i.e. the moment a claimed body's locals are in
+  scope at that site. `S1` was deliberately left silent, since it is reached by construction.
+
+  **ALL 22 PROBE PROJECTS BUILD CLEAN. `S2`, `S3` AND `S4` ARE STILL NOT REACHED FROM ANY CLAIMED BODY**
+  — including `P5`/`N13` (an ordinary index over a plan local, the shape this slice added), `P6` (a
+  member access over a plan local inside a claimed call) and `P9` (a member access inside a binary inside
+  an index over a plan local). The door's ROOT-claimed kinds are what would reach them — construction
+  (15/36/58), member access (8), index access (10) — and all three are still on the declined side, so
+  the widening moved the argument surface without moving that boundary. The tagged instrument is recorded
+  here so `015-B10`+ can re-run it verbatim rather than rebuild it.
+
+  ### THE FRESH ISOLATED GATE — GREEN ON THE TREE THAT SHIPS
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` from a `/private/tmp` byte copy (`.git`, `bin`,
+  `obj`, `node_modules`, `artifacts` and `.claude/worktrees/` excluded), the log written OUTSIDE the copy,
+  `pgrep -f test-all-core.sh` reading **0** first, launched DETACHED, and all **9** changed non-STATUS
+  files `sha256`-verified IDENTICAL between the working tree and the copy BOTH before and after the run —
+  so nothing drifted under it.
+
+  **`ALL TESTS PASSED`, `GATE EXIT 0`, 126 `✓ PASSED` / 0 `✗ FAILED`, 22m 31s.** Inside it: unit
+  **`Passed: 596`** (the baseline exactly), estate **`Passed: 7141`** (the bracket exactly), all **47**
+  native `✓ PASSED` lines — `tests/native/ownership-audit` among them on the UNCHANGED ratchet, and
+  `tests/native/columnar-emit-facts` on the new binary/argument block — the format contract gate ×4,
+  `dotnet new` templates, all 22 example projects, the 38 single-file examples, `nlc check` on examples,
+  and the IL verification gate: **"All 67 N# assemblies pass IL verification (no new errors vs
+  baseline)"**, which is the independent confirmation that the 17 live bodies the door now claims are
+  VERIFIABLE and not merely runnable.
+
+  **THE BENCHMARK CSPROJ CHECK AGAIN MATTERS.** The copy contains **zero** `NSharpLang.Benchmarks.csproj`
+  — correct rather than a gap: this branch's `benchmarks/` carries no project file, and the only ones in
+  the repo live under `.claude/worktrees/`, excluded from the copy by construction.
+
+  Only `STATUS.md` changed after the copy was taken — it is neither compiled nor tested by the gate, and
+  that is said rather than glossed.
+
+  ### THE WORKING TREE AND THE INSTRUMENTS
+
+  Exactly **10** files, all modifications, **no new files**: 5 BootstrapServices production `.nl`, 3
+  BootstrapServices contract `.nl`, 1 native contract `.nl`, plus this STATUS. **ZERO C# files** — which
+  is why the growth ratchet needs no repin and why `ColumnarIlEmitter.cs` stands untouched at
+  `20,890 / 19,871` with **10** compiler C# files. Every instrument, corpus, baseline, mutation snapshot
+  and log lives under `/private/tmp/b9`; none was written into the repo. NOT COMMITTED.
+
+  ### THE COVERAGE TABLES
+
+  | | |
+  |---|---|
+  | the door's ledger | **34** kinds, unchanged |
+  | N# door, CLAIMED | **10** — 0/1/2/3 scalar literal, 4 bool, 6 identifier, 11 unary, 62 nameof, 9 call, **12 primitive binary** |
+  | N# door, DECLINED | **24**, every one still named rather than fallen through |
+  | driver statement kinds claimed | **2** — Return and the `:=` declaration, unchanged |
+  | identifier selection kinds claimed | **5 of 8**, unchanged |
+  | owners the door enters through their own root sequence | **4** — unary-literal, `nameof`, direct call, primitive binary |
+  | the three routed binding facts | all **3** now have a live consumer on the claimed surface; the overflow flag's is the binary owner |
+  | type-discovery scratch sites | **4**; **4** carry the local-vocabulary mirror; **1** carries the nested-value frame; **1** reachable from a claimed body — RE-MEASURED under `cliTAG`, not inherited |
+  | the direct-call owner's ARGUMENT value surface | the construction surface — the same one the construction owner has always used |
+  | the direct-call owner's RECEIVER value surface | the plain surface, deliberately: its append side is the plain dispatcher |
+  | the door's remaining self-imposed refusals | **0** — `IsSupportedNullable` and the position rules are the host's |
+
+  ### THE `015-B10` BRIEF — PRICED BY THIS SLICE'S MEASUREMENTS
+
+  1. **THE INDEX SELECTOR'S VALUE SURFACE IS THE THIRD INSTANCE OF THE FAMILY, AND `P9` IS ITS
+     MEASURED SHAPE.** `TryPlanIndexAccess` appends its RECEIVER and its SELECTOR with
+     `TryAppendPlannableValue` — the PLAIN surface — so `arr[s.Length - 4]` declines inside an index the
+     owner otherwise claims, while `arr[0]` claims. `015-B9` found the same shape of gap twice (an
+     argument surface narrower than the construction owner's; a type side narrower than its own append
+     side); this is the third, in the one owner this slice left alone. It is cheap and it is measured:
+     `P9` in the claim corpus moves the moment it is fixed.
+  2. **THE `S2` CONSTRUCTION SCRATCH CARRIES THE IDENTICAL MISPREDICTION, AND IT GATES FIRST.**
+     `ColumnarConstructionPlanner.ValueSyntaxIsAdmitted:2330` plans its value at `parentFragment = -1`
+     exactly as the direct-call scratch used to, and it runs BEFORE this owner's two
+     `TryGetPlannableValueType` calls — so `015-B9`'s fix provably does not reach it (measured: the
+     construction path's behaviour is unchanged, and the big corpus md5 is identical to `015-B8`'s). One
+     `EnableNestedValueFrame()` at that site is the whole fix; what it buys is `new Foo(arr[0])` and
+     `[arr[0], 2]`, and it needs its own corpus diff because it widens the CONSTRUCTION owner.
+  3. **THE `TypesEquivalent` PORT — THE CENSUS RE-MEASURED THIS SLICE AND THE `015-B8` NUMBERS ARE
+     EXACT.** `110` lines over five private statics (`TypesEquivalent` 48, `IsByRefType` 15,
+     `IsSzArrayType` 17, `TryGetElementType` 15, `IsSameEnumType` 15) and **109** occurrences of
+     `TypesEquivalent(` = 1 definition + 4 internal recursions + **104 external call sites**. Payoff
+     unchanged: `IssueTracker.IssueService::GetAll` in both issue-tracker corpora. ⚠ It is the FIRST
+     slice in this arc that would SHRINK `ColumnarIlEmitter.cs`, so it is also the first that needs the
+     two-key ratchet repin from `head-v1:6bc1f1b6f58f020d` — budget for it.
+  4. **THE ADOPTED NEGATIVE LITERAL** — the suffix test plus the off-by-one MinValue range. A superset
+     narrows safely; a subset diverges silently. Unchanged.
+  5. **THE LIVE CORPUS'S NEXT GAINS ARE STILL RETURN-POSITION COMPOSITES.** The census over buildable
+     sources (76 single-return bodies, now 27 of them claimed) says what is left: a ternary
+     (`GetDomain`), an interpolated string (`Store::FormatLine`), a tuple (`GetMinMaxTemp`), `new`
+     (`Scale`), `checked(...)` (`SafeAdd`) and the lambda-argument calls. ⚠ AND THE CENSUS ITSELF NEEDS
+     A FIX: it walks only top-level and member `func` declarations, which is why
+     `LocalFunctions::<ProcessData>g__1` was an unpredicted claim. A local function is an ordinary body
+     to this driver.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-B8`: THE SCRATCH-PLAN CONTRACT. THE DECODE OVERTURNS
   THE BRIEF ON BOTH OF ITS FACTUAL CLAIMS — THERE ARE **FOUR** TYPE-DISCOVERY SCRATCH SITES, NOT THREE,
   AND ONLY **ONE** OF THEM IS REACHABLE FROM A CLAIMED BODY (MEASURED, NOT ARGUED); AND `ValidateAllUsed`
   IS **NOT THE RULE THAT BLOCKS A MIRROR** IN THE SHAPE THAT ACTUALLY CRASHES — A SECOND, DEEPER RULE

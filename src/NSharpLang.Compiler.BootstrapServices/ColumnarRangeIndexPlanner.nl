@@ -480,7 +480,11 @@ class ColumnarRangeIndexPlanner {
         } else if kind == ColumnarExpressionNodeKind.TernaryExpression() {
             planned = ColumnarConditionalPlanner.TryPlanTernary(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
-            planned = TryPlanIndexAccess(nodes, source, node, bindings, handles, plan, fragment, depth, parentFragment >= 0, out resultType, out nestedOwnership)
+            // ORDINARY `arr[0]` IS A NON-ROOT CLAIM, AND `parentFragment >= 0` IS HOW A REAL PLAN SAYS SO.
+            // A type-discovery SCRATCH has no parent to point at even when the value it types is destined
+            // for one, so it declares the frame instead — see `ColumnarCodePlan.EnableNestedValueFrame`.
+            // Only a scratch ever arms that, so an emitted plan still answers this question by position.
+            planned = TryPlanIndexAccess(nodes, source, node, bindings, handles, plan, fragment, depth, parentFragment >= 0 || plan.HasNestedValueFrame(), out resultType, out nestedOwnership)
         }
 
         if !planned {

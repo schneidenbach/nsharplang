@@ -95,7 +95,13 @@ test "direct-call planner preserves terminal ownership through range-index recur
     assert !legacyWholeSubtreePlanning
 }
 
-test "direct-call planner marks later-owner children as a whole-subtree boundary" {
+// ⚠ THIS BLOCK ASSERTED THE OPPOSITE UNTIL `015-B9`, AND THE CHANGE IS RECORDED RATHER THAN QUIET.
+// `Consume(value + 1)` was a whole-subtree boundary only because every one of the owner's eight argument
+// sites passed `allowPrimitiveBinary: false` while the CONSTRUCTION owner passed `true` for the same
+// dispatcher — an owner-scope artifact, not a rule about calls. `ArgumentsAdmitPrimitiveBinary` removes
+// the asymmetry, the corpus proves the resulting bytes are identical to the host's, and the BOUNDARY the
+// block was written to defend is asserted below on a binary the owner really does not claim.
+test "direct-call planner claims a primitive-binary argument and still bounds one it does not own" {
     owner := SourceCallDefinition("AdversarialWholeSubtreeOwner", true)
     oneInt := AdversarialDirectCallOneType(typeof(int))
     SourceCallPublicStatic(owner, "Consume", oneInt, typeof(int))
@@ -103,15 +109,29 @@ test "direct-call planner marks later-owner children as a whole-subtree boundary
     tree := DirectCallParsedTree("AdversarialWholeSubtreeOwner.Consume(value + 1)")
     bindings := DirectCallSingleDefinitionBindings(owner)
     ColumnarRangePlannerAddParameter(bindings, "value", 0, typeof(int))
+    ColumnarRangePlannerAddParameter(bindings, "wide", 1, typeof(long))
 
     plan := new ColumnarCodePlan()
-    nsharpOwned := true
-    legacyWholeSubtreePlanning := false
+    nsharpOwned := false
+    legacyWholeSubtreePlanning := true
     resultType := typeof(string)
-    assert !ColumnarDirectCallPlanner.TryGetType(tree.Nodes, tree.Source, tree.Root, bindings, plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
-    assert !nsharpOwned
-    assert legacyWholeSubtreePlanning
-    ColumnarRangePlannerAssertEmptyRollback(plan)
+    assert ColumnarDirectCallPlanner.TryGetType(tree.Nodes, tree.Source, tree.Root, bindings, plan, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
+    assert nsharpOwned
+    assert !legacyWholeSubtreePlanning
+    assert resultType == typeof(int)
+
+    // MIXED WIDTH is outside the primitive-binary owner's exact numeric surface, so the same call with
+    // the same shape is still a whole-subtree boundary — the argument surface widened, the owner's own
+    // operand rule did not.
+    mixed := DirectCallParsedTree("AdversarialWholeSubtreeOwner.Consume(value + wide)")
+    mixedPlan := new ColumnarCodePlan()
+    mixedOwned := true
+    mixedLegacy := false
+    mixedResult := typeof(string)
+    assert !ColumnarDirectCallPlanner.TryGetType(mixed.Nodes, mixed.Source, mixed.Root, bindings, mixedPlan, out mixedOwned, out mixedLegacy, out mixedResult)
+    assert !mixedOwned
+    assert mixedLegacy
+    ColumnarRangePlannerAssertEmptyRollback(mixedPlan)
 }
 
 test "direct-call planner compares repeated builder-bound generic types structurally" {

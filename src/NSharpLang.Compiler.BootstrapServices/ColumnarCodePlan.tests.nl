@@ -1824,3 +1824,56 @@ test "a plan-local mirror refuses a used plan a null vocabulary and a null slot"
     assert throws InvalidOperationException { fresh.EnablePlanLocalMirror(holed) }
     assert !fresh.HasPlanLocalMirror()
 }
+
+test "a nested-value frame is armed on a fresh plan and survives every prepare" {
+    // OFF is the default and the production case: every emitted plan answers the position question by
+    // POSITION, so a rule that consults the frame cannot change what an emitted plan does.
+    plain := new ColumnarCodePlan()
+    assert !plain.HasNestedValueFrame()
+    plain.PrepareV3()
+    assert !plain.HasNestedValueFrame()
+
+    // Armed BEFORE the prepare, for the same reason the mirror is: two of the four scratch sites hand
+    // their plan to a callee that prepares it.
+    scratch := new ColumnarCodePlan()
+    scratch.EnableNestedValueFrame()
+    assert scratch.HasNestedValueFrame()
+    scratch.PrepareV3()
+    assert scratch.HasNestedValueFrame()
+
+    // Configuration, not state: `Reset` leaves it alone, so whichever prepare opens the plan sees it.
+    body := new ColumnarCodePlan()
+    body.EnableNestedValueFrame()
+    body.PrepareMethodBody()
+    assert body.HasNestedValueFrame()
+
+    recursive := new ColumnarCodePlan()
+    recursive.EnableNestedValueFrame()
+    recursive.PrepareV2()
+    assert recursive.HasNestedValueFrame()
+
+    // The two scratch dimensions are independent: a plan may carry local vocabulary without claiming a
+    // nested frame, and the reverse.
+    mirrored := new ColumnarCodePlan()
+    vocabulary := new Type[](1)
+    vocabulary[0] = typeof(int)
+    mirrored.EnablePlanLocalMirror(vocabulary)
+    mirrored.PrepareV3()
+    assert mirrored.HasPlanLocalMirror()
+    assert !mirrored.HasNestedValueFrame()
+    assert !scratch.HasPlanLocalMirror()
+}
+
+test "a nested-value frame refuses a plan that has already been used" {
+    prepared := new ColumnarCodePlan()
+    prepared.PrepareV3()
+    assert throws InvalidOperationException { prepared.EnableNestedValueFrame() }
+    assert !prepared.HasNestedValueFrame()
+
+    // A plan that has already opened a fragment is used in the sense that matters — the frame is a
+    // statement about the WHOLE plan, so it cannot be arrived at halfway through one.
+    building := new ColumnarCodePlan()
+    building.PrepareV3()
+    building.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    assert throws InvalidOperationException { building.EnableNestedValueFrame() }
+}
