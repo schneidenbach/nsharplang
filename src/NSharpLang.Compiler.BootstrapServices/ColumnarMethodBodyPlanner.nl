@@ -162,6 +162,7 @@ class ColumnarMethodBodyPlanner {
     //   PB `{ return <primitive binary> }` — the primitive-binary owner's root sequence    (015-B9)
     //   T  `{ return <ternary> }` / `{ return <a && b> }` — the conditional owner, labels  (015-B12)
     //   K  `{ return checked(<claimed value>) }` — the host's OWN kind-57 arm, no planner  (015-B13)
+    //   M  `{ return <instance member> }` — the instance-member owner's root sequence      (015-B14)
     //
     // Class C ALSO WIDENED IN `015-B9` WITHOUT GAINING A LETTER: a claimed call may now carry a binary
     // ARGUMENT and an ordinary `arr[0]` argument or receiver. Both are the direct-call owner's own
@@ -422,12 +423,15 @@ class ColumnarMethodBodyPlanner {
     // external-static-member and instance-member each get their OWN root facade, and only range/index
     // roots fall through to the shared append dispatcher. So a composite claim must call THAT owner's
     // own root sequence; guessing a single entry point would be a second, divergent routing policy.
-    // FIVE owners are entered that way now — the unary-literal owner and `nameof`, which the emitter
+    // SIX owners are entered that way now — the unary-literal owner and `nameof`, which the emitter
     // reaches through their own facade AHEAD of the cascade, the DIRECT-CALL owner, which the cascade's
     // second arm owns for every call root (015-B7), the PRIMITIVE-BINARY owner, which the cascade's
-    // third arm owns for every claimed-operator binary root (015-B9), and the CONDITIONAL owner, which
-    // the cascade's FOURTH arm owns for every ternary root and every `&&`/`||` root (015-B12). Byte
-    // identity is against one owner apiece. The rest wait for their own diffs.
+    // third arm owns for every claimed-operator binary root (015-B9), the CONDITIONAL owner, which
+    // the cascade's FOURTH arm owns for every ternary root and every `&&`/`||` root (015-B12), and the
+    // INSTANCE-MEMBER owner, which the cascade's EIGHTH arm owns for the member-access roots its
+    // SEVENTH arm does not (015-B14). Byte identity is against one owner apiece — except kind 8, the
+    // one kind TWO cascade arms admit, where it is against whichever arm answers FIRST. The rest wait
+    // for their own diffs.
     //
     // ⚠ AND SINCE `015-B13` ONE CLAIMED KIND HAS NO OWNER AT ALL. Kind 57 (`checked`/`unchecked`) is
     // absent from `FacadeRootMayNeedFacts` and from `TryAppendPlannableValueCore`, so no N# planner has
@@ -653,6 +657,12 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarExpressionNodeKind.CheckedContextExpression() {
             return TryAppendCheckedContext(nodes, source, node, bindings, plan, out resultType)
         }
+        // 8 MemberAccess — THE INSTANCE-MEMBER COMPOSITE (015-B14), and the FIRST claimed kind the
+        // cascade answers with TWO owners rather than one. See `TryAppendMemberAccessRoot`: the door
+        // asks the cascade's SEVENTH arm first and claims only its EIGHTH.
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+            return TryAppendMemberAccessRoot(nodes, source, node, bindings, plan, out resultType)
+        }
         // Unreachable while the claimed set and the arms above agree, and that agreement is exactly
         // what the estate's partition block asserts. A kind added to the claimed set without its own
         // arm lands here and DECLINES rather than silently taking a neighbouring owner's route.
@@ -719,16 +729,66 @@ class ColumnarMethodBodyPlanner {
         return appended
     }
 
-    // The kinds the door takes. Each owner is method-body-schema aware; five of them (unary, `nameof`,
-    // direct call, primitive binary, conditional) reach that state only through `015-B6`'s nine-gate
-    // widening.
+    // THE MEMBER-ACCESS ROOT (015-B14) — THE FIRST CLAIMED KIND THE CASCADE ANSWERS WITH TWO OWNERS.
+    //
+    // Every arm above reaches ONE owner, because for every kind above exactly one cascade arm admits
+    // it. Kind 8 is different: `ColumnarExternalStaticMemberPlanner.MayPlanRoot` and
+    // `ColumnarInstanceMemberPlanner.MayPlanRoot` are the SAME unqualified `kind == MemberAccess` test,
+    // and `ColumnarRangeIndexPlanner.TryEmitFromFacts` asks the external-static owner at its SEVENTH
+    // arm and the instance-member owner at its EIGHTH. Byte identity for a kind-8 root is therefore
+    // against whichever owner answers FIRST, and a door that called only the second would emit the
+    // wrong owner's rows for any node both would claim.
+    //
+    // ⚠ SO THE ARM ASKS BOTH QUESTIONS IN THE CASCADE'S ORDER, AND CLAIMS ONLY THE SECOND. The
+    // external-static ROOT is not this door's claim — it is the named remainder — so the first
+    // question is asked into a SCRATCH plan and a positive answer DECLINES the body, which is the safe
+    // direction: the host then emits that root exactly as it always did.
+    //
+    // ⚠ AND THE GUARD IS PRICED HONESTLY: IT IS REACHED, AND AT THIS TIP IT CATCHES NOTHING. The two
+    // owners' claim sets were traced. The external-static owner needs `TryGetQualifiedName` on the
+    // receiver — an identifier or a dotted member-access chain — AND `!bindings.IsValueBinding(root)`.
+    // `ClaimsRoot` types its receiver either through `ColumnarBoundIdentifierPlanner.TryGetReceiverType`
+    // (whose every success IS a value binding) or through `TryGetComposedReceiverType`'s five arms,
+    // four of which `TryGetQualifiedName` refuses outright. The one shape that could satisfy both is
+    // `A.B.C` where `A.B` and `A.B.C` are BOTH rows of the external static-member table, which no row
+    // shape in that table produces today. The guard is kept because it is the cascade's order made
+    // explicit rather than re-derived, and it becomes load-bearing the day that table grows a dotted
+    // owner. `Int32.MinValue` and `StringComparison.Ordinal` are the roots that REACH it.
+    //
+    // ⚠ THE OWNER'S ROOT SEQUENCE DECLARES PLAN LOCALS, WHICH IS WHY THE POOL ORDER IS AN ARGUMENT AND
+    // NOT AN ASSUMPTION. `AppendTemporaryAddress` spills a value-typed receiver with `stloc; ldloca`,
+    // so a claimed body's local pool can now interleave the statement loop's `:=` locals with the
+    // expression's own temporaries. The order still agrees with the host's, because the door appends a
+    // declaration's INITIALIZER before it declares that declaration's local — exactly the order in
+    // which the host emits the initializer (declaring the temporary inside the expression's own v3
+    // plan) and then calls `_il.DeclareLocal` for the named one. `m := a[0].X` is `[temp, m]` on both
+    // sides, and `EmitBody` offers this door before the emitter has declared a single local, so pool
+    // index i is slot i.
+    static func TryAppendMemberAccessRoot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        _externalStaticType := typeof(int)
+        externalStaticScratch := new ColumnarCodePlan()
+        if ColumnarExternalStaticMemberPlanner.TryGetType(nodes, source, node, bindings, externalStaticScratch, out _externalStaticType) {
+            return false
+        }
+
+        if !ColumnarInstanceMemberPlanner.ClaimsRoot(nodes, source, node, bindings) {
+            return false
+        }
+
+        return ColumnarInstanceMemberPlanner.TryAppendRoot(nodes, source, node, bindings, plan, out resultType)
+    }
+
+    // The kinds the door takes. Each owner is method-body-schema aware; six of them (unary, `nameof`,
+    // direct call, primitive binary, conditional, instance member) reach that state only through
+    // `015-B6`'s nine-gate widening.
     //
     // ⚠ KIND 12 IS CLAIMED BY TWO OWNERS, NOT ONE, AND THIS PREDICATE DELIBERATELY DOES NOT SAY WHICH.
     // A `&&` binary and a `+` binary are the same kind and different owners; the split lives in
     // `TryAppendValue`'s arm, where the emitter's own cascade makes it. Duplicating the operator test
     // here would be a second copy of that judgement, and the two copies could disagree.
     static func IsClaimedExpressionKind(kind: int): bool {
-        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.BinaryExpression() || kind == ColumnarExpressionNodeKind.TernaryExpression() || kind == ColumnarExpressionNodeKind.CheckedContextExpression()
+        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.BinaryExpression() || kind == ColumnarExpressionNodeKind.TernaryExpression() || kind == ColumnarExpressionNodeKind.CheckedContextExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression()
     }
 
     // The kinds the door refuses, named one by one rather than left to a fall-through. The reason is
@@ -737,12 +797,12 @@ class ColumnarMethodBodyPlanner {
     // owner at all. None is "not yet supported" — each is a body whose bytes this door cannot promise.
     static func IsDeclinedExpressionKind(kind: int): bool {
         // 5 NullLiteral (the host's target-typed kind-20 pre-pass owns it), 7 Parenthesized (recurses),
-        // 8 MemberAccess, 10 IndexAccess — every one a composite that recurses into the shared value
-        // dispatcher, whose routing this door does not reproduce. 9 Call LEFT THIS LIST in `015-B7`;
+        // 10 IndexAccess — composites that recurse into the shared value dispatcher, whose routing this
+        // door does not reproduce. 9 Call LEFT THIS LIST in `015-B7` and 8 MEMBER-ACCESS in `015-B14`;
         // parenthesised forms stay here because the owner's own `UnwrapParentheses` is reached through
-        // its root facade and this door dispatches on the OUTER kind, so `(f())` is the parenthesis
-        // owner's shape rather than the call owner's.
-        if kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.ParenthesizedExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
+        // its root facade and this door dispatches on the OUTER kind, so `(f())` and `(p).V` are the
+        // parenthesis owner's shape rather than the call or instance-member owner's.
+        if kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.ParenthesizedExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
             return true
         }
         // 15 New, 16 Cast, 36 ObjectInitializer, 55 TypeOf, 58 ArrayLiteral, 69 Range — the named

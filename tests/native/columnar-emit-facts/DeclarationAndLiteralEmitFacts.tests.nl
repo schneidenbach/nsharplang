@@ -1166,3 +1166,183 @@ test "the claimed checked context restores the flag rather than merely setting i
     // And a checked INITIALIZER does not leak into the statement after it: the return's `+` wraps.
     assert DoorCheckedDeclarationThenPlainAdd(2147483647, 1) == -2147483648
 }
+
+
+// ---- THE MEMBER-ACCESS ROOT AT THE DOOR (015-B14) ----
+//
+// Kind 8 is the FIRST claimed kind two cascade arms admit: `ColumnarExternalStaticMemberPlanner` and
+// `ColumnarInstanceMemberPlanner` share the same unqualified `kind == MemberAccess` root test, and
+// `ColumnarRangeIndexPlanner.TryEmitFromFacts` asks the first at arm SEVEN and the second at arm EIGHT.
+// The door asks both, in that order, and claims only the second — so an external-static root stays with
+// the host and the bodies below are the instance-member owner's own root sequence.
+//
+// The receiver classes are exercised one apiece rather than sampled, because each takes a different
+// route through `ColumnarInstanceMemberPlanner.TryAppend`: a bound identifier (direct storage), a
+// value-typed one that must PRESERVE its address, a by-reference parameter, a plan local the statement
+// loop created, an SZ-array `Length` (no member handle at all), a composed index receiver, and a
+// composed receiver typed through `TryGetComposedReceiverType` — the function `015-B12` and `015-B13`
+// both reported as structurally unreached from a claimed body, and which this slice reaches.
+
+struct DoorMemberPoint {
+    X: int
+    Y: int
+
+    constructor(x: int, y: int) {
+        X = x
+        Y = y
+    }
+}
+
+class DoorMemberBox {
+    Value: int
+    Label: string
+
+    constructor(value: int, label: string) {
+        Value = value
+        Label = label
+    }
+}
+
+func DoorMemberOfClass(box: DoorMemberBox): int {
+    return box.Value
+}
+
+func DoorMemberStringOfClass(box: DoorMemberBox): string {
+    return box.Label
+}
+
+// A VALUE-typed receiver in direct storage: the owner preserves the address rather than spilling.
+func DoorMemberOfStruct(point: DoorMemberPoint): int {
+    return point.X
+}
+
+// The BY-REFERENCE receiver class.
+func DoorMemberOfByRefStruct(ref point: DoorMemberPoint): int {
+    return point.Y
+}
+
+func DoorMemberArrayLength(values: int[]): int {
+    return values.Length
+}
+
+func DoorMemberStringLength(text: string): int {
+    return text.Length
+}
+
+// The receiver is a PLAN LOCAL the statement loop created — the tier `015-B6` invented.
+func DoorMemberOfPlanLocal(box: DoorMemberBox): int {
+    local := box
+    return local.Value
+}
+
+// A COMPOSED INDEX receiver, which spills the element through `AppendTemporaryAddress` — so this body's
+// plan declares a local INSIDE an expression, beside the statement loop's own.
+func DoorMemberOfElement(points: DoorMemberPoint[]): int {
+    return points[1].X
+}
+
+// ⚠ THE `015-B8` PLAN-LOCAL MIRROR, LIVE. The index receiver here is a PLAN LOCAL, so the throwaway
+// scratch `TryGetComposedReceiverType` types it in has to know `local`'s slot type. `015-B8` armed that
+// mirror and recorded it as inert; this body is what makes it load-bearing.
+func DoorMemberOfPlanLocalElement(points: DoorMemberPoint[]): int {
+    local := points
+    return local[1].Y
+}
+
+// A SCALAR-LITERAL receiver — a shape that can only type through the composed side.
+func DoorMemberOfLiteral(): int {
+    return "abcd".Length
+}
+
+// The temporary and the statement loop's own local in ONE body, which is where their pool ORDER matters.
+func DoorMemberTemporaryThenLocal(points: DoorMemberPoint[]): int {
+    first := points[0].X
+    return first + points[1].Y
+}
+
+// The INITIALIZER door as well as the return door.
+func DoorMemberDeclaration(box: DoorMemberBox): int {
+    captured := box.Value
+    return captured
+}
+
+// Under a `checked` context: kind 57 recurses into the SAME dispatcher, so the new arm is reachable
+// through it without a second copy of anything.
+func DoorMemberChecked(box: DoorMemberBox): int {
+    return checked(box.Value)
+}
+
+test "the expression door claims the member-access root through every receiver class" {
+    box := new DoorMemberBox(7, "label")
+    point := new DoorMemberPoint(3, 4)
+    points := [new DoorMemberPoint(10, 20), new DoorMemberPoint(30, 40)]
+
+    assert DoorMemberOfClass(box) == 7
+    assert DoorMemberStringOfClass(box) == "label"
+    assert DoorMemberOfStruct(point) == 3
+    assert DoorMemberOfByRefStruct(ref point) == 4
+    assert DoorMemberArrayLength([1, 2, 3]) == 3
+    assert DoorMemberStringLength("abcde") == 5
+    assert DoorMemberOfPlanLocal(box) == 7
+    assert DoorMemberOfElement(points) == 30
+    assert DoorMemberOfPlanLocalElement(points) == 40
+    assert DoorMemberOfLiteral() == 4
+    assert DoorMemberTemporaryThenLocal(points) == 50
+    assert DoorMemberDeclaration(box) == 7
+    assert DoorMemberChecked(box) == 7
+}
+
+
+// ---- AND THE MEMBER-ACCESS ROOTS THE DOOR DOES **NOT** CLAIM STILL COMPILE (015-B14) ----
+//
+// Every one of these is a NARROWING rather than a divergence: the door declines and the host emits the
+// body exactly as it always did. They are executed for their values because "the door declines" is only
+// half a claim — the other half is that nothing regressed behind it.
+
+// The ROOT's PLAIN surface refuses a BINARY selector, and this is the body that would STOP COMPILING if
+// `TryGetComposedReceiverType` were widened without widening `TryAppend`'s root call in the same move:
+// `ClaimsRoot` would answer yes, the append would answer no, and the cascade sets `nsharpOwned` before
+// it asks. That combination declines the whole FUNCTION.
+func DoorMemberBinarySelector(points: DoorMemberPoint[], offset: int): int {
+    return points[offset + 1].X
+}
+
+// A composed INSTANCE-member receiver is not one of the five arms the type side answers.
+func DoorMemberOfMember(outer: DoorMemberOuter): int {
+    return outer.Inner.Value
+}
+
+// A CALL receiver is not one of them either.
+func DoorMemberOfCallResult(text: string): int {
+    return text.Trim().Length
+}
+
+// The door dispatches on the OUTER kind, so a parenthesised ROOT is the parenthesis owner's shape.
+func DoorMemberParenthesisedRoot(box: DoorMemberBox): int {
+    return (box.Value)
+}
+
+// The claim rule is type EQUALITY: the same expression on a `long` function is the host's, because the
+// host's `conv.i8` is not a row this door promises.
+func DoorMemberWidenedReturn(box: DoorMemberBox): long {
+    return box.Value
+}
+
+class DoorMemberOuter {
+    Inner: DoorMemberBox
+
+    constructor(inner: DoorMemberBox) {
+        Inner = inner
+    }
+}
+
+test "the member-access roots the door declines are emitted by the host exactly as before" {
+    box := new DoorMemberBox(7, "label")
+    points := [new DoorMemberPoint(10, 20), new DoorMemberPoint(30, 40)]
+
+    assert DoorMemberBinarySelector(points, 0) == 30
+    assert DoorMemberOfMember(new DoorMemberOuter(box)) == 7
+    assert DoorMemberOfCallResult("  ab  ") == 2
+    assert DoorMemberParenthesisedRoot(box) == 7
+    assert DoorMemberWidenedReturn(box) == 7L
+}

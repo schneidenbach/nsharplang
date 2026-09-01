@@ -1148,6 +1148,16 @@ test "the instance-member owner inherits the value surface of the position it is
 // S3 scratch, which stays PLAIN because a root inherits nothing — the same ruling 015-B10 recorded
 // for the index owner's own `Plan`. The pair below is what proves the TYPE side and the APPEND side
 // of a ROOT still answer identically, which is the invariant 015-B9's overturn 1 was about.
+//
+// ⚠ 015-B14 — `S3` IS NO LONGER STRUCTURALLY UNREACHED FROM A CLAIMED BODY, AND THE REASON TO KEEP IT
+// PLAIN IS NOW A PRODUCTION ONE. `015-B12` and `015-B13` both reported `TryGetComposedReceiverType` as
+// reached only from the cascade; the door's kind-8 arm reaches it too. And the cascade's arm sets
+// `nsharpOwned = ClaimsRoot(...)` before it calls `TryEmit`, while `ColumnarIlEmitter.EmitExpressionCore`
+// follows the facade with `if (nsharpOwned) return false;` — so a root whose TYPE side answers yes and
+// whose APPEND side answers no declines the WHOLE FUNCTION rather than falling back to the host.
+// Widening this site would take `names[1 + 1].Length` from "the legacy emitter compiles it" to "the
+// function is declined". That is what `015-B11`'s control `C7` walks, and it is why this site is NOT
+// the fifth instance of the inherited-surface family.
 test "the instance-member root keeps the plain surface on both its type and append sides" {
     binary := ColumnarRangePlannerMemberOverBinarySelector()
     bindings := ColumnarRangePlannerEmptyBindings()

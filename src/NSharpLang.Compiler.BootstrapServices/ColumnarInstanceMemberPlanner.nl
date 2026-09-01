@@ -96,29 +96,62 @@ class ColumnarInstanceMemberPlanner {
     static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
         ValidateInputs(nodes, source, node, bindings, plan)
         plan.PrepareV3()
+        resultType := typeof(int)
+        if !TryAppendRoot(nodes, source, node, bindings, plan, out resultType) {
+            return plan.Status
+        }
+
+        plan.CompleteV3(resultType)
+        return plan.Status
+    }
+
+    // THE ROOT-APPEND SEQUENCE, OWNED ONCE (015-B14) — the factoring `015-B7` applied to the
+    // direct-call owner and `015-B9` to the primitive-binary owner, for the same reason. A
+    // member-access root is a kind test, a checkpoint, a root fragment, the append and the fragment's
+    // completion; whether the plan around it is a standalone schema-v3 expression (`Plan` wraps this
+    // between `PrepareV3` and `CompleteV3`) or an open schema-v4 METHOD BODY
+    // (`ColumnarMethodBodyPlanner`'s expression door calls it directly) is the wrapper's business, not
+    // the sequence's. Both callers therefore produce the SAME row sequence, which is the whole of
+    // producing the same bytes.
+    //
+    // ⚠ BYTE IDENTITY FOR A KIND-8 ROOT IS AGAINST **TWO** OWNERS, NOT ONE, AND THIS IS THE SECOND.
+    // `ColumnarRangeIndexPlanner.TryEmitFromFacts` reaches a member-access root through its SEVENTH
+    // arm — `ColumnarExternalStaticMemberPlanner`, whose `MayPlanRoot` is the same unqualified
+    // `kind == MemberAccess` test this class's is — and only then through the EIGHTH, which is this
+    // one. The door's arm asks both questions in that order; this sequence is what it calls when the
+    // first one declines.
+    //
+    // 015-B11 — A ROOT PASSES THE PLAIN SURFACE, AND THAT IS THE SAME RULE `015-B10` APPLIED TO
+    // `ColumnarRangeIndexPlanner.Plan`'s true root: a root has no enclosing position to inherit a
+    // surface FROM, exactly as it has no parent fragment to point at. `ClaimsRoot`'s type side
+    // (`TryGetComposedReceiverType`) answers the same question the same way, so the two sides of a
+    // ROOT member access agree — which is the invariant `015-B9`'s overturn 1 was about.
+    //
+    // The null contract is the softer one the second caller needs: `Plan` still THROWS through
+    // `ValidateInputs` before it gets here, so its behaviour is unchanged, and a door that hands this
+    // a null table declines instead of crashing.
+    static func TryAppendRoot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
         candidate := UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() {
-            return plan.Status
+            return false
         }
 
         checkpoint := plan.CreateCheckpoint()
         try {
             fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), candidate)
 
-            resultType := typeof(int)
-            // 015-B11 — A ROOT PASSES THE PLAIN SURFACE, AND THAT IS THE SAME RULE `015-B10` APPLIED TO
-            // `ColumnarRangeIndexPlanner.Plan`'s true root: a root has no enclosing position to inherit
-            // a surface FROM, exactly as it has no parent fragment to point at. `ClaimsRoot`'s type side
-            // (`TryGetComposedReceiverType`) answers the same question the same way, so the two sides of
-            // a ROOT member access agree — which is the invariant `015-B9`'s overturn 1 was about.
             if !TryAppend(nodes, source, candidate, bindings, plan, fragment, false, out resultType) {
                 plan.Rollback(checkpoint)
-                return plan.Status
+                return false
             }
 
             plan.CompleteFragment(fragment, resultType)
-            plan.CompleteV3(resultType)
-            return plan.Status
+            return true
         } catch ex: Exception {
             plan.Rollback(checkpoint)
             throw ex
@@ -317,9 +350,13 @@ class ColumnarInstanceMemberPlanner {
 
         // 015-B8 — armed BEFORE the prepare, which is the whole reason the mirror is a property of the
         // PLAN rather than a step after `PrepareV3()`: only the index-access arm below prepares this
-        // scratch itself, and the other four hand it to a callee whose own `Plan()` prepares it. Inert at
-        // this tip (no claimed body reaches a composed receiver), armed because the family's contract is
-        // one contract.
+        // scratch itself, and the other four hand it to a callee whose own `Plan()` prepares it.
+        //
+        // ⚠ 015-B14 — IT IS NO LONGER INERT. `015-B8` recorded this arming as inert "because no claimed
+        // body reaches a composed receiver"; the door's kind-8 arm is exactly such a body, and
+        // `q := items` followed by `return q[0].X` types its index receiver HERE, through a scratch whose
+        // only knowledge of `q` is this mirror. Without the arming that body would not merely decline —
+        // the append would throw on an empty local pool, which is the crash `015-B8` armed against.
         scratch := new ColumnarCodePlan()
         scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
         kind := nodes.Kind(receiverNode)
@@ -332,6 +369,15 @@ class ColumnarInstanceMemberPlanner {
             // ROOT, and a root inherits nothing — the identical ruling `015-B10` recorded at
             // `ColumnarRangeIndexPlanner.Plan`. Widening it would make this owner's TYPE side wider
             // than its APPEND side for a root, which is the mirror image of `015-B9`'s overturn 1.
+            //
+            // ⚠ 015-B14 RE-MEASURED IT AND FOUND A STRONGER REASON THAN A SYMMETRY ARGUMENT. The
+            // cascade's instance-member arm sets `nsharpOwned = ClaimsRoot(...)` and
+            // `ColumnarIlEmitter.EmitExpressionCore` follows the facade with `if (nsharpOwned) return
+            // false;` — so a root this side TYPES but the append side REFUSES declines the WHOLE
+            // FUNCTION rather than falling back. Widening here would take `a[i + 1].X` from "the legacy
+            // emitter compiles it" to "the function is declined": a production regression, not merely a
+            // wider type side. This is why the site is NOT the fifth instance of the inherited-surface
+            // family that `015-B9`–`015-B12` closed at four owners.
             scratch.PrepareV3()
             rootFragment := scratch.BeginFragment(-1, kind, receiverNode)
             handles := ColumnarRangeIndexHandles.Resolve()

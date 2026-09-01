@@ -1,6 +1,54 @@
 # Systems-language closeout cursor
 
-Last updated: 2026-09-01 (**TASK 015 SUB-SLICE `015-B13` — `checked(…)` AT THE DOOR, THE
+Last updated: 2026-09-01 (**TASK 015 SUB-SLICE `015-B14` — THE MEMBER-ACCESS ROOT (DOOR KIND 8), `S3`'s
+REACHABILITY, AND THE ROOT'S PLAIN SURFACE — see the Cursor block.** The decode was written before any
+production file was touched and it **OVERTURNS THE BRIEF'S PREMISE THAT KIND 8 HAS ONE OWNER**: the
+cascade admits a member-access root at **TWO** arms — `ColumnarExternalStaticMemberPlanner` at arm
+SEVEN and `ColumnarInstanceMemberPlanner` at arm EIGHT, both with the identical unqualified
+`kind == MemberAccess` test — so byte identity is against whichever answers FIRST, and a door arm that
+called only the owner the brief names would emit the wrong owner's rows for any node both claim. **THE
+DOOR THEREFORE ASKS BOTH QUESTIONS IN THE CASCADE'S ORDER AND CLAIMS ONLY THE SECOND**, with the
+external-static root named as the remainder; the guard is PRICED as catching nothing at this tip (the
+two claim sets are disjoint because every receiver `ClaimsRoot` types IS a value binding, which the
+external-static owner refuses) and control `C2` measures that pricing rather than asserting it. **THE
+BRIEF'S METHOD OTHERWISE HOLDS**: the `015-B6`/`015-B7` factoring applies, `ColumnarInstanceMemberPlanner`
+gains a `TryAppendRoot` its own `Plan` now wraps, and both callers produce one row sequence. **ITEM 3
+IS DECODED AS *CORRECT AND PINNED*, AND IT GAINS A MEASUREMENT `015-B11` COULD NOT MAKE**: the
+cascade's instance-member arm sets `nsharpOwned = ClaimsRoot(...)` before it calls `TryEmit`, and
+`EmitExpressionCore` answers a set-but-failed claim with `if (nsharpOwned) return false;` — so widening
+`TryGetComposedReceiverType` alone is not a wider type side, it DECLINES THE WHOLE FUNCTION, and a CLI
+built from `C7`'s mutated tree proves it: `return a[i + 1].X` **stops compiling**, deleting that one body
+makes the project build, and its IL against the slice's is `ONLY_IN_A=1 / CHANGED=0`. So `:338` is NOT
+the fifth instance of the owner-scope family. **`S3` IS REACHED AND RE-MEASURED WITH A TAGGED CLI, NOT
+INFERRED** — four probes whose only route to a receiver type is `S3` move, including the one that
+retires `015-B8`'s "inert at this tip" comment by making its plan-local MIRROR live. **THE PROBE SET IS
+45 BODIES**: 7 marked at the tip (a member access was already claimed in ARGUMENT, BINARY-OPERAND and
+TERNARY-BRANCH position — only the ROOT was not), 33 at the slice, `IL_DIFFS=0`; **25 of the 26 moves
+were predicted by name and the miss is explained in bytes** — `(p).V` parses as
+`MemberAccess[Parenthesized[…]]`, so a parenthesised RECEIVER is claimed while a parenthesised ROOT
+(`(p.V)`, added as `M40`) is not. Corpus **68 / 45 built / 1,851 keys**, `IL_DIFFS=0` control-first
+(ctlA vs ctlB, then ctlA vs SLICE); liveness **355 → 367**, **+12, every one accounted for** — and the
+two the census missed are a **THIRD census blind spot**: a CONVERSION operator has no `func` keyword at
+all, so `implicit operator double(m: Money)` was unspellable by `015-B13`'s fixed pattern. The pattern
+is fixed again (**1,582 headers, 9 `func` operators, 9 conversion operators**) and now predicts both and
+nothing more; six OTHER predicted moves did not happen because `this.count` is a kind-6 IDENTIFIER, not
+a member access — the parser flattens it, `ColumnarExpressionSyntaxFacts`'s own header says so, and the
+door has claimed those since `015-B5`. Estate **7,175 → 7,183** (+8, exactly the eight new blocks);
+native emit-facts **34 → 36** (`nlc test` 36 passed / 0 failed, and a marked CLI confirms all 13 claim
+bodies are door-claimed and all 5 decline bodies are on the host path). **THE CONTROL WALK IS NINE
+RUNS, PRISTINE-BRACKETED AT BOTH ENDS, EVERY RESTORE sha256-VERIFIED**, and two of its runs are the
+point: `C2` deletes the cascade-order guard and the estate stays GREEN — the PRICING, measured rather
+than asserted — while `C3` widens the root's APPEND side alone and is likewise silent, so with `C7` the
+pair proves the two sides must move TOGETHER. **THE LIVE-TREE ROW-FOR-ROW WALK IS 403 / 243 ON ALL
+THREE PAIRINGS WITH EVERY PER-CODE COUNT IDENTICAL** — `NL402` stays at 65 rather than moving as it did
+in `015-B13` — and its eighteen unmatched rows reconcile as NINE PAIRS differing only in LINE, all in
+the one file whose lines this slice shifted. **ZERO C# TOUCHED** — emitter stays **20,784 / 19,768**,
+compiler C# **10** files, two-key ratchet unrepinned at `head-v1:9717a7390756f51c`. **THE FRESH
+ISOLATED GATE IS `ALL TESTS PASSED` / driver exit 0 / 126-0 / 22m 00s**, unit **596**, 47 native
+`✓ PASSED`, IL verification 67/67, and the gate copy is sha256-identical on all five changed files
+before AND after. NOT COMMITTED.)
+
+Last updated (prior): 2026-09-01 (**TASK 015 SUB-SLICE `015-B13` — `checked(…)` AT THE DOOR, THE
 DELEGATE-INVOKE ARGUMENT SURFACE, AND THE FRAGMENT-KIND CENSUS — see the Cursor block.** The decode was
 written before any production file was touched and it **OVERTURNS THE BRIEF'S METHOD ON ITEM 1**: the
 `015-B6`/`015-B7` factoring does not apply, because **KIND 57 HAS NO N# OWNER AT ALL** — it is absent
@@ -5414,7 +5462,393 @@ Last updated (prior): 2026-07-24 (STAGE N+1c tranche 7 LANDED — BEGIN EXPRESSI
 
 ## Cursor
 
-- Active sub-slice (015 arc, THIS TURN — **`015-B13`: `checked(…)` AT THE DOOR, THE DELEGATE-INVOKE
+- Active sub-slice (015 arc, THIS TURN — **`015-B14`: THE MEMBER-ACCESS ROOT (DOOR KIND 8), `S3`'s
+  REACHABILITY, AND THE ROOT'S PLAIN SURFACE. THE DECODE CONFIRMS THE BRIEF'S METHOD — THE
+  `015-B6`/`015-B7` FACTORING DOES APPLY, BECAUSE KIND 8 HAS A REAL OWNER — AND **OVERTURNS THE
+  BRIEF'S PREMISE THAT THERE IS ONE OF THEM**: THE CASCADE ANSWERS A KIND-8 ROOT WITH **TWO** OWNERS,
+  AND `ColumnarExternalStaticMemberPlanner` IS ASKED **FIRST**. IT ALSO FINDS THE ONE ASYMMETRY THAT
+  MAKES `015-B11`'s `C7` A **PRODUCTION** GUARD RATHER THAN AN ESTATE ONE.**)
+
+  ### THE PRE-EDIT DECODE — WRITTEN BEFORE ANY PRODUCTION FILE WAS TOUCHED, AT `5af0b2fec`
+
+  #### THE TIP, RE-MEASURED RATHER THAN INHERITED
+
+  | reading | value | matches the brief |
+  |---|---|---|
+  | working tree at `5af0b2fec` | **CLEAN** (`git status --short` empty) | — |
+  | `ColumnarIlEmitter.cs` | **20,784 / 19,768** | ✓ |
+  | compiler C# files (`src/NSharpLang.Compiler`, excluding `obj/`, `bin/`) | **10** | ✓ |
+  | ratchet manifest | **391** lines, no BOM (first three bytes `7b 0a 20`) | ✓ |
+  | two-key head | `head-v1:9717a7390756f51c` in the JSON header (`:7`) AND in `OwnershipAudit.nl:241` | ✓ (read from BOTH keys) |
+  | epoch triple | `381` / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` | ✓ |
+  | `columnar-emit-facts` blocks | **34** (11 + 23) | ✓ |
+  | corpus under the inherited harness | **68 projects / 45 built / 1,928 rows** | ✓ (`015-B13`'s 45) |
+  | census under the FIXED header regex | **1,573 headers, 9 operators, 795 driver-shape bodies** | ✓ (`015-B13`'s 1,563 + its own ten new native bodies) |
+
+  #### ⚠ OVERTURN — THE CASCADE HAS **TWO** OWNERS FOR KIND 8, AND THE ONE THE BRIEF NAMES IS THE SECOND
+
+  The brief says kind 8 "DOES have an owner, so the `015-B6`/`015-B7` factoring applies and the route
+  is `ColumnarInstanceMemberPlanner`'s own root sequence". The factoring does apply. The route is not
+  one owner. `ColumnarRangeIndexPlanner.TryEmitFromFacts`'s eleven-arm cascade was read arm by arm at
+  this tip, and for a kind-8 root:
+
+  | cascade arm | owner | admits kind 8? |
+  |---|---|---|
+  | 1 | `ColumnarConstructionPlanner` | no — 15 / 36 / 58 |
+  | 2 | `ColumnarDirectCallPlanner` | no — 9 |
+  | 3 | `ColumnarPrimitiveBinaryPlanner` | no — 12 |
+  | 4 | `ColumnarConditionalPlanner` | no — 13, and short-circuit 12 |
+  | 5 | `ColumnarTypeOfPlanner` | no — 55 |
+  | 6 | `ColumnarBoundIdentifierPlanner` | no — 6 |
+  | **7** | **`ColumnarExternalStaticMemberPlanner`** | **YES — `MayPlanRoot` is `kind == MemberAccess`, unqualified** |
+  | **8** | **`ColumnarInstanceMemberPlanner`** | **YES — the same unqualified test** |
+  | 9 | `FacadeRootMayBeOwned` → the shared range/index dispatcher | no — `IsRootCandidate` is 69 / 10 / `^`-unary only |
+
+  The four PRE-cascade owners (`ColumnarBooleanLiteralPlanner`, `ColumnarUnaryLiteralPlanner`,
+  `ColumnarScalarLiteralPlanner`, `ColumnarNameOfPlanner`) have no kind-8 arm either, so a kind-8
+  root reaches arm 7 first and arm 8 second, and **a door arm that called only the instance-member
+  owner would emit the WRONG owner's bytes for any node both would claim.** The door therefore asks
+  the cascade's two questions in the cascade's ORDER and claims only the second; the external-static
+  ROOT is named as this slice's remainder rather than silently mis-owned.
+
+  #### THE GUARD IS PRICED HONESTLY: IT IS REACHED, AND AT THIS TIP IT CATCHES NOTHING
+
+  The two owners' claim sets were traced rather than assumed. `ColumnarExternalStaticMemberPlanner`
+  needs `TryGetQualifiedName(receiver)` — an identifier or a dotted member-access chain — AND
+  `!bindings.IsValueBinding(rootName)`. `ColumnarInstanceMemberPlanner.ClaimsRoot` types its receiver
+  through `TryGetReceiverType` (whose every success IS a value binding: `IsValueBinding` is
+  `Locals ∪ PlanLocals ∪ Parameters ∪ Blocked ∪ CurrentInstance`) or through
+  `TryGetComposedReceiverType`'s five arms (index / member-access / scalar literal / `nameof` /
+  `typeof`), four of which `TryGetQualifiedName` refuses outright. The only shape that could satisfy
+  both is `A.B.C` where `A.B` AND `A.B.C` are BOTH rows of `ColumnarExternalBindingPlans`'
+  static-member table — which no row shape in that table can produce today. So the guard is REACHED
+  by real roots (`Int32.MinValue`, `StringComparison.Ordinal`) and its refusal is redundant with
+  `ClaimsRoot`'s own at this tip. It is kept because it is the cascade's order made explicit and it
+  becomes load-bearing the day the table grows a dotted owner — and it is MEASURED as catching
+  nothing rather than asserted to catch something.
+
+  #### ⚠ FINDING — THE ROOT'S TYPE SIDE IS A **PRODUCTION** GUARD, WHICH IS STRONGER THAN `015-B11` COULD SAY
+
+  The cascade's instance-member arm has an outcome its neighbours do not:
+
+  ```
+  if ColumnarInstanceMemberPlanner.MayPlanRoot(nodes, node) {
+      nsharpOwned = ColumnarInstanceMemberPlanner.ClaimsRoot(nodes, source, node, bindings)
+      if nsharpOwned { return ColumnarInstanceMemberPlanner.TryEmit(...) }
+  }
+  ```
+
+  and `ColumnarIlEmitter.EmitExpressionCore` follows the facade with `if (nsharpOwned) return false;`.
+  So **`ClaimsRoot` true + `TryEmit` false declines the WHOLE FUNCTION**, while the same pair at the
+  DOOR merely declines the body and lets the host emit it as ever. Widening
+  `TryGetComposedReceiverType` to the construction surface — `015-B11`'s `C7` mutation — would
+  therefore not merely make the type side wider than the append side: it would turn
+  `a[i + 1].X` from *"the legacy emitter compiles it"* into *"the function is declined"*. That is a
+  production regression, it is measurable in bytes rather than only in the estate, and it is the
+  decode's answer to the brief's item 3: **the plain surface at `:338` is CORRECT and stays plain; it
+  is NOT the fifth instance of the inherited-surface family `015-B9`–`015-B12` closed at four owners.**
+
+  #### ⚠ FINDING — `015-B8`'s PLAN-LOCAL MIRROR STOPS BEING INERT IN THIS SLICE
+
+  `TryGetComposedReceiverType` arms a plan-local mirror on its scratch and says so in a comment:
+  *"Inert at this tip (no claimed body reaches a composed receiver), armed because the family's
+  contract is one contract."* The moment the door has a kind-8 arm that sentence is false —
+  `q := items` followed by `return q[0].X` types its index receiver through that scratch and needs the
+  body's local vocabulary to do it. The comment is corrected in this slice rather than left standing,
+  and probe `M26PlanLocalIndex` is the measurement.
+
+  #### THE TIP BYTES WERE READ FIRST — PROBE BODIES COMPILED BY A PRISTINE TIP CLI (44 AT DECODE TIME, 45 AFTER `M40` WAS ADDED TO SETTLE THE PARENTHESIS QUESTION)
+
+  A marker CLI (`ldc.i4.0; pop` before the driver's own `ret`, `015-B13`'s instrument in
+  `015-B13`'s place) says which bodies the door claims TODAY. Over the probe set the answer is
+  `C1Ident`, `C2Add`, `C3Call`, `C4Literal`, `M23AsArgument`, `M24InBinary`, `M32TernaryMember` —
+  **a member access is already claimed in ARGUMENT, BINARY-OPERAND and TERNARY-BRANCH position, and
+  only the ROOT is not.** That is the gap this slice closes, stated in bytes rather than in prose.
+
+  Three probe shapes decline EMISSION ENTIRELY at the tip and are recorded as walls rather than
+  quietly dropped: `Math.PI` and `String.Empty` are not rows of the external static-member table
+  (`emit.return.expression` → `emit.body`), and `Int32.MaxValue.ToString().Length` needs the call in
+  its receiver chain.
+
+  #### PREDICTIONS, WRITTEN BEFORE THE EDIT
+
+  25 probes predicted to become claimed; **10 predicted to stay unclaimed, each with its own reason**
+  (`a[i + 1].X` — the root's plain surface; four external-static roots — the guard's arm; `Color.Red`
+  — an identifier receiver naming a TYPE; `o.Inner.V` and `s.Trim().Length` — receivers outside
+  `TryGetComposedReceiverType`'s five arms; `(p).V` — the door's OUTER-kind dispatch; `p.V` returned
+  as `long` — type EQUALITY). Over the corpus the census names **16 bodies BY NAME** that should move
+  and **12 that should not**, each with its reason. `IL_DIFFS = 0` predicted on both corpora.
+
+  ### WHAT LANDED
+
+  | brief item | outcome |
+  |---|---|
+  | 1 | **THE MEMBER-ACCESS ROOT IS CLAIMED, THROUGH `ColumnarInstanceMemberPlanner`'s OWN FACTORED ROOT SEQUENCE** — the brief's method applies. Its PREMISE does not: the cascade admits kind 8 at TWO arms, so the door asks both in the cascade's order and claims only the second, with the external-static root named as the remainder |
+  | 2 (`S3`) | **RE-MEASURED WITH A TAGGED CLI, NOT INFERRED.** Four probes whose only route to a receiver type is `S3` move, one of them through `015-B8`'s plan-local MIRROR, whose "inert at this tip" comment this slice retires |
+  | 2 (`C7`) | **RE-RUN, AND IT GAINED A MEASUREMENT IN BYTES.** A CLI built from the mutated tree makes `return a[i + 1].X` STOP COMPILING; deleting that one body makes the project build; its IL against the slice's is `ONLY_IN_A=1 / CHANGED=0` |
+  | 3 (`:338`) | **DECODED AS CORRECT AND PINNED.** It is NOT the fifth instance of the owner-scope family — the reason is a PRODUCTION one (`nsharpOwned` is set before `TryEmit` is called), not a symmetry argument |
+  | 4 | **THE FRAGMENT-KIND INSTRUMENT IS EXTENDED, NOT RE-CENSUSED** — one more owner on the walk's list, and the member-access owner is the first on it that opens TWO fragments for one root |
+  | 5 | **THE HARNESS IS INHERITED AND ITS CENSUS REGEX FIXED FOR THE THIRD TIME** — a CONVERSION operator has no `func` keyword at all, which is how two of twelve live moves escaped prediction |
+
+  Eight new estate blocks, two new native blocks, TWO pre-existing estate blocks rewritten and said so
+  (the partition block's count and its declined list, and the fragment-kind walk), **ZERO C# files
+  touched**.
+
+  ### THE MEASUREMENTS
+
+  | measurement | tip `5af0b2fec` | slice |
+  |---|---|---|
+  | estate (`-p:NSharpExcludeTests=false --force-evaluate` restore; the TIP figure MEASURED on a pristine `5af0b2fec` worktree rather than inherited, and it reproduces the brief's number exactly) | **`7,175 / 0`** | **`7,183 / 0`** — **+8, exactly the eight new blocks** (`ColumnarMethodBodyFacts.tests.nl` goes 69 -> 77 `test` blocks and `ColumnarRangeIndexPlanner.tests.nl` stays at 28) |
+  | native `columnar-emit-facts` blocks | **34** (11 + 23) | **36** (11 + 25), and `nlc test` reports **36 passed / 0 failed** |
+  | `ColumnarIlEmitter.cs` | 20,784 / 19,768 | **unchanged** |
+  | compiler C# files | 10 | **10** |
+  | ratchet manifest / two-key head | 391 lines, no BOM, `head-v1:9717a7390756f51c` in BOTH keys | **unchanged — NO C# ROW MOVED, so no repin** |
+  | epoch triple | `381` / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` | **unchanged** |
+  | files changed | — | **5 `.nl` + `STATUS.md`**, and `git status --short -- '*.cs'` is EMPTY |
+
+  ### THE PROBE SET — 45 BODIES, TIP BYTES READ FIRST, AND ONE PREDICTION MISS EXPLAINED
+
+  A marker CLI (`ldc.i4.0; pop` before the driver's own `ret` — `015-B13`'s instrument, in
+  `015-B13`'s place, whose tip CORPUS count reproduces its **355** exactly) says which bodies the door
+  claims. Over the probe set the tip answer is SEVEN: the four controls, plus `M23AsArgument`,
+  `M24InBinary` and `M32TernaryMember`. **A member access was already claimed in ARGUMENT,
+  BINARY-OPERAND and TERNARY-BRANCH position; only the ROOT was not.** That is the gap this slice
+  closes, stated in bytes rather than in prose.
+
+  | measurement | tip | slice |
+  |---|---|---|
+  | probe rows | 45 | 45 |
+  | marked (door-claimed) | **7** | **33** |
+  | `IL_DIFFS` (tip vs slice, UNMARKED CLIs) | — | **0** |
+
+  **26 probes move; 25 were predicted BY NAME and the 26th is a prediction MISS that earns its own
+  row.** `M20Paren` (`(p).V`) was predicted to stay declined on the door's OUTER-kind dispatch. It
+  moves, because `(p).V` does not parse as `Parenthesized[MemberAccess]` — it parses as
+  `MemberAccess[Parenthesized[Identifier]]`, so the parenthesis is on the RECEIVER and the owner's own
+  `UnwrapParentheses` handles it. `M40ParenthesisedRoot` (`(p.V)`) was then added to spell the shape
+  the prediction was actually about; it stays declined on both sides and byte-identical. The two
+  probes together settle the question exactly: **a parenthesised RECEIVER is claimed, a parenthesised
+  ROOT is not.**
+
+  The ten that stay declined are the nine predicted plus that replacement, each for its written
+  reason: `a[i + 1].X` (the root's plain surface), four external-static roots, `Color.Red` (an
+  identifier receiver naming a TYPE), `o.Inner.V` and `s.Trim().Length` (receivers outside `S3`'s five
+  arms), `p.V` returned as `long` (type EQUALITY), and `(p.V)`.
+
+  THREE SHAPES DECLINE EMISSION ENTIRELY AT THE TIP and are recorded as walls rather than dropped:
+  `Math.PI` and `String.Empty` are not rows of the external static-member table
+  (`emit.return.expression` → `emit.body`), and `Int32.MaxValue.ToString().Length` needs a call in its
+  receiver chain.
+
+  ### ⚠ `015-B11`'s `C7`, RE-RUN — AND IT NOW HAS A MEASUREMENT IN BYTES, NOT ONLY IN THE ESTATE
+
+  `C7` widens `TryGetComposedReceiverType` from the plain surface to the construction one. `015-B11`
+  could only say the estate block *"the instance-member root keeps the plain surface on both its type
+  and append sides"* fails. This slice says what it COSTS, with a CLI built from the mutated tree:
+
+  | measurement under `C7` | result |
+  |---|---|
+  | the probe project | **DOES NOT COMPILE** — `decline site=emit.body member="M9IndexBinarySelector"`, i.e. `return a[i + 1].X` |
+  | the same project with `M9` deleted | **builds** |
+  | its IL against the slice's | `ONLY_IN_A=1` (`M9`), `ONLY_IN_B=0`, **`CHANGED=0`** |
+
+  So the mutation costs EXACTLY ONE BODY and changes zero bytes elsewhere: a body that compiles at the
+  tip stops compiling, because the cascade sets `nsharpOwned = ClaimsRoot(...)` before it calls
+  `TryEmit` and `ColumnarIlEmitter.EmitExpressionCore` answers a set-but-failed claim with
+  `if (nsharpOwned) return false;`. **That is why `:338` stays PLAIN and is NOT the fifth instance of
+  the owner-scope family `015-B9`–`015-B12` closed at four owners.**
+
+  ### `S3` IS REACHED — RE-MEASURED WITH A TAGGED CLI, NOT INFERRED
+
+  `015-B12` and `015-B13` both reported `TryGetComposedReceiverType` structurally unreached from a
+  claimed body. Under the marker CLI, four probes whose ONLY route to a receiver type is `S3` are
+  claimed at the slice and were not at the tip:
+
+  | probe | `S3` arm it reaches |
+  |---|---|
+  | `M11LiteralReceiver` (`"abc".Length`) | the SCALAR-LITERAL arm |
+  | `M12NameOfReceiver` (`nameof(Box).Length`) | the `nameof` arm |
+  | `M13TypeOfReceiver` (`typeof(int).Name`) | the `typeof` arm |
+  | `M26PlanLocalIndex` (`q := items` then `q[0].X`) | the INDEX arm, **through `015-B8`'s plan-local mirror** |
+
+  The last one is the one that retires a stale comment rather than merely exercising a path: `015-B8`
+  armed the mirror on `S3`'s scratch and recorded it as "inert at this tip (no claimed body reaches a
+  composed receiver)". It is live now, and the comment says so.
+
+  ### THE CORPUS
+
+  | measurement | value |
+  |---|---|
+  | projects / built / keys | **68 / 45 / 1,851** (`015-B13`'s 1,839 plus its own twelve new methods) |
+  | ctlA vs ctlB (CONTROL FIRST) | `ONLY_IN_A=0 ONLY_IN_B=0 CHANGED=0` → **`IL_DIFFS=0`** |
+  | ctlA vs SLICE | `ONLY_IN_A=0 ONLY_IN_B=0 CHANGED=0` → **`IL_DIFFS=0`** |
+  | liveness (marker), tip → slice | **355 → 367**, **+12** |
+
+  **All twelve moved bodies are accounted for, and the census AS `015-B13` LEFT IT names ten of them.**
+  The two it did not are a THIRD census blind spot, found by the marker exactly as `015-B12`'s
+  operator bodies were:
+
+  ⚠ **A CONVERSION OPERATOR HAS NO `func` KEYWORD AT ALL.** `015-B12`'s header pattern could not spell
+  `func operator ==(`; `015-B13` fixed that and said so. Neither could spell
+  `implicit operator double(m: Money) { return m.Amount }`, because the declaration begins with
+  `implicit`. Two such bodies moved — `ConversionOperators.nl:60` and `DirectCalls.nl:75` — and neither
+  was predicted. The pattern is FIXED (an alternation admitting `implicit`/`explicit operator <T>(`)
+  and re-run: **1,582 headers, 9 `func` operators and 9 CONVERSION operators**, of which exactly the
+  two that moved have a member-access root and the other seven return an object initializer or a
+  cast/binary. The fixed census predicts both, and nothing more.
+
+  ⚠ **AND SIX PREDICTED MOVES DID NOT HAPPEN, FOR A REASON WRITTEN IN THE TREE.** The census read
+  `this.count` / `this.Count` as member accesses. They are not: `ColumnarExpressionSyntaxFacts`'s own
+  header says *"The columnar parser deliberately flattens `this.member` into a leaf identifier"*, so
+  they are kind-6 IDENTIFIER reads and the door has claimed them since `015-B5`'s CurrentField class.
+  Both marker dumps confirm it — `ReadExplicitField` carries the marker at the TIP. The census's
+  candidate filter now excludes `this.` and reconciles exactly: **24 candidates = 12 moved + 12 with a
+  named reason** (five external-static roots, four bodies whose DECLARATION head is a `new` /
+  object-initializer / sized-array, two whose head is a kind-10 index access, and one inside a
+  triple-quoted REJECTED-source fixture that never compiles).
+
+
+  ### THE CONTROL WALK — NINE RUNS, PRISTINE-BRACKETED, EVERY RESTORE sha256-VERIFIED
+
+  Each control mutates ONE production file, the estate runs, and the file is restored from bytes
+  captured BEFORE the mutation and checked. Both brackets are `7,183 / 0`, every restore verified, and
+  the whole tree is byte-identical afterwards (all five `.nl` files `OK` against the pre-walk sha256
+  list; only `STATUS.md` differs, and only because this section was being written).
+
+  | run | mutation | verdict | reading |
+  |---|---|---|---|
+  | `PRISTINE` | — | **7,183 / 0** | the opening bracket |
+  | `C1` | kind 8 leaves `IsClaimedExpressionKind` while its ARM stays | **7 FAIL** | the partition block, all five claim blocks and the fragment-kind instrument. The instrument's new member-access arm is proved non-vacuous here as well as by `C5` |
+  | `C2` | the cascade-order GUARD is deleted | **PASS** | ⚠ **the pricing, MEASURED rather than asserted**: the two owners' claim sets are disjoint at this tip, so the guard catches nothing today. It is kept as the cascade's ORDER, not as a live check, and this run is what entitles the slice to say so |
+  | `C3` | the ROOT's APPEND side takes the construction surface | **PASS** | the mirror image of `C7`, and it is SILENT — `ClaimsRoot` refuses first. With `C7` it proves the two sides must move TOGETHER: moving either one alone is either invisible or a regression |
+  | `C4` | the factored root sequence stops rolling back | **10 FAIL** | ten PRE-EXISTING instance-member blocks, so the rollback the factoring inherited is load-bearing rather than decorative |
+  | `C5` | the root FRAGMENT disappears from the factored sequence | **14 FAIL** | thirteen pre-existing blocks plus the fragment-kind instrument, which asserts `FragmentCount > 1` for a member-access root |
+  | `C6` | the door calls `Plan` instead of `TryAppendRoot` | **6 FAIL** | the exact mistake `015-B7` warns a composite claim can make: `Plan` calls `PrepareV3()` on an already-open method-body plan. The factoring is what the door needs, not a convenience |
+  | `C7` | **`015-B11`'s own mutation, re-run** — the ROOT TYPE side takes the construction surface | **1 FAIL** | exactly `TheInstanceMemberRootKeepsThePlainSurfaceOnBothItsTypeAndAppendSides`, and nothing else. Its BYTE cost is measured separately above |
+  | `PRISTINE-LAST` | — | **7,183 / 0** | the closing bracket |
+
+  ### AND THE TREE THAT SHIPS
+
+  The pairings above hold ONE corpus tree fixed and swap only the CLI, which isolates the compiler. The
+  tree that actually ships also carries this slice's two new native blocks, so it is measured
+  separately: tip tree + tip CLI against SLICE tree + SLICE CLI.
+
+  | measurement | value |
+  |---|---|
+  | every assembly EXCEPT the one project whose source this slice edits | keys **1,666 / 1,666**, `ONLY_IN_A=0 ONLY_IN_B=0 CHANGED=0` -> **`IL_DIFFS=0`** |
+  | `NSharpLang.ColumnarEmitFacts.Tests.dll` (the edited project) | `ONLY_IN_A=0`, `ONLY_IN_B=23` (this slice's own new bodies and two test blocks), `CHANGED=84` |
+  | those 84 | **byte-identical once every 4-byte OPERAND is masked, at identical lengths** - metadata-token renumbering caused by adding three types to that one file, and NOT a single changed row sequence |
+  | marker count on the SLICE tree | **380** = the slice's 367 plus exactly the 13 new native claim bodies |
+
+  A marked CLI over that project also confirms the two native blocks are not vacuous: all **13** bodies
+  in *"the expression door claims the member-access root through every receiver class"* carry the door's
+  marker, and all **5** in *"the member-access roots the door declines are emitted by the host exactly
+  as before"* do not.
+
+  ### THE LIVE-TREE ROW-FOR-ROW WALK — 403 / 243, AND THE COUNTS DO NOT MOVE AT ALL
+
+  `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` over all three pairings. It is
+  the walk that alone caught `015-B10`'s three `NL011`s, so it is done row for row rather than by
+  totals:
+
+  | pairing | files | diagnostics |
+  |---|---|---|
+  | TIP tree, TIP CLI | **403** | **243** |
+  | SLICE tree, TIP CLI | **403** | **243** |
+  | SLICE tree, SLICE CLI | **403** | **243** |
+
+  Every per-code count is IDENTICAL — `NL002 1 / NL010 7 / NL011 17 / NL012 20 / NL202 85 / NL301 16 /
+  NL303 3 / NL402 65 / NL412 3 / NL905 26` on both sides, with **`NL402` staying at 65** rather than
+  moving as it did in `015-B13`. Nine rows are only-in-A and nine only-in-B, and they RECONCILE
+  EXACTLY: each pairs with a row identical in code, file, column and message, differing only in LINE,
+  all nine in `ColumnarInstanceMemberPlanner.nl`, shifted `+33` above the factored `TryAppendRoot` and
+  `+46` below it — which is precisely how many lines this slice inserted at each point. **Zero new
+  diagnostics, zero moved counts, one file's lines shifted.**
+
+  ### THE FRESH ISOLATED GATE
+
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`, run DETACHED from a `/tmp` byte-copy that excludes
+  `.git/`, `bin/`, `obj/`, `node_modules/`, `artifacts/` and `.claude/worktrees/`, with the log written
+  OUTSIDE the copy. `pgrep -f test-all-core.sh` was EMPTY before launch, the copy contains **0** nested
+  `NSharpLang.Benchmarks.csproj`, and all five changed `.nl` files were sha256-verified identical in the
+  copy BEFORE the run and again AFTER it (`mismatches=0` both times).
+
+  | reading | value |
+  |---|---|
+  | verdict | **`ALL TESTS PASSED! ✓`** |
+  | driver exit | **0** |
+  | steps | **126 passed / 0 failed** |
+  | elapsed | **22m 00s** |
+  | unit tests | **596 / 596**, zero drift |
+  | native N# projects | **47 `✓ PASSED`**, `columnar-emit-facts` among them |
+  | IL verification | **all 67 N# assemblies pass**, no new errors vs baseline |
+
+  ### CLEANUP
+
+  Every artifact of this slice lives under `/private/tmp/b14` — the harness, the five CLIs (tip, marked
+  tip, slice, marked slice, `C7`), every corpus and probe dump, the control walk's logs and the gate's.
+  The four multi-hundred-megabyte source trees (pristine tip, marked tip, marked slice, `C7`), the seven
+  corpus work trees and the gate copy are DELETED; what remains is 28 MB of evidence. NOTHING was left
+  in the repository:
+  the probe project, the marker patch and the seven control mutations were all applied outside it or
+  restored from captured bytes with sha256 verification, and `git status --short` lists exactly the five
+  `.nl` files and `STATUS.md`. **NOT COMMITTED.**
+
+  ### THE `015-B15` BRIEF — PRICED BY THIS SLICE'S MEASUREMENTS
+
+  1. **THE EXTERNAL-STATIC ROOT IS THE OTHER HALF OF DOOR KIND 8, AND IT IS THIS SLICE'S NAMED
+     REMAINDER.** `015-B14`'s decode found that the cascade admits a member-access root at TWO arms and
+     claimed only the eighth. The seventh — `ColumnarExternalStaticMemberPlanner` — is now the only
+     reason the door's kind-8 arm has a REFUSAL in it at all. Claiming it is the same
+     `015-B6`/`015-B7`/`015-B14` factoring for the third time: `Plan` is already
+     `PrepareV3` → `BeginFragment(-1, …)` → `TryAppendStaticMember` → `CompleteFragment` →
+     `CompleteV3`, so a `TryAppendRoot` falls out of it verbatim, and the door's guard becomes a CLAIM
+     instead of a decline. When it lands, **door kind 8 is CLOSED** — both cascade arms owned, and the
+     `TryAppendMemberAccessRoot` helper collapses to two calls with no scratch plan.
+
+     The corpus names its live bodies in advance: `ExternalStaticPackage.nl:12/16/20`
+     (`Environment.NewLine`, `DateTime.UtcNow`, `System.Reflection.Emit.OpCodes.Ldsfld`) and
+     `RangeAndIndex.tests.nl:80/106` (`Environment.NewLine` twice) — **five bodies**, all in the
+     45-project corpus, all currently emitted by the host.
+
+     ⚠ AND IT HAS A HAZARD THE INSTANCE-MEMBER ARM DID NOT: `TryAppendLiteralField` RECONSTRUCTS
+     `MinValue`/`MaxValue` from the field TYPE rather than reading it, and `field.GetValue(null)` runs
+     on a `FieldInfo` under persisted emit. `Math.PI` and `String.Empty` are already MEASURED as
+     absent from the table (`015-B14`'s probe walls), so the decode should census which rows the
+     corpus actually reaches before assuming the arm is uniform.
+
+  2. **THE COMPOSED INSTANCE-MEMBER RECEIVER IS A DIFFERENT AND LARGER QUESTION, AND IT IS NOT ITEM 1.**
+     `o.Inner.V` declines because `TryGetComposedReceiverType`'s member-access arm calls
+     `ColumnarExternalStaticMemberPlanner.TryGetType` and nothing else. Adding an instance-member arm
+     there widens the OWNER, not the door — it changes what the CASCADE claims, so it carries the
+     `nsharpOwned`-sets-then-fails hazard `015-B14`'s `C7` measurement is about and needs the TYPE side
+     and the APPEND side (`TryAppendComposedReceiver`) moved in ONE slice. Price it with its own decode.
+
+  3. **THE ROOT'S PLAIN SURFACE IS NOW LOAD-BEARING IN PRODUCTION AND MUST NOT BE TOUCHED ALONE.**
+     `015-B14` measured `C7`'s cost in bytes: `return a[i + 1].X` STOPS COMPILING under the widening,
+     and nothing else changes. Any future slice that widens `TryGetComposedReceiverType` must widen
+     `TryAppendRoot`'s `allowPrimitiveBinary` argument in the SAME move, and the estate block *"the
+     member-access root keeps the plain surface at the door as well as at the cascade"* plus
+     `015-B11`'s own block are what will fail if it does not.
+
+  4. **THE CENSUS REGEX IS FIXED FOR THE THIRD TIME; INHERIT THE FIXED ONE.** `015-B12` could not spell
+     `func operator ==(`; `015-B13` fixed that; neither could spell `implicit operator T(`, which has
+     no `func` keyword at all, and that is how two of `015-B14`'s twelve live moves escaped prediction.
+     The pattern now admits all three forms. Its remaining KNOWN blind spots are recorded rather than
+     guessed: expression-bodied members (measured harmless — an expression body is not a kind-25 block)
+     and property members with block bodies (not yet measured).
+
+     ⚠ AND THE CENSUS READS TEXT WHILE THE DOOR DISPATCHES ON NODE KIND. `this.count` is a kind-6
+     IDENTIFIER, not a kind-8 member access — `ColumnarExpressionSyntaxFacts`'s own header says the
+     parser flattens it — which is why six of `015-B14`'s sixteen predicted moves were already live.
+     A textual candidate list must exclude `this.`.
+
+  5. **INHERIT THE HARNESS UNCHANGED.** 68 projects / 45 built / 1,851 keys; `.tests.nl` projects driven
+     with `nlc test --project . --filter <matches nothing>`; KEY-BASED comparison, never `diff`; the
+     marker CLI is `ldc.i4.0; pop` before the driver's own `ret` on the VALUE-body path, whose tip count
+     is **367** after this slice.
+
+- Active sub-slice (015 arc, PRIOR TURN — **`015-B13`: `checked(…)` AT THE DOOR, THE DELEGATE-INVOKE
   ARGUMENT SURFACE, AND THE FRAGMENT-KIND CENSUS. THE DECODE OVERTURNS THE BRIEF'S METHOD ON ITEM 1
   AND ITS FRAMING ON ITEM 3: KIND 57 HAS **NO N# OWNER AT ALL**, SO THE `015-B6`/`015-B7` FACTORING
   DOES NOT APPLY AND THIS IS THE FIRST CLAIMED KIND WHOSE BYTE IDENTITY IS AGAINST THE DOOR'S OWN

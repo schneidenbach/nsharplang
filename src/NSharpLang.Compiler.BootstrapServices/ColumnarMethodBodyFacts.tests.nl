@@ -1044,13 +1044,14 @@ test "the expression door partitions its whole kind ledger with no hole and no o
         i = i + 1
     }
 
-    // TWELVE claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites 015-B6
-    // took, the direct CALL (015-B7), the primitive BINARY (015-B9), the TERNARY (015-B12) and the
-    // CHECKED CONTEXT (015-B13). The count is pinned so a widening cannot arrive without a block that
-    // says what it claims — this assertion is the reason neither `015-B12`'s widening nor `015-B13`'s
-    // could land silently, and it has been REWRITTEN by each of them (10 -> 11 -> 12) rather than
-    // relaxed. `015-B13`'s run of this block FAILED before it was updated, which is the block working.
-    assert claimed == 12
+    // THIRTEEN claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites
+    // 015-B6 took, the direct CALL (015-B7), the primitive BINARY (015-B9), the TERNARY (015-B12), the
+    // CHECKED CONTEXT (015-B13) and the MEMBER-ACCESS root (015-B14). The count is pinned so a widening
+    // cannot arrive without a block that says what it claims — this assertion is the reason none of
+    // `015-B12`'s, `015-B13`'s or `015-B14`'s widenings could land silently, and it has been REWRITTEN
+    // by each of them (10 -> 11 -> 12 -> 13) rather than relaxed. Each slice's first run of this block
+    // FAILED before it was updated, which is the block working.
+    assert claimed == 13
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression())
@@ -1063,17 +1064,18 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
 
     // The composites that remain declined are declined one by one. Their gates are open now; what
     // holds them back is the emitter's ELEVEN-ARM root cascade, which a claim must enter arm by arm.
     // ⚠ `CallExpression` LEFT THIS LIST in 015-B7, `BinaryExpression` in 015-B9, `TernaryExpression`
-    // in 015-B12 and `CheckedContextExpression` in 015-B13; all four are asserted CLAIMED above.
-    // `MemberAccess` did not, and the asymmetry is
-    // deliberate — a call's CALLEE may be a member access, which the call owner resolves itself, and a
-    // binary's OPERAND may be one, which the binary owner resolves itself, but a bare member access in
-    // value position is a different owner's shape.
+    // in 015-B12, `CheckedContextExpression` in 015-B13 and `MemberAccessExpression` in 015-B14; all
+    // five are asserted CLAIMED above. `ParenthesizedExpression` stays, and after `015-B14` that is the
+    // one that carries the asymmetry: the owner's own `UnwrapParentheses` is reached through its ROOT
+    // FACADE, while this door dispatches on the OUTER kind — so `(p.V)` is the parenthesis owner's
+    // shape even though `(p).V` is the instance-member owner's.
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NewExpression())
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.IndexAccessExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CastExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
 
@@ -1081,9 +1083,9 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     // driver reuse one plan object across a decline.
     untouched := new ColumnarCodePlan()
     untouched.PrepareMethodBody()
-    memberNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.MemberAccessExpression(), "f")
-    memberType := typeof(int)
-    assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(memberNodes, "f", 2, MethodBodyFactsEmptyBindings(), untouched, out memberType)
+    indexNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IndexAccessExpression(), "f")
+    indexType := typeof(int)
+    assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(indexNodes, "f", 2, MethodBodyFactsEmptyBindings(), untouched, out indexType)
     assert untouched.OperationCount == 0
 
     // A CLAIMED kind whose owner refuses the particular node — a call with no callee child at all —
@@ -3175,10 +3177,262 @@ test "every fragment a door-claimed plan opens records the kind of its own sourc
     assert shortCircuitPlan.FragmentCount > 0
     assert MethodBodyFactsFragmentKindsAgree(shortCircuitTree, shortCircuitPlan)
 
+    // 015-B14 — THE INSTANCE-MEMBER OWNER JOINS THE WALK RATHER THAN GETTING ITS OWN CENSUS. It opens
+    // TWO fragments for one root (the member access, and the receiver under it), and the receiver's is
+    // opened by `TryAppend` from `nodes.Kind(UnwrapParentheses(nodes, receiver))` — a DERIVED kind
+    // whose source node is derived beside it, which is exactly the pair this instrument compares.
+    memberTree := MethodBodyFactsMemberBody("values", "Length", "")
+    memberPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanMemberBody(memberTree, typeof(int), "values", 0, typeof(byte[]), memberPlan)
+    assert memberPlan.FragmentCount > 1
+    assert MethodBodyFactsFragmentKindsAgree(memberTree, memberPlan)
+
     // ⚠ NON-VACUITY. The walk must be able to FAIL, or a green line proves nothing about the property
     // it names. One fragment's recorded kind is overwritten in place with a kind its source node
     // demonstrably does not have, and the same walk answers false.
     assert binaryPlan.FragmentKinds[0] == ColumnarExpressionNodeKind.BinaryExpression()
     binaryPlan.FragmentKinds[0] = ColumnarExpressionNodeKind.TernaryExpression()
     assert !MethodBodyFactsFragmentKindsAgree(binaryTree, binaryPlan)
+}
+
+
+// `{ return <receiver>.<member> }`, or with a non-empty `localName`,
+// `{ <localName> := <receiver>.<member>  return <localName> }` — the member-access ROOT in each of the
+// door's two positions (015-B14).
+func MethodBodyFactsMemberBody(receiverName: string, memberName: string, localName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    nameStart := 0
+    if localName.Length > 0 {
+        nameStart = builder.AddToken(localName)
+    }
+
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    builder.AddToken(".")
+    memberStart := builder.AddToken(memberName)
+    access := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    return MethodBodyFactsWrapValueInBody(builder, access, nameStart, localName)
+}
+
+// `{ return (<receiver>).<member> }` — the same access under ONE parenthesis, so the door's dispatch
+// on the OUTER kind is testable rather than argued.
+func MethodBodyFactsParenthesisedMemberBody(receiverName: string, memberName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    builder.AddToken(".")
+    memberStart := builder.AddToken(memberName)
+    access := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    parenthesised := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
+    return MethodBodyFactsWrapValueInBody(builder, parenthesised, 0, "")
+}
+
+// `{ return <receiver>[<selector>].<member> }` where the selector is either an int LITERAL or a
+// `<literal> + <literal>` BINARY. The pair is what separates a refusal that belongs to the SELECTOR
+// from one that belongs to the member access.
+func MethodBodyFactsIndexedMemberBody(receiverName: string, memberName: string, binarySelector: bool): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
+    if binarySelector {
+        operatorStart := builder.AddToken("+")
+        right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+        selector = builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(selector, right))
+    }
+
+    access := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    memberStart := builder.AddToken(memberName)
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
+    return MethodBodyFactsWrapValueInBody(builder, root, 0, "")
+}
+
+// `{ return <literal>.<member> }` — a SCALAR-LITERAL receiver, which can only type through
+// `ColumnarInstanceMemberPlanner.TryGetComposedReceiverType`. It is the door's reachability witness
+// for `S3`.
+func MethodBodyFactsLiteralReceiverMemberBody(literalText: string, memberName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), literalText)
+    builder.AddToken(".")
+    memberStart := builder.AddToken(memberName)
+    access := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    return MethodBodyFactsWrapValueInBody(builder, access, 0, "")
+}
+
+// `{ return <owner>.<member> }` with an IDENTIFIER owner — the shape the cascade's SEVENTH arm owns.
+func MethodBodyFactsQualifiedMemberBody(ownerName: string, memberName: string): ColumnarRangePlannerTestTree {
+    return MethodBodyFactsMemberBody(ownerName, memberName, "")
+}
+
+// The driver over a builder-made tree with ONE parameter binding, which is what every member-access
+// root over a bound receiver needs.
+func MethodBodyFactsPlanMemberBody(tree: ColumnarRangePlannerTestTree, returnType: Type, name: string, ordinal: int, parameterType: Type, plan: ColumnarCodePlan): bool {
+    return ColumnarMethodBodyPlanner.TryPlanBody(
+        tree.Nodes,
+        tree.Source,
+        tree.Root,
+        returnType,
+        false,
+        MethodBodyFactsOrdinals(name, ordinal),
+        MethodBodyFactsTypes(name, parameterType),
+        MethodBodyFactsLocals(),
+        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
+        new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal),
+        null,
+        null,
+        null,
+        new ColumnarStructDef[](0),
+        new ColumnarUnionDef[](0),
+        new Dictionary<string, string[]>(StringComparer.Ordinal),
+        new string[](0),
+        new string[](0),
+        new string[](0),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        false,
+        new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal),
+        plan)
+}
+
+
+// ---- BLOCK 63 — THE MEMBER-ACCESS ROOT IN RETURN POSITION (class M, 015-B14) ----
+//
+// The FIRST claimed kind two cascade arms admit. `ColumnarExternalStaticMemberPlanner.MayPlanRoot`
+// and `ColumnarInstanceMemberPlanner.MayPlanRoot` are the same unqualified `kind == MemberAccess`
+// test, and `ColumnarRangeIndexPlanner.TryEmitFromFacts` asks the first at its SEVENTH arm and the
+// second at its EIGHTH — so the door asks both, in that order, and claims only the second. The rows
+// below are the instance-member owner's own root sequence plus the driver's `ret`, which is what
+// makes them byte-identical BY CONSTRUCTION rather than by imitation.
+test "the door claims an SZ-array Length root and writes the owner's three rows" {
+    tree := MethodBodyFactsMemberBody("values", "Length", "")
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanMemberBody(tree, typeof(int), "values", 0, typeof(byte[]), plan)
+
+    assert plan.OperationCount == 4
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldlen()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.ConvI4()
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Ret()
+
+    // The kind moved sides, and the partition still holds for it.
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
+}
+
+// The runtime-resolver receiver class, and the OTHER opcode: a reference receiver's property getter is
+// `callvirt`, not `ldlen`. Two claim shapes through one arm.
+test "the door claims a string member root through the runtime resolver" {
+    tree := MethodBodyFactsMemberBody("text", "Length", "")
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanMemberBody(tree, typeof(int), "text", 0, typeof(string), plan)
+
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+}
+
+// The claim reaches BOTH doors, as every claimed kind before it does: `TryAppendLocalDeclaration` and
+// `TryAppendReturnValue` share one dispatcher, and a widening that reached only one would be a silent
+// asymmetry nothing else measures. The declaration body carries the extra `stloc`/`ldloc` pair.
+test "the member-access claim reaches the initializer door as well as the return door" {
+    tree := MethodBodyFactsMemberBody("values", "Length", "count")
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanMemberBody(tree, typeof(int), "values", 0, typeof(byte[]), plan)
+
+    assert plan.OperationCount == 6
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldlen()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.ConvI4()
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Stloc()
+    assert plan.OpCodeValues[4] == ColumnarCodePlanContract.Ldloc()
+    assert plan.OpCodeValues[5] == ColumnarCodePlanContract.Ret()
+    assert plan.PlanLocalCount == 1
+}
+
+// THE CLAIM RULE IS STILL TYPE EQUALITY. `values.Length` is `int` and nothing else, so a `long`
+// function carrying the identical expression declines — the host's `conv.i8` is not a row this door
+// promises.
+test "a member-access root whose type is not the return type declines the body" {
+    tree := MethodBodyFactsMemberBody("values", "Length", "")
+    plan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanMemberBody(tree, typeof(long), "values", 0, typeof(byte[]), plan)
+}
+
+// THE DOOR DISPATCHES ON THE OUTER KIND, WHICH IS THE PARENTHESIS POLICY IT ALREADY HAD. `(values).Length`
+// is kind 7 at its root; the instance-member owner's own `UnwrapParentheses` is reached through its root
+// facade, not through this dispatcher, so the parenthesised form is the parenthesis owner's shape.
+test "a parenthesised member-access root stays on the door's declined side" {
+    tree := MethodBodyFactsParenthesisedMemberBody("values", "Length")
+    plan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanMemberBody(tree, typeof(int), "values", 0, typeof(byte[]), plan)
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+}
+
+
+// ---- BLOCK 64 — `S3` IS REACHED, AND THE ROOT'S SURFACE IS WHAT LIMITS IT (015-B14) ----
+//
+// `ColumnarInstanceMemberPlanner.TryGetComposedReceiverType` — `S3` — is called ONLY from `ClaimsRoot`,
+// and `ClaimsRoot` only from the cascade's eighth arm and, since this slice, from the door. `015-B12`
+// and `015-B13` both reported it STRUCTURALLY UNREACHED from a claimed body; that reporting is correct
+// up to this slice and false afterwards, and these two bodies are the measurement rather than the claim.
+//
+// A STRING-LITERAL receiver types through NOTHING ELSE: `TryGetReceiverType` wants an identifier, so the
+// literal arm of `S3` is the only route to a receiver type at all.
+test "the door reaches the composed-receiver type side through a literal receiver" {
+    tree := MethodBodyFactsLiteralReceiverMemberBody("\"abc\"", "Length")
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+}
+
+// ⚠ AND THE ROOT'S SURFACE IS STILL THE PLAIN ONE, WHICH IS NOW A PRODUCTION GUARD RATHER THAN A
+// SYMMETRY ARGUMENT. `values[0].Length` claims and `values[0 + 1].Length` declines, and the pair proves
+// the decline belongs to the SELECTOR and not to the member access. Widening `S3` alone would make the
+// TYPE side answer yes where the APPEND side answers no — and in the CASCADE that combination sets
+// `nsharpOwned` and then returns false, which declines the WHOLE FUNCTION instead of falling back to
+// the host. `015-B11`'s `C7` is the control that walks it.
+test "the member-access root keeps the plain surface at the door as well as at the cascade" {
+    ordinary := MethodBodyFactsIndexedMemberBody("names", "Length", false)
+    ordinaryPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanMemberBody(ordinary, typeof(int), "names", 0, typeof(string[]), ordinaryPlan)
+
+    binary := MethodBodyFactsIndexedMemberBody("names", "Length", true)
+    binaryPlan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanMemberBody(binary, typeof(int), "names", 0, typeof(string[]), binaryPlan)
+}
+
+
+// ---- BLOCK 65 — THE CASCADE'S ORDER, MADE EXPLICIT AT THE DOOR (015-B14) ----
+//
+// Kind 8 is the ONE kind two cascade arms admit: `ColumnarExternalStaticMemberPlanner.MayPlanRoot` and
+// `ColumnarInstanceMemberPlanner.MayPlanRoot` are the same unqualified `kind == MemberAccess` test, and
+// `ColumnarRangeIndexPlanner.TryEmitFromFacts` asks the first at arm SEVEN and the second at arm EIGHT.
+// This door claims only the second, so it asks the first and DECLINES on a positive answer.
+//
+// ⚠ THE GUARD IS PRICED HONESTLY. At this tip the two owners' claim sets are disjoint — the
+// external-static owner needs `!bindings.IsValueBinding(root)` while every receiver `ClaimsRoot` can
+// type through `TryGetReceiverType` IS a value binding, and the four non-member-access arms of
+// `TryGetComposedReceiverType` are shapes `TryGetQualifiedName` refuses outright — so the guard catches
+// nothing TODAY. It is kept because it is the cascade's ORDER rather than a re-derivation of it, and
+// this block asserts BOTH halves: that the seventh arm really owns the root (so the guard is the arm
+// that answers) and that the eighth does not (so the refusal is currently redundant).
+test "the door refuses the member-access roots the cascade's external-static arm owns" {
+    tree := MethodBodyFactsQualifiedMemberBody("StringComparison", "Ordinal")
+    ExternalStampScope(tree, "import System")
+    statement := tree.Nodes.Child(tree.Root, 0)
+    access := tree.Nodes.Child(statement, 0)
+    assert tree.Nodes.Kind(access) == ColumnarExpressionNodeKind.MemberAccessExpression()
+
+    scratch := new ColumnarCodePlan()
+    staticType := typeof(int)
+    assert ColumnarExternalStaticMemberPlanner.TryGetType(tree.Nodes, tree.Source, access, MethodBodyFactsEmptyBindings(), scratch, out staticType)
+    assert staticType.FullName == "System.StringComparison"
+
+    assert !ColumnarInstanceMemberPlanner.ClaimsRoot(tree.Nodes, tree.Source, access, MethodBodyFactsEmptyBindings())
+
+    plan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(tree, staticType, MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+    assert plan.OperationCount == 0
 }
