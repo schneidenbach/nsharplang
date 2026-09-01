@@ -7545,19 +7545,19 @@ class ColumnarParserRecovery {
             }
 
             if ch == '{' {
-                // Raw `{`-literal heuristic (Parser.cs :5019): inside a raw string a `{` preceded by `:`, or
-                // with no closing `}`, or whose content spans lines is literal text, not a hole.
+                // Raw `{`-literal heuristic: inside a raw string a `{` with no closing `}`, or whose content
+                // spans lines, is literal text, not a hole — the leniency that keeps a multi-line JSON or
+                // template brace group literal. The ported Parser.cs :5019 heuristic ALSO swallowed a `{`
+                // preceded by `:` plus optional whitespace (even across lines) — a format-specifier rule
+                // mis-scoped to TEXT context, ruled a DEFECT and removed: `"age": {person.Age}` in a raw
+                // JSON template is a HOLE, exactly as in an ordinary `$"…"` string.
                 if isRaw {
-                    previous := i - 1
-                    while previous >= start && char.IsWhiteSpace(value[previous]) {
-                        previous = previous - 1
-                    }
                     nextClose := IndexOfCharFrom(value, '}', i + 1)
                     contentSpansLine := false
                     if nextClose >= 0 {
                         contentSpansLine = RangeContainsNewline(value, i + 1, nextClose)
                     }
-                    if (previous >= start && value[previous] == ':') || nextClose < 0 || contentSpansLine {
+                    if nextClose < 0 || contentSpansLine {
                         if textBuffer.Length == 0 {
                             textStartLine = currentLine
                             textStartCol = currentCol

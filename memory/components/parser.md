@@ -289,18 +289,23 @@ no defect over **148** real-world fixtures. The margin is again total: the tranc
 state exactly **seven** positions, all inside TWO interpolation methods and all on the same
 hole-expression node and its receiver, and **zero** spans.
 
-**THE HEADLINE FINDING IS A RAW-INTERPOLATION RULE THE DELETED TEST WAS SILENTLY ACCEPTING.** In a
-**raw** interpolated string (`$"""…"""`), a `:` followed by optional whitespace SWALLOWS the next
-brace group into the literal text run instead of opening a hole — `q: {a}` and `"age": {person.Age}`
-are TEXT, while `q x{a}` and `"name": "{person.Name}"` (whose `{` follows a non-colon character) are
-holes, and a `{` followed by a newline is text as well. The colon that suppresses a hole may sit on
-an EARLIER line, and only the FIRST following brace group is swallowed (`q: {a} and {b}` gives text
-plus one hole). An ORDINARY `$"…"` interpolated string is unaffected — `$"q: {a}"` is a hole. This is
-almost certainly the format-clause scanner leaking outside a hole and it should be treated as a
-suspected defect, not as intended behaviour; it is pinned as measured because the parity corpus pins
-the owner. `TestInterpolatedRawString` asserted
+**THE HEADLINE FINDING WAS A RAW-INTERPOLATION RULE THE DELETED TEST WAS SILENTLY ACCEPTING — RULED
+A DEFECT AND FIXED.** As measured by slice 20: in a **raw** interpolated string (`$"""…"""`), a `:`
+followed by optional whitespace SWALLOWED the next brace group into the literal text run instead of
+opening a hole — `q: {a}` and `"age": {person.Age}` were TEXT, the suppressing colon could sit on an
+EARLIER line, only the FIRST following brace group was swallowed, and an ORDINARY `$"…"` string was
+unaffected (`$"q: {a}"` is a hole). `TestInterpolatedRawString` asserted
 `Assert.Single(parts.OfType<InterpolatedStringHole>())` over a four-line JSON template with TWO brace
-groups and PASSED, because the second group had become text.
+groups and PASSED because the second group had become text. The follow-up slice RULED this a defect
+— C#'s `:`-starts-a-format-specifier rule applies INSIDE a hole after an expression; this lookbehind
+mis-scoped it to TEXT context, was inconsistent with the ordinary form, silently defeated the
+canonical JSON-templating use case (no diagnostic, and N# has no `$$` alternative), and even the
+shipped `InterpolatedRawStrings` example had dodged it with `{{name}}` escapes that stopped
+demonstrating interpolation. The colon prong was removed from the raw `{`-literal heuristic in
+`ColumnarParserRecovery.ParseInterpolatedString`; `"age": {person.Age}` is now a HOLE, and the
+updated `ColumnarParserSmallFamilies` contract states two holes and three text parts. The two
+INTENDED raw-string leniencies stay and are now documented in the language tour: a `{` opening a
+MULTI-LINE brace group is literal text (the outer JSON braces), and an unclosed `{` is literal text.
 
 **AND FOUR MORE.** An N# raw string literal keeps its own indentation — `Value` carries the leading
 newline, every line's leading spaces and the trailing indentation before the closing delimiter, so

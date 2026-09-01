@@ -325,6 +325,40 @@ test "the same body in an ordinary literal decodes its escape and collapses its 
     assert parts[2].Text == "{name}"
 }
 
+// THE RAW ARM CARRIES THE PARSER'S `{`-LITERAL LENIENCIES, so the emitter's hole plan agrees with
+// `ParseInterpolatedString` about which braces of an embedded JSON template are text: a `{` whose
+// brace group spans lines, a `{` with no closing `}`, and a lone `}` are all literal TEXT in a
+// `$"""…"""` literal, while a single-line `{expr}` — including one right after a `:` — is a hole.
+// The ordinary `$"…"` arm keeps declining all three (they stay `-1` refusals there).
+
+test "the splitter's raw arm keeps multi-line brace groups and lone closing braces as text while the single-line group after a colon is a hole" {
+    parts := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"\"\"\n{\n    \"age\": {person.Age}\n}\n\"\"\"", parts)
+
+    assert parts.Count == 3
+    assert !parts[0].IsHole
+    assert parts[0].Text == "\n{\n    \"age\": "
+    assert parts[1].IsHole
+    assert parts[1].Text == "person.Age"
+    assert parts[1].Format == null
+    assert !parts[2].IsHole
+    assert parts[2].Text == "\n}\n"
+}
+
+test "the splitter's raw arm keeps an unclosed brace as text where the ordinary arm declines it" {
+    unclosed := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"\"\"open {\"\"\"", unclosed)
+    assert unclosed.Count == 1
+    assert !unclosed[0].IsHole
+    assert unclosed[0].Text == "open {"
+
+    ordinaryUnclosed := new List<ColumnarInterpolationPart>()
+    assert !ColumnarInterpolationSplitter.TrySplit("$\"open {\"", ordinaryUnclosed), "An unclosed hole in an ordinary literal stays a refusal."
+
+    ordinaryLoneClose := new List<ColumnarInterpolationPart>()
+    assert !ColumnarInterpolationSplitter.TrySplit("$\"a}b\"", ordinaryLoneClose), "A lone `}` in an ordinary literal stays a refusal."
+}
+
 test "the splitter accepts a single coalesce hole and rejects a chained one" {
     accepted := new List<ColumnarInterpolationPart>()
     assert ColumnarInterpolationSplitter.TrySplit("$\"email: {email ?? missingEmail}\"", accepted)

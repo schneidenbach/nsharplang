@@ -55,9 +55,9 @@ func Main() {
     ================================
     User Report
     ================================
-    Name:  {{name}}
-    Age:   {{age}}
-    Email: {{email}}
+    Name:  {name}
+    Age:   {age}
+    Email: {email}
     ================================
     """
 

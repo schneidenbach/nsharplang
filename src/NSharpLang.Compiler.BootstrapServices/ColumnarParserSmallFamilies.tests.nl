@@ -244,12 +244,16 @@ test "020 s20 parser header: a file with no package and no namespace leaves BOTH
 // ---- (b) LITERALS AND INTERPOLATION — 8 positive contracts and 1 negative ----
 //
 // THE DELETED FAMILY READ THE HOLES AND NEVER THE TEXT AROUND THEM, AND THAT IS WHERE THE FINDING
-// IS. `TestInterpolatedRawString` asserted `Assert.Single(parts.OfType<InterpolatedStringHole>())`
-// over a four-line JSON template containing TWO brace groups, and it passed — because in a RAW
-// interpolated string a `:` followed by whitespace SWALLOWS the next brace group into the text
-// run. `"name": "{person.Name}"` is a hole (the `{` follows a quote); `"age": {person.Age}` is
-// literal TEXT (the `{` follows `: `). The whole-tree golden states all three parts, so the text
-// part carrying `{person.Age}` is now a claim rather than an omission.
+// WAS. `TestInterpolatedRawString` asserted `Assert.Single(parts.OfType<InterpolatedStringHole>())`
+// over a four-line JSON template containing TWO brace groups, and it passed — because the ported
+// raw-string scanner let a `:` followed by optional whitespace SWALLOW the next brace group into
+// the text run, so `"age": {person.Age}` was literal TEXT while `"name": "{person.Name}"` (whose
+// `{` follows a quote) was a hole. Slice 20 pinned that as a SUSPECTED DEFECT; the follow-up slice
+// RULED it one — a format-specifier rule (colon INSIDE a hole, after an expression) mis-scoped to
+// TEXT context, inconsistent with the ordinary `$"…"` form where `$"q: {a}"` interpolates — and
+// removed it. BOTH brace groups are now holes; the whole-tree golden states all five parts, so the
+// corrected split is a claim, not an omission. A `{` opening a MULTI-LINE brace group (the outer
+// JSON braces) is still literal text — that leniency is intended and stays.
 //
 // THE RAW LITERAL ITSELF KEEPS ITS INDENTATION. N#'s `"""…"""` is not C#'s: the closing delimiter
 // does not strip the common indent, so `Value` carries the leading newline, every line's leading
@@ -276,7 +280,7 @@ test "020 s20 parser literals: an N# raw string literal keeps its OWN text verba
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "020 s20 parser literals: in a RAW interpolated string a colon followed by whitespace SWALLOWS the next brace group into the text run, so the JSON line whose brace group follows a colon stays literal TEXT while the one whose brace group follows a quote is a hole — one hole and two text parts, which is why the deleted Assert.Single passed (was ParserTests.TestInterpolatedRawString)" {
+test "020 s20 parser literals: in a RAW interpolated string BOTH single-line brace groups are holes — `{person.Age}` after `\"age\": ` exactly as `{person.Name}` after a quote — while the multi-line outer JSON braces stay literal text: two holes and three text parts (the colon-swallow the deleted Assert.Single silently accepted is FIXED) (was ParserTests.TestInterpolatedRawString)" {
     source := "\n            func Test() {\n                json := $\"\"\"\n                {\n                    \"name\": \"{person.Name}\",\n                    \"age\": {person.Age}\n                }\n                \"\"\"\n            }\n        "
     assert PsCensus(source) == ""
     actual := PsAst(source)
@@ -285,7 +289,9 @@ test "020 s20 parser literals: in a RAW interpolated string a colon followed by 
     parts3 := new List<InterpolatedStringPart>()
     parts3.Add(Golden.TextPart("\n                {\n                    \"name\": \"", 3, 29))
     parts3.Add(Golden.HolePart(Golden.Member(Golden.Ident("person", 5, 31), "Name", false, 5, 37), null, 5, 30))
-    parts3.Add(Golden.TextPart("\",\n                    \"age\": {person.Age}\n                }\n                ", 5, 43))
+    parts3.Add(Golden.TextPart("\",\n                    \"age\": ", 5, 43))
+    parts3.Add(Golden.HolePart(Golden.Member(Golden.Ident("person", 6, 29), "Age", false, 6, 35), null, 6, 28))
+    parts3.Add(Golden.TextPart("\n                }\n                ", 6, 40))
     stmts2.Add(Golden.VarDecl("json", null, Golden.Interp(parts3, true, 3, 25), VariableKind.Let, 3, 17))
     decls1.Add(Golden.Func("Test", Golden.NoParams(), null, Golden.Block(stmts2, 2, 25), null, null, null, Modifiers.None, 2, 13))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 2, 13)
