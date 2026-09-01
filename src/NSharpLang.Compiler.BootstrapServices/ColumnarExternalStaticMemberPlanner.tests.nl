@@ -1176,3 +1176,76 @@ test "range planner composes external static properties recursively" {
 
     ColumnarRangePlannerAssertEmptyRollback(shadowedPlan)
 }
+
+
+// ---- THE ROOT-APPEND SEQUENCE IS A FACTORING, NOT A SECOND SPELLING (015-B15) ----
+//
+// `TryAppendRoot` was FACTORED OUT of `Plan` rather than written beside it, and that is the whole of
+// byte identity for door kind 8's SEVENTH-arm half: the two callers differ in exactly the wrapper —
+// `PrepareV3`/`CompleteV3` versus an already-open schema-v4 method-body plan — and in nothing else.
+// The same move `015-B7` made on the direct-call owner, `015-B9` on the primitive-binary owner and
+// `015-B14` on the instance-member owner.
+test "the external static-member root sequence is the sequence Plan runs" {
+    propertyTree := ExternalStaticMemberTree("Environment", "NewLine")
+    ExternalStampScope(propertyTree, propertyTree.Source)
+    planned := ExternalPlan(propertyTree, ColumnarRangePlannerEmptyBindings())
+
+    viaAppend := new ColumnarCodePlan()
+    viaAppend.PrepareMethodBody()
+    appendType := typeof(int)
+    assert ColumnarExternalStaticMemberPlanner.TryAppendRoot(propertyTree.Nodes, propertyTree.Source, propertyTree.Root, ColumnarRangePlannerEmptyBindings(), viaAppend, out appendType)
+
+    assert appendType == planned.ResultType
+    assert viaAppend.OperationCount == planned.OperationCount
+    assert viaAppend.OpCodeValues[0] == planned.OpCodeValues[0]
+    assert viaAppend.MethodCount == planned.MethodCount
+    assert viaAppend.Methods[0].get_Name() == planned.Methods[0].get_Name()
+    declaringType := viaAppend.Methods[0].get_DeclaringType()
+    assert declaringType.FullName == "System.Environment"
+    assert viaAppend.FragmentCount == planned.FragmentCount
+    assert viaAppend.OpenFragmentCount == 0
+    assert viaAppend.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+
+    // The FIELD shape through the same seam, so the factoring is proved for both of the owner's
+    // non-literal appends rather than for the one that happens to be a `call`.
+    fieldTree := ExternalStaticMemberTree("OpCodes", "Ldsfld")
+    ExternalStampScope(fieldTree, fieldTree.Source)
+    fieldPlanned := ExternalPlan(fieldTree, ColumnarRangePlannerEmptyBindings())
+
+    fieldAppend := new ColumnarCodePlan()
+    fieldAppend.PrepareMethodBody()
+    fieldType := typeof(int)
+    assert ColumnarExternalStaticMemberPlanner.TryAppendRoot(fieldTree.Nodes, fieldTree.Source, fieldTree.Root, ColumnarRangePlannerEmptyBindings(), fieldAppend, out fieldType)
+
+    assert fieldType == fieldPlanned.ResultType
+    assert fieldAppend.OperationCount == fieldPlanned.OperationCount
+    assert fieldAppend.OpCodeValues[0] == ColumnarCodePlanContract.Ldsfld()
+    assert fieldAppend.FieldCount == 1
+    assert fieldAppend.Fields[0].get_Name() == fieldPlanned.Fields[0].get_Name()
+    assert fieldAppend.Fields[0].get_DeclaringType() == typeof(OpCodes)
+}
+
+// THE NULL CONTRACT IS THE SOFTER ONE THE SECOND CALLER NEEDS, AND `Plan`'s IS UNCHANGED. A door that
+// hands this a null table must decline rather than crash; `Plan` still throws through `ValidateInputs`
+// before the sequence is reached, so the owner's existing contract is untouched.
+test "the external static-member root sequence declines bad inputs while Plan still throws" {
+    tree := ExternalStaticMemberTree("Environment", "NewLine")
+    ExternalStampScope(tree, tree.Source)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    resultType := typeof(int)
+
+    assert !ColumnarExternalStaticMemberPlanner.TryAppendRoot(null, tree.Source, tree.Root, ColumnarRangePlannerEmptyBindings(), plan, out resultType)
+    assert !ColumnarExternalStaticMemberPlanner.TryAppendRoot(tree.Nodes, null, tree.Root, ColumnarRangePlannerEmptyBindings(), plan, out resultType)
+    assert !ColumnarExternalStaticMemberPlanner.TryAppendRoot(tree.Nodes, tree.Source, -1, ColumnarRangePlannerEmptyBindings(), plan, out resultType)
+    assert !ColumnarExternalStaticMemberPlanner.TryAppendRoot(tree.Nodes, tree.Source, tree.Nodes.Kinds.Length, ColumnarRangePlannerEmptyBindings(), plan, out resultType)
+    assert !ColumnarExternalStaticMemberPlanner.TryAppendRoot(tree.Nodes, tree.Source, tree.Root, null, plan, out resultType)
+    assert !ColumnarExternalStaticMemberPlanner.TryAppendRoot(tree.Nodes, tree.Source, tree.Root, ColumnarRangePlannerEmptyBindings(), null, out resultType)
+    assert plan.OperationCount == 0
+    assert plan.Status == ColumnarFragmentPlanStatus.NotOwned
+
+    assert throws InvalidOperationException {
+        ColumnarExternalStaticMemberPlanner.Plan(null, tree.Source, tree.Root, ColumnarRangePlannerEmptyBindings(), new ColumnarCodePlan())
+    }
+}

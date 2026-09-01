@@ -2,6 +2,7 @@ namespace NSharpLang.ColumnarEmitFacts.Tests
 
 import Demo
 import System
+import System.Reflection.Emit
 
 
 // THE FOUR REMAINING `ColumnarCompiler.TryEmitProgram` CASES, ON THE SAME ROUTE THE FILE BESIDE
@@ -1345,4 +1346,129 @@ test "the member-access roots the door declines are emitted by the host exactly 
     assert DoorMemberOfCallResult("  ab  ") == 2
     assert DoorMemberParenthesisedRoot(box) == 7
     assert DoorMemberWidenedReturn(box) == 7L
+}
+
+
+// ---- THE EXTERNAL-STATIC ROOT: DOOR KIND 8's OTHER OWNER (class X, 015-B15) ----
+//
+// `015-B14` gave the door kind 8 and claimed only the cascade's EIGHTH arm; its SEVENTH —
+// `ColumnarExternalStaticMemberPlanner` — was the named remainder and the arm REFUSED it. This slice
+// gives that owner its own `TryAppendRoot` and the refusal becomes a CLAIM, so door kind 8 is CLOSED:
+// both cascade arms are owned and the arm carries no scratch plan and no refusal.
+//
+// The owner has THREE appends and all three are exercised here: a static PROPERTY (`call`), a static
+// readonly FIELD (`ldsfld`), and a LITERAL field, which `TryAppendLiteralField` reconstructs rather
+// than loads — an enum member through `Convert.ToInt32(field.GetValue(null))` and a primitive
+// `MinValue`/`MaxValue` from the field TYPE alone. Only the first two are reached by the corpus's own
+// live bodies; the literal arm is reached here and by the probe set.
+
+// A static PROPERTY over a reference result.
+func DoorStaticProperty(): string {
+    return Environment.NewLine
+}
+
+// A static PROPERTY over a VALUE result.
+func DoorStaticValueProperty(): DateTime {
+    return DateTime.UtcNow
+}
+
+// A static readonly FIELD whose owner is a DOTTED chain rather than a bare name.
+func DoorStaticQualifiedField(): OpCode {
+    return System.Reflection.Emit.OpCodes.Ldsfld
+}
+
+// A static readonly FIELD that is NOT literal, so it loads rather than reconstructing.
+func DoorStaticReadonlyField(): DateTime {
+    return DateTime.UnixEpoch
+}
+
+// The LITERAL arm, enum half.
+func DoorStaticEnumLiteral(): StringComparison {
+    return StringComparison.Ordinal
+}
+
+// The LITERAL arm, RECONSTRUCTION half — the value is rebuilt from the field type and the member name,
+// never read off the `FieldInfo`.
+func DoorStaticIntMax(): int {
+    return Int32.MaxValue
+}
+
+func DoorStaticLongMin(): long {
+    return Int64.MinValue
+}
+
+// The INITIALIZER door as well as the return door.
+func DoorStaticDeclaration(): string {
+    captured := Environment.NewLine
+    return captured
+}
+
+// An INSTANCE method rather than a free function — the shape `RangeAndIndex.tests.nl:106` carries.
+class DoorStaticReader {
+    func ReadNewLine(): string {
+        return Environment.NewLine
+    }
+}
+
+test "the expression door claims the external static-member root through all three appends" {
+    assert DoorStaticProperty() == Environment.NewLine
+    assert DoorStaticDeclaration() == Environment.NewLine
+
+    utcNow := DoorStaticValueProperty()
+    assert utcNow.Year >= 2020
+
+    code := DoorStaticQualifiedField()
+    codeText := code.ToString()
+    assert codeText == "ldsfld"
+
+    epoch := DoorStaticReadonlyField()
+    assert epoch.Year == 1970
+
+    comparison := DoorStaticEnumLiteral()
+    assert comparison == StringComparison.Ordinal
+
+    intMax := DoorStaticIntMax()
+    assert intMax == 2147483647
+
+    longMin := DoorStaticLongMin()
+    assert longMin == Int64.MinValue
+
+    reader := new DoorStaticReader()
+    assert reader.ReadNewLine() == Environment.NewLine
+}
+
+
+// ---- AND THE MEMBER-ACCESS ROOTS THE SEVENTH ARM DOES **NOT** CLAIM (015-B15) ----
+//
+// Named precisely rather than loosely, because a MARKED CLI was run over these three bodies and only
+// ONE of them is a door decline at all. The other two are door claims through OTHER arms, and saying
+// "the door declines them" would have been false in bytes.
+
+// THE ONE REAL DECLINE OF THE THREE. The door dispatches on the OUTER kind, so a parenthesised ROOT
+// stays the parenthesis owner's shape — the same policy `015-B14` pinned for the instance-member root,
+// and a marked CLI says this body is on the host path on both sides.
+func DoorStaticParenthesisedRoot(): string {
+    return (Environment.NewLine)
+}
+
+// A COMPOSED root whose RECEIVER is an external static member is the EIGHTH arm's, not the seventh's:
+// the seventh finds no row for owner `DateTime.UnixEpoch`, and `TryGetComposedReceiverType`'s
+// member-access arm then types the receiver through that same owner. A marked CLI says it is
+// door-claimed on BOTH sides — `015-B14` took it, and this slice does not move it.
+func DoorStaticComposedReceiver(): int {
+    return DateTime.UnixEpoch.Year
+}
+
+// A name the body can SEE is a nearer binding, so the external-static owner refuses it and the
+// IDENTIFIER owner takes the read instead — a kind-6 claim the door has held since `015-B5`, and a
+// marked CLI says it is door-claimed on BOTH sides rather than moved by this slice.
+func DoorStaticShadowedOwner(Environment: string): string {
+    marker := Environment
+    return marker
+}
+
+test "the member-access roots outside the external-static arm keep their existing owners" {
+    assert DoorStaticParenthesisedRoot() == Environment.NewLine
+    assert DoorStaticComposedReceiver() == 1970
+    assert DoorStaticShadowedOwner("shadow") == "shadow"
 }

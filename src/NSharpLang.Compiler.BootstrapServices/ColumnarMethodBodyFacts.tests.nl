@@ -3187,6 +3187,18 @@ test "every fragment a door-claimed plan opens records the kind of its own sourc
     assert memberPlan.FragmentCount > 1
     assert MethodBodyFactsFragmentKindsAgree(memberTree, memberPlan)
 
+    // 015-B15 — THE EXTERNAL-STATIC OWNER JOINS THE WALK RATHER THAN GETTING ITS OWN CENSUS, exactly
+    // as the instance-member owner did in `015-B14`. Its `BeginFragment` is one of the seven sites
+    // that pass a NAMED ledger constant rather than deriving the kind, three lines under a guard
+    // proving that same kind — which is precisely the site class this instrument exists to catch
+    // drifting, and it now walks through the door instead of being argued about.
+    staticTree := MethodBodyFactsQualifiedMemberBody("Environment", "NewLine")
+    ExternalStampScope(staticTree, "import System")
+    staticPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(staticTree, typeof(string), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), staticPlan)
+    assert staticPlan.FragmentCount > 0
+    assert MethodBodyFactsFragmentKindsAgree(staticTree, staticPlan)
+
     // ⚠ NON-VACUITY. The walk must be able to FAIL, or a green line proves nothing about the property
     // it names. One fragment's recorded kind is overwritten in place with a kind its source node
     // demonstrably does not have, and the same walk answers false.
@@ -3404,21 +3416,22 @@ test "the member-access root keeps the plain surface at the door as well as at t
 }
 
 
-// ---- BLOCK 65 — THE CASCADE'S ORDER, MADE EXPLICIT AT THE DOOR (015-B14) ----
+// ---- BLOCK 65 — THE CASCADE'S ORDER, AND BOTH OF ITS ARMS (class X, 015-B14 → 015-B15) ----
 //
 // Kind 8 is the ONE kind two cascade arms admit: `ColumnarExternalStaticMemberPlanner.MayPlanRoot` and
 // `ColumnarInstanceMemberPlanner.MayPlanRoot` are the same unqualified `kind == MemberAccess` test, and
 // `ColumnarRangeIndexPlanner.TryEmitFromFacts` asks the first at arm SEVEN and the second at arm EIGHT.
-// This door claims only the second, so it asks the first and DECLINES on a positive answer.
+// `015-B14` claimed only the second and REFUSED the first, into a scratch plan; `015-B15` gives the
+// first owner its own `TryAppendRoot` and the refusal becomes a CLAIM. Door kind 8 is CLOSED — there
+// is no scratch plan and no refusal left in the arm.
 //
-// ⚠ THE GUARD IS PRICED HONESTLY. At this tip the two owners' claim sets are disjoint — the
-// external-static owner needs `!bindings.IsValueBinding(root)` while every receiver `ClaimsRoot` can
-// type through `TryGetReceiverType` IS a value binding, and the four non-member-access arms of
-// `TryGetComposedReceiverType` are shapes `TryGetQualifiedName` refuses outright — so the guard catches
-// nothing TODAY. It is kept because it is the cascade's ORDER rather than a re-derivation of it, and
-// this block asserts BOTH halves: that the seventh arm really owns the root (so the guard is the arm
-// that answers) and that the eighth does not (so the refusal is currently redundant).
-test "the door refuses the member-access roots the cascade's external-static arm owns" {
+// ⚠ THE ORDER IS STILL ASSERTED, NOT ASSUMED. The two owners' claim sets are disjoint at this tip —
+// the external-static owner needs `!bindings.IsValueBinding(root)` while every receiver `ClaimsRoot`
+// can type through `TryGetReceiverType` IS a value binding, and four of `TryGetComposedReceiverType`'s
+// five arms are shapes `TryGetQualifiedName` refuses outright — so this block pins BOTH halves: that
+// the seventh arm owns the root, that the eighth does NOT, and that the rows the door writes are
+// therefore unambiguously the seventh arm's.
+test "the door claims the member-access roots the cascade's external-static arm owns" {
     tree := MethodBodyFactsQualifiedMemberBody("StringComparison", "Ordinal")
     ExternalStampScope(tree, "import System")
     statement := tree.Nodes.Child(tree.Root, 0)
@@ -3430,9 +3443,133 @@ test "the door refuses the member-access roots the cascade's external-static arm
     assert ColumnarExternalStaticMemberPlanner.TryGetType(tree.Nodes, tree.Source, access, MethodBodyFactsEmptyBindings(), scratch, out staticType)
     assert staticType.FullName == "System.StringComparison"
 
+    // The EIGHTH arm refuses it, so the rows below belong to the seventh and to nothing else.
     assert !ColumnarInstanceMemberPlanner.ClaimsRoot(tree.Nodes, tree.Source, access, MethodBodyFactsEmptyBindings())
 
     plan := new ColumnarCodePlan()
-    assert !MethodBodyFactsPlanCallBody(tree, staticType, MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+    assert MethodBodyFactsPlanCallBody(tree, staticType, MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    // An enum member is a LITERAL field, so the owner reconstructs it rather than loading it:
+    // `TryAppendLiteralField`'s enum arm is `Convert.ToInt32(field.GetValue(null))` + `ldc.i4`.
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ret()
+    assert plan.Int32Count == 1
+    assert plan.Int32Values[0] == 4
+    assert plan.FieldCount == 0
+    assert plan.MethodCount == 0
+    assert plan.OpenFragmentCount == 0
+    assert plan.FragmentParentIndices[0] == -1
+}
+
+// THE OTHER TWO APPENDS THIS OWNER HAS, AND THEY ARE THE ONES THE CORPUS ACTUALLY REACHES. Its five
+// live corpus bodies are four static PROPERTIES (`call`) and one static readonly FIELD (`ldsfld`);
+// the literal arm above is reached only by probes. Both rows are legal in the door's schema by
+// construction rather than by luck: `AppendFieldInstruction` admits `Ldsfld` under
+// `AllowsScalarOrMethodBodyInstructions()`, and the method-body height model's `ApplyStaticField`
+// demands a NON-literal static field — which a literal field never reaches, because it becomes an
+// `ldc.i4`/`ldc.i8` instead.
+test "the door claims an external static property root and writes the owner's call" {
+    tree := MethodBodyFactsQualifiedMemberBody("Environment", "NewLine")
+    ExternalStampScope(tree, "import System")
+
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(string), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    assert plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ret()
+    assert plan.MethodCount == 1
+    assert plan.Methods[0].get_ReturnType() == typeof(string)
+    assert plan.PlanLocalCount == 0
+
+    method := MethodBodyFactsDynamicMethod("NSharpB15StaticPropertyBody", typeof(string))
+    ColumnarCodePlanExecutor.ExecuteMethodBody(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToString(method.Invoke(target, MethodBodyFactsNoArguments()), CultureInfo.InvariantCulture) == Environment.NewLine
+}
+
+test "the door claims an external static field root and writes the owner's ldsfld" {
+    tree := MethodBodyFactsQualifiedMemberBody("OpCodes", "Ldsfld")
+    ExternalStampScope(tree, "import System.Reflection.Emit")
+
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(OpCode), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldsfld()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ret()
+    assert plan.FieldCount == 1
+    assert !plan.Fields[0].get_IsLiteral()
+    assert plan.Fields[0].get_IsStatic()
+    assert plan.Fields[0].get_DeclaringType() == typeof(OpCodes)
+}
+
+// THE CLAIM REACHES BOTH DOORS, as every claimed kind before it does: `TryAppendLocalDeclaration` and
+// `TryAppendReturnValue` share one dispatcher, and a widening that reached only one would be a silent
+// asymmetry nothing else measures.
+test "the external static claim reaches the initializer door as well as the return door" {
+    tree := MethodBodyFactsMemberBody("Environment", "NewLine", "nl")
+    ExternalStampScope(tree, "import System")
+
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(string), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    assert plan.OperationCount == 4
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Stloc()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ldloc()
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Ret()
+    assert plan.PlanLocalCount == 1
+}
+
+// THE CLAIM RULE IS STILL TYPE EQUALITY. `Environment.NewLine` is `string` and nothing else, so an
+// `object` function carrying the identical expression declines — the host's widening is not a row
+// this door promises.
+test "an external static root whose type is not the return type declines the body" {
+    tree := MethodBodyFactsQualifiedMemberBody("Environment", "NewLine")
+    ExternalStampScope(tree, "import System")
+
+    plan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(tree, typeof(object), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    // ⚠ AND THE DECLINE LEAVES THE PLAN HALF-BUILT RATHER THAN EMPTY, WHICH IS THE DRIVER'S WRITTEN
+    // CONTRACT AND NOT AN ACCIDENT: `TryPlanBody` appends the value's rows and only THEN compares
+    // `valueType` with `returnType`, so the caller is expected to discard a declined plan. The `call`
+    // row is here; the `ret` is not.
+    assert plan.OperationCount == 1
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+}
+
+// ⚠ THE ARM OFFERS **ONE OPEN PLAN TO TWO OWNERS**, WHICH NO DOOR ARM BEFORE IT DOES, AND
+// `ColumnarCodePlan.Rollback` IS WHAT MAKES THE RETRY LEGAL RATHER THAN A CRASH. In the CASCADE each
+// owner's `Plan` calls `PrepareV3` and the second call resets the plan; at the door there is no
+// reset. A string-literal receiver is the shape that walks it: `TryGetQualifiedName` refuses a
+// literal outright, so the seventh arm opens a fragment and rolls back, and the eighth then claims
+// the SAME plan through `TryGetComposedReceiverType`'s literal arm. Without `Rollback`'s
+// `Status = NotOwned` the second owner's input gate would THROW instead of appending.
+test "a declined external static root leaves one open plan fit for the next owner" {
+    tree := MethodBodyFactsLiteralReceiverMemberBody("\"abc\"", "Length")
+    statement := tree.Nodes.Child(tree.Root, 0)
+    access := tree.Nodes.Child(statement, 0)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    declinedType := typeof(int)
+    assert !ColumnarExternalStaticMemberPlanner.TryAppendRoot(tree.Nodes, tree.Source, access, MethodBodyFactsEmptyBindings(), plan, out declinedType)
+
     assert plan.OperationCount == 0
+    assert plan.FragmentCount == 0
+    assert plan.OpenFragmentCount == 0
+    assert plan.Status == ColumnarFragmentPlanStatus.NotOwned
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Building
+    assert plan.ResultType == null
+
+    claimedType := typeof(int)
+    assert ColumnarInstanceMemberPlanner.TryAppendRoot(tree.Nodes, tree.Source, access, MethodBodyFactsEmptyBindings(), plan, out claimedType)
+    assert claimedType == typeof(int)
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
 }
