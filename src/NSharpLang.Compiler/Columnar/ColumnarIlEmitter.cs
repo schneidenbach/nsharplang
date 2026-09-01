@@ -15662,124 +15662,18 @@ internal sealed class ColumnarIlEmitter
         }
     }
 
-    // Type equality that treats two CLOSED instantiations of the same user generic as EQUAL even when
-    // they are distinct TypeBuilderInstantiation instances: MakeGenericType over a TypeBuilder does not
-    // cache, and TypeBuilderInstantiation equality is referential — so `new Box<Box<int>>(new Box<int>(v))`
-    // produces one Box<int> from the inner construction and ANOTHER from the ctor-parameter substitution.
+    // TYPE EQUIVALENCE IS OWNED BY N#. `ColumnarTypeEquivalenceFacts` (BootstrapServices) holds the
+    // whole five-function rule — the enum, by-ref, SZ-array, TypeBuilder and closed-generic arms plus
+    // every guarded reflection read. These three members are call-shape forwarders so the emitter's 104
+    // existing call sites keep their spelling; there is no second copy of the rule here.
     private static bool TypesEquivalent(Type a, Type b)
-    {
-        if (a == b)
-            return true;
-        if (ColumnarTypeOfPlanner.IsEnumType(a) || ColumnarTypeOfPlanner.IsEnumType(b))
-            return IsSameEnumType(a, b);
-        if (IsByRefType(a) || IsByRefType(b))
-            return IsByRefType(a)
-                   && IsByRefType(b)
-                   && TryGetElementType(a) is { } aElement
-                   && TryGetElementType(b) is { } bElement
-                   && TypesEquivalent(aElement, bElement);
-        if (IsSzArrayType(a) || IsSzArrayType(b))
-            return IsSzArrayType(a)
-                   && IsSzArrayType(b)
-                   && TryGetElementType(a) is { } aElement
-                   && TryGetElementType(b) is { } bElement
-                   && TypesEquivalent(aElement, bElement);
-        if (a is TypeBuilder || b is TypeBuilder)
-        {
-            if (a is not TypeBuilder leftBuilder || b is not TypeBuilder rightBuilder)
-                return false;
-            return string.Equals(leftBuilder.FullName, rightBuilder.FullName, StringComparison.Ordinal)
-                && ReferenceEquals(leftBuilder.Module, rightBuilder.Module);
-        }
-        // Structural equivalence for closed generic INSTANTIATIONS — user-headed (Box<int>) AND
-        // builder-bound BCL-headed (List<Pt>, Dictionary<string,Pt>): every independent MakeGenericType
-        // over a builder yields a referentially DISTINCT TypeBuilderInstantiation (probe-proven), so
-        // definitions must reference-match and arguments recurse. Fully baked instantiations are cached
-        // by the runtime and already matched by the == above.
-        if (!a.IsGenericType || !b.IsGenericType || a.IsGenericTypeDefinition || b.IsGenericTypeDefinition)
-            return false;
-        Type aDef, bDef;
-            aDef = a.GetGenericTypeDefinition();
-            bDef = b.GetGenericTypeDefinition();
-        if (!TypesEquivalent(aDef, bDef))
-            return false;
-        var aArgs = a.GetGenericArguments();
-        var bArgs = b.GetGenericArguments();
-        if (aArgs.Length != bArgs.Length)
-            return false;
-        for (var i = 0; i < aArgs.Length; i++)
-        {
-            if (!TypesEquivalent(aArgs[i], bArgs[i]))
-                return false;
-        }
-        return true;
-    }
-
-    private static bool IsByRefType(Type type)
-    {
-        try
-        {
-            return type.IsByRef;
-        }
-        catch (NotImplementedException)
-        {
-            return false;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
-    }
+        => ColumnarTypeEquivalenceFacts.TypesEquivalent(a, b);
 
     private static bool IsSzArrayType(Type type)
-    {
-        try
-        {
-            return type.IsSZArray;
-        }
-        catch (NotImplementedException)
-        {
-        }
-        catch (NotSupportedException)
-        {
-        }
-
-        return TryGetElementType(type) != null
-               && ((type.Name?.EndsWith("[]", StringComparison.Ordinal) ?? false)
-                   || (type.FullName?.EndsWith("[]", StringComparison.Ordinal) ?? false));
-    }
+        => ColumnarTypeEquivalenceFacts.IsSzArrayType(type);
 
     private static Type? TryGetElementType(Type type)
-    {
-        try
-        {
-            return type.GetElementType();
-        }
-        catch (NotImplementedException)
-        {
-            return null;
-        }
-        catch (NotSupportedException)
-        {
-            return null;
-        }
-    }
-
-    private static bool IsSameEnumType(Type a, Type b)
-    {
-        if (!ColumnarTypeOfPlanner.IsEnumType(a) || !ColumnarTypeOfPlanner.IsEnumType(b))
-            return false;
-        try
-        {
-            if (a.TypeHandle.Equals(b.TypeHandle))
-                return true;
-        }
-        catch (NotSupportedException)
-        {
-        }
-        return string.Equals(a.FullName, b.FullName, StringComparison.Ordinal)
-            && ReferenceEquals(a.Module, b.Module);
-    }
+        => ColumnarTypeEquivalenceFacts.TryGetElementType(type);
 
     private bool IsKnownEnumType(Type type)
     {

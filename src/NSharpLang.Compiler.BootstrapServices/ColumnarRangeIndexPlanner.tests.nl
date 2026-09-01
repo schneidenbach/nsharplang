@@ -167,6 +167,32 @@ func ColumnarRangePlannerOrdinaryLiteralAccess(): ColumnarRangePlannerTestTree {
     return builder.Build(root)
 }
 
+// `target[1 + 1]` — an ordinary index whose SELECTOR is a primitive binary. 015-B10.
+func ColumnarRangePlannerBinarySelectorAccess(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "target")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    operatorStart := builder.AddToken("+")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    selector := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(left, right))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+
+    return builder.Build(root)
+}
+
+// `("ab" + "cd")[0]` — an ordinary index whose indexed RECEIVER is a primitive binary. 015-B10.
+func ColumnarRangePlannerBinaryReceiverAccess(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), "\"ab\"")
+    operatorStart := builder.AddToken("+")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), "\"cd\"")
+    receiver := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(left, right))
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+
+    return builder.Build(root)
+}
+
 func ColumnarRangePlannerFromEndIndexedCount(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
@@ -999,4 +1025,71 @@ test "range planner rejects corrupt parameter facts and invalid roots" {
     assert throws InvalidOperationException {
         ColumnarRangeIndexPlanner.Plan(null, tree.Source, tree.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), new ColumnarCodePlan())
     }
+}
+
+
+// ---- THE INHERITED VALUE SURFACE (015-B10) ----
+//
+// This owner has two named value surfaces and every value it appends INSIDE an expression it is already
+// planning now inherits the caller's. The pin is the SAME NODE through both surfaces: `target[1 + 1]`
+// claims on the construction surface and declines on the plain one, so the difference is the surface
+// rather than the shape, the operand types or the frame.
+test "the index owner inherits the value surface of the position it is planned in" {
+    tree := ColumnarRangePlannerBinarySelectorAccess()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "target", 0, typeof(int[]))
+
+    constructionPlan := new ColumnarCodePlan()
+    constructionPlan.EnableNestedValueFrame()
+    constructionPlan.PrepareV3()
+    constructionType := typeof(string)
+    assert ColumnarRangeIndexPlanner.TryAppendConstructionValue(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), constructionPlan, -1, 0, out constructionType)
+    assert constructionType == typeof(int)
+    assert constructionPlan.OpCodeValues[constructionPlan.OperationCount - 1] == ColumnarCodePlanContract.LdelemI4()
+
+    plainPlan := new ColumnarCodePlan()
+    plainPlan.EnableNestedValueFrame()
+    plainPlan.PrepareV3()
+    plainType := typeof(string)
+    assert !ColumnarRangeIndexPlanner.TryAppendPlannableValue(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plainPlan, -1, 0, out plainType)
+
+    // The ordinary literal selector claims on BOTH surfaces, so the decline above is the BINARY's and
+    // not the index's — the plain surface did not become narrower, it simply never carried a binary.
+    literal := ColumnarRangePlannerOrdinaryLiteralAccess()
+    literalPlan := new ColumnarCodePlan()
+    literalPlan.EnableNestedValueFrame()
+    literalPlan.PrepareV3()
+    literalType := typeof(string)
+    assert ColumnarRangeIndexPlanner.TryAppendPlannableValue(literal.Nodes, literal.Source, literal.Root, bindings, ColumnarRangeIndexHandles.Resolve(), literalPlan, -1, 0, out literalType)
+    assert literalType == typeof(int)
+
+    // AND THE RECEIVER IS THE OTHER HALF OF THE SAME DECISION: the INDEXED value is a binary here, not
+    // the selector, and it claims on the construction surface and declines on the plain one too.
+    receiver := ColumnarRangePlannerBinaryReceiverAccess()
+    receiverPlan := new ColumnarCodePlan()
+    receiverPlan.EnableNestedValueFrame()
+    receiverPlan.PrepareV3()
+    receiverType := typeof(int)
+    assert ColumnarRangeIndexPlanner.TryAppendConstructionValue(receiver.Nodes, receiver.Source, receiver.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), receiverPlan, -1, 0, out receiverType)
+    assert receiverType == typeof(char)
+
+    plainReceiverPlan := new ColumnarCodePlan()
+    plainReceiverPlan.EnableNestedValueFrame()
+    plainReceiverPlan.PrepareV3()
+    plainReceiverType := typeof(int)
+    assert !ColumnarRangeIndexPlanner.TryAppendPlannableValue(receiver.Nodes, receiver.Source, receiver.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), plainReceiverPlan, -1, 0, out plainReceiverType)
+}
+
+// The ROOT is the one append that stays plain, and it is not an oversight: a root has no enclosing
+// position to inherit from. `Plan` still refuses an ordinary index at its own root whatever the
+// selector is, so the widening moved the INNER surface and left the facade's ownership boundary alone.
+test "the facade root keeps the plain surface and still declines an ordinary index" {
+    tree := ColumnarRangePlannerBinarySelectorAccess()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "target", 0, typeof(int[]))
+
+    rootPlan := new ColumnarCodePlan()
+    assert ColumnarRangeIndexPlanner.Plan(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), rootPlan) == ColumnarFragmentPlanStatus.NotOwned
+
+    ColumnarRangePlannerAssertEmptyRollback(rootPlan)
 }

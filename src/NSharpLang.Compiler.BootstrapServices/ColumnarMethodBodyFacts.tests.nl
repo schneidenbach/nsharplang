@@ -2324,6 +2324,27 @@ func MethodBodyFactsDeclareThenIndexArgumentBody(initMember: string, returnMembe
 }
 
 
+// `{ <local> := <initMember>()  return <returnMember>(<local>[1 + 1]) }` — the same shape with a
+// BINARY selector, which is what the index owner's inherited value surface buys (015-B10).
+func MethodBodyFactsDeclareThenBinaryIndexArgumentBody(initMember: string, returnMember: string, localName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    nameStart := builder.AddToken(localName)
+    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
+    initCall := DirectCallAppendCall(builder, initCallee, DirectCallNoArguments())
+    declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initCall))
+    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), returnMember)
+    receiver := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), nameStart, localName.Length, nameStart, localName.Length, new int[](0))
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    operatorStart := builder.AddToken("+")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    selector := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, MethodBodyFactsInts2(left, right))
+    indexAccess := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, nameStart, localName.Length, MethodBodyFactsInts2(receiver, selector))
+    call := DirectCallAppendCall(builder, returnCallee, DirectCallOneArgument(indexAccess))
+    statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(call))
+    return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
+}
+
+
 // ---- BLOCK 48 — THE PRIMITIVE-BINARY COMPOSITE IN RETURN POSITION (class PB, 015-B9) ----
 //
 // The third owner the door enters through its own root sequence, and the first whose consumer of the
@@ -2511,4 +2532,34 @@ func MethodBodyFactsOrdinaryIndexTree(name: string, selectorText: string): Colum
     receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
     selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), selectorText)
     return builder.Build(builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(receiver, selector)))
+}
+
+
+// ---- BLOCK 54 — A COMPOSITE INDEX SELECTOR, END TO END THROUGH THE DOOR (015-B10) ----
+//
+// `015-B9` left `P9` (`Callee(arr[s.Length - 4])`) declining and named the reason: the index owner typed
+// its selector with the PLAIN value surface while the enclosing position used the construction one.
+// The surface is inherited now, so the selector's rows sit inside the index's, inside the call's.
+test "the door claims a call whose index argument carries a binary selector" {
+    makeFacts := DirectCallSiblingFacts("MethodBodyFactsBinaryIndexHost", "Make", new Type[](0), typeof(int[]))
+    oneInt := new Type[](1)
+    oneInt[0] = typeof(int)
+    takeFacts := DirectCallSiblingFacts("MethodBodyFactsBinaryIndexHost", "Take", oneInt, typeof(int))
+    siblings := MethodBodyFactsSiblings2("Make", makeFacts, "Take", takeFacts)
+
+    tree := MethodBodyFactsDeclareThenBinaryIndexArgumentBody("Make", "Take", "arr")
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(int), MethodBodyFactsNoSourceTypes(), siblings, plan)
+
+    // The declaration's call and store; then the array, the selector's two literals and its `add`, the
+    // element load, the call and the `ret`.
+    assert plan.OperationCount == 9
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Stloc()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ldloc()
+    assert plan.OpCodeValues[5] == ColumnarCodePlanContract.Add()
+    assert plan.OpCodeValues[6] == ColumnarCodePlanContract.LdelemI4()
+    assert plan.OpCodeValues[7] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[8] == ColumnarCodePlanContract.Ret()
+    assert plan.OpenFragmentCount == 0
 }

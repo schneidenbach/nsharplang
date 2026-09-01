@@ -750,3 +750,86 @@ test "the expression door claims the binary composite and the arguments a call n
     assert DriverIndexArgument() == 4
     assert DriverIndexSelectorArgument() == 4
 }
+
+
+// ---- THE INDEX/RANGE OWNER'S INHERITED VALUE SURFACE, AND THE CONSTRUCTION SCRATCH'S FRAME (015-B10) ----
+//
+// `015-B9` widened the direct-call owner's ARGUMENT surface and left the index/range owner's own six
+// inner appends on the plain one, so `DriverIndexSelectorArgument` above still declined. All five inner
+// appends now inherit the surface of the position the whole expression occupies, and the construction
+// owner's ADMISSION scratch declares the frame its APPEND sites already pass.
+//
+// ⚠ TWO OF THESE BODIES DID NOT COMPILE AT ALL AT `6252626c7` — `DriverIndexFromEndSelector` and
+// `DriverRangeEndpointSelector` both failed the whole build with `NL103`, because the LEGACY host cannot
+// emit a composite inside `^` or inside a range endpoint either. They are a CAPABILITY GAIN rather than
+// a parity move, which is why they are executed here for their values and not merely planned.
+
+func DriverTakeChar(value: char): int {
+    return (int)value
+}
+
+func DriverTakeText(text: string): int {
+    return text.Length
+}
+
+func DriverSumArray(items: int[]): int {
+    return items.Length
+}
+
+// SELECTOR — a binary selector over a parameter receiver, the shape with no plan local in it.
+func DriverIndexBinarySelector(values: int[], offset: int): int {
+    return DriverMirrorTake(values[offset + 1])
+}
+
+// RECEIVER — the INDEXED value is itself a binary (string concatenation), the other half of the
+// index-access widening.
+func DriverIndexConcatReceiver(text: string): int {
+    return DriverTakeChar((text + "x")[0])
+}
+
+// CAST OPERAND — the selector is a numeric cast whose operand is a binary.
+func DriverIndexCastSelector(values: int[], scale: double): int {
+    return DriverMirrorTake(values[(int)(scale + 1.0)])
+}
+
+// FROM-END OPERAND — `^(offset + 1)`. DID NOT COMPILE BEFORE THIS SLICE.
+func DriverIndexFromEndSelector(values: int[], offset: int): int {
+    return DriverMirrorTake(values[^(offset + 1)])
+}
+
+// RANGE ENDPOINT — `(offset + 1)..`. DID NOT COMPILE BEFORE THIS SLICE.
+func DriverRangeEndpointSelector(text: string, offset: int): int {
+    return DriverTakeText(text[(offset + 1)..])
+}
+
+// CONSTRUCTION — the admission scratch's frame, at all three of its append sites: a constructor
+// argument, an array-literal element and an array length.
+func DriverConstructionIndexArgument(values: int[]): int {
+    return DriverMirrorTake(new DriverMirrorHolder(values[0]).Value)
+}
+
+func DriverConstructionIndexElement(values: int[]): int {
+    return DriverSumArray([values[0], 2])
+}
+
+func DriverConstructionIndexLength(values: int[]): int {
+    return DriverSumArray(new int[values[0]])
+}
+
+test "the index owner inherits its value surface and the construction scratch declares its frame" {
+    values := DriverIndexMakeArray()
+
+    assert DriverIndexBinarySelector(values, 0) == 5
+    assert DriverIndexConcatReceiver("zb") == 122
+    assert DriverIndexCastSelector(values, 0.0) == 5
+    assert DriverIndexFromEndSelector(values, 1) == 5
+    assert DriverRangeEndpointSelector("abcdef", 1) == 4
+
+    assert DriverConstructionIndexArgument(values) == 4
+    assert DriverConstructionIndexElement(values) == 2
+    assert DriverConstructionIndexLength(values) == 3
+
+    // The owner's own numeric surface still bounds the selector, and the `015-B9` shapes still hold.
+    assert DriverIndexArgument() == 4
+    assert DriverIndexSelectorArgument() == 4
+}

@@ -2327,13 +2327,22 @@ class ColumnarConstructionPlanner {
             return false
         }
 
-        // 015-B8 — armed for the same reason as the direct-call site, and INERT today: no claimed body
-        // reaches this scratch (the door declines the construction kinds at the root, and the only path in
-        // from inside a call needs `allowPrimitiveBinary`, which the root call sets false), so the
-        // vocabulary is zero-length here at this tip. It is armed anyway because the contract belongs to
-        // the SCRATCH FAMILY rather than to whichever member of it happens to be reachable this week.
+        // 015-B8 — armed for the same reason as the direct-call site. It was INERT when it was written
+        // (the door declined the construction kinds at the root, and the only path in from inside a call
+        // needed `allowPrimitiveBinary`, which the root call set false); `015-B9` made the call owner's
+        // argument surface admit a primitive binary, so a construction inside a claimed call's argument
+        // now reaches here and the vocabulary is no longer always empty. The contract belongs to the
+        // SCRATCH FAMILY rather than to whichever member of it happens to be reachable this week.
+        //
+        // 015-B10 — AND THE FRAME, FOR THE IDENTICAL REASON. This scratch appends at `parentFragment =
+        // -1`, so `ColumnarRangeIndexPlanner`'s root rule refused an ordinary `arr[0]` at the ADMISSION
+        // step that all three APPEND sites (array length, array element, constructor argument) plan under
+        // a real fragment at `>= 0`. That is the same misprediction `015-B9` removed at the direct-call
+        // scratch: a value typed at a position it can never occupy. `new Holder(arr[0])` and
+        // `[arr[0], 2]` are what it cost.
         scratch := new ColumnarCodePlan()
         scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
+        scratch.EnableNestedValueFrame()
         scratch.PrepareV3()
         resultType := typeof(int)
         if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, handles, scratch, -1, depth, out resultType) || resultType.FullName == "System.Void" {

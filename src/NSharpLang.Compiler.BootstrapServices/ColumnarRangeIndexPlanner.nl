@@ -389,6 +389,20 @@ class ColumnarRangeIndexPlanner {
         return kind == ColumnarExpressionNodeKind.IndexAccessExpression()
     }
 
+    // THE INHERITED VALUE SURFACE (015-B10).
+    //
+    // This owner has TWO named value surfaces — the PLAIN one and the one that also admits a primitive
+    // binary — and a caller picks whichever its own position allows. The surface is a property of the
+    // POSITION the whole expression occupies, so every value this owner appends INSIDE an expression it
+    // is already planning inherits it: an index receiver and selector, a numeric cast's operand, a `^`
+    // operand, and both range endpoints. Until `015-B10` all six of those appends were hard-coded to the
+    // plain surface, so `Callee(arr[s.Length - 4])` declined inside an index the owner otherwise claimed
+    // while `Callee(arr[0])` did not — the same shape of gap `015-B9` removed twice in the call owner
+    // (an argument surface narrower than the construction owner's; a type side narrower than its own
+    // append side), in the one owner that slice left alone.
+    //
+    // `Plan`'s TRUE ROOT (`:200`) is the one append that stays PLAIN, and that is not an oversight: a
+    // root has no enclosing position to inherit from, exactly as it has no parent fragment to point at.
     static func TryAppendPlannableValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, out resultType: Type): bool {
         nestedOwnership := ColumnarDirectCallOwnership.NotOwned
         return TryAppendPlannableValue(nodes, source, node, bindings, handles, plan, parentFragment, depth, out resultType, out nestedOwnership)
@@ -471,12 +485,12 @@ class ColumnarRangeIndexPlanner {
             planned = ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(nodes, source, node, plan, fragment, out resultType)
 
             if !planned {
-                planned = TryPlanFromEnd(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
+                planned = TryPlanFromEnd(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
             }
         } else if kind == ColumnarExpressionNodeKind.CastExpression() {
-            planned = TryPlanNumericCast(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
+            planned = TryPlanNumericCast(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.RangeExpression() {
-            planned = TryPlanRange(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
+            planned = TryPlanRange(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.TernaryExpression() {
             planned = ColumnarConditionalPlanner.TryPlanTernary(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
         } else if kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
@@ -484,7 +498,7 @@ class ColumnarRangeIndexPlanner {
             // A type-discovery SCRATCH has no parent to point at even when the value it types is destined
             // for one, so it declares the frame instead — see `ColumnarCodePlan.EnableNestedValueFrame`.
             // Only a scratch ever arms that, so an emitted plan still answers this question by position.
-            planned = TryPlanIndexAccess(nodes, source, node, bindings, handles, plan, fragment, depth, parentFragment >= 0 || plan.HasNestedValueFrame(), out resultType, out nestedOwnership)
+            planned = TryPlanIndexAccess(nodes, source, node, bindings, handles, plan, fragment, depth, parentFragment >= 0 || plan.HasNestedValueFrame(), allowPrimitiveBinary, out resultType, out nestedOwnership)
         }
 
         if !planned {
@@ -555,7 +569,7 @@ class ColumnarRangeIndexPlanner {
     // family-f ruling below — for exact int/uint and known int-backed enum sources, which plan an
     // explicit conv.i4/conv.u4 (a verifiable i4-slot identity, never an empty fragment). Every other
     // exact-typed i4-slot source (short/byte/char/ushort/sbyte, non-int-backed enums) still declines.
-    static func TryPlanNumericCast(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+    static func TryPlanNumericCast(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, allowPrimitiveBinary: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(int)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         if nodes.ChildCount(node) != 2 {
@@ -617,7 +631,7 @@ class ColumnarRangeIndexPlanner {
         }
 
         operandType := typeof(int)
-        if !TryAppendPlannableValue(nodes, source, operandNode, bindings, handles, plan, fragment, depth + 1, out operandType, out nestedOwnership) {
+        if !TryAppendPlannableValueCore(nodes, source, operandNode, bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out operandType, out nestedOwnership) {
             return false
         }
 
@@ -747,7 +761,7 @@ class ColumnarRangeIndexPlanner {
         return last != 'l' && last != 'L' && last != 'u' && last != 'U' && last != 'm' && last != 'M'
     }
 
-    static func TryPlanFromEnd(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+    static func TryPlanFromEnd(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, allowPrimitiveBinary: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(Index)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         if nodes.ChildCount(node) != 1 || nodes.Text(source, node) != "^" {
@@ -755,7 +769,7 @@ class ColumnarRangeIndexPlanner {
         }
 
         operandType := typeof(int)
-        if !TryAppendPlannableValue(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, out operandType, out nestedOwnership) || !ConvertIndexOperand(plan, operandType) {
+        if !TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out operandType, out nestedOwnership) || !ConvertIndexOperand(plan, operandType) {
             return false
         }
 
@@ -765,7 +779,7 @@ class ColumnarRangeIndexPlanner {
         return true
     }
 
-    static func TryPlanRange(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+    static func TryPlanRange(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, allowPrimitiveBinary: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(Range)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         startNode := -1
@@ -776,13 +790,13 @@ class ColumnarRangeIndexPlanner {
 
         if startNode < 0 {
             EmitDefaultIndex(plan, handles, false)
-        } else if !TryPlanIndexValue(nodes, source, startNode, bindings, handles, plan, fragment, depth + 1, out nestedOwnership) {
+        } else if !TryPlanIndexValue(nodes, source, startNode, bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out nestedOwnership) {
             return false
         }
 
         if endNode < 0 {
             EmitDefaultIndex(plan, handles, true)
-        } else if !TryPlanIndexValue(nodes, source, endNode, bindings, handles, plan, fragment, depth + 1, out nestedOwnership) {
+        } else if !TryPlanIndexValue(nodes, source, endNode, bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out nestedOwnership) {
             return false
         }
 
@@ -791,10 +805,10 @@ class ColumnarRangeIndexPlanner {
         return true
     }
 
-    static func TryPlanIndexValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+    static func TryPlanIndexValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         valueType := typeof(int)
-        if !TryAppendPlannableValue(nodes, source, node, bindings, handles, plan, parentFragment, depth, out valueType, out nestedOwnership) {
+        if !TryAppendPlannableValueCore(nodes, source, node, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, out valueType, out nestedOwnership) {
             return false
         }
 
@@ -837,7 +851,7 @@ class ColumnarRangeIndexPlanner {
         plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
     }
 
-    static func TryPlanIndexAccess(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, allowOrdinaryIntIndex: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+    static func TryPlanIndexAccess(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, allowOrdinaryIntIndex: bool, allowPrimitiveBinary: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(int)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         if nodes.ChildCount(node) != 2 {
@@ -845,7 +859,7 @@ class ColumnarRangeIndexPlanner {
         }
 
         indexedType := typeof(int)
-        if !TryAppendPlannableValue(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, out indexedType, out nestedOwnership) {
+        if !TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out indexedType, out nestedOwnership) {
             return false
         }
 
@@ -856,7 +870,7 @@ class ColumnarRangeIndexPlanner {
         }
 
         accessType := typeof(int)
-        if !TryAppendPlannableValue(nodes, source, nodes.Child(node, 1), bindings, handles, plan, fragment, depth + 1, out accessType, out nestedOwnership) {
+        if !TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 1), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out accessType, out nestedOwnership) {
             return false
         }
 

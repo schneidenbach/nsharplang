@@ -2872,3 +2872,31 @@ test "nested construction admits explicit generic type roots in call and constru
     assert constructorPlan.OpCodeValues[1]
         == ColumnarCodePlanContract.Newobj()
 }
+
+
+// ---- THE ADMISSION SCRATCH TYPES THE FRAME IT WILL BE APPENDED INTO (015-B10) ----
+//
+// `ValueSyntaxIsAdmitted` builds a scratch at `parentFragment = -1`, and the range/index owner's root
+// rule reads exactly that to refuse an ordinary `arr[0]` at a plan ROOT. But an initializer value, an
+// array element and a constructor argument are never at a root — all three APPEND sites pass a real
+// fragment — so the admission step refused what the append step would have planned. The scratch now
+// DECLARES the frame, which is the statement `015-B9` made at the direct-call scratch, made here.
+// `new Holder(arr[0])` and `[arr[0], 2]` are the shapes this cost.
+test "construction value admission types an ordinary index under the frame it will be appended into" {
+    tree := ColumnarRangePlannerOrdinaryLiteralAccess()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "target", 0, typeof(int[]))
+
+    assert ColumnarConstructionPlanner.ValueSyntaxIsAdmitted(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), 0)
+
+    // AND THE SURFACE IS INHERITED THROUGH THE SAME SCRATCH: a BINARY selector inside that index is
+    // admitted too, because the construction surface is what the scratch types with.
+    binary := ColumnarRangePlannerBinarySelectorAccess()
+    assert ColumnarConstructionPlanner.ValueSyntaxIsAdmitted(binary.Nodes, binary.Source, binary.Root, bindings, ColumnarRangeIndexHandles.Resolve(), 0)
+
+    // The frame is not a blanket yes: an index over a receiver the owner does not model still declines,
+    // so admission still answers a question about the value rather than about the frame.
+    unmodelled := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(unmodelled, "target", 0, typeof(int))
+    assert !ColumnarConstructionPlanner.ValueSyntaxIsAdmitted(tree.Nodes, tree.Source, tree.Root, unmodelled, ColumnarRangeIndexHandles.Resolve(), 0)
+}
