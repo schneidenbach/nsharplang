@@ -1044,12 +1044,13 @@ test "the expression door partitions its whole kind ledger with no hole and no o
         i = i + 1
     }
 
-    // ELEVEN claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites 015-B6
-    // took, the direct CALL (015-B7), the primitive BINARY (015-B9) and the TERNARY (015-B12). The count
-    // is pinned so a widening cannot arrive without a block that says what it claims — this assertion
-    // is the reason `015-B12`'s widening could not land silently, and it was REWRITTEN by that slice
-    // (10 -> 11) rather than relaxed.
-    assert claimed == 11
+    // TWELVE claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites 015-B6
+    // took, the direct CALL (015-B7), the primitive BINARY (015-B9), the TERNARY (015-B12) and the
+    // CHECKED CONTEXT (015-B13). The count is pinned so a widening cannot arrive without a block that
+    // says what it claims — this assertion is the reason neither `015-B12`'s widening nor `015-B13`'s
+    // could land silently, and it has been REWRITTEN by each of them (10 -> 11 -> 12) rather than
+    // relaxed. `015-B13`'s run of this block FAILED before it was updated, which is the block working.
+    assert claimed == 12
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression())
@@ -1061,11 +1062,13 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CallExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression())
 
     // The composites that remain declined are declined one by one. Their gates are open now; what
     // holds them back is the emitter's ELEVEN-ARM root cascade, which a claim must enter arm by arm.
-    // ⚠ `CallExpression` LEFT THIS LIST in 015-B7, `BinaryExpression` in 015-B9 and `TernaryExpression`
-    // in 015-B12; all three are asserted CLAIMED above. `MemberAccess` did not, and the asymmetry is
+    // ⚠ `CallExpression` LEFT THIS LIST in 015-B7, `BinaryExpression` in 015-B9, `TernaryExpression`
+    // in 015-B12 and `CheckedContextExpression` in 015-B13; all four are asserted CLAIMED above.
+    // `MemberAccess` did not, and the asymmetry is
     // deliberate — a call's CALLEE may be a member access, which the call owner resolves itself, and a
     // binary's OPERAND may be one, which the binary owner resolves itself, but a bare member access in
     // value position is a different owner's shape.
@@ -2781,4 +2784,401 @@ test "a mixed-arm ternary declines at the door and leaves the plan clean" {
     assert plan.OperationCount == 0
     assert plan.FragmentCount == 0
     assert plan.LabelCount == 0
+}
+
+
+// ---- 015-B13: THE CHECKED CONTEXT (class K) — THE ONE CLAIMED KIND WITH NO OWNER BEHIND IT ----
+
+// `{ return <keyword>(<left> <operator> <right>) }`. The KEYWORD carries the kind-57 node's value
+// span, which is exactly what the host's `case 57` reads to choose between the two directions.
+func MethodBodyFactsCheckedBinaryBody(keyword: string, operatorText: string, leftText: string, rightText: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    keywordStart := builder.AddToken(keyword)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), leftText)
+    operatorStart := builder.AddToken(operatorText)
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, keyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
+}
+
+// `{ return <keyword>(<left> <operator> <right>) }` over two NAMED operands, so a block can put the
+// context over types no source literal in the native corpus can spell.
+func MethodBodyFactsCheckedNamedBinaryBody(keyword: string, operatorText: string, leftName: string, rightName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    keywordStart := builder.AddToken(keyword)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), leftName)
+    operatorStart := builder.AddToken(operatorText)
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), rightName)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, keyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
+}
+
+// `{ return <outer>(<inner>(<left> + <right>)) }` — two kind-57 nodes, one inside the other.
+func MethodBodyFactsNestedCheckedBody(outerKeyword: string, innerKeyword: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    outerStart := builder.AddToken(outerKeyword)
+    innerStart := builder.AddToken(innerKeyword)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    operatorStart := builder.AddToken("+")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    inner := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), innerStart, innerKeyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    outer := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), outerStart, outerKeyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(inner))
+    return MethodBodyFactsWrapValueInBody(builder, outer, 0, "")
+}
+
+// `{ <local> := checked(1 + 2)  return 3 + 4 }` — a claimed context in the INITIALIZER position
+// followed by a second statement whose binary must NOT inherit the flag.
+func MethodBodyFactsCheckedDeclarationThenBinaryBody(keyword: string, localName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    nameStart := builder.AddToken(localName)
+    keywordStart := builder.AddToken(keyword)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    firstOperator := builder.AddToken("+")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    initializerBinary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), firstOperator, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, keyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initializerBinary))
+    declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(context))
+    tailLeft := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+    secondOperator := builder.AddToken("+")
+    tailRight := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "4")
+    tailBinary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), secondOperator, 1, 0, builder.Source.Length, MethodBodyFactsInts2(tailLeft, tailRight))
+    statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(tailBinary))
+    return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
+}
+
+// `{ return checked(<child>) }` where the child is supplied by the caller, so a block can put a shape
+// the door refuses under a context the door claims.
+func MethodBodyFactsCheckedOverParenthesisBody(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    keywordStart := builder.AddToken("checked")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    operatorStart := builder.AddToken("+")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    parenthesis := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, 7, 0, builder.Source.Length, ColumnarRangePlannerChildren1(parenthesis))
+    return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
+}
+
+// `{ return checked(-<name>) }` — a unary over a NON-literal operand, which is the one shape where an
+// active overflow flag changes the host's unary lowering.
+func MethodBodyFactsCheckedNegatedIdentifierBody(name: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    keywordStart := builder.AddToken("checked")
+    operatorStart := builder.AddToken("-")
+    operand := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    unary := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), operatorStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(operand))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, 7, 0, builder.Source.Length, ColumnarRangePlannerChildren1(unary))
+    return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
+}
+
+// A kind-57 node carrying EXACTLY ONE defect: either an ABSENT keyword span or a wrong arity. Neither
+// is reachable from the parser; both are reachable from a caller, and the arm must decline rather than
+// throw.
+//
+// ⚠ THE KEYWORD TOKEN IS REAL, AND `015-B13`'s CONTROL `C3` IS WHY. The first spelling of this helper
+// added no keyword token at all, so `valueLength` (7) always exceeded the three-character source and
+// EVERY case — including both arity cases — was refused by the SPAN guard before the arity test ran.
+// `C3` weakened the arity guard and NOTHING broke, which is how a vacuous assertion announces itself.
+// With the keyword token present, `spanned` is the only knob that reaches the span guard and
+// `childCount` is the only knob that reaches the arity guard.
+func MethodBodyFactsMalformedCheckedBody(spanned: bool, childCount: int): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    keywordStart := builder.AddToken("checked")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    operatorStart := builder.AddToken("+")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    children := new int[](0)
+    if childCount == 1 {
+        children = ColumnarRangePlannerChildren1(binary)
+    } else if childCount == 2 {
+        children = MethodBodyFactsInts2(binary, binary)
+    }
+
+    valueStart := keywordStart
+    if !spanned {
+        valueStart = -1
+    }
+
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), valueStart, 7, 0, builder.Source.Length, children)
+    return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
+}
+
+// Every fragment a plan opened, against the kind of the node it points at. This is the instrument
+// `015-B12`'s `C3` proved was missing, and it is deliberately a WALK rather than a spot check.
+func MethodBodyFactsFragmentKindsAgree(tree: ColumnarRangePlannerTestTree, plan: ColumnarCodePlan): bool {
+    index := 0
+    while index < plan.FragmentCount {
+        if plan.FragmentKinds[index] != tree.Nodes.Kind(plan.FragmentSourceNodeIndices[index]) {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
+
+// ---- BLOCK 56 — THE CHECKED CONTEXT WRITES THE OVERFLOW OPCODE THE HOST WRITES ----
+//
+// The routed flag has had exactly one production consumer since `015-B9` — `ColumnarPrimitiveBinaryPlanner`'s
+// `checkedIntegral`, which chooses `add` versus `add.ovf` — and until this slice the door could never
+// make it TRUE, because the driver's own `overflowCheckingEnabled` argument is provably `false` at
+// every `EmitBody` call site. Kind 57 is the only thing that can turn it on, so this block is where
+// the fact stops being carried and starts being exercised. The body is EXECUTED so the claim is a
+// value rather than a shape.
+test "the door claims a checked binary and writes the overflow opcode" {
+    tree := MethodBodyFactsCheckedBinaryBody("checked", "+", "2", "3")
+
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    assert plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
+    assert plan.OperationCount == 4
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.AddOvf()
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Ret()
+    assert plan.OpenFragmentCount == 0
+
+    method := MethodBodyFactsDynamicMethod("NSharpB13CheckedBody", typeof(int))
+    ColumnarCodePlanExecutor.Execute(plan, method.GetILGenerator())
+    target: object? = null
+    assert Convert.ToInt32(method.Invoke(target, MethodBodyFactsNoArguments())) == 5
+
+    // A SECOND operator family through the same arm, so the claim is the CONTEXT's rather than one
+    // operator's.
+    productPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsCheckedBinaryBody("checked", "*", "6", "7"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), productPlan)
+    assert productPlan.OpCodeValues[2] == ColumnarCodePlanContract.MulOvf()
+
+    // ⚠ THE UNSIGNED ARM IS ASSERTED HERE RATHER THAN IN THE NATIVE CORPUS, AND THE REASON IS A
+    // MEASURED PRE-EXISTING WALL. `add.ovf.un` needs `uint` operands, and a `uint` LITERAL declines
+    // columnar emission at this tip on both the pre-slice and post-slice CLI — `func UMax(): uint
+    // { return 4294967295U }` alone is enough, with no `checked` anywhere. A plan built from `uint`
+    // PARAMETER bindings needs no source literal, so the third opcode family is proved here.
+    unsignedBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(unsignedBindings, "u", 0, typeof(uint))
+    ColumnarRangePlannerAddParameter(unsignedBindings, "v", 1, typeof(uint))
+    unsignedTree := MethodBodyFactsCheckedNamedBinaryBody("checked", "+", "u", "v")
+    unsignedPlan := new ColumnarCodePlan()
+    unsignedPlan.PrepareMethodBody()
+    unsignedType := typeof(int)
+    unsignedStatement := unsignedTree.Nodes.Child(unsignedTree.Root, 0)
+    assert ColumnarMethodBodyPlanner.TryAppendValue(unsignedTree.Nodes, unsignedTree.Source, unsignedTree.Nodes.Child(unsignedStatement, 0), unsignedBindings, unsignedPlan, out unsignedType)
+    assert unsignedType == typeof(uint)
+    assert unsignedPlan.OpCodeValues[2] == ColumnarCodePlanContract.AddOvfUn()
+
+    // The same operands WITHOUT the context take the plain opcode, so the unsigned arm is the flag's
+    // doing rather than the type's.
+    plainUnsigned := new ColumnarCodePlan()
+    plainUnsigned.PrepareMethodBody()
+    plainUnsignedType := typeof(int)
+    plainUnsignedTree := MethodBodyFactsCheckedNamedBinaryBody("unchecked", "+", "u", "v")
+    plainUnsignedStatement := plainUnsignedTree.Nodes.Child(plainUnsignedTree.Root, 0)
+    assert ColumnarMethodBodyPlanner.TryAppendValue(plainUnsignedTree.Nodes, plainUnsignedTree.Source, plainUnsignedTree.Nodes.Child(plainUnsignedStatement, 0), unsignedBindings, plainUnsigned, out plainUnsignedType)
+    assert plainUnsigned.OpCodeValues[2] == ColumnarCodePlanContract.Add()
+
+    // And the kind is on the CLAIMED side of the partition now, which is what routes it here at all.
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression())
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression())
+}
+
+
+// ---- BLOCK 57 — `unchecked` IS THE SAME NODE AND THE OTHER DIRECTION ----
+//
+// The two keywords share one node kind, so an arm that read the kind and not the TEXT would claim both
+// and lower both the same way. The difference is one opcode and it is asserted against the identical
+// tree with a single token changed.
+test "the unchecked keyword turns the same node back into the plain opcode" {
+    plain := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsCheckedBinaryBody("unchecked", "+", "2", "3"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plain)
+    assert plain.OperationCount == 4
+    assert plain.OpCodeValues[2] == ColumnarCodePlanContract.Add()
+
+    // The DRIVER's own default is the same direction, which is why `unchecked` costs no rows: an
+    // ordinary `return 2 + 3` and `return unchecked(2 + 3)` are the same four rows.
+    bare := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression(), "2", ColumnarExpressionNodeKind.IntLiteralExpression(), "3"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), bare)
+    assert bare.OperationCount == plain.OperationCount
+    assert bare.OpCodeValues[2] == plain.OpCodeValues[2]
+}
+
+
+// ---- BLOCK 58 — THE INNER KEYWORD WINS, AND THE FLAG IS PUT BACK ----
+//
+// The host's `case 57` restores `_overflowCheckingEnabled` in a `finally`, so a context governs its
+// own subtree and nothing after it. Two independent consequences are asserted rather than one: a
+// NESTED context overrides its parent, and a claimed context in an INITIALIZER does not leak into the
+// statement that follows it. The second is the one an arm that only SET the flag would fail.
+test "the checked context restores the flag it set, and the inner keyword wins" {
+    outerChecked := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsNestedCheckedBody("checked", "unchecked"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), outerChecked)
+    assert outerChecked.OpCodeValues[2] == ColumnarCodePlanContract.Add()
+
+    outerUnchecked := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsNestedCheckedBody("unchecked", "checked"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), outerUnchecked)
+    assert outerUnchecked.OpCodeValues[2] == ColumnarCodePlanContract.AddOvf()
+
+    // `m := checked(1 + 2)` then `return 3 + 4`: the initializer's binary is checked and the return's
+    // is NOT, on one plan, from one bindings object.
+    leak := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsCheckedDeclarationThenBinaryBody("checked", "m"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), leak)
+    assert leak.OperationCount == 8
+    assert leak.OpCodeValues[2] == ColumnarCodePlanContract.AddOvf()
+    assert leak.OpCodeValues[3] == ColumnarCodePlanContract.Stloc()
+    assert leak.OpCodeValues[6] == ColumnarCodePlanContract.Add()
+    assert leak.OpCodeValues[7] == ColumnarCodePlanContract.Ret()
+    assert leak.PlanLocalCount == 1
+}
+
+
+// ---- BLOCK 59 — THE TWO SHAPES THE ARM REFUSES BY CONSTRUCTION ----
+//
+// Neither refusal is a guard the arm writes; both fall out of what the door already is, and asserting
+// them is how "by construction" stops being a claim a comment makes.
+//
+// The PARENTHESIS: the arm does not unwrap, so `checked((2 + 3))`'s child is kind 7 — which
+// `IsDeclinedExpressionKind` refuses exactly as it refuses a bare `return (2 + 3)`.
+//
+// The NEGATION: `checked(-x)` over a non-literal is the ONE shape where an active flag changes the
+// host's unary lowering — it declares a local and writes `stloc; ldc.i4.0; ldloc; sub.ovf` instead of
+// `neg` — and the door's kind-11 arm is `ColumnarUnaryLiteralPlanner`, which claims only a unary over
+// a LITERAL. So the shape the door could get wrong is the shape the door cannot reach.
+test "the checked arm refuses a parenthesised operand and a unary over a non-literal" {
+    parenthesised := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsCheckedOverParenthesisBody(), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), parenthesised)
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+
+    negated := MethodBodyFactsCheckedNegatedIdentifierBody("x")
+    negatedPlan := new ColumnarCodePlan()
+    negatedPlan.PrepareMethodBody()
+    negatedType := typeof(int)
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "x", 0, typeof(int))
+    statement := negated.Nodes.Child(negated.Root, 0)
+    assert !ColumnarMethodBodyPlanner.TryAppendValue(negated.Nodes, negated.Source, negated.Nodes.Child(statement, 0), bindings, negatedPlan, out negatedType)
+    assert negatedPlan.OperationCount == 0
+
+    // The complement, and the reason the refusal above is not a coincidence: with a LITERAL operand the
+    // same owner claims the node, and it consults no flag at all — so both pipelines write `neg`.
+    literal := MethodBodyFactsCheckedBinaryBody("checked", "+", "2", "3")
+    literalPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(literal, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), literalPlan)
+}
+
+
+// ---- BLOCK 60 — THE KEYWORD IS READ, AND A MALFORMED NODE DECLINES RATHER THAN THROWS ----
+//
+// `ColumnarNodeTable.Text` is a bare `Substring`, so a kind-57 node with no keyword span would THROW
+// out of the compiler. The host reads it unguarded because it is already committed to emitting; a
+// FRONT DOOR that crashes is strictly worse than one that declines, and this is the same obligation
+// `015-B11` took on when its adopted-return predicate first read an operand's text.
+test "the checked arm refuses an unknown keyword, an absent span and a wrong arity" {
+    unknown := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsCheckedBinaryBody("chekced", "+", "2", "3"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), unknown)
+    assert unknown.OperationCount == 0
+
+    spanless := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsMalformedCheckedBody(false, 1), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), spanless)
+    assert spanless.OperationCount == 0
+
+    childless := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsMalformedCheckedBody(true, 0), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), childless)
+
+    twoChildren := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsMalformedCheckedBody(true, 2), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), twoChildren)
+
+    // ⚠ NON-VACUITY, AND `015-B13`'s `C3` IS WHY IT IS HERE. The two arity cases above are refusals,
+    // and a refusal that happens for the WRONG reason looks identical to one that happens for the right
+    // one. The SAME helper with the SAME keyword span and the CORRECT arity is CLAIMED, so the span is
+    // demonstrably readable and the arity is demonstrably the only thing left refusing.
+    wellFormed := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsMalformedCheckedBody(true, 1), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), wellFormed)
+    assert wellFormed.OpCodeValues[2] == ColumnarCodePlanContract.AddOvf()
+}
+
+
+// ---- BLOCK 61 — THE CLAIM REACHES BOTH DOORS, AND THE RETURN DOOR CANNOT PRE-EMPT IT ----
+//
+// `TryAppendLocalDeclaration` and `TryAppendReturnValue` share one dispatcher, so a widening reaches
+// both — and a widening that reached only one would be a silent asymmetry nothing else measures.
+// `IsHostAdoptedReturnShape` also cannot pre-empt a kind-57 return: its FIRST test demands a unary
+// node. That matters more here than for the other composites, because the shape UNDER the context can
+// be `-5`, which the pre-pass WOULD have adopted at a bare return — and the host declines it too, for
+// the same reason, since its own pre-pass gates on the OUTER node's kind.
+test "the checked claim reaches the initializer door as well as the return door" {
+    tree := MethodBodyFactsCheckedBinaryBody("checked", "+", "2", "3")
+    statement := tree.Nodes.Child(tree.Root, 0)
+    context := tree.Nodes.Child(statement, 0)
+    assert tree.Nodes.Kind(context) == ColumnarExpressionNodeKind.CheckedContextExpression()
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(tree.Nodes, tree.Source, context)
+
+    returnPlan := new ColumnarCodePlan()
+    returnPlan.PrepareMethodBody()
+    returnType := typeof(int)
+    assert ColumnarMethodBodyPlanner.TryAppendReturnValue(tree.Nodes, tree.Source, context, MethodBodyFactsEmptyBindings(), returnPlan, out returnType)
+    assert returnType == typeof(int)
+
+    valuePlan := new ColumnarCodePlan()
+    valuePlan.PrepareMethodBody()
+    valueType := typeof(int)
+    assert ColumnarMethodBodyPlanner.TryAppendValue(tree.Nodes, tree.Source, context, MethodBodyFactsEmptyBindings(), valuePlan, out valueType)
+    assert valuePlan.OperationCount == returnPlan.OperationCount
+    assert valuePlan.OpCodeValues[2] == returnPlan.OpCodeValues[2]
+}
+
+
+// ---- BLOCK 62 — EVERY FRAGMENT RECORDS THE KIND OF ITS OWN SOURCE NODE (015-B13, item 5) ----
+//
+// `015-B12`'s control `C3` hard-coded a fragment's kind to one its source node did not have and the
+// WHOLE estate stayed green: `HasValidV2Fragments` asks only `FragmentKinds[i] >= 0` and never
+// compares the recorded kind with `nodes.Kind(FragmentSourceNodeIndices[i])`. The complete fix would
+// be a validator arm inside `ColumnarCodePlan`, and it cannot be written — a plan deliberately carries
+// no node table.
+//
+// `015-B13` censused all 24 `BeginFragment` call sites instead: 15 DERIVE the kind from the recorded
+// node, 7 pass a named ledger constant within three lines of a guard proving that same kind, and the
+// one function taking the pair as PARAMETERS is called twice, both times with `nodes.Kind(candidate),
+// candidate`. So no site in the tree can disagree TODAY; the exposure is a future caller. This block
+// is the instrument that catches that caller — a WALK over every fragment of real door-claimed plans,
+// deliberately not a spot check, driven through as many owners as the door can reach.
+test "every fragment a door-claimed plan opens records the kind of its own source node" {
+    checkedTree := MethodBodyFactsCheckedBinaryBody("checked", "+", "2", "3")
+    checkedPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(checkedTree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), checkedPlan)
+    assert checkedPlan.FragmentCount > 0
+    assert MethodBodyFactsFragmentKindsAgree(checkedTree, checkedPlan)
+
+    binaryTree := MethodBodyFactsBinaryBody("-", ColumnarExpressionNodeKind.IntLiteralExpression(), "9", ColumnarExpressionNodeKind.IntLiteralExpression(), "4")
+    binaryPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(binaryTree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), binaryPlan)
+    assert binaryPlan.FragmentCount > 0
+    assert MethodBodyFactsFragmentKindsAgree(binaryTree, binaryPlan)
+
+    ternaryTree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    ternaryPlan := new ColumnarCodePlan()
+    ternaryPlan.PrepareMethodBody()
+    ternaryType := typeof(int)
+    assert ColumnarMethodBodyPlanner.TryAppendValue(ternaryTree.Nodes, ternaryTree.Source, ternaryTree.Root, MethodBodyFactsEmptyBindings(), ternaryPlan, out ternaryType)
+    assert ternaryPlan.FragmentCount > 0
+    assert MethodBodyFactsFragmentKindsAgree(ternaryTree, ternaryPlan)
+
+    shortCircuitTree := ConditionalShortCircuitLiteralTree("&&", "true", "false")
+    shortCircuitPlan := new ColumnarCodePlan()
+    shortCircuitPlan.PrepareMethodBody()
+    shortCircuitType := typeof(int)
+    assert ColumnarMethodBodyPlanner.TryAppendValue(shortCircuitTree.Nodes, shortCircuitTree.Source, shortCircuitTree.Root, MethodBodyFactsEmptyBindings(), shortCircuitPlan, out shortCircuitType)
+    assert shortCircuitPlan.FragmentCount > 0
+    assert MethodBodyFactsFragmentKindsAgree(shortCircuitTree, shortCircuitPlan)
+
+    // ⚠ NON-VACUITY. The walk must be able to FAIL, or a green line proves nothing about the property
+    // it names. One fragment's recorded kind is overwritten in place with a kind its source node
+    // demonstrably does not have, and the same walk answers false.
+    assert binaryPlan.FragmentKinds[0] == ColumnarExpressionNodeKind.BinaryExpression()
+    binaryPlan.FragmentKinds[0] = ColumnarExpressionNodeKind.TernaryExpression()
+    assert !MethodBodyFactsFragmentKindsAgree(binaryTree, binaryPlan)
 }

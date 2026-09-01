@@ -608,7 +608,23 @@ class ColumnarDirectCallPlanner {
 
             parameterTypes[index] = expected
             actual := typeof(int)
-            if !ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, nodes.Child(callNode, index + 1), bindings, handles, plan, callFragment, depth + 1, out actual) || actual != expected {
+            // ⚠ THE NINTH ARGUMENT SITE, AND UNTIL `015-B13` THE ONE THAT DISAGREED WITH ITS OWN TYPE
+            // SIDE. This loop is the only argument list in this owner that does not route through
+            // `AppendArguments`, so `015-B9`'s threading never reached it and it kept a hard-coded PLAIN
+            // surface. Its TYPE side did not: `TryGetArgumentTypes` is called exactly ONCE in the tree,
+            // with `ArgumentsAdmitPrimitiveBinary()`, and `TryAppendBareCall` hands the very
+            // `argumentTypes` it produced into this function. So `d(a + b)` typed successfully and then
+            // FAILED here — precisely the "a type side that admitted more than the append side would
+            // only manufacture declines one step later" that the RECEIVER comment below states as the
+            // reason receivers stay plain on BOTH sides. Reading the same named decision the other eight
+            // sites read is what makes the two sides agree; it is not a new rule.
+            argumentPlanned := false
+            if ArgumentsAdmitPrimitiveBinary() {
+                argumentPlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(callNode, index + 1), bindings, handles, plan, callFragment, depth + 1, out actual)
+            } else {
+                argumentPlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, nodes.Child(callNode, index + 1), bindings, handles, plan, callFragment, depth + 1, out actual)
+            }
+            if !argumentPlanned || actual != expected {
                 legacyWholeSubtreePlanning = true
                 plan.Rollback(checkpoint)
                 return false
@@ -851,6 +867,15 @@ class ColumnarDirectCallPlanner {
         // dispatcher, and a type side that admitted more than the append side would only manufacture
         // declines one step later. What it DOES gain from `015-B9` is the enclosing frame, so a receiver
         // types in the position it is appended into exactly as an argument does.
+        //
+        // ⚠ 015-B13 — THIS LINE IS THE PAIR-HALF OF **TWO** APPEND SITES, AND THEY ARE PINNED TOGETHER
+        // RATHER THAN LEFT AS UNEXPLAINED PLAIN CALLS. `AppendExtensionReceiver` and
+        // `AppendExplicitReceiver` are the two append sides this `false` is matched with; a slice that
+        // widens either one must widen this reading in the SAME slice, or it recreates on the receiver
+        // side exactly the type-side/append-side disagreement `015-B13` removed from the delegate-invoke
+        // argument loop above. `015-B12`'s census listed all three as one family of "hard-coded PLAIN
+        // inner positions"; they are two families — an argument site that had no matching decision, and
+        // a receiver PAIR that has one and states it here.
         if !TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, false, out receiverType, out receiverOwnership) || IsVoidType(receiverType) {
             if receiverOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected

@@ -160,6 +160,8 @@ class ColumnarMethodBodyPlanner {
     //   C  `{ return <call> }` — the direct-call owner's own root sequence                 (015-B7)
     //   DC `x := <call>` — the same owner in the position that runs no host pre-pass       (015-B7)
     //   PB `{ return <primitive binary> }` — the primitive-binary owner's root sequence    (015-B9)
+    //   T  `{ return <ternary> }` / `{ return <a && b> }` — the conditional owner, labels  (015-B12)
+    //   K  `{ return checked(<claimed value>) }` — the host's OWN kind-57 arm, no planner  (015-B13)
     //
     // Class C ALSO WIDENED IN `015-B9` WITHOUT GAINING A LETTER: a claimed call may now carry a binary
     // ARGUMENT and an ordinary `arr[0]` argument or receiver. Both are the direct-call owner's own
@@ -427,6 +429,14 @@ class ColumnarMethodBodyPlanner {
     // the cascade's FOURTH arm owns for every ternary root and every `&&`/`||` root (015-B12). Byte
     // identity is against one owner apiece. The rest wait for their own diffs.
     //
+    // ⚠ AND SINCE `015-B13` ONE CLAIMED KIND HAS NO OWNER AT ALL. Kind 57 (`checked`/`unchecked`) is
+    // absent from `FacadeRootMayNeedFacts` and from `TryAppendPlannableValueCore`, so no N# planner has
+    // ever seen one; the emitter's own `case 57` is the owner, and it emits NO rows — it saves the
+    // overflow flag, sets it, emits the ONE child through the ordinary expression path, and restores.
+    // The door's arm is that host arm transcribed, so byte identity there is against this door's own
+    // recursion. It is also why kind 57 stays unclaimed in NESTED positions: widening the shared value
+    // dispatcher would change the cascade for the whole product, not just for the door.
+    //
     // ⚠ THE CONDITIONAL CLAIM IS THE FIRST WHOSE ROWS BRANCH. Every kind claimed before it lowers to a
     // straight line, so `015-B12` is where the plan's LABEL rows first have to survive a method body —
     // a schema question `015-B11`'s FINDING 3 is the standing warning about, answered here by the
@@ -631,10 +641,82 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarExpressionNodeKind.TernaryExpression() {
             return ColumnarConditionalPlanner.TryAppendRoot(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out resultType)
         }
+        // 57 CheckedContext — `checked(<expr>)` / `unchecked(<expr>)` (015-B13), and THE FIRST CLAIMED
+        // KIND WITH NO OWNER BEHIND IT. Every other arm above calls an N# planner the emitter also
+        // reaches; kind 57 has no planner at all — it is absent from
+        // `ColumnarRangeIndexPlanner.FacadeRootMayNeedFacts` (so the cascade never sees a `checked`
+        // root) and absent from `TryAppendPlannableValueCore` (so no owner plans one in a nested
+        // position either). Its owner is `ColumnarIlEmitter.EmitExpressionCore`'s own `case 57`, whose
+        // whole body is `EmitExpressionWithOverflowChecking`: save the flag, set it, emit the ONE
+        // child through the ordinary expression path, restore in a `finally`. So byte identity here is
+        // against THIS door's own recursion, and the arm is that host arm transcribed.
+        if kind == ColumnarExpressionNodeKind.CheckedContextExpression() {
+            return TryAppendCheckedContext(nodes, source, node, bindings, plan, out resultType)
+        }
         // Unreachable while the claimed set and the arms above agree, and that agreement is exactly
         // what the estate's partition block asserts. A kind added to the claimed set without its own
         // arm lands here and DECLINES rather than silently taking a neighbouring owner's route.
         return false
+    }
+
+    // THE CHECKED/UNCHECKED CONTEXT (015-B13) — the host's `case 57` arm, transcribed.
+    //
+    // The host reads the KEYWORD out of the node's value span and routes `checked` and `unchecked` to
+    // `EmitExpressionWithOverflowChecking(idx, enabled)`, which sets `_overflowCheckingEnabled` around
+    // ONE child and restores it. The routed counterpart of that field is `bindings.OverflowCheckingEnabled`,
+    // which `TryPlanBody` has carried since `015-B7` and whose ONE production consumer is
+    // `ColumnarPrimitiveBinaryPlanner`'s `checkedIntegral` — the `add`/`add.ovf` choice. So the arm's whole
+    // job is to flip that field, recurse through the SAME dispatcher the enclosing position used, and put
+    // the field back.
+    //
+    // ⚠ THE RESTORE IS ON THE NORMAL PATH ONLY, AND THAT IS A DELIBERATE DIFFERENCE FROM THE HOST'S
+    // `finally`. The bindings object is built fresh inside `TryPlanBody` and is never handed to a second
+    // body, so a throw out of the recursion abandons the whole claim and the object with it; there is no
+    // later reader for a stale flag to reach. What the restore DOES protect is the ordinary nesting case —
+    // `checked(unchecked(x))` and a second statement after a claimed `:=` — and the tip bytes say the
+    // INNER keyword wins (`checked(unchecked(a + b))` is `add`, `unchecked(checked(a + b))` is `add.ovf`).
+    //
+    // ⚠ THE SPAN GUARD IS THIS ARM'S OWN OBLIGATION, NOT AN INHERITED ONE. `ColumnarNodeTable.Text` is a
+    // bare `source.Substring(valueStarts[i], valueLengths[i])`, so a kind-57 node carrying no keyword span
+    // would THROW out of the compiler rather than decline. The host reads it unguarded because it is
+    // already committed to emitting; a front door that crashes is strictly worse than one that declines,
+    // and a decline here is a narrowing rather than a divergence.
+    //
+    // ⚠ THE CHILD IS NOT UNWRAPPED, AND THAT IS THE DOOR'S EXISTING PARENTHESIS POLICY RATHER THAN AN
+    // OVERSIGHT. `checked((a + b))`'s child is kind 7, which `IsDeclinedExpressionKind` refuses, so the
+    // body declines exactly as `return (a + b)` already does. Unwrapping HERE and nowhere else would be a
+    // second parenthesis policy, and the one that already exists is the one the emitter's owners apply.
+    //
+    // ⚠ AND THE ONE SHAPE WHERE `checked` CHANGES A UNARY LOWERING IS UNREACHABLE FROM HERE. The host's
+    // `case 11` negation arm, under an active flag, DECLARES A LOCAL and writes
+    // `stloc; ldc.i4.0; ldloc; sub.ovf` instead of `neg` — a local the plan never pooled. The door's
+    // kind-11 arm is `ColumnarUnaryLiteralPlanner`, which claims only a unary over a LITERAL operand, so
+    // `checked(-a)` over a parameter declines the body whole. With a LITERAL operand that same pre-cascade
+    // owner claims the node on BOTH sides and consults no flag, so `checked(-5)` is `ldc.i4.5; neg` in
+    // both pipelines. The asymmetry exists and the door cannot reach it.
+    static func TryAppendCheckedContext(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        if nodes.ChildCount(node) != 1 {
+            return false
+        }
+
+        valueStart := nodes.ValueStart(node)
+        valueLength := nodes.ValueLengths[node]
+        if valueStart < 0 || valueLength <= 0 || valueLength > source.Length || valueStart > source.Length - valueLength {
+            return false
+        }
+
+        keyword := nodes.Text(source, node)
+        enabled := keyword == "checked"
+        if !enabled && keyword != "unchecked" {
+            return false
+        }
+
+        previous := bindings.OverflowCheckingEnabled
+        bindings.OverflowCheckingEnabled = enabled
+        appended := TryAppendValue(nodes, source, nodes.Child(node, 0), bindings, plan, out resultType)
+        bindings.OverflowCheckingEnabled = previous
+        return appended
     }
 
     // The kinds the door takes. Each owner is method-body-schema aware; five of them (unary, `nameof`,
@@ -646,7 +728,7 @@ class ColumnarMethodBodyPlanner {
     // `TryAppendValue`'s arm, where the emitter's own cascade makes it. Duplicating the operator test
     // here would be a second copy of that judgement, and the two copies could disagree.
     static func IsClaimedExpressionKind(kind: int): bool {
-        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.BinaryExpression() || kind == ColumnarExpressionNodeKind.TernaryExpression()
+        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.BinaryExpression() || kind == ColumnarExpressionNodeKind.TernaryExpression() || kind == ColumnarExpressionNodeKind.CheckedContextExpression()
     }
 
     // The kinds the door refuses, named one by one rather than left to a fall-through. The reason is
@@ -681,9 +763,10 @@ class ColumnarMethodBodyPlanner {
         if kind == 17 || kind == 18 || kind == 39 || kind == 42 || kind == 44 || kind == 45 {
             return true
         }
-        // 46 Is, 47 As, 52 With, 53 Await, 57 CheckedContext, 59 AnonymousObjectInitializer,
-        // 64 SpreadArgument.
-        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 57 || kind == 59 || kind == 64
+        // 46 Is, 47 As, 52 With, 53 Await, 59 AnonymousObjectInitializer, 64 SpreadArgument.
+        // 57 CHECKED-CONTEXT LEFT THIS LIST in `015-B13`: it is the one claimed kind whose host arm is
+        // not a planner call at all, so the door reproduces it directly.
+        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64
     }
 
     // THE LEDGER THE DOOR PARTITIONS — every node kind the parser can produce in a return-VALUE

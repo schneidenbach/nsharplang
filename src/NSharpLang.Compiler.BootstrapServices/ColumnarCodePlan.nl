@@ -1127,6 +1127,30 @@ class ColumnarCodePlan {
         return index
     }
 
+    // ⚠ `fragmentKind` IS DESCRIPTIVE METADATA THAT NO VALIDATOR ENFORCES, AND THE TREE-WIDE CENSUS
+    // THAT MAKES THAT SAFE LIVES HERE (015-B13).
+    //
+    // `015-B12`'s control `C3` hard-coded a caller's `fragmentKind` to a kind its source node did NOT
+    // have and the whole estate stayed green: `HasValidV2Fragments` asks only `FragmentKinds[i] >= 0`
+    // and never compares the recorded kind with the kind of the node `FragmentSourceNodeIndices[i]`
+    // points at. The complete fix would be a validator arm here — and it cannot be written, because a
+    // plan deliberately carries no node table. So the property is held by the CALLERS, and `015-B13`
+    // censused all **24** of them so that "held by the callers" is a measurement rather than a hope:
+    //
+    //   15 DERIVED        — `nodes.Kind(x)` and `x` in the same call. Disagreement is not expressible.
+    //    7 GUARDED LITERAL — a named `ColumnarExpressionNodeKind` constant, each within three lines of
+    //                       a `nodes.Kind(candidate) != <that same constant> → return` guard
+    //                       (`ColumnarPrimitiveBinaryPlanner`'s guard is `IsAdmittedSyntax`, whose
+    //                       first test is that kind).
+    //    2 call sites of the ONE function that takes the pair as PARAMETERS
+    //                     (`ColumnarNullableArgumentLowering.TryAppendNullArgument`) — and both callers
+    //                       pass `nodes.Kind(candidate), candidate`.
+    //
+    // So `C3`'s fabricated disagreement is unreachable from every site in the tree at this tip; the
+    // exposure is a FUTURE caller, not a present defect, and a kind-comparing validator would today
+    // catch nothing. What guards the future caller is an INSTRUMENT rather than a comment: the estate
+    // walks every fragment of real door-claimed plans and asserts
+    // `FragmentKinds[i] == nodes.Kind(FragmentSourceNodeIndices[i])`.
     func BeginFragment(parentIndex: int, fragmentKind: int, sourceNodeIndex: int): int {
         EnsureV2Building()
         if fragmentKind < 0 || sourceNodeIndex < 0 {

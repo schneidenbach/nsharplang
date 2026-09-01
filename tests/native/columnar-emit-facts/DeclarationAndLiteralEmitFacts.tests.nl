@@ -1063,3 +1063,106 @@ test "the claimed short circuit still refuses to evaluate its right operand" {
     // `false || f()` calls it once, and f returned false: 1 evaluation, no bonus.
     assert DoorOrRightCalls(false) == 1
 }
+
+
+// ---- 015-B13: THE CHECKED CONTEXT (class K) — THE CLAIM WHOSE SEMANTICS ARE A THROW ----
+//
+// Every earlier door claim could be checked by comparing a VALUE. This one cannot: `checked` and
+// `unchecked` produce the same value on every input that does not overflow, and differ only in
+// whether the CLR raises `OverflowException` on the one that does. So these bodies are driven past
+// the boundary on purpose — a claim that emitted `add` where the host emitted `add.ovf` would return
+// a wrapped number here instead of throwing, and no value comparison inside the range would notice.
+//
+// ⚠ THE UNSIGNED ARM (`add.ovf.un`) IS PROVED IN THE ESTATE AND NOT HERE, FOR A PRE-EXISTING REASON
+// THAT WAS MEASURED RATHER THAN ASSUMED. A `uint` literal declines columnar emission at this tip on
+// BOTH the pre-slice and post-slice CLI — `func UMax(): uint { return 4294967295U }` alone is enough,
+// with no `checked` anywhere — so a `uint` body cannot be spelled in this corpus project at all. The
+// estate asserts `AddOvfUn` directly against a plan built from `uint` parameter bindings, which needs
+// no source literal.
+
+func DoorCheckedAdd(a: int, b: int): int {
+    return checked(a + b)
+}
+
+func DoorUncheckedAdd(a: int, b: int): int {
+    return unchecked(a + b)
+}
+
+func DoorCheckedSubtract(a: int, b: int): int {
+    return checked(a - b)
+}
+
+func DoorCheckedMultiply(a: int, b: int): int {
+    return checked(a * b)
+}
+
+func DoorCheckedLongMultiply(a: long, b: long): long {
+    return checked(a * b)
+}
+
+// The INNER keyword wins, and a door arm that only SET the flag without restoring it would answer
+// these two the same way.
+func DoorCheckedOverUnchecked(a: int, b: int): int {
+    return checked(unchecked(a + b))
+}
+
+func DoorUncheckedOverChecked(a: int, b: int): int {
+    return unchecked(checked(a + b))
+}
+
+// The INITIALIZER door, and the leak test in one body: the declaration is checked and the returned
+// binary must not inherit that.
+func DoorCheckedDeclarationThenPlainAdd(a: int, b: int): int {
+    guarded := checked(a * 1)
+    return guarded + b
+}
+
+func DoorCheckedThrows(a: int, b: int): bool {
+    try {
+        wrapped := DoorCheckedAdd(a, b)
+        return wrapped == 0 && false
+    } catch ex: OverflowException {
+        return true
+    }
+}
+
+func DoorCheckedMultiplyThrows(a: int, b: int): bool {
+    try {
+        wrapped := DoorCheckedMultiply(a, b)
+        return wrapped == 0 && false
+    } catch ex: OverflowException {
+        return true
+    }
+}
+
+test "the expression door claims the checked context and keeps its overflow semantics" {
+    // In range, both directions agree — which is exactly why the boundary cases below are the proof.
+    assert DoorCheckedAdd(2, 3) == 5
+    assert DoorUncheckedAdd(2, 3) == 5
+    assert DoorCheckedSubtract(9, 4) == 5
+    assert DoorCheckedMultiply(6, 7) == 42
+    assert DoorCheckedLongMultiply(3000000000L, 2L) == 6000000000L
+
+    // OUT of range: the checked bodies THROW and the unchecked one WRAPS. A claim that lost the flag
+    // would wrap in all four.
+    assert DoorCheckedThrows(2147483647, 1)
+    assert DoorCheckedMultiplyThrows(100000, 100000)
+    assert DoorUncheckedAdd(2147483647, 1) == -2147483648
+}
+
+test "the claimed checked context restores the flag rather than merely setting it" {
+    // The INNER keyword governs: the outer one is restored around the inner subtree.
+    assert DoorCheckedOverUnchecked(2147483647, 1) == -2147483648
+
+    outerUncheckedThrew := false
+    try {
+        assert DoorUncheckedOverChecked(2147483647, 1) == 0
+    } catch ex: OverflowException {
+        outerUncheckedThrew = true
+    }
+
+    assert outerUncheckedThrew
+
+    // And a checked INITIALIZER does not leak into the statement after it: the return's `+` wraps.
+    assert DoorCheckedDeclarationThenPlainAdd(2147483647, 1) == -2147483648
+}

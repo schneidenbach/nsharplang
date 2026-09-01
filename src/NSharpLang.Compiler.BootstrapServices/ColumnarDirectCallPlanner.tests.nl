@@ -1488,3 +1488,94 @@ test "direct-call planner declines a visible local-function call without owning 
     assert ownership == ColumnarDirectCallOwnership.NotOwned
     assert !legacyWholeSubtreePlanning
 }
+
+
+// ---- 015-B13: THE NINTH ARGUMENT SITE, AND THE RECEIVER PAIR THAT IS NOT ONE ----
+
+// ⚠ THE DELEGATE-INVOKE ARGUMENT LOOP IS THE ONE ARGUMENT LIST THAT DOES NOT ROUTE THROUGH
+// `AppendArguments`, WHICH IS WHY `015-B9`'s THREADING NEVER REACHED IT.
+//
+// `015-B12`'s census listed this site with the two RECEIVER sites as one family of "hard-coded PLAIN
+// inner positions". It is not the same question. `TryGetArgumentTypes` is called EXACTLY ONCE in the
+// whole tree, with `ArgumentsAdmitPrimitiveBinary()`, and `TryAppendBareCall` hands the very
+// `argumentTypes` it produced into `TryAppendDelegateInvoke` — so this site's TYPE side already
+// admitted a primitive binary while its APPEND side refused one. `d(x + y)` therefore typed and then
+// FAILED at the append, which is precisely the "a type side that admitted more than the append side
+// would only manufacture declines one step later" that the RECEIVER comment states as its own reason.
+// Reading the same named decision the other eight sites read makes the two sides agree; it adds no
+// rule.
+test "the delegate-invoke argument surface is the one its own type side already admitted" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "add", 0, typeof(Func<int, int>))
+    ColumnarRangePlannerAddParameter(bindings, "x", 1, typeof(int))
+    ColumnarRangePlannerAddParameter(bindings, "y", 2, typeof(int))
+
+    plan := DirectCallPlan(DirectCallParsedTree("add(x + y)"), bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 5
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Add()
+    assert plan.OpCodeValues[4] == ColumnarCodePlanContract.Callvirt()
+    assert plan.Methods[plan.OperandIndices[4]].get_Name() == "Invoke"
+
+    // The ordinary argument stays exactly as it was — the widening is a SUPERSET, not a reroute.
+    plainBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(plainBindings, "add", 0, typeof(Func<int, int>))
+    ColumnarRangePlannerAddParameter(plainBindings, "x", 1, typeof(int))
+    plainPlan := DirectCallPlan(DirectCallParsedTree("add(x)"), plainBindings)
+    assert plainPlan.OperationCount == 3
+    assert plainPlan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
+
+    // ONE decision, ONE home, ONE mutation anchor — now read by NINE sites rather than eight.
+    assert ColumnarDirectCallPlanner.ArgumentsAdmitPrimitiveBinary()
+}
+
+// ⚠ THE RECEIVER PAIR IS PINNED, AND THE PIN IS ASSERTED RATHER THAN LEFT AS A COMMENT.
+//
+// `AppendExtensionReceiver` and `AppendExplicitReceiver` still hard-code the PLAIN surface, and unlike
+// the delegate-invoke argument above they are CONSISTENT with their type side: `TryAppendMemberCall`
+// passes a matching `false` to `TryGetPlannableValueType`, with the rule written beside it. So a
+// binary RECEIVER declines on both sides and belongs to the host, while a binary ARGUMENT is planned.
+// This block holds the two halves apart so a future slice that widens one and not the other breaks a
+// contract instead of merely diverging.
+test "the receiver surface stays plain on both sides while the argument surface admits a binary" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "x", 0, typeof(int))
+    ColumnarRangePlannerAddParameter(bindings, "y", 1, typeof(int))
+
+    receiverPlan := new ColumnarCodePlan()
+    receiverOwnership := ColumnarDirectCallOwnership.Planned
+    receiverLegacy := false
+    receiverType := typeof(int)
+    receiverTree := DirectCallParsedTree("(x + y).ToString()")
+    receiverStatus := ColumnarDirectCallPlanner.Plan(receiverTree.Nodes, receiverTree.Source, receiverTree.Root, bindings, receiverPlan, out receiverOwnership, out receiverLegacy, out receiverType)
+    assert receiverStatus != ColumnarFragmentPlanStatus.Planned
+    assert receiverOwnership != ColumnarDirectCallOwnership.Planned
+
+    // ⚠ THE OUTS ARE ASSERTED, NOT JUST THE OUTCOME, AND `015-B13`'s CONTROL `C7` IS WHY.
+    // `C7` widened the TYPE side alone (`TryGetPlannableValueType`'s `false` -> `true`) and the first
+    // spelling of this block still PASSED: with the append side still plain, the call was refused ONE
+    // STEP LATER and the outcome was unchanged. That is exactly the "manufacture declines one step
+    // later" the rule at the type side names, and it is invisible from the status alone. `legacy` is
+    // where it shows: at this tip the receiver is refused BEFORE the owner claims anything, so the
+    // whole subtree goes legacy. A one-sided widening moves that, and this block now moves with it.
+    assert receiverOwnership == ColumnarDirectCallOwnership.NotOwned
+    assert receiverLegacy
+
+    // The SAME binary, in the SAME owner, one position over: an argument is planned.
+    argumentBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(argumentBindings, "add", 0, typeof(Func<int, int>))
+    ColumnarRangePlannerAddParameter(argumentBindings, "x", 1, typeof(int))
+    ColumnarRangePlannerAddParameter(argumentBindings, "y", 2, typeof(int))
+    argumentPlan := DirectCallPlan(DirectCallParsedTree("add(x + y)"), argumentBindings)
+    assert argumentPlan.OpCodeValues[3] == ColumnarCodePlanContract.Add()
+
+    // And the ordinary receiver is untouched by any of it.
+    plainBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(plainBindings, "x", 0, typeof(int))
+    plainPlan := DirectCallPlan(DirectCallParsedTree("x.ToString()"), plainBindings)
+    assert plainPlan.ResultType == typeof(string)
+}

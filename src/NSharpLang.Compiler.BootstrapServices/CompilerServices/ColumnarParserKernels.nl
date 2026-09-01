@@ -508,6 +508,14 @@ class ColumnarExpressionNodeKind {
         return 55
     }
 
+    // `checked(<expr>)` / `unchecked(<expr>)`. The KEYWORD lives in the value span and there is
+    // exactly ONE child. Unlike every other name on this ledger it has no N# planner behind it:
+    // `ColumnarIlEmitter.EmitExpressionCore`'s own `case 57` is the owner, and it lowers to nothing
+    // but a saved-and-restored overflow flag around the child's emission (015-B13).
+    static func CheckedContextExpression(): int {
+        return 57
+    }
+
     static func ArrayLiteralExpression(): int {
         return 58
     }
