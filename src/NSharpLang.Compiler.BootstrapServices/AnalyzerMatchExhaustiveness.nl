@@ -298,12 +298,6 @@ class AnalyzerMatchExhaustiveness {
 
             identPattern := matchCase.Pattern as IdentifierPattern
             if identPattern != null {
-                if identPattern.Name == "_" {
-                    // Unguarded wildcard pattern covers all remaining cases
-                    matchExpression.IsExhaustive = true
-                    return
-                }
-
                 if identPattern.Name.Contains('.') {
                     // Qualified union case name without properties
                     matchedCase := AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionType, identPattern.Name)
@@ -312,8 +306,11 @@ class AnalyzerMatchExhaustiveness {
                         coveredFlags[matchedCaseIndex] = 1
                     }
                 } else {
-                    // Unqualified, non-wildcard identifier is a catch-all binding (e.g., `other =>`)
-                    // that matches everything at runtime — treat it the same as `_`
+                    // EVERY UNDOTTED IDENTIFIER ARM IS A CATCH-ALL, `_` INCLUDED. The wildcard `_` and
+                    // a catch-all binding (`other =>`) both match anything at run time, and `_` carries
+                    // no dot, so ONE branch answers for both. An explicit `_` arm ahead of this one
+                    // would be dead code: it could never decide a case this branch does not already
+                    // decide the same way.
                     matchExpression.IsExhaustive = true
                     return
                 }
@@ -413,12 +410,6 @@ class AnalyzerMatchExhaustiveness {
 
             identPattern := matchCase.Pattern as IdentifierPattern
             if identPattern != null {
-                if identPattern.Name == "_" {
-                    matchExpression.IsExhaustive = true
-                    return
-                }
-                // Wildcard covers all
-
                 // Check for qualified enum member (e.g., Status.Active)
                 if identPattern.Name.Contains('.') {
                     parts := identPattern.Name.Split('.')
@@ -429,7 +420,9 @@ class AnalyzerMatchExhaustiveness {
                         coveredMembers.Add(memberName)
                     }
                 } else {
-                    // Unqualified non-wildcard identifier — catch-all binding
+                    // Undotted identifier — a catch-all binding, and `_` reaches here too because the
+                    // wildcard carries no dot either. One branch answers for both; an explicit `_` arm
+                    // ahead of it would be dead code.
                     matchExpression.IsExhaustive = true
                     return
                 }

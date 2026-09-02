@@ -189,7 +189,7 @@ class NominalTypeInfoFactory {
         kind := GetDeclaredMemberKind(typeName)
         typeParameters := GetTypeParameterArray(member)
         genericConstraints := GetGenericConstraintArray(member)
-        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16), HasOptionalModifier(member, 512), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"))
+        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16), HasOptionalModifier(member, 512), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member))
     }
 
     static func GetGenericConstraintArray(owner: object): GenericConstraint[] {
@@ -229,6 +229,17 @@ class NominalTypeInfoFactory {
         }
 
         return null
+    }
+
+    // THE WHOLE MODIFIER WORD, for the questions no single decoded bit answers. A declaration form
+    // that carries no `Modifiers` property at all answers zero, which reads as `Modifiers.None`.
+    static func GetModifierBits(declaration: object): int {
+        modifiers := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Modifiers")
+        if modifiers == null {
+            return 0
+        }
+
+        return Convert.ToInt32(modifiers)
     }
 
     static func HasOptionalModifier(declaration: object, flag: int): bool {

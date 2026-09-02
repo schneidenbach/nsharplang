@@ -126,7 +126,8 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 - `NL304`: DefiniteAssignmentError — covers both constructor fields and locals. A local declared without an initializer (`let x: int`) that is read before it is definitely assigned on every path that reaches the read is an error; the squiggle underlines the offending READ of the variable.
 - `NL305`: MissingReturn
 - `NL306`: DuplicateDeclaration
-- `NL307-311`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired, InvalidModifier
+- `NL307-310`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired
+- `NL311`: InvalidModifier — currently the `override` rule. A member declared `override` must have a base member of that name, and that base member must be `virtual`, `abstract`, or a non-`sealed` `override`; the two faults get two sentences ("has no base member of that name" / "is not marked 'virtual', 'abstract' or 'override'") and the span underlines the member NAME. The walk is CONSERVATIVE and silence is its default: it answers only over a source shape it can read, a CLR type it can reflect over, or the implicit `object` at the end of a source chain, and a base that resolves to nothing — or a `:` clause it could not resolve — reports nothing at all. `override func ToString()` on a class with no `:` clause is therefore silent (it takes `object.ToString`'s slot), while `override func GetType()` is an error because `object.GetType` is not virtual.
 - `NL312`: UnreachableStatement (code after return/throw/exhaustive branches)
 - `NL313`: InvalidExpressionStatement (value/member expression written as a statement with no side effect)
 - `NL314`: UnverifiedErrorResult (error-tuple result used before the paired error is proven null)
