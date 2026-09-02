@@ -199,6 +199,68 @@ test "name lookups answer from the INNERMOST scope that binds the name" {
     assert stack.CurrentScopeSymbol("only-global") == null
 }
 
+// BindsToLocalOrParameter — the question NL309's bare-name channel asks before it accuses a FIELD.
+//
+// That channel searches the enclosing type's MEMBER LIST, which knows nothing about locals: without
+// this walk, `size = 4` written under a local named `size` reported the readonly FIELD for a write
+// the LOCAL received. The walk therefore has to stop at exactly the point a bare name stops meaning
+// "a local": the first scope that is not a function or a block.
+test "a bare name bound by a local or a parameter is a shadow, and the walk stops at the type scope" {
+    model := new SemanticModel()
+    stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Class, ScopeKind.Function, ScopeKind.Block])
+
+    // A field of the enclosing type lives in the CLASS scope, and the walk never reaches it.
+    typeScope := ScopeStackOf(model, [ScopeKind.Global])
+    assert typeScope.BindsToLocalOrParameter("size") == false
+
+    stack.Peek().Symbols["blockLocal"] = ScopeSymbolOf("int")
+    assert stack.BindsToLocalOrParameter("blockLocal") == true
+
+    // An enclosing FUNCTION scope — a parameter, or a local declared above the block — counts too.
+    stack.Pop(model)
+    stack.Peek().Symbols["parameter"] = ScopeSymbolOf("int")
+    stack.Push(model, new Scope(ScopeKind.Block), 9, 1)
+    assert stack.BindsToLocalOrParameter("parameter") == true
+
+    // The CLASS scope binds `size`, and it is NOT a shadow: it is what a bare name means.
+    stack.GlobalScope().Symbols["global"] = ScopeSymbolOf("int")
+    assert stack.BindsToLocalOrParameter("global") == false
+    assert stack.BindsToLocalOrParameter("neverBound") == false
+}
+
+test "a name a local scope binds as a TYPE, a local FUNCTION or a method group is not a value shadow" {
+    model := new SemanticModel()
+    stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])
+
+    current := stack.Peek()
+    current.Symbols["TItem"] = ScopeSymbolOf("TItem")
+    current.Types["TItem"] = ScopeSymbolOf("TItem")
+    assert stack.BindsToLocalOrParameter("TItem") == false
+
+    current.Symbols["helper"] = new FunctionTypeInfo()
+    assert stack.BindsToLocalOrParameter("helper") == false
+
+    current.Symbols["ordinary"] = ScopeSymbolOf("int")
+    assert stack.BindsToLocalOrParameter("ordinary") == true
+}
+
+// `value` IS A SHADOW HERE AND IS NOT ONE FOR `ShadowsEnclosingValueBinding`, which excludes it by
+// name. Inside a property setter `value` is the implicit PARAMETER, so a write to it is a write to
+// the parameter — not to a field that happens to carry the same name.
+test "a property setter's implicit `value` is a parameter, so it shadows a field of that name" {
+    model := new SemanticModel()
+    stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Class, ScopeKind.Function])
+
+    stack.Peek().Symbols["value"] = ScopeSymbolOf("int")
+    assert stack.BindsToLocalOrParameter("value") == true
+    assert stack.ShadowsEnclosingValueBinding("value", ScopeSymbolOf("int")) == false
+}
+
+test "an empty stack binds no bare name at all" {
+    stack := new AnalyzerScopeStack()
+    assert stack.BindsToLocalOrParameter("size") == false
+}
+
 test "a type parameter is declared once and is the SAME instance as a type and as a symbol" {
     model := new SemanticModel()
     stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])

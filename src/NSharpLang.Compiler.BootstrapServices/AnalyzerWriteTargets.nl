@@ -652,11 +652,17 @@ class AnalyzerWriteTargets {
         } else {
             identifier := target as IdentifierExpression
             if identifier != null {
-                fieldName = identifier.Name
+                // A BARE NAME A LOCAL OR A PARAMETER CLAIMS IS NOT THE FIELD, and the member list
+                // this channel searches cannot tell: `Size = 4` under a local `Size` stores into the
+                // LOCAL, which is why Roslyn says nothing. `this.Size` is never a local and is
+                // therefore never asked.
+                if !scopesValue.BindsToLocalOrParameter(identifier.Name) {
+                    fieldName = identifier.Name
+                }
             }
         }
 
-        if fieldName.Length == 0 || ambientValue.CurrentClass == null {
+        if fieldName.Length == 0 || ambientValue.CurrentTypeMembers == null {
             readonlyTarget = null
             return false
         }
@@ -664,18 +670,24 @@ class AnalyzerWriteTargets {
         return TryGetCurrentOrInheritedReadonlyFieldTarget(fieldName, out readonlyTarget)
     }
 
-    // THE ENCLOSING CLASS'S OWN MEMBERS DECIDE FIRST, and a PROPERTY of the same name ends the search
-    // with "no" — a property write is rule 4's business, not this one's. Only when the class declares
+    // THE ENCLOSING TYPE'S OWN MEMBERS DECIDE FIRST, and a PROPERTY of the same name ends the search
+    // with "no" — a property write is rule 4's business, not this one's. Only when the type declares
     // nothing by that name do the base types get asked, and an inherited readonly field is never "the
     // current instance" for the purposes of the constructor exemption.
+    //
+    // THE ENCLOSING TYPE IS NOT NECESSARILY A CLASS, and reading `CurrentClass` here is what made
+    // this channel blind inside a struct and inside a record: that slot is typed `ClassDeclaration`,
+    // so neither form could ever be put in it and every bare-name and `this.`-qualified readonly
+    // write inside one — assignment, `++`/`--` and `ref`/`out` argument alike — was silently allowed.
+    // The member list and the type NAME are read from the slots all four forms move together.
     func TryGetCurrentOrInheritedReadonlyFieldTarget(fieldName: string, out readonlyTarget: ReadonlyFieldTarget?): bool {
         readonlyTarget = null
-        currentClass := ambientValue.CurrentClass
-        if currentClass == null {
+        currentMembers := ambientValue.CurrentTypeMembers
+        if currentMembers == null {
             return false
         }
 
-        for member in currentClass.Members {
+        for member in currentMembers {
             field := member as FieldDeclaration
             if field != null && field.Name == fieldName {
                 if !HasModifier(field.Modifiers, Modifiers.Readonly) {
@@ -693,7 +705,12 @@ class AnalyzerWriteTargets {
             }
         }
 
-        currentType := scopesValue.LookupType(currentClass.Name)
+        currentTypeName := ambientValue.CurrentTypeName
+        if currentTypeName == null {
+            return false
+        }
+
+        currentType := scopesValue.LookupType(currentTypeName)
         if currentType == null {
             return false
         }

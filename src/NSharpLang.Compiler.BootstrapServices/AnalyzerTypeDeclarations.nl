@@ -103,10 +103,10 @@ class TypeDeclarationRequest {
 //          arm's rules; 43 declares the name; 44 records the type member; 45 records the field.
 //   99     done.
 //
-// `SavedClass` and `SavedTypeName` are the ambient context's hand-backs, held HERE because the
-// boundary opens in phase 0 and closes in phase 8 with the whole member walk in between. They are two
-// slots rather than one frame because the four type forms do not move them together: only a CLASS
-// moves the declaration, while all four move the name.
+// `SavedClass`, `SavedTypeMembers` and `SavedTypeName` are the ambient context's hand-backs, held
+// HERE because the boundary opens in phase 0 and closes in phase 8 with the whole member walk in
+// between. They are three slots rather than one frame because the four type forms do not move them
+// together: only a CLASS moves the declaration, while all four move the name and the member list.
 //
 // `SavedExpectedType` is the target-typing slot's hand-back for the field band's checked arm, held
 // for exactly one step.
@@ -133,6 +133,7 @@ class TypeDeclarationState {
     ParameterType: TypeInfo
     FieldType: TypeInfo
     SavedClass: ClassDeclaration?
+    SavedTypeMembers: List<Declaration>?
     SavedTypeName: string?
     SavedExpectedType: TypeInfo?
     SeenNames: HashSet<string>
@@ -151,6 +152,7 @@ class TypeDeclarationState {
         ParameterType = BuiltInTypes.Unknown
         FieldType = BuiltInTypes.Unknown
         SavedClass = null
+        SavedTypeMembers = null
         SavedTypeName = null
         SavedExpectedType = null
         SeenNames = new HashSet<string>(StringComparer.Ordinal)
@@ -386,10 +388,16 @@ class AnalyzerTypeDeclarations {
 
     // PHASE 0 — THE AMBIENT CONTEXT, THE CONVENTION, THE DECLARED TYPE AND THE SCOPE, IN THAT ORDER.
     // The ambient context moves FIRST, before a single report, because every report made from here
-    // down is made from inside this type. A CLASS moves both slots and everything else moves only the
-    // name — the difference a struct nested in a class depends on. The declared type is looked up
-    // BEFORE the scope opens, so the lookup sees the ENCLOSING scope, which is where a type
-    // declaration's own name lives.
+    // down is made from inside this type. A CLASS moves the DECLARATION slot and everything else
+    // leaves it alone — the difference a struct nested in a class depends on — while all four forms
+    // move the NAME and the MEMBER LIST together, so those two always describe the same declaration.
+    // The declared type is looked up BEFORE the scope opens, so the lookup sees the ENCLOSING scope,
+    // which is where a type declaration's own name lives.
+    //
+    // THE MEMBER LIST IS WHAT THE READONLY-WRITE RULE READS, and it is a separate slot precisely
+    // because the declaration slot cannot carry a struct or a record: `CurrentClass` is typed
+    // `ClassDeclaration`, so NL309's bare-name channel saw NOTHING inside a struct or a record and
+    // silently allowed writes Roslyn refuses with `CS0191`.
     func AdvanceTypeEntry(state: TypeDeclarationState): TypeDeclarationRequest? {
         state.Phase = 1
         name := TypeName(state)
@@ -398,6 +406,7 @@ class AnalyzerTypeDeclarations {
             state.SavedClass = ambientValue.EnterClassDeclaration(classDeclaration)
         }
 
+        state.SavedTypeMembers = ambientValue.EnterTypeMembers(TypeMembers(state))
         state.SavedTypeName = ambientValue.EnterTypeName(name)
         AnalyzerDeclarationConventions.CheckVisibilityConvention(diagnosticsValue, name, TypeModifiers(state), state.Declaration.Line, state.Declaration.Column)
         state.DeclaredType = scopesValue.LookupType(name)
@@ -558,15 +567,17 @@ class AnalyzerTypeDeclarations {
         return request
     }
 
-    // PHASE 8 — THE AMBIENT CONTEXT IS LEFT, class slot first and name second, which is the order the
-    // class walk restored its two locals in. A throw anywhere inside the walk never reaches here, and
-    // that is the C# behaviour preserved exactly: not one of these four restores sat in a `finally`.
+    // PHASE 8 — THE AMBIENT CONTEXT IS LEFT, class slot first and name last, which is the order the
+    // class walk restored its locals in, with the member list restored alongside the name it is
+    // paired with. A throw anywhere inside the walk never reaches here, and that is the C# behaviour
+    // preserved exactly: not one of these restores sat in a `finally`.
     func AdvanceLeaveTypeContext(state: TypeDeclarationState): TypeDeclarationRequest? {
         state.Phase = 99
         if state.Form == 0 {
             ambientValue.ExitClassDeclaration(state.SavedClass)
         }
 
+        ambientValue.ExitTypeMembers(state.SavedTypeMembers)
         ambientValue.ExitTypeName(state.SavedTypeName)
         return null
     }

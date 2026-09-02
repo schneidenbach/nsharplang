@@ -23,8 +23,9 @@ class AmbientContextFrame {
     FinallyDepth: int
     BreakTargetFinallyDepth: int
     ContinueTargetFinallyDepth: int
+    InConstructor: bool
 
-    constructor(returnType: TypeInfo?, declaration: FunctionDeclaration?, returnTypeWasOmitted: bool, isAsync: bool, inLoop: bool, finallyDepth: int, breakTargetFinallyDepth: int, continueTargetFinallyDepth: int) {
+    constructor(returnType: TypeInfo?, declaration: FunctionDeclaration?, returnTypeWasOmitted: bool, isAsync: bool, inLoop: bool, finallyDepth: int, breakTargetFinallyDepth: int, continueTargetFinallyDepth: int, inConstructor: bool) {
         ReturnType = returnType
         Function = declaration
         ReturnTypeWasOmitted = returnTypeWasOmitted
@@ -33,6 +34,7 @@ class AmbientContextFrame {
         FinallyDepth = finallyDepth
         BreakTargetFinallyDepth = breakTargetFinallyDepth
         ContinueTargetFinallyDepth = continueTargetFinallyDepth
+        InConstructor = inConstructor
     }
 }
 
@@ -177,6 +179,7 @@ class AnalyzerAmbientContext {
     continueTargetFinallyDepthValue: int
     currentExpectedTypeValue: TypeInfo?
     currentClassValue: ClassDeclaration?
+    currentTypeMembersValue: List<Declaration>?
     currentTypeNameValue: string?
     inConstructorValue: bool
     allowEventReferenceValue: bool
@@ -245,6 +248,15 @@ class AnalyzerAmbientContext {
     // implicit-field lookups that let a bare name resolve to a field of the enclosing class. A struct,
     // record or interface nested in a class does NOT clear it.
     CurrentClass: ClassDeclaration? => currentClassValue
+
+    // THE MEMBER LIST OF THE TYPE THE WALK IS INSIDE — a CLASS's, a STRUCT's or a RECORD's alike —
+    // or `null` outside all three. `CurrentClass` cannot answer this: its slot is typed
+    // `ClassDeclaration`, so a struct and a record could never be put in it, and the readonly-field
+    // write rule (NL309) read it and therefore went blind the moment the enclosing type was not a
+    // class. An interface has no fields to find and a union's cases are not members in this sense, so
+    // neither moves this slot; it is paired with `CurrentTypeName`, which every form already sets, so
+    // the two always describe the SAME declaration.
+    CurrentTypeMembers: List<Declaration>? => currentTypeMembersValue
 
     // THE NAME OF THE TYPE THE WALK IS INSIDE, or `null` at top level. This is what makes a member
     // declaration a MEMBER: the function walk records its function under it, the field walk records
@@ -321,6 +333,7 @@ class AnalyzerAmbientContext {
         continueTargetFinallyDepthValue = 0
         currentExpectedTypeValue = null
         currentClassValue = null
+        currentTypeMembersValue = null
         currentTypeNameValue = null
         inConstructorValue = false
         allowEventReferenceValue = false
@@ -447,7 +460,7 @@ class AnalyzerAmbientContext {
     // matching `Exit` restores exactly the subset ITS boundary is responsible for, and the doc on
     // each pair names that subset.
     func Snapshot(): AmbientContextFrame {
-        return new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue)
+        return new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue, inConstructorValue)
     }
 
     // A TOP-LEVEL FUNCTION DECLARATION'S BODY. Sets the whole function family and leaves the
@@ -518,6 +531,19 @@ class AnalyzerAmbientContext {
         currentClassValue = saved
     }
 
+    // THE ENCLOSING TYPE'S MEMBERS, WHICH A CLASS, A STRUCT AND A RECORD ALL MOVE. Save/restore, for
+    // the reason the class slot is: a type declared inside a member body nests, and the outer type's
+    // members must come back when the inner one is left.
+    func EnterTypeMembers(members: List<Declaration>?): List<Declaration>? {
+        saved := currentTypeMembersValue
+        currentTypeMembersValue = members
+        return saved
+    }
+
+    func ExitTypeMembers(saved: List<Declaration>?) {
+        currentTypeMembersValue = saved
+    }
+
     func EnterTypeName(name: string?): string? {
         saved := currentTypeNameValue
         currentTypeNameValue = name
@@ -533,6 +559,13 @@ class AnalyzerAmbientContext {
     // return type of `false`) and ZEROES the control-flow family, which is the whole point: a
     // `return` inside a nested body exits the NESTED body, not any `finally` the declaration happens
     // to sit inside, and `break`/`continue` cannot target a loop in the enclosing method at all.
+    //
+    // AND IT CLEARS THE CONSTRUCTOR FLAG, for the same reason and with the same force. A nested body
+    // compiles to a method of its own, so a store into an `initonly` field made from inside one is
+    // not the constructor's store however deeply the `func` or the lambda sits inside a constructor —
+    // Roslyn says `CS0191` for both shapes. The flag was a plain sticky bool that survived into the
+    // nested body, and the constructor exemption it grants was therefore handed to code the
+    // constructor does not contain.
     func EnterNestedBody(declaration: FunctionDeclaration?, returnType: TypeInfo?): AmbientContextFrame {
         saved := Snapshot()
         currentReturnTypeValue = returnType
@@ -543,10 +576,11 @@ class AnalyzerAmbientContext {
         finallyDepthValue = 0
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
+        inConstructorValue = false
         return saved
     }
 
-    // Restores ALL EIGHT. A nested body is the only boundary that saved all of them.
+    // Restores ALL NINE. A nested body is the only boundary that saved all of them.
     func ExitNestedBody(saved: AmbientContextFrame) {
         currentReturnTypeValue = saved.ReturnType
         currentFunctionValue = saved.Function
@@ -556,6 +590,7 @@ class AnalyzerAmbientContext {
         finallyDepthValue = saved.FinallyDepth
         breakTargetFinallyDepthValue = saved.BreakTargetFinallyDepth
         continueTargetFinallyDepthValue = saved.ContinueTargetFinallyDepth
+        inConstructorValue = saved.InConstructor
     }
 
     // A LOOP BODY — `while`, `for`, `foreach` or `await foreach`. Opens the loop and records the

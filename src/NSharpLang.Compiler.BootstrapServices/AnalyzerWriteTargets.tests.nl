@@ -385,9 +385,25 @@ func WriteTargetClassWith(name: string, fieldName: string, modifiers: Modifiers)
     return new ClassDeclaration(name, null, null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), 1, 1)
 }
 
+func WriteTargetStructWith(name: string, fieldName: string, modifiers: Modifiers): StructDeclaration {
+    members := new List<Declaration>()
+    members.Add(new FieldDeclaration(fieldName, new SimpleTypeReference("int", 2, 5), null, modifiers, PropertyModifier.None, new List<AttributeNode>(), 2, 5))
+    return new StructDeclaration(name, null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), 1, 1)
+}
+
+// WHAT THE TYPE-DECLARATION WALK ACTUALLY ENTERS, and the reason the bare-name channel is no longer
+// class-only: the walk moves the class slot for a CLASS and the MEMBER LIST for a class, a struct and
+// a record alike. This helper enters both so a contract drives the same ambient production does; a
+// struct or a record enters the member list ALONE, which is exactly what `WriteTargetStructMembers`
+// below is for.
+func WriteTargetEnterClass(harness: WriteTargetHarness, declaration: ClassDeclaration) {
+    harness.Ambient.EnterClassDeclaration(declaration)
+    harness.Ambient.EnterTypeMembers(declaration.Members)
+}
+
 test "a static readonly field can only be initialized at its declaration, in or out of a constructor" {
     harness := WriteTargetHarnessOf()
-    harness.Ambient.EnterClassDeclaration(WriteTargetClassWith("Widget", "total", Modifiers.Readonly | Modifiers.Static))
+    WriteTargetEnterClass(harness, WriteTargetClassWith("Widget", "total", Modifiers.Readonly | Modifiers.Static))
 
     harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("total"), 3, 5, null)
     assert harness.Errors[0].Message == "Field 'total' is static readonly — it can only be initialized at its declaration"
@@ -401,7 +417,7 @@ test "a static readonly field can only be initialized at its declaration, in or 
 
 test "an instance readonly field is exempt ONLY inside a constructor AND only on the current instance" {
     harness := WriteTargetHarnessOf()
-    harness.Ambient.EnterClassDeclaration(WriteTargetClassWith("Widget", "count", Modifiers.Readonly))
+    WriteTargetEnterClass(harness, WriteTargetClassWith("Widget", "count", Modifiers.Readonly))
 
     harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("count"), 3, 5, null)
     assert harness.Errors[0].Message == "Field 'count' is readonly — it can only be assigned in a constructor"
@@ -426,21 +442,27 @@ test "an instance readonly field is exempt ONLY inside a constructor AND only on
 
 test "a MUTABLE field and a PROPERTY of the same name both end the search with no report" {
     harness := WriteTargetHarnessOf()
-    harness.Ambient.EnterClassDeclaration(WriteTargetClassWith("Widget", "count", Modifiers.None))
+    WriteTargetEnterClass(harness, WriteTargetClassWith("Widget", "count", Modifiers.None))
     harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("count"), 3, 5, null)
     assert harness.Errors.Count == 0
+    // NOT A VACUOUS SILENCE: the same ambient with the field marked `readonly` DOES report, so the
+    // zero above is the modifier's doing rather than an empty member list's.
+    control := WriteTargetHarnessOf()
+    WriteTargetEnterClass(control, WriteTargetClassWith("Widget", "count", Modifiers.Readonly))
+    control.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("count"), 3, 5, null)
+    assert control.Errors.Count == 1
 
     propertyMembers := new List<Declaration>()
     propertyMembers.Add(new PropertyDeclaration("count", new SimpleTypeReference("int", 2, 5), null, null, null, Modifiers.Readonly, PropertyModifier.None, new List<AttributeNode>(), 2, 5))
     withProperty := new ClassDeclaration("Widget", null, null, new List<TypeReference>(), propertyMembers, null, Modifiers.None, new List<AttributeNode>(), 1, 1)
-    harness.Ambient.EnterClassDeclaration(withProperty)
+    WriteTargetEnterClass(harness, withProperty)
     harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("count"), 3, 5, null)
     assert harness.Errors.Count == 0
 }
 
 test "the three readonly reports differ only in the sentence they end with" {
     harness := WriteTargetHarnessOf()
-    harness.Ambient.EnterClassDeclaration(WriteTargetClassWith("Widget", "count", Modifiers.Readonly))
+    WriteTargetEnterClass(harness, WriteTargetClassWith("Widget", "count", Modifiers.Readonly))
 
     assert harness.Targets.ReportReadonlyFieldRefOutArgumentIfNeeded(WriteTargetName("count"), "out", null)
     assert harness.Errors[0].Message == "Field 'count' is readonly — it can't be used as a out argument"
@@ -452,6 +474,51 @@ test "the three readonly reports differ only in the sentence they end with" {
     harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("count"), 3, 5, null)
     assert harness.Errors[2].Message == "Field 'count' is readonly — it can only be assigned in a constructor"
     assert WriteTargetCodes(harness.Errors) == "309,309,309"
+}
+
+// A STRUCT AND A RECORD REACH THE SAME RULE, AND THE CLASS SLOT IS NEVER FILLED FOR EITHER. This is
+// the whole of the first NL309 hole this owner carried: the bare-name channel used to read
+// `CurrentClass`, whose slot is typed `ClassDeclaration`, so a struct's or a record's own `readonly`
+// field could not be found at all and all three reports were silent. Roslyn refuses the same write
+// with `CS0191`.
+test "a STRUCT's own readonly field is found through the member list alone, with no class declaration current" {
+    harness := WriteTargetHarnessOf()
+    structDeclaration := WriteTargetStructWith("Point", "count", Modifiers.Readonly)
+    harness.Ambient.EnterTypeMembers(structDeclaration.Members)
+    assert harness.Ambient.CurrentClass == null
+
+    harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("count"), 3, 5, null)
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Field 'count' is readonly — it can only be assigned in a constructor"
+
+    unary := new UnaryExpression(UnaryOperator.PostIncrement, WriteTargetName("count"), 3, 5)
+    assert harness.Targets.ReportReadonlyFieldIncrementOrDecrementIfNeeded(unary, null)
+    assert harness.Targets.ReportReadonlyFieldRefOutArgumentIfNeeded(WriteTargetName("count"), "ref", null)
+    assert WriteTargetCodes(harness.Errors) == "309,309,309"
+
+    // And the constructor exemption still applies to the struct's OWN instance.
+    exempt := WriteTargetHarnessOf()
+    exempt.Ambient.EnterTypeMembers(WriteTargetStructWith("Point", "count", Modifiers.Readonly).Members)
+    exempt.Ambient.EnterConstructor()
+    exempt.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("count"), 3, 5, null)
+    assert exempt.Errors.Count == 0
+}
+
+// THE SECOND HOLE, FROM THE OTHER SIDE: a bare name a LOCAL or a PARAMETER binds is not the field,
+// and the member list cannot tell. `this.count` is never a local and is therefore still reported.
+test "a local or parameter binding the same name takes the write, and `this.` qualification is unaffected" {
+    harness := WriteTargetHarnessOf()
+    WriteTargetEnterClass(harness, WriteTargetClassWith("Widget", "count", Modifiers.Readonly))
+    harness.Scopes.Push(new SemanticModel(), new Scope(ScopeKind.Function), 3, 1)
+    WriteTargetDeclare(harness, "count", BuiltInTypes.Int)
+
+    harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("count"), 3, 5, null)
+    assert harness.Errors.Count == 0
+
+    qualified := WriteTargetMember(new ThisExpression(3, 5), "count", false)
+    harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(qualified, 3, 5, null)
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Field 'count' is readonly — it can only be assigned in a constructor"
 }
 
 test "with no enclosing class at all nothing is a readonly field target" {
