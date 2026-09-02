@@ -1895,6 +1895,33 @@ class FormatterWalk {
             return
         }
 
+        // THE TWO ALLOCATION EXPRESSIONS. Both were missing arms, so `ThrowUnhandled` fired and
+        // `nlc format` reported "Formatter does not handle expression type: AllocExpression" and left
+        // the file alone — fifteen `.nl` files under `docs/design/systems-samples/proofs/**` and
+        // `artifacts/**`, none of them a `.tests.nl` and so none of them explained by the discovery
+        // rule. `stackalloc` had no arm either and no file happened to use it; it is written here
+        // because the next one would have found the same hole.
+        //
+        // BOTH ARE PREFIX KEYWORDS OVER AN ALREADY-OWNED GRAMMAR, so there is no shape to choose:
+        // `alloc` wraps a `new`, an array literal, a string primary or a unary, and the walk already
+        // spells all four. Nothing here can wrap, which is why neither arm consults the list rule.
+        allocExpression := expression as AllocExpression
+        if allocExpression != null {
+            builder.Append("alloc ")
+            FormatExpression(allocExpression.Expression, builder)
+            return
+        }
+
+        stackAllocExpression := expression as StackAllocExpression
+        if stackAllocExpression != null {
+            builder.Append("stackalloc ")
+            builder.Append(FormatterSyntaxText.FormatTypeReference(stackAllocExpression.ElementType))
+            builder.Append("[")
+            FormatExpression(stackAllocExpression.LengthExpression, builder)
+            builder.Append("]")
+            return
+        }
+
         ThrowUnhandled("expression", expression)
     }
 

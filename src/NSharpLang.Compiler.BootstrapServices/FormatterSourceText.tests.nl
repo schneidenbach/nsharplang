@@ -1094,3 +1094,37 @@ test "a numeric literal comes back spelled the way the author wrote it, separato
     assert FstSafeSuccess(decimalLiteral)
     assert FstSafeSuccess(floating)
 }
+
+test "the two allocation expressions are written back, and neither one wraps" {
+    // NO ARM AT ALL EXISTED FOR EITHER, so `ThrowUnhandled` fired from inside the walk and
+    // `nlc format` reported "Formatter does not handle expression type: AllocExpression" and left the
+    // file untouched — fifteen product `.nl` files, none of them a `.tests.nl`, so the discovery rule
+    // explained none of them. The throw is the honest failure mode; the missing arm is the defect.
+    allocated := "func Test(): int[] {\n    return alloc new int[1]\n}"
+    assert FstFormat(allocated) == "func Test(): int[] {|    return alloc new int[1]|}", FstFormat(allocated)
+
+    initializer := "func Test() {\n    bytes := alloc new byte[3]\n}"
+    assert FstFormat(initializer) == "func Test() {|    bytes := alloc new byte[3]|}", FstFormat(initializer)
+
+    // `alloc` wraps four already-owned grammars and the arm spells whichever it is handed.
+    literal := "func Test(): int[] {\n    return alloc [1, 2]\n}"
+    assert FstFormat(literal) == "func Test(): int[] {|    return alloc [1, 2]|}", FstFormat(literal)
+
+    // `stackalloc` had no arm either, and no file in the estate happened to use one — which is the
+    // only reason it was not a sixteenth decline.
+    stack := "func Test() {\n    buffer := stackalloc byte[64]\n}"
+    assert FstFormat(stack) == "func Test() {|    buffer := stackalloc byte[64]|}", FstFormat(stack)
+
+    // THE STATEMENT `alloc { … }` IS A DIFFERENT NODE and already had its arm; the two must not be
+    // confused, because one is a keyword block and the other a prefix over an expression.
+    block := "func Test() {\n    alloc {\n        x := 1\n    }\n}"
+    assert FstFormat(block) == "func Test() {|    alloc {|        x := 1|    }|}", FstFormat(block)
+
+    assert FstSafeSuccess(allocated)
+    assert FstSafeSuccess(initializer)
+    assert FstSafeSuccess(stack)
+    assert FstIdempotent(allocated)
+    assert FstIdempotent(stack)
+    assert FstReparseErrorsAfterFormat(allocated) == 0
+    assert FstReparseErrorsAfterFormat(stack) == 0
+}
