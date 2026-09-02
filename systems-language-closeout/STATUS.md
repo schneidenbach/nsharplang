@@ -172,14 +172,17 @@ join). Rows may only be removed (`0/0/0,text-v1:removed`) or exact-shrunk; the e
 Audit reads 17/18 before the repin (record it) and 18/18 after. `audit --verbose` prints the values to paste.
 OWN003 = a gate log inside the byte-copy; OWN009 = leftover `TestResults/.trx`.
 
-### Product-defect chips filed for parallel sessions (15, pinned-as-measured)
+### Product-defect chips filed for parallel sessions (14, pinned-as-measured)
 
 raw-interpolation `:` swallow · four-arg `Analyze` degraded diagnostics · NL309 coverage · dead `match`
-wildcard arm + missing override-virtual check · undefined type names silent at declaration sites ·
+wildcard arm + missing override-virtual check ·
 `LibraryImport` span marshalling crash · systems policy accepting unresolved members · `nlc tidy` bare-prefix
 deletion · false NL001 on `off` reads · parse failure after bare member access · locale-sensitive estate
 blocks · documented `skip` form failing to emit · playground union shorthand · playground vs `nlc run`
 divergences · format non-idempotence + the `.tests.nl` gate gap.
+
+CLOSED: **undefined type names silent at declaration sites** — the filed finding was a probe artifact and is
+WITHDRAWN, two smaller real holes it hid are fixed, and the family is pinned. See §5.
 
 ## 2. Walls and gotchas
 
@@ -575,6 +578,12 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
   DIFFERENT 0` because `timeout` does not exist; an oracle reporting `ORACLE_DIFFS = 0` with
   `NO_RESULTS = 71`. A harness must REFUSE a verdict unless the run reports a non-zero `Total:`
   (015-A3+A4; 017/44, 64; 020/21, 25, 36–38, 41; 021/2, 6, 11).
+- **A "nothing is reported" probe must prove its own INPUT first, and a placeholder NAME is an input.**
+  020/35 filed a whole analyzer gap on five probes that all spelled the undefined type `Missing` —
+  `System.Reflection.Missing` is a real BCL type the simple-name external probe resolves with no import,
+  so every probe measured a RESOLVING type and none tested the claim. Any absence probe over the name
+  resolver must first show the SAME source with a name that resolves through no channel (`Zqxwvut`) and
+  watch it move; drawing a placeholder from ordinary English is how you hit a BCL type (§5).
 - **A control that cannot fail is not a control.** Every census, comparator and probe carries a declared
   non-vacuity control that has actually failed at least once: a SPEAKING CONTROL (a deliberately failing
   assert) in every probe project; a one-character perturbation of a single dump row for the IL comparator;
@@ -1590,9 +1599,10 @@ and the runner surface is N#-owned. The arc opened at `dc2c4ae20` (slice 1) and 
   past the end of its own 65,536-character line (slices 37, 38).
 - Three measured analyzer gaps were filed rather than papered over: the analyzer never reports an undefined
   TYPE NAME in a declaration position (five probes all silent; it surfaces only as an `NL202` naming the
-  phantom type); one undefined `out` argument is reported FOUR times over two positions; and the two
-  sentence-builders disagree on plural agreement for `NL402` and on whether an over-defaulted call states
-  its argument RANGE (slices 34, 35, 36).
+  phantom type) — **WITHDRAWN, see §5: all five probes spelled `Missing`, which IS `System.Reflection.Missing`,
+  so none of them tested the claim**; one undefined `out` argument is reported FOUR times over two positions;
+  and the two sentence-builders disagree on plural agreement for `NL402` and on whether an over-defaulted call
+  states its argument RANGE (slices 34, 35, 36).
 - Two facts about the language the migration surfaced and pinned: `var x = 5` IS C# AND NOT N# (the parser
   reads `var` as an `IdentifierExpression` statement and `x = 5` as a separate assignment, so nearly every
   fixture has twice the statements its author intended), and a BODILESS positional record is a PARSE
@@ -2175,13 +2185,14 @@ follow-ups; the first three 017 slices as the ledger recorded them; the 016 arc'
 
 ## 5. Remediations, corrections, do-not-relitigate verdicts
 
-Two ratchet remediations and one mid-arc reconciliation, recorded as rows:
+Two ratchet remediations, one mid-arc reconciliation and one chip decode, recorded as rows:
 
 | record | commit hash(es) | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
 | RATCHET REMEDIATION of the two chip commits (2026-08-02) | `6658e8304` (nlc-check `NotImplementedException` on receiver-style generics), `c78ea1f22` (formatter safety-check failures) — amended mid-remediation to `c8b9964e1`; idiom precedent `1142885be`; head `head-v1:65015a9692586d08` → `head-v1:8265394c9ce3a302` | Both fixes STAY; both landed WITHOUT ratchet accounting, so the audit failed with **10 violations across five tracked files**. `tests/CheckCommandTests.cs` 721/618/112 → 674/573/101 (exactly at its 674-line ceiling); `tests/ColumnarDeclineDiagnosticsTests.cs` 245/218/32 → 212/184/27 (exactly at its 212-line AND 27-marker ceilings); three fingerprint-only repins (`ColumnarIlEmitter.cs`, `Formatter.cs`, `tests/FormatterTests.cs` 2,134 → 2,132 under the approved-shrink rule) | Paid with LOSSLESS comment compression plus SUBSUMPTION-PROVEN assertion consolidations only — no test, no assertion subject and no program fixture deleted. `Assert.False(result.Success)` was deliberately KEPT at all four sites because `MultiFileCompilationResult.Success` is an INDEPENDENT constructor-supplied bool, NOT derived from `Errors`, so `Assert.Single(NL103 errors)` does NOT subsume it — the tempting fifth consolidation was REJECTED on that proof. | audit 18/18 (all 10 OWN004/OWN005 cleared); manifest still EXACTLY 391 lines; `epochPathFingerprint`/`epochFactFingerprint` BIT-IDENTICAL; 381-row sweep 0 drifted rows; unit 3,194/3,194; contracts 2,046/2,046 |
 | RATCHET + PARITY REMEDIATION of `170244a5f` (2026-07-29) | `170244a5f` "Fix infinite loop in ParseTestDeclaration table-case recovery"; head `head-v1:1be7f7cb4c07e417` → `head-v1:682bbdb2c76e50c8` in BOTH the manifest and the mirrored `OwnershipPolicy.ReviewedHeadFingerprint` constant | A CORRECT fix by a separate session that (a) exceeded the IMMUTABLE E0 epoch ceilings on both files and (b) skipped the N# parity mirror — audit failed with 6 violations (OWN004+OWN005 each) and broke the integration gate. Paid: `Parser.cs` 7,128/6,192 → 7,116/6,180 and `ParserErrorTests.cs` 1,944/1,609/568 → 1,923/1,588/563; `ColumnarParserRecovery.nl`'s `ParseTestDeclaration` table-case loops gained the same no-progress guards + 4 parity contracts | The owner's `ConsumeToken` does NOT advance on mismatch either, so the N# mirror REPRODUCED THE HANG FAITHFULLY — a parity mirror inherits the defect unless it carries the same guard. Zero-functional-change was proven by stripping every whole-line comment and blank from HEAD and from the compressed file and showing the remaining 5,872 code lines BYTE-IDENTICAL. | audit 18/18; contracts 1,442/1,442 (1,438 + 4); NET non-N# change −33 lines across two C# files; all new code is N#; no VS Code gate owed (no production/LSP wiring change) |
 | 020 reconciliation (slice 43) | slice cut at `e929453e0`; reconciled over chip commits `2d2ddb39d`, `0a66db6ec`, `1e426e07d`, `65c02f471`, `fa6ed3214` | No C#→N# movement: a coordinator reconciliation onto a tip four concurrent chip commits had moved. `tests/TestSdkFeed.cs` losslessly compressed back under its epoch ceiling (326/287 → 324/284, markers unchanged at 3); `NSharpLang.Sdk.csproj` and `test-all-core.sh` repinned as reviewed drift | `LanguageServer.csproj`'s drift was a PHANTOM: the file carries a UTF-8 BOM, the audit reads utf-8-sig, and a plain-utf-8 reader hashes the BOM into a false drift. RULE: ratchet tooling must read utf-8-sig, and the manifest's header keys are colon-space formatted while rows are compact — REGEX the stored head, never string-match it. | contracts 2,897/2,897 (chip baseline 2,865 + slice 32); head `f66e4eda5ec3d44a` → `b283a83ef600d146`, mirrored; audit 18/18; manifest 391 lines, no BOM |
+| CHIP DECODE + FIX — "undefined type names silent at declaration sites" (2026-09-01) | filed by 020 slice 35 (`06fdb2fd4`), listed in §1 at `40e0cc20e`; closed on `stream/chip-undefined-type-names` off `8cf40128a` | THE FILED DEFECT IS WITHDRAWN. Re-measured on BOTH analyzer entry points, twenty-two declaration positions already reported `NL201` — nullable/non-nullable/array-element/generic-argument/static field, parameter (plain, `out`, `ref`, constructor, method), return type, local annotation, struct field, interface member, catch clause, union-case payload, type alias, property, `new`. Two SMALLER holes the wrong finding hid are FIXED in N#, zero C# lines touched: `AnalyzerTypeResolver`'s `ResolveTypeIfPresent`/`ResolveTypeReferences` — the base class, the interface and base-interface lists, and the `where` constraint types — were wired to the lenient `ResolveType` even though BOTH owners' doc comments already claimed they reported, and a LOCAL function never resolved its constraint types at all (`AnalyzerFunctionBodies` phase 2 now does; the cycle check stays top-level-only). The estate's "REAL GAP" paragraph is rewritten and a 40-block `undefined type names at declaration sites` family added — the first thing in either estate to pin this subject at all | **THE PROBE NAME WAS THE BUG, AND IT IS THE WHOLE FINDING.** All five of 020/35's probes spelled the undefined type `Missing`; `System.Reflection.Missing` is a REAL BCL type the simple-name external probe resolves with no import, so every probe measured a RESOLVING type and not one tested the claim (`Missing.Value` reads cleanly off it). The corroborating sentence collapses identically: `Variable 'x' is typed as 'Missing', but the value is 'int'` is an ORDINARY `NL202` against a real type, never a phantom naming — with a name that resolves nowhere the `NL201` arrives IN FRONT of it. Do not re-file. Second finding: A DOC COMMENT CLAIMING A DIAGNOSTIC IS NOT EVIDENCE ONE FIRES — both fixed holes were guarded by comments that already described the report they did not make. Third: the base-class fix MOVES a diagnostic from the emitter's late `could not be resolved` decline to a front-door `NL201` with name, caret and help line, which `tests/native/external-base-interface` had pinned on the emitter side | 40 new contract blocks (22 reporting positions / 18 silences incl. the artifact) + 2 existing contracts repinned onto the corrected behaviour; `tests/native/analyzer-clean-source` 928 → 968 cases; estate `dotnet test` **7,192/7,192** after a full `-p:NSharpExcludeTests=false --force-evaluate` restore; `dev.sh --since` selected the FULL unit suite and passed **596/596**; all 40 native projects **1,793/1,793**; `nlc check --json` on the worktree CLI after the fix: `BootstrapServices` 403 files / 243 rows / **ZERO NL201**, `examples/` 18 projects / 39 files / **ZERO rows**, `tests/native`+`templates`+`benchmarks` 46 projects / **ZERO NL201** — no new true or false positive on any real project; 2 `.nl` owners changed, 0 C# lines |
 
 Corrections and standing verdicts, one line each:
 

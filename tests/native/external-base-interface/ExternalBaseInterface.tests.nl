@@ -241,13 +241,21 @@ class Gauge: Widget, IDisposable {
     Cleanup(compilation)
 }
 
-test "an unresolved base name declines with the base-type diagnostic" {
+// THE BASE NAME IS NOW REPORTED AT THE FRONT DOOR, NOT LEFT TO THE EMITTER. A base class is a
+// declaration position, and until the `undefined type names at declaration sites` fix the analyzer
+// resolved it LENIENTLY: an unspellable base sailed through analysis and the only thing that spoke was
+// the emitter's late `could not be resolved` decline. It is now an `NL201` with the name, the caret and
+// the help line — so this row pins the ANALYZER's sentence. The two rows below it are unchanged,
+// because `string` and `int` RESOLVE and it is inheritability, not the name, that the emitter refuses.
+test "an unresolved base name is reported by the ANALYZER as NL201, ahead of any emitter decline" {
     compilation := CompileExternalBaseFixture("""
 class Broken: NonexistentBaseType {
 }
 """)
     assert !compilation.Succeeded, compilation.Diagnostics
-    assert compilation.Diagnostics.Contains("could not be resolved"), compilation.Diagnostics
+    assert compilation.Diagnostics.Contains("NL201"), compilation.Diagnostics
+    assert compilation.Diagnostics.Contains("Type 'NonexistentBaseType' not found"), compilation.Diagnostics
+    assert !compilation.Diagnostics.Contains("could not be resolved"), compilation.Diagnostics
     Cleanup(compilation)
 }
 

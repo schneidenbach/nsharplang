@@ -405,12 +405,14 @@ class AnalyzerFunctionBodies {
         return request
     }
 
-    // PHASE 2 — THE TYPE PARAMETERS, THEN THE PARAMETER-LIST RULES, IN THAT ORDER. The type
-    // parameters go into the scope stack directly — declaring one is N#-owned — and they go in
-    // BEFORE the parameter list is validated and before any parameter type is resolved, because a
-    // parameter may be typed by one. The parameter-list relay follows and precedes every parameter
-    // declaration, so a list that is invalid is reported once, against the list, before any name in
-    // it exists.
+    // PHASE 2 — THE TYPE PARAMETERS, THEIR CONSTRAINT TYPES, THEN THE PARAMETER-LIST RULES, IN THAT
+    // ORDER. The type parameters go into the scope stack directly — declaring one is N#-owned — and
+    // they go in BEFORE the constraint types are resolved and before the parameter list is validated,
+    // because both may name one. The constraint TYPES are resolved here as well as at phase 13: a
+    // `where` clause is a declaration position on either form, and leaving the local form out made an
+    // undefined constraint type silent on a local function while the constraint itself was still
+    // ENFORCED at the call site (NL208 naming a type that was never reported as missing). The
+    // constraint GRAPH cycle check stays top-level-only; that asymmetry is the recorded one.
     func AdvanceTypeParametersAndValidation(state: FunctionBodyState): FunctionBodyRequest? {
         declaration := state.Declaration
         typeParameters := declaration.TypeParameters
@@ -422,6 +424,8 @@ class AnalyzerFunctionBodies {
                 index = index + 1
             }
         }
+
+        typeResolverValue.ResolveGenericConstraintTypes(declaration.Constraints)
 
         state.Phase = 3
         state.ParameterIndex = 0
