@@ -82,11 +82,27 @@ rows); the visual re-verification of D3 at `385b7e8d1` and of D1/D2 at `26592a95
   files are restored and the fix is "attributes are emitted verbatim from their source span"), raw strings losing
   `"""`, `let` unspellable, digit separators dropped; plus the parser refusing `return """abc"""` (NL305/NL312/NL006 on
   correct source), `EndLine` under-reported for multi-line raw literals, the `AllocExpression` arm and `--check`
-  reporting. Terminal condition: root `nlc format --check --project .` exits 0 with zero declines (was 23). Six commits.
+  reporting. LANDED `0006d0d41` (seven commits, §4.10 FORMAT-FIDELITY row): root `nlc format --check --project .` exits 0
+  with zero declines (was 23), fixed point proven, estate 7,320. A SIXTH defect surfaced in the reformat's own diff:
+  `FormatFunctionSignature` never wrote `FunctionDeclaration.Constraints`, so `where T : struct, Sortable<T>` clauses were
+  DELETED — the estate's only real `where` clause is `38-unmanaged-sort-comparer`, so `17aa99e58` dropped none by luck.
   LESSON for any wide reformat: test-run identity plus `nlc check --json` identity did NOT cover
-  `docs/design/systems-samples/proofs/**` semantics — run `tests/native/systems-proof-corpus` too.
-- `stream/022-s1-aot-floor` — task 022 slice 1, measurement only (§4.11); probe outside the repo; decode file
-  `decodes/2026-09-02-aot-capability-floor-decode.md`.
+  `docs/design/systems-samples/proofs/**` semantics — run `tests/native/systems-proof-corpus` too. Two follow-ups filed:
+  `StringLiteralDecoder.IsTripleQuoteStringLiteral` tests for delimiters the token never carries (a raw literal reaching
+  `Decode` is `DecodeBody`'d; emit is immune because it reads a source slice); and format discovery walks hidden
+  directories — at the repo root it descends into `.claude/worktrees/**` (other sessions' nested checkouts) and reports
+  their stale sources, so the root check is clean only in a copy that excludes them.
+- `stream/022-s2-one-universe` — task 022 slice 2. Its Phase-1 probe showed slice 2 AS WRITTEN is non-viable: a
+  runtime-cored builder with metadata-context operands saves but does not bind (`ModuleBuilderImpl` encodes primitives
+  only for types whose `Assembly` is reference-equal to the builder's core assembly), an MLC generic definition cannot be
+  closed over a user `TypeBuilder`, and type identity is false across universes. **Decided (2026-09-02): the emit
+  universe becomes the metadata universe** — the builder cored on the metadata context, every signature/operand
+  `typeof` routed through one N#-owned emit-universe facade — because a runtime universe returns null for BCL members
+  under NativeAOT (slice 1) and so can never emit an arbitrary BCL call from a native `nlc`. Landing now, universe-
+  independent: 2a attribute blobs (byte-identical, measured), 2b `GetRawConstantValue`, 2c the two silent guards,
+  2d `metadataPath` off `Assembly.Location`; then 2h measures universe A's two unknowns (an MLC-cored builder closing
+  an MLC generic over its own `TypeBuilder`; coring on the ref pack's `System.Runtime`, which may make
+  `EmitIlAssembly.cs`'s Cecil corelib→contract rewrite a deletion) before the task text is re-aimed and 2e–2g follow.
 - IDE re-verification (peer session, `verify/ide-2026-09-02b`): D3 at `385b7e8d1`, then D1/D2 at `26592a954`.
 
 ### `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED (record; numbers in §4.1)
