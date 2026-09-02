@@ -245,6 +245,31 @@ test "an undotted binding arm covers a union exactly like the wildcard" {
     assert harness.Errors.Count == 0
 }
 
+test "ONE branch answers `_` and a catch-all binding, and a DOTTED arm never reaches it" {
+    // THE WILDCARD HAS NO ARM OF ITS OWN. `_` carries no dot, so the undotted branch that treats
+    // `other =>` as a catch-all already answers for it; an explicit `_` arm ahead of that branch was
+    // dead code and was deleted (020/34's M7 broke 0 of 755 native and 0 of 6,316 estate tests; M7b,
+    // which neutralised the surviving branch too, broke 4 and 1). This contract is what M7b measured,
+    // written down: the two undotted spellings must both be exhaustive, and the branch must NOT be
+    // wide enough to swallow a DOTTED arm — a qualified case name covers ITS case and nothing else.
+    harness := MatchExhaustivenessDefault()
+    unionType := MatchUnionOf("Shape", MatchCaseList2(MatchUnionCase("Circle"), MatchUnionCase("Square")))
+
+    wildcard := MatchOf(MatchArms1(MatchArm(MatchIdent("_"))))
+    harness.Exhaustiveness.Check(wildcard, unionType)
+    assert wildcard.IsExhaustive
+
+    binding := MatchOf(MatchArms1(MatchArm(MatchIdent("other"))))
+    harness.Exhaustiveness.Check(binding, unionType)
+    assert binding.IsExhaustive
+    assert harness.Errors.Count == 0
+
+    dotted := MatchOf(MatchArms1(MatchArm(MatchIdent("Shape.Circle"))))
+    harness.Exhaustiveness.Check(dotted, unionType)
+    assert !dotted.IsExhaustive
+    assert MatchOnlyMessage(harness.Errors) == "This match doesn't cover all cases — missing: Square"
+}
+
 test "a GUARDED arm never covers — not even a guarded wildcard" {
     // A guard may be false at run time, so a guarded arm contributes nothing to coverage. This is
     // uniform across all five questions and is checked BEFORE the pattern is looked at.
@@ -489,6 +514,30 @@ test "an enum catch-all binding covers everything, an enum wildcard too" {
     assert wildcard.IsExhaustive
 
     assert harness.Errors.Count == 0
+}
+
+test "the ENUM walk answers `_` and a binding through ONE branch too, and not a dotted arm" {
+    // The enum walk carried the same dead `_` arm the union walk did, shadowed by the same undotted
+    // branch below it, and it was deleted with it. The third arm is the negative half: a qualified
+    // member name must still be measured member-by-member rather than read as a catch-all.
+    harness := MatchExhaustivenessDefault()
+    enumType := MatchEnumOf("Status", MatchEnumMembers2(
+        MatchIntMember("Pending", "0"), MatchIntMember("Active", "1")))
+
+    wildcard := MatchOf(MatchArms1(MatchArm(MatchIdent("_"))))
+    harness.Exhaustiveness.Check(wildcard, enumType)
+    assert wildcard.IsExhaustive
+
+    binding := MatchOf(MatchArms1(MatchArm(MatchIdent("anything"))))
+    harness.Exhaustiveness.Check(binding, enumType)
+    assert binding.IsExhaustive
+    assert harness.Errors.Count == 0
+
+    dotted := MatchOf(MatchArms1(MatchArm(MatchIdent("Status.Pending"))))
+    harness.Exhaustiveness.Check(dotted, enumType)
+    assert !dotted.IsExhaustive
+    assert MatchOnlyMessage(harness.Errors)
+        == "This match doesn't cover all enum members — missing: Active"
 }
 
 test "a NULLABLE match needs both the absent and the present arm — the corpus reaches neither" {

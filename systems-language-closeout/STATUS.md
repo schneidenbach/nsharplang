@@ -2226,3 +2226,21 @@ Corrections and standing verdicts, one line each:
   (133 genuine declines) survives; the exhibit is corrected, and the decode also names a THIRD sentence
   class the closing record never had: 4 `OpCodes.Ldstr` literals baked into the USER's own IL, which retire
   with the lowering that emits them, not with an emitter-policy migration.
+
+### Chip fix: the dead `match` wildcard arm and the missing override-virtual check
+
+| record | commit hash(es) | what moved | durable finding | headline numbers |
+|---|---|---|---|---|
+| CHIP FIX of 020/34's two filed follow-ups (2026-09-01) | pinned at `714aa6d9c` (020 slice 34: M7 `0/755` + `0/6316`, M7b `4/755` + `1/6316`, and the override finding's two silent probes); fixed on `stream/chip-match-wildcard-override` from `8cf40128a` | BOTH halves fixed in N#, ZERO C# lines touched, so no ratchet repin is owed. (a) The dead `_` arm is DELETED — and the identical dead arm in `CheckEnum` was found beside the filed one in `CheckUnion`, so TWO went. (b) `override` is now checked: `AnalyzerTypeDeclarations.ValidateOverrideTargets` runs in the type-header phase and reports `NL311` when an `override` member has no base member of that name, or one that is not `virtual`/`abstract`/non-`sealed` `override`. `DeclaredMemberInfo` gained `DeclaredModifiers` (the whole modifier word, default `0`, so no call site moved) because the source member model could not answer "is this virtual" at all | **DELETE, not make-reachable, and measurement decides it**: `_` carries no dot, so the undotted branch that treats `other =>` as a catch-all already answered for it — M7's true 0/0 is the proof the arm decided nothing, and M7b's 4/1 is the proof the surviving branch decides everything. `NL311 InvalidModifier` was the right code and was ALREADY catalogued with no producer anywhere in the tree; the fault is the modifier, not the name, so `NL303` would have been wrong. The new rule's real risk is the correct program it rejects, not the fault it misses: a base that resolves to nothing, a `:` clause that did not resolve, and a shape the context cannot open all answer "cannot tell" and report nothing | 7 files, all `.nl` + 1 doc; +422/−18; estate contracts +6 (2 exhaustiveness, 4 override); probe: `NL311` on both faults, silent on `override` of a `virtual` base member and on `override func ToString()`; estate-wide census unchanged, 0 `NL311` |
+
+- **The estate cannot trip the new rule, and that was measured before it was written**: a scan of every
+  `.nl` under `src`, `examples`, `templates` and `tests` finds exactly THREE overridden names —
+  `ToString` 34, `Equals` 10, `GetHashCode` 10 — and all three are `object` virtuals reached through the
+  implicit-root arm. A rule that walked only DECLARED bases would have reported all 54.
+- **The source member model had no virtual bit at all.** `DeclaredMemberInfo` decoded `static`,
+  `readonly`, `async` and `generator` as separate bools and threw the rest of the word away, so no
+  inheritance question could be asked of a source base. `DeclaredModifiers` carries the whole word now;
+  a defaulted trailing constructor parameter keeps all ten existing call sites spelled as they were.
+- **A written-but-unresolved base is NOT a base of `object`.** Falling through to the implicit root when
+  a `:` clause failed to resolve would search a surface the class does not inherit and report a member
+  that is virtual one link further up — the check's one genuine false-positive shape, guarded explicitly.
