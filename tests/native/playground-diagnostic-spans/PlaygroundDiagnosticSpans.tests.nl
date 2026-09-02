@@ -1148,27 +1148,36 @@ test "020 s37 playground diagnostic spans: Check AdditionalMalformedConstructs P
     assert PgRow(other, 1) == "NL201|error|Type '<error>' not found|Program.tests.nl|4|5|7"
 }
 
-test "020 s37 playground diagnostic spans: Check AdditionalMalformedConstructs PreserveVisibleTokenSpansForMarkers — NL102@4:12+6;NL207@4:12+4;, and the test-file route agrees (was PlaygroundCompilerTests.Check_AdditionalMalformedConstructs_PreserveVisibleTokenSpansForMarkers InlineData row 1)" {
+test "020 s37 playground diagnostic spans: Check AdditionalMalformedConstructs PreserveVisibleTokenSpansForMarkers — NL102@4:12+6;NL207@4:12+4;NL002@4:12+4;, and the test-file route agrees (was PlaygroundCompilerTests.Check_AdditionalMalformedConstructs_PreserveVisibleTokenSpansForMarkers InlineData row 1)" {
+    // THE NL002 IS NEW AND IT IS TRUE. `Items: List<>` is a FIELD type, and until NL002 was asked at
+    // every written type it was asked only at a bare identifier and at a `new` expression — so a
+    // field whose type needs an import this file never writes went unreported. The fixture is
+    // deliberately malformed and stays malformed: its subject is the generic-argument diagnostic,
+    // and `List` really does have no `import System.Collections.Generic` here. The span is the type
+    // name, the same four columns NL207 already owned.
     source := "package Playground\n\nclass User {\n    Items: List<>\n}"
     response := PgCheck(source)
     assert PgOk(response) == "False"
     assert PgSchemaVersion(response) == "2"
     assert PgFileName(response) == "Program.nl"
-    assert PgSummary(response) == "2/0/0"
-    assert PgCount(response) == 2
-    assert PgCensus(response) == "NL102@4:12+6;NL207@4:12+4;"
+    assert PgSummary(response) == "3/0/0"
+    assert PgCount(response) == 3
+    assert PgCensus(response) == "NL102@4:12+6;NL207@4:12+4;NL002@4:12+4;"
     assert PgRow(response, 0) == "NL102|error|Expected type name. Got '>'|Program.nl|4|12|6"
     assert PgDetail(response, 0) == "    Items: List<>|Generic type 'List' needs a type argument between '<' and '>'.|Add a type argument|Write this type as `List<T>` or remove the generic argument list."
     assert PgRow(response, 1) == "NL207|error|Generic type 'List' takes 1 type argument(s), but 0 were provided|Program.nl|4|12|4"
     assert PgDetail(response, 1) == "    Items: List<>|<null>|Match the declaration's type parameter count for 'List'|<null>"
-    assert PgRow(response, 2) == "<no-such-diagnostic>"
+    assert PgRow(response, 2) == "NL002|error|I can't find 'List' — it looks like a missing import|Program.nl|4|12|4"
+    assert PgDetail(response, 2) == "    Items: List<>|<null>|Add 'import System.Collections.Generic' at the top of the file|<null>"
+    assert PgRow(response, 3) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
     assert PgOk(other) == "False"
     assert PgFileName(other) == "Program.tests.nl"
-    assert PgCount(other) == 2
-    assert PgCensus(other) == "NL102@4:12+6;NL207@4:12+4;"
+    assert PgCount(other) == 3
+    assert PgCensus(other) == "NL102@4:12+6;NL207@4:12+4;NL002@4:12+4;"
     assert PgRow(other, 0) == "NL102|error|Expected type name. Got '>'|Program.tests.nl|4|12|6"
     assert PgRow(other, 1) == "NL207|error|Generic type 'List' takes 1 type argument(s), but 0 were provided|Program.tests.nl|4|12|4"
+    assert PgRow(other, 2) == "NL002|error|I can't find 'List' — it looks like a missing import|Program.tests.nl|4|12|4"
 }
 
 test "020 s37 playground diagnostic spans: Check AdditionalMalformedConstructs PreserveVisibleTokenSpansForMarkers — NL001@4:5+5;NL102@4:14+3;NL201@4:14+7;, and the test-file route agrees (was PlaygroundCompilerTests.Check_AdditionalMalformedConstructs_PreserveVisibleTokenSpansForMarkers InlineData row 2)" {
@@ -1217,15 +1226,19 @@ test "020 s37 playground diagnostic spans: Check AdditionalMalformedConstructs P
     assert PgRow(other, 0) == "NL102|error|Expected ':' after object initializer member 'Name'|Program.tests.nl|7|24|4"
 }
 
-test "020 s37 playground diagnostic spans: Check MissingFieldTypeBeforeNextField PreservesBothOwningSpansForMarkers — NL102@4:5+4;NL201@4:5+7;NL102@5:12+6;NL207@5:12+4;, and the test-file route agrees (was PlaygroundCompilerTests.Check_MissingFieldTypeBeforeNextField_PreservesBothOwningSpansForMarkers)" {
+test "020 s37 playground diagnostic spans: Check MissingFieldTypeBeforeNextField PreservesBothOwningSpansForMarkers — NL102@4:5+4;NL201@4:5+7;NL102@5:12+6;NL207@5:12+4;NL002@5:12+4;, and the test-file route agrees (was PlaygroundCompilerTests.Check_MissingFieldTypeBeforeNextField_PreservesBothOwningSpansForMarkers)" {
+    // THE NL002 AT 5:12 IS NEW AND IT IS TRUE, for the same reason as the row-1 fixture above: the
+    // field type `List` has no import in this file, and NL002 was previously blind to field types.
+    // `Name:`'s recovered `<error>` type is NOT reported — it is not a name any import supplies, so
+    // the rule stays silent about it and NL201 remains the only thing that speaks there.
     source := "package Playground\n\nclass User {\n    Name:\n    Items: List<>\n}"
     response := PgCheck(source)
     assert PgOk(response) == "False"
     assert PgSchemaVersion(response) == "2"
     assert PgFileName(response) == "Program.nl"
-    assert PgSummary(response) == "4/0/0"
-    assert PgCount(response) == 4
-    assert PgCensus(response) == "NL102@4:5+4;NL201@4:5+7;NL102@5:12+6;NL207@5:12+4;"
+    assert PgSummary(response) == "5/0/0"
+    assert PgCount(response) == 5
+    assert PgCensus(response) == "NL102@4:5+4;NL201@4:5+7;NL102@5:12+6;NL207@5:12+4;NL002@5:12+4;"
     assert PgRow(response, 0) == "NL102|error|Expected type name. Got 'Items'|Program.nl|4|5|4"
     assert PgDetail(response, 0) == "    Name:|Field 'Name' needs a type after ':'.|Add a field type after ':'|Write this field as `Name: Type`."
     assert PgRow(response, 1) == "NL201|error|Type '<error>' not found|Program.nl|4|5|7"
@@ -1234,16 +1247,19 @@ test "020 s37 playground diagnostic spans: Check MissingFieldTypeBeforeNextField
     assert PgDetail(response, 2) == "    Items: List<>|Generic type 'List' needs a type argument between '<' and '>'.|Add a type argument|Write this type as `List<T>` or remove the generic argument list."
     assert PgRow(response, 3) == "NL207|error|Generic type 'List' takes 1 type argument(s), but 0 were provided|Program.nl|5|12|4"
     assert PgDetail(response, 3) == "    Items: List<>|<null>|Match the declaration's type parameter count for 'List'|<null>"
-    assert PgRow(response, 4) == "<no-such-diagnostic>"
+    assert PgRow(response, 4) == "NL002|error|I can't find 'List' — it looks like a missing import|Program.nl|5|12|4"
+    assert PgDetail(response, 4) == "    Items: List<>|<null>|Add 'import System.Collections.Generic' at the top of the file|<null>"
+    assert PgRow(response, 5) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
     assert PgOk(other) == "False"
     assert PgFileName(other) == "Program.tests.nl"
-    assert PgCount(other) == 4
-    assert PgCensus(other) == "NL102@4:5+4;NL201@4:5+7;NL102@5:12+6;NL207@5:12+4;"
+    assert PgCount(other) == 5
+    assert PgCensus(other) == "NL102@4:5+4;NL201@4:5+7;NL102@5:12+6;NL207@5:12+4;NL002@5:12+4;"
     assert PgRow(other, 0) == "NL102|error|Expected type name. Got 'Items'|Program.tests.nl|4|5|4"
     assert PgRow(other, 1) == "NL201|error|Type '<error>' not found|Program.tests.nl|4|5|7"
     assert PgRow(other, 2) == "NL102|error|Expected type name. Got '>'|Program.tests.nl|5|12|6"
     assert PgRow(other, 3) == "NL207|error|Generic type 'List' takes 1 type argument(s), but 0 were provided|Program.tests.nl|5|12|4"
+    assert PgRow(other, 4) == "NL002|error|I can't find 'List' — it looks like a missing import|Program.tests.nl|5|12|4"
 }
 
 test "020 s37 playground diagnostic spans: Check IncompleteMemberAccessBeforeCall PreservesReceiverSpan — NL102@5:5+4;, and the test-file route agrees (was PlaygroundCompilerTests.Check_IncompleteMemberAccessBeforeCall_PreservesReceiverSpan)" {

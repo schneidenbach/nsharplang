@@ -41,6 +41,12 @@ func LwkSimple(name: string): SimpleTypeReference {
     return new SimpleTypeReference(name, 1, 1)
 }
 
+// A type reference stamped where the parser would stamp it, so a contract can tell the TYPE's
+// position apart from the `new` keyword's.
+func LwkSimpleAt(name: string, line: int, column: int): SimpleTypeReference {
+    return new SimpleTypeReference(name, line, column)
+}
+
 func LwkId(name: string, line: int, column: int): IdentifierExpression {
     return new IdentifierExpression(name, line, column)
 }
@@ -280,7 +286,28 @@ test "a NEW expression reports its type as a missing import and records it as me
     arguments := new List<Argument>()
     constructed := new NewExpression(LwkSimple("StringBuilder"), arguments, null, 4, 7, null)
     walk.VisitExpression(constructed)
-    assert LwkCodes(state) == "NL002@4:7;"
+    assert LwkCodes(state) == "NL002@1:1;"
+}
+
+test "the NEW expression's NL002 lands on the TYPE, not on the `new` keyword" {
+    // The walk hands `CheckMissingImportForType` the NewExpression's own position, because that is
+    // the only position the arm has. It is the `new` keyword's, and the message is about the type —
+    // so the reported span comes from the TYPE REFERENCE and the keyword's position is only the
+    // fallback. Here the two are deliberately far apart: `new` at 4:7, `StringBuilder` at 4:11.
+    state := LwkState()
+    walk := new LinterWalk(state)
+    arguments := new List<Argument>()
+    constructed := new NewExpression(LwkSimpleAt("StringBuilder", 4, 11), arguments, null, 4, 7, null)
+    walk.VisitExpression(constructed)
+    assert LwkCodes(state) == "NL002@4:11;"
+
+    // NON-VACUITY: the keyword's position is not simply being ignored in favour of a constant. Move
+    // the type and only the report moves; the `new` stays where it was.
+    moved := LwkState()
+    movedWalk := new LinterWalk(moved)
+    movedConstructed := new NewExpression(LwkSimpleAt("StringBuilder", 9, 24), new List<Argument>(), null, 4, 7, null)
+    movedWalk.VisitExpression(movedConstructed)
+    assert LwkCodes(moved) == "NL002@9:24;"
 }
 
 test "a NEW expression with no written type reports nothing and still walks its arguments" {

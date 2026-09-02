@@ -54,8 +54,24 @@ func LwsCodes(state: LinterWalkState): string {
     return codes
 }
 
+func LwsSpans(state: LinterWalkState): string {
+    spans := ""
+    for diagnostic in state.Diagnostics {
+        spans = spans + diagnostic.Code + "@" + diagnostic.Location.Line.ToString() + ":" + diagnostic.Location.Column.ToString() + "+" + diagnostic.Length.ToString() + ";"
+    }
+
+    return spans
+}
+
 func LwsSimpleType(name: string): SimpleTypeReference {
     return new SimpleTypeReference(name, 1, 1)
+}
+
+// A type reference the parser never stamped, which is what a hand-built or synthesised tree looks
+// like. `NameSpan` folds a zero line or column to `SourceSpan.None`, so this is the shape that
+// exercises the caller-position fallback rather than the reference's own span.
+func LwsPositionlessType(name: string): SimpleTypeReference {
+    return new SimpleTypeReference(name, 0, 0)
 }
 
 func LwsIdentifier(name: string, line: int, column: int): IdentifierExpression {
@@ -522,7 +538,86 @@ test "a positional parameter is a member name AND its declared type is an import
 test "NL002 for a written type reference asks about the BASE name" {
     state := LwsState()
     state.CheckMissingImportForType(LwsSimpleType("StringBuilder"), 6, 3)
-    assert LwsCodes(state) == "NL002@6:3;"
+    assert LwsCodes(state) == "NL002@1:1;"
+}
+
+test "the NL002 span is the TYPE REFERENCE'S OWN, and the caller's position is only a fallback" {
+    // The reference wins. `LwsSimpleType` stamps line 1 column 1 and the caller offers 6:3; the
+    // report lands on the reference, covering exactly the thirteen columns of `StringBuilder`.
+    // This is the whole of the anchoring fix stated at the owner: the caller of
+    // `CheckMissingImportForType` points at the syntax that ENCLOSES the type (`new`), and the
+    // message is about the type, so the position the message is about has to win.
+    stamped := LwsState()
+    stamped.CheckMissingImportForType(LwsSimpleType("StringBuilder"), 6, 3)
+    assert LwsSpans(stamped) == "NL002@1:1+13;"
+
+    // The fallback, and it is not decoration: a hand-built or synthesised type reference carries no
+    // position at all, and dropping the caller's would put the diagnostic at 0:0.
+    positionless := LwsState()
+    positionless.CheckMissingImportForType(LwsPositionlessType("StringBuilder"), 6, 3)
+    assert LwsSpans(positionless) == "NL002@6:3+1;"
+}
+
+test "EVERY name a written type mentions is asked about, not only the one it is CALLED" {
+    // `Dictionary<string, StringBuilder>` needs two imports and is two findings, each on its own
+    // columns. The base name leads, because that is the order `NamedReferences` yields.
+    state := LwsState()
+    arguments := new List<TypeReference>()
+    arguments.Add(new SimpleTypeReference("string", 2, 20))
+    arguments.Add(new SimpleTypeReference("StringBuilder", 2, 28))
+    lookup := new GenericTypeReference("Dictionary", arguments, 2, 9)
+    state.CheckMissingImportsInType(lookup)
+    assert LwsSpans(state) == "NL002@2:9+10;NL002@2:28+13;"
+
+    // Non-vacuity in both directions: importing ONE of the two namespaces leaves exactly the other.
+    halfImported := LwsState()
+    halfImported.RegisterImports(LwsUnit(["System.Collections.Generic"], []))
+    halfImported.CheckMissingImportsInType(lookup)
+    assert LwsSpans(halfImported) == "NL002@2:28+13;"
+
+    silent := LwsState()
+    silent.RegisterImports(LwsUnit(["System.Collections.Generic", "System.Text"], []))
+    silent.CheckMissingImportsInType(lookup)
+    assert silent.Diagnostics.Count == 0
+}
+
+test "THE FALLBACK POSITION BELONGS TO THE BASE NAME AND TO NOTHING ELSE" {
+    // The `new` keyword is a defensible place to put a diagnostic about the constructed type and a
+    // nonsensical place to put one about its type argument. So an unstamped ARGUMENT is skipped
+    // rather than piled onto the keyword: reporting it at the caller's position would draw two
+    // squiggles on the same three characters saying different things.
+    state := LwsState()
+    arguments := new List<TypeReference>()
+    arguments.Add(new SimpleTypeReference("StringBuilder", 0, 0))
+    unstamped := new GenericTypeReference("List", arguments, 0, 0)
+    state.CheckMissingImportForType(unstamped, 6, 3)
+    assert LwsSpans(state) == "NL002@6:3+1;"
+
+    // Stamp the argument and it reports where it is written, while the base name keeps the fallback.
+    mixed := LwsState()
+    mixedArguments := new List<TypeReference>()
+    mixedArguments.Add(new SimpleTypeReference("StringBuilder", 6, 12))
+    partlyStamped := new GenericTypeReference("List", mixedArguments, 0, 0)
+    mixed.CheckMissingImportForType(partlyStamped, 6, 3)
+    assert LwsSpans(mixed) == "NL002@6:3+1;NL002@6:12+13;"
+}
+
+test "a nameless type still has its parts asked about, and gets no fallback of its own" {
+    // A tuple is CALLED nothing, so `CheckMissingImportForType` offers its fallback to no one — but
+    // `(int, StringBuilder)` still mentions a name a user can point at, and an unstamped one is
+    // silence rather than a diagnostic on the enclosing syntax.
+    state := LwsState()
+    elements := new List<TupleTypeElement>()
+    elements.Add(new TupleTypeElement(new SimpleTypeReference("int", 4, 10), null))
+    elements.Add(new TupleTypeElement(new SimpleTypeReference("StringBuilder", 4, 15), null))
+    state.CheckMissingImportForType(new TupleTypeReference(elements), 6, 3)
+    assert LwsSpans(state) == "NL002@4:15+13;"
+
+    unstamped := LwsState()
+    unstampedElements := new List<TupleTypeElement>()
+    unstampedElements.Add(new TupleTypeElement(new SimpleTypeReference("StringBuilder", 0, 0), null))
+    unstamped.CheckMissingImportForType(new TupleTypeReference(unstampedElements), 6, 3)
+    assert unstamped.Diagnostics.Count == 0
 }
 
 test "a type reference with no base name reports nothing" {
