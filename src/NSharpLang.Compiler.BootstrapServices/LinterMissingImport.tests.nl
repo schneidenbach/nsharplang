@@ -644,18 +644,39 @@ func LmieMessages(source: string): string {
     return census
 }
 
-test "A CONSTRUCTED TYPE WITH NO IMPORT REPORTS NL002 — AND THE SPAN IS THE `new` KEYWORD" {
-    // The deleted file asked only whether an NL002 exists. The span is stated here, and stating it
-    // is what found that the squiggle covers `new` (column 14, three characters) rather than the
-    // type name it is complaining about. That is pinned rather than corrected: moving a reported
-    // span changes what every editor draws and is a product decision, not a test migration.
+test "A CONSTRUCTED TYPE WITH NO IMPORT REPORTS NL002 — AND THE SPAN IS THE TYPE NAME" {
+    // THE PRODUCT DECISION THIS TEST WAS WAITING FOR HAS BEEN TAKEN. Its previous text read: "The
+    // span is stated here, and stating it is what found that the squiggle covers `new` (column 14,
+    // three characters) rather than the type name it is complaining about. That is pinned rather
+    // than corrected: moving a reported span changes what every editor draws and is a product
+    // decision, not a test migration."
+    //
+    // It is corrected now, and what the editor draws is the point of correcting it: VS Code offers a
+    // quick fix only for a diagnostic whose range contains the cursor, so an NL002 anchored on `new`
+    // put the "Add import" fix out of reach of anyone whose cursor was on the name the message
+    // names. The span is now the base name and nothing else — `List`, not `new` and not `List<int>`.
+    //
+    // `tests/fixtures/diagnostics/top25.golden.txt` already rendered this diagnostic with four
+    // carets under `List` at column 18 of the same line of text. The linter now agrees with the
+    // golden the product ships.
     listSource := "\nfunc main() {\n    items := new List<int>()\n    x := items\n}"
-    assert LmieCensus(listSource) == "NL002@3:14+3;NL001@4:5+1;"
+    assert LmieCensus(listSource) == "NL002@3:18+4;NL001@4:5+1;"
     assert LmieMessages(listSource) == "NL002|I can't find 'List' — it looks like a missing import;NL001|Variable 'x' is declared but never read;"
 
     builderSource := "\nfunc main() {\n    sb := new StringBuilder()\n    x := sb\n}"
-    assert LmieCensus(builderSource) == "NL002@3:11+3;NL001@4:5+1;"
+    assert LmieCensus(builderSource) == "NL002@3:15+13;NL001@4:5+1;"
     assert LmieMessages(builderSource) == "NL002|I can't find 'StringBuilder' — it looks like a missing import;NL001|Variable 'x' is declared but never read;"
+
+    // THE ANCHOR SURVIVES A WRAPPER. `new StringBuilder[](2)` is an `ArrayTypeReference` around the
+    // simple one, and `Base` unwraps it to answer `StringBuilder`; the span unwraps with it, so the
+    // squiggle covers the element name rather than `StringBuilder[]` or, as before, `new`.
+    arraySource := "\nfunc main() {\n    ys := new StringBuilder[](2)\n    x := ys\n}"
+    assert LmieCensus(arraySource) == "NL002@3:15+13;NL001@4:5+1;"
+
+    // NON-VACUITY FOR THE COLUMN, which no census on its own can give: the same construction moved
+    // four columns to the right reports four columns to the right. A hard-coded anchor would not.
+    indentedSource := "\nfunc main() {\n        items := new List<int>()\n        x := items\n}"
+    assert LmieCensus(indentedSource) == "NL002@3:22+4;NL001@4:9+1;"
 }
 
 test "the import silences NL002, and REMOVING IT BRINGS THE SAME DIAGNOSTIC BACK" {
@@ -664,7 +685,7 @@ test "the import silences NL002, and REMOVING IT BRINGS THE SAME DIAGNOSTIC BACK
 
     // REMOVAL CONTROL: the identical body with the import line taken out. The NL001 moves up two
     // lines with the text and the NL002 appears, so the silence above is the import doing its job.
-    assert LmieCensus("\nfunc main() {\n    items := new List<int>()\n    x := items\n}") == "NL002@3:14+3;NL001@4:5+1;"
+    assert LmieCensus("\nfunc main() {\n    items := new List<int>()\n    x := items\n}") == "NL002@3:18+4;NL001@4:5+1;"
 
     // And the same for System.Text, which the deleted file only ever asked in the reporting
     // direction.

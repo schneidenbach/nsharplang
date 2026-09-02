@@ -271,6 +271,13 @@ class LinterWalkState {
 
     // NL002 for a written type reference. Only the BASE name is asked about: a generic argument or an
     // array element is reached by the walk in its own right.
+    //
+    // THE SQUIGGLE GOES ON THE NAME THE MESSAGE NAMES. `LinterTypeReferenceName.BaseNameSpan` answers
+    // where the base name is written, and the diagnostic is reported there with that exact length —
+    // `List` in `new List<int>()`, not the `new` keyword the caller's position points at, and not
+    // `List<int>` either. The caller's `line`/`column` are the FALLBACK for a reference the parser
+    // never stamped (a hand-built tree), which is the only case that still reaches
+    // `DiagnosticSpanResolver`'s token inference.
     func CheckMissingImportForType(typeReference: TypeReference, line: int, column: int) {
         typeName := LinterTypeReferenceName.Base(typeReference)
         if typeName == null {
@@ -282,7 +289,17 @@ class LinterWalkState {
             return
         }
 
-        AddDiagnostic("NL002", LinterMissingImport.Message(typeName), line, column, config.GetSeverity("NL002"), LinterMissingImport.Suggestion(requiredNamespace), 0)
+        nameSpan := LinterTypeReferenceName.BaseNameSpan(typeReference)
+        reportLine := line
+        reportColumn := column
+        reportLength := 0
+        if nameSpan.IsValid {
+            reportLine = nameSpan.StartLine
+            reportColumn = nameSpan.StartColumn
+            reportLength = nameSpan.Length
+        }
+
+        AddDiagnostic("NL002", LinterMissingImport.Message(typeName), reportLine, reportColumn, config.GetSeverity("NL002"), LinterMissingImport.Suggestion(requiredNamespace), reportLength)
     }
 
     // ---- the file's identifier ledgers ----------------------------------------------------------

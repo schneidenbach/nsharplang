@@ -54,8 +54,24 @@ func LwsCodes(state: LinterWalkState): string {
     return codes
 }
 
+func LwsSpans(state: LinterWalkState): string {
+    spans := ""
+    for diagnostic in state.Diagnostics {
+        spans = spans + diagnostic.Code + "@" + diagnostic.Location.Line.ToString() + ":" + diagnostic.Location.Column.ToString() + "+" + diagnostic.Length.ToString() + ";"
+    }
+
+    return spans
+}
+
 func LwsSimpleType(name: string): SimpleTypeReference {
     return new SimpleTypeReference(name, 1, 1)
+}
+
+// A type reference the parser never stamped, which is what a hand-built or synthesised tree looks
+// like. `NameSpan` folds a zero line or column to `SourceSpan.None`, so this is the shape that
+// exercises the caller-position fallback rather than the reference's own span.
+func LwsPositionlessType(name: string): SimpleTypeReference {
+    return new SimpleTypeReference(name, 0, 0)
 }
 
 func LwsIdentifier(name: string, line: int, column: int): IdentifierExpression {
@@ -522,7 +538,24 @@ test "a positional parameter is a member name AND its declared type is an import
 test "NL002 for a written type reference asks about the BASE name" {
     state := LwsState()
     state.CheckMissingImportForType(LwsSimpleType("StringBuilder"), 6, 3)
-    assert LwsCodes(state) == "NL002@6:3;"
+    assert LwsCodes(state) == "NL002@1:1;"
+}
+
+test "the NL002 span is the TYPE REFERENCE'S OWN, and the caller's position is only a fallback" {
+    // The reference wins. `LwsSimpleType` stamps line 1 column 1 and the caller offers 6:3; the
+    // report lands on the reference, covering exactly the thirteen columns of `StringBuilder`.
+    // This is the whole of the anchoring fix stated at the owner: the caller of
+    // `CheckMissingImportForType` points at the syntax that ENCLOSES the type (`new`), and the
+    // message is about the type, so the position the message is about has to win.
+    stamped := LwsState()
+    stamped.CheckMissingImportForType(LwsSimpleType("StringBuilder"), 6, 3)
+    assert LwsSpans(stamped) == "NL002@1:1+13;"
+
+    // The fallback, and it is not decoration: a hand-built or synthesised type reference carries no
+    // position at all, and dropping the caller's would put the diagnostic at 0:0.
+    positionless := LwsState()
+    positionless.CheckMissingImportForType(LwsPositionlessType("StringBuilder"), 6, 3)
+    assert LwsSpans(positionless) == "NL002@6:3+1;"
 }
 
 test "a type reference with no base name reports nothing" {

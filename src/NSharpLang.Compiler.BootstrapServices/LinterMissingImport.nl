@@ -61,6 +61,65 @@ class LinterTypeReferenceName {
         return null
     }
 
+    // WHERE the name `Base` answered with is WRITTEN. `Base` says `List<int>?[]` is called `List`;
+    // this says which four columns `List` occupies, so a diagnostic ABOUT the name can land ON the
+    // name instead of on whatever syntax happened to enclose it.
+    //
+    // THE TRAVERSAL IS `Base`'S, ARM FOR ARM, AND THAT IS WHY IT LIVES HERE. The two answer the same
+    // question about the same reference — what is this type called, and where is that written — so a
+    // caller that got them from two different walks could report one arm's NAME at another arm's
+    // COLUMNS. Keeping them adjacent is the same argument this file's header makes for `Base` against
+    // `CollectMentionedNames`: the pair is only safe while it is impossible to change one without
+    // seeing the other.
+    //
+    // A reference the parser never stamped — a hand-built tree, a synthesised `var` parameter —
+    // answers `SourceSpan.None`, because `NameSpan` folds a zero line or column to `None`. That is
+    // not a failure: it is the signal that the caller's own position is the only one there is.
+    static func BaseNameSpan(typeReference: TypeReference): SourceSpan {
+        simple := typeReference as SimpleTypeReference
+        if simple != null {
+            return simple.NameSpan
+        }
+
+        generic := typeReference as GenericTypeReference
+        if generic != null {
+            return generic.NameSpan
+        }
+
+        nullable := typeReference as NullableTypeReference
+        if nullable != null {
+            return BaseNameSpan(nullable.InnerType)
+        }
+
+        array := typeReference as ArrayTypeReference
+        if array != null {
+            return BaseNameSpan(array.ElementType)
+        }
+
+        unionReference := typeReference as UnionTypeReference
+        if unionReference != null {
+            arms := unionReference.Arms
+            index := 0
+            while index < arms.Count {
+                armName := Base(arms[index])
+                if armName != null {
+                    return BaseNameSpan(arms[index])
+                }
+
+                index = index + 1
+            }
+
+            return SourceSpan.None
+        }
+
+        byRef := typeReference as ByRefTypeReference
+        if byRef != null {
+            return BaseNameSpan(byRef.InnerType)
+        }
+
+        return SourceSpan.None
+    }
+
     // EVERY name a written type mentions, not just the one it is CALLED. `Base` answers with one
     // name and stops; this walks the whole reference and collects them all, so
     // `Dictionary<string, List<Widget>>` mentions four names and not one.
