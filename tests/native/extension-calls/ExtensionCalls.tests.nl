@@ -14,7 +14,6 @@ import NSharpLang.Compiler
 // asserts would never run. Decline cases (no candidate, generic-only candidate) must fail
 // compilation and therefore run through the production MultiFileCompiler harness on a fixture that
 // references System.Linq exactly as `nlc build` does.
-
 class ExtensionCallCompilation {
     Succeeded: bool
     Diagnostics: string
@@ -40,7 +39,8 @@ func ExtensionCoreFrameworkDirectory(): string {
 func CompileExtensionCallFixture(source: string): ExtensionCallCompilation {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-extension-calls-" + Guid.NewGuid().ToString("N"))
+        "nsharp-extension-calls-" + Guid.NewGuid().ToString("N")
+    )
     Directory.CreateDirectory(fixtureRoot)
     File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), source)
 
@@ -51,13 +51,13 @@ func CompileExtensionCallFixture(source: string): ExtensionCallCompilation {
     coreLib := Path.Combine(coreDirectory, "System.Private.CoreLib.dll")
     runtimeDll := Path.Combine(coreDirectory, "System.Runtime.dll")
     linqDll := Path.Combine(coreDirectory, "System.Linq.dll")
-    projectYml := "name: ExtensionCallFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - dll: "
-        + coreLib + "\n  - dll: " + runtimeDll + "\n  - dll: " + linqDll + "\n"
+    projectYml := "name: ExtensionCallFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - dll: " + coreLib + "\n  - dll: " + runtimeDll + "\n  - dll: " + linqDll + "\n"
     File.WriteAllText(Path.Combine(fixtureRoot, "project.yml"), projectYml)
 
     compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
     projectFileParserType := Type.GetType(
-        "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.BootstrapServices")
+        "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.BootstrapServices"
+    )
     if compilerType == null || projectFileParserType == null {
         throw new InvalidOperationException("The production compiler types were not loadable.")
     }
@@ -201,7 +201,8 @@ test "a chained extension call on a call-result receiver executes" {
 // -----------------------------------------------------------------------------------------------
 
 test "a member call with no matching instance or extension method declines" {
-    compilation := CompileExtensionCallFixture("""
+    compilation := CompileExtensionCallFixture(
+        """
 import System.Linq
 
 class Consumer {
@@ -210,7 +211,8 @@ class Consumer {
         return numbers.NonexistentExtensionXyz()
     }
 }
-""")
+"""
+    )
     assert !compilation.Succeeded, compilation.Diagnostics
     CleanupExtensionCompilation(compilation)
 }
@@ -218,7 +220,8 @@ class Consumer {
 test "a generic-only extension candidate is not bound and declines" {
     // Enumerable.Distinct<T>(IEnumerable<T>) is generic; the index build excludes generic methods,
     // so the bare `Distinct()` call must decline rather than binding a generic extension.
-    compilation := CompileExtensionCallFixture("""
+    compilation := CompileExtensionCallFixture(
+        """
 import System.Linq
 
 class Consumer {
@@ -227,7 +230,8 @@ class Consumer {
         return numbers.Distinct()
     }
 }
-""")
+"""
+    )
     assert !compilation.Succeeded, compilation.Diagnostics
     CleanupExtensionCompilation(compilation)
 }

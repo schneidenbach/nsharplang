@@ -7,7 +7,6 @@ import System.IO
 import System.Reflection
 
 // --- Functional placement + persisted execution -----------------------------------------------------
-
 test "no-capture lambda runs as a program-static method ldftn'd cross-type from an instance method" {
     accumulator := new Accumulator(0)
     input := new List<int>()
@@ -103,13 +102,15 @@ func SetFixtureObject(values: object?[], index: int, value: object?) {
 func CompileLambdaFixture(source: string): LambdaFixtureResult {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-lambda-placement-" + Guid.NewGuid().ToString("N"))
+        "nsharp-lambda-placement-" + Guid.NewGuid().ToString("N")
+    )
     Directory.CreateDirectory(fixtureRoot)
     File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), source)
 
     compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
     projectConfigType := Type.GetType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices")
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices"
+    )
     if compilerType == null || projectConfigType == null {
         throw new InvalidOperationException("The production compiler types were not loadable.")
     }
@@ -146,7 +147,8 @@ func CompileLambdaFixture(source: string): LambdaFixtureResult {
     SetFixtureObject(
         compileArguments,
         1,
-        Path.Combine(fixtureRoot, "out/LambdaPlacementFixture.dll"))
+        Path.Combine(fixtureRoot, "out/LambdaPlacementFixture.dll")
+    )
     SetFixtureObject(compileArguments, 2, false)
     SetFixtureObject(compileArguments, 3, false)
     compilation := compileMethod.Invoke(compiler, compileArguments)
@@ -199,7 +201,8 @@ func CompileLambdaFixture(source: string): LambdaFixtureResult {
 test "a value-type this-capture lambda declines: a value receiver cannot bind a delegate directly" {
     // The lambda calls the bare struct instance method `Bump`, so it needs `this`; a value-type `this`
     // would bind a copy with different mutation semantics, so N# declines the placement and the emit fails.
-    result := CompileLambdaFixture("""
+    result := CompileLambdaFixture(
+        """
 import System.Collections.Generic
 import System.Linq
 
@@ -219,14 +222,16 @@ func main() {
     shifter := new Shifter { origin: 1 }
     _ := shifter.Shift(new List<int>())
 }
-""")
+"""
+    )
     assert !result.Succeeded, result.Diagnostics
     assert result.Diagnostics.Contains("NL103: Columnar emission is required"), result.Diagnostics
     assert result.Diagnostics.Contains("columnar backend declined"), result.Diagnostics
 }
 
 test "a non-capturing lambda over a well-formed signature is accepted" {
-    result := CompileLambdaFixture("""
+    result := CompileLambdaFixture(
+        """
 import System.Collections.Generic
 import System.Linq
 
@@ -235,6 +240,7 @@ func main() {
     values.Add(2)
     doubled := values.Select(v => v * 2).ToList()
 }
-""")
+"""
+    )
     assert result.Succeeded, result.Diagnostics
 }

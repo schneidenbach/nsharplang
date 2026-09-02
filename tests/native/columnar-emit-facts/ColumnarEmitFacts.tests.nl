@@ -36,7 +36,6 @@ namespace NSharpLang.ColumnarEmitFacts.Tests
 //
 // ONE SPELLING NOTE. A tuple-typed local needs `let`: `pair: (x: int, y: int) = (1, 2)` parses as an
 // assignment to an undeclared `pair` and reports NL301 + NL103.
-
 struct Point {
     X: int
 }

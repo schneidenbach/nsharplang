@@ -6,7 +6,6 @@ import System.IO
 import System.Reflection
 
 // --- Execution: readonly initializers hold their values after construction -------------------------
-
 test "a readonly-only class initializes both readonly fields through its synthesized default constructor" {
     r := new ReadonlyOnly()
     assert r.Pi == 3.14159
@@ -166,13 +165,15 @@ func SetFixtureObject(values: object?[], index: int, value: object?) {
 func CompileReadonlyInitFixture(source: string): ReadonlyInitFixtureResult {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-readonly-init-" + Guid.NewGuid().ToString("N"))
+        "nsharp-readonly-init-" + Guid.NewGuid().ToString("N")
+    )
     Directory.CreateDirectory(fixtureRoot)
     File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), source)
 
     compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
     projectConfigType := Type.GetType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices")
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices"
+    )
     if compilerType == null || projectConfigType == null {
         throw new InvalidOperationException("The production compiler types were not loadable.")
     }
@@ -209,7 +210,8 @@ func CompileReadonlyInitFixture(source: string): ReadonlyInitFixtureResult {
     SetFixtureObject(
         compileArguments,
         1,
-        Path.Combine(fixtureRoot, "out/ReadonlyInitFixture.dll"))
+        Path.Combine(fixtureRoot, "out/ReadonlyInitFixture.dll")
+    )
     SetFixtureObject(compileArguments, 2, false)
     // validateWithLegacyAnalysis: true — run the full analysis pipeline so the readonly-reassignment
     // diagnostic (NL309) is produced, not just an emit-only pass.
@@ -262,7 +264,8 @@ func CompileReadonlyInitFixture(source: string): ReadonlyInitFixtureResult {
 }
 
 test "assigning a readonly field outside a constructor is rejected (NL309)" {
-    result := CompileReadonlyInitFixture("""
+    result := CompileReadonlyInitFixture(
+        """
 class Widget {
     readonly Size: int = 10
 
@@ -275,13 +278,15 @@ func main() {
     w := new Widget()
     w.Resize(5)
 }
-""")
+"""
+    )
     assert !result.Succeeded, result.Diagnostics
     assert result.Diagnostics.Contains("NL309"), result.Diagnostics
 }
 
 test "a well-formed readonly initializer compiles cleanly through the production emitter" {
-    result := CompileReadonlyInitFixture("""
+    result := CompileReadonlyInitFixture(
+        """
 class Circle {
     readonly Radius: double
     readonly Pi: double = 3.14159
@@ -295,6 +300,7 @@ func main() {
     c := new Circle(2.0)
     _ := c
 }
-""")
+"""
+    )
     assert result.Succeeded, result.Diagnostics
 }
