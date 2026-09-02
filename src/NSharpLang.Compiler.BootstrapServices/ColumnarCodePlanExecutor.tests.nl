@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.CompilerServices
+import System.Globalization
 
 enum ColumnarExecutorProbeEnum {
     Zero = 0,
@@ -318,7 +319,7 @@ func ExecutorRunV3ScalarPlan(plan: ColumnarCodePlan, resultType: Type): string {
     if result == null {
         throw new InvalidOperationException("Scalar DynamicMethod returned null unexpectedly.")
     }
-    return result.ToString() ?? ""
+    return Convert.ToString(result, CultureInfo.InvariantCulture) ?? ""
 }
 
 func ExecutorRunV3VoidPlan(
@@ -374,7 +375,7 @@ func ExecutorRunRecursivePlan(
     if result == null {
         throw new InvalidOperationException("Recursive DynamicMethod returned null unexpectedly.")
     }
-    return result.ToString() ?? ""
+    return Convert.ToString(result, CultureInfo.InvariantCulture) ?? ""
 }
 
 func ExecutorV3ArrayStorePlan(

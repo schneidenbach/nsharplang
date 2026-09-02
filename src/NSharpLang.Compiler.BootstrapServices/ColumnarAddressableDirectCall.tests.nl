@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import System.Globalization
 
 class ColumnarAddressableDirectCallFixture {
     HolderType: Type
@@ -150,7 +151,7 @@ func AddressableDirectCallCurrent(fixture: ColumnarAddressableDirectCallFixture,
 
     current := TypeOfRequiredInvocation(fixture.CurrentGetter, enumerator, new object[](0))
 
-    return current.ToString() ?? ""
+    return Convert.ToString(current, CultureInfo.InvariantCulture) ?? ""
 }
 
 test "addressable direct-call persisted execution mutates original value field storage" {

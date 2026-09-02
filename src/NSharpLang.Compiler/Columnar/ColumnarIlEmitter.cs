@@ -9266,7 +9266,7 @@ internal sealed class ColumnarIlEmitter
         var builder = new System.Text.StringBuilder();
         foreach (var word in words)
         {
-            builder.Append(char.ToUpper(word[0]));
+            builder.Append(char.ToUpperInvariant(word[0]));
             builder.Append(word, 1, word.Length - 1);
         }
 

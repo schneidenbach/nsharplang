@@ -48,6 +48,24 @@ test "the version line and the error line are one-line kernels" {
         == "Unknown command: frobnicate. Run 'nlc help' to see available commands."
 }
 
+// NOT IN THE DELETED FILE AT ALL, AND THE FOLD MOVED HERE TO BE PINNED.
+test "the unknown-command message lowercases the argument INVARIANTLY, so the CLI reads the same everywhere" {
+    // `Program.cs` used to fold the argument itself with `args[0].ToLower()` — the CURRENT culture.
+    // Under `LC_ALL=tr_TR.UTF-8` that made `nlc FROBNICATE` answer with a dotless i, and
+    // `tests/native/cli-command-contracts`, which pins the lowercasing end to end against the real
+    // binary, was measured RED there. The fold is the kernel's now, and it is invariant.
+    assert ProgramCommandKernels.GetUnknownCommandMessage("FROBNICATE")
+        == "Unknown command: frobnicate. Run 'nlc help' to see available commands."
+    assert ProgramCommandKernels.GetUnknownCommandMessage("INIT")
+        == "Unknown command: init. Run 'nlc help' to see available commands."
+    assert ProgramCommandKernels.GetUnknownCommandMessage("Build")
+        == "Unknown command: build. Run 'nlc help' to see available commands."
+
+    // The empty argument the host passes when there is no argument at all still answers.
+    assert ProgramCommandKernels.GetUnknownCommandMessage("")
+        == "Unknown command: . Run 'nlc help' to see available commands."
+}
+
 test "the help text opens with a version-stamped header and names both of its section banners" {
     helpText := ProgramCommandKernels.GetHelpText("1.2.3")
 

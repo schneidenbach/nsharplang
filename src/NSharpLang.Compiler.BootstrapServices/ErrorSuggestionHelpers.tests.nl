@@ -165,6 +165,14 @@ test "the similarity score weights edit distance and shared prefix separately" {
 
     // The scorer is case-insensitive on BOTH terms.
     assert SmartSuggester.ScoreSimilarity("abc", "ABC") > 0.99
+
+    // AND THE CASE FOLD IS INVARIANT, NOT THE MACHINE'S. `I` and `i` are the SAME letter to this
+    // scorer on every machine. The distance term used to fold with the current culture while the
+    // prefix term below already folded invariantly, so under a Turkish culture the two halves of
+    // one score disagreed: `I` folded to a dotless i, the distance became 1 of 1, and this row
+    // scored 0.3 instead of 1.0 — a suggestion list reordered by the machine's locale.
+    assert SmartSuggester.ScoreSimilarity("I", "i") > 0.99
+    assert SmartSuggester.ScoreSimilarity("Int", "int") > 0.99
 }
 
 // NOT IN THE DELETED FILE AT ALL.

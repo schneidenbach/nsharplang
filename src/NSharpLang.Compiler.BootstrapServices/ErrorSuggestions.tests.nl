@@ -161,6 +161,13 @@ test "the typo probe is case-insensitive and bounded at distance two" {
     // `FindSimilarType` ALWAYS answers — it has no threshold of its own, which is why only
     // `IsPossibleTypo` may gate the suggestion.
     assert ErrorSuggestions.FindSimilarType("HttpClientFactory") != ""
+
+    // AND THE FOLD IS INVARIANT, NOT THE MACHINE'S. `II` is exactly two edits from `int` under the
+    // invariant fold and THREE under a Turkish one, because `I` folds to a dotless i there; the
+    // threshold is 2, so the machine's locale used to decide whether this name earned a suggestion
+    // at all. The row answers the same under en-US, de-DE and tr-TR.
+    assert ErrorSuggestions.IsPossibleTypo("II")
+    assert ErrorSuggestions.FindSimilarType("II") == "int"
 }
 
 // NOT IN THE DELETED FILE AT ALL: the ten-name table both helpers scan, pinned in order.
