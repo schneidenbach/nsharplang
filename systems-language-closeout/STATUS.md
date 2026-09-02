@@ -85,13 +85,27 @@ proof in the bar ran green; the numbers are in §4.1 and the coordinator commits
    is unreachable from N# at emit). Then re-run 021's closing decision and its box.
 6. The 15 product-defect chips (below) are for parallel sessions; they stay pinned-as-measured in the estate.
 
-Decided (2026-09-01): file task 022, shelve the `MetadataBuilder` writer, port 015-E on Reflection.Emit; the formatter
-wraps gofmt-style (author-preserving). **OPEN — the user's call:** `MEASUREMENT-VERDICT-2026-09.md` §7, option (a)
-continue 015 to deletion (−45 C# lines per B sub-slice, byte-identical by construction, so it fixes no speed number) versus
-(b) declare `ColumnarIlEmitter.cs` a reviewed mechanical host and redirect effort to the 132.6 s emit regression, self-hosting
-`nlc build`/`check`, the native-kernel gap, task 022 and an incremental SDK build. Earlier line kept for context: re-sequence to 015-B → 015-D → **015-E on Reflection.Emit**
-(no metadata writer) → **task 022** (loader deletion → NativeAOT `nlc`); shelve the `MetadataBuilder`
-writer (its type-reference description model survives as a shared prerequisite). See §3.8's correction.
+Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the language"):
+- File task 022, shelve the `MetadataBuilder` writer, port 015-E on Reflection.Emit; the formatter wraps
+  gofmt-style (author-preserving).
+- **`MEASUREMENT-VERDICT-2026-09.md` §7 → option (b), as a RE-AIM, not an abandonment.** `ColumnarIlEmitter.cs`
+  is declared a reviewed mechanical host: non-growing under the ratchet, its user-facing sentences pinned by
+  native contracts, the door keeping everything it has claimed. The ownership END STATE stands; what changes is
+  the route and the order. 015's next slices, in order:
+  1. **Emit-path regression**: measure where the 132.6 s for 172,653 lines lives (N# input builder vs C# host;
+     the July note's per-member scratch-array shape first), then fix it — a speed slice, accepted on a number,
+     not on byte identity.
+  2. **Self-hosting**: make `nlc build` and `nlc check` pass on the compiler's own sources (the 45 strict-lint
+     findings, then the 198 MLC-type-model analysis errors), so the gate covers emit and the by-name SDK
+     exception dies.
+  3. **The native-kernel June gap**: measure the columnar port's emitted IL around the vectorizer helpers and its
+     scalar codegen against the ILCompiler's.
+  4. **Task 022** slice 1 onward (may start in parallel — disjoint files).
+  5. **An incremental skip in the SDK build.**
+  6. Ownership resumes by the faster route: **015-E on Reflection.Emit** (the ~2,000-line declaration host), then
+     the B-arc's remaining door kinds as coverage — B17 (the composed receiver) is parked behind items 1–5.
+  021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
+  emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
 ### Baselines at `8cf40128a` (re-measure at your tip; never inherit)
 
