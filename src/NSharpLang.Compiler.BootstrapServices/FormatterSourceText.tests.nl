@@ -660,9 +660,26 @@ test "a format given NO comment stream drops the comments, which is why the lexe
 // stayed green. A declaration attribute and a parameter attribute are written by DIFFERENT arms,
 // so both are stated.
 
-test "an attribute with several arguments separates them with a comma and one space" {
-    assert FstFormat("class Person {\n[Column(\"Last Name\",19,true)]\nIdNumber: string\n}") == "class Person {|    [Column(\"Last Name\", 19, true)]|    IdNumber: string|}"
-    assert FstFormat("class UsersController {\nfunc Create([FromRoute(\"id\",1)] id: int): IActionResult {\nreturn null\n}\n}") == "class UsersController {|    func Create([FromRoute(\"id\", 1)] id: int): IActionResult {|        return null|    }|}"
+// THIS CONTRACT USED TO ASSERT THAT THE FORMATTER NORMALISES AN ATTRIBUTE'S ARGUMENT SPACING —
+// `[Column("Last Name",19,true)]` becoming `[Column("Last Name", 19, true)]`. IT NO LONGER DOES, and
+// the loss of that polish is bought deliberately. Normalising means RE-RENDERING the arguments from
+// the tree, and re-rendering is exactly what turned `[aotSafe(mono-wasm)]` into `[aotSafe(mono -
+// wasm)]` and joined a five-line `[trusted(...)]` onto one line, taking
+// `tests/native/systems-proof-corpus` to 42/44 when the `trusted` census could no longer see its
+// site. There is no version of "re-render, but carefully" that survives an argument grammar the
+// formatter does not own: an attribute is an ANNOTATION read by policy readers, so its interior
+// belongs to the author and the formatter owns the line it starts on.
+test "an attribute's interior is the author's, and the formatter owns only the line it starts on" {
+    // Both attribute positions take the same span rule — on a member, and on a parameter.
+    assert FstFormat("class Person {\n[Column(\"Last Name\",19,true)]\nIdNumber: string\n}") == "class Person {|    [Column(\"Last Name\",19,true)]|    IdNumber: string|}"
+    assert FstFormat("class UsersController {\nfunc Create([FromRoute(\"id\",1)] id: int): IActionResult {\nreturn null\n}\n}") == "class UsersController {|    func Create([FromRoute(\"id\",1)] id: int): IActionResult {|        return null|    }|}"
+
+    // An author who wrote the spaces keeps them, which is the same rule and not a second one.
+    assert FstFormat("class Person {\n[Column(\"Last Name\", 19, true)]\nIdNumber: string\n}") == "class Person {|    [Column(\"Last Name\", 19, true)]|    IdNumber: string|}"
+
+    // THE INDENTATION OF THE ATTRIBUTE'S OWN LINE IS STILL THE FORMATTER'S, which is the half of the
+    // rule that keeps a file looking formatted at all.
+    assert FstFormat("class Person {\n        [Column(\"a\")]\nIdNumber: string\n}") == "class Person {|    [Column(\"a\")]|    IdNumber: string|}"
 }
 
 // ---- THE ARGUMENT-LIST WRAPPING RULE --------------------------------------------------------------
@@ -857,4 +874,62 @@ test "a comment inside a hugged lambda body stays put, and the callback keeps hu
     source := "func Test() {\n    Run(items, x => {\n        // why\n        Work(x)\n    })\n}"
     assert FstFormatComments(source) == "func Test() {|    Run(items, x => {|        // why|        Work(x)|    })|}", FstFormatComments(source)
     assert FstIdempotentComments(source)
+}
+
+// ---- ATTRIBUTES ARE ANNOTATIONS, AND THE FORMATTER WRITES THEM BACK VERBATIM ---------------------
+//
+// THE DEFECT THESE STATE BROKE A PRODUCT CONTRACT, NOT JUST A SPELLING. Re-rendering an attribute
+// from `AttributeNode.Name` + `Arguments` loses two different things, and the estate reformat lost
+// both in the same pass:
+//
+//   * AN ARGUMENT IS STORED AS AN EXPRESSION. `[aotSafe(mono-wasm)]` parses as a subtraction, so it
+//     was written back as `[aotSafe(mono - wasm)]` — a policy token turned into arithmetic.
+//   * THE NODE HOLDS NO LINE STRUCTURE. A `[trusted(...)]` written over five lines was joined onto
+//     one, and `tests/native/systems-proof-corpus` fell to 42/44 because the `trusted` census could
+//     no longer see the site it was asserting on.
+//
+// The named-argument spelling was wrong as well, and the comment in the walk asserted the error was
+// deliberate: `ParseAttributes` parses its arguments with the same `ParseArgumentList()` a call uses,
+// so `name: value` is the grammar and every ` = ` the formatter wrote was output no parser could have
+// produced. The fix is one rule that covers all three and every future member of the class — emit the
+// `[`-to-`]` span the parser stamped, and normalise only the indentation of the line it starts on.
+
+test "a multi-line attribute keeps every line the author wrote" {
+    // The exact shape from `docs/design/systems-samples/proofs/45-trusted-audit/Program.nl`, which
+    // this reformat joined onto one line.
+    source := "class C {\n    [memory(safe)]\n    [trusted(\n        reason: \"handle is never exposed\",\n        owner: \"interop\",\n        review: \"2026-12-01\",\n        expires: \"2027-06-01\"\n    )]\n    static func Wrap(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(source) == source, FstFormatRaw(source)
+    assert FstSafeSuccess(source)
+    assert FstIdempotent(source)
+}
+
+test "an attribute argument that only looks like an expression is not re-rendered as one" {
+    // `mono-wasm` is a policy token. It PARSES as `mono - wasm`, and every re-render from the tree
+    // writes the spaces back in.
+    source := "class C {\n    [hot]\n    [aotSafe(mono-wasm)]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(source) == source, FstFormatRaw(source)
+
+    // The single-argument policy attributes the systems corpus is built from, unchanged.
+    memory := "class C {\n    [memory(safe)]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(memory) == memory, FstFormatRaw(memory)
+
+    bare := "class C {\n    [hot]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(bare) == bare, FstFormatRaw(bare)
+
+    assert FstIdempotent(source)
+    assert FstIdempotent(memory)
+}
+
+test "a named attribute argument keeps the colon the parser reads, and an equals sign is not a named argument" {
+    // `:` is the named-argument spelling in an attribute exactly as in a call, because it is the same
+    // `ParseArgumentList`.
+    named := "class C {\n    [Name(a, b: c)]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(named) == named, FstFormatRaw(named)
+
+    // `b = c` is NOT the named form — it parses as an ASSIGNMENT EXPRESSION in argument position, and
+    // the analyzer rejects it (NL310, "attribute arguments must be compile-time constants"). It is
+    // written here only to state what the span rule guarantees: whatever the author wrote comes back,
+    // including a shape the formatter has no opinion about.
+    assigned := "class C {\n    [Name(a, b = c)]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(assigned) == assigned, FstFormatRaw(assigned)
 }

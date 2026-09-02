@@ -440,12 +440,35 @@ class FormatterWalk {
         }
     }
 
-    // One attribute, in the position it is written in source: `[Name]` or `[Name(a, b = c)]`.
+    // ONE ATTRIBUTE, WRITTEN BACK EXACTLY AS THE AUTHOR WROTE IT.
     //
-    // A NAMED ARGUMENT USES ` = ` HERE AND `: ` IN A CALL. That is the grammar, not an oversight:
-    // an attribute argument is an assignment to a property and a call argument is a binding to a
-    // parameter, so the two spellings are kept apart — see the call arm of `FormatExpression`.
+    // AN ATTRIBUTE IS AN ANNOTATION, NOT CODE THE FORMATTER MAY CANONICALISE, and re-rendering one
+    // from its parts destroyed two real files in one reformat:
+    //
+    //   * `[aotSafe(mono-wasm)]` — an argument is stored as an EXPRESSION, so a policy token that
+    //     merely looks like code is re-rendered as code, and it came back `[aotSafe(mono - wasm)]`;
+    //   * `[trusted(\n reason: …,\n owner: …\n)]` — the node holds no line structure, so five lines
+    //     were joined onto one and the `trusted` census stopped finding the site at all.
+    //
+    // Both are the SAME defect and both are fixed the same way: the parser stamps the `[`-to-`]` span
+    // on the node and this writes it out unchanged. `FormatAttributes` normalises the indentation of
+    // the line the attribute STARTS on and nothing else, so the author's line structure inside the
+    // brackets survives — the gofmt rule, applied to a construct whose interior is not the
+    // formatter's to decide.
+    //
+    // THE CLAIM THAT USED TO STAND HERE — that a named attribute argument is spelled `name = value`
+    // while a call's is `name: value`, "the grammar, not an oversight" — WAS FALSE. `ParseAttributes`
+    // parses its arguments with the SAME `ParseArgumentList()` a call uses, so `:` is the only
+    // spelling that reads back, and the ` = ` form was output that the parser could not have produced
+    // and cannot re-read. The fallback below therefore writes `: `, and it is a fallback: it runs only
+    // for a tree with no span behind it, which means a hand-built one.
     func FormatAttributeInline(attribute: AttributeNode, builder: StringBuilder) {
+        attributeSource := attribute.SourceText
+        if attributeSource != null {
+            builder.Append(attributeSource)
+            return
+        }
+
         builder.Append("[")
         builder.Append(attribute.Name)
 
@@ -461,7 +484,7 @@ class FormatterWalk {
                 argumentName := argument.Name
                 if argumentName != null {
                     builder.Append(argumentName)
-                    builder.Append(" = ")
+                    builder.Append(": ")
                 }
 
                 FormatExpression(argument.Value, builder)

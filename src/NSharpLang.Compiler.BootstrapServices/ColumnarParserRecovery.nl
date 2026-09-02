@@ -9274,6 +9274,10 @@ class ColumnarParserRecovery {
         while Check(TokenType.LeftBracket) {
             attrLine := Current().Line
             attrColumn := Current().Column + 1
+            // The `[` itself, which `attrColumn` deliberately steps past (Parser.cs anchors the node on
+            // the NAME). The span the formatter re-emits starts here.
+            openLine := Current().Line
+            openColumn := Current().Column
             // Parser.cs :275
             Advance()
             // consume '['
@@ -9295,7 +9299,12 @@ class ColumnarParserRecovery {
                     attributeArguments = parsedArguments
                 }
             }
+            closed := Check(TokenType.RightBracket)
             ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+            attributeSource: string? = null
+            if closed {
+                attributeSource = AttributeSourceText(openLine, openColumn, Previous())
+            }
             if argumentsDeclined {
                 AttributesMaterializable = false
             } else {
@@ -9303,10 +9312,61 @@ class ColumnarParserRecovery {
 
                 // Stage N+1c tranche 11: an `<error>` attribute NAME is Parser.cs's own placeholder and it
                 // still builds the AttributeNode around it (:5292).
-                attributes.Add(new AttributeNode(name, attributeArguments, attrLine, attrColumn))
+                attributes.Add(new AttributeNode(name, attributeArguments, attrLine, attrColumn, attributeSource))
             }
         }
         return attributes
+    }
+
+    // THE ATTRIBUTE'S OWN SOURCE TEXT, `[` THROUGH `]` INCLUSIVE, OR NULL WHEN THE SPAN CANNOT BE READ.
+    //
+    // The formatter re-emits this verbatim, because an attribute's arguments are ANNOTATION, not code:
+    // they are stored as expressions, so `[aotSafe(mono-wasm)]` re-renders as a subtraction, and their
+    // line structure is not stored at all, so a five-line `[trusted(...)]` re-renders as one line and
+    // the census that reads it finds nothing.
+    //
+    // EVERY FAILURE ANSWERS NULL RATHER THAN A WRONG SPAN, and the formatter then falls back to
+    // synthesising the attribute from its parts. The last guard is the load-bearing one: the slice must
+    // actually begin with `[` and end with `]`, which is what makes a line/column-to-offset mismatch
+    // (a `\r\n` file, say) degrade to the fallback instead of writing a mangled span into the user's
+    // source.
+    func AttributeSourceText(openLine: int, openColumn: int, closeToken: Token): string? {
+        if closeToken.Type != TokenType.RightBracket {
+            return null
+        }
+
+        startOffset := 0
+        if !CodeIntelligenceTextUtilities.TryGetEditorOffset(Source, openLine - 1, openColumn - 1, out startOffset) {
+            return null
+        }
+
+        endOffset := 0
+        if !CodeIntelligenceTextUtilities.TryGetEditorOffset(Source, closeToken.Line - 1, closeToken.Column - 1, out endOffset) {
+            return null
+        }
+
+        if endOffset < startOffset {
+            return null
+        }
+
+        if endOffset >= Source.Length {
+            return null
+        }
+
+        text := Source.Substring(startOffset, endOffset - startOffset + 1)
+        if text.Length < 2 {
+            return null
+        }
+
+        if text[0] != '[' {
+            return null
+        }
+
+        if text[text.Length - 1] != ']' {
+            return null
+        }
+
+        return text
     }
 
     // Parser.cs ConsumeAttributeIdentifier (:6811): an attribute name may be an Identifier or the

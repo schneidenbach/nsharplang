@@ -1,6 +1,6 @@
 namespace SystemsProofs.MonoWasmPlugin
 
-struct PluginInput {
+public struct PluginInput {
     A: int
     B: int
 
@@ -10,7 +10,7 @@ struct PluginInput {
     }
 }
 
-struct PluginOutput {
+public struct PluginOutput {
     Sum: int
     Product: int
 
@@ -20,10 +20,10 @@ struct PluginOutput {
     }
 }
 
-class Plugin {
+public class Plugin {
     [hot]
-    [aotSafe(mono - wasm)]
-    static func Run(input: PluginInput): PluginOutput {
+    [aotSafe(mono-wasm)]
+    public static func Run(input: PluginInput): PluginOutput {
         output := new PluginOutput(input.A + input.B, input.A * input.B)
         return output
     }
