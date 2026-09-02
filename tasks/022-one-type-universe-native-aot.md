@@ -34,27 +34,60 @@ Both were named as prerequisites by earlier records and both were measured unnec
 Measurement only. Change no product file.
 
 Publish and run a NativeAOT probe that exercises the emitter's actual persisted-emit surface —
-`EnumBuilder`, `GenericTypeParameterBuilder`, `CustomAttributeBuilder`, exception-handling regions,
-`DefineMethodOverride`, property and event definition, and every opcode family the 1,145 `OpCodes.`
-sites in `ColumnarIlEmitter.cs` use — and every one of the 131 distinct reflection members the estate
-calls, evaluated over `MetadataLoadContext` types.
+`EnumBuilder`, `GenericTypeParameterBuilder`, `CustomAttributeBuilder`, exception-handling regions
+(including `BeginFaultBlock`, N#-only), `DefineMethodOverride`, `DefinePInvokeMethod`, property
+definition (`DefineProperty` ×4; event definition is NOT in the surface — `DefineEvent`/`EventBuilder`
+is 0 sites in both languages), BOTH save paths (`PersistedAssemblyBuilder.Save` for libraries and the
+`GenerateMetadata` → `ManagedPEBuilder` executable path, `ColumnarIlEmitter.cs:5978–5991`), and every
+opcode family the `OpCodes.` sites in `ColumnarIlEmitter.cs` and `ColumnarCodePlanExecutor.nl` use
+(124 distinct in the union) — and every one of the distinct reflection members the estate calls
+(131 at `8cf40128a`; 132 re-derived at `385b7e8d1`, `MethodBase::get_IsFinal` added), evaluated over
+`MetadataLoadContext` types AND over runtime types.
 
 Terminal condition: one table, every API × {CoreCLR, NativeAOT} × {runtime types, MLC types}, each
-red cell named with its exception type, message and the consequence for the slices below. Four red
-cells are already known and must be reproduced rather than assumed: `FieldInfo.GetValue`,
-`PropertyInfo.GetValue`, `ConstructorInfo.Invoke`, `ParameterInfo.DefaultValue`. Record the floor in
-`systems-language-closeout/STATUS.md` §0 discipline — one table row plus short findings.
+red cell named with its exception type, message and the consequence for the slices below. Seven red
+cells are already known and must be reproduced rather than assumed — their provenance is CoreCLR-only
+(the `mlcsurface` probe of the 2026-09-01 decode; the NativeAOT column had never been measured):
+`FieldInfo.GetValue`, `PropertyInfo.GetValue` (9 sites, no substitute), `ConstructorInfo.Invoke`,
+`ParameterInfo.DefaultValue`, `MemberInfo.IsDefined` (2 sites) and `ParameterInfo.IsDefined` (2 sites)
+— both convert to a `GetCustomAttributesData()` scan — and `Type.TypeHandle` (2 sites, no substitute).
+Record the floor in `systems-language-closeout/STATUS.md` §0 discipline — one table row plus short
+findings; the full table is a dated file under `systems-language-closeout/decodes/`.
+
+**Measured 2026-09-02 (`871b6dafc`; `decodes/2026-09-02-aot-capability-floor-decode.md`).** 408 cells.
+The only emit API NativeAOT forbids is `new CustomAttributeBuilder(...)` (throws in the constructor, both
+universes; four sites: `ColumnarIlEmitter.cs:4117`, `:4960`, `:5882`, `:5883`); the substitute
+`SetCustomAttribute(ConstructorInfo, byte[])` is green everywhere and also removes a CoreCLR wall
+(`CustomAttributeBuilder` type-checks arguments against the runtime `typeof(string)`, so an MLC-cored
+builder cannot write an attribute with arguments). Everything else in persisted emit is green, including
+the executable path from an MLC-cored builder. Under NativeAOT over RUNTIME types: `Assembly.LoadFrom`
+throws, `MemberInfo.MetadataToken` throws (4 sites), `AppDomain.GetAssemblies()` returns 1,
+`Assembly.Location` returns `""`, and BCL member lookups (`GetMethod` 33 sites, `GetField` 19,
+`GetProperty` 23) RETURN NULL for members the binary statically calls — silent mis-binding, not an
+exception; all of these are green over MLC types. `Type.GetType` is green in all four probed shapes.
+`ilc`: 99 warnings, 0 errors; the `IL3050`s on `MakeGenericType`/`MakeArrayType()`/`MakeGenericMethod`/
+`Enum.GetValues` are false (each passes); only `DefineDynamicAssembly` is real, and it has 0 sites.
+Instrument trap: a `PublishAot=true` project bakes `IsDynamicCodeSupported=false` into its ORDINARY
+build, so the CoreCLR host must be built `-p:PublishAot=false`.
 
 ## Slice 2 — One type universe: the emitter reads from the metadata catalog
 
 Delete the runtime-loader half of the external type model.
 
+Reading of "one universe" (fixed by slice 1's measurement): the EXTERNAL catalog is single-sourced from
+the metadata context; the builder itself stays runtime-cored (`new PersistedAssemblyBuilder(identity,
+typeof(object).Assembly)`, `ColumnarIlEmitter.cs:3991`), because `Type::GetTypeFromHandle` — `typeof(X)`
+at 1,516 sites — has no MLC form and is N/A by construction. This slice also carries the
+`CustomAttributeBuilder` → `SetCustomAttribute(ConstructorInfo, byte[])` conversion at the four sites:
+the moment the catalog is MLC-sourced, `CustomAttributeBuilder` refuses attribute arguments.
+
 C#: `ColumnarIlEmitter.cs:2794` (`Type.GetType`), `:9314` and `:9359` (`Assembly.LoadFrom`), `:9329`
 (`Assembly.Load`), and the fallback ladders around them. N#: `ExternalAssemblyScan.nl:103`, `:553`,
 `DocQuery.nl:90`, and `Loaded()`'s `AppDomain.CurrentDomain.GetAssemblies()`.
 
-Re-source every `metadataPath` so none derives from `Assembly.Location` — that returns the empty
-string in a single-file binary and would silently feed the metadata context nothing. Retire
+Re-source every `metadataPath` so none derives from `Assembly.Location` (11 N# sites, `ExternalAssemblyScan.nl:132`
+among them) — measured to return the empty string under NativeAOT, which would silently feed the
+metadata context nothing. Retire
 `ExternalAssemblyCatalogEntry.RuntimeAssembly`, `AttachRuntimeAssembly` and
 `TryLoadExactRuntimeAssembly` unless slice 1 produced a red cell that requires them. Convert
 `ColumnarExternalStaticMemberPlanner.nl:201`'s `field.GetValue(null)` to `GetRawConstantValue()`.
@@ -113,8 +146,12 @@ Code-enabled gate green, extension reinstalled. `TypeResolver.cs` line count rec
 
 ## Slice 5 — A NativeAOT `nlc`
 
-Close the single-file residues: the `Assembly.Location` reads, the `Type.GetType` sites, trim roots
-for the twenty call sites that reflect over the compiler's own AST objects, and
+Close the single-file residues: the `Assembly.Location` reads (11 N# sites), the `Type.GetType` sites
+(73 sites across 24 production `.nl` files plus the C# ones — all four probed shapes pass under NativeAOT,
+so this is a rooting audit, not a rewrite), the `CustomAttributeBuilder` sites if slice 2 has not already
+converted them, trim roots for the twenty call sites that reflect over the compiler's own AST objects
+(measured green unrooted; trimming fails as a null, never an exception, so each root is pinned by a
+contract), and
 `Program.Testing.cs`'s collectible `AssemblyLoadContext` — under a single-binary `nlc`, `nlc test`
 cannot load an emitted assembly and the native runner must spawn the built test executable.
 

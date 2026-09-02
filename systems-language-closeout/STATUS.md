@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `8cf40128a` on `systems-language` (PR #190 against `main`, current through this tip).
+**Tip:** `26592a954` on `systems-language` (PR #190 against `main`; gated at `a1440ec95` — VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 6 m 35 s; a first run at `26592a954` failed on two merge fix-ups, see Active slices).
 
 ### Queue state (`tasks/README.md`)
 
@@ -44,9 +44,10 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 | 018 | complete — systems-analyzer policy N#-owned; box checked |
 | 019 | complete — `DocQuery.cs` deleted at `dc2c4ae20`; box checked |
 | 020 | complete at `530bfbc85` (45 slices); box checked |
-| 021 | audit complete at `6fcb41f64` (12 slices); **box deliberately unchecked** — the emitter retires via 015 + the AOT metadata writer, the MLC via the AOT type-model task, visual IDE verification undischarged |
+| 021 | audit complete at `6fcb41f64` (12 slices); **box deliberately unchecked** — the emitter retires via 015-E on Reflection.Emit (the `MetadataBuilder` writer is shelved), the external type universe via task 022; visual IDE verification discharged 2026-09-02 (D1–D3 fixed, D4 open) |
+| 022 | filed `0d472bdd4`; slice 1 (the AOT capability floor, measurement only) in progress on `stream/022-s1-aot-floor` — §4.11 |
 
-### Visual IDE verification — DISCHARGED 2026-09-02 (with four IDE defects open)
+### Visual IDE verification — DISCHARGED 2026-09-02 (D1–D3 FIXED and merged; D4 open; re-verification in progress)
 
 Verified against `d26460045` with VSIX 0.6.0 (sha256 `853abbfc…8568`, LanguageServer.dll 10:58) in VS Code 1.134 on
 `examples/12-multi-file-projects/WeatherDemo` and a systems probe; record, 21 screenshots, the `nlc --systems-report`
@@ -58,21 +59,37 @@ fix, in the editor); the parser cast-lookahead fix (`print(x)` then `sum := 0` �
 as a local int); hover on user functions and record members; go-to-definition and find-references across files;
 the NL002 auto-import quick fix offered and applied; NSYS010/NSYS050/NL001 identical to `nlc check --systems-report`.
 **BLOCKED (tier)**: rename — the widget opens with the right placeholder but cannot be typed into or confirmed.
-**FAIL — four IDE defects, each with a VS Code-free repro in the README, filed as wave-3 chips. D3 is FIXED (§4.10);
-D1, D2 and D4 remain open:**
-- **D3 — FIXED on `stream/ide-d3-member-completion`.** Member completion after a trailing `.` listed scope identifiers +
-  keywords for both user and BCL receivers because `CompletionHandler` was the only handler with no project route — the
-  missing fifth `FindProject*` sibling. It now routes to the same N# owners `nlc query completions` uses, and an
-  in-process comparator asserts the two answers are equal at the same positions. Needs the VS Code-enabled gate and a
-  visual re-verification before the box moves.
-- **D2: hover on BCL members is empty** (`DateTime.Now`, `.AddDays`, `Random.Shared.Next`, `list.ToArray()`,
-  `arr.Length`) or a bare `method ToUpper: ToUpper(...)`; `nlc query hover` reproduces — a regression against the May
-  headless report, which had the full C# signature and declaring type.
-- **D1: hover inside `$"…{x.Member}"` holes reports `string` for every member** (`nlc query hover` reproduces: shared
-  code-intelligence owner).
-- **D4: NL002 is anchored on `new`**, so the import quick fix is offered only with the cursor on `new`, not on the type.
+**FAIL — four IDE defects, each with a VS Code-free repro in the README, filed as wave-3 chips. Three are FIXED (§4.10
+rows); the visual re-verification of D3 at `385b7e8d1` and of D1/D2 at `26592a954` is the IDE-verify session's
+(branch `verify/ide-2026-09-02b`; it holds on a computer-use screen-takeover consent the user must approve):**
+- **D3 — FIXED, merged `87ec6b9d1`.** Member completion after a trailing `.` listed scope identifiers + keywords because
+  `CompletionHandler` was the only handler with no project route; it now routes to the same N# owners
+  `nlc query completions` uses, with an in-process comparator asserting the two answers are equal.
+- **D2 — FIXED, merged `26592a954` (`87400ec24`).** Three causes, three N# owners, zero new C#: `AstNodeFinderCore` had
+  arms for 9 of 42 expression kinds (`new Foo { A: x.Y() }` and `$"{x.Y}"` were leaves); `MemberTypeInfoOfType` had no
+  reflected-member arm (`MemberInfo` is not a columnar surface — `ReflectedMemberHandle` carries the three sorts); the
+  renderer was bare. Generic members are read off the DEFINITION and mapped back through `AnalyzerReflectionTypeOverride`
+  because `CompletionReflectionFacts` substitutes `object` for every N# user type. `HoverHandler.cs` 307 → 149.
+  `nlc query type` moved with it (a BCL member position answers the member, not the receiver) and no pin moved.
+- **D1 — FIXED by D2's `InterpolatedStringExpression` arm** (`{forecast.TemperatureC}` now `int`).
+- **D4: NL002 is anchored on `new`**, so the import quick fix is offered only with the cursor on `new`, not on the type. OPEN.
 
-### Active slice: `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED, uncommitted
+### Active slices (2026-09-02)
+
+- `stream/format-rawstring-reparse` — the formatter's data-loss family: attributes re-rendered (`[trusted(reason: …)]`
+  became `[trusted(reason = …)]` on one line and `[aotSafe(mono-wasm)]` became `[aotSafe(mono - wasm)]` — the estate
+  reformat did this to two proof programs and the batch gate caught it through `systems-proof-corpus` 42/44; the two
+  files are restored and the fix is "attributes are emitted verbatim from their source span"), raw strings losing
+  `"""`, `let` unspellable, digit separators dropped; plus the parser refusing `return """abc"""` (NL305/NL312/NL006 on
+  correct source), `EndLine` under-reported for multi-line raw literals, the `AllocExpression` arm and `--check`
+  reporting. Terminal condition: root `nlc format --check --project .` exits 0 with zero declines (was 23). Six commits.
+  LESSON for any wide reformat: test-run identity plus `nlc check --json` identity did NOT cover
+  `docs/design/systems-samples/proofs/**` semantics — run `tests/native/systems-proof-corpus` too.
+- `stream/022-s1-aot-floor` — task 022 slice 1, measurement only (§4.11); probe outside the repo; decode file
+  `decodes/2026-09-02-aot-capability-floor-decode.md`.
+- IDE re-verification (peer session, `verify/ide-2026-09-02b`): D3 at `385b7e8d1`, then D1/D2 at `26592a954`.
+
+### `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED (record; numbers in §4.1)
 
 Decode tip `8cf40128a`; ZERO C#. Four files: `ColumnarMethodBodyPlanner.nl`, `ColumnarTypeOfPlanner.nl`,
 `ColumnarMethodBodyFacts.tests.nl`, `columnar-emit-facts/DeclarationAndLiteralEmitFacts.tests.nl`. Every
@@ -109,7 +126,7 @@ proof in the bar ran green; the numbers are in §4.1 and the coordinator commits
    same plan rows; retires `System.Reflection.Emit` in the emitter).
 5. The AOT type-model task (replace the analyzer's MetadataLoadContext external type model; `MetadataReader`
    is unreachable from N# at emit). Then re-run 021's closing decision and its box.
-6. The 15 product-defect chips (below) are for parallel sessions; they stay pinned-as-measured in the estate.
+6. Wave 3 (below): D4, then the chip-found defects; the 15 filed chips are closed.
 
 Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the language"):
 - File task 022, shelve the `MetadataBuilder` writer, port 015-E on Reflection.Emit; the formatter wraps
@@ -118,37 +135,38 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   is declared a reviewed mechanical host: non-growing under the ratchet, its user-facing sentences pinned by
   native contracts, the door keeping everything it has claimed. The ownership END STATE stands; what changes is
   the route and the order. 015's next slices, in order:
-  1. **Emit-path regression**: measure where the 132.6 s for 172,653 lines lives (N# input builder vs C# host;
-     the July note's per-member scratch-array shape first), then fix it — a speed slice, accepted on a number,
-     not on byte identity.
+  1. **Emit-path regression** — DONE `e531353f0` (8.4×: `ColumnarExternalTypeCatalog.TryGet` built and disposed a full
+     `ExternalAssemblyScan` per cache miss, 2,952 per emit; it now retains Prepare's scan). Shipped in the 0.1.0 SDK
+     packed from `385b7e8d1`.
   2. **Self-hosting**: make `nlc build` and `nlc check` pass on the compiler's own sources (the 45 strict-lint
      findings, then the 198 MLC-type-model analysis errors), so the gate covers emit and the by-name SDK
      exception dies.
   3. **The native-kernel June gap**: measure the columnar port's emitted IL around the vectorizer helpers and its
      scalar codegen against the ILCompiler's.
-  4. **Task 022** slice 1 onward (may start in parallel — disjoint files).
-  5. **An incremental skip in the SDK build.**
+  4. **Task 022** slice 1 onward — IN PROGRESS (`stream/022-s1-aot-floor`; §4.11).
+  5. **An incremental skip in the SDK build** — DONE (`Sdk.targets` stamp-keyed `Inputs`/`Outputs` on `EmitNSharpIlAssembly`;
+     no-op product build 0.93 s through the shipped SDK; the commit gate 28 m 44 s → ~15 min).
   6. Ownership resumes by the faster route: **015-E on Reflection.Emit** (the ~2,000-line declaration host), then
      the B-arc's remaining door kinds as coverage — B17 (the composed receiver) is parked behind items 1–5.
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `8cf40128a` (re-measure at your tip; never inherit)
+### Baselines at `26592a954` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
-| unit suite (`tests/Tests.csproj`) | 596 |
-| BootstrapServices estate (`.tests.nl` blocks) | 7,192 (was 7,190 at `40e0cc20e`; `577d756ad` adds 2) |
+| unit suite (`tests/Tests.csproj`) | 595 (596 − 2 collapsed Range duplicates + 1 new, D2) |
+| BootstrapServices estate (`.tests.nl` blocks) | 7,320 (7,305 at `385b7e8d1`; the widening's deleted snapshot contracts −3; D2 +15; +3 elsewhere in the batch) |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20,784 lines / 19,768 non-blank |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:9717a7390756f51c` |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:819d6f5c4ed70cb7` (the union of the widening's `ff22308bc20ee46a` and D2's `3764b579fdba8a1f`, audit-observed) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
 | packaged SDK 0.1.0 in both feeds | packed from `385b7e8d1` (Sdk nupkg md5 `e55c25e1…`), carrying the incremental-emit stamp and the retained external-type scan; **measured through the shipped package on a loaded box: the compiler's own product build 29.6 s wall (was 133–160 s), no-op rebuild 0.93 s (was 132.8 s), tests-included build 46.0 s (was 273–307 s); estate restore+emit+test 76 s, 7,305/7,305** |
-| gate | `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` → 126 steps, `GATE EXIT 0`, ~22 min |
+| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **6 m 35 s** at `a1440ec95` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
 
 ### The verification bar (every B-arc slice; the accumulated standard)
 
@@ -230,25 +248,30 @@ exemption leaked into nested bodies, and a shadowing local was accused of the fi
 raw-interpolation `:` swallow (`e6aa8c88b`). WITHDRAWN with proof: undefined type names silent at declaration
 sites (every probe spelled `Missing`, a real BCL type; two smaller real holes it hid are fixed).
 
-Held: format non-idempotence + the `.tests.nl` gate gap — fixed on `stream/chip-format-idempotence`; its
-233-file estate reformat waits on a decision about an argument-list WRAPPING policy (the canonical join puts
-6,224 lines over 120 chars). All fifteen filed chips are closed: locale-sensitive estate blocks (7 defects, 4 of them product: the lint-config severity fold,
+Format non-idempotence + the `.tests.nl` gate gap: CLOSED — the idempotence rule `24befbd97`, gofmt-style wrapping
+`8707f046e`, discovery widening `35f2c1fd7`, the 286-file estate reformat `17aa99e58` (fixed point; `nlc check --json`
+byte-identical over 26 projects; the reformat drops redundant `public` — the documented modifier rule).
+`stream/chip-format-idempotence` and its worktree are deleted (its 233-file reformat `fd13f0d67` never merged). All
+fifteen filed chips are closed: locale-sensitive estate blocks (7 defects, 4 of them product: the lint-config severity fold,
 two suggestion folds, the CLI's unknown-command echo, and the emitter writing a Turkish İ into CLR method names — the estate
 is identical under en-US/de-DE/tr-TR) · playground union shorthand (the runner was a third spelling of `BindingName ?? Name`,
 the only wrong one — routed to `AnalyzerPropertyPatternBinding.BoundName`) · playground vs `nlc run` divergences (5 fixed;
 `"n=" + 1` is a compiler gap in the primitive-binary `+` arm, filed).
 
-**Wave 3, first slice (owner-approved 2026-09-02): the gate-speed slice.** The commit gate is 22 min without VS Code
-tests (35–40 with); 16 m 28 s of it is the 596-test C# unit suite (dominated by tests that spawn `dotnet build`/
-`dotnet test`), while the 7,201-block N# estate takes 9 s. Plan: (1) profile the unit suite by TRX duration and split
-it — fast tests stay, slow subprocess tests move to a parallel step or to native `.tests.nl`; (2) run independent gate
-steps in parallel (unit ‖ native estates ‖ example builds) — the gate scripts are ratchet line-pinned, so a measured
-repin; (3) make CI (`.github/workflows/build.yml`, already running `dotnet test` + ilverify on every push/PR) run the
-full gate so no local session waits on another's gate; (4) VS Code smoke stays IDE-batches-only. Target ~22 → ~8 min
-locally, zero waiting once CI carries it.
+**Wave 3, first slice — the gate-speed slice: DONE as measured.** The gate was emit-bound (8 N# emits per gate), not
+unit-suite-bound as first planned; the stamp-keyed incremental emit in `Sdk.targets` plus the emit-path fix took the
+commit gate 28 m 44 s → ~15 min. Still open from the original plan: splitting the subprocess-spawning unit tests out,
+running independent gate steps in parallel (ratchet line-pinned scripts → a measured repin), and making CI carry the full
+gate so no local session waits on another's.
 
-Wave-3 candidates: the four IDE defects above (D3 member completion first, then D2 BCL hover, D1 interpolation-hole hover,
-D4 NL002 anchor); then those found by the chips: `unsafe`/`alloc`/`allow` block bodies unwalked by the linter (NL001
+Wave-3 DONE: the gate-speed slice (incremental emit + the emit-path regression; ~15 min gate), D3, D2, D1, the formatter
+rule + wrapping + widening + reformat. IN PROGRESS: the formatter data-loss family (`stream/format-rawstring-reparse`: raw
+`"""` delimiters dropped by `Lexer.ReadTripleQuoteString`, `let` unspellable, digit separators dropped by `ReadNumber`;
+the parser's `CanStartExpression` missing `TripleQuoteStringLiteral` so `return """abc"""` reported NL305/NL312/NL006;
+`EndLine` under-reported for multi-line raw literals; 15 `AllocExpression` formatter declines; `--check` returning before
+its report on a decline). Wave-3 candidates, remaining: D4 NL002 anchor; `nlc query type` renders methods as a
+`Name(...)` placeholder; hover declines XML doc summaries; call-site overload preference in hover; `"n=" + 1`
+primitive-binary `+`; then those found by the chips: `unsafe`/`alloc`/`allow` block bodies unwalked by the linter (NL001
 fail-open) · `TypePattern` type references untracked (false NL010) · `nlc tidy --fix` corrupts the mapping
 dependency form · tidy's removal filter not scoped to a dependency section (decision) · `where` clauses on
 TYPE declarations do not parse · `override` PROPERTIES unchecked · tuple-deconstruction scan crossing lines
