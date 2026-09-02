@@ -22,10 +22,19 @@ namespace NSharpLang.Compiler
 //
 // THE THREE THINGS IT IS EASY TO GET WRONG:
 //
-// (1) THE TWO EXPRESSION-START TABLES ARE NOT THE SAME TABLE, AND THE DIFFERENCE IS EXACTLY TWO
-// TOKENS. `CanStartExpression` (the STATEMENT operand start) admits `...` and refuses a triple-quote
-// string; `IsExpressionStart` (the CAST operand start) does the opposite. Folding them would break
-// either spread arguments or raw string literals, and nothing else would notice.
+// (1) THE TWO EXPRESSION-START TABLES ARE NOT THE SAME TABLE, AND THE DIFFERENCE IS EXACTLY ONE
+// TOKEN. `CanStartExpression` (the STATEMENT operand start) admits `...`; `IsExpressionStart` (the
+// CAST operand start) does not, because a spread is not a cast operand. Folding them would break
+// spread arguments, and nothing else would notice.
+//
+// THE SECOND DIFFERENCE WAS A DEFECT, NOT A FACT, AND IT IS GONE. This file used to say that
+// `CanStartExpression` REFUSES a triple-quote string and that the refusal was one of the two things
+// making these two tables. It was a MISSING ROW wearing a rationale. `ParseReturnStatement` asks
+// this predicate whether a `return` carries a value, so `return """abc"""` parsed as a bare `return`
+// followed by a stray expression statement and `nlc check` reported NL305 + NL312 + NL006 on correct
+// source; `ParseAdditive`'s missing-operand boundary asked it too, so `"a" + """b"""` was refused the
+// same way. A predicate that admits two of the three string forms is the SHAPE of that defect, which
+// is why the sweep below now names all three together.
 //
 // (2) `IsCastOperandStart` IS `IsExpressionStart` MINUS `[`, AND THE CARVE-OUT IS AMBIGUITY, NOT
 // TASTE. `(T)[1, 2]` would otherwise parse as a cast of a collection literal instead of an index.
@@ -212,6 +221,7 @@ func ParserTokenCanStartExpressionSet(): TokenType[] {
         TokenType.FloatLiteral,
         TokenType.CharLiteral,
         TokenType.StringLiteral,
+        TokenType.TripleQuoteStringLiteral,
         TokenType.InterpolatedRawStringLiteral,
         TokenType.True,
         TokenType.False,
@@ -611,21 +621,29 @@ test "parser token facts refuse a collection literal as a cast operand" {
     assert ParserTokenFacts.IsCastOperandStart(TokenType.LeftParen)
 }
 
-// NOT IN THE DELETED FILE. The two expression tables differ by exactly two tokens, in opposite
-// directions — the single fact that makes them two tables rather than one.
+// NOT IN THE DELETED FILE. The two expression tables differ by exactly ONE token — the single fact
+// that makes them two tables rather than one. It used to be two; the second was the raw-literal
+// defect, and this contract is what would have caught it had it named the three string forms as a
+// family instead of pinning the odd one out.
 test "parser token facts keep the two expression start tables distinct" {
     assert ParserTokenFacts.CanStartExpression(TokenType.DotDotDot)
     assert !ParserTokenFacts.IsExpressionStart(TokenType.DotDotDot)
 
+    // THE THREE STRING FORMS ARE ONE FAMILY IN BOTH TABLES. A predicate that admits two of them is
+    // not expressing a grammar rule, it is missing a row.
+    assert ParserTokenFacts.CanStartExpression(TokenType.StringLiteral)
+    assert ParserTokenFacts.CanStartExpression(TokenType.TripleQuoteStringLiteral)
+    assert ParserTokenFacts.CanStartExpression(TokenType.InterpolatedRawStringLiteral)
+    assert ParserTokenFacts.IsExpressionStart(TokenType.StringLiteral)
     assert ParserTokenFacts.IsExpressionStart(TokenType.TripleQuoteStringLiteral)
-    assert !ParserTokenFacts.CanStartExpression(TokenType.TripleQuoteStringLiteral)
+    assert ParserTokenFacts.IsExpressionStart(TokenType.InterpolatedRawStringLiteral)
 
     // Everything else they agree on, member for member, over all 148 tokens.
     all := ParserTokenAllTokenTypes()
     index := 0
     while index < all.Length {
         tokenType := all[index]
-        if tokenType != TokenType.DotDotDot && tokenType != TokenType.TripleQuoteStringLiteral {
+        if tokenType != TokenType.DotDotDot {
             assert ParserTokenFacts.CanStartExpression(tokenType) == ParserTokenFacts.IsExpressionStart(tokenType)
         }
 

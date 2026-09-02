@@ -1621,6 +1621,34 @@ test "lexer strips underscores from a large number" {
     assert tokens[1].Type == TokenType.Eof
 }
 
+// NOT IN THE DELETED FILE. STRIPPING THE SEPARATORS IS RIGHT AND LOSING THEM IS NOT: the value has
+// to be a numeral `Parse` accepts, and the author's spelling has to survive anyway, or the formatter
+// rewrites `2_147_483_647` to `2147483647` in the user's own file. `Spelling` is that second string,
+// and it is carried ONLY on the separator branch — every ordinary numeral answers null and allocates
+// nothing, which is what keeps this off the lexer's hot path.
+test "a separated numeral carries its source spelling and an ordinary one carries none" {
+    separated := LexerContractTokens("1_000_000")
+    assert separated[0].Value == "1000000"
+    assert separated[0].Spelling == "1_000_000"
+
+    // All four spellings the reader accepts separators in — decimal, hex, binary, and a float with a
+    // separator on both sides of the point — plus the suffix, which is part of the literal's text.
+    assert LexerContractTokens("0x7fff_ffff")[0].Spelling == "0x7fff_ffff"
+    assert LexerContractTokens("0b1010_0101")[0].Spelling == "0b1010_0101"
+    assert LexerContractTokens("1_2.5_0e1D")[0].Spelling == "1_2.5_0e1D"
+    assert LexerContractTokens("1_000UL")[0].Spelling == "1_000UL"
+    assert LexerContractTokens("1_2.5_0e1D")[0].Value == "12.50e1D"
+
+    // AND NULL EVERYWHERE ELSE. A numeral without separators spells itself, and so does every other
+    // token; a non-null spelling on any of these would be a second string allocated for nothing.
+    assert LexerContractTokens("42")[0].Spelling == null
+    assert LexerContractTokens("3.14")[0].Spelling == null
+    assert LexerContractTokens("0x7fffffff")[0].Spelling == null
+    assert LexerContractTokens("name")[0].Spelling == null
+    assert LexerContractTokens("\"text\"")[0].Spelling == null
+    assert LexerContractTokens("func")[0].Spelling == null
+}
+
 // Successor to TestInvalidHexLiteral_ProducesErrorToken,
 // TestInvalidHexLiteral_LeadingUnderscore_ProducesErrorToken,
 // TestInvalidBinaryLiteral_ProducesErrorToken and

@@ -440,12 +440,35 @@ class FormatterWalk {
         }
     }
 
-    // One attribute, in the position it is written in source: `[Name]` or `[Name(a, b = c)]`.
+    // ONE ATTRIBUTE, WRITTEN BACK EXACTLY AS THE AUTHOR WROTE IT.
     //
-    // A NAMED ARGUMENT USES ` = ` HERE AND `: ` IN A CALL. That is the grammar, not an oversight:
-    // an attribute argument is an assignment to a property and a call argument is a binding to a
-    // parameter, so the two spellings are kept apart — see the call arm of `FormatExpression`.
+    // AN ATTRIBUTE IS AN ANNOTATION, NOT CODE THE FORMATTER MAY CANONICALISE, and re-rendering one
+    // from its parts destroyed two real files in one reformat:
+    //
+    //   * `[aotSafe(mono-wasm)]` — an argument is stored as an EXPRESSION, so a policy token that
+    //     merely looks like code is re-rendered as code, and it came back `[aotSafe(mono - wasm)]`;
+    //   * `[trusted(\n reason: …,\n owner: …\n)]` — the node holds no line structure, so five lines
+    //     were joined onto one and the `trusted` census stopped finding the site at all.
+    //
+    // Both are the SAME defect and both are fixed the same way: the parser stamps the `[`-to-`]` span
+    // on the node and this writes it out unchanged. `FormatAttributes` normalises the indentation of
+    // the line the attribute STARTS on and nothing else, so the author's line structure inside the
+    // brackets survives — the gofmt rule, applied to a construct whose interior is not the
+    // formatter's to decide.
+    //
+    // THE CLAIM THAT USED TO STAND HERE — that a named attribute argument is spelled `name = value`
+    // while a call's is `name: value`, "the grammar, not an oversight" — WAS FALSE. `ParseAttributes`
+    // parses its arguments with the SAME `ParseArgumentList()` a call uses, so `:` is the only
+    // spelling that reads back, and the ` = ` form was output that the parser could not have produced
+    // and cannot re-read. The fallback below therefore writes `: `, and it is a fallback: it runs only
+    // for a tree with no span behind it, which means a hand-built one.
     func FormatAttributeInline(attribute: AttributeNode, builder: StringBuilder) {
+        attributeSource := attribute.SourceText
+        if attributeSource != null {
+            builder.Append(attributeSource)
+            return
+        }
+
         builder.Append("[")
         builder.Append(attribute.Name)
 
@@ -461,7 +484,7 @@ class FormatterWalk {
                 argumentName := argument.Name
                 if argumentName != null {
                     builder.Append(argumentName)
-                    builder.Append(" = ")
+                    builder.Append(": ")
                 }
 
                 FormatExpression(argument.Value, builder)
@@ -580,6 +603,8 @@ class FormatterWalk {
             builder.Append(returnLifetime)
         }
 
+        AppendGenericConstraints(declaration.Constraints, builder)
+
         if declaration.ExpressionBody != null {
             builder.Append(" => ")
             FormatExpression(declaration.ExpressionBody, builder)
@@ -593,6 +618,72 @@ class FormatterWalk {
             builder.AppendLine("}")
         } else {
             builder.AppendLine()
+        }
+    }
+
+    // `where T: class, IFoo, new()`, ONE CLAUSE PER CONSTRAINED TYPE PARAMETER, or nothing.
+    //
+    // THERE WAS NO ARM AT ALL, so every constraint the formatter was handed was DELETED — and
+    // deleting a constraint changes the PROGRAM, not its spelling. It reached exactly one file,
+    // `docs/design/systems-samples/proofs/38-unmanaged-sort-comparer/Program.nl`, which holds the
+    // estate's only real `where` clause and had never been formatted because it declined on
+    // `AllocExpression`; every other `where` in the tree is inside a contract STRING literal, which no
+    // formatter touches. That is the same shape as the digit separators and the raw literals: a defect
+    // that existed for as long as the arm was missing and could not surface until the file in front of
+    // it stopped declining.
+    //
+    // THE SPECIAL CONSTRAINTS ARE A FLAG SET AND THE TYPE CONSTRAINTS ARE A LIST, so the source order
+    // BETWEEN the two groups is not recoverable from the tree and a canonical order has to be chosen.
+    // It is C#'s — `class`/`struct` first, `new()` last — and `ParseGenericConstraints` accepts the
+    // three in any order, so whatever the author wrote reads back.
+    func AppendGenericConstraints(constraints: List<GenericConstraint>?, builder: StringBuilder) {
+        if constraints == null {
+            return
+        }
+
+        index := 0
+        while index < constraints.Count {
+            constraint := constraints[index]
+            builder.Append(" where ")
+            builder.Append(constraint.TypeParameter)
+            builder.Append(": ")
+
+            special := Convert.ToInt32(constraint.SpecialConstraints)
+            written := 0
+            if FormatterSyntaxText.HasModifier(special, 1) {
+                builder.Append("class")
+                written = written + 1
+            }
+
+            if FormatterSyntaxText.HasModifier(special, 2) {
+                if written > 0 {
+                    builder.Append(", ")
+                }
+
+                builder.Append("struct")
+                written = written + 1
+            }
+
+            typeIndex := 0
+            while typeIndex < constraint.Constraints.Count {
+                if written > 0 {
+                    builder.Append(", ")
+                }
+
+                builder.Append(FormatterSyntaxText.FormatTypeReference(constraint.Constraints[typeIndex]))
+                written = written + 1
+                typeIndex = typeIndex + 1
+            }
+
+            if FormatterSyntaxText.HasModifier(special, 4) {
+                if written > 0 {
+                    builder.Append(", ")
+                }
+
+                builder.Append("new()")
+            }
+
+            index = index + 1
         }
     }
 
@@ -745,16 +836,31 @@ class FormatterWalk {
         variableDeclaration := statement as VariableDeclarationStatement
         if variableDeclaration != null {
             state.Indent(builder)
+            // THE TYPE IS FORMATTED BEFORE THE KEYWORD BECAUSE THE KEYWORD DEPENDS ON IT. `let` is
+            // not recoverable from `Kind` — `let x: T = v` and `x: T = v` are the same kind — so the
+            // arm asks two questions: did the author write it, and would the shorter spelling read
+            // back? The second is a question about the type's own text.
+            declaredTypeText: string? = null
+            if variableDeclaration.Type != null {
+                declaredTypeText = FormatterSyntaxText.FormatTypeReference(variableDeclaration.Type)
+            }
+
             if variableDeclaration.Kind == VariableKind.Const {
                 builder.Append("const ")
             } else if variableDeclaration.Kind == VariableKind.Readonly {
                 builder.Append("readonly ")
+            } else if variableDeclaration.HasLetKeyword || (declaredTypeText != null && FormatterSyntaxText.TypedDeclarationNeedsLet(declaredTypeText, variableDeclaration.Initializer != null)) {
+                // The first clause is PRESERVATION and the second is SOUNDNESS; either alone leaves a
+                // hole. Without the first, `let n: int = 3` silently loses its keyword. Without the
+                // second, a tree built by hand — or by any path that does not stamp the flag — writes
+                // a tuple-typed local in a spelling the parser then refuses.
+                builder.Append("let ")
             }
 
             builder.Append(variableDeclaration.Name)
-            if variableDeclaration.Type != null {
+            if declaredTypeText != null {
                 builder.Append(": ")
-                builder.Append(FormatterSyntaxText.FormatTypeReference(variableDeclaration.Type))
+                builder.Append(declaredTypeText)
             }
 
             if variableDeclaration.Initializer != null {
@@ -1250,15 +1356,33 @@ class FormatterWalk {
     // it away: the formatter's output has to re-parse to the same tree, and precedence recovered by
     // re-deriving brackets would not be the source the author wrote.
     func FormatExpression(expression: Expression, builder: StringBuilder) {
+        // A NUMERIC LITERAL IS WRITTEN AS THE AUTHOR SPELLED IT. `Lexer.ReadNumber` drops digit
+        // separators so that `Parse` sees a numeral it accepts, so `Value` alone cannot spell
+        // `2_147_483_647`, `0x7fff_ffff` or `1_2.5_0e1D` back — the formatter rewrote all three, which
+        // is the same defect class as writing a raw string's content without its delimiters: the file
+        // still compiles to the same program and the author's source is gone. `Spelling` is null for
+        // every numeral that has no separators, so the common arm is unchanged.
         intLiteral := expression as IntLiteralExpression
         if intLiteral != null {
-            builder.Append(intLiteral.Value)
+            intSpelling := intLiteral.Spelling
+            if intSpelling != null {
+                builder.Append(intSpelling)
+            } else {
+                builder.Append(intLiteral.Value)
+            }
+
             return
         }
 
         floatLiteral := expression as FloatLiteralExpression
         if floatLiteral != null {
-            builder.Append(floatLiteral.Value)
+            floatSpelling := floatLiteral.Spelling
+            if floatSpelling != null {
+                builder.Append(floatSpelling)
+            } else {
+                builder.Append(floatLiteral.Value)
+            }
+
             return
         }
 
@@ -1270,7 +1394,26 @@ class FormatterWalk {
 
         stringLiteral := expression as StringLiteralExpression
         if stringLiteral != null {
-            builder.Append(stringLiteral.Value)
+            // AN ORDINARY LITERAL'S `Value` CARRIES ITS OWN QUOTES AND A RAW LITERAL'S DOES NOT, so
+            // the raw arm writes the delimiters back and the ordinary arm must not. Writing the raw
+            // content bare is not a formatting infelicity — it emits an IDENTIFIER where the author
+            // wrote a string, and wherever that identifier is itself a legal expression BOTH of
+            // `FormatSafe`'s gates pass and the file is rewritten. `v := """abc"""` became
+            // `v := abc` on disk, and through `DocumentFormattingHandler` on format-on-save.
+            //
+            // THE RE-EMISSION IS EXACT, WHICH IS WHY NOTHING IS RE-SYNTHESISED. N# raw strings do
+            // not strip a common indent (the content is everything between the delimiters, leading
+            // newline included), and `Lexer.ReadTripleQuoteString` TERMINATES AT THE FIRST `"""`, so
+            // a token's content provably contains no `"""` and provably does not end in a quote.
+            // `"""` + content + `"""` is therefore the author's own bytes, character for character.
+            if stringLiteral.IsRaw {
+                builder.Append("\"\"\"")
+                builder.Append(stringLiteral.Value)
+                builder.Append("\"\"\"")
+            } else {
+                builder.Append(stringLiteral.Value)
+            }
+
             return
         }
 
@@ -1817,6 +1960,33 @@ class FormatterWalk {
             builder.Append("(")
             FormatExpression(parenthesized.Inner, builder)
             builder.Append(")")
+            return
+        }
+
+        // THE TWO ALLOCATION EXPRESSIONS. Both were missing arms, so `ThrowUnhandled` fired and
+        // `nlc format` reported "Formatter does not handle expression type: AllocExpression" and left
+        // the file alone — fifteen `.nl` files under `docs/design/systems-samples/proofs/**` and
+        // `artifacts/**`, none of them a `.tests.nl` and so none of them explained by the discovery
+        // rule. `stackalloc` had no arm either and no file happened to use it; it is written here
+        // because the next one would have found the same hole.
+        //
+        // BOTH ARE PREFIX KEYWORDS OVER AN ALREADY-OWNED GRAMMAR, so there is no shape to choose:
+        // `alloc` wraps a `new`, an array literal, a string primary or a unary, and the walk already
+        // spells all four. Nothing here can wrap, which is why neither arm consults the list rule.
+        allocExpression := expression as AllocExpression
+        if allocExpression != null {
+            builder.Append("alloc ")
+            FormatExpression(allocExpression.Expression, builder)
+            return
+        }
+
+        stackAllocExpression := expression as StackAllocExpression
+        if stackAllocExpression != null {
+            builder.Append("stackalloc ")
+            builder.Append(FormatterSyntaxText.FormatTypeReference(stackAllocExpression.ElementType))
+            builder.Append("[")
+            FormatExpression(stackAllocExpression.LengthExpression, builder)
+            builder.Append("]")
             return
         }
 

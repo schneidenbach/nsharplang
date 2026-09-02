@@ -323,14 +323,22 @@ test "a hole's format clause follows a colon inside the braces" {
     assert FwkExpressionText(expression) == "$\"{x:N2}\""
 }
 
-// ---- (i) the two named-argument grammars --------------------------------------------------------
+// ---- (i) the ONE named-argument grammar, and the span that outranks it ---------------------------
 
-test "a call's named argument uses a colon and an attribute's uses an equals sign" {
+// THIS CONTRACT USED TO ASSERT `[A(n = 1)]` AND CALL IT "the grammar, not an oversight". It was
+// neither: `ParseAttributes` parses its arguments with the same `ParseArgumentList()` a call uses, so
+// `name: value` is the only spelling that reads back, and every `=` the formatter wrote was output no
+// parser could have produced. It reached users — the estate reformat rewrote
+// `docs/design/systems-samples/proofs/45-trusted-audit/Program.nl` into a form the `trusted` census
+// could no longer see.
+test "a named argument is spelled with a colon in an attribute exactly as in a call" {
     arguments := FwkEmptyArguments()
     arguments.Add(new Argument("n", FwkInt("1"), ArgumentModifier.None))
     call := new CallExpression(FwkIdentifier("f"), arguments, null, 0, 0)
     assert FwkExpressionText(call) == "f(n: 1)"
 
+    // A hand-built node carries NO span, so this is the synthesis fallback — the only path on which
+    // the spelling is the formatter's choice at all.
     attributeArguments := FwkEmptyArguments()
     attributeArguments.Add(new Argument("n", FwkInt("1"), ArgumentModifier.None))
     attribute := new AttributeNode("A", attributeArguments, 1, 1)
@@ -338,7 +346,19 @@ test "a call's named argument uses a colon and an attribute's uses an equals sig
     walk := FwkWalk(state)
     builder := new StringBuilder()
     walk.FormatAttributeInline(attribute, builder)
-    assert FwkShow(builder) == "[A(n = 1)]"
+    assert FwkShow(builder) == "[A(n: 1)]"
+}
+
+// A PARSED ATTRIBUTE IS WRITTEN FROM ITS SPAN, WHICH OUTRANKS EVERY SYNTHESIS RULE. The span is the
+// author's bytes, so nothing inside the brackets is re-rendered — not the argument spelling, not the
+// line structure, and not a policy token that merely looks like an expression.
+test "a parsed attribute is written back from its own source span" {
+    spanned := new AttributeNode("A", FwkEmptyArguments(), 1, 1, "[aotSafe(mono-wasm)]")
+    state := FwkState()
+    walk := FwkWalk(state)
+    builder := new StringBuilder()
+    walk.FormatAttributeInline(spanned, builder)
+    assert FwkShow(builder) == "[aotSafe(mono-wasm)]"
 }
 
 test "ref and out argument modifiers are written before the value and after the name" {

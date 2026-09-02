@@ -350,17 +350,35 @@ class PreprocessorDeclaration: Declaration {
 }
 
 // Attributes
+// AN ATTRIBUTE, PLUS THE SOURCE TEXT IT WAS WRITTEN AS.
+//
+// `Name` and `Arguments` are what a POLICY READER wants — `SystemsAttributePolicy` and the `trusted`
+// census read them and nothing else. They are not enough to write the attribute back, for two
+// separate reasons, and both of them corrupted real files:
+//
+//   * an argument is stored as an EXPRESSION, so a policy token that merely looks like code comes
+//     back as code. `[aotSafe(mono-wasm)]` parses as a subtraction and re-rendered as
+//     `[aotSafe(mono - wasm)]`;
+//   * an attribute's LINE STRUCTURE is nowhere in the node, so a `[trusted(...)]` the author spread
+//     over five lines was re-joined onto one — and the `trusted` census then found no site at all.
+//
+// `SourceText` is the `[`-to-`]` span, carried whenever the parser could read it and null for a
+// hand-built tree. An attribute is an ANNOTATION, not code the formatter is entitled to
+// canonicalise, so the formatter writes this back verbatim and normalises only the indentation of
+// the line it starts on.
 class AttributeNode {
     Name: string
     Arguments: List<Argument>
     Line: int
     Column: int
+    SourceText: string?
 
-    constructor(Name: string, Arguments: List<Argument>, Line: int = 1, Column: int = 1) {
+    constructor(Name: string, Arguments: List<Argument>, Line: int = 1, Column: int = 1, SourceText: string? = null) {
         this.Name = Name
         this.Arguments = Arguments
         this.Line = Line
         this.Column = Column
+        this.SourceText = SourceText
     }
 }
 

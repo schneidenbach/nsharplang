@@ -660,9 +660,26 @@ test "a format given NO comment stream drops the comments, which is why the lexe
 // stayed green. A declaration attribute and a parameter attribute are written by DIFFERENT arms,
 // so both are stated.
 
-test "an attribute with several arguments separates them with a comma and one space" {
-    assert FstFormat("class Person {\n[Column(\"Last Name\",19,true)]\nIdNumber: string\n}") == "class Person {|    [Column(\"Last Name\", 19, true)]|    IdNumber: string|}"
-    assert FstFormat("class UsersController {\nfunc Create([FromRoute(\"id\",1)] id: int): IActionResult {\nreturn null\n}\n}") == "class UsersController {|    func Create([FromRoute(\"id\", 1)] id: int): IActionResult {|        return null|    }|}"
+// THIS CONTRACT USED TO ASSERT THAT THE FORMATTER NORMALISES AN ATTRIBUTE'S ARGUMENT SPACING —
+// `[Column("Last Name",19,true)]` becoming `[Column("Last Name", 19, true)]`. IT NO LONGER DOES, and
+// the loss of that polish is bought deliberately. Normalising means RE-RENDERING the arguments from
+// the tree, and re-rendering is exactly what turned `[aotSafe(mono-wasm)]` into `[aotSafe(mono -
+// wasm)]` and joined a five-line `[trusted(...)]` onto one line, taking
+// `tests/native/systems-proof-corpus` to 42/44 when the `trusted` census could no longer see its
+// site. There is no version of "re-render, but carefully" that survives an argument grammar the
+// formatter does not own: an attribute is an ANNOTATION read by policy readers, so its interior
+// belongs to the author and the formatter owns the line it starts on.
+test "an attribute's interior is the author's, and the formatter owns only the line it starts on" {
+    // Both attribute positions take the same span rule — on a member, and on a parameter.
+    assert FstFormat("class Person {\n[Column(\"Last Name\",19,true)]\nIdNumber: string\n}") == "class Person {|    [Column(\"Last Name\",19,true)]|    IdNumber: string|}"
+    assert FstFormat("class UsersController {\nfunc Create([FromRoute(\"id\",1)] id: int): IActionResult {\nreturn null\n}\n}") == "class UsersController {|    func Create([FromRoute(\"id\",1)] id: int): IActionResult {|        return null|    }|}"
+
+    // An author who wrote the spaces keeps them, which is the same rule and not a second one.
+    assert FstFormat("class Person {\n[Column(\"Last Name\", 19, true)]\nIdNumber: string\n}") == "class Person {|    [Column(\"Last Name\", 19, true)]|    IdNumber: string|}"
+
+    // THE INDENTATION OF THE ATTRIBUTE'S OWN LINE IS STILL THE FORMATTER'S, which is the half of the
+    // rule that keeps a file looking formatted at all.
+    assert FstFormat("class Person {\n        [Column(\"a\")]\nIdNumber: string\n}") == "class Person {|    [Column(\"a\")]|    IdNumber: string|}"
 }
 
 // ---- THE ARGUMENT-LIST WRAPPING RULE --------------------------------------------------------------
@@ -857,4 +874,288 @@ test "a comment inside a hugged lambda body stays put, and the callback keeps hu
     source := "func Test() {\n    Run(items, x => {\n        // why\n        Work(x)\n    })\n}"
     assert FstFormatComments(source) == "func Test() {|    Run(items, x => {|        // why|        Work(x)|    })|}", FstFormatComments(source)
     assert FstIdempotentComments(source)
+}
+
+// ---- ATTRIBUTES ARE ANNOTATIONS, AND THE FORMATTER WRITES THEM BACK VERBATIM ---------------------
+//
+// THE DEFECT THESE STATE BROKE A PRODUCT CONTRACT, NOT JUST A SPELLING. Re-rendering an attribute
+// from `AttributeNode.Name` + `Arguments` loses two different things, and the estate reformat lost
+// both in the same pass:
+//
+//   * AN ARGUMENT IS STORED AS AN EXPRESSION. `[aotSafe(mono-wasm)]` parses as a subtraction, so it
+//     was written back as `[aotSafe(mono - wasm)]` — a policy token turned into arithmetic.
+//   * THE NODE HOLDS NO LINE STRUCTURE. A `[trusted(...)]` written over five lines was joined onto
+//     one, and `tests/native/systems-proof-corpus` fell to 42/44 because the `trusted` census could
+//     no longer see the site it was asserting on.
+//
+// The named-argument spelling was wrong as well, and the comment in the walk asserted the error was
+// deliberate: `ParseAttributes` parses its arguments with the same `ParseArgumentList()` a call uses,
+// so `name: value` is the grammar and every ` = ` the formatter wrote was output no parser could have
+// produced. The fix is one rule that covers all three and every future member of the class — emit the
+// `[`-to-`]` span the parser stamped, and normalise only the indentation of the line it starts on.
+
+test "a multi-line attribute keeps every line the author wrote" {
+    // The exact shape from `docs/design/systems-samples/proofs/45-trusted-audit/Program.nl`, which
+    // this reformat joined onto one line.
+    source := "class C {\n    [memory(safe)]\n    [trusted(\n        reason: \"handle is never exposed\",\n        owner: \"interop\",\n        review: \"2026-12-01\",\n        expires: \"2027-06-01\"\n    )]\n    static func Wrap(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(source) == source, FstFormatRaw(source)
+    assert FstSafeSuccess(source)
+    assert FstIdempotent(source)
+}
+
+test "an attribute argument that only looks like an expression is not re-rendered as one" {
+    // `mono-wasm` is a policy token. It PARSES as `mono - wasm`, and every re-render from the tree
+    // writes the spaces back in.
+    source := "class C {\n    [hot]\n    [aotSafe(mono-wasm)]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(source) == source, FstFormatRaw(source)
+
+    // The single-argument policy attributes the systems corpus is built from, unchanged.
+    memory := "class C {\n    [memory(safe)]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(memory) == memory, FstFormatRaw(memory)
+
+    bare := "class C {\n    [hot]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(bare) == bare, FstFormatRaw(bare)
+
+    assert FstIdempotent(source)
+    assert FstIdempotent(memory)
+}
+
+test "a named attribute argument keeps the colon the parser reads, and an equals sign is not a named argument" {
+    // `:` is the named-argument spelling in an attribute exactly as in a call, because it is the same
+    // `ParseArgumentList`.
+    named := "class C {\n    [Name(a, b: c)]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(named) == named, FstFormatRaw(named)
+
+    // `b = c` is NOT the named form — it parses as an ASSIGNMENT EXPRESSION in argument position, and
+    // the analyzer rejects it (NL310, "attribute arguments must be compile-time constants"). It is
+    // written here only to state what the span rule guarantees: whatever the author wrote comes back,
+    // including a shape the formatter has no opinion about.
+    assigned := "class C {\n    [Name(a, b = c)]\n    static func Run(): int {\n        return 1\n    }\n}"
+    assert FstFormatRaw(assigned) == assigned, FstFormatRaw(assigned)
+}
+
+// ---- RAW STRING LITERALS: THE SPELLING IS THE VALUE ----------------------------------------------
+//
+// THE DEFECT THESE STATE WAS SILENT DATA LOSS, NOT A DECLINE, AND IT REACHED USERS THROUGH
+// FORMAT-ON-SAVE. `Lexer.ReadTripleQuoteString` consumes both `"""` delimiters and appends neither,
+// so a raw literal's `StringLiteralExpression.Value` is the bare content — and the formatter wrote
+// that content back. Wherever the content is itself a legal expression, BOTH of `FormatSafe`'s gates
+// pass and the file is rewritten: `v := """abc"""` became `v := abc` on disk, and
+// `DocumentFormattingHandler` calls the same `FormatSafe`, so an editor save did it too. Only where
+// the bare content failed to re-read did the reparse gate catch it, which is why the whole visible
+// symptom was eight declining files rather than a corpus of quietly broken strings.
+//
+// EVERY ASSERTION BELOW IS AN EXACT ROUND TRIP. That is the contract worth having: a raw literal's
+// content is significant to the byte, so "the formatter did not change it" is the only correct
+// answer, and `IsRaw` + verbatim re-emission is what produces it.
+
+test "a single-line raw string literal keeps its delimiters in every position it can stand in" {
+    // The four shapes that were REWRITTEN rather than declined. Each is its own position in the
+    // expression walk, and each one emitted a bare identifier before.
+    declaration := "func Test() {\n    v := \"\"\"abc\"\"\"\n}"
+    assert FstFormat(declaration) == "func Test() {|    v := \"\"\"abc\"\"\"|}", FstFormat(declaration)
+
+    argument := "func Test() {\n    Use(\"\"\"abc\"\"\")\n}"
+    assert FstFormat(argument) == "func Test() {|    Use(\"\"\"abc\"\"\")|}", FstFormat(argument)
+
+    returned := "func Test(): string {\n    return \"\"\"abc\"\"\"\n}"
+    assert FstFormat(returned) == "func Test(): string {|    return \"\"\"abc\"\"\"|}", FstFormat(returned)
+
+    operand := "func Test(): string {\n    return \"a\" + \"\"\"b\"\"\"\n}"
+    assert FstFormat(operand) == "func Test(): string {|    return \"a\" + \"\"\"b\"\"\"|}", FstFormat(operand)
+
+    // Both of `FormatSafe`'s gates, and the format-twice property the corpus sweep assumes.
+    assert FstSafeSuccess(declaration)
+    assert FstSafeSuccess(argument)
+    assert FstSafeSuccess(returned)
+    assert FstSafeSuccess(operand)
+    assert FstIdempotent(declaration)
+    assert FstIdempotent(returned)
+}
+
+test "a multi-line raw string literal keeps its newlines and its indentation, and the statement after it keeps its own spacing" {
+    // N# raw strings do NOT strip a common indent — the content is everything between the
+    // delimiters — so the interior lines come back at column 0 and the indented one keeps its two
+    // spaces. Re-synthesising the literal from a decoded value could not produce this.
+    source := "func Test(): string {\n    v := \"\"\"\nline one\n  indented\n\"\"\"\n    return v\n}"
+    assert FstFormat(source) == "func Test(): string {|    v := \"\"\"|line one|  indented|\"\"\"|    return v|}", FstFormat(source)
+    assert FstSafeSuccess(source)
+    assert FstIdempotent(source)
+
+    // AND NO BLANK LINE APPEARS ABOVE `return v`. The literal is one token spanning four lines, so a
+    // statement `EndLine` stamped from the token's START line made the next statement look like it
+    // stood across a gap; the formatter then wrote a blank the author never had, on every format.
+    // `TokenEndLine` is what makes this an exact round trip rather than a growing file.
+    interpolated := "func Test(x: int): string {\n    v := $\"\"\"\nline {x}\n\"\"\"\n    return v\n}"
+    assert FstFormat(interpolated) == "func Test(x: int): string {|    v := $\"\"\"|line {x}|\"\"\"|    return v|}", FstFormat(interpolated)
+    assert FstIdempotent(interpolated)
+}
+
+test "the lexer ends a raw literal at the FIRST triple quote, and the formatter writes exactly that back" {
+    // THERE IS NO FOUR-OR-MORE-DELIMITER FORM IN N#, and this is the contract to write instead of
+    // one. `ReadTripleQuoteString` returns at the first `"""` it sees, so a literal's content
+    // provably contains no `"""` and provably does not END in a quote — which is exactly what makes
+    // `"""` + content + `"""` an exact reconstruction rather than a re-spelling.
+    one := "func Test(): string {\n    return \"\"\"he said \"hi\" ok\"\"\"\n}"
+    assert FstFormat(one) == "func Test(): string {|    return \"\"\"he said \"hi\" ok\"\"\"|}", FstFormat(one)
+
+    // AND THE CONTENT CANNOT END IN A QUOTE, which is the same fact seen from the other side: the
+    // fourth quote of `"""he said "hi""""` closes the literal and the last one is left over, so the
+    // file does not lex. That is the guarantee the re-emission rests on — there is no content the
+    // formatter can be handed for which `"""` + content + `"""` is ambiguous.
+    unterminated := "func Test(): string {\n    return \"\"\"he said \"hi\"\"\"\"\n}"
+    assert FstReparseErrors(unterminated) > 0
+
+    two := "func Test(): string {\n    return \"\"\"a \"\"b\"\"\"\n}"
+    assert FstFormat(two) == "func Test(): string {|    return \"\"\"a \"\"b\"\"\"|}", FstFormat(two)
+
+    // A fourth opening quote is not a longer delimiter: three open the literal and the fourth is the
+    // first character of its content.
+    four := "func Test(): string {\n    return \"\"\"\"abc\"\"\"\n}"
+    assert FstFormat(four) == "func Test(): string {|    return \"\"\"\"abc\"\"\"|}", FstFormat(four)
+
+    assert FstSafeSuccess(one)
+    assert FstSafeSuccess(two)
+    assert FstSafeSuccess(four)
+}
+
+test "a multi-line raw literal inside a wrapped argument list survives the wrap verbatim" {
+    // The shape of all seven raw-string decliners: a fixture source handed to a compile helper. The
+    // wrapping rule reshapes the CALL because its `)` is below its `(`; the literal's own lines are
+    // inside one token and the walk does not touch them.
+    source := "func Test() {\n    Compile(\n        \"\"\"\nclass C {\n    func Go(): int {\n        return 1\n    }\n}\n\"\"\"\n    )\n}"
+    assert FstSafeSuccess(source)
+    assert FstIdempotent(source)
+    assert FstReparseErrorsAfterFormat(source) == 0
+    assert FstFormatRaw(source).Contains("\"\"\"\nclass C {\n    func Go(): int {\n        return 1\n    }\n}\n\"\"\"")
+}
+
+test "let is preserved where the author wrote it and supplied where the parser needs it" {
+    // PRESERVATION. `let x: T = v` and the bare `x: T = v` are the same `VariableKind.Let`, so
+    // without `HasLetKeyword` the keyword was simply deleted from every file that used it.
+    written := "func Test(): int {\n    let n: int = 3\n    return n\n}"
+    assert FstFormat(written) == "func Test(): int {|    let n: int = 3|    return n|}", FstFormat(written)
+
+    // AND THE BARE SPELLING STAYS BARE. `let` is not canonicalisation: the estate is written without
+    // it and must not churn.
+    bare := "func Test(): int {\n    n: int = 3\n    return n\n}"
+    assert FstFormat(bare) == "func Test(): int {|    n: int = 3|    return n|}", FstFormat(bare)
+
+    // SOUNDNESS. `ParseExpressionStatement`'s no-`let` arm needs the type to open on an IDENTIFIER
+    // token, so a tuple type — which opens on `(` — cannot be written without the keyword. Dropping
+    // it produced `Unexpected token ':' in expression` and the whole file stopped being formatted.
+    tuple := "func Test(): int {\n    let pair: (x: int, y: int) = (1, 2)\n    return pair.x\n}"
+    assert FstFormat(tuple) == "func Test(): int {|    let pair: (x: int, y: int) = (1, 2)|    return pair.x|}", FstFormat(tuple)
+    assert FstSafeSuccess(tuple)
+    assert FstReparseErrorsAfterFormat(tuple) == 0
+
+    // The same arm requires an `=` after the type, so a typed declaration with NO initializer is the
+    // second member of that family and equally unwritable without `let`.
+    uninitialized := "func Test(): int {\n    let n: int\n    n = 3\n    return n\n}"
+    assert FstFormat(uninitialized) == "func Test(): int {|    let n: int|    n = 3|    return n|}", FstFormat(uninitialized)
+    assert FstReparseErrorsAfterFormat(uninitialized) == 0
+
+    assert FstIdempotent(written)
+    assert FstIdempotent(bare)
+    assert FstIdempotent(tuple)
+}
+
+test "a numeric literal comes back spelled the way the author wrote it, separators included" {
+    // THE SAME DEFECT CLASS AS THE RAW STRING, WITH A QUIETER SYMPTOM. `Lexer.ReadNumber` drops every
+    // `_` so the value it hands on is a numeral `Parse` accepts; the formatter wrote that value back,
+    // so `2_147_483_647` came out as `2147483647`. The program is identical and the author's source is
+    // gone — and because it re-parses and is idempotent, no gate ever objected. It surfaced only when
+    // `tests/native/scalar-code-plan/ScalarCodePlan.tests.nl` stopped declining on its raw string and
+    // became formattable for the first time; that file holds the estate's only bare separated
+    // numerals, one of them in a function named `ReturnSeparatedMinimumIntLiteral`.
+    decimalLiteral := "func Test(): int {\n    return 2_147_483_647\n}"
+    assert FstFormat(decimalLiteral) == "func Test(): int {|    return 2_147_483_647|}", FstFormat(decimalLiteral)
+
+    hex := "func Test(): int {\n    return 0x7fff_ffff\n}"
+    assert FstFormat(hex) == "func Test(): int {|    return 0x7fff_ffff|}", FstFormat(hex)
+
+    binary := "func Test(): int {\n    return 0b1010_0101\n}"
+    assert FstFormat(binary) == "func Test(): int {|    return 0b1010_0101|}", FstFormat(binary)
+
+    floating := "func Test(): double {\n    return 1_2.5_0e1D\n}"
+    assert FstFormat(floating) == "func Test(): double {|    return 1_2.5_0e1D|}", FstFormat(floating)
+
+    // A separated literal in an index-from-end, which reaches the same node through a different arm.
+    indexed := "func Test(values: int[]): int {\n    return values[^1_0]\n}"
+    assert FstFormat(indexed) == "func Test(values: int[]): int {|    return values[^1_0]|}", FstFormat(indexed)
+
+    // AND AN UNSEPARATED NUMERAL IS UNTOUCHED — the spelling is null and the value is written, which
+    // is the arm every other file in the estate takes.
+    plain := "func Test(): int {\n    return 2147483647\n}"
+    assert FstFormat(plain) == "func Test(): int {|    return 2147483647|}", FstFormat(plain)
+
+    assert FstIdempotent(decimalLiteral)
+    assert FstIdempotent(floating)
+    assert FstSafeSuccess(decimalLiteral)
+    assert FstSafeSuccess(floating)
+}
+
+test "the two allocation expressions are written back, and neither one wraps" {
+    // NO ARM AT ALL EXISTED FOR EITHER, so `ThrowUnhandled` fired from inside the walk and
+    // `nlc format` reported "Formatter does not handle expression type: AllocExpression" and left the
+    // file untouched — fifteen product `.nl` files, none of them a `.tests.nl`, so the discovery rule
+    // explained none of them. The throw is the honest failure mode; the missing arm is the defect.
+    allocated := "func Test(): int[] {\n    return alloc new int[1]\n}"
+    assert FstFormat(allocated) == "func Test(): int[] {|    return alloc new int[1]|}", FstFormat(allocated)
+
+    initializer := "func Test() {\n    bytes := alloc new byte[3]\n}"
+    assert FstFormat(initializer) == "func Test() {|    bytes := alloc new byte[3]|}", FstFormat(initializer)
+
+    // `alloc` wraps four already-owned grammars and the arm spells whichever it is handed.
+    literal := "func Test(): int[] {\n    return alloc [1, 2]\n}"
+    assert FstFormat(literal) == "func Test(): int[] {|    return alloc [1, 2]|}", FstFormat(literal)
+
+    // `stackalloc` had no arm either, and no file in the estate happened to use one — which is the
+    // only reason it was not a sixteenth decline.
+    stack := "func Test() {\n    buffer := stackalloc byte[64]\n}"
+    assert FstFormat(stack) == "func Test() {|    buffer := stackalloc byte[64]|}", FstFormat(stack)
+
+    // THE STATEMENT `alloc { … }` IS A DIFFERENT NODE and already had its arm; the two must not be
+    // confused, because one is a keyword block and the other a prefix over an expression.
+    block := "func Test() {\n    alloc {\n        x := 1\n    }\n}"
+    assert FstFormat(block) == "func Test() {|    alloc {|        x := 1|    }|}", FstFormat(block)
+
+    assert FstSafeSuccess(allocated)
+    assert FstSafeSuccess(initializer)
+    assert FstSafeSuccess(stack)
+    assert FstIdempotent(allocated)
+    assert FstIdempotent(stack)
+    assert FstReparseErrorsAfterFormat(allocated) == 0
+    assert FstReparseErrorsAfterFormat(stack) == 0
+}
+
+test "a generic constraint clause survives a format, and deleting one would change the program" {
+    // THERE WAS NO ARM FOR `Constraints` AT ALL, so the clause was dropped outright — the one defect
+    // in this batch that changes what the code MEANS rather than how it reads. It reached exactly one
+    // file, the estate's only real `where` clause, and only after the `alloc` arm made that file
+    // formattable; every other `where` in the tree sits inside a contract string literal.
+    special := "func Sort<T>(items: T[]): int where T: struct, Sortable<T> {\n    return 0\n}"
+    assert FstFormat(special) == "func Sort<T>(items: T[]): int where T: struct, Sortable<T> {|    return 0|}", FstFormat(special)
+
+    // Each of the three special constraints, and the canonical order: `class`/`struct` first and
+    // `new()` last, with the type constraints between them. `ParseGenericConstraints` accepts the
+    // three in any order, which is why choosing one is safe.
+    classOnly := "func F<T>(v: T): T where T: class {\n    return v\n}"
+    assert FstFormat(classOnly) == "func F<T>(v: T): T where T: class {|    return v|}", FstFormat(classOnly)
+
+    newLast := "func F<T>(): int where T: IFoo, new() {\n    return 0\n}"
+    assert FstFormat(newLast) == "func F<T>(): int where T: IFoo, new() {|    return 0|}", FstFormat(newLast)
+
+    // ONE CLAUSE PER CONSTRAINED PARAMETER, not one clause with two names.
+    two := "func F<K, V>(): int where K: IKey where V: IValue {\n    return 0\n}"
+    assert FstFormat(two) == "func F<K, V>(): int where K: IKey where V: IValue {|    return 0|}", FstFormat(two)
+
+    // An unconstrained generic grows nothing.
+    none := "func F<T>(v: T): T {\n    return v\n}"
+    assert FstFormat(none) == "func F<T>(v: T): T {|    return v|}", FstFormat(none)
+
+    assert FstSafeSuccess(special)
+    assert FstIdempotent(special)
+    assert FstIdempotent(two)
+    assert FstReparseErrorsAfterFormat(special) == 0
 }

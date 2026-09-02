@@ -137,3 +137,37 @@ test "the --check result sentences are exactly these" {
     assert FormatCommandKernels.GetAllFilesFormattedMessage() == "All files are properly formatted."
     assert FormatCommandKernels.GetFormattedCountMessage(3) == "Formatted 3 file(s)."
 }
+
+// `GetCompletionKind` HAD NO CONTRACT, AND THE ONE IT NEEDED MOST IS THE ROW WHERE ITS TWO FAILING
+// ANSWERS MEET. Kinds 1 and 2 both exit 1, so the order of the two tests could never be caught by an
+// exit code — it decides whether `--check` PRINTS the list of files needing formatting. Testing
+// `failed` first meant a single unformattable file anywhere under the root turned
+// `nlc format --check --project .` into a bare exit 1 with empty stdout, hiding every other
+// out-of-date file behind one decline.
+test "a decline does not suppress the --check report" {
+    // THE ROW THAT WAS WRONG: files need formatting AND something declined. The report wins; the exit
+    // code is 1 either way.
+    assert FormatCommandKernels.GetCompletionKind(true, true, false, 2) == 2
+    assert FormatCommandKernels.GetCompletionKind(false, true, false, 2) == 2
+
+    // A decline with NOTHING to report is still kind 1, so an empty list is never printed as news.
+    assert FormatCommandKernels.GetCompletionKind(true, true, false, 0) == 1
+
+    // Outside `--check` a failure still dominates: there is no list to print in write mode, and the
+    // diff was already streamed as each file was read.
+    assert FormatCommandKernels.GetCompletionKind(true, false, false, 0) == 1
+    assert FormatCommandKernels.GetCompletionKind(true, false, false, 3) == 1
+    assert FormatCommandKernels.GetCompletionKind(true, false, true, 3) == 1
+}
+
+test "the six completion kinds are exactly these" {
+    // `--diff`: 3 when the tree is already canonical, 4 when it is not — both exit 0, because a diff
+    // is a report and not a verdict.
+    assert FormatCommandKernels.GetCompletionKind(false, false, true, 0) == 3
+    assert FormatCommandKernels.GetCompletionKind(false, false, true, 3) == 4
+
+    // `--check` with nothing to do is 5, and the write path with work done is 6.
+    assert FormatCommandKernels.GetCompletionKind(false, true, false, 0) == 5
+    assert FormatCommandKernels.GetCompletionKind(false, false, false, 0) == 6
+    assert FormatCommandKernels.GetCompletionKind(false, false, false, 2) == 6
+}

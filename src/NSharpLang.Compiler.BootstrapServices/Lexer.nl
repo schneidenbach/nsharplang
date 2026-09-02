@@ -431,9 +431,25 @@ class Lexer {
         return new Token(KeywordTypeForText(value), value, startLine, startColumn, fileNameValue)
     }
 
+    // THE LITERAL'S SOURCE SPELLING, BUT ONLY WHEN IT HAS ONE. A numeral with no `_` in it spells
+    // itself, so the answer is null and nothing is allocated — which is the whole hot path. Only a
+    // separated numeral slices the source, and only the formatter ever asks for the result.
+    func NumberSpelling(startPosition: int, sawSeparator: bool): string? {
+        if !sawSeparator {
+            return null
+        }
+
+        return sourceText.Substring(startPosition, position - startPosition)
+    }
+
     func ReadNumber(startLine: int, startColumn: int): Token {
         builder := new StringBuilder()
         isFloat := false
+        // DIGIT SEPARATORS ARE DROPPED FROM THE VALUE AND KEPT IN THE SPELLING. Every `_` branch below
+        // advances past the character without appending it, because `Parse` must not see it; the
+        // author's grouping would be lost outright if the token did not carry the source text as well.
+        sawSeparator := false
+        startPosition := position
 
         if Peek() == '0' && (PeekNext() == 'x' || PeekNext() == 'X') {
             builder.Append(Peek())
@@ -447,6 +463,7 @@ class Lexer {
 
             while !IsAtEnd() && (IsHexDigit(Peek()) || Peek() == '_') {
                 if Peek() == '_' {
+                    sawSeparator = true
                     Advance()
                     continue
                 }
@@ -456,7 +473,7 @@ class Lexer {
             }
 
             ConsumeIntegerSuffix(builder)
-            return new Token(TokenType.IntLiteral, builder.ToString(), startLine, startColumn, fileNameValue)
+            return new Token(TokenType.IntLiteral, builder.ToString(), startLine, startColumn, fileNameValue, true, NumberSpelling(startPosition, sawSeparator))
         }
 
         if Peek() == '0' && (PeekNext() == 'b' || PeekNext() == 'B') {
@@ -471,6 +488,7 @@ class Lexer {
 
             while !IsAtEnd() && (Peek() == '0' || Peek() == '1' || Peek() == '_') {
                 if Peek() == '_' {
+                    sawSeparator = true
                     Advance()
                     continue
                 }
@@ -480,11 +498,12 @@ class Lexer {
             }
 
             ConsumeIntegerSuffix(builder)
-            return new Token(TokenType.IntLiteral, builder.ToString(), startLine, startColumn, fileNameValue)
+            return new Token(TokenType.IntLiteral, builder.ToString(), startLine, startColumn, fileNameValue, true, NumberSpelling(startPosition, sawSeparator))
         }
 
         while !IsAtEnd() && (char.IsDigit(Peek()) || Peek() == '.' || Peek() == '_') {
             if Peek() == '_' {
+                sawSeparator = true
                 Advance()
                 continue
             }
@@ -530,6 +549,7 @@ class Lexer {
 
             while !IsAtEnd() && (char.IsDigit(Peek()) || Peek() == '_') {
                 if Peek() == '_' {
+                    sawSeparator = true
                     Advance()
                     continue
                 }
@@ -554,7 +574,7 @@ class Lexer {
             tokenType = TokenType.FloatLiteral
         }
 
-        return new Token(tokenType, builder.ToString(), startLine, startColumn, fileNameValue)
+        return new Token(tokenType, builder.ToString(), startLine, startColumn, fileNameValue, true, NumberSpelling(startPosition, sawSeparator))
     }
 
     func ConsumeFloatSuffix(builder: StringBuilder): void {

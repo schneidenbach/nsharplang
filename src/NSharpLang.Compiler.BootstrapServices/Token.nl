@@ -160,6 +160,7 @@ class Token {
     columnValue: int
     fileNameValue: string?
     isTerminatedValue: bool
+    spellingValue: string?
 
     Type: TokenType => typeValue
     Value: string => valueText
@@ -168,6 +169,18 @@ class Token {
     FileName: string? => fileNameValue
     IsTerminated: bool => isTerminatedValue
 
+    // THE TOKEN'S SOURCE SPELLING, CARRIED ONLY WHEN IT DIFFERS FROM `Value`, AND NULL OTHERWISE.
+    //
+    // Exactly one token kind has one: a numeric literal written with digit separators. `ReadNumber`
+    // drops every `_` so that the value it hands on is a numeral the BCL's `Parse` accepts, and that
+    // is the right value — but it is not what the author typed, and a formatter that writes the value
+    // back turns `2_147_483_647` into `2147483647` in the user's file.
+    //
+    // NULL IS THE POINT, NOT A PLACEHOLDER. An ordinary numeral, an identifier and every keyword
+    // leave this null and allocate nothing for it, so the lexer's hot path is unchanged; only the
+    // separator branch pays for a second string, and only the formatter ever reads it.
+    Spelling: string? => spellingValue
+
     constructor(Type: TokenType, Value: string, Line: int, Column: int, FileName: string?) {
         typeValue = Type
         valueText = Value
@@ -175,15 +188,17 @@ class Token {
         columnValue = Column
         fileNameValue = FileName
         isTerminatedValue = true
+        spellingValue = null
     }
 
-    constructor(Type: TokenType, Value: string, Line: int, Column: int, FileName: string? = null, IsTerminated: bool = true) {
+    constructor(Type: TokenType, Value: string, Line: int, Column: int, FileName: string? = null, IsTerminated: bool = true, Spelling: string? = null) {
         typeValue = Type
         valueText = Value
         lineValue = Line
         columnValue = Column
         fileNameValue = FileName
         isTerminatedValue = IsTerminated
+        spellingValue = Spelling
     }
 
     override func ToString(): string {

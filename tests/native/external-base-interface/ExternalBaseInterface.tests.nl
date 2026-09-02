@@ -37,7 +37,8 @@ func CoreFrameworkDirectory(): string {
 func CompileExternalBaseFixtureFiles(names: string[], contents: string[]): ExternalBaseCompilation {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-external-base-" + Guid.NewGuid().ToString("N"))
+        "nsharp-external-base-" + Guid.NewGuid().ToString("N")
+    )
     Directory.CreateDirectory(fixtureRoot)
     fileIndex := 0
     while fileIndex < names.Length {
@@ -52,13 +53,13 @@ func CompileExternalBaseFixtureFiles(names: string[], contents: string[]): Exter
     coreDirectory := CoreFrameworkDirectory()
     coreLib := Path.Combine(coreDirectory, "System.Private.CoreLib.dll")
     runtimeDll := Path.Combine(coreDirectory, "System.Runtime.dll")
-    projectYml := "name: ExternalBaseFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - dll: "
-        + coreLib + "\n  - dll: " + runtimeDll + "\n"
+    projectYml := "name: ExternalBaseFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - dll: " + coreLib + "\n  - dll: " + runtimeDll + "\n"
     File.WriteAllText(Path.Combine(fixtureRoot, "project.yml"), projectYml)
 
     compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
     projectFileParserType := Type.GetType(
-        "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.BootstrapServices")
+        "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.BootstrapServices"
+    )
     if compilerType == null || projectFileParserType == null {
         throw new InvalidOperationException("The production compiler types were not loadable.")
     }
@@ -168,7 +169,8 @@ func Cleanup(compilation: ExternalBaseCompilation) {
 }
 
 test "source class extends an external runtime base class with a public parameterless constructor" {
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 import System
 
 class DataStore: Exception {
@@ -176,7 +178,8 @@ class DataStore: Exception {
         return 7
     }
 }
-""")
+"""
+    )
     assert compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }
@@ -185,7 +188,8 @@ test "source class extends an external abstract base with a protected parameterl
     // System.Attribute mirrors ControllerBase: a non-sealed public base whose only parameterless
     // constructor is protected. The synthesized default constructor must chain to that family ctor,
     // which is exactly the generated Web API controller's ControllerBase shape.
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 import System
 
 class WeatherTag: Attribute {
@@ -193,39 +197,45 @@ class WeatherTag: Attribute {
         return 3
     }
 }
-""")
+"""
+    )
     assert compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }
 
 test "source class implements an external runtime interface" {
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 import System
 
 class Resource: IDisposable {
     func Dispose() {
     }
 }
-""")
+"""
+    )
     assert compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }
 
 test "source class extends an external base and implements an external interface together" {
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 import System
 
 class TrackedResource: Attribute, IDisposable {
     func Dispose() {
     }
 }
-""")
+"""
+    )
     assert compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }
 
 test "source class extends a source base and implements an external interface" {
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 import System
 
 class Widget {
@@ -236,7 +246,8 @@ class Gauge: Widget, IDisposable {
     func Dispose() {
     }
 }
-""")
+"""
+    )
     assert compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }
@@ -248,10 +259,12 @@ class Gauge: Widget, IDisposable {
 // the help line — so this row pins the ANALYZER's sentence. The two rows below it are unchanged,
 // because `string` and `int` RESOLVE and it is inheritability, not the name, that the emitter refuses.
 test "an unresolved base name is reported by the ANALYZER as NL201, ahead of any emitter decline" {
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 class Broken: NonexistentBaseType {
 }
-""")
+"""
+    )
     assert !compilation.Succeeded, compilation.Diagnostics
     assert compilation.Diagnostics.Contains("NL201"), compilation.Diagnostics
     assert compilation.Diagnostics.Contains("Type 'NonexistentBaseType' not found"), compilation.Diagnostics
@@ -260,44 +273,52 @@ class Broken: NonexistentBaseType {
 }
 
 test "a sealed external base class is not inheritable and declines" {
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 class Bad: string {
 }
-""")
+"""
+    )
     assert !compilation.Succeeded, compilation.Diagnostics
     assert compilation.Diagnostics.Contains("could not be resolved"), compilation.Diagnostics
     Cleanup(compilation)
 }
 
 test "an external value type base is not inheritable and declines" {
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 class Bad: int {
 }
-""")
+"""
+    )
     assert !compilation.Succeeded, compilation.Diagnostics
     assert compilation.Diagnostics.Contains("could not be resolved"), compilation.Diagnostics
     Cleanup(compilation)
 }
 
 test "a second class base is rejected" {
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 import System
 
 class Bad: Exception, FormatException {
 }
-""")
+"""
+    )
     assert !compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }
 
 test "a value-type struct cannot inherit an external base" {
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 import System
 
 struct Bad: Attribute {
     Value: int
 }
-""")
+"""
+    )
     assert !compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }
@@ -331,6 +352,7 @@ test "an ambiguous cross-namespace base name declines rather than guessing" {
 // -----------------------------------------------------------------------------------------------
 
 class TracedException: System.Exception {
+
     // Bare inherited call: `GetBaseException()` with no receiver binds System.Exception.GetBaseException()
     // through the recorded external base, exactly as `Ok(data)` binds ControllerBase.Ok(object). With
     // no inner exception the method returns the receiver itself.
@@ -346,6 +368,7 @@ class TracedException: System.Exception {
 }
 
 class OverloadRoller: System.Random {
+
     // Overload selection by arity: System.Random declares Next(), Next(int) and Next(int, int).
     // Next(1) must select Next(int); its result is in [0, 1), i.e. deterministically 0, proving both
     // that the arity-1 overload was chosen and that the emitted call executes.
@@ -361,6 +384,7 @@ class OverloadRoller: System.Random {
 }
 
 class HidingRoller: System.Random {
+
     // Source-declaration precedence: a source `Next()` hides the inherited external `Next()` (whose
     // result is never negative). The bare call in Play() must bind this source override, not the
     // external base method — this is the Web API-relevant "source hides external" rule.
@@ -408,13 +432,15 @@ test "a source method declaration hides the inherited external overload at runti
 
 test "a bare inherited external-base call with a mismatched arity declines" {
     // System.Random has no three-argument Next overload; the call must not bind a different arity.
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 class Dice: System.Random {
     func Bad(): int {
         return Next(1, 2, 3)
     }
 }
-""")
+"""
+    )
     assert !compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }
@@ -422,13 +448,15 @@ class Dice: System.Random {
 test "a generic method inherited from the external base is not bound and declines" {
     // System.Random.Shuffle<T>(T[]) is a generic instance method; the fixed-arity fence excludes it,
     // so the bare inherited call must decline rather than silently binding a generic method.
-    compilation := CompileExternalBaseFixture("""
+    compilation := CompileExternalBaseFixture(
+        """
 class Dice: System.Random {
     func Mix(items: int[]) {
         Shuffle(items)
     }
 }
-""")
+"""
+    )
     assert !compilation.Succeeded, compilation.Diagnostics
     Cleanup(compilation)
 }

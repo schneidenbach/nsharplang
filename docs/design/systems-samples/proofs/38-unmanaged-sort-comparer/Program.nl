@@ -4,7 +4,7 @@ interface Sortable<T> {
     func LessThan(other: T): bool
 }
 
-struct PriceLevel : Sortable<PriceLevel> {
+struct PriceLevel: Sortable<PriceLevel> {
     Price: long
     Quantity: int
 
@@ -14,7 +14,7 @@ struct PriceLevel : Sortable<PriceLevel> {
 }
 
 [hot]
-func SortPair<T>(items: T[]): int where T : struct, Sortable<T> {
+func SortPair<T>(items: T[]): int where T: struct, Sortable<T> {
     if items.Length < 2 {
         return 0
     }

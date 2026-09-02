@@ -6,7 +6,6 @@ import System.IO
 import System.Reflection
 
 // --- Reference-record control ---------------------------------------------------------------------
-
 test "a reference-record with clones and replaces the named member, leaving the source unchanged" {
     p1 := new Point { X: 10, Y: 20, Label: "a" }
     p2 := p1 with { X: 30 }
@@ -117,13 +116,15 @@ func SetFixtureObject(values: object?[], index: int, value: object?) {
 func CompileRecordWithFixture(source: string): RecordWithFixtureResult {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-record-with-" + Guid.NewGuid().ToString("N"))
+        "nsharp-record-with-" + Guid.NewGuid().ToString("N")
+    )
     Directory.CreateDirectory(fixtureRoot)
     File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), source)
 
     compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
     projectConfigType := Type.GetType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices")
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices"
+    )
     if compilerType == null || projectConfigType == null {
         throw new InvalidOperationException("The production compiler types were not loadable.")
     }
@@ -160,7 +161,8 @@ func CompileRecordWithFixture(source: string): RecordWithFixtureResult {
     SetFixtureObject(
         compileArguments,
         1,
-        Path.Combine(fixtureRoot, "out/RecordWithFixture.dll"))
+        Path.Combine(fixtureRoot, "out/RecordWithFixture.dll")
+    )
     SetFixtureObject(compileArguments, 2, false)
     SetFixtureObject(compileArguments, 3, false)
     compilation := compileMethod.Invoke(compiler, compileArguments)
@@ -213,7 +215,8 @@ func CompileRecordWithFixture(source: string): RecordWithFixtureResult {
 // The fixture route compiles emit-only, so the N# planner's OWN member resolution is what rejects an
 // unknown member: PlanRecordWith finds no such field and declines, and the with-arm reports it.
 test "a with expression naming a member the record does not have is rejected by the planner" {
-    result := CompileRecordWithFixture("""
+    result := CompileRecordWithFixture(
+        """
 record struct Rgb {
     R: int
     G: int
@@ -225,14 +228,16 @@ func main() {
     d := c with { Nonexistent: 5 }
     _ := d
 }
-""")
+"""
+    )
     assert !result.Succeeded, result.Diagnostics
     assert result.Diagnostics.Contains("emit.with.plan"), result.Diagnostics
 }
 
 // A type-mismatched replacement value is rejected by the with-arm's coercion check on the field N# resolved.
 test "a with expression whose replacement value is the wrong type is rejected" {
-    result := CompileRecordWithFixture("""
+    result := CompileRecordWithFixture(
+        """
 record struct Rgb {
     R: int
     G: int
@@ -244,13 +249,15 @@ func main() {
     d := c with { R: "not an int" }
     _ := d
 }
-""")
+"""
+    )
     assert !result.Succeeded, result.Diagnostics
     assert result.Diagnostics.Contains("emit.with.type-mismatch"), result.Diagnostics
 }
 
 test "a well-formed value-record with compiles cleanly through the production emitter" {
-    result := CompileRecordWithFixture("""
+    result := CompileRecordWithFixture(
+        """
 record struct Rgb {
     R: int
     G: int
@@ -262,6 +269,7 @@ func main() {
     d := c with { G: 20 }
     _ := d
 }
-""")
+"""
+    )
     assert result.Succeeded, result.Diagnostics
 }

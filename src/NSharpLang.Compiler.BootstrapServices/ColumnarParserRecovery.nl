@@ -1471,7 +1471,7 @@ class ColumnarParserRecovery {
         // Every declaration is routed here AFTER its full extent (including any type/function body) has
         // been consumed, so Previous() is its last token — stamp EndLine for the formatter's
         // end-anchored blank-line gap measurement.
-        node.EndLine = Previous().Line
+        node.EndLine = TokenEndLine(Previous())
         if TypeMemberStack.Count > 0 {
             TypeMemberStack[TypeMemberStack.Count - 1].Add(node)
         } else {
@@ -1495,6 +1495,33 @@ class ColumnarParserRecovery {
     // Call it IMMEDIATELY after the closer is consumed, so `Previous()` is the closer itself.
     func StampListEnd(node: Expression) {
         node.EndLine = Previous().Line
+    }
+
+    // THE LAST SOURCE LINE A TOKEN COVERS, WHICH IS NOT ALWAYS THE LINE IT STARTS ON.
+    //
+    // Almost every token is one line wide, so `Line` is its end as well — which is why the three
+    // `EndLine` stamps below could read `Previous().Line` and be right. The exceptions are the two
+    // RAW string literals: `"""…"""` and `$"""…"""` carry their own newlines INSIDE a single token,
+    // so a statement or declaration that ends in one covers more lines than its last token reports.
+    //
+    // The formatter is the consumer that notices, because it measures blank-line gaps from
+    // construct ENDS. An under-reported end makes the line after a multi-line literal look like it
+    // stood across a gap, and a blank line the author never wrote is inserted above it — on every
+    // format, for `$"""` as much as for `"""`. Counting the token's own line breaks is the whole
+    // correction, and it is the identity on every single-line token.
+    func TokenEndLine(token: Token): int {
+        line := token.Line
+        text := token.Value
+        index := 0
+        while index < text.Length {
+            if text[index] == '\n' {
+                line = line + 1
+            }
+
+            index = index + 1
+        }
+
+        return line
     }
 
     // Stage N+1c tranche 3 (members): ParseTypeBody now RETURNS the member list it parsed, so each type
@@ -4056,7 +4083,7 @@ class ColumnarParserRecovery {
             } else {
                 // Stamp the statement's last covered source line (its final consumed token) so the
                 // formatter can measure blank-line gaps from statement ENDS instead of starts.
-                statement.EndLine = Previous().Line
+                statement.EndLine = TokenEndLine(Previous())
                 statements.Add(statement)
             }
 
@@ -4342,6 +4369,11 @@ class ColumnarParserRecovery {
     // VariableDeclarationWasTuple for the using-statement caller.
     func ParseVariableDeclaration(): Statement? {
         kind := VariableKindFor(Current().Type)
+        // The keyword the author actually wrote. `const` and `readonly` are recoverable from `kind`,
+        // but `let` is not — the bare `x: T = v` form parsed in `ParseExpressionStatement` produces
+        // the same `VariableKind.Let` — so the spelling is recorded here, where the token is still in
+        // hand, for the formatter to preserve.
+        wroteLetKeyword := Current().Type == TokenType.Let
         Advance()
         // consume let / const / readonly
         VariableDeclarationWasTuple = false
@@ -4379,7 +4411,7 @@ class ColumnarParserRecovery {
         if typeDeclined || initializerDeclined {
             return null
         }
-        return new VariableDeclarationStatement(name, declaredType, initializer, kind, line, column)
+        return new VariableDeclarationStatement(name, declaredType, initializer, kind, line, column, wroteLetKeyword)
     }
 
     // Parser.cs :2248-2252: the let / const / readonly dispatch passes the matching VariableKind.
@@ -5188,7 +5220,7 @@ class ColumnarParserRecovery {
                     if caseStatement == null {
                         declined = true
                     } else {
-                        caseStatement.EndLine = Previous().Line
+                        caseStatement.EndLine = TokenEndLine(Previous())
                         caseStatements.Add(caseStatement)
                     }
                 }
@@ -7115,10 +7147,12 @@ class ColumnarParserRecovery {
         if Check(TokenType.IntLiteral) || Check(TokenType.FloatLiteral) {
             token := Advance()
             literalResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+            // The spelling rides along so the formatter can write `2_147_483_647` back; it is null for
+            // every numeral without separators, which is almost all of them.
             if token.Type == TokenType.FloatLiteral {
-                literalResult.Node = new FloatLiteralExpression(token.Value, line, column)
+                literalResult.Node = new FloatLiteralExpression(token.Value, line, column, token.Spelling)
             } else {
-                literalResult.Node = new IntLiteralExpression(token.Value, line, column)
+                literalResult.Node = new IntLiteralExpression(token.Value, line, column, token.Spelling)
             }
             return literalResult
         }
@@ -7148,8 +7182,14 @@ class ColumnarParserRecovery {
             }
             // Tranche 7: a plain StringLiteral (not `$"`) or a TripleQuoteStringLiteral materializes
             // `new StringLiteralExpression(token.Value, line, column)` (Parser.cs :4669).
+            //
+            // THE RAW FLAG IS CARRIED BECAUSE THE TOKEN'S VALUE CANNOT CARRY ITSELF. A
+            // `TripleQuoteStringLiteral` token's value is the bare content — the lexer consumed both
+            // `"""` delimiters and appended neither — so a reader handed only the value cannot write
+            // the literal back, and writing it bare emits an identifier. The flag is the whole
+            // difference, and the formatter is the consumer that needs it.
             stringResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
-            stringResult.Node = new StringLiteralExpression(token.Value, line, column)
+            stringResult.Node = new StringLiteralExpression(token.Value, line, column, token.Type == TokenType.TripleQuoteStringLiteral)
             return stringResult
         }
 
@@ -9274,6 +9314,10 @@ class ColumnarParserRecovery {
         while Check(TokenType.LeftBracket) {
             attrLine := Current().Line
             attrColumn := Current().Column + 1
+            // The `[` itself, which `attrColumn` deliberately steps past (Parser.cs anchors the node on
+            // the NAME). The span the formatter re-emits starts here.
+            openLine := Current().Line
+            openColumn := Current().Column
             // Parser.cs :275
             Advance()
             // consume '['
@@ -9295,7 +9339,12 @@ class ColumnarParserRecovery {
                     attributeArguments = parsedArguments
                 }
             }
+            closed := Check(TokenType.RightBracket)
             ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
+            attributeSource: string? = null
+            if closed {
+                attributeSource = AttributeSourceText(openLine, openColumn, Previous())
+            }
             if argumentsDeclined {
                 AttributesMaterializable = false
             } else {
@@ -9303,10 +9352,61 @@ class ColumnarParserRecovery {
 
                 // Stage N+1c tranche 11: an `<error>` attribute NAME is Parser.cs's own placeholder and it
                 // still builds the AttributeNode around it (:5292).
-                attributes.Add(new AttributeNode(name, attributeArguments, attrLine, attrColumn))
+                attributes.Add(new AttributeNode(name, attributeArguments, attrLine, attrColumn, attributeSource))
             }
         }
         return attributes
+    }
+
+    // THE ATTRIBUTE'S OWN SOURCE TEXT, `[` THROUGH `]` INCLUSIVE, OR NULL WHEN THE SPAN CANNOT BE READ.
+    //
+    // The formatter re-emits this verbatim, because an attribute's arguments are ANNOTATION, not code:
+    // they are stored as expressions, so `[aotSafe(mono-wasm)]` re-renders as a subtraction, and their
+    // line structure is not stored at all, so a five-line `[trusted(...)]` re-renders as one line and
+    // the census that reads it finds nothing.
+    //
+    // EVERY FAILURE ANSWERS NULL RATHER THAN A WRONG SPAN, and the formatter then falls back to
+    // synthesising the attribute from its parts. The last guard is the load-bearing one: the slice must
+    // actually begin with `[` and end with `]`, which is what makes a line/column-to-offset mismatch
+    // (a `\r\n` file, say) degrade to the fallback instead of writing a mangled span into the user's
+    // source.
+    func AttributeSourceText(openLine: int, openColumn: int, closeToken: Token): string? {
+        if closeToken.Type != TokenType.RightBracket {
+            return null
+        }
+
+        startOffset := 0
+        if !CodeIntelligenceTextUtilities.TryGetEditorOffset(Source, openLine - 1, openColumn - 1, out startOffset) {
+            return null
+        }
+
+        endOffset := 0
+        if !CodeIntelligenceTextUtilities.TryGetEditorOffset(Source, closeToken.Line - 1, closeToken.Column - 1, out endOffset) {
+            return null
+        }
+
+        if endOffset < startOffset {
+            return null
+        }
+
+        if endOffset >= Source.Length {
+            return null
+        }
+
+        text := Source.Substring(startOffset, endOffset - startOffset + 1)
+        if text.Length < 2 {
+            return null
+        }
+
+        if text[0] != '[' {
+            return null
+        }
+
+        if text[text.Length - 1] != ']' {
+            return null
+        }
+
+        return text
     }
 
     // Parser.cs ConsumeAttributeIdentifier (:6811): an attribute name may be an Identifier or the

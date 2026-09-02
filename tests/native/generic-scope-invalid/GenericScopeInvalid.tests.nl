@@ -22,12 +22,14 @@ func SetGenericScopeObject(values: object?[], index: int, value: object?) {
 func CompileGenericScopeFixture(source: string): GenericScopeCompilationResult {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-generic-scope-" + Guid.NewGuid().ToString("N"))
+        "nsharp-generic-scope-" + Guid.NewGuid().ToString("N")
+    )
     Directory.CreateDirectory(fixtureRoot)
     File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), source)
     compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
     projectConfigType := Type.GetType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices")
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices"
+    )
     if compilerType == null || projectConfigType == null {
         throw new InvalidOperationException("The production compiler types were not loadable.")
     }
@@ -66,7 +68,8 @@ func CompileGenericScopeFixture(source: string): GenericScopeCompilationResult {
     SetGenericScopeObject(
         compileArguments,
         1,
-        Path.Combine(fixtureRoot, "out/GenericScopeInvalidFixture.dll"))
+        Path.Combine(fixtureRoot, "out/GenericScopeInvalidFixture.dll")
+    )
     SetGenericScopeObject(compileArguments, 2, false)
     SetGenericScopeObject(compileArguments, 3, false)
     // This is the public whole-project emit-only route: strict lint and the legacy analyzer stay out
@@ -125,18 +128,21 @@ func AssertGenericScopeFixtureRejected(source: string) {
 
 test "parent method generic is rejected in a static lambda signature" {
     // List<T> keeps the enumerable call modeled until its static lambda signature is validated.
-    AssertGenericScopeFixtureRejected("""
+    AssertGenericScopeFixtureRejected(
+        """
 import System.Collections.Generic
 import System.Linq
 
 func Filter<T>(items: List<T>) {
     filtered := items.Where(item => true)
 }
-""")
+"""
+    )
 }
 
 test "parent method generic is rejected in a static lambda body" {
-    AssertGenericScopeFixtureRejected("""
+    AssertGenericScopeFixtureRejected(
+        """
 func Outer<T>(value: T): int {
     make: Func<int> = () => {
         values := new T[1]
@@ -145,11 +151,13 @@ func Outer<T>(value: T): int {
 
     return make()
 }
-""")
+"""
+    )
 }
 
 test "parent method generic is rejected in a nongeneric local function body" {
-    AssertGenericScopeFixtureRejected("""
+    AssertGenericScopeFixtureRejected(
+        """
 func Outer<T>(value: T): int {
     func make(): int {
         values := new T[1]
@@ -158,5 +166,6 @@ func Outer<T>(value: T): int {
 
     return make()
 }
-""")
+"""
+    )
 }

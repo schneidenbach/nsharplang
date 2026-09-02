@@ -160,13 +160,22 @@ class FormatCommandKernels {
         return 0
     }
 
+    // A DECLINE MUST NOT SUPPRESS THE `--check` REPORT, WHICH IS WHY THE VERIFY ARM IS ASKED FIRST.
+    //
+    // Kind 1 and kind 2 both exit 1, so the order does not change the exit code — it changes whether
+    // the user is TOLD WHICH FILES need formatting. With `failed` tested first, one unformattable file
+    // anywhere in the tree turned `nlc format --check --project .` into a bare exit 1 with an empty
+    // stdout: the warnings named the file that declined and nothing named the twenty that were merely
+    // out of date. That is the least useful moment to go quiet, because a decline is exactly when a
+    // user wants to know what else is outstanding. A run with declines AND nothing to reformat still
+    // falls through to kind 1, so an empty list is never printed as if it were news.
     static func GetCompletionKind(failed: bool, verifyOnly: bool, diffOnly: bool, filesNeedingFormatting: int): int {
-        if failed {
-            return 1
-        }
-
         if verifyOnly && filesNeedingFormatting > 0 {
             return 2
+        }
+
+        if failed {
+            return 1
         }
 
         if diffOnly {
