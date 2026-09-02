@@ -159,6 +159,13 @@ class Formatter {
     // *END* LINE. Measuring from its start counts a multi-line body as a phantom gap, and the
     // second format then adds a blank line the first did not — which is precisely what
     // `FormatSafe`'s idempotence gate would catch.
+    //
+    // AND THE THREE BLANK LINES THIS MEMBER WRITES ITSELF ARE ACCOUNTED FOR. The separators after
+    // the namespace, after the import block and after the package are the language's spelling and
+    // are written unconditionally, so they are output lines with no source line behind them. Each
+    // one calls `AccountForEmittedBlankLine`, without which the gap tracker lies by one and the
+    // head of a file whose first comment sits directly under its last import grows a blank line on
+    // every format — the one shape in the estate that `FormatSafe` was rejecting outright.
     func Format(ast: CompilationUnit, comments: List<CommentTrivia>? = null): string {
         state.BeginFile(comments)
         tracker := state
@@ -175,6 +182,7 @@ class Formatter {
             builder.AppendLine(astNamespace.Name)
             tracker.LastEmittedSourceLine = astNamespace.Line
             builder.AppendLine()
+            state.AccountForEmittedBlankLine()
         }
 
         sortedImports := FormatterImportOrderer.OrderBySystemThenNamespace(ast.Imports)
@@ -219,6 +227,7 @@ class Formatter {
 
         if ast.Imports.Count > 0 || ast.FileImports.Count > 0 {
             builder.AppendLine()
+            state.AccountForEmittedBlankLine()
         }
 
         astPackage := ast.Package
@@ -228,6 +237,7 @@ class Formatter {
             builder.AppendLine(astPackage.Name)
             tracker.LastEmittedSourceLine = astPackage.Line
             builder.AppendLine()
+            state.AccountForEmittedBlankLine()
         }
 
         index = 0

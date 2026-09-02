@@ -2362,10 +2362,11 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 - §7's AOT argument for option (a) ("Reflection.Emit cannot ship in a native image") is superseded by
   §3.8's correction: `PersistedAssemblyBuilder` runs under NativeAOT; the AOT path is task 022.
 
-### 4.10 Wave 3 — the gate-speed slice
+### 4.10 Wave 3
 
 | slice | commit | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
+| FORMAT-RULE SPLIT — the idempotence rule alone, without the `.tests.nl` gate widening | this commit (branch `stream/format-rule-split` off `27f4a1b6b`); the bundled original is `1e192a8c2` on `stream/chip-format-idempotence` | ZERO C#, ZERO deletions — four `.nl` files, pure addition. `FormatterWalkState` gains `AccountForEmittedBlankLine` and `Formatter.Format`'s three unconditional separators (after the namespace, after the import block, after the package) call it, so an output line with no source line behind it stops making the gap tracker lie by one. Seven estate contracts pin it: five in `FormatterSourceText.tests.nl` (the three separators as fixed points at ONE blank line, the namespace-then-import second reader, and the convergence/saturation row) plus a `FormatSafe`-WITH-COMMENTS helper trio, and two in `FormatterWalkState.tests.nl` (one line of gap closed; zero still means "nothing emitted yet"). **The discovery widening is deliberately NOT carried**: `FormatCommandKernels.ShouldFormatDiscoveredPath`, its two suffix helpers, its two contract rows, `tests/CliParityAuditTests.cs` and both ratchet keys stay byte-identical to `27f4a1b6b` | The defect and the gate gap are SEPARABLE, and separating them is what lets the fix ship now. The rule is a formatter-owner change with no C#, no fixture and no ratchet repin; the widening is what drags the parity fixture, the two-key repin and the 233-file estate reformat behind it, and the reformat is blocked on a wrapping policy that does not exist yet. A rule held hostage to a policy decision is a rule that does not ship | 4 `.nl` files, +147/−0 (plus this STATUS row); estate 7,264 → 7,271 Failed 0 (+7 exactly, one fewer than `1e192a8c2`'s +8 — the dropped row is the `.tests.nl`-under-fixtures one, which asserts discovery); non-idempotent over 889 `.nl`/`.tests.nl` sources **1 → 0** (the one offender is `ColumnarIteratorPlanner.tests.nl`, named before the run), reparse-declining 8 → 8 untouched, `FormatSafe` declines 9 → 8, and BOTH sweeps are fixed points (pass-1 and pass-2 trees byte-identical); `nlc format --check` on the four gate paths exit 0, "All files are properly formatted" ×4; `nlc check --json` over all 26 `project.yml` projects under those paths BYTE-identical before/after (md5 `b9472402fcc56ec30dbf841c09ee41cf` both); `dev.sh --since` selected the FULL unit suite (fail-safe, unmapped paths) 596/596 Failed 0 |
 | GATE-SPEED (landed) | this commit; measured at `d26460045` | `Sdk.targets` gains a stamp-keyed incremental skip for `EmitNSharpIlAssembly`: `Inputs` = sources + `project.yml` + `@(ReferencePath)` + the SDK's three tool assemblies, `Outputs` = a stamp + `@(IntermediateAssembly)`, and a `BeforeTargets` predecessor deletes the stamp when its CONTENT (a Sha256 `StableStringHash` of the resolved source set, tests in/out, configuration) no longer matches. **19 insertions / 19 deletions — 206 lines / 177 non-blank, exactly the epoch ceiling**, paid for by compressing two multi-line comments and deleting ten labels that restated the element beneath them | **OVERTURN: the gate was never test-bound.** The 596 unit tests run in **5 m 42 s** on a quiet box, not the 16 m 28 s of `b16/gate.log` (a 2.78x loaded outlier). What the gate actually spent was **8 full BootstrapServices emits per run** — static analysis said 6-7, the instrument said 8. **Second overturn: an `Sdk.targets` fix cannot take effect in the run that packs it** — `BootstrapServices` resolves the SDK from the NuGet package cache, and the wrapper counts `.targets` as a dependency input, so the edit changes the DepKey and seeds a FRESH dep dir from the OLD package. Two gate runs measured "no change" before this was found (§2.2) | **BEFORE 28m44s / 8 emits (5 Debug, 3 Release), GREEN. AFTER 14m29s / 4 emits — 49.6% off the wall, half the emits.** Per step, before -> after: Step 2 8m34s -> **2m22s**; Step 3 8m06s -> **2m51s**; Step 3a 7m17s -> 6m22s; Step 4 4m21s -> **2m27s**. On the real 403-file / 172,653-line project the no-op rebuild goes **132.84 s -> 0.58 s (229x)**, against the 2026-09-01 baseline's own number; the cold emit reproduces it at 133.07 s. Correctness matrix 8/8 on a toy and 6/6 on BootstrapServices itself, including the reverse flip. Audit 17/18 before the repin (OWN005 fingerprint drift only, no OWN004), **18/18** after |
 
 **Durable findings (GATE-SPEED).**
@@ -2381,6 +2382,31 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 - Ratchet headroom is the real constraint on script-level fixes: `tests/scripts/test-all-core.sh` 916/917 (**1 line**), `tests/scripts/test-all.sh` 567/567 and `Sdk.targets` 206/206 (**0 lines**), `.github/workflows/build.yml` 81/81 (**0**). `EmitIlAssembly.cs` has 38 lines of headroom but growing C# is against the ownership direction — the fix belongs in MSBuild XML. OWN003 forbids a new `.slnf`, a new workflow file, or a new shell script, and trips on evidence left inside the byte-copy.
 - The naive incrementality key is a **correctness trap**: `NSharpExcludeTests` toggles `.tests.nl` into the *same* `IntermediateOutputPath`, and those files are older than a just-built product-only assembly, so a plain timestamp `Inputs`/`Outputs` would silently skip Step 3a's tests-included emit. The key must be a stamp file named by a hash of the resolved source set + `project.yml` + references + SDK tool version.
 - Recommended order: (0) make the SDK's N# emit incremental — ~532 s, no gate-script line pressure, and it fixes every developer's inner loop too; (1) share ONE packed feed between `TestSdkFeed` and Step 4 — ~150 s; (2) lane concurrency in `test-all-core.sh` behind a flag with disjoint obj dirs — ~180–240 s but 1 line of headroom, so it must pay for itself in deletions; (3) give CI the cheap deterministic steps it lacks (format contract, native estate, example chain) rather than the whole gate — ubuntu-latest cannot host 3c or the compile-time gate, and its `machine` baseline pins "Apple M4"; (4) commit-mode artifact reuse is subsumed by (0) and is not worth weakening "fresh isolated" for.
+
+**Durable findings (FORMAT-RULE SPLIT).**
+
+- The two halves of `1e192a8c2` touch DISJOINT owners, which is why the split is mechanical: the rule is
+  `FormatterWalkState.nl` + `Formatter.nl` + their two contract files; the widening is
+  `FormatCommandKernels.nl` + its contract file + `tests/CliParityAuditTests.cs` + the two ratchet keys.
+  No hunk had to be edited in place — every file is either wholly kept or wholly restored, except the two
+  contract files' single reformat-class blank line.
+- **A blank line the formatter writes itself is not free.** `HasBlankLineBefore` holds a SOURCE line, so
+  any unconditional output line must advance that baseline or every later gap reads one too wide. The
+  three separators were the only such lines in `Format`; the guard on zero keeps "nothing emitted yet"
+  meaning that, so the file's opening cannot become a phantom gap.
+- The fix is a NORMALISATION, not a deletion: a head that already carried the blank and one that did not
+  now format to the same text (ONE blank line), and a head with TWO blank lines still keeps both — which
+  is the spelling the entire contract estate is written in and which must not move.
+- **`FormatSafe`'s idempotence gate hid the defect behind a green gate.** The formatter never corrupted
+  `ColumnarIteratorPlanner.tests.nl`; it DECLINED it, and a decline reports nothing. A safety gate that
+  refuses a file silently is a defect detector whose output nobody reads.
+- The estate's `Fst*` helpers all passed a NULL comment list, which drops every comment in the file — so
+  no existing contract could reach a bug whose whole shape is where a comment lands. The
+  `FstSafeComments*` trio is the pipeline `nlc format` actually runs, and it is the reason the rule is
+  pinnable at all.
+- Three files' header blank line (between the head comment block and the FIRST declaration) is dropped by
+  `Format`'s `index > 0` guard regardless of this rule — it is reformat-class, not rule-class, and is
+  left for the estate reformat to take with everything else.
 
 ## 5. Remediations, corrections, do-not-relitigate verdicts
 

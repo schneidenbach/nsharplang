@@ -165,6 +165,28 @@ class FormatterWalkState {
         return lastEmittedSourceLine > 0 && line - lastEmittedSourceLine > 1
     }
 
+    // "I just wrote a blank line the source did not have."
+    //
+    // THIS IS WHAT MAKES THE FORMATTER IDEMPOTENT ACROSS THE FILE HEAD. `Format` writes a blank
+    // line after the namespace, after the import block and after the package UNCONDITIONALLY —
+    // those separators are the language's spelling, not the source's. The tracker, though, holds a
+    // SOURCE line, and a synthetic output line that nothing accounts for makes the gap tracker lie
+    // by exactly one: `import System` / `// header` (no blank between them) formats to
+    // `import System` / blank / `// header`, and a SECOND format then reads a two-line gap where
+    // the first read a one-line gap and writes a second blank. Each pass adds another, so the
+    // formatter's own idempotence gate rejects the file and `nlc format` refuses to touch it.
+    //
+    // Advancing the baseline by one line is the whole accounting: the blank just written STANDS IN
+    // FOR one line of the source's own gap, so a source that already had that blank still reads as
+    // one gap and a source that did not now reads as none. The guard keeps zero meaning "nothing
+    // emitted yet" — every caller has already emitted a line, so it never fires, and it is there so
+    // a future caller cannot turn the file's opening into a phantom gap.
+    func AccountForEmittedBlankLine() {
+        if lastEmittedSourceLine > 0 {
+            lastEmittedSourceLine = lastEmittedSourceLine + 1
+        }
+    }
+
     // ---- the comment stream ----------------------------------------------------------------------
 
     // Emit every comment that stood before the given source line, in order, at the current indent.
