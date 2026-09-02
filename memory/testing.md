@@ -478,12 +478,18 @@ PROCESSES, which is route (a) of the AOT question in
 `GetMethodBody()` bought exactly the reflection-loading debt the single-binary end state forbids.
 
 **Two findings from that slice are product facts, not test facts.** (1) **`docs/design/systems-samples/proofs/27-c-library-cli`
-cannot execute**: its `[LibraryImport]` over a `ReadOnlySpan<byte>` parameter is not marshalable on
-this emit path, so the CLR's interop marshaller raises `MarshalDirectiveException` at
-`SystemsProofs.CLibraryCli.NativeHash.Hash64` and the process aborts. The sample compiles clean under
-`systems:strict` and the deleted C# never ran it — it only read metadata — so this was invisible for
-the file's whole life. It is now PINNED as the successor to the deleted no-managed-body claim, because
-only a genuine interop stub can provoke a marshalling failure. (2) **`nlc check --systems-report`
+could not execute**: its `[LibraryImport]` over a `ReadOnlySpan<byte>` parameter is not marshalable on
+this emit path, so the CLR's interop marshaller raised `MarshalDirectiveException` at
+`SystemsProofs.CLibraryCli.NativeHash.Hash64` and the process aborted at exit 134. The sample compiled
+clean under `systems:strict` and the deleted C# never ran it — it only read metadata — so this was
+invisible for the file's whole life. **FIXED (chip `stream/chip-libraryimport-span`)**: a generic type
+can never appear in a P/Invoke signature and N# emits the P/Invoke directly (C# survives spans under
+`[LibraryImport]` only via a SOURCE GENERATOR that writes a pinning wrapper), so the analyzer now
+refuses a generic or tuple in a native-import signature with `NL405` naming the parameter and the
+repair (`NativeImportSignatureFacts` + `AnalyzerAttributeValidator.ValidateNativeImportSignature`), and
+the sample is spelled `byte[]`. Its run block now pins the STRONGER claim — the call reaches the native
+LOADER (`DllNotFoundException` naming `fast_hash`), which only a genuine interop stub can do.
+(2) **`nlc check --systems-report`
 cannot write to stderr**: every `Console.Error` path in `CheckCommand.Execute` is gated on text mode,
 which a JSON output mode never enters, so the deleted `Assert.True(string.IsNullOrWhiteSpace(stderr))`
 was STRUCTURALLY VACUOUS. It is replaced by a runtime diagnostic census read out of the envelope.

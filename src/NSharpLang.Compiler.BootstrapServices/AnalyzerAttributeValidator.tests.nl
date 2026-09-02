@@ -1250,3 +1250,208 @@ test "a null parameter list is not walked" {
 
     assert harness.Errors.Count == 0
 }
+
+// ── a native import's SIGNATURE, which is the one thing an attribute changes about the rest of
+//    the declaration ──────────────────────────────────────────────────────────────────────────
+//
+// `[LibraryImport]` moves the method out of this compiler's hands: the emitter defines a P/Invoke
+// stub and the CLR's interop marshaller decides, at the FIRST CALL, whether the signature can be
+// marshalled at all. Measured on the shipped `27-c-library-cli` proof before this rule existed:
+// `nlc check --json` answered `ok: true` with zero rows, `nlc build` succeeded, and the program
+// aborted at exit 134 with `MarshalDirectiveException: Cannot marshal 'parameter #1': Non-blittable
+// generic types cannot be marshaled.` The same program with `byte[]` in place of the span reaches
+// the native LOADER instead (`DllNotFoundException` naming `fast_hash`), which is what makes the
+// repair sentence below a measurement rather than advice.
+
+func AttrSimpleAt(name: string, line: int, column: int): TypeReference {
+    return new SimpleTypeReference(name, line, column)
+}
+
+func AttrSimple(name: string): TypeReference {
+    return AttrSimpleAt(name, 12, 21)
+}
+
+func AttrGenericAt(name: string, argument: string, line: int, column: int): TypeReference {
+    arguments := new List<TypeReference>()
+    arguments.Add(AttrSimpleAt(argument, line, column))
+    return new GenericTypeReference(name, arguments, line, column)
+}
+
+func AttrGeneric(name: string, argument: string): TypeReference {
+    return AttrGenericAt(name, argument, 12, 21)
+}
+
+func AttrArrayRefOf(name: string): TypeReference {
+    return new ArrayTypeReference(AttrSimple(name))
+}
+
+func AttrTupleOf(first: string, second: string): TypeReference {
+    elements := new List<TupleTypeElement>()
+    elements.Add(new TupleTypeElement(AttrSimple(first), null))
+    elements.Add(new TupleTypeElement(AttrSimple(second), null))
+    return new TupleTypeReference(elements)
+}
+
+func AttrNativeParameters(): List<Parameter> {
+    return new List<Parameter>()
+}
+
+func AttrNativeParameter(parameters: List<Parameter>, name: string, parameterType: TypeReference) {
+    parameters.Add(new Parameter(name, parameterType, null, false, ParameterModifier.None, null, 12, 21, false, null))
+}
+
+func AttrNativeImportOf(attributeName: string, parameters: List<Parameter>, returnType: TypeReference?): FunctionDeclaration {
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrString("fast_hash"), null)
+    return new FunctionDeclaration("Hash64", parameters, returnType, null, null, null, null, Modifiers.Static, AttrNodes(AttrNode(attributeName, arguments)), false, null, false, false, 12, 5)
+}
+
+func AttrNativeImport(parameterType: TypeReference, returnType: TypeReference?): FunctionDeclaration {
+    parameters := AttrNativeParameters()
+    AttrNativeParameter(parameters, "data", parameterType)
+    return AttrNativeImportOf("LibraryImport", parameters, returnType)
+}
+
+func AttrPlainFunction(parameterType: TypeReference): FunctionDeclaration {
+    parameters := AttrNativeParameters()
+    AttrNativeParameter(parameters, "data", parameterType)
+    return new FunctionDeclaration("Hash64", parameters, AttrSimple("int"), null, null, null, null, Modifiers.Static, new List<AttributeNode>(), false, null, false, false, 12, 5)
+}
+
+// ONE DIAGNOSTIC, WHOLE. A rule a developer must ACT on is not pinned by its code: the position, the
+// width of the underline, the sentence and the repair are all part of the answer, and a suggestion
+// that went missing would otherwise be invisible.
+func AttrRow(errors: List<CompilerError>, index: int): string {
+    if index >= errors.Count {
+        return "<none>"
+    }
+
+    row := errors[index]
+    return row.DiagnosticId + "@" + row.Line.ToString() + ":" + row.Column.ToString() + "+" + row.Length.ToString() + "|" + row.Message + "|" + (row.Suggestion ?? "<null>")
+}
+
+test "a [LibraryImport] parameter written as a ReadOnlySpan is refused, and the row names the type, the parameter and the repair" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateNativeImportSignature(AttrNativeImport(AttrGeneric("ReadOnlySpan", "byte"), AttrSimple("int")))
+
+    assert AttrCodes(harness.Errors) == "405"
+    assert AttrRow(harness.Errors, 0) == "NL405@12:21+4|Native import 'Hash64' can't marshal parameter 'data' — 'ReadOnlySpan<byte>' is a generic type, and the CLR's interop marshaller refuses generic types in a native-import signature|Declare it as 'byte[]' — an array marshals as a pinned pointer. Spans are not marshalled on this emit path: N# emits the P/Invoke directly, with no source-generated pinning wrapper."
+}
+
+test "a mutable Span parameter is the same refusal and the same repair — the element being blittable rescues neither" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateNativeImportSignature(AttrNativeImport(AttrGeneric("Span", "int"), AttrSimple("int")))
+
+    assert AttrRow(harness.Errors, 0) == "NL405@12:21+4|Native import 'Hash64' can't marshal parameter 'data' — 'Span<int>' is a generic type, and the CLR's interop marshaller refuses generic types in a native-import signature|Declare it as 'int[]' — an array marshals as a pinned pointer. Spans are not marshalled on this emit path: N# emits the P/Invoke directly, with no source-generated pinning wrapper."
+}
+
+test "a generic that is not a span is refused with the family of types the marshaller does accept" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateNativeImportSignature(AttrNativeImport(AttrGeneric("List", "byte"), AttrSimple("int")))
+
+    assert AttrRow(harness.Errors, 0) == "NL405@12:21+4|Native import 'Hash64' can't marshal parameter 'data' — 'List<byte>' is a generic type, and the CLR's interop marshaller refuses generic types in a native-import signature|Use a non-generic type the marshaller accepts — a primitive, an enum, a struct of blittable fields, an array of those, 'string', or 'nint' for a raw pointer."
+}
+
+test "a tuple parameter is refused as the generic type it IS in metadata" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateNativeImportSignature(AttrNativeImport(AttrTupleOf("int", "int"), AttrSimple("int")))
+
+    assert AttrRow(harness.Errors, 0) == "NL405@12:21+4|Native import 'Hash64' can't marshal parameter 'data' — '(int, int)' is a tuple, which is the generic type 'ValueTuple' in metadata, and the CLR's interop marshaller refuses generic types in a native-import signature|Use a non-generic type the marshaller accepts — a primitive, an enum, a struct of blittable fields, an array of those, 'string', or 'nint' for a raw pointer."
+}
+
+test "the RETURN type is measured too, and its report underlines the type rather than the parameter" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateNativeImportSignature(AttrNativeImport(AttrArrayRefOf("byte"), AttrGenericAt("Span", "byte", 12, 60)))
+
+    assert AttrCodes(harness.Errors) == "405"
+    assert AttrRow(harness.Errors, 0) == "NL405@12:60+4|Native import 'Hash64' can't marshal its return type — 'Span<byte>' is a generic type, and the CLR's interop marshaller refuses generic types in a native-import signature|Declare it as 'byte[]' — an array marshals as a pinned pointer. Spans are not marshalled on this emit path: N# emits the P/Invoke directly, with no source-generated pinning wrapper."
+}
+
+test "every parameter is measured — two bad ones are two reports, in written order" {
+    harness := AttributeHarnessNew()
+    parameters := AttrNativeParameters()
+    AttrNativeParameter(parameters, "data", AttrGeneric("ReadOnlySpan", "byte"))
+    AttrNativeParameter(parameters, "len", AttrSimple("int"))
+    AttrNativeParameter(parameters, "extra", AttrGeneric("List", "byte"))
+
+    harness.Validator.ValidateNativeImportSignature(AttrNativeImportOf("LibraryImport", parameters, AttrSimple("int")))
+
+    assert AttrCodes(harness.Errors) == "405,405"
+    assert harness.Errors[0].Message.Contains("'data'")
+    assert harness.Errors[1].Message.Contains("'extra'")
+}
+
+test "the marshalable spellings a native import may use are silent, and a void return is one of them" {
+    harness := AttributeHarnessNew()
+    parameters := AttrNativeParameters()
+    AttrNativeParameter(parameters, "data", AttrArrayRefOf("byte"))
+    AttrNativeParameter(parameters, "path", AttrSimple("string"))
+    AttrNativeParameter(parameters, "len", AttrSimple("int"))
+    AttrNativeParameter(parameters, "handle", AttrSimple("nint"))
+    AttrNativeParameter(parameters, "mode", AttrSimple("HashError"))
+
+    harness.Validator.ValidateNativeImportSignature(AttrNativeImportOf("LibraryImport", parameters, null))
+
+    assert harness.Errors.Count == 0
+}
+
+test "a method with no native-import attribute is not measured at all — a span parameter is ordinary code" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateNativeImportSignature(AttrPlainFunction(AttrGeneric("ReadOnlySpan", "byte")))
+
+    assert harness.Errors.Count == 0
+}
+
+// The refusal for ONE spelling of the attribute, so the four spellings can be compared as one row.
+func AttrNativeSpellingCodes(spelling: string): string {
+    harness := AttributeHarnessNew()
+    parameters := AttrNativeParameters()
+    AttrNativeParameter(parameters, "data", AttrGeneric("ReadOnlySpan", "byte"))
+    harness.Validator.ValidateNativeImportSignature(AttrNativeImportOf(spelling, parameters, AttrSimple("int")))
+    return AttrCodes(harness.Errors)
+}
+
+test "the four spellings of the native-import attribute are ONE door, and a fifth attribute is not that door" {
+    assert AttrNativeSpellingCodes("LibraryImport") == "405"
+    assert AttrNativeSpellingCodes("LibraryImportAttribute") == "405"
+    assert AttrNativeSpellingCodes("System.Runtime.InteropServices.LibraryImport") == "405"
+    assert AttrNativeSpellingCodes("DllImport") == "405"
+    assert AttrNativeSpellingCodes("Obsolete") == ""
+}
+
+// The attribute's OWN rows, measured with a marshalable parameter beside it. The harness has no
+// metadata context, so whether `LibraryImport` resolves as a CLR attribute type here is a property
+// of the HARNESS and not of the rule; measuring it separately is what lets the door claim below be
+// about the signature row and nothing else.
+func AttrNativeImportAttributeOnlyCodes(): string {
+    harness := AttributeHarnessNew()
+    parameters := AttrNativeParameters()
+    AttrNativeParameter(parameters, "data", AttrArrayRefOf("byte"))
+    harness.Validator.ValidateDeclarationAttributeArguments(AttrNativeImportOf("LibraryImport", parameters, AttrSimple("int")))
+    return AttrCodes(harness.Errors)
+}
+
+// THE RULE HAS TO BE REACHED, and the declaration door is the only route production takes. The
+// claim is a DIFFERENCE: the same declaration with a marshalable parameter produces the attribute's
+// rows alone, and the refused spelling produces those rows PLUS the signature row, LAST. Stated that
+// way the block cannot be satisfied by the attribute machinery reporting something on its own.
+test "the declaration door reaches the native-import signature rule — the signature row is the DIFFERENCE the span makes" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateDeclarationAttributeArguments(AttrNativeImport(AttrGeneric("ReadOnlySpan", "byte"), AttrSimple("int")))
+
+    control := AttrNativeImportAttributeOnlyCodes()
+    expected := "405"
+    if control != "" {
+        expected = control + ",405"
+    }
+
+    assert AttrCodes(harness.Errors) == expected
+    assert AttrRow(harness.Errors, harness.Errors.Count - 1).Contains("can't marshal parameter 'data'")
+}

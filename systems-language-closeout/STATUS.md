@@ -2270,3 +2270,24 @@ Corrections and standing verdicts, one line each:
   (133 genuine declines) survives; the exhibit is corrected, and the decode also names a THIRD sentence
   class the closing record never had: 4 `OpCodes.Ldstr` literals baked into the USER's own IL, which retire
   with the lowering that emits them, not with an emitter-policy migration.
+
+### Chip decode — the `LibraryImport` span-marshalling crash (chip 6 of the 15 filed at §1)
+
+| record | commit hash(es) | what moved | durable finding | headline numbers |
+|---|---|---|---|---|
+| CHIP FIX of the `LibraryImport` span crash (pinned as measured at 020/40) | branch `stream/chip-libraryimport-span` off `8cf40128a` | **The chip's wording is CORRECTED BY MEASUREMENT: the compiler does not crash.** It accepts in SILENCE — `nlc check --json` answers `ok: true` with zero rows and `nlc build` succeeds — and the EMITTED PROGRAM aborts. New N# owner `NativeImportSignatureFacts.nl` plus `AnalyzerAttributeValidator.ValidateNativeImportSignature` refuse a generic or a tuple in a `[LibraryImport]`/`DllImport` signature with `NL405`, naming the parameter and the repair; `27-c-library-cli` is respelled `byte[]`; **zero C# lines changed** | **Working span marshalling is not reachable without GROWING C#**: it needs a synthesized pointer-taking stub plus a pinning managed forwarder — new IL emission in `ColumnarIlEmitter.cs` (the retiring host) and new plan-row kinds in its executor. The docs never promised it: `website/docs/systems.md` scopes interop to "native interop via `LibraryImport`" with `fixed` and function pointers explicitly out. So the precise diagnostic is the in-scope answer, and it is now documented rather than merely enforced. `.ptr` inside a `[trusted]` block is NOT a substitute — it does not pin | throwaway repro OUTSIDE the repo through the worktree CLI: the span shape → exit 134, `MarshalDirectiveException: Cannot marshal 'parameter #1': Non-blittable generic types cannot be marshaled.` at `Repro.SpanImport.NativeHash.Hash64`; the byte-identical `byte[]` shape → exit 134 `DllNotFoundException` naming `fast_hash` from the same method, so the ARRAY marshals and only the library is absent |
+
+- **The owner that throws is the CLR, not the compiler.** `ColumnarIlEmitter.cs:4457–4482` defines the stub
+  with `DefinePInvokeMethod` and never asks whether the parameter types are marshalable; the first CALL is
+  where the answer arrives. Every future question of this family — "can the runtime accept this shape?" —
+  belongs in the analyzer, which can name the parameter, not in the emitter, which cannot.
+- **A generic is refused for BEING generic.** `Span<byte>` and `Span<int>` fail identically, so a rule
+  phrased around BLITTABILITY would be wrong; a tuple is the same refusal in other syntax (`ValueTuple<…>`
+  in metadata). Nullability is deliberately not judged: the written type reference cannot tell `int?`
+  (`Nullable<int>`, refused by the runtime) from `string?` (`string`, fine), and a guess would refuse
+  marshalable code.
+- **The `27` run block got STRONGER, not weaker.** It now pins `DllNotFoundException` raised from
+  `NativeHash.Hash64` — only a GENUINE interop stub reaches `dlopen`, which is exactly what the deleted
+  `AssertNativeImportHasNoManagedBody` was trying to say and what the marshaller failure never proved. A
+  refused shape cannot also be a shipped sample, so the negative is a written-out probe project checked by
+  the real CLI, beside a byte-identical positive that differs only in the parameter's spelling.

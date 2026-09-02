@@ -107,6 +107,7 @@ class AnalyzerAttributeValidator {
         if functionDecl != null {
             ValidateAttributeArguments(functionDecl.Attributes)
             ValidateParameterAttributeArguments(functionDecl.Parameters)
+            ValidateNativeImportSignature(functionDecl)
             return
         }
 
@@ -188,6 +189,56 @@ class AnalyzerAttributeValidator {
 
         for parameter in parameters {
             ValidateAttributeArguments(parameter.Attributes)
+        }
+    }
+
+    // WHAT `[LibraryImport]` DOES TO THE REST OF THE DECLARATION, WHICH IS THE ONE THING AN
+    // ATTRIBUTE CAN DO THAT ITS OWN ARGUMENTS DO NOT SAY.
+    //
+    // Every other rule in this owner reads the attribute's ARGUMENTS. This one reads the attribute
+    // and then reads the SIGNATURE, because a native import is the single case where writing an
+    // attribute changes who compiles the method: the emitter defines a P/Invoke stub instead of a
+    // body, and the CLR's interop marshaller — not this compiler — decides at the first CALL whether
+    // that signature can be marshalled. When it cannot, it raises `MarshalDirectiveException` and the
+    // process aborts, at the call site, before the native library is looked for. Measured on the
+    // shipped `27-c-library-cli` proof: `nlc check` reported `ok: true` with zero diagnostics, `nlc
+    // build` succeeded, and the program died at exit 134. A build that says nothing and a program that
+    // cannot start is the worst answer available, so the refusal is stated HERE, where it is cheap and
+    // it names the parameter.
+    //
+    // THE RULE IS THE SPELLING'S, NOT THE RESOLVER'S, and that is deliberate: a generic name and a
+    // tuple are generic in metadata no matter what they resolve to, so no type resolution is needed
+    // and no resolution failure can turn this into a wrong report. Everything the spelling does not
+    // settle is left alone.
+    func ValidateNativeImportSignature(declaration: FunctionDeclaration) {
+        if !NativeImportSignatureFacts.HasNativeImportAttribute(declaration.Attributes) {
+            return
+        }
+
+        for parameter in declaration.Parameters {
+            refusal := NativeImportSignatureFacts.DescribeRefusal(parameter.Type)
+            if refusal != null {
+                span := AnalyzerDiagnosticSpanFacts.GetParameterDiagnosticSpan(parameter, declaration.Line, declaration.Column)
+                diagnostics.Report(ErrorCode.InvalidParameter, "Native import '" + declaration.Name + "' can't marshal parameter '" + parameter.Name + "' — " + refusal, span.Line, span.Column, NativeImportSignatureFacts.DescribeRepair(parameter.Type), span.Length)
+            }
+        }
+
+        returnType := declaration.ReturnType
+        if returnType != null {
+            returnRefusal := NativeImportSignatureFacts.DescribeRefusal(returnType)
+            if returnRefusal != null {
+                returnSpan := TypeReferenceFacts.GetStartSpan(returnType)
+                line := declaration.Line
+                column := declaration.Column
+                length := Math.Max(1, declaration.Name.Length)
+                if returnSpan.IsValid {
+                    line = returnSpan.StartLine
+                    column = returnSpan.StartColumn
+                    length = Math.Max(1, returnSpan.Length)
+                }
+
+                diagnostics.Report(ErrorCode.InvalidParameter, "Native import '" + declaration.Name + "' can't marshal its return type — " + returnRefusal, line, column, NativeImportSignatureFacts.DescribeRepair(returnType), length)
+            }
         }
     }
 

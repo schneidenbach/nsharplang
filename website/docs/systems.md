@@ -300,6 +300,34 @@ body size, and callers, so trusted code is auditable across the codebase.
 > a span's `.ptr`) and native interop via `LibraryImport`. **Arbitrary pointer arithmetic,
 > `fixed`, and function pointers are not in this version.**
 
+### What a `[LibraryImport]` signature may spell
+
+A native import is not a method N# emits a body for — it is a P/Invoke stub, and the **CLR's
+interop marshaller** decides what its signature may contain. A generic type can never appear
+there, so `Span<T>`, `ReadOnlySpan<T>`, `Memory<T>`, `List<T>` and tuples are rejected at
+check time with `NL405`, naming the parameter and the repair:
+
+```n#
+static class NativeHash {
+    [LibraryImport("fast_hash")]
+    static func Hash64(data: byte[], len: int, out value: ulong): int   // ✓ marshals
+}
+```
+
+```
+NL405: Native import 'Hash64' can't marshal parameter 'data' — 'ReadOnlySpan<byte>' is a
+generic type, and the CLR's interop marshaller refuses generic types in a native-import
+signature
+  Declare it as 'byte[]' — an array marshals as a pinned pointer.
+```
+
+A blittable element does **not** rescue a span: the refusal is about the type being generic.
+C# gets away with `[LibraryImport]` over a span only because a *source generator* rewrites the
+declaration into a pinning wrapper around a pointer-taking stub; N# emits the P/Invoke
+directly, so the refusal is stated at check time instead of aborting the process with
+`MarshalDirectiveException` on the first call. Pass an array (marshalled as a pinned pointer),
+or an `nint` you take inside a `[trusted]` `unsafe` block.
+
 ---
 
 ## Pooling
