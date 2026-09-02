@@ -45,12 +45,24 @@ import System.Text.Json
 //
 // AND THAT IS HOW THE HEADLINE BECAME VISIBLE: **TWENTY OF THE 54 FIXTURES DO NOT COMPILE CLEAN.**
 // They carry 22 non-systems ERROR rows the deleted assertions could not see, and two of them
-// undermine the claim their own method was making —
-// `SystemsStrict_DisposeCallSatisfiesObviousResourceOwnership` proves that a `Dispose()` call
+// undermined the claim their own method was making —
+// `SystemsStrict_DisposeCallSatisfiesObviousResourceOwnership` proved that a `Dispose()` call
 // satisfies NSYS090 while the analyzer reports `NL303: Member 'Dispose' not found on type
 // 'FileStream'`, and `PoolRent_MustBeReturnedOnObviousLexicalPath` proves the pool rule over a
 // receiver the analyzer reports as `NL301: Variable 'ArrayPool' not found`. The systems policy
 // answers over source the compiler rejects, and every one of those rows is pinned below.
+//
+// THE FIRST OF THOSE TWO WAS A PRODUCT DEFECT AND IT IS NOW FIXED; THE BLOCK BELOW PINS THE FIXED
+// BEHAVIOUR AND ITS PROOF IS THE INVERSION IT USED TO HAVE. Decided by the member NAME alone, the
+// ledger discharge accepted ONLY a disposal that does NOT resolve: this fixture's `stream.Dispose()`
+// closed the resource obligation (and suppressed NSYS050) while `NL303` said the member is not
+// there, and the SAME source with `func Dispose()` really declared reported NSYS090 "is not disposed"
+// with no other diagnostic at all — a false negative on broken source and a false POSITIVE on
+// correct source, from one rule. `SystemsCallPolicy` now takes the analyzer's own verdict
+// (`MemberIsPositivelyRejected`) and the resolved half of the walk discharges through
+// `MarkDeclaredCalleeDischarges`. The three blocks that state this subject — this fixture, the pool
+// rental below it and the coincidental-name NSYS050 — carry the fixed rows, and the pool fixture's
+// own NSYS130 is UNCHANGED, which is what proves the fix did not simply switch the rule off.
 //
 // A STRUCTURALLY VACUOUS CLAIM IS RETIRED, AND ITS TWIN IS NOT. The deleted
 // `Assert.True(string.IsNullOrWhiteSpace(stderr))` in `CheckCommand_SystemsReport_EmitsVersionedJson`
@@ -1491,9 +1503,51 @@ test "020 s41 systems analysis census: an undisposed resource reports NSYS090 (w
     assert trustedCount == 0
 }
 
-test "020 s41 systems analysis census: a `Dispose()` call satisfies resource ownership — and the analyzer reports that the member does not exist (was SystemsNSharpTests.SystemsStrict_DisposeCallSatisfiesObviousResourceOwnership)" {
+// CHIP FIX (2026-09-01) — "the systems policy accepts unresolved members". This block is CONVERTED:
+// it used to pin `findings=0` beside `NL303: Member 'Dispose' not found on type 'FileStream'`, which
+// is the systems policy answering "this obligation is discharged" about a member it cannot see, and
+// suppressing the unknown-external-call report on the same call for good measure. Both halves are
+// gone: the resource obligation stays OPEN (NSYS090 where the resource was created) and the call
+// falls through to the sentence it always deserved (NSYS050 at the call). The three blocks after it
+// are the other three faces of the same rule — the resolved dispose that used to be reported as a
+// leak, the resolved pool return that used to be reported as an unreturned rental, and the `allow`
+// waiver, which silences the NSYS050 and NOT the NSYS090.
+test "020 s41 systems analysis census (chip-converted): a `Dispose()` the analyzer says does not exist discharges NOTHING — NSYS090 stays open and the call is the unknown external call it is (was SystemsNSharpTests.SystemsStrict_DisposeCallSatisfiesObviousResourceOwnership)" {
     directory := SacFixture("systemsstrict-disposecallsatisfiesobviousresourceownership", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
     SacWrite(directory, "Program.nl", "func Open(): int {\n    stream := alloc new FileStream()\n    stream.Dispose()\n    return 1\n}\n\nclass FileStream {}\n")
+    check := SacCheck(directory)
+    exitCode := check.ExitCode
+    envelope := SacEnvelope(check.Stdout)
+    diagnostics := SacDiagnosticCensus(check.Stdout)
+    findingCount := SacCount(check.Stdout, "findings")
+    finding0 := SacRow(check.Stdout, "findings", 0)
+    finding1 := SacRow(check.Stdout, "findings", 1)
+    findingPast := SacRow(check.Stdout, "findings", 2)
+    functionCount := SacCount(check.Stdout, "functions")
+    function0 := SacRow(check.Stdout, "functions", 0)
+    trustedCount := SacCount(check.Stdout, "trustedSites")
+    SacCleanup(directory)
+    assert exitCode == 1
+    assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=0,boundaryFunctions=0,findings=2,errors=1,warnings=1,trustedSites=0}"
+    assert diagnostics == "NSYS090:error@2:5+6|NL303:error@3:12+7|NSYS050:warning@3:19+7"
+    assert findingCount == 2
+    assert finding0 == "code=NSYS090;severity=error;effect=resource;message=disposable resource 'stream' created as FileStream is not disposed on an obvious lexical path;file=Program.nl;line=2;column=5;length=6;function=Open;policy=systems:strict;summarySource=sourceInferred;suggestion=Use `using`, call Dispose/DisposeAsync in a finally block, or return/transfer through an explicit owner once ownership is modeled.;callPath=[Open]"
+    assert finding1 == "code=NSYS050;severity=warning;effect=unknownExternalCall;message=unknown external call 'stream.Dispose' has no systems summary;file=Program.nl;line=3;column=19;length=7;function=Open;policy=systems:strict;summarySource=sourceInferred;suggestion=Add a sidecar HotSummary or put the call in a [boundary].;callPath=[Open]"
+    assert findingPast == "<no-such-row>"
+    assert functionCount == 1
+    // The effect bit moved with the report: the call is now RECORDED as an unknown external call.
+    assert function0 == "name=Open;file=Program.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=True,usesResource=True,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[stream.Dispose]"
+    assert trustedCount == 0
+}
+
+// THE FALSE POSITIVE HALF, WHICH HAD NO UPSTREAM DIAGNOSTIC AT ALL. The same source with
+// `func Dispose()` really declared reported `NSYS090 ... is not disposed` on the base CLI and nothing
+// else — correct, compiling code told it leaked. The mechanism was ORDER: `WalkCall` resolves a
+// project call, records it in the call graph and RETURNS, so the ledger discharge (which sat after
+// that return) was reachable only on the unresolved path.
+test "020 s41 systems analysis census (chip fix): a `Dispose()` that RESOLVES discharges the resource ledger, and the whole report is clean" {
+    directory := SacFixture("chip-systems-unresolved-resolved-dispose", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
+    SacWrite(directory, "Program.nl", "func Open(): int {\n    stream := alloc new FileStream()\n    stream.Dispose()\n    return 1\n}\n\nclass FileStream {\n    func Dispose() {\n    }\n}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
     envelope := SacEnvelope(check.Stdout)
@@ -1502,15 +1556,74 @@ test "020 s41 systems analysis census: a `Dispose()` call satisfies resource own
     findingPast := SacRow(check.Stdout, "findings", 0)
     functionCount := SacCount(check.Stdout, "functions")
     function0 := SacRow(check.Stdout, "functions", 0)
+    function1 := SacRow(check.Stdout, "functions", 1)
+    trustedCount := SacCount(check.Stdout, "trustedSites")
+    SacCleanup(directory)
+    assert exitCode == 0
+    assert envelope == "command=check.systemsReport;ok=True;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=2,hotFunctions=0,boundaryFunctions=0,findings=0,errors=0,warnings=0,trustedSites=0}"
+    assert diagnostics == ""
+    assert findingCount == 0
+    assert findingPast == "<no-such-row>"
+    assert functionCount == 2
+    assert function0 == "name=FileStream.Dispose;file=Program.nl;line=8;column=5;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    // The call is recorded by its RESOLVED qualified name, which is how you can tell this went down
+    // the resolved branch and still discharged.
+    assert function1 == "name=Open;file=Program.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=True,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[FileStream.Dispose]"
+    assert trustedCount == 0
+}
+
+// THE POOL LEDGER IS THE SAME RULE FROM THE OTHER SIDE, and it had the same false positive: on the
+// base CLI this program reported `NSYS130: pooled buffer 'buffer' rented here is not returned`, over
+// source that returns it through a project method that resolves.
+test "020 s41 systems analysis census (chip fix): a `.Return(buffer)` that RESOLVES discharges the pool ledger" {
+    directory := SacFixture("chip-systems-unresolved-resolved-return", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
+    SacWrite(directory, "Program.nl", "func Lease(): int {\n    pool := alloc new BytePool()\n    buffer := pool.Rent(128)\n    pool.Return(buffer)\n    return buffer\n}\n\nclass BytePool {\n    func Rent(size: int): int {\n        return size\n    }\n\n    func Return(size: int): int {\n        return size\n    }\n}\n")
+    check := SacCheck(directory)
+    exitCode := check.ExitCode
+    envelope := SacEnvelope(check.Stdout)
+    diagnostics := SacDiagnosticCensus(check.Stdout)
+    findingCount := SacCount(check.Stdout, "findings")
+    findingPast := SacRow(check.Stdout, "findings", 0)
+    functionCount := SacCount(check.Stdout, "functions")
+    function2 := SacRow(check.Stdout, "functions", 2)
+    trustedCount := SacCount(check.Stdout, "trustedSites")
+    SacCleanup(directory)
+    assert exitCode == 0
+    assert envelope == "command=check.systemsReport;ok=True;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=3,hotFunctions=0,boundaryFunctions=0,findings=0,errors=0,warnings=0,trustedSites=0}"
+    assert diagnostics == ""
+    assert findingCount == 0
+    assert findingPast == "<no-such-row>"
+    assert functionCount == 3
+    assert function2 == "name=Lease;file=Program.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=True,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[BytePool.Rent,BytePool.Return]"
+    assert trustedCount == 0
+}
+
+// THE WAIVER IS PROVED NARROW. `unknownExternalCalls: allow` is the project's waiver for the NSYS050
+// this fix restores, and it silences exactly that one: the resource obligation the unresolved
+// `Dispose()` never discharged is still reported, and the effect bit is still set.
+test "020 s41 systems analysis census (chip fix): `unknownExternalCalls: allow` waives the restored NSYS050 and NOT the NSYS090 the same call failed to discharge" {
+    directory := SacFixture("chip-systems-unresolved-allow-waiver", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n    unknownExternalCalls: allow\n")
+    SacWrite(directory, "Program.nl", "func Open(): int {\n    stream := alloc new FileStream()\n    stream.Dispose()\n    return 1\n}\n\nclass FileStream {}\n")
+    check := SacCheck(directory)
+    exitCode := check.ExitCode
+    envelope := SacEnvelope(check.Stdout)
+    diagnostics := SacDiagnosticCensus(check.Stdout)
+    findingCount := SacCount(check.Stdout, "findings")
+    finding0 := SacRow(check.Stdout, "findings", 0)
+    findingPast := SacRow(check.Stdout, "findings", 1)
+    functionCount := SacCount(check.Stdout, "functions")
+    function0 := SacRow(check.Stdout, "functions", 0)
     trustedCount := SacCount(check.Stdout, "trustedSites")
     SacCleanup(directory)
     assert exitCode == 1
-    assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=0,boundaryFunctions=0,findings=0,errors=0,warnings=0,trustedSites=0}"
-    assert diagnostics == "NL303:error@3:12+7"
-    assert findingCount == 0
+    assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=0,boundaryFunctions=0,findings=1,errors=1,warnings=0,trustedSites=0}"
+    assert diagnostics == "NSYS090:error@2:5+6|NL303:error@3:12+7"
+    assert findingCount == 1
+    assert finding0 == "code=NSYS090;severity=error;effect=resource;message=disposable resource 'stream' created as FileStream is not disposed on an obvious lexical path;file=Program.nl;line=2;column=5;length=6;function=Open;policy=systems:strict;summarySource=sourceInferred;suggestion=Use `using`, call Dispose/DisposeAsync in a finally block, or return/transfer through an explicit owner once ownership is modeled.;callPath=[Open]"
     assert findingPast == "<no-such-row>"
     assert functionCount == 1
-    assert function0 == "name=Open;file=Program.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=True,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[stream.Dispose]"
+    // The WAIVER silences the report, not the fact: the effect bit is still True.
+    assert function0 == "name=Open;file=Program.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=True,usesResource=True,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[stream.Dispose]"
     assert trustedCount == 0
 }
 
