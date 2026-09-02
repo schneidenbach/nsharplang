@@ -135,14 +135,14 @@ test "primitive binary planner owns and executes every retained primitive additi
     assert floatPlan.ResultType == typeof(float)
     assert PrimitiveBinaryExecuteParameters(
         floatPlan, typeof(float), typeof(float), typeof(float),
-        1.25f, 2.75f) == (1.25f + 2.75f).ToString()
+        1.25f, 2.75f) == "4"
 
     doublePlan := PrimitiveBinaryPlan(
         "left + right", PrimitiveBinaryParameterBindings(typeof(double)))
     assert doublePlan.ResultType == typeof(double)
     assert PrimitiveBinaryExecuteParameters(
         doublePlan, typeof(double), typeof(double), typeof(double),
-        19.5, 22.5) == (19.5 + 22.5).ToString()
+        19.5, 22.5) == "42"
 
     decimalPlan := PrimitiveBinaryPlan(
         "left + right", PrimitiveBinaryParameterBindings(typeof(decimal)))
@@ -163,7 +163,7 @@ test "primitive binary planner owns and executes every retained primitive additi
     assert decimalPlan.MethodReturnTypes[0] == typeof(decimal)
     assert PrimitiveBinaryExecuteParameters(
         decimalPlan, typeof(decimal), typeof(decimal), typeof(decimal),
-        1.5m, 2.5m) == (1.5m + 2.5m).ToString()
+        1.5m, 2.5m) == "4.0"
 
     promotedPlan := PrimitiveBinaryPlan(
         "left + right",
@@ -791,7 +791,7 @@ test "primitive binary planner owns subtraction multiplication division and rema
         doubleDiv, ColumnarCodePlanContract.Div()) == 1
     assert PrimitiveBinaryExecuteParameters(
         doubleDiv, typeof(double), typeof(double), typeof(double),
-        105.0, 2.5) == (105.0 / 2.5).ToString()
+        105.0, 2.5) == "42"
 
     charSub := PrimitiveBinaryPlan(
         "left - right", PrimitiveBinaryParameterBindings(typeof(char)))
@@ -1316,14 +1316,13 @@ test "primitive binary planner owns decimal literal operands" {
         "1.5m + 2.5m", ColumnarRangePlannerEmptyBindings())
     assert additionPlan.ResultType == typeof(decimal)
     assert additionPlan.ConstructorCount == 2
-    assert ExecutorRunV3ScalarPlan(additionPlan, typeof(decimal))
-        == (1.5m + 2.5m).ToString()
+    // `4.0`, not `4`: decimal addition keeps the operands' scale, and the text pins it.
+    assert ExecutorRunV3ScalarPlan(additionPlan, typeof(decimal)) == "4.0"
 
     integerFormPlan := PrimitiveBinaryPlan(
         "5m + 2m", ColumnarRangePlannerEmptyBindings())
     assert integerFormPlan.ResultType == typeof(decimal)
-    assert ExecutorRunV3ScalarPlan(integerFormPlan, typeof(decimal))
-        == (5m + 2m).ToString()
+    assert ExecutorRunV3ScalarPlan(integerFormPlan, typeof(decimal)) == "7"
 
     negativeScalePlan := PrimitiveBinaryPlan(
         "left < 0.5m", decimalBindings)

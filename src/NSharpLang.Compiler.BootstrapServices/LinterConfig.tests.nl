@@ -193,6 +193,67 @@ test "the severity keyword table, on every keyword it accepts and one it does no
     assert LinterConfig.NormalizeRuleCode("NL001") == "NL001"
 }
 
+// ── the case fold is INVARIANT, not the machine's ──────────────────────────────────────────────
+//
+// MEASURED, NOT ASSUMED: before this fix the block ABOVE failed under `LC_ALL=tr_TR.UTF-8`, on its
+// `IsDisabledSeverity("SILENT")` row alone — a Turkish `.ToLower()` sends `I` to the DOTLESS
+// lowercase i, so `SILENT` folded to a word that is not `silent`, matched neither disable keyword,
+// and the rule the user disabled stayed ON. The rows below state the same fact deliberately: every
+// keyword in this table is fixed ASCII, so the fold that recognises it may not consult the culture.
+// They answer identically under en-US, de-DE and tr-TR, and the tr-TR run is what makes them
+// non-vacuous.
+
+test "the severity keywords fold INVARIANTLY, so a config parses the same on every machine" {
+    severity := DiagnosticSeverity.Warning
+
+    // Every capital-I spelling a user may type. Under a Turkish fold each of these folded to a
+    // dotless i and stopped being a keyword.
+    assert LinterConfig.TryParseSeverity("INFO", out severity)
+    assert severity == DiagnosticSeverity.Info
+    assert LinterConfig.TryParseSeverity("Info", out severity)
+    assert severity == DiagnosticSeverity.Info
+    assert LinterConfig.TryParseSeverity("SUGGESTION", out severity)
+    assert severity == DiagnosticSeverity.Info
+    assert LinterConfig.TryParseSeverity("WARNING", out severity)
+    assert severity == DiagnosticSeverity.Warning
+
+    // `SILENT` is the row the tr-TR run caught, and `NONE` is its partner.
+    assert LinterConfig.IsDisabledSeverity("SILENT")
+    assert LinterConfig.IsDisabledSeverity("Silent")
+    assert LinterConfig.IsDisabledSeverity("NONE")
+
+    // A word that is NOT a keyword stays not a keyword, so the fold widened nothing.
+    assert !LinterConfig.TryParseSeverity("SHOUT", out severity)
+    assert !LinterConfig.IsDisabledSeverity("ERROR")
+
+    // A rule code is the dictionary KEY every severity lookup uses, so its fold is invariant too.
+    assert LinterConfig.NormalizeRuleCode("ni001") == "NI001"
+    assert LinterConfig.NormalizeRuleCode("nl001") == "NL001"
+}
+
+test "AN .editorconfig SEVERITY WRITTEN IN CAPITALS IS THE SEVERITY THE LINTER STAMPS" {
+    // The end-to-end half, and the shape a user actually types. Under a Turkish culture the old
+    // fold made `= INFO` match no keyword and no disable keyword either, so the line was dropped
+    // SILENTLY and NL001 kept its default Error severity — a config the machine's locale decided.
+    directory := LcfTempDirectory("invariant-severity")
+    File.WriteAllText(Path.Combine(directory, ".editorconfig"), "root = true\n\n[*.nl]\ndotnet_diagnostic.NL001.severity = INFO\ndotnet_diagnostic.NL012.severity = SILENT\n")
+
+    config := LinterConfig.FromEditorConfig(directory)
+    assert config.GetSeverity("NL001") == DiagnosticSeverity.Info
+    assert config.IsRuleEnabled("NL001")
+
+    reported := LcfFirstOf(LcfLint(config, "func main() { x := 5 }", Path.Combine(directory, "test.nl")), "NL001")
+    assert reported != null
+    if reported != null {
+        assert reported.Severity == DiagnosticSeverity.Info
+    }
+
+    // `SILENT` in capitals disables, which is the row that was measured red under tr-TR.
+    assert !config.IsRuleEnabled("NL012")
+
+    Directory.Delete(directory, true)
+}
+
 // ── .editorconfig, on disk ────────────────────────────────────────────────────────────────────
 
 test "AN .editorconfig `none` DISABLES THE RULE, AND THE LINTER GOES SILENT" {

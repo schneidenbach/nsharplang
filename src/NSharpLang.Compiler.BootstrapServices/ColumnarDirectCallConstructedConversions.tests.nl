@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Reflection
 import System.Reflection.Emit
+import System.Globalization
 
 class ColumnarConstructedConversionProbeMethods {
     static func AcceptSpan(_values: Span<int>): int {
@@ -221,7 +222,7 @@ func ConstructedConversionRunArrayPlan(plan: ColumnarCodePlan, values: int[]): s
         throw new InvalidOperationException("Constructed array conversion returned null unexpectedly.")
     }
 
-    return result.ToString() ?? ""
+    return Convert.ToString(result, CultureInfo.InvariantCulture) ?? ""
 }
 
 func ConstructedConversionRunNoArgumentPlan(plan: ColumnarCodePlan, resultType: Type): Type {

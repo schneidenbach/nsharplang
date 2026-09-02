@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Reflection
 import System.Reflection.Emit
+import System.Globalization
 
 class ColumnarConversionProbeMethods {
     static func AcceptObject(_value: object): string {
@@ -140,7 +141,7 @@ func ConversionRunPlan(plan: ColumnarCodePlan, resultType: Type): string {
         throw new InvalidOperationException("Conversion DynamicMethod returned null unexpectedly.")
     }
 
-    return result.ToString() ?? ""
+    return Convert.ToString(result, CultureInfo.InvariantCulture) ?? ""
 }
 
 test "schema v3 conversion and box opcodes pin exact CLR identities and catalog facts" {

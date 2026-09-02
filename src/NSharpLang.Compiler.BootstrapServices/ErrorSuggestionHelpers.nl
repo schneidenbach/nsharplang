@@ -71,7 +71,10 @@ class SmartSuggester {
             return 0.0
         }
 
-        distance := ErrorSuggestions.LevenshteinDistance(a.ToLower(), b.ToLower())
+        // Invariant, and for the reason the very next member already knew: `CommonPrefixLength`
+        // below folds with `Char.ToLowerInvariant`, so a culture-sensitive fold here made the two
+        // halves of ONE score disagree about what case-insensitive means.
+        distance := ErrorSuggestions.LevenshteinDistance(a.ToLowerInvariant(), b.ToLowerInvariant())
         distanceScore := 1.0 - ((double)distance / (double)maxLen)
         prefixScore := (double)CommonPrefixLength(a, b) / (double)minLen
 

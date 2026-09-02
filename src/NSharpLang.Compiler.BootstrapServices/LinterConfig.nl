@@ -108,9 +108,12 @@ class LinterConfig {
         }
     }
 
+    // THE FOLD IS INVARIANT, NOT THE MACHINE'S. `error`/`warning`/`info`/`suggestion` is a fixed
+    // ASCII vocabulary, so a config file must parse the same on every machine: under a Turkish
+    // culture `.ToLower()` sends `I` to the DOTLESS lowercase i, and `INFO` stopped being a severity.
     static func TryParseSeverity(value: string, out severity: DiagnosticSeverity): bool {
         severity = DiagnosticSeverity.Warning
-        normalized := value.ToLower()
+        normalized := value.ToLowerInvariant()
 
         if normalized == "error" {
             severity = DiagnosticSeverity.Error
@@ -130,13 +133,17 @@ class LinterConfig {
         return false
     }
 
+    // Invariant for the same reason, and the miss is worse here: an unrecognised `SILENT` leaves the
+    // rule ENABLED, so a culture-sensitive fold turns a disabled rule back on.
     static func IsDisabledSeverity(value: string): bool {
-        normalized := value.ToLower()
+        normalized := value.ToLowerInvariant()
         return normalized == "none" || normalized == "silent"
     }
 
+    // A rule code is an IDENTIFIER and is the dictionary KEY every severity lookup uses, so its
+    // fold is invariant: a Turkish `.ToUpper()` would key `ni001` under a DOTTED capital I.
     static func NormalizeRuleCode(ruleCode: string): string {
-        return ruleCode.ToUpper()
+        return ruleCode.ToUpperInvariant()
     }
 
     static func SeverityObject(severity: DiagnosticSeverity): object {

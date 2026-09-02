@@ -121,12 +121,17 @@ class ErrorSuggestions {
         return null
     }
 
+    // THE FOLD IS INVARIANT ON BOTH SIDES. The edit distance decides a diagnostic's SENTENCE, so
+    // the same misspelling must earn the same suggestion on every machine: under a Turkish culture
+    // `.ToLower()` sends `I` to the dotless lowercase i, which is one edit further from every name
+    // in the table and silently pushes a name past the distance-2 threshold. `AnalyzerDiagnostics`
+    // and `CommonPrefixLength` already folded invariantly; these three did not.
     static func IsPossibleTypo(name: string): bool {
-        lowerName := name.ToLower()
+        lowerName := name.ToLowerInvariant()
         commonTypes := CommonTypes()
         i := 0
         while i < commonTypes.Length {
-            if LevenshteinDistance(lowerName, commonTypes[i].ToLower()) <= 2 {
+            if LevenshteinDistance(lowerName, commonTypes[i].ToLowerInvariant()) <= 2 {
                 return true
             }
 
@@ -137,14 +142,14 @@ class ErrorSuggestions {
     }
 
     static func FindSimilarType(name: string): string {
-        lowerName := name.ToLower()
+        lowerName := name.ToLowerInvariant()
         commonTypes := CommonTypes()
         bestIndex := 0
-        bestDistance := LevenshteinDistance(lowerName, commonTypes[0].ToLower())
+        bestDistance := LevenshteinDistance(lowerName, commonTypes[0].ToLowerInvariant())
 
         i := 1
         while i < commonTypes.Length {
-            distance := LevenshteinDistance(lowerName, commonTypes[i].ToLower())
+            distance := LevenshteinDistance(lowerName, commonTypes[i].ToLowerInvariant())
             if distance < bestDistance {
                 bestDistance = distance
                 bestIndex = i

@@ -59,7 +59,7 @@ partial class Program
             25 => AuditCommand.Execute(GetCommandArgs(args)),
             26 => PackCommand.Execute(GetCommandArgs(args)),
             _ => Error(ProgramCommandKernels.GetUnknownCommandMessage(
-                args.Length == 0 ? string.Empty : args[0].ToLower()))
+                args.Length == 0 ? string.Empty : args[0]))
         };
     }
 

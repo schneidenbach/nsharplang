@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import System.Globalization
 
 class ColumnarBoundIdentifierBoxOwner<T> {
     Box: T
@@ -109,7 +110,7 @@ func BoundInvokeText(dynamicMethod: DynamicMethod, arguments: object[]): string 
         throw new InvalidOperationException("Bound-identifier DynamicMethod returned null.")
     }
 
-    return result.ToString() ?? ""
+    return Convert.ToString(result, CultureInfo.InvariantCulture) ?? ""
 }
 
 func BoundStrongBoxType(): Type {
@@ -769,13 +770,16 @@ test "bound identifier planner derefs typed byref parameters with executed ldind
     // the legacy case-6 EmitLoadArgument + EmitLoadByRefElement deref, planner-owned.
     assert BoundByRefDerefText(
         typeof(int), ColumnarCodePlanContract.LdindI4(), 32) == "32"
+    // The expected side is TEXT. It used to be `fiveBillion.ToString()` and `(2.5).ToString()`,
+    // which read the CURRENT culture on both sides at once, so the row passed under de-DE while
+    // both halves said `2,5` — a rendering contract that could not fail on a rendering bug.
     fiveBillion := 5000000000L
     assert BoundByRefDerefText(
         typeof(long), ColumnarCodePlanContract.LdindI8(), fiveBillion)
-        == fiveBillion.ToString()
+        == "5000000000"
     assert BoundByRefDerefText(
         typeof(double), ColumnarCodePlanContract.LdindR8(), 2.5)
-        == (2.5).ToString()
+        == "2.5"
     assert BoundByRefDerefText(
         typeof(uint), ColumnarCodePlanContract.LdindU4(), (uint)42) == "42"
     negativeSevenInt := -7
