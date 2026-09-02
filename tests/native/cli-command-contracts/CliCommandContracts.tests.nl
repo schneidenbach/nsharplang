@@ -2017,19 +2017,6 @@ test "nlc format --stdin without --diff writes the formatted source and never na
 func WriteSkipFormTestProject(directory: string) {
     File.WriteAllText(Path.Combine(directory, "project.yml"),
         "name: SkipForm.Tests\n"
-// ─── THE EMITTED TEST NAME IS ASCII ON EVERY MACHINE ──────────────────────────────────────────
-//
-// `nlc test --json` reports the name of the METHOD the compiler emitted, and that name is built by
-// PascalCasing the words of the `test "..."` description. The emitter folded the first letter of
-// each word with `char.ToUpper` — the CURRENT culture — so under `LC_ALL=tr_TR.UTF-8` every word
-// beginning with `i` was emitted with a DOTTED capital I instead of an ASCII `I`. The emitted
-// assembly's method names, and therefore this envelope and any `--filter` written against it, then
-// depended on the machine's locale. Measured: under tr-TR the estate's own xunit names came back
-// spelled with the dotted letter, and `AnUnknownCommandExits1And...Lowercased` below went red.
-
-func WriteAsciiNameProject(directory: string) {
-    File.WriteAllText(Path.Combine(directory, "project.yml"),
-        "name: NSharpLang.InvariantTestName.Fixture\n"
         + "version: 1.0.0\n"
         + "backend: il\n"
         + "outputType: library\n"
@@ -2157,6 +2144,25 @@ test "the docs say what the runner does, and the cli-reference no longer scores 
     assert !reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | `5` |")
 
     assert goGuide.Contains("no equivalent of `t.Skip()`")
+}
+
+// ─── THE EMITTED TEST NAME IS ASCII ON EVERY MACHINE ──────────────────────────────────────────
+//
+// `nlc test --json` reports the name of the METHOD the compiler emitted, and that name is built by
+// PascalCasing the words of the `test "..."` description. The emitter folded the first letter of
+// each word with `char.ToUpper` — the CURRENT culture — so under `LC_ALL=tr_TR.UTF-8` every word
+// beginning with `i` was emitted with a DOTTED capital I instead of an ASCII `I`. The emitted
+// assembly's method names, and therefore this envelope and any `--filter` written against it, then
+// depended on the machine's locale. Measured: under tr-TR the estate's own xunit names came back
+// spelled with the dotted letter, and `AnUnknownCommandExits1And...Lowercased` below went red.
+
+func WriteAsciiNameProject(directory: string) {
+    File.WriteAllText(Path.Combine(directory, "project.yml"),
+        "name: NSharpLang.InvariantTestName.Fixture\n"
+        + "version: 1.0.0\n"
+        + "backend: il\n"
+        + "outputType: library\n"
+        + "targetFramework: net10.0\n")
     File.WriteAllText(Path.Combine(directory, "InvariantName.tests.nl"),
         "namespace NSharpLang.InvariantTestName.Fixture\n"
         + "\n"
