@@ -107,8 +107,11 @@ import System.Collections
 //   (m) TEN OF THE SIXTEEN DIAGNOSTIC FIXTURES REPORT EXACTLY ONE DIAGNOSTIC AND THE OTHER SIX
 //       REPORT NONE, so every one of the deleted file's fifteen `Assert.DoesNotContain`s was
 //       satisfied by an empty or a single-row list.
-//   (n) TWO FIXTURES PRODUCE AN `NL202` WHOSE ENTIRE MESSAGE IS THE BARE WORDS `Type mismatch`, with
-//       a NULL suggestion. Every other diagnostic in the cluster carries a sentence and a suggestion.
+//   (n) TWO FIXTURES PRODUCE AN `NL202` THAT USED TO SAY ONLY THE BARE WORDS `Type mismatch`, with a
+//       NULL suggestion, while every other diagnostic in the cluster carried a sentence. That was the
+//       four-argument-`Analyze` defect: the rich builder wrote its own headline instead of taking the
+//       reporting site's. Both now name the member, its type and the value's type; the generic
+//       suggestion stays null because the rich shape carries a specific `ContextualHint` instead.
 //   (o) TWO `using` REJECTIONS THAT DIFFER IN SHAPE REPORT A MESSAGE EQUAL BYTE FOR BYTE, differing
 //       only in position — 15:5 against 9:5. The deleted methods matched a 47-character prefix on
 //       each and could not compare them.
@@ -2182,8 +2185,8 @@ test "020 s27 analyzer semantic model: a correctly-arity'd generic member initia
     assert SmTypeRuntimes(model) == "Box=ClassTypeInfo;"
 }
 
-// WHAT THIS ADDS: The deleted method asserted the code only. The MESSAGE is the finding: `Type mismatch` and nothing else, with a NULL suggestion — the least helpful diagnostic in this whole cluster, and one no assertion in the deleted file could see.
-test "020 s27 analyzer semantic model: a generic member initializer given the wrong member type is ONE `NL202` whose whole message is the bare words `Type mismatch` and whose suggestion is NULL (was AnalyzerSemanticModelTests.Analyzer_NominalTypes_GenericMemberInitializerUsesTypeInfoDeclaredMembers)" {
+// WHAT THIS ADDS: The deleted method asserted the code only. The MESSAGE is the finding, and it USED TO BE `Type mismatch` and nothing else — the least helpful diagnostic in this whole cluster, and one no assertion in the deleted file could see. It now names the member and both types, because the rich builder takes the reporting site's sentence rather than writing its own.
+test "020 s27 analyzer semantic model: a generic member initializer given the wrong member type is ONE `NL202` that names the member and both types (it used to say only the bare words `Type mismatch`); the generic suggestion is still NULL because the rich shape carries a ContextualHint instead (was AnalyzerSemanticModelTests.Analyzer_NominalTypes_GenericMemberInitializerUsesTypeInfoDeclaredMembers)" {
     source := "\nclass Box<T> {\n    Value: T\n}\n\nfunc Main(): Box<int> {\n    return new Box<int> { Value: \"wrong\" }\n}"
     assert source.Length == 100
     assert SmParseCensus(source) == ""
@@ -2191,7 +2194,7 @@ test "020 s27 analyzer semantic model: a generic member initializer given the wr
     assert SmCensus(analysis) == "NL202:TypeMismatch@7:34+7;"
     assert SmHasErrors(analysis) == "True"
     assert SmErrorCount(analysis) == 1
-    assert SmRow(analysis, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert SmRow(analysis, 0) == "TypeMismatch|'Value' is typed as 'int', but the value is 'string'|<null>|Error"
     assert SmCodeCount(analysis, "TypeMismatch") == 1
     assert SmCodeCount(analysis, "InvalidTypeArgument") == 0
     assert SmCodeCount(analysis, "UndefinedMember") == 0
@@ -2389,8 +2392,8 @@ test "020 s27 analyzer semantic model: assigning an INSTANCE readonly field is t
     assert SmTypeRuntimes(model) == "Counter=ClassTypeInfo;"
 }
 
-// WHAT THIS ADDS: Three absence-and-presence claims about codes. The row is the finding, and it is the SECOND bare `Type mismatch` with a null suggestion in this cluster — the member-initializer contract above reports the same non-message.
-test "020 s27 analyzer semantic model: a generic PRIMARY-CONSTRUCTOR initializer given the wrong type reports the same bare `Type mismatch` with a NULL suggestion, at 6:34 (was AnalyzerSemanticModelTests.Analyzer_NominalTypes_GenericPrimaryConstructorInitializerUsesTypeInfoParameters)" {
+// WHAT THIS ADDS: Three absence-and-presence claims about codes. The row is the finding, and it is the SECOND of the two that used to be a bare `Type mismatch` in this cluster — the member-initializer contract above reports the same shape, and both now say what disagrees with what.
+test "020 s27 analyzer semantic model: a generic PRIMARY-CONSTRUCTOR initializer given the wrong type names the parameter and both types at 6:34, the same way the member-initializer contract above does (it used to say only the bare words `Type mismatch`) (was AnalyzerSemanticModelTests.Analyzer_NominalTypes_GenericPrimaryConstructorInitializerUsesTypeInfoParameters)" {
     source := "\nclass Box<T>(value: T) {\n}\n\nfunc Main(): Box<int> {\n    return new Box<int> { value: \"wrong\" }\n}"
     assert source.Length == 97
     assert SmParseCensus(source) == ""
@@ -2398,7 +2401,7 @@ test "020 s27 analyzer semantic model: a generic PRIMARY-CONSTRUCTOR initializer
     assert SmCensus(analysis) == "NL202:TypeMismatch@6:34+7;"
     assert SmHasErrors(analysis) == "True"
     assert SmErrorCount(analysis) == 1
-    assert SmRow(analysis, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert SmRow(analysis, 0) == "TypeMismatch|'value' is typed as 'int', but the value is 'string'|<null>|Error"
     assert SmCodeCount(analysis, "TypeMismatch") == 1
     assert SmCodeCount(analysis, "InvalidTypeArgument") == 0
     assert SmCodeCount(analysis, "UndefinedMember") == 0

@@ -91,12 +91,13 @@ class AnalyzerBooleanConditions {
         span := spansValue.GetExpressionDiagnosticSpan(condition)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
+        message := "The condition in an 'if' must be a boolean, but I found '" + TypeText(conditionType) + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(conditionType), "bool"))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(conditionType), "bool", message))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, "The condition in an 'if' must be a boolean, but I found '" + TypeText(conditionType) + "'", span.Line, span.Column, null, span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, null, span.Length)
     }
 
     // A `match` CASE GUARD. Measured by assignability rather than identity, and reported under its

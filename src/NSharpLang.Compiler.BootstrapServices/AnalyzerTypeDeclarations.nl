@@ -949,16 +949,19 @@ class AnalyzerTypeDeclarations {
     // points at the DECLARATION and carries INVALID SYNTAX, because the three-argument `Error` overload
     // it replaces defaulted to that code. The asymmetry is the shipped behaviour — the detail-only
     // shape is exactly what an unsaved editor buffer produces — and is preserved rather than tidied.
+    // THE MESSAGE IS NOT PART OF THAT ASYMMETRY: both shapes name the field, its type and what the
+    // initializer gave, because a reader with a snippet needs the sentence just as much as one without.
     func ReportFieldTypeMismatch(state: TypeDeclarationState, field: FieldDeclaration, initializer: Expression, initializerType: TypeInfo) {
         span := spansValue.GetExpressionDiagnosticSpan(initializer)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
+        message := "Field '" + field.Name + "' is typed as '" + TypeText(state.FieldType) + "', but the initializer gives '" + TypeText(initializerType) + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(initializerType), TypeText(state.FieldType)))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(initializerType), TypeText(state.FieldType), message))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Field '" + field.Name + "' is typed as '" + TypeText(state.FieldType) + "', but the initializer gives '" + TypeText(initializerType) + "'", field.Line, field.Column, null, 0)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, message, field.Line, field.Column, null, 0)
     }
 
     // PHASE 43 — THE FIELD'S NAME, DECLARED INTO WHATEVER SCOPE ENCLOSES IT: the type's own scope for

@@ -110,7 +110,8 @@ class AssignmentState {
 // generics over emitted user types, so this check is the ONLY thing between `items: List<Rs>` stored
 // into a `List<Pt>` field and a type-confused read at run time. It keeps both of its renderings — the
 // rich `ErrorMessageBuilder.TypeMismatch` when a source snippet AND a file path exist, the bare
-// report otherwise — because the rich one carries the source line a developer actually reads.
+// report otherwise — because the rich one carries the source line a developer actually reads. The
+// two renderings say the SAME SENTENCE; they differ only in how much they add to it.
 //
 // THE COMPOUND FORM IS AN OPERATOR QUESTION AND IS ASKED AS ONE. `x += y` is checked by building the
 // binary expression it means and asking the operator family what that is worth, then whether the
@@ -431,18 +432,21 @@ class AnalyzerAssignment {
         state.ResultType = targetType
     }
 
-    // THE FRONT DOOR, IN BOTH ITS RENDERINGS. The rich builder carries the source line and the caret;
-    // the bare report is what a diagnostic with no file behind it can still say.
+    // THE FRONT DOOR, IN BOTH ITS RENDERINGS, AND THE SENTENCE DOES NOT DEPEND ON WHICH ONE. The rich
+    // builder adds the source line, the caret and the docs link; the bare report is what a diagnostic
+    // with no file behind it can still say. Naming the two types is the report's whole job, so it is
+    // done above the branch.
     func ReportAssignmentTypeMismatch(assignment: AssignmentExpression, targetType: TypeInfo, valueType: TypeInfo) {
         span := spansValue.GetExpressionDiagnosticSpan(assignment.Value)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
+        message := "Type mismatch in assignment — expected '" + TypeText(targetType) + "' but got '" + TypeText(valueType) + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(valueType), TypeText(targetType)))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(valueType), TypeText(targetType), message))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, "Type mismatch in assignment — expected '" + TypeText(targetType) + "' but got '" + TypeText(valueType) + "'", span.Line, span.Column, null, span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, null, span.Length)
     }
 
     // ------------------------------------------------------------------------------------------

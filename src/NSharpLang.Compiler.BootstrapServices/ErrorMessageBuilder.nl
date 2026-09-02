@@ -3,14 +3,21 @@ namespace NSharpLang.Compiler
 import System.Collections.Generic
 
 class ErrorMessageBuilder {
-    static func TypeMismatch(fileName: string, line: int, column: int, sourceSnippet: string, length: int, actualType: string, expectedType: string): CompilerError {
+    // NL202, AND THE SENTENCE IS THE CALLER'S. Every reporting site already knows what disagrees with
+    // what — the variable and its annotation, the member and its value, the field and its initializer,
+    // the `if` and its condition — and says so when it has no source text to underline. The rich shape
+    // carries the SAME sentence, so the route that ships is never the one with less to say: the snippet,
+    // the caret width, the two type names, the hint and the docs link are ADDED to the sentence rather
+    // than substituted for it. A builder that wrote its own headline could only ever write the bare
+    // words `Type mismatch`, because the two disagreeing NAMES are not among its arguments.
+    static func TypeMismatch(fileName: string, line: int, column: int, sourceSnippet: string, length: int, actualType: string, expectedType: string, message: string): CompilerError {
         humanExplanation := "I am having trouble with this code on line " + IntText(line) + ":"
         contextualHint := TypeConversionSuggester.SuggestConversion(actualType, expectedType)
         if contextualHint == null {
             contextualHint = "These types are not compatible. Check if you need to convert or cast."
         }
 
-        return new CompilerError(ErrorCode.TypeMismatch, "Type mismatch", line, column, ErrorSeverity.Error) {
+        return new CompilerError(ErrorCode.TypeMismatch, message, line, column, ErrorSeverity.Error) {
             FileName: fileName,
             SourceSnippet: sourceSnippet,
             Length: length,

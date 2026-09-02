@@ -1114,8 +1114,10 @@ Analyzer coverage is split deliberately across:
   assignment. It states what nothing had: the type table holds TWENTY types where the deleted
   monster named eighteen; a `sealed class` anchors at the `class` keyword while a `duck interface`
   anchors at `duck`; `TypeMembers` and `DeclaredMembers` are different tables with different
-  population rules; and **two initializer mismatches report an `NL202` whose whole message is the
-  bare words `Type mismatch` with a NULL suggestion.**
+  population rules; and **two initializer mismatches used to report an `NL202` whose whole message
+  was the bare words `Type mismatch` with a NULL suggestion** — the four-argument-`Analyze` defect,
+  now fixed: both name the member and the two types. The generic suggestion is still null because
+  the rich shape carries a specific `ContextualHint` in its place.
 - `tests/native/analyzer-clean-source` for what the analyzer decides about ASSIGNABILITY and FLOW
   NARROWING read from SOURCE TEXT — nominal subtyping, the whole 43-pair numeric widening matrix and
   its ten narrowing rejections, the nullable assignability matrix, flow-sensitive null narrowing
@@ -1139,10 +1141,14 @@ Analyzer coverage is split deliberately across:
   two entry points are different answers.** `Analyze(unit)` — which every deleted helper called, and
   which has ZERO production callers — and `Analyze(unit, path, root, source)` — which both production
   call sites use, `MultiFileCompiler.cs:282` and the language server's `DocumentManager.cs:277` —
-  agree on every CODE and disagree on 22 of the 33 reporting fixtures' POSITION and on
-  15 of their MESSAGES, where the rich path collapses `Variable 'c' is typed as 'Color', but the value
-  is 'string'` to the bare `Type mismatch` and DROPS the suggestion, adding a `ContextualHint` in its
-  place. That is the whole reason tranche 1a saw `ContextualHint` as `<null>` twenty-four times: the
+  agree on every CODE and disagreed on 22 of the 33 reporting fixtures' POSITION and on
+  15 of their MESSAGES, where the rich path collapsed `Variable 'c' is typed as 'Color', but the value
+  is 'string'` to the bare `Type mismatch` and DROPPED the generic suggestion, adding a
+  `ContextualHint` in its place. **THE MESSAGE HALF OF THAT SPLIT WAS A DEFECT AND IS FIXED**:
+  `ErrorMessageBuilder.TypeMismatch` now takes the reporting site's own sentence instead of writing
+  a headline of its own, so both routes say the same thing and the rich one only ADDS the snippet,
+  the caret width, the hint and the docs link. The POSITION half stands — the plain route is handed
+  no source text and cannot measure a token, so its anchors are one column wide. That is the whole reason tranche 1a saw `ContextualHint` as `<null>` twenty-four times: the
   field belongs to the entry point, not the fixture. `SourceSnippet` behaves the same way (33 non-null
   rich, 0 plain). It also found that **a bodiless positional record does not parse** — `record
   Person(Name: string, Age: int)` reports `NL102`/`NL106` and swallows the file — which makes two of

@@ -750,17 +750,20 @@ class AnalyzerConstruction {
 
     // NL202, IN TWO RENDERINGS, AND THE RICH ONE IS PREFERRED. A diagnostic with a source line to
     // underline gets the full cluster rendering; one without a file or a snippet — a synthesized node,
-    // or a unit with no path — still gets the name, the member type and the value type.
+    // or a unit with no path — carries the same sentence without the snippet. BOTH NAME THE MEMBER,
+    // THE MEMBER TYPE AND THE VALUE TYPE: the cluster fields are added to that sentence, never in
+    // place of it.
     func ReportInitializerMemberMismatch(property: PropertyInitializer, memberType: TypeInfo, valueType: TypeInfo) {
         span := spansValue.GetExpressionDiagnosticSpan(property.Value)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
+        message := "'" + property.Name + "' is typed as '" + TypeText(memberType) + "', but the value is '" + TypeText(valueType) + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(valueType), TypeText(memberType)))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(valueType), TypeText(memberType), message))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, "'" + property.Name + "' is typed as '" + TypeText(memberType) + "', but the value is '" + TypeText(valueType) + "'", span.Line, span.Column, null, span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, null, span.Length)
     }
 
     // ------------------------------------------------------------------------------------------

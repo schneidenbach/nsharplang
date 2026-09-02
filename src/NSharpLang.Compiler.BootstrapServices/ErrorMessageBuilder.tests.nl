@@ -49,7 +49,7 @@ func ErrorBuilderNames(first: string, second: string): List<string> {
 
 // Successor to ElmStyle_TypeMismatch_ShowsHumanExplanation and ElmStyle_ErrorsIncludeDocsUrl.
 test "an elm-style type mismatch explains both types and links the docs" {
-    error := ErrorMessageBuilder.TypeMismatch("test.nl", 10, 5, "x: int = \"hello\"", 7, "string", "int")
+    error := ErrorMessageBuilder.TypeMismatch("test.nl", 10, 5, "x: int = \"hello\"", 7, "string", "int", "Type mismatch")
     formatted := error.Format(false)
 
     assert formatted.Contains("TYPE MISMATCH")
@@ -203,7 +203,7 @@ test "every builder links the documentation page for the code it raises" {
     empty := new List<string>()
 
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UnexpectedToken("f.nl", 1, 1, "x", 1, "}", null)) == "https://docs.n-sharp.dev/errors/NL101"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.TypeMismatch("f.nl", 1, 1, "x", 1, "string", "int")) == "https://docs.n-sharp.dev/errors/NL202"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.TypeMismatch("f.nl", 1, 1, "x", 1, "string", "int", "Type mismatch")) == "https://docs.n-sharp.dev/errors/NL202"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ReturnValueInVoidFunction("f.nl", 1, 1, "x", 1, "Hi", "int")) == "https://docs.n-sharp.dev/errors/NL202"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ReturnTypeMismatch("f.nl", 1, 1, "x", 1, "Hi", "string", "int")) == "https://docs.n-sharp.dev/errors/NL202"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.WrongArgumentType("f.nl", 1, 1, "x", 1, "Hi", 1, "p", "string", "int")) == "https://docs.n-sharp.dev/errors/NL202"
@@ -224,6 +224,36 @@ test "every builder links the documentation page for the code it raises" {
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.NonExhaustiveMatch("f.nl", 1, 1, "x", 1, empty)) == "https://docs.n-sharp.dev/errors/NL501"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ImportNotFound("f.nl", 1, 1, "x", 1, "a/b.nl")) == "https://docs.n-sharp.dev/errors/NL701"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.CircularImport("f.nl", 1, 1, "x", 1, "a/b.nl")) == "https://docs.n-sharp.dev/errors/NL703"
+}
+
+// ---- The NL202 headline belongs to the CALLER -----------------------------------------------------
+
+// THE FOUR-ARGUMENT `Analyze` DEFECT, PINNED AT ITS OWNER. `ErrorMessageBuilder.TypeMismatch` used to
+// write its own headline, and the only headline it could write was the bare words `Type mismatch` —
+// the two disagreeing NAMES are not among its arguments. Every analyzer site that reaches it already
+// knows the sentence, and said it on the route with no source text. So the route production actually
+// calls — `Analyze(unit, path, root, source)`, the only one `nlc check`, `nlc build` and the language
+// server use — was the one with LESS to say. The builder now takes the sentence and adds to it.
+test "the type-mismatch builder reports the caller's sentence, not a headline of its own" {
+    described := ErrorMessageBuilder.TypeMismatch("test.nl", 10, 5, "total: int = \"hi\"", 4, "string", "int", "Variable 'total' is typed as 'int', but the value is 'string'")
+
+    assert described.Message == "Variable 'total' is typed as 'int', but the value is 'string'"
+    assert described.Code == ErrorCode.TypeMismatch
+
+    // AND EVERYTHING THE RICH SHAPE ADDS IS STILL ADDED. The sentence is not paid for with the
+    // snippet, the caret width, the two type names, the hint or the docs link.
+    assert described.FileName == "test.nl"
+    assert described.SourceSnippet == "total: int = \"hi\""
+    assert described.Length == 4
+    assert described.ActualType == "string"
+    assert described.ExpectedType == "int"
+    assert described.HumanExplanation == "I am having trouble with this code on line 10:"
+    assert described.ContextualHint != null
+    assert described.DocsUrl == "https://docs.n-sharp.dev/errors/NL202"
+
+    // The renderers put the caller's sentence where the bare words used to go.
+    assert described.FormatForTooling(true, false).Contains("NL202: Variable 'total' is typed as 'int', but the value is 'string'")
+    assert described.FormatForMsBuild().Contains("Variable 'total' is typed as 'int', but the value is 'string'")
 }
 
 // ---- The pieces every hint is assembled from -----------------------------------------------------

@@ -2183,6 +2183,34 @@ Two ratchet remediations and one mid-arc reconciliation, recorded as rows:
 | RATCHET + PARITY REMEDIATION of `170244a5f` (2026-07-29) | `170244a5f` "Fix infinite loop in ParseTestDeclaration table-case recovery"; head `head-v1:1be7f7cb4c07e417` → `head-v1:682bbdb2c76e50c8` in BOTH the manifest and the mirrored `OwnershipPolicy.ReviewedHeadFingerprint` constant | A CORRECT fix by a separate session that (a) exceeded the IMMUTABLE E0 epoch ceilings on both files and (b) skipped the N# parity mirror — audit failed with 6 violations (OWN004+OWN005 each) and broke the integration gate. Paid: `Parser.cs` 7,128/6,192 → 7,116/6,180 and `ParserErrorTests.cs` 1,944/1,609/568 → 1,923/1,588/563; `ColumnarParserRecovery.nl`'s `ParseTestDeclaration` table-case loops gained the same no-progress guards + 4 parity contracts | The owner's `ConsumeToken` does NOT advance on mismatch either, so the N# mirror REPRODUCED THE HANG FAITHFULLY — a parity mirror inherits the defect unless it carries the same guard. Zero-functional-change was proven by stripping every whole-line comment and blank from HEAD and from the compressed file and showing the remaining 5,872 code lines BYTE-IDENTICAL. | audit 18/18; contracts 1,442/1,442 (1,438 + 4); NET non-N# change −33 lines across two C# files; all new code is N#; no VS Code gate owed (no production/LSP wiring change) |
 | 020 reconciliation (slice 43) | slice cut at `e929453e0`; reconciled over chip commits `2d2ddb39d`, `0a66db6ec`, `1e426e07d`, `65c02f471`, `fa6ed3214` | No C#→N# movement: a coordinator reconciliation onto a tip four concurrent chip commits had moved. `tests/TestSdkFeed.cs` losslessly compressed back under its epoch ceiling (326/287 → 324/284, markers unchanged at 3); `NSharpLang.Sdk.csproj` and `test-all-core.sh` repinned as reviewed drift | `LanguageServer.csproj`'s drift was a PHANTOM: the file carries a UTF-8 BOM, the audit reads utf-8-sig, and a plain-utf-8 reader hashes the BOM into a false drift. RULE: ratchet tooling must read utf-8-sig, and the manifest's header keys are colon-space formatted while rows are compact — REGEX the stored head, never string-match it. | contracts 2,897/2,897 (chip baseline 2,865 + slice 32); head `f66e4eda5ec3d44a` → `b283a83ef600d146`, mirrored; audit 18/18; manifest 391 lines, no BOM |
 
+### Product-defect chip DECODED AND FIXED: the four-argument `Analyze` degrades diagnostics
+
+| record | commit | what moved | durable finding | headline numbers |
+|---|---|---|---|---|
+| chip `four-arg Analyze degraded diagnostics` | `stream/chip-analyze-four-arg`, cut at `8cf40128a` | `ErrorMessageBuilder.TypeMismatch` gains a `message` parameter; its SIX callers (`AnalyzerVariableDeclaration`, `AnalyzerConstruction`, `AnalyzerAssignment`, `AnalyzerTypeDeclarations`, `AnalyzerAccessorBodies`, `AnalyzerBooleanConditions`) hoist their sentence above the rich/plain branch. Estate repinned to the CORRECT shape, not the measured one | **The degradation was never in `Analyze` — it was in the BUILDER.** The four-arg route is the RICHER walk everywhere except the headline: it alone reaches `ReportBuilt(ErrorMessageBuilder.TypeMismatch(...))`, and that builder wrote its own `Message` because the two disagreeing NAMES are not among its arguments. So the only route that ships traded its sentence for a snippet. Fixed by passing the sentence, not by touching either entry point | 1 owner + 6 call sites; 60 estate rows repinned (56 `analyzer-clean-source`, 2 `analyzer-semantic-model`, 6 playground rows, 2 in-project) + 5 new contracts; 3 C# LSP assertions moved with the product; 9/9 probe NL202s now name what disagrees with what |
+
+- **The two entry points are NOT the defect and must not be "unified".** `Analyze(unit)` delegates to
+  `Analyze(unit, null, null, null)`; the whole difference is that the four-arg form feeds
+  `_diagnostics.BeginAnalysis(path, source)`. Anchors, `SourceSnippet` and `ContextualHint` are all
+  BETTER on the four-arg route and stay that way — the plain route is handed no text and cannot
+  measure a token, which is why its anchor length is 1. Only the MESSAGE was a regression.
+- **`Analyzer.cs` needed no change.** Both entry points are mechanical; the policy lives in the six N#
+  owners. Zero lines of C# compiler code moved.
+- **The generic `Suggestion` staying null on the rich route is NOT part of the defect.** `Report` fills
+  `Ensure types are compatible or add explicit cast` from the CODE; `ReportBuilt` carries a specific
+  `ContextualHint` instead. That substitution is a trade UP and is deliberately left alone.
+- **Two of the four codes stay asymmetric ON PURPOSE.** `AnalyzerTypeDeclarations` and
+  `AnalyzerAccessorBodies` report `InvalidSyntax` without source and `TypeMismatch` with it. That
+  asymmetry is a separately recorded decision; only the sentence was unified.
+- **The estate held the answer already.** Every rich row's corrected message was DERIVABLE from the
+  plain row in the same block, because both routes now compute one string — 56 of 60 rows were repinned
+  mechanically. The 2 rows GUESSED instead of derived were WRONG (`'T'` where the analyzer substitutes
+  `'int'`) and were caught by running the fixture through the built CLI. Derive, never guess.
+- **The ratchet moved because a C# TEST asserted the defect.** `tests/LanguageServerDiagnosticsTests.cs`
+  pinned `Message == "Type mismatch"` at three LSP sites; metrics are unchanged (3182/2542/520) and only
+  the fingerprint moved, `text-v1:7a4653509d2cea75` → `text-v1:d8abab82baac7f8a`, reviewed head
+  `head-v1:9717a7390756f51c` → `head-v1:58190ee65270a462` in BOTH keys.
+
 Corrections and standing verdicts, one line each:
 
 - **The Min/Max correction (`86f4c251b`).** Sub-slice 5's Min/Max deletion was PARTIALLY WRONG: "provably

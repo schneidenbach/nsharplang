@@ -214,7 +214,7 @@ test "an error with no human explanation stays in the rust-style renderer" {
 
 // Successor to FormatForTooling_PreservesRichContextWithoutLocation.
 test "format for tooling preserves the rich context and omits the location" {
-    error := ErrorMessageBuilder.TypeMismatch("test.nl", 10, 5, "x: int = \"hello\"", 7, "string", "int")
+    error := ErrorMessageBuilder.TypeMismatch("test.nl", 10, 5, "x: int = \"hello\"", 7, "string", "int", "Type mismatch")
     formatted := error.FormatForTooling(true, false)
 
     assert formatted.Contains("NL202: Type mismatch")
@@ -233,7 +233,7 @@ test "format for tooling preserves the rich context and omits the location" {
 
 // NOT IN THE DELETED FILE AT ALL: the two arms the deleted file never asked for.
 test "format for tooling renders the location when it is asked for" {
-    located := ErrorMessageBuilder.TypeMismatch("test.nl", 10, 5, "x: int = \"hello\"", 7, "string", "int")
+    located := ErrorMessageBuilder.TypeMismatch("test.nl", 10, 5, "x: int = \"hello\"", 7, "string", "int", "Type mismatch")
     assert located.FormatForTooling(true, true).Contains("at test.nl:10:5")
 
     // Without a file name the SAME switch renders the prose form instead.
@@ -247,7 +247,7 @@ test "format for tooling renders the location when it is asked for" {
 
 // Successor to FormatForMsBuild_CollapsesRichContextOntoOneLine.
 test "format for msbuild collapses the rich context onto one line" {
-    error := ErrorMessageBuilder.TypeMismatch("test.nl", 10, 5, "x: int = \"hello\"", 7, "string", "int")
+    error := ErrorMessageBuilder.TypeMismatch("test.nl", 10, 5, "x: int = \"hello\"", 7, "string", "int", "Type mismatch")
     formatted := error.FormatForMsBuild()
 
     assert formatted.Contains("Type mismatch")
