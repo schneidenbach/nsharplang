@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Performance
 
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 
@@ -14,10 +15,11 @@ import NSharpLang.Compiler.Ast
 // report. So a predicate here does not merely classify — a `true` it returns is a diagnostic another
 // rule will now never emit, and a `false` is an NSYS050 a developer will read.
 //
-// THE TABLES ARE WRITTEN NAMES, DELIBERATELY, AND THEY ARE NOT KEYED ALIKE. Nothing here consults a
-// semantic model or a loaded assembly: a systems policy whose answer depended on whether a reference
-// resolved would report different things on two machines. What each table keys ON differs, and the
-// difference is the rule:
+// THE TABLES ARE WRITTEN NAMES, DELIBERATELY, AND THEY ARE NOT KEYED ALIKE. No TABLE here consults a
+// semantic model or a loaded assembly: a systems policy whose CLASSIFICATION depended on whether a
+// reference resolved would report different things on two machines. (The two LEDGER DISCHARGES are
+// the exception and they are not classifications — see the discharge paragraph below.) What each
+// table keys ON differs, and the difference is the rule:
 //   * the CONCURRENCY tables and the RESOURCE FACTORY table list both the bare and the
 //     namespace-qualified spelling (`Volatile.Read` AND `System.Threading.Volatile.Read`,
 //     `File.Open` AND `System.IO.File.Open`), so a project that imported the namespace and one that
@@ -50,6 +52,19 @@ import NSharpLang.Compiler.Ast
 // LEDGER". `using (x)` hands in a bare identifier; `x.Dispose()` and `x.DisposeAsync()` hand in a
 // call; a bare `x.Dispose` member access reaches it too. A name that is on NEITHER ledger answers
 // false, and that false is what lets the call walk carry on and classify the call some other way.
+//
+// A DISCHARGE IS THE ONE ANSWER HERE THAT A WRITTEN NAME MAY NOT DECIDE ALONE, AND THE MEASUREMENT
+// SAYS WHY. A discharge is not a classification: it ASSERTS that an obligation opened earlier in the
+// function is closed, and it STOPS the call walk, so the same call is never reported as an unknown
+// external one either. Decided by the member NAME alone it inverted — the only `Dispose()` the
+// resource rule accepted was one that DOES NOT EXIST. Both halves were measured on the shipped CLI:
+// `stream.Dispose()` on a project class with no members reported `NL303: Member 'Dispose' not found`
+// and NO NSYS090 and NO NSYS050, while the same source with `func Dispose()` actually declared
+// reported NSYS090 "is not disposed" and nothing else — a false negative on broken source and a
+// false POSITIVE on correct source, from one rule. So the two discharge doors now take the
+// analyzer's own verdict, and `MarkDeclaredCalleeDischarges` is the door the RESOLVED half of the
+// walk uses. See `MemberIsPositivelyRejected` for what "the analyzer's own verdict" is allowed to
+// mean, which is deliberately narrow.
 //
 // ONE CLASSIFICATION NEEDS A TABLE THE DECLARATION WALK FILLS, AND IT IS THE ONLY STATE HERE. A
 // `.TryGetValue` is only a dictionary probe when its RECEIVER is a dictionary, and the analyzer knows
@@ -324,11 +339,60 @@ class SystemsCallPolicy {
         return memberName == "Dispose" || memberName == "DisposeAsync"
     }
 
+    // WHETHER THE ANALYZER POSITIVELY REJECTED THE MEMBER A DISCHARGE IS WRITTEN ON.
+    //
+    // "POSITIVELY" IS THE WHOLE RULE AND IT IS ONE CONDITION: the analyzer recorded an UNKNOWN type
+    // at this expression's own position. A member it RESOLVED — in project source or through
+    // metadata — is not rejected, so `File.OpenRead(path)` followed by `stream.Dispose()` still
+    // discharges; and a position it recorded NOTHING at is not rejected either, because an
+    // unresolved owner is deliberately permissive everywhere else in the analyzer and it is
+    // permissive here. The narrowness is what keeps two machines classifying alike: only a verdict
+    // the analyzer actually wrote down can refuse a discharge, never the absence of one.
+    //
+    // A null model is the analyzer driven without one, and it answers `false` — no verdict, so no
+    // refusal.
+    func MemberIsPositivelyRejected(model: SemanticModel?, expression: Expression): bool {
+        if model == null {
+            return false
+        }
+
+        types := model.ExpressionTypes
+        key := (Line: expression.Line, Column: expression.Column)
+        if !types.ContainsKey(key) {
+            return false
+        }
+
+        return BuiltInTypes.IsUnknown(types[key])
+    }
+
+    // WHAT A RESOLVED CALL STILL DISCHARGES, AND WHY THE DOOR HAS TO EXIST.
+    //
+    // A call that binds to a PROJECT declaration never reaches the classification chain: the walk
+    // resolves it, records it in the call graph and stops. So before this door, the ONLY disposal the
+    // resource ledger ever accepted was one that did not resolve — a user type that spells
+    // `func Dispose()` and is disposed correctly was reported as leaked (NSYS090), measured. A
+    // resolved call needs no rejection test, because it resolved; both ledgers are offered it, since
+    // a project's own pool spelling `Return` is a return the same way a project's `Dispose` is a
+    // dispose.
+    func MarkDeclaredCalleeDischarges(call: CallExpression, poolRents: Dictionary<string, PoolRent>, resourceLocals: Dictionary<string, ResourceLocal>) {
+        MarkResourceDisposedIfRecognized(call.Callee, poolRents, resourceLocals, null)
+        MarkPoolReturnIfRecognized(call, poolRents, null)
+    }
+
     // DISCHARGES BOTH LEDGERS FOR ONE NAME, and answers whether the name was on either. A `true` here
     // stops the call walk: a recognised disposal is not also an unknown external call. The lookup is
     // a membership test followed by a read rather than a single `TryGetValue` because the entry is
     // then mutated in place, and the two are the same answer.
-    func MarkResourceDisposedIfRecognized(expression: Expression, poolRents: Dictionary<string, PoolRent>, resourceLocals: Dictionary<string, ResourceLocal>): bool {
+    //
+    // THE REJECTION TEST COMES FIRST AND ITS `false` IS LOAD-BEARING TWICE OVER: the obligation stays
+    // open (so the balance rule reports NSYS090/NSYS130 at the place it was opened) AND the call walk
+    // carries on to its own fall-through (so the same call is reported as the unknown external call
+    // it is). One mistake, reported by the rule that owns each half.
+    func MarkResourceDisposedIfRecognized(expression: Expression, poolRents: Dictionary<string, PoolRent>, resourceLocals: Dictionary<string, ResourceLocal>, model: SemanticModel?): bool {
+        if MemberIsPositivelyRejected(model, expression) {
+            return false
+        }
+
         variableName := DisposalTargetName(expression)
         if variableName == null {
             return false
@@ -355,7 +419,14 @@ class SystemsCallPolicy {
     // marks EVERY identifier argument, because a return that takes several is still a return of each.
     // Unlike a disposal this answers nothing: an unrecognised return is still a pool call and the walk
     // has already said so.
-    func MarkPoolReturnIfRecognized(call: CallExpression, poolRents: Dictionary<string, PoolRent>) {
+    //
+    // IT TAKES THE SAME REJECTION TEST AS THE DISPOSAL, for the same reason: `Zqxwvut.Return(buffer)`
+    // closed a rental over a receiver the analyzer reports as `NL301: Variable 'Zqxwvut' not found`.
+    func MarkPoolReturnIfRecognized(call: CallExpression, poolRents: Dictionary<string, PoolRent>, model: SemanticModel?) {
+        if MemberIsPositivelyRejected(model, call.Callee) {
+            return
+        }
+
         target := SystemsExpressionNames.CallTarget(call.Callee)
         if target == null || !IsPoolReturnTarget(target) {
             return
