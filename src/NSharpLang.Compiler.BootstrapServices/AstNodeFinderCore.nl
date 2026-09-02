@@ -293,6 +293,89 @@ class AstPositionVisitor {
             return ChooseBestExpression(currentMatch, childMatch)
         }
 
+        // THE THREE ARMS BELOW WERE THE WHOLE OF IDE DEFECTS D1 AND D2, and they are three arms
+        // rather than one because the walk descends by SHAPE. Without them a `new Foo { A: x.Y() }`
+        // and a `$"{x.Y}"` are LEAVES: the node on the target line is never asked about its
+        // children, so hover and completion answer from the enclosing node — `No symbol found` for
+        // the initializer (nothing on that line is a match at all) and `string` for every member in
+        // an interpolation hole (the interpolated string itself is the only match, and its type is
+        // `string`). Neither was a coordinate bug: `MemberAccessExpression` carries its DOT's
+        // position, so once the walk REACHES the hole, `ChooseBestExpression` already picks the
+        // right link of the chain.
+        if typeName == "NewExpression" {
+            bestMatch := currentMatch
+            constructorArguments := GetRequiredList(expression, "ConstructorArguments")
+            index := 0
+            while index < constructorArguments.Count {
+                argument := constructorArguments[index]
+                if argument != null {
+                    bestMatch = ChooseBestExpression(bestMatch, FindExpression(GetRequiredProperty(argument, "Value")))
+                }
+
+                index = index + 1
+            }
+
+            arrayLength := GetOptionalProperty(expression, "ArrayLengthExpression")
+            if arrayLength != null {
+                bestMatch = ChooseBestExpression(bestMatch, FindExpression(arrayLength))
+            }
+
+            // The initializer is itself an `Expression`, so it goes through the arm below rather
+            // than being walked here a second time.
+            initializer := GetOptionalProperty(expression, "Initializer")
+            if initializer != null {
+                bestMatch = ChooseBestExpression(bestMatch, FindExpression(initializer))
+            }
+
+            return bestMatch
+        }
+
+        // A `PropertyInitializer` is NOT an `Expression` — it has no position of its own worth
+        // matching — so the walk reads through it to the two expressions it holds. An indexer
+        // initializer carries both; a plain one carries only `Value`.
+        if typeName == "ObjectInitializerExpression" {
+            bestMatch := currentMatch
+            properties := GetRequiredList(expression, "Properties")
+            index := 0
+            while index < properties.Count {
+                property := properties[index]
+                if property != null {
+                    indexExpression := GetOptionalProperty(property, "IndexExpression")
+                    if indexExpression != null {
+                        bestMatch = ChooseBestExpression(bestMatch, FindExpression(indexExpression))
+                    }
+
+                    bestMatch = ChooseBestExpression(bestMatch, FindExpression(GetRequiredProperty(property, "Value")))
+                }
+
+                index = index + 1
+            }
+
+            return bestMatch
+        }
+
+        // A part is a HOLE or it is TEXT, and the reflective read tells them apart for free: only
+        // `InterpolatedStringHole` has an `Expression`, so a text segment answers null and is
+        // skipped without this owner naming either type.
+        if typeName == "InterpolatedStringExpression" {
+            bestMatch := currentMatch
+            parts := GetRequiredList(expression, "Parts")
+            index := 0
+            while index < parts.Count {
+                part := parts[index]
+                if part != null {
+                    holeExpression := GetOptionalProperty(part, "Expression")
+                    if holeExpression != null {
+                        bestMatch = ChooseBestExpression(bestMatch, FindExpression(holeExpression))
+                    }
+                }
+
+                index = index + 1
+            }
+
+            return bestMatch
+        }
+
         return currentMatch
     }
 

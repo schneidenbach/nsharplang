@@ -1834,6 +1834,108 @@ test "020 s39 query integration: HoverAndType ChainedMemberAccess ResolveThrough
     QueryDeleteTemp(projectRoot)
 }
 
+// ─── IDE DEFECT D2: HOVER ON A MEMBER THE PROJECT DID NOT DECLARE ────────────────────────────
+// These run through the REAL CLI pipeline, so the external types come from the compiler's
+// `MetadataLoadContext` — the other type universe from the estate's `CodeIntelligenceSignatureKernels`
+// contracts, which resolve through live `typeof`s. Both are pinned because
+// `NullabilityInfoContext.Create` is the documented hazard between them and a hover must never throw.
+//
+// Every shape below is one the 2026-09-02 visual verification recorded as broken: they showed
+// nothing at all, or the RECEIVER instead of the member, or the analyzer's `ToUpper(...)` placeholder.
+
+func D2HoverProject(): object {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "namespace QueryTemp\n\nimport System\nimport System.Collections.Generic\n\nrecord Reading {\n    Label: string\n    Value: int\n}\n\nfunc Main() {\n    names := [\"a\", \"b\"]\n    total := names.Length\n    stamp := DateTime.Now\n    later := DateTime.Now.AddDays(1)\n    roll := Random.Shared.Next(1, 7)\n    readings := new List<Reading>()\n    all := readings.ToArray()\n    reading := new Reading { Label: \"x\", Value: total }\n    label := reading.Label\n}\n"
+    )
+    return QueryLoadProject(projectRoot)
+}
+
+func D2HoverSignature(snapshot: object, needle: string, member: string): string {
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, needle)
+    col := FindColumnInFile(programPath, line, member)
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, col)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing for '" + member + "'.")
+    }
+
+    return QueryText(hover, "Signature") + "|" + QueryText(hover, "Kind") + "|" + QueryText(hover, "DeclaringType")
+}
+
+test "IDE D2: a static property, an instance method and a static-property-then-method chain all hover to a signature and a declaring type" {
+    snapshot := D2HoverProject()
+
+    // `DateTime.Now` — a static property. Showed NO hover at all before: the position sat inside a
+    // shape the AST position visitor never descended into.
+    assert D2HoverSignature(snapshot, "stamp := DateTime.Now", "Now") == "property Now: DateTime { get; }|property|System.DateTime"
+
+    // `.AddDays` — an instance method on the value that static property returned.
+    assert D2HoverSignature(snapshot, "later := DateTime.Now.AddDays", "AddDays") == "method AddDays: DateTime AddDays(double value)|method|System.DateTime"
+
+    // `Random.Shared.Next` — a static property, then a method on its result.
+    nextLine := D2HoverSignature(snapshot, "roll := Random.Shared.Next", "Next")
+    assert nextLine.StartsWith("method Next: int Next(", StringComparison.Ordinal)
+    assert nextLine.EndsWith("|method|System.Random", StringComparison.Ordinal)
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "IDE D2: an array member and a method on a constructed generic hover to the member, not to the receiver" {
+    snapshot := D2HoverProject()
+
+    // `names.Length` reported `array names: string[]` before — the RECEIVER, with the member's cursor.
+    assert D2HoverSignature(snapshot, "total := names.Length", "Length") == "property Length: int { get; }|property|System.Array"
+
+    // `readings.ToArray()` reported `generic readings: List<Reading>` before, for the same reason.
+    // The element type is the project's OWN record, which has no CLR type to close `List<>` over, so
+    // this is also the contract that the generic-argument override is applied: without it the answer
+    // is `object[]`, which is a confident lie.
+    assert D2HoverSignature(snapshot, "all := readings.ToArray", "ToArray") == "method ToArray: Reading[] ToArray()|method|System.Collections.Generic.List<T>"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "IDE D2: a project-declared member still hovers to its declaration and carries NO declaring type" {
+    snapshot := D2HoverProject()
+
+    // THE NON-REGRESSION. A source receiver has no CLR type, so the reflected route declines and the
+    // declaration route answers exactly as it always did — with a file and no declaring type.
+    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "field Label: string|field|"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "IDE D1: a member inside an interpolated-string hole hovers to its DECLARED type, not to `string`" {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "namespace QueryTemp\n\nrecord Reading {\n    Label: string\n    Value: int\n}\n\nfunc Main() {\n    reading := new Reading { Label: \"x\", Value: 1 }\n    print $\"{reading.Value} and {reading.Label}\"\n}\n"
+    )
+    snapshot := QueryLoadProject(projectRoot)
+
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, "print $")
+    col := FindColumnInFile(programPath, line, "Value")
+
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, col)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing.")
+    }
+
+    // Every member in a hole used to report `string` — the type of the enclosing interpolated
+    // string, which was the only node the visitor could reach on that line.
+    assert QueryText(hover, "Signature") == "field Value: int"
+
+    QueryDeleteTemp(projectRoot)
+}
+
 test "020 s39 query integration: HoverCommand NoSymbol ReturnsNull — the first blank line of the program hovers to nothing (was QueryIntegrationTests.HoverCommand_NoSymbol_ReturnsNull)" {
     blankLine := FirstBlankLineInFile(QueryHelloWorldProgram())
 

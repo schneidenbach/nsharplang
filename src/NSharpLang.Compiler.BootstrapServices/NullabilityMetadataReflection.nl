@@ -30,15 +30,26 @@ class NullabilityMetadataReflection {
         return ConvertReflectedType(clrType, null, null)
     }
 
-    // The C# original accepted a type override here too; no caller in `src/`, `tests/` or
-    // `editors/` ever passed one (measured at this tree), so the dead arm did not come across.
+    // THE OVERRIDE ARM IS BACK, AND IT HAS A CALLER NOW. The note that used to sit here said the C#
+    // original took a type override that nothing ever passed, so it was not carried across. Hover
+    // over a member of a CONSTRUCTED generic is that caller: `list.ToArray()` is resolved on the
+    // generic DEFINITION, so its `T` has to be mapped back to the receiver's real type argument or
+    // the answer is a confident lie (`object[]` for a `List<WeatherForecast>`).
     static func ConvertProperty(property: PropertyInfo): TypeInfo {
-        converted := ConvertReflectedType(property.get_PropertyType(), CreateNullabilityInfoForProperty(property), null)
+        return ConvertPropertyWithOverride(property, null)
+    }
+
+    static func ConvertPropertyWithOverride(property: PropertyInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
+        converted := ConvertReflectedType(property.get_PropertyType(), CreateNullabilityInfoForProperty(property), typeOverride)
         return ApplyFlowAttributes(converted, property.GetCustomAttributesData())
     }
 
     static func ConvertField(field: FieldInfo): TypeInfo {
-        converted := ConvertReflectedType(field.get_FieldType(), CreateNullabilityInfoForField(field), null)
+        return ConvertFieldWithOverride(field, null)
+    }
+
+    static func ConvertFieldWithOverride(field: FieldInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
+        converted := ConvertReflectedType(field.get_FieldType(), CreateNullabilityInfoForField(field), typeOverride)
         return ApplyFlowAttributes(converted, field.GetCustomAttributesData())
     }
 
@@ -66,14 +77,22 @@ class NullabilityMetadataReflection {
     }
 
     static func FormatParameter(parameter: ParameterInfo): string {
+        return FormatParameterWithOverride(parameter, null)
+    }
+
+    static func FormatParameterWithOverride(parameter: ParameterInfo, typeOverride: AnalyzerReflectionTypeOverride?): string {
         attributePrefix := FormatFlowAttributes(parameter.GetCustomAttributesData())
-        typeName := FormatTypeInfo(ConvertParameter(parameter))
+        typeName := FormatTypeInfo(ConvertParameterWithOverride(parameter, typeOverride))
         parameterType := parameter.get_ParameterType()
         return NullabilityMetadataCore.FormatParameter(parameter.get_IsOut(), parameterType.get_IsByRef(), IsParamsParameter(parameter), attributePrefix, typeName, parameter.get_Name())
     }
 
     static func FormatReturnType(method: MethodInfo): string {
-        return FormatTypeInfo(ConvertReturn(method))
+        return FormatReturnTypeWithOverride(method, null)
+    }
+
+    static func FormatReturnTypeWithOverride(method: MethodInfo, typeOverride: AnalyzerReflectionTypeOverride?): string {
+        return FormatTypeInfo(ConvertReturnWithOverride(method, typeOverride))
     }
 
     static func FormatTypeInfo(typeInfo: TypeInfo): string {

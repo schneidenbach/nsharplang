@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 import System.IO
+import System.Reflection
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
@@ -353,6 +354,123 @@ class CodeIntelligenceNavigation {
         displayName := resolvedName ?? name ?? CodeIntelligenceDisplayText.GetTypeDisplayName(typeInfo, resolvedType)
         nullability := NullabilityForExpression(semanticModel, expr, typeInfo)
         return new TypeResult(displayName, resolvedType, kind, definition, nullability)
+    }
+
+    // ── Which reflected member ──────────────────────────────────────────
+    // A SEPARATE QUESTION FROM `TypeAtPosition`, AND SEPARATE ON PURPOSE. "What TYPE is this" and
+    // "what MEMBER is this" have different answers at the same position — `DateTime.Now` is a
+    // `DateTime` and is also a property — and only hover needs the second one. Keeping it out of
+    // `TypeResult` is what leaves `nlc query type` byte-identical while `nlc query hover` gains a
+    // signature: the type answer did not change, a second answer was added beside it.
+    //
+    // THE WALK IS REPEATED RATHER THAN SHARED, AND THAT IS THE CHEAP SIDE OF THE TRADE. A hover is
+    // one interactive request and the walk is one pass over one file's AST; threading a member out
+    // of `TypeAtPosition` would have put it in a result type five other callers read.
+    static func ReflectedMemberAtPosition(snapshot: ProjectSnapshot, queryFile: string, line: int, col: int): ReflectedMemberHandle? {
+        unitMatch := FindCompilationUnit(snapshot, queryFile)
+        cu := unitMatch.Unit
+        if cu == null {
+            return null
+        }
+
+        semanticModel: SemanticModel? = null
+        snapshot.SemanticModels.TryGetValue(unitMatch.FilePath, out semanticModel)
+
+        memberAccess := MemberAccessAtPosition(FindExpressionAtPositionRobust(cu, line, col))
+        if memberAccess == null {
+            return null
+        }
+
+        // THE ANALYZER'S OWN ANSWER OUTRANKS A FRESH METADATA LOOKUP, because it is the only one
+        // that did real overload resolution. `AnalyzerExpressionTail` records every expression's
+        // type at its own position, so where the analyzer bound `Next(-20, 55)` it already chose
+        // `Next(int, int)` from the three, and re-deriving that here from arity alone would be a
+        // worse copy of work already done. The metadata lookup below is for the positions the
+        // analyzer never reached.
+        recorded := RecordedReflectedMethod(semanticModel, memberAccess)
+        if recorded != null {
+            return recorded
+        }
+
+        receiverType := ReflectedReceiverTypeInfo(memberAccess, semanticModel, snapshot, cu)
+        if receiverType == null {
+            return null
+        }
+
+        return CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForArity(receiverType, memberAccess.MemberName, -1)
+    }
+
+    // A recorded `ReflectionMethodInfo` is one resolved method; a `ReflectionMethodGroupInfo` is the
+    // set the analyzer could not narrow, and its first member is shown with the count beside it so
+    // the reader knows there are others. Neither carries a type override: the analyzer resolved
+    // these against its own closed types, so their signatures are already written in real types.
+    static func RecordedReflectedMethod(semanticModel: SemanticModel?, memberAccess: MemberAccessExpression): ReflectedMemberHandle? {
+        if semanticModel == null {
+            return null
+        }
+
+        recordedType := semanticModel.LookupTypeAtPosition(memberAccess.Line, memberAccess.Column)
+        if recordedType == null {
+            return null
+        }
+
+        single := recordedType as ReflectionMethodInfo
+        if single != null {
+            method := single.Method
+            return new ReflectedMemberHandle(null, null, method, method.get_Name(), CodeIntelligenceTypeResolution.DeclaringTypeText(method.get_DeclaringType()), null, 1)
+        }
+
+        group := recordedType as ReflectionMethodGroupInfo
+        if group != null {
+            methods := group.Methods
+            if methods.Length > 0 {
+                first := methods[0]
+                return new ReflectedMemberHandle(null, null, first, first.get_Name(), CodeIntelligenceTypeResolution.DeclaringTypeText(first.get_DeclaringType()), null, methods.Length)
+            }
+        }
+
+        return null
+    }
+
+    // A CALL IS ITS CALLEE HERE. Hovering the name in `x.Foo()` can land on either node depending on
+    // where the click fell relative to the dot, and both mean the same member.
+    static func MemberAccessAtPosition(expr: Expression?): MemberAccessExpression? {
+        memberAccess := expr as MemberAccessExpression
+        if memberAccess != null {
+            return memberAccess
+        }
+
+        call := expr as CallExpression
+        if call != null {
+            return MemberAccessAtPosition(call.Callee)
+        }
+
+        return null
+    }
+
+    // THE RECEIVER, ASKED THE TWO WAYS `MemberTypeInfo` ASKS IT AND THEN ONE MORE THAT ONLY HOVER
+    // NEEDS. A bare identifier nothing explains may still be an EXTERNAL TYPE NAME — `DateTime` in
+    // `DateTime.Now` is not a variable and no project declaration answers for it — and
+    // `SimpleTypeInfo` is the shape the known-receiver table is keyed on. It is LAST because a real
+    // local of the same name must always win.
+    static func ReflectedReceiverTypeInfo(memberAccess: MemberAccessExpression, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): TypeInfo? {
+        receiver := memberAccess.Object
+        receiverType := CodeIntelligenceTypeResolution.TypeInfoFromExpression(receiver, semanticModel, snapshot.CompilationUnits, currentUnit)
+        if receiverType != null {
+            return receiverType
+        }
+
+        receiverIdentifier := receiver as IdentifierExpression
+        if receiverIdentifier != null {
+            byName := CodeIntelligenceTypeResolution.TypeInfoByName(receiverIdentifier.Name, semanticModel, snapshot.CompilationUnits, currentUnit)
+            if byName != null {
+                return byName
+            }
+
+            return new SimpleTypeInfo(receiverIdentifier.Name)
+        }
+
+        return null
     }
 }
 

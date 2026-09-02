@@ -145,6 +145,16 @@ class CodeIntelligenceQueries {
 
     // ── Hover ───────────────────────────────────────────────────────────
     static func HoverInfo(snapshot: ProjectSnapshot, queryFile: string, line: int, col: int): HoverResult? {
+        // A REFLECTED MEMBER IS ASKED FIRST AND OUTRANKS THE TYPE ROUTE, because it knows strictly
+        // more: the type route can only ever say what the expression EVALUATES TO, and for a
+        // metadata member that discards the parameters, the return type and the declaring type —
+        // which was half of defect D2. It cannot shadow a source symbol: the receiver has to resolve
+        // to a CLR type for this to answer at all, and a project-declared receiver never does.
+        reflected := ReflectedHoverResult(CodeIntelligenceNavigation.ReflectedMemberAtPosition(snapshot, queryFile, line, col))
+        if reflected != null {
+            return reflected
+        }
+
         typeResult := CodeIntelligenceNavigation.TypeAtPosition(snapshot, queryFile, line, col)
         definition := Definition(snapshot, queryFile, line, col)
         if typeResult == null && definition == null {
@@ -189,6 +199,23 @@ class CodeIntelligenceQueries {
         }
 
         return new HoverResult(signature, documentation, definedIn, kind)
+    }
+
+    // A METADATA MEMBER HAS NO FILE AND NO DOC COMMENT, so `DefinedIn` and `Documentation` stay null
+    // and the declaring type carries the "where is this from" job instead. A member whose signature
+    // cannot be read declines the WHOLE result rather than half of it, so the caller falls through
+    // to the type route and the user still gets an answer.
+    static func ReflectedHoverResult(handle: ReflectedMemberHandle?): HoverResult? {
+        if handle == null {
+            return null
+        }
+
+        line := CodeIntelligenceSignatureKernels.GetReflectedMemberLineText(handle)
+        if line == null {
+            return null
+        }
+
+        return new HoverResult(line ?? "", null, null, CodeIntelligenceSignatureKernels.GetReflectedMemberKind(handle), handle.DeclaringType)
     }
 
     // ── Call graph and implementors ─────────────────────────────────────

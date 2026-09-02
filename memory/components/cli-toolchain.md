@@ -464,6 +464,18 @@ $ nlc query hover --file Program.nl --pos 5:6
 }
 ```
 
+A member that comes from METADATA rather than from the project — `summary.ToUpper()`, `DateTime.Now`, `arr.Length`, `list.ToArray()` — carries its full signature and an additional optional `declaringType`, and has no `definedIn` because there is no project file to point at:
+
+```json
+  "result": {
+    "signature": "method ToUpper: string ToUpper() (+1 overload)",
+    "declaringType": "System.String",
+    "kind": "method"
+  }
+```
+
+`declaringType` is an optional addition at `schemaVersion` 1: it is present only for metadata members, and `definedIn` remains a file path for project-declared symbols. One overload is rendered and the rest are counted. The language server shows the same two facts as `*Declaring Type:*` and `*Defined in:*`, because both surfaces are answered by the same owner.
+
 Exit code 0 on success, 1 with a structured `noSymbol` error envelope if there is no symbol at the given position.
 
 ### `nlc query doc` — .NET API Documentation
