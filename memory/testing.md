@@ -898,6 +898,70 @@ runtime assets remain verifier references rather than being mistaken for N#
 outputs. Standalone `scripts/ilverify.sh` and CI build the product surface and
 selected native regression assemblies themselves before verification.
 
+### 8. The Compile-Time Gate And Benchmark (`tests/native/compile-time-bench`)
+The gate has one compile-speed step, and it is N#-owned rather than a shell step because the
+ownership ratchet (`tests/native/ownership-audit`) refuses new shell and JSON files and every gate
+script is pinned at its epoch line count. `tests/native/compile-time-bench` is a native project
+with a `.tests.nl`, so Step 3a discovers and runs it like every other native estate; it appears in
+the gate log as `Testing native project: tests/native/compile-time-bench` and its one gate block is
+named `compile-time gate: …`.
+
+What the gate block does: it spawns the freshly built CLI (`src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll`,
+found by walking up from the test assembly's directory) three times as
+`nlc build --project src/NSharpLang.Compiler.BootstrapServices --timings -o <fresh temp dir>`, takes
+the median wall clock, and compares it to the checked-in baseline
+`tests/fixtures/compile-time/bootstrap-build-baseline.golden.json` (the `tests/fixtures/*.golden.json`
+path is the ratchet's one JSON exemption). The baseline pins `medianWallMs`, a `toleranceFactor`
+(1.5: the median must be at or under 1.5× the baseline), an `expectedExitCode` and a `stage`. Every
+run must exit with exactly the pinned code, and when that code is non-zero the CLI's own
+`Build failed in` banner must be on stdout, so a crash or a missing CLI can never pass as "the
+expected failure". A placeholder baseline (`medianWallMs: 0`) is refused by name, so the gate can
+never pass on an unmeasured file.
+
+Why the pinned exit code is 1 today: `nlc build` runs strict lint and legacy analysis, and on the
+compiler's own sources strict lint reports 45 findings (NL012 ×20, NL011 ×17, NL010 ×7, NL002 ×1)
+before `AnalyzeAllFiles()` runs; `nlc check` on the same tree reports 243 error-severity results.
+The product builds BootstrapServices through the MSBuild SDK with legacy analysis switched off by
+project name (`src/NSharpLang.Sdk/Sdk/Sdk.targets`). So the gated number is the FRONT-END time
+(parse + strict lint) of 403 files / 172,653 lines, and the baseline's `stage` field says so. When
+those diagnostics are fixed and `nlc build` exits 0 on this project, the gate fails on purpose
+("re-measure the baseline") and the re-measured baseline then covers analysis and emit too.
+
+Skipping and re-baselining:
+
+```bash
+SYSTEMS_BENCH=skip VSCODE_TESTS=skip ./scripts/test-all.sh --commit   # the gate block returns without measuring and passes
+```
+
+A native test must write nothing to stdout or stderr: Step 3a captures both streams into one file
+and `json.load`s the whole thing, so a single printed line turns 51 passed tests into a red step.
+The gate block's numbers therefore appear only in its failure message (`runs=[…] exitCodes=[…]
+median= baseline= tolerance= limit= cliCommit= stage=`); a green block is silent.
+
+`SYSTEMS_BENCH` is the same switch the native-comparison throughput step uses. It is NOT part of the
+step-cache salt (`env_names` in the two gate scripts is ratchet-pinned), so a cached Step 3a from a
+skip run is not compile-time evidence; `--commit` runs are always fresh. To re-baseline, run the
+harness on an IDLE machine (`pgrep -fl 'test-all-core|dotnet build|dotnet test|MSBuild|rustc|clang|code'`
+must be empty; the baseline's `machine` field names the hardware) and copy the BootstrapServices
+build row's median, peak RSS, files, lines, CLI commit and date into the golden file:
+
+```bash
+dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll build --project tests/native/compile-time-bench
+dotnet tests/native/compile-time-bench/bin/Debug/net10.0/NSharpLang.CompileTimeBench.dll --runs 5
+```
+
+The harness measures every project with a `project.yml` under `examples/`, `tests/` and `templates/`
+(68 today; the 27 that hold only `.tests.nl` are reported as "no non-test sources" and are compiled
+by `nlc test` in Step 3a instead) plus BootstrapServices, with `nlc build --timings` and
+`nlc check --json` five runs each under `/usr/bin/time -l` for peak RSS, and writes `runs.csv`,
+`compile-time.csv` and `compile-time.md` (lines per second per project and in aggregate, the
+`--timings` resolve/emit split, the diagnostic census of every failing check) to
+`artifacts/compile-time/<date>/` (gitignored; committed results are force-added). `--only <substring>`,
+`--scope corpus|bootstrap|all`, `--cli <Cli.dll>` and `--out <dir>` are the options; `--cli` is how
+another compiler build (for example a historical worktree) is measured over the same corpus. The
+2026-09-01 numbers and their interpretation are in
+`systems-language-closeout/MEASUREMENT-VERDICT-2026-09.md`.
+
 ## Test Categories
 
 ### Lexer Tests

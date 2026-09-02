@@ -11,3 +11,7 @@ ownership slice per goal turn.
 [`STATUS.md`](STATUS.md) is only the live cursor and evidence ledger. It must not become another
 architecture plan. Durable final survivor documentation belongs in
 `memory/architecture.md#non-nsharp-survivors`.
+
+[`MEASUREMENT-VERDICT-2026-09.md`](MEASUREMENT-VERDICT-2026-09.md) is the 2026-09-01 compile-time
+measurement of `nlc` (harness: `tests/native/compile-time-bench`) and the written price of finishing
+task 015, laid out as two options for the user to decide between.
