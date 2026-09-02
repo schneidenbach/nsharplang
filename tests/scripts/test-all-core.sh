@@ -58,8 +58,7 @@ fi
 
 DOTNET_STABLE_FLAGS="--disable-build-servers -nr:false"
 if is_enabled "$NLC_MSBUILD_SINGLE_NODE"; then
-    # Some coding-agent sandboxes allow file writes but deny local IPC socket
-    # binds. Force MSBuild into the in-process, single-node path there.
+    # Some sandboxes allow file writes but deny IPC socket binds; force the in-process MSBuild path.
     DOTNET_STABLE_FLAGS="$DOTNET_STABLE_FLAGS -m:1 -p:BuildInParallel=false"
     export DOTNET_CLI_USE_MSBUILD_SERVER=0
     export DOTNET_CLI_RUN_MSBUILD_OUTOFPROC=0
@@ -79,9 +78,7 @@ section() {
     record_section_duration
     CURRENT_SECTION_NAME="$1"
     CURRENT_SECTION_START_TIME=$(date +%s)
-    echo
-    echo -e "${YELLOW}>>> $1${NC}"
-    echo "========================================="
+    echo -e "\n${YELLOW}>>> $1${NC}\n========================================="
 }
 
 record_section_duration() {
@@ -114,9 +111,7 @@ print_timing_summary() {
     total_end=$(date +%s)
     local total_seconds=$((total_end - TOTAL_START_TIME))
 
-    echo
-    echo -e "${YELLOW}>>> Timing Summary${NC}"
-    echo "========================================="
+    echo -e "\n${YELLOW}>>> Timing Summary${NC}\n========================================="
     local i
     for ((i = 0; i < ${#STAGE_NAMES[@]}; i++)); do
         printf '  %-46s %s\n' "${STAGE_NAMES[$i]}" "$(format_duration "${STAGE_SECONDS[$i]}")"
@@ -143,11 +138,9 @@ LOCAL_FEED="$HOME/.nsharp/packages"
 NUGET_PACKAGE_CACHE="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 
 # ---- Validated per-step input caching --------------------------------------
-# A step may be skipped only when its ENTIRE input set is byte-identical to a
-# set that previously PASSED that step on this toolchain/platform (markers are
-# written only on success, keyed by content hash). This is what lets docs- or
-# tests-only commits stop paying for identical-input example steps.
-# The wrapper and explicit fresh/clean flags control skipping; direct core invocations never skip.
+# A step may be skipped only when its ENTIRE input set is byte-identical to a set that previously PASSED it on this
+# toolchain/platform (markers written only on success, keyed by content hash). This is what lets docs- or tests-only
+# commits skip identical-input example steps. The wrapper and its fresh/clean flags control skipping; direct core runs never skip.
 STEP_CACHE_ROOT="${NSHARP_TEST_STEP_CACHE_ROOT:-}"
 
 step_cache_enabled() {
@@ -168,13 +161,12 @@ step_cache_store() {
 }
 
 step_skip_banner() {
-    echo "SKIPPED: validated step cache hit (key ${2:0:16})."
-    echo "This exact input set previously passed this step on this toolchain."
-    echo "Force every step with ./scripts/test-all.sh --fresh (or --release)."
+    printf 'SKIPPED: validated step cache hit (key %s).\nThis exact input set previously passed this step on this toolchain.\nForce every step with ./scripts/test-all.sh --fresh (or --release).\n' "${2:0:16}"
 }
 
 UNIT_INPUTS_HASH=""
 EXAMPLES_INPUTS_HASH=""
+BENCH_INPUTS_HASH=""
 if step_cache_enabled; then
     STEP_HASH_OUTPUT="$(python3 - "$REPO_ROOT" <<'PY'
 import hashlib, json, os, platform, shutil, subprocess, sys
@@ -183,12 +175,11 @@ root = os.path.realpath(sys.argv[1])
 SKIP_DIRS = {".git", "bin", "obj", "node_modules", ".vscode-test", ".context",
              "artifacts", "server", "out", "nsharp", "TestResults"}
 
-# Path prefixes per input set ('/'-normalized, relative to repo root). Sets are deliberately
-# over-inclusive: the gate scripts and shared build files are in
-# every set, and src/ (the compiler itself) invalidates everything. UNIT must
-# cover docs/ and website/docs/ wholesale because unit tests golden-compare and
-# parity-check repo documentation (cli-reference.md, diagnostic-clusters
-# sample, systems audit, ...); GateStepInputSetGuardTests enforces this.
+# Path prefixes per input set ('/'-normalized, relative to repo root). Sets are deliberately over-inclusive:
+# the gate scripts and shared build files are in every set, and src/ (the compiler itself) invalidates
+# everything. UNIT must cover docs/ and website/docs/ wholesale because unit tests golden-compare and
+# parity-check repo documentation (cli-reference.md, diagnostic-clusters sample, systems audit, ...);
+# GateStepInputSetGuardTests enforces this. BENCH is the systems throughput gate: the runner and kernels.
 COMMON = ("scripts/", "tests/scripts/", "global.json", "Directory.Build.props",
           "Directory.Build.targets", "NuGet.config", "NSharpLang.sln")
 SETS = {
@@ -197,13 +188,13 @@ SETS = {
                        "editors/vscode/test/suite/"),
     "EXAMPLES": COMMON + ("src/", "examples/", "templates/", "tests/fixtures/",
                            "tests/native/", "tests/scripts/"),
+    "BENCH": COMMON + ("src/", "benchmarks/native-comparison/"),
 }
 
-# Behavior-changing environment must be part of every step key, mirroring
-# env_names in the whole-gate signature in tests/scripts/test-all.sh (keep the
-# two lists in sync; GateStepInputSetGuardTests enforces it). A marker stored
-# under one environment must never satisfy a run under another.
-ENV_NAMES = ("VSCODE_TESTS", "TEST_SUITE", "TEST_GREP", "TEST_ALL_JOBS",
+# Behavior-changing environment must be part of every step key, mirroring env_names in the whole-gate
+# signature in tests/scripts/test-all.sh (keep the two lists in sync; GateStepInputSetGuardTests
+# enforces it). A marker stored under one environment must never satisfy a run under another.
+ENV_NAMES = ("VSCODE_TESTS", "TEST_SUITE", "TEST_GREP", "TEST_ALL_JOBS", "SYSTEMS_BENCH",
              "NLC_MSBUILD_SINGLE_NODE", "DOTNET_ROOT", "NSHARP_EXPERIMENTAL_SOA")
 
 def run_text(command):
@@ -215,12 +206,9 @@ def run_text(command):
     return completed.stdout.strip() if completed.returncode == 0 else None
 
 def ilverify_versions():
-    # The templates-examples-ilverify step promises a same-toolchain skip, so
-    # the installed dotnet-ilverify tool version salts every step key. Resolve
-    # the apphost shim like scripts/ilverify.sh does (PATH first, then the
-    # default tool dir) and read the version directory names from the adjacent
-    # global tool store; invoking ilverify --version needs DOTNET_ROOT wiring
-    # the hash step should not depend on.
+    # The templates-examples-ilverify step promises a same-toolchain skip, so the installed dotnet-ilverify version
+    # salts every step key. Resolve the apphost shim like scripts/ilverify.sh does (PATH first, then the default tool
+    # dir) and read version names from the tool store; invoking ilverify --version would need DOTNET_ROOT wiring we avoid.
     exe = shutil.which("ilverify")
     if exe is None:
         fallback = os.path.expanduser("~/.dotnet/tools/ilverify")
@@ -272,6 +260,7 @@ PY
 )" || STEP_HASH_OUTPUT=""
     UNIT_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^UNIT=//p')"
     EXAMPLES_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^EXAMPLES=//p')"
+    BENCH_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^BENCH=//p')"
 fi
 # -----------------------------------------------------------------------------
 
@@ -309,8 +298,7 @@ fi
 section "Step 2b: Format Contract Gate"
 echo "Checking canonical formatting for examples, templates, fixtures, and the compiler's own N# sources..."
 FORMAT_OUTPUT=$(mktemp)
-# A brace group's exit status is only its LAST command's, which would silently discard a
-# failure from earlier checks. Accumulate every exit code so ANY non-zero check fails the gate.
+# A brace group's exit status is only its LAST command's: accumulate every exit code instead, so ANY non-zero check fails the gate.
 format_rc=0
 {
     dotnet "$CLI_DLL" format --project examples --check || format_rc=1
@@ -455,12 +443,10 @@ PY
 fi
 
 section "Step 3b: VS Code Integration Tests"
-# Determine whether to run full VS Code tests or the bounded smoke suite.
-# The full suite is intentionally opt-in: it is exhaustive, can exceed launch
-# rehearsal budgets, and currently includes repo-wide/demonstration coverage that
-# is tracked separately from this fast release gate. The default gate still
-# verifies the extension loads and core LSP UX works; set VSCODE_TESTS=full when
-# you explicitly want the exhaustive suite.
+# Determine whether to run full VS Code tests or the bounded smoke suite. The full suite is
+# intentionally opt-in: exhaustive, can exceed launch rehearsal budgets, and currently includes
+# repo-wide/demonstration coverage tracked separately from this fast release gate. The default gate
+# still verifies the extension loads and core LSP UX works; VSCODE_TESTS=full asks for the rest.
 VSCODE_TEST_MODE="${VSCODE_TESTS:-auto}"
 
 if [ "$VSCODE_TEST_MODE" = "auto" ]; then
@@ -516,6 +502,20 @@ else
         fi
         rm -f "$VSCODE_OUTPUT"
     fi
+fi
+
+section "Step 3c: Systems Throughput Gate"
+if [ "${SYSTEMS_BENCH:-}" = "skip" ]; then
+    echo -e "${YELLOW}Skipping systems throughput gate (SYSTEMS_BENCH=skip)${NC}"
+elif step_cache_hit "systems-throughput" "$BENCH_INPUTS_HASH"; then
+    step_skip_banner "systems-throughput" "$BENCH_INPUTS_HASH"
+    handle_success "Systems throughput gate (validated step cache)"
+elif dotnet "$CLI_DLL" build --project benchmarks/native-comparison/runner \
+        && dotnet benchmarks/native-comparison/runner/bin/Debug/net10.0/NSharpLang.NativeComparisonRunner.dll gate --cli "$CLI_DLL" --repo "$REPO_ROOT"; then
+    handle_success "Systems throughput gate"
+    step_cache_store "systems-throughput" "$BENCH_INPUTS_HASH"
+else
+    handle_error "Systems throughput gate"
 fi
 
 section "Step 4: Pack and Install MSBuild SDK"
@@ -793,9 +793,8 @@ section "Step 10: Check Examples (nlc check)"
 echo "Running nlc check on all example directories..."
 echo "This verifies the Language Server won't report false errors."
 
-# Check each self-contained project; skip umbrella folders with no direct .nl files or project.yml. Their child
-# projects are checked separately. This keeps the output trustworthy without
-# parent-directory allowlists that mask bad import roots.
+# Check each self-contained project; skip umbrella folders with no direct .nl files or project.yml —
+# their child projects are checked separately, without allowlists that would mask bad import roots.
 CHECK_DIRS=$(find examples -mindepth 1 -maxdepth 1 -type d | sort)
 # Sub-projects in 12-multi-file-projects need individual checking
 CHECK_DIRS="$CHECK_DIRS

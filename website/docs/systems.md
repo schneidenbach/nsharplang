@@ -401,16 +401,68 @@ serial but only reads adjacent *inputs*, so it lowers to a **seeded shifted comp
 packed compare-not-equal of the array against itself shifted by one element, with a masked
 accumulate.
 
-All four rewrites are **on by default**; set `NSHARP_VECTORIZE_REDUCTIONS=0` to opt out. They
-only fire under conservative guards: an unchecked context, an exact element-type match,
-distinct accumulator/array/index names (no aliasing), and a side-effect-free loop bound
-(`array.Length` lowers to a pure `ldlen`).
+All four rewrites are **always on**. There is no opt-out switch in the current backend: the
+`NSHARP_VECTORIZE_REDUCTIONS=0` environment variable that earlier versions of this page
+described belonged to the retired IL compiler and has had no effect since 2026-06-23; the
+contract project `tests/native/systems-vectorization-facts` pins that fact. The rewrites
+only fire under conservative guards: a plain (unchecked) `+` update, an exact element-type
+match, distinct accumulator/array/index names (no aliasing), and a side-effect-free loop
+bound (an `int` local/parameter, a literal, or `array.Length`, which lowers to a pure `ldlen`).
 
-Treat checked-in timing numbers as historical unless they are refreshed from an
-N#-owned measurement path. The compiler-owned evidence for this feature is the
-IL shape: vector construction, vectorized loop bodies, and no introduced
-allocation or boxing in the hot path.
-(worst small-input cell anywhere: 2.49×, min-max-delta at 64 elements).
+### Measured against Rust and C (2026-09-01)
+
+Every number below was taken in one session on an idle Apple M4 (load average 2.6 on
+10 cores, no other build or test running), .NET 10.0.105, rustc 1.96.0, Apple clang 17.0.0,
+at commit 8cf40128a, by the N#-owned runner in `benchmarks/native-comparison/`. N#, Rust and
+C run the same six kernels with the same input fill, the same warmup / fixed-iteration /
+printed-sink discipline and the same per-port iteration and trial counts; the N# column is the
+median of 15 (21 for rolling-hash and min-max-delta) trials, measured against the **Release**
+build of `NSharpLang.Runtime` (the dev CLI's Debug runtime carries `DisableOptimizations`, which
+runs the SIMD helpers at minopts and understates the vectorized kernels 3-4x). Reproduce with:
+
+```bash
+dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll build --project benchmarks/native-comparison/runner
+dotnet benchmarks/native-comparison/runner/bin/Debug/net10.0/NSharpLang.NativeComparisonRunner.dll \
+    compare --cli src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll --repo "$PWD"
+```
+
+| Workload | Size | N# ns | Rust ns | C ns | N#/best-native | June 2026 N# ns | today/June | vectorized |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| checksum-sum | 64 | 5.491 | 2.555 | 2.159 | **2.54×** | 4.219 | 1.30× | `SumInt32` |
+| checksum-sum | 4096 | 297.304 | 116.624 | 117.140 | **2.55×** | 222.625 | 1.34× | `SumInt32` |
+| count-ascii | 64 | 6.842 | 3.433 | 3.426 | **2.00×** | 5.291 | 1.29× | `CountInRangeInt32` |
+| count-ascii | 4096 | 348.382 | 189.349 | 191.140 | **1.84×** | 298.051 | 1.17× | `CountInRangeInt32` |
+| count-transitions | 64 | 13.261 | 7.199 | 7.127 | **1.86×** | 11.368 | 1.17× | `CountTransitionsInt32` |
+| count-transitions | 4096 | 577.534 | 253.887 | 252.660 | **2.29×** | 477.331 | 1.21× | `CountTransitionsInt32` |
+| rolling-hash | 64 | 42.157 | 30.960 | 31.169 | 1.36× | 42.251 | 1.00× | none (latency-bound) |
+| rolling-hash | 4096 | 4687.854 | 2953.767 | 2977.100 | 1.59× | 4695.715 | 1.00× | none (latency-bound) |
+| min-max-delta | 64 | 12.573 | 4.739 | 8.905 | **2.65×** | 11.130 | 1.13× | `MinMaxInt32` |
+| min-max-delta | 4096 | 309.500 | 157.713 | 154.880 | **2.00×** | 253.578 | 1.22× | `MinMaxInt32` |
+| parse-eight-digits | 64 | 3.339 | 1.546 | 1.558 | 2.16× | 2.787 | 1.20× | none (8 elements) |
+| parse-eight-digits | 4096 | 3.331 | 1.544 | 1.556 | 2.16× | 2.776 | 1.20× | none (8 elements) |
+
+The `vectorized` column is read back out of the emitted IL at run time (`--il-shape`): all four
+vectorizable kernels still lower to their `SimdReductions` helper, and the two scalar kernels
+stay scalar. The June 2026-06-07 column is the previous measurement (commit 9372d0c78); its
+Rust/C numbers are within 3-6% of today's, so the machine and native toolchains did not move.
+
+**Finding (recorded, not fixed here):** N# is 1.17-1.34× slower than in June on every
+vectorized kernel and 1.20× slower on parse-eight-digits, while rolling-hash is identical.
+The vectorizer fires (IL evidence above), the helper source is unchanged since June, and the
+natives moved at most 6%. What did change: the June numbers came from the retired C#
+`ILCompiler`'s vectorizer through BenchmarkDotNet's in-process delegate, while today's come
+from the columnar emitter's port of it (2026-06-12) through a persisted `nlc build` assembly
+run as a process. The difference lives in the emitted IL around the helper call and in the
+scalar codegen (parse-eight-digits), and is the first thing the 015 N# owner of the
+vectorizer should measure. The **historical** N#/C# column (C# 3.9-5.9× slower than N# on the
+vectorized kernels, a tie elsewhere) has no lane today: its BenchmarkDotNet harness was deleted
+with the C# export tooling and is not restored.
+
+The product gate holds these medians: Step 3c of `scripts/test-all.sh` runs the same six
+kernels and fails any cell that regresses more than 20% against
+`benchmarks/native-comparison/runner/SystemsThroughputBaseline.nl` (`SYSTEMS_BENCH=skip` skips it
+on a loaded machine). The compiler-owned evidence is the IL shape, pinned by
+`tests/native/systems-vectorization-facts` for every accepted shape and every guard.
 
 > **Honest scope.** Vectorization is narrow on purpose, with a single uniform-stride index
 > and exactly the four shapes above. Counted **reductions** cover `int`/`long`/`uint`/`ulong`

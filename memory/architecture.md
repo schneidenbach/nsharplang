@@ -104,6 +104,20 @@ such:
   `tasks/015-remaining-emitter-decisions.md` sub-tasks (plan-row lambda-body emitter; N#
   preflight/typing-owner port; async-func lowering; planner-driven operand unlocks), and under the
   AOT metadata-writer task that must replace `System.Reflection.Emit` outright.
+- **The SIMD auto-vectorizer is C# inside `ColumnarIlEmitter.cs` and has an N# contract owner, not an
+  N# implementation owner.** `TryEmitVectorizedReduction{While,For}`, `TryEmitVectorizedRangeCount*`,
+  `TryEmitVectorizedMinMax*`, and `TryEmitVectorizedCountTransitions*` (plus the `SimdReductions` helper
+  table near the top of the file) lower four loop shapes to calls into
+  `src/NSharpLang.Runtime/SimdReductions.cs`. That lowering is what makes systems N# Rust-class on the
+  vectorizable kernels (`benchmarks/native-comparison/`), and its C# tests were deleted at a50cb4000.
+  Since 2026-09-01 the contracts live in `tests/native/systems-vectorization-facts` (IL shape read from
+  the emitted assembly by an N# IL walker, plus scalar-equivalence on fixed and randomised inputs, for
+  every accepted shape and every conservative guard), and the throughput is gated by the product gate's
+  Step 3c against `benchmarks/native-comparison/runner/SystemsThroughputBaseline.nl`. **Any 015 sub-slice
+  that deletes or ports the vectorizer must route through that contract project: the N# owner is done
+  only when `systems-vectorization-facts` is green unchanged and Step 3c still passes.** Note also that
+  the `NSHARP_VECTORIZE_REDUCTIONS=0` opt-out the docs used to advertise died with the legacy IL compiler
+  at 1cef0d16e; the columnar emitter has no opt-out, and the contract project pins that fact.
 - `Analyzer.cs`'s remaining decision residue is one internal `InvalidOperationException` inside
   `LoadSystemAssemblies()`, which sits wholly inside the **`MetadataLoadContext` quarantine**
   (17 members plus the nested `NSharpMetadataResolver`). The quarantine retires with the AOT

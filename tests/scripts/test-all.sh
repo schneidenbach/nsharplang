@@ -220,7 +220,7 @@ tool_versions = {
 # the per-step salt in tests/scripts/test-all-core.sh
 # (GateStepInputSetGuardTests enforces it).
 env_names = [
-    "VSCODE_TESTS",
+    "VSCODE_TESTS", "SYSTEMS_BENCH",
     "TEST_SUITE",
     "TEST_GREP",
     "TEST_ALL_JOBS",

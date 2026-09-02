@@ -848,9 +848,14 @@ toolchain and environment (validated per-step cache in `tests/scripts/test-all-c
 written only on success). Input sets are over-inclusive — `src/**` and the gate scripts invalidate
 everything, and UNIT includes `docs/` and `website/docs/` wholesale because unit tests
 golden-compare and parity-check repo documentation (cli-reference.md, the diagnostic-clusters
-sample, the systems audit). Step keys are also salted with the behavior-changing environment (the
-same env_names as the whole-gate signature, including `NSHARP_EXPERIMENTAL_SOA`) and the installed
-dotnet-ilverify tool version. Practical effect for local development: docs-only changes re-run unit
+sample, the systems audit). There are three sets: UNIT (the `unit-tests` and `native-nsharp-tests`
+steps), EXAMPLES (`templates-examples-ilverify`), and BENCH — `src/` plus
+`benchmarks/native-comparison/` plus the common gate files (both gate scripts, `global.json`,
+`Directory.Build.props`, `Directory.Build.targets`, `NuGet.config`, `NSharpLang.sln`) — which keys
+the `systems-throughput` step of Step 3c. Step keys are also salted with the behavior-changing
+environment (the same env_names as the whole-gate signature, including `NSHARP_EXPERIMENTAL_SOA`
+and `SYSTEMS_BENCH`) and the installed dotnet-ilverify tool
+version. Practical effect for local development: docs-only changes re-run unit
 tests (~1m36s) but still skip benchmarks, interop, and the example chain; tests-only changes skip
 benchmarks and the example chain. Do NOT "optimize" docs changes back out of UNIT — that exact gap
 let a red docs-parity test pass the step cache during finding F9. `--commit`, `--release`,
@@ -862,10 +867,38 @@ input-set prefixes next to the step wrappers in test-all-core.sh —
 `tests/GateStepInputSetGuardTests.cs` enforces coverage of repo files tests read, the env-list
 sync between the two scripts, and the hash-step behavior itself.
 
+### 6. Step 3c: The Systems Throughput Gate
+Step 3c builds the N#-owned native-comparison runner
+(`dotnet "$CLI_DLL" build --project benchmarks/native-comparison/runner`) and runs it in `gate`
+mode against the repo root. The runner executes the six systems kernels at both sizes (64 and 4096)
+and compares the MEDIAN of 15 trials per (kernel, size) against
+`benchmarks/native-comparison/runner/SystemsThroughputBaseline.nl` at a 20 percent tolerance: a cell
+fails when `measured / baseline > 1.20`, and any failing cell fails the step.
+
+Median, not mean, because the old BenchmarkDotNet gate compared means and flaked under thermal load
+— a handful of throttled iterations drags a mean up while the median holds. 20 percent because it is
+wide enough to absorb run-to-run noise on an idle Apple M4 (the June 2026 run's IQRs were a few
+percent) and tight enough to catch the regression the lane exists for: the vectorizer silently
+falling back to scalar, which costs 2-6x.
+
+`SYSTEMS_BENCH=skip` skips the step on a hot or loaded machine. A skip is neither a pass nor a
+failure — it stores no step-cache marker, so the next unskipped run still has to earn one — and
+`SYSTEMS_BENCH` salts every step key and the whole-gate signature, so a skipped run can never
+satisfy an unskipped one. Refresh the baseline by running `gate --print-baseline` on an idle machine
+and pasting the printed block into `SystemsThroughputBaseline.nl`. Before trusting ANY number from
+this lane, baseline or failure, confirm the machine is idle:
+
+```bash
+pgrep -fl 'test-all-core|dotnet build|dotnet test|MSBuild|rustc|clang|code'
+```
+
+It must print nothing. A timing taken beside another agent's build is not a measurement.
+
 ### 7. Gate Profiling And Slicing Guidance
-Current gate profiling must be refreshed after the removal of the old
-wall-clock benchmark lane. Use a fresh `VSCODE_TESTS=skip ./scripts/test-all.sh
---commit` run when updating this section.
+Current gate profiling must be refreshed: the old BenchmarkDotNet wall-clock
+lane was removed, and a throughput lane returned as Step 3c above. Use a fresh
+`VSCODE_TESTS=skip ./scripts/test-all.sh --commit` run when updating this
+section.
 
 Per-test TRX profiling from the same pass showed the unit bucket is dominated by
 SDK/toolchain subprocess tests and a few full IL execution cases. Those sums
@@ -1310,6 +1343,9 @@ non-VS-Code product gate:
 ```bash
 VSCODE_TESTS=skip ./scripts/test-all.sh --commit
 ```
+
+Add `SYSTEMS_BENCH=skip` to that line when the machine is hot or busy: it skips the Step 3c
+throughput gate, whose timings are meaningless under load (section 6).
 
 For Language Server, LSP, extension, or other IDE-affecting work, do not skip VS Code tests:
 
