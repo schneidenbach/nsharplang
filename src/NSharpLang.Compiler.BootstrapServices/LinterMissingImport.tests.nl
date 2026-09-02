@@ -14,7 +14,6 @@ import NSharpLang.Compiler.Ast
 // The two tables were written as two `Dictionary<string,string>` literals inside two methods, so
 // nothing could observe that one was a superset of the other and nothing could observe a row lost
 // from just one of them. Both facts are now equalities below.
-
 func LmiScopes(names: string[]): Stack<HashSet<string>> {
     scopes := new Stack<HashSet<string>>()
     frame := new HashSet<string>(StringComparer.Ordinal)
@@ -150,7 +149,6 @@ func LmiMentions(typeReference: TypeReference, expected: string[]): bool {
     return true
 }
 
-
 // ── what a type reference is called ──────────────────────────────────────────────────────────
 
 test "a simple and a generic type answer with their written name" {
@@ -194,7 +192,8 @@ test "an empty union is nameless, so the arms scan is safe on a union with no ar
 test "a union of wrapped arms is still named, because the arms are asked recursively" {
     wrapped := LmiUnion(LmiArms(
         new ArrayTypeReference(new TupleTypeReference(new List<TupleTypeElement>())),
-        new NullableTypeReference(LmiSimple("Task"))))
+        new NullableTypeReference(LmiSimple("Task"))
+    ))
     assert LinterTypeReferenceName.Base(wrapped) == "Task"
 }
 
@@ -210,7 +209,6 @@ test "the nameless kinds answer NOTHING, and that silence is the contract" {
     assert LinterTypeReferenceName.Base(new ArrayTypeReference(new TupleTypeReference(new List<TupleTypeElement>()))) == null
     assert LinterTypeReferenceName.Base(new NullableTypeReference(new TupleTypeReference(new List<TupleTypeElement>()))) == null
 }
-
 
 // ── what a type reference MENTIONS (task 019 slice 9) ────────────────────────────────────────
 //
@@ -329,7 +327,6 @@ test "the accumulator form and the answering form are the same walk" {
     LinterTypeReferenceName.CollectMentionedNames(null, shared)
     assert shared.Count == 3
 }
-
 
 // ── the two tables ───────────────────────────────────────────────────────────────────────────
 
@@ -457,7 +454,6 @@ test "a table name with anything appended or prepended is not a table name" {
     assert LinterMissingImport.RequiredNamespaceForIdentifier("System.IO.File") == null
 }
 
-
 // ── the decision: the three silencers, and the order they apply in ───────────────────────────
 
 test "a table name written with no import at all is reported, with its namespace" {
@@ -576,7 +572,6 @@ test "every table name is silenced when its own namespace is imported, so no row
 
     assert silenced == 25
 }
-
 
 // ── what the diagnostic says ─────────────────────────────────────────────────────────────────
 

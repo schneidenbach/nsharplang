@@ -19,7 +19,6 @@ import NSharpLang.Compiler.Ast
 //   * which forms are rewritten at all — generic, array and nullable — and which (tuple, function,
 //     by-ref, union) are handed to the plain walk untouched even under a live binding;
 //   * that a BOUND simple name answers WITHOUT resolving, so it writes no semantic-model record.
-
 func SubstitutionScopes(): AnalyzerScopeStack {
     scopes := new AnalyzerScopeStack()
     scopes.Push(new SemanticModel(), new Scope(ScopeKind.Global), 1, 1)
@@ -35,13 +34,15 @@ func SubstitutionContext(): AnalyzerDeclarationContext {
 func SubstitutionResolver(
     scopes: AnalyzerScopeStack,
     context: AnalyzerDeclarationContext,
-    model: SemanticModel): AnalyzerTypeResolver {
+    model: SemanticModel
+): AnalyzerTypeResolver {
     provider := new AnalyzerProjectSourceProvider()
     discovery := new AnalyzerProjectTypeDiscovery(
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     return new AnalyzerTypeResolver(
         scopes,
@@ -50,10 +51,11 @@ func SubstitutionResolver(
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         model,
-        new BindingMap())
+        new BindingMap()
+    )
 }
 
 // Reference identity — used only where these contracts HOLD both instances, because the claim is
@@ -105,7 +107,8 @@ func SubstitutionClass(name: string, typeParameters: TypeParameter[]): ClassType
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
 }
 
 test "the open definition a generic instantiation CARRIES wins over the scope" {
@@ -133,12 +136,16 @@ test "an instantiation with NO carried definition resolves its bare name in scop
 
     assert SubstitutionSame(
         owner.ResolveGenericDefinition(
-            new GenericTypeInfo("Box", SubstitutionTypeArguments(BuiltInTypes.Int), null)),
-        declared)
+            new GenericTypeInfo("Box", SubstitutionTypeArguments(BuiltInTypes.Int), null)
+        ),
+        declared
+    )
     assert SubstitutionSame(
         owner.ResolveGenericDefinition(
-            new GenericTypeInfo("Absent", SubstitutionTypeArguments(BuiltInTypes.Int), null)),
-        null)
+            new GenericTypeInfo("Absent", SubstitutionTypeArguments(BuiltInTypes.Int), null)
+        ),
+        null
+    )
 }
 
 test "a plain type is its OWN declaration owner and induces no substitution" {
@@ -187,7 +194,8 @@ test "a generic over a CLR definition is NOT substituted — it answers the inst
     generic := new GenericTypeInfo(
         "List",
         SubstitutionTypeArguments(BuiltInTypes.Int),
-        new ReflectionTypeInfo(typeof(List<int>)))
+        new ReflectionTypeInfo(typeof(List<int>))
+    )
 
     substitution: Dictionary<string, TypeInfo>? = SubstitutionOf("T", BuiltInTypes.Int)
     answer := owner.GetSourceDeclarationOwner(generic, out substitution)
@@ -248,7 +256,8 @@ test "array and nullable compose THROUGH the binding" {
 
     arrayAnswer := owner.ResolveTypeWithSubstitution(
         new ArrayTypeReference(new SimpleTypeReference("T", 7, 1)),
-        substitution)
+        substitution
+    )
     arrayInfo := arrayAnswer as ArrayTypeInfo
     assert arrayInfo != null
     if arrayInfo != null {
@@ -257,7 +266,8 @@ test "array and nullable compose THROUGH the binding" {
 
     nullableAnswer := owner.ResolveTypeWithSubstitution(
         new NullableTypeReference(new SimpleTypeReference("T", 8, 1)),
-        substitution)
+        substitution
+    )
     nullableInfo := nullableAnswer as NullableTypeInfo
     assert nullableInfo != null
     if nullableInfo != null {
@@ -280,7 +290,8 @@ test "a generic head keeps the PLAIN walk's definition while its arguments are r
         "Box",
         SubstitutionReferenceArguments(new SimpleTypeReference("T", 9, 5)),
         9,
-        1)
+        1
+    )
     expected := BuiltInTypes.String
     answer := owner.ResolveTypeWithSubstitution(reference, SubstitutionOf("T", expected))
 
@@ -304,7 +315,8 @@ test "a generic head the plain walk does NOT read as generic keeps a null defini
         "AbsentHead",
         SubstitutionReferenceArguments(new SimpleTypeReference("T", 10, 5)),
         0,
-        0)
+        0
+    )
     expected := BuiltInTypes.Int
     answer := owner.ResolveTypeWithSubstitution(reference, SubstitutionOf("T", expected))
 
@@ -337,7 +349,8 @@ test "tuple, function and by-ref references are handed to the plain walk UNCHANG
 
     byRefAnswer := owner.ResolveTypeWithSubstitution(
         new ByRefTypeReference(new SimpleTypeReference("T", 12, 3)),
-        substitution)
+        substitution
+    )
     byRef := byRefAnswer as ByRefTypeInfo
     assert byRef != null
     if byRef != null {
@@ -356,7 +369,8 @@ test "an owner the declaration context does NOT know falls back to the substitut
     answer := owner.ResolveTypeForSourceOwner(
         new SimpleTypeReference("T", 13, 4),
         unknownOwner,
-        SubstitutionOf("T", expected))
+        SubstitutionOf("T", expected)
+    )
 
     assert SubstitutionSame(answer, expected)
 }
@@ -371,7 +385,8 @@ test "the fallback reaches the PLAIN walk when the binding does not bind the nam
     answer := owner.ResolveTypeForSourceOwner(
         new SimpleTypeReference("int", 14, 4),
         unknownOwner,
-        null)
+        null
+    )
 
     assert SubstitutionText(answer) == "int"
     recorded: TypeInfo = BuiltInTypes.Unknown

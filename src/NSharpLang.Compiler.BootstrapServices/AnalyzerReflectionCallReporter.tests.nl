@@ -27,7 +27,6 @@ import NSharpLang.Compiler.Ast
 //   * the NL411 guard consults the EXPECTED type and nothing else, and a lambda is never unbound;
 //   * the NL411 dedupe is keyed on the ANCHOR plus the reported NAME, and its log OUTLIVES the
 //     reporter that reads it — which is the whole reason it is a separate owner.
-
 func ReporterErrors(): List<CompilerError> {
     return new List<CompilerError>()
 }
@@ -49,7 +48,8 @@ func ReporterOwnerWith(
     errors: List<CompilerError>,
     scopes: AnalyzerScopeStack,
     sourceText: string?,
-    log: AnalyzerCallableReferenceReportLog): AnalyzerReflectionCallReporter {
+    log: AnalyzerCallableReferenceReportLog
+): AnalyzerReflectionCallReporter {
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
     provider := new AnalyzerProjectSourceProvider()
@@ -258,7 +258,10 @@ test "an unbound reflected call reports NL402 naming what the user WROTE" {
     owner := ReporterOwner(errors, scopes)
 
     owner.ReportNoMatchingOverload(
-        RCall("hash", RArgs1(RIdentifier("a", 1, 6))), ROneMethod(), RTypes1(BuiltInTypes.String))
+        RCall("hash", RArgs1(RIdentifier("a", 1, 6))),
+        ROneMethod(),
+        RTypes1(BuiltInTypes.String)
+    )
 
     assert RCodes(errors) == "NL402"
     assert errors[0].Message.Contains("'hash'")
@@ -273,7 +276,10 @@ test "a MEMBER-ACCESS callee names the MEMBER, and the span moves to it" {
     owner := ReporterOwner(errors, scopes)
 
     owner.ReportNoMatchingOverload(
-        RMemberCall("Trim", RArgs0()), ROneMethod(), RTypes0())
+        RMemberCall("Trim", RArgs0()),
+        ROneMethod(),
+        RTypes0()
+    )
 
     assert RCodes(errors) == "NL402"
     assert errors[0].Message.Contains("'Trim'")
@@ -303,7 +309,8 @@ test "the argument types are rendered in ARGUMENT order" {
     owner.ReportNoMatchingOverload(
         RCall("hash", RArgs2(RIdentifier("a", 1, 14), RIdentifier("b", 1, 17))),
         ROneMethod(),
-        RTypes2(BuiltInTypes.String, BuiltInTypes.Int))
+        RTypes2(BuiltInTypes.String, BuiltInTypes.Int)
+    )
 
     assert RCodes(errors) == "NL402"
     hint := errors[0].HumanExplanation ?? ""
@@ -325,7 +332,10 @@ test "the candidate list is DISTINCT first and capped at eight second" {
     assert candidates.Count > 8
 
     owner.ReportNoMatchingOverload(
-        RCall("IndexOf", RArgs1(RIdentifier("a", 1, 17))), candidates, RTypes1(BuiltInTypes.Bool))
+        RCall("IndexOf", RArgs1(RIdentifier("a", 1, 17))),
+        candidates,
+        RTypes1(BuiltInTypes.Bool)
+    )
 
     assert RCodes(errors) == "NL402"
     // Each rendered signature is one `  - ` bullet, so the bullets ARE the list.
@@ -359,7 +369,11 @@ test "the RICH shape appears only when the sink has BOTH a path and the line's t
     richErrors := ReporterErrors()
     richScopes := ReporterScopes()
     rich := ReporterOwnerWith(
-        richErrors, richScopes, "let x = hash()\n", new AnalyzerCallableReferenceReportLog())
+        richErrors,
+        richScopes,
+        "let x = hash()\n",
+        new AnalyzerCallableReferenceReportLog()
+    )
     rich.ReportNoMatchingOverload(RCall("hash", RArgs0()), ROneMethod(), RTypes0())
     assert RCodes(richErrors) == "NL402"
     assert richErrors[0].DocsUrl != null
@@ -373,10 +387,17 @@ test "the method-group arm names the GROUP and has no rich shape even with sourc
     errors := ReporterErrors()
     scopes := ReporterScopes()
     owner := ReporterOwnerWith(
-        errors, scopes, "let x = each(handler)\n", new AnalyzerCallableReferenceReportLog())
+        errors,
+        scopes,
+        "let x = each(handler)\n",
+        new AnalyzerCallableReferenceReportLog()
+    )
 
     owner.ReportNoMatchingMethodGroupOverload(
-        RCall("each", RArgs1(RIdentifier("handler", 1, 14))), ROneMethod(), "handler")
+        RCall("each", RArgs1(RIdentifier("handler", 1, 14))),
+        ROneMethod(),
+        "handler"
+    )
 
     assert RCodes(errors) == "NL402"
     assert errors[0].Message.Contains("method group 'handler'")
@@ -390,7 +411,10 @@ test "an N# METHOD GROUP argument selects the method-group arm, and only that ar
     owner := ReporterOwner(errors, scopes)
 
     answer := owner.ReportUnboundCall(
-        RCall("each", RArgs1(RIdentifier("handler", 1, 14))), ROneMethod(), RTypes0())
+        RCall("each", RArgs1(RIdentifier("handler", 1, 14))),
+        ROneMethod(),
+        RTypes0()
+    )
 
     assert errors.Count == 1
     assert errors[0].Message.Contains("method group 'handler'")
@@ -403,7 +427,10 @@ test "a SOURCE FUNCTION argument counts as a method group; a LAMBDA-typed one do
     RDeclare(groupScopes, "handler", RSourceFunction("handler"))
     group := ReporterOwner(groupErrors, groupScopes)
     group.ReportUnboundCall(
-        RCall("each", RArgs1(RIdentifier("handler", 1, 14))), ROneMethod(), RTypes0())
+        RCall("each", RArgs1(RIdentifier("handler", 1, 14))),
+        ROneMethod(),
+        RTypes0()
+    )
     assert groupErrors.Count == 1
     assert groupErrors[0].Message.Contains("method group 'handler'")
 
@@ -412,7 +439,10 @@ test "a SOURCE FUNCTION argument counts as a method group; a LAMBDA-typed one do
     RDeclare(lambdaScopes, "handler", RLambdaFunction())
     lambda := ReporterOwner(lambdaErrors, lambdaScopes)
     lambda.ReportUnboundCall(
-        RCall("each", RArgs1(RIdentifier("handler", 1, 14))), ROneMethod(), RTypes0())
+        RCall("each", RArgs1(RIdentifier("handler", 1, 14))),
+        ROneMethod(),
+        RTypes0()
+    )
     assert lambdaErrors.Count == 1
     assert !lambdaErrors[0].Message.Contains("method group")
     assert lambdaErrors[0].Message.Contains("argument(s) with these types")
@@ -425,13 +455,19 @@ test "an ordinary symbol, an UNDECLARED name and a non-identifier argument all t
     owner := ReporterOwner(errors, scopes)
 
     owner.ReportUnboundCall(
-        RCall("each", RArgs1(RIdentifier("count", 1, 14))), ROneMethod(), RTypes1(BuiltInTypes.Int))
+        RCall("each", RArgs1(RIdentifier("count", 1, 14))),
+        ROneMethod(),
+        RTypes1(BuiltInTypes.Int)
+    )
     assert errors.Count == 1
     assert !errors[0].Message.Contains("method group")
 
     errors.Clear()
     owner.ReportUnboundCall(
-        RCall("each", RArgs1(RIdentifier("missing", 1, 14))), ROneMethod(), RTypes0())
+        RCall("each", RArgs1(RIdentifier("missing", 1, 14))),
+        ROneMethod(),
+        RTypes0()
+    )
     assert errors.Count == 1
     assert !errors[0].Message.Contains("method group")
 
@@ -455,7 +491,8 @@ test "the FIRST method-group argument names the report, whatever follows it" {
     owner.ReportUnboundCall(
         RCall("each", RArgs2(RIdentifier("first", 1, 14), RIdentifier("second", 1, 22))),
         ROneMethod(),
-        RTypes0())
+        RTypes0()
+    )
 
     assert errors.Count == 1
     assert errors[0].Message.Contains("method group 'first'")
@@ -471,7 +508,8 @@ test "a method group in a LATER position still selects the arm" {
     owner.ReportUnboundCall(
         RCall("each", RArgs2(RIdentifier("count", 1, 14), RIdentifier("second", 1, 22))),
         ROneMethod(),
-        RTypes1(BuiltInTypes.Int))
+        RTypes1(BuiltInTypes.Int)
+    )
 
     assert errors.Count == 1
     assert errors[0].Message.Contains("method group 'second'")
@@ -536,7 +574,11 @@ test "NL411 names the identifier, and renders both report shapes" {
     richErrors := ReporterErrors()
     richScopes := ReporterScopes()
     rich := ReporterOwnerWith(
-        richErrors, richScopes, "let x = handler\n", new AnalyzerCallableReferenceReportLog())
+        richErrors,
+        richScopes,
+        "let x = handler\n",
+        new AnalyzerCallableReferenceReportLog()
+    )
     rich.ReportMethodGroupUsedAsValue(RIdentifier("handler", 1, 9), RMethodGroup("handler"))
     assert RCodes(richErrors) == "NL411"
     assert richErrors[0].DocsUrl != null
@@ -620,11 +662,18 @@ test "every report this owner makes reaches the SAME list in list order" {
     scopes := ReporterScopes()
     RDeclare(scopes, "handler", RMethodGroup("handler"))
     owner := ReporterOwnerWith(
-        errors, scopes, "let x = each(handler)\n", new AnalyzerCallableReferenceReportLog())
+        errors,
+        scopes,
+        "let x = each(handler)\n",
+        new AnalyzerCallableReferenceReportLog()
+    )
 
     owner.ReportMethodGroupUsedAsValue(RIdentifier("handler", 1, 14), RMethodGroup("handler"))
     owner.ReportUnboundCall(
-        RCall("each", RArgs1(RIdentifier("handler", 1, 14))), ROneMethod(), RTypes0())
+        RCall("each", RArgs1(RIdentifier("handler", 1, 14))),
+        ROneMethod(),
+        RTypes0()
+    )
     owner.ReportNoMatchingOverload(RCall("hash", RArgs0()), ROneMethod(), RTypes0())
 
     assert RCodes(errors) == "NL411,NL402,NL402"

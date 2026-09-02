@@ -46,7 +46,6 @@ import System.Text.RegularExpressions
 //
 // (3) THE EXIT CODE IS THE PROCESS'S, NOT THE RUNNER'S. A command that fails must answer non-zero
 // with both streams still readable, because that is what the CLI reports to the user.
-
 func DotnetRunnerContractHasDigitDotDigit(text: string): bool {
     index := 0
     while index + 2 < text.Length {

@@ -21,7 +21,6 @@ import NSharpLang.Compiler
 //   * THE BACKTICK RULE IS PINNED ON BOTH SIDES. `CompletionTypeDisplayName` truncates at the first
 //     arity suffix; `DocQueryKernels.StripGenericArity` removes every one. The blocks assert they
 //     AGREE on a `Type.Name` and DIFFER on a two-run name, so the divergence stays a recorded fact.
-
 func EtcIndexOf(values: string[], value: string): int {
     index := 0
     while index < values.Length {
@@ -105,7 +104,6 @@ func EtcJoin(values: string[]): string {
     return text
 }
 
-
 // ── the universe ─────────────────────────────────────────────────────────────────────────────
 
 test "the editor universe is four seed names and every one of them resolves" {
@@ -151,7 +149,6 @@ test "the metadata-name spelling is the only one N# has and it answers the same 
     assert EtcFullNameOf(Type.GetType(seeds[2])) == "System.Linq.Enumerable"
     assert Type.GetType(seeds[3]) == typeof(List<int>).GetGenericTypeDefinition()
 }
-
 
 // ── the roster ───────────────────────────────────────────────────────────────────────────────
 
@@ -247,7 +244,6 @@ test "every force-included full name resolves inside the three-assembly seed uni
     }
 }
 
-
 // ── how a name is looked up ──────────────────────────────────────────────────────────────────
 
 test "the probe prefixes are seven, System first and the two Threading namespaces last" {
@@ -288,7 +284,6 @@ test "an unqualified name is probed as written FIRST and then under each prefix 
         index = index + 1
     }
 }
-
 
 // ── how a type name is spelled ───────────────────────────────────────────────────────────────
 
@@ -342,7 +337,6 @@ test "the display rule AGREES with StripGenericArity on a Type name and DIFFERS 
     assert DocQueryKernels.StripGenericArity("Outer`1Inner`2") == "OuterInner"
 }
 
-
 // ── what may be offered ──────────────────────────────────────────────────────────────────────
 
 test "an offerable type is public, top-level, namespaced and not compiler-generated" {
@@ -393,7 +387,6 @@ test "one completion carries at most two hundred importable types" {
     assert EditorTypeCatalogFacts.MaxImportableTypeResults() == 200
 }
 
-
 // ── the order they come out in ───────────────────────────────────────────────────────────────
 
 test "the four hand-named namespaces rank ahead of every other System one, which ranks ahead of the rest" {
@@ -440,7 +433,6 @@ test "the tie-breaks are ORDINAL so a completion list does not reorder itself un
     assert EditorTypeCatalogFacts.CompareNamespaceSegments("IO", "io") == -1
     assert EditorTypeCatalogFacts.CompareNamespaceSegments("Text", "Text") == 0
 }
-
 
 // ── namespaces ───────────────────────────────────────────────────────────────────────────────
 

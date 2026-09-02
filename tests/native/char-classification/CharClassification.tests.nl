@@ -6,8 +6,7 @@ namespace NSharpLang.CharClassification.Tests
 // accepts title-case letters, `ToUpperInvariant(c) != c` refuses the eszett, an ASCII
 // range refuses accented lowercase. These contracts pin the real predicate's answers on
 // exactly those discriminating categories, through the packaged pipeline.
-
-public static func ClassifyLower(c: char): bool {
+static func ClassifyLower(c: char): bool {
     return char.IsLower(c)
 }
 

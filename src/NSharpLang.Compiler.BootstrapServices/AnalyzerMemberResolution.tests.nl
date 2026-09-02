@@ -13,7 +13,6 @@ import NSharpLang.Compiler.Ast
 // its first DIRECT contracts, and they concentrate on the arms no single call site reveals — the
 // EVENT arm (which is why the `EventInfo` catalog row exists at all), the probe ORDER within a
 // reflected type, the static/instance gate, and the fall-through to the extension surface.
-
 class MemberResolutionHarness {
     Resolution: AnalyzerMemberResolution
     Extensions: AnalyzerExtensionMethodResolution
@@ -26,7 +25,8 @@ class MemberResolutionHarness {
         extensions: AnalyzerExtensionMethodResolution,
         declared: List<FunctionDeclaration>,
         namespaces: List<string>,
-        assemblies: List<Assembly>) {
+        assemblies: List<Assembly>
+    ) {
         Resolution = resolution
         Extensions = extensions
         Declared = declared
@@ -45,7 +45,8 @@ func MemberResolutionDefault(): MemberResolutionHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     resolver := new AnalyzerTypeResolver(
         scopes,
@@ -54,10 +55,11 @@ func MemberResolutionDefault(): MemberResolutionHarness {
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -78,7 +80,8 @@ func MemberResolutionDefault(): MemberResolutionHarness {
         clrConversion,
         declared,
         namespaces,
-        assemblies)
+        assemblies
+    )
 
     return new MemberResolutionHarness(
         new AnalyzerMemberResolution(
@@ -88,11 +91,13 @@ func MemberResolutionDefault(): MemberResolutionHarness {
             resolver,
             clrConversion,
             extensions,
-            namespaces),
+            namespaces
+        ),
         extensions,
         declared,
         namespaces,
-        assemblies)
+        assemblies
+    )
 }
 
 func MemberResolutionCoreAssembly(): Assembly {
@@ -119,7 +124,11 @@ test "a .NET EVENT resolves to an event, with its accessors and both types" {
     // kind to reject or to subscribe through.
     domainType := MemberResolutionCoreType("System.AppDomain")
     answer := harness.Resolution.ResolveMember(
-        new ReflectionTypeInfo(domainType), "ProcessExit", false, null)
+        new ReflectionTypeInfo(domainType),
+        "ProcessExit",
+        false,
+        null
+    )
 
     eventAnswer := answer as ReflectionEventInfo
     assert eventAnswer != null
@@ -185,16 +194,23 @@ test "the static gate decides whether a static member is visible at all" {
     // does not, and with nothing else claiming the name the answer falls to the extension surface,
     // which with no assemblies loaded is `unknown`.
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(stringType, "Empty", true, null), BuiltInTypes.String)
+        harness.Resolution.ResolveMember(stringType, "Empty", true, null),
+        BuiltInTypes.String
+    )
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(stringType, "Empty", false, null))
+        harness.Resolution.ResolveMember(stringType, "Empty", false, null)
+    )
 
     // And the reverse for an instance member: `Length` is visible either way, because including
     // statics WIDENS the flags rather than replacing them.
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(stringType, "Length", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(stringType, "Length", false, null),
+        BuiltInTypes.Int
+    )
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(stringType, "Length", true, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(stringType, "Length", true, null),
+        BuiltInTypes.Int
+    )
 }
 
 test "a BUILT-IN simple type resolves against the CLR type behind it" {
@@ -204,7 +220,8 @@ test "a BUILT-IN simple type resolves against the CLR type behind it" {
     // reflection type when it arrives — the conversion is the arm under test.
     assert TypeInfoIdentityFacts.AreEqual(
         harness.Resolution.ResolveMember(BuiltInTypes.String, "Length", false, null),
-        BuiltInTypes.Int)
+        BuiltInTypes.Int
+    )
 
     toStringAnswer := harness.Resolution.ResolveMember(BuiltInTypes.Int, "ToString", false, null)
     assert (toStringAnswer as ReflectionMethodGroupInfo) != null
@@ -212,13 +229,17 @@ test "a BUILT-IN simple type resolves against the CLR type behind it" {
     // `unknown`, `null`, `never` and `void` are excluded BY NAME from that conversion, so a member
     // read off any of them stays unresolved rather than silently answering for some CLR type.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(BuiltInTypes.Unknown, "Length", false, null))
+        harness.Resolution.ResolveMember(BuiltInTypes.Unknown, "Length", false, null)
+    )
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(BuiltInTypes.Void, "Length", false, null))
+        harness.Resolution.ResolveMember(BuiltInTypes.Void, "Length", false, null)
+    )
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(BuiltInTypes.Never, "Length", false, null))
+        harness.Resolution.ResolveMember(BuiltInTypes.Never, "Length", false, null)
+    )
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(BuiltInTypes.Null, "Length", false, null))
+        harness.Resolution.ResolveMember(BuiltInTypes.Null, "Length", false, null)
+    )
 }
 
 test "the spellings that are not shapes are stripped before anything is resolved" {
@@ -228,20 +249,34 @@ test "the spellings that are not shapes are stripped before anything is resolved
     // are unwrapped first and answer exactly as the inner type does.
     assert TypeInfoIdentityFacts.AreEqual(
         harness.Resolution.ResolveMember(
-            new ObliviousTypeInfo(BuiltInTypes.String), "Length", false, null),
-        BuiltInTypes.Int)
+            new ObliviousTypeInfo(BuiltInTypes.String),
+            "Length",
+            false,
+            null
+        ),
+        BuiltInTypes.Int
+    )
     assert TypeInfoIdentityFacts.AreEqual(
         harness.Resolution.ResolveMember(
-            new ByRefTypeInfo(BuiltInTypes.String), "Length", false, null),
-        BuiltInTypes.Int)
+            new ByRefTypeInfo(BuiltInTypes.String),
+            "Length",
+            false,
+            null
+        ),
+        BuiltInTypes.Int
+    )
 
     // A NULLABLE spelling is different: it has a member set of its OWN that answers before the
     // inner type is consulted at all.
     nullableInt := new NullableTypeInfo(BuiltInTypes.Int)
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(nullableInt, "HasValue", false, null), BuiltInTypes.Bool)
+        harness.Resolution.ResolveMember(nullableInt, "HasValue", false, null),
+        BuiltInTypes.Bool
+    )
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(nullableInt, "Value", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(nullableInt, "Value", false, null),
+        BuiltInTypes.Int
+    )
 }
 
 test "an ARRAY answers `Length` itself and reaches metadata for everything else" {
@@ -249,7 +284,9 @@ test "an ARRAY answers `Length` itself and reaches metadata for everything else"
     intArray := new ArrayTypeInfo(BuiltInTypes.Int)
 
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(intArray, "Length", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(intArray, "Length", false, null),
+        BuiltInTypes.Int
+    )
 
     // The array converts to a CLR array type, so `System.Array`'s own members answer too.
     rankAnswer := harness.Resolution.ResolveMember(intArray, "Rank", false, null)
@@ -257,7 +294,8 @@ test "an ARRAY answers `Length` itself and reaches metadata for everything else"
 
     // A name nothing claims falls through to the extension surface.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(intArray, "NoSuchMemberAnywhere", false, null))
+        harness.Resolution.ResolveMember(intArray, "NoSuchMemberAnywhere", false, null)
+    )
 }
 
 test "a TUPLE answers by position and by element name" {
@@ -269,17 +307,24 @@ test "a TUPLE answers by position and by element name" {
     tuple := new TupleTypeInfo(elements)
 
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(tuple, "Item1", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(tuple, "Item1", false, null),
+        BuiltInTypes.Int
+    )
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(tuple, "Item2", false, null), BuiltInTypes.String)
+        harness.Resolution.ResolveMember(tuple, "Item2", false, null),
+        BuiltInTypes.String
+    )
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(tuple, "count", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(tuple, "count", false, null),
+        BuiltInTypes.Int
+    )
 
     // The inherited `object` surface is reachable on a tuple VALUE, and only on a value.
     toStringAnswer := harness.Resolution.ResolveMember(tuple, "ToString", false, null)
     assert (toStringAnswer as ReflectionMethodInfo) != null
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(tuple, "ToString", true, null))
+        harness.Resolution.ResolveMember(tuple, "ToString", true, null)
+    )
 }
 
 test "an ENUM member read off the enum TYPE is the enum type" {
@@ -292,18 +337,24 @@ test "an ENUM member read off the enum TYPE is the enum type" {
     enumType := new EnumTypeInfo(declaration)
 
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(enumType, "Red", true, null), enumType)
+        harness.Resolution.ResolveMember(enumType, "Red", true, null),
+        enumType
+    )
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(enumType, "Green", true, null), enumType)
+        harness.Resolution.ResolveMember(enumType, "Green", true, null),
+        enumType
+    )
 
     // A name that is not a member is not the enum type.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(enumType, "Blue", true, null))
+        harness.Resolution.ResolveMember(enumType, "Blue", true, null)
+    )
 
     // And a member name read off a VALUE is not the enum type either — an enum value's surface is
     // the inherited `object` one.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(enumType, "Red", false, null))
+        harness.Resolution.ResolveMember(enumType, "Red", false, null)
+    )
     toStringAnswer := harness.Resolution.ResolveMember(enumType, "ToString", false, null)
     assert (toStringAnswer as ReflectionMethodInfo) != null
 }
@@ -317,14 +368,19 @@ test "an ANONYMOUS UNION answers its discriminator pair and nothing else" {
     anonymous := new AnonymousUnionTypeInfo(arms)
 
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(anonymous, "Index", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(anonymous, "Index", false, null),
+        BuiltInTypes.Int
+    )
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(anonymous, "Value", false, null), BuiltInTypes.Object)
+        harness.Resolution.ResolveMember(anonymous, "Value", false, null),
+        BuiltInTypes.Object
+    )
 
     // Everything else reaches the extension surface, which with nothing declared is `unknown` —
     // NOT one of the arms' own members.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(anonymous, "Length", false, null))
+        harness.Resolution.ResolveMember(anonymous, "Length", false, null)
+    )
 }
 
 test "a NEWTYPE answers `Value` with its underlying type" {
@@ -334,14 +390,17 @@ test "a NEWTYPE answers `Value` with its underlying type" {
     newtypeCandidate := new NewtypeInfo("Meters", underlying)
 
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(newtypeCandidate, "Value", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(newtypeCandidate, "Value", false, null),
+        BuiltInTypes.Int
+    )
 
     // The wrapped type's OWN members are deliberately not offered: a newtype is a distinct type,
     // not an alias, so `meters.ToString()` is `object`'s and `meters.MaxValue` is nothing.
     toStringAnswer := harness.Resolution.ResolveMember(newtypeCandidate, "ToString", false, null)
     assert (toStringAnswer as ReflectionMethodInfo) != null
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(newtypeCandidate, "MaxValue", false, null))
+        harness.Resolution.ResolveMember(newtypeCandidate, "MaxValue", false, null)
+    )
 }
 
 test "the SoA table and row surfaces are the columns plus the intrinsics" {
@@ -362,9 +421,13 @@ test "the SoA table and row surfaces are the columns plus the intrinsics" {
     assert TypeInfoIdentityFacts.AreEqual(columnArray.ElementType, BuiltInTypes.Int)
 
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(row, "x", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(row, "x", false, null),
+        BuiltInTypes.Int
+    )
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(row, "name", false, null), BuiltInTypes.String)
+        harness.Resolution.ResolveMember(row, "name", false, null),
+        BuiltInTypes.String
+    )
 
     // A ROW HAS NOTHING BUT ITS COLUMNS — not the intrinsics, not the inherited `object` surface,
     // and not an extension. This is the arm that keeps a row view from escaping.
@@ -373,9 +436,13 @@ test "the SoA table and row surfaces are the columns plus the intrinsics" {
 
     // The table's intrinsics are synthesised: they have no declaration anywhere to resolve against.
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(table, "length", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(table, "length", false, null),
+        BuiltInTypes.Int
+    )
     assert TypeInfoIdentityFacts.AreEqual(
-        harness.Resolution.ResolveMember(table, "capacity", false, null), BuiltInTypes.Int)
+        harness.Resolution.ResolveMember(table, "capacity", false, null),
+        BuiltInTypes.Int
+    )
 
     addAnswer := harness.Resolution.ResolveMember(table, "add", false, null)
     addFunction := addAnswer as FunctionTypeInfo
@@ -417,12 +484,37 @@ test "an unresolved name falls through to the extension surface, with the WRITTE
     parameters := new List<Parameter>()
     parameters.Add(
         new Parameter(
-            "self", new SimpleTypeReference("string"), null, false,
-            ParameterModifier.None, null, 1, 1, false, null))
+            "self",
+            new SimpleTypeReference("string"),
+            null,
+            false,
+            ParameterModifier.None,
+            null,
+            1,
+            1,
+            false,
+            null
+        )
+    )
     harness.Declared.Add(
         new FunctionDeclaration(
-            "Shout", parameters, null, null, null, null, null, Modifiers.Public,
-            new List<AttributeNode>(), false, null, false, false, 1, 1))
+            "Shout",
+            parameters,
+            null,
+            null,
+            null,
+            null,
+            null,
+            Modifiers.Public,
+            new List<AttributeNode>(),
+            false,
+            null,
+            false,
+            false,
+            1,
+            1
+        )
+    )
 
     answer := harness.Resolution.ResolveMember(BuiltInTypes.String, "Shout", false, "Owner")
     extensionFunction := answer as FunctionTypeInfo
@@ -434,7 +526,8 @@ test "an unresolved name falls through to the extension surface, with the WRITTE
 
     // And a name neither metadata nor the extension surface claims is `unknown`.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(BuiltInTypes.String, "NoSuchMemberAnywhere", false, null))
+        harness.Resolution.ResolveMember(BuiltInTypes.String, "NoSuchMemberAnywhere", false, null)
+    )
 }
 
 test "the external extension scan is reachable through member resolution" {
@@ -452,7 +545,8 @@ test "the external extension scan is reachable through member resolution" {
     // read through member resolution exactly as it is through the extension surface directly.
     harness.Namespaces.Clear()
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(BuiltInTypes.String, "AsSpan", false, null))
+        harness.Resolution.ResolveMember(BuiltInTypes.String, "AsSpan", false, null)
+    )
 }
 
 test "`AsSpan` on an ARRAY needs `System` imported, and the import is read live" {
@@ -462,13 +556,16 @@ test "`AsSpan` on an ARRAY needs `System` imported, and the import is read live"
     // THE KNOWN-ARRAY-EXTENSION ARM. It is gated on `System` being imported and answers BEFORE any
     // CLR conversion, so it is the analyzer's own answer rather than metadata's.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(intArray, "AsSpan", false, null))
+        harness.Resolution.ResolveMember(intArray, "AsSpan", false, null)
+    )
 
     harness.Namespaces.Add("System")
     assert !BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(intArray, "AsSpan", false, null))
+        harness.Resolution.ResolveMember(intArray, "AsSpan", false, null)
+    )
 
     // And the arm is INSTANCE-only: `int[].AsSpan` written against the type is not it.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.ResolveMember(intArray, "AsSpan", true, null))
+        harness.Resolution.ResolveMember(intArray, "AsSpan", true, null)
+    )
 }

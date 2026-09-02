@@ -25,7 +25,6 @@ import NSharpLang.Compiler
 //
 // (4) THE STRICT-PROFILE ARM ONLY APPLIES TO A SYSTEMS PROFILE AND ONLY TO AN UNSPELLED ALLOCATION.
 // `alloc new` / an `alloc` zone silences it; a non-systems profile never reaches it.
-
 func SapAlloc(isHot: bool, allocNone: bool, isBoundary: bool, allocAllowed: bool, isSystemsProfile: bool, explicitAllocation: bool): SystemsAllocationViolation? {
     return SystemsAllocationPolicy.Violation(isHot, allocNone, isBoundary, allocAllowed, isSystemsProfile, explicitAllocation)
 }

@@ -13,14 +13,14 @@ namespace NSharpLang.Cli
 // THE THREE REJECTION RULES ARE INDEPENDENT AND ARE PINNED SEPARATELY: a known option CONSUMES the
 // token after it, a known value-less flag consumes only itself, and any other `-`-leading token is
 // skipped without consuming anything.
-
 func PositionalOptionsWithValues(): string[] {
     return ["--template", "--type"]
 }
 
 test "the selector keeps operands, drops flags, and consumes each option's value" {
     args := [
-        "--template", "library",
+        "--template",
+        "library",
         "systems-cli",
         "PacketTool",
         "--systems",
@@ -28,7 +28,9 @@ test "the selector keeps operands, drops flags, and consumes each option's value
         "src/App.nl",
         "-x",
         "",
-        "--type", "console"]
+        "--type",
+        "console"
+    ]
 
     positional := PositionalArgumentKernels.GetArgs(args, PositionalOptionsWithValues())
 
@@ -41,7 +43,8 @@ test "the selector keeps operands, drops flags, and consumes each option's value
 
 test "the count kernel and the selector agree, because the selector sizes itself from the count" {
     args := [
-        "--template", "library",
+        "--template",
+        "library",
         "systems-cli",
         "PacketTool",
         "--systems",
@@ -49,10 +52,11 @@ test "the count kernel and the selector agree, because the selector sizes itself
         "src/App.nl",
         "-x",
         "",
-        "--type", "console"]
+        "--type",
+        "console"
+    ]
 
-    assert PositionalArgumentKernels.CountArgs(args, PositionalOptionsWithValues())
-        == PositionalArgumentKernels.GetArgs(args, PositionalOptionsWithValues()).Length
+    assert PositionalArgumentKernels.CountArgs(args, PositionalOptionsWithValues()) == PositionalArgumentKernels.GetArgs(args, PositionalOptionsWithValues()).Length
 }
 
 test "the empty string is a positional, so an empty operand reaches the command" {

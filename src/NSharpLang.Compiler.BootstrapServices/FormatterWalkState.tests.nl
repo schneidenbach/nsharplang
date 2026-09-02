@@ -29,7 +29,6 @@ import System.Text
 //       and is what makes `FormatSafe`'s idempotence check compare like with like.
 //   (f) A NULL COMMENT LIST IS AN EMPTY ONE, so an AST that was never lexed formats without a
 //       null check at any of the eight call sites.
-
 func FwsSpaces(size: int): FormatterConfig {
     config := new FormatterConfig()
     config.IndentSize = size

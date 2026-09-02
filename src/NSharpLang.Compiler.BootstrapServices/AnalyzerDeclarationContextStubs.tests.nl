@@ -10,8 +10,7 @@ import NSharpLang.Compiler.Ast
 // this dedicated namespace — NOT NSharpLang.Compiler — so a file importing both NSharpLang.Compiler and
 // NSharpLang.Compiler.Ast never sees an ambiguous simple name (the tests-enabled-build collision that
 // forced fully-qualified `new NSharpLang.Compiler.Ast.*` construction in the parser owner).
-
-public class ClassDeclaration {
+class ClassDeclaration {
     Name: string
     Line: int
     Column: int
@@ -35,7 +34,7 @@ public class ClassDeclaration {
     }
 }
 
-public class TypeAliasDeclaration {
+class TypeAliasDeclaration {
     Name: string
     Type: TypeReference
     Line: int
@@ -49,7 +48,7 @@ public class TypeAliasDeclaration {
     }
 }
 
-public class FieldDeclaration {
+class FieldDeclaration {
     Name: string
     Type: TypeReference
     Modifiers: int
@@ -59,7 +58,8 @@ public class FieldDeclaration {
     constructor(
         name: string,
         typeReference: TypeReference,
-        modifiers: int) {
+        modifiers: int
+    ) {
         Name = name
         Type = typeReference
         Modifiers = modifiers

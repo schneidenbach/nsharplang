@@ -22,7 +22,6 @@ import NSharpLang.Compiler.Ast
 // loop body contributes nothing because it may run zero times, a `try` block contributes nothing
 // because it may throw partway, and a `switch` contributes only when it has a default. Each of
 // those is a separate contract, because each is a separate way to be wrong.
-
 class DefiniteAssignmentHarness {
     Owner: AnalyzerDefiniteAssignment
     Errors: List<CompilerError>
@@ -31,7 +30,8 @@ class DefiniteAssignmentHarness {
     constructor(
         owner: AnalyzerDefiniteAssignment,
         errors: List<CompilerError>,
-        context: AnalyzerDeclarationContext) {
+        context: AnalyzerDeclarationContext
+    ) {
         Owner = owner
         Errors = errors
         Context = context
@@ -50,7 +50,8 @@ func DefiniteAssignmentDefault(): DefiniteAssignmentHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -61,15 +62,17 @@ func DefiniteAssignmentDefault(): DefiniteAssignmentHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
 
     return new DefiniteAssignmentHarness(
         new AnalyzerDefiniteAssignment(diagnostics, resolver),
         errors,
-        context)
+        context
+    )
 }
 
 // ── AST builders ──────────────────────────────────────────────────────────
@@ -197,7 +200,8 @@ func DaFunction(name: string): FunctionDeclaration {
         false,
         false,
         1,
-        1)
+        1
+    )
 }
 
 func DaWildcard(): IdentifierPattern {
@@ -231,10 +235,8 @@ test "the read-before-assignment message and suggestion name the local" {
 
     harness.Owner.CheckLocals(body)
 
-    assert harness.Errors[0].Message
-        == "'total' is used here before it has been assigned a value on every path that reaches this point"
-    assert harness.Errors[0].Suggestion
-        == "Give 'total' an initial value where you declare it, or assign it on every branch before this use."
+    assert harness.Errors[0].Message == "'total' is used here before it has been assigned a value on every path that reaches this point"
+    assert harness.Errors[0].Suggestion == "Give 'total' an initial value where you declare it, or assign it on every branch before this use."
 }
 test "the span is the NAME's length, never shorter than one" {
     harness := DefiniteAssignmentDefault()
@@ -325,7 +327,8 @@ test "a guard clause with no else does NOT survive: a single-branch if that retu
     body := DaThreeBlock(
         DaDeclare("x"),
         DaIf(DaTrue(), DaOneBlock(DaReturn()), null),
-        DaRead("x", 9, 1))
+        DaRead("x", 9, 1)
+    )
 
     harness.Owner.CheckLocals(body)
 
@@ -368,7 +371,8 @@ test "a for statement's INITIALIZER assigns, and its condition and iterator are 
         DaName("y", 5, 5),
         DaEmptyBlock(),
         1,
-        1)
+        1
+    )
     body := DaThreeBlock(DaDeclare("x"), DaDeclare("y"), loop)
 
     harness.Owner.CheckLocals(body)
@@ -462,7 +466,8 @@ test "a try block's assignments are DISCARDED afterwards" {
         new List<CatchClause>(),
         null,
         1,
-        1)
+        1
+    )
     body := DaThreeBlock(DaDeclare("x"), tryStmt, DaRead("x", 9, 1))
 
     harness.Owner.CheckLocals(body)
@@ -488,7 +493,8 @@ test "a FINALLY block also runs against the pre-try state" {
         new List<CatchClause>(),
         DaOneBlock(DaRead("x", 8, 2)),
         1,
-        1)
+        1
+    )
     body := DaTwoBlock(DaDeclare("x"), tryStmt)
 
     harness.Owner.CheckLocals(body)
@@ -512,7 +518,8 @@ test "a using statement reads its expression, flows its declaration and RETURNS 
         DaName("source", 3, 3),
         DaOneBlock(DaReturn()),
         1,
-        1)
+        1
+    )
     body := DaThreeBlock(DaDeclare("source"), usingStmt, DaRead("source", 9, 1))
 
     harness.Owner.CheckLocals(body)
@@ -567,7 +574,8 @@ test "an OUT argument ASSIGNS its target rather than reading it" {
     body := DaThreeBlock(
         DaDeclare("x"),
         new ExpressionStatement(call, 3, 1),
-        DaRead("x", 9, 1))
+        DaRead("x", 9, 1)
+    )
 
     harness.Owner.CheckLocals(body)
 
@@ -844,7 +852,8 @@ func DaField(name: string, typeName: string?, initializer: Expression?, modifier
         PropertyModifier.None,
         new List<AttributeNode>(),
         1,
-        1)
+        1
+    )
 }
 
 func DaClass(members: List<Declaration>): ClassDeclaration {
@@ -858,7 +867,8 @@ func DaClass(members: List<Declaration>): ClassDeclaration {
         Modifiers.Public,
         new List<AttributeNode>(),
         1,
-        1)
+        1
+    )
 }
 
 func DaOneMember(member: Declaration): List<Declaration> {
@@ -875,7 +885,8 @@ func DaConstructor(body: BlockStatement, line: int, column: int): ConstructorDec
         Modifiers.Public,
         new List<AttributeNode>(),
         line,
-        column)
+        column
+    )
 }
 
 func DaThisAssign(memberName: string): ExpressionStatement {
@@ -895,8 +906,7 @@ test "an unassigned non-nullable field reports NL304 on the CONSTRUCTOR" {
     assert harness.Errors[0].Line == 12
     assert harness.Errors[0].Column == 5
     assert harness.Errors[0].Length == 11
-    assert harness.Errors[0].Message
-        == "Field 'Count' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration"
+    assert harness.Errors[0].Message == "Field 'Count' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration"
     // The report passes NO suggestion, so the sink substitutes the CODE's default. That is the
     // shape `Analyzer.cs` shipped and it is pinned rather than reproduced by passing the text.
     assert harness.Errors[0].Suggestion == "Initialize property in constructor or provide default value"
@@ -915,7 +925,8 @@ test "a field assigned through a BARE name counts as assigned" {
 
     harness.Owner.CheckConstructorFields(
         DaConstructor(DaOneBlock(DaAssign("Count", DaInt(1))), 12, 5),
-        classDecl)
+        classDecl
+    )
 
     assert harness.Errors.Count == 0
 }
@@ -954,7 +965,8 @@ test "a NULLABLE field is skipped" {
         PropertyModifier.None,
         new List<AttributeNode>(),
         1,
-        1)
+        1
+    )
     classDecl := DaClass(DaOneMember(field))
 
     harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), classDecl)
@@ -1041,8 +1053,6 @@ test "every unassigned field gets its OWN report" {
     harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), classDecl)
 
     assert harness.Errors.Count == 2
-    assert harness.Errors[0].Message
-        == "Field 'Alpha' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration"
-    assert harness.Errors[1].Message
-        == "Field 'Beta' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration"
+    assert harness.Errors[0].Message == "Field 'Alpha' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration"
+    assert harness.Errors[1].Message == "Field 'Beta' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration"
 }

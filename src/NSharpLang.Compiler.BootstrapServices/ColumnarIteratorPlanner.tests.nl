@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+
 // An async-machine probe HOST: reflectively emits a real type whose public fields mirror an async
 // shape's exact layout (TaskAwaiter fields are not yet a modeled N# field surface, so the probe cannot
 // be a plain N# class), then realizes every async member from the planner's OWN plans — MoveNextCore,
@@ -12,10 +13,10 @@ import System.Reflection.Emit
 // Task.Delay re-drives MoveNextCore, and the pending ValueTask<bool> completes. The `(int)` constructor
 // stores the state only; NewMachine wires the re-drive Action afterwards (the C# host ctor's ldftn).
 class ColumnarAsyncProbeMachine {
-    public MachineType: Type
-    public Fields: FieldInfo[]
-    public StateConstructor: ConstructorInfo
-    public Shape: ColumnarIteratorShape
+    MachineType: Type
+    Fields: FieldInfo[]
+    StateConstructor: ConstructorInfo
+    Shape: ColumnarIteratorShape
 
     constructor(probe: ColumnarIteratorShapeProbe, probeName: string) {
         shape := probe.Shape
@@ -130,31 +131,70 @@ class ColumnarAsyncProbeMachine {
         noParameterTypes := new Type[](0)
 
         coreBox := AsyncProbeDefineMethod(
-            defineMethodMethod, typeBuilderBox, "MoveNextCore", publicMethodAttribute, voidType, noParameterTypes)
+            defineMethodMethod,
+            typeBuilderBox,
+            "MoveNextCore",
+            publicMethodAttribute,
+            voidType,
+            noParameterTypes
+        )
         context := new ColumnarIteratorEmitContext(
-            probe.Nodes, probe.Source, probe.BodyRoot, shape, typeBuilder, typeof(int),
-            shape.FieldNames, fieldBuilders, (ConstructorInfo)ctorBuilder,
-            null, null, null, null, null, null, null, null, (MethodInfo)coreBox)
+            probe.Nodes,
+            probe.Source,
+            probe.BodyRoot,
+            shape,
+            typeBuilder,
+            typeof(int),
+            shape.FieldNames,
+            fieldBuilders,
+            (ConstructorInfo)ctorBuilder,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            (MethodInfo)coreBox
+        )
 
         coreIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, coreBox, new object[](0))
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context), coreIl)
 
         valueTaskOfBool := AsyncProbeValueTaskOfBoolType()
         moveNextAsyncBox := AsyncProbeDefineMethod(
-            defineMethodMethod, typeBuilderBox, "MoveNextAsync", publicMethodAttribute, valueTaskOfBool, noParameterTypes)
+            defineMethodMethod,
+            typeBuilderBox,
+            "MoveNextAsync",
+            publicMethodAttribute,
+            valueTaskOfBool,
+            noParameterTypes
+        )
         moveNextAsyncIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, moveNextAsyncBox, new object[](0))
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextAsyncPlan(context), moveNextAsyncIl)
 
         disposeAsyncBox := AsyncProbeDefineMethod(
-            defineMethodMethod, typeBuilderBox, "DisposeAsync", publicMethodAttribute,
-            AsyncProbeRuntimeType("System.Threading.Tasks.ValueTask"), noParameterTypes)
+            defineMethodMethod,
+            typeBuilderBox,
+            "DisposeAsync",
+            publicMethodAttribute,
+            AsyncProbeRuntimeType("System.Threading.Tasks.ValueTask"),
+            noParameterTypes
+        )
         disposeAsyncIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, disposeAsyncBox, new object[](0))
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposeAsyncPlan(context), disposeAsyncIl)
 
         // The probe's clone view is parameterless and object-typed: the plan ignores the token and the
         // probe type does not implement the async interfaces the real host declares.
         cloneBox := AsyncProbeDefineMethod(
-            defineMethodMethod, typeBuilderBox, "GetAsyncEnumerator", publicMethodAttribute, typeof(object), noParameterTypes)
+            defineMethodMethod,
+            typeBuilderBox,
+            "GetAsyncEnumerator",
+            publicMethodAttribute,
+            typeof(object),
+            noParameterTypes
+        )
         cloneIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, cloneBox, new object[](0))
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetAsyncEnumeratorPlan(context), cloneIl)
 
@@ -178,7 +218,7 @@ class ColumnarAsyncProbeMachine {
         StateConstructor = bakedConstructor
     }
 
-    public func FieldNamed(name: string): FieldInfo {
+    func FieldNamed(name: string): FieldInfo {
         i := 0
         while i < Shape.FieldNames.Length {
             if Shape.FieldNames[i] == name {
@@ -191,7 +231,7 @@ class ColumnarAsyncProbeMachine {
 
     // Construct a machine at the given state and wire the re-drive continuation to its own
     // MoveNextCore — the exact Action the real host ctor creates with ldftn.
-    public func NewMachine(initialState: int): object {
+    func NewMachine(initialState: int): object {
         args := new object[](1)
         IteratorSetObject(args, 0, initialState)
         machine := StateConstructor.Invoke(args)
@@ -211,24 +251,24 @@ class ColumnarAsyncProbeMachine {
         return machine
     }
 
-    public func ReadInt(machine: object, name: string): int {
+    func ReadInt(machine: object, name: string): int {
         return Convert.ToInt32(FieldNamed(name).GetValue(machine))
     }
 
-    public func ReadBool(machine: object, name: string): bool {
+    func ReadBool(machine: object, name: string): bool {
         return Convert.ToBoolean(FieldNamed(name).GetValue(machine))
     }
 
-    public func ReadField(machine: object, name: string): object? {
+    func ReadField(machine: object, name: string): object? {
         return FieldNamed(name).GetValue(machine)
     }
 
-    public func WriteField(machine: object, name: string, value: object) {
+    func WriteField(machine: object, name: string, value: object) {
         FieldNamed(name).SetValue(machine, value)
     }
 
     // Invoke a value-returning probe member (MoveNextAsync/DisposeAsync/GetAsyncEnumerator).
-    public func InvokeMember(machine: object, name: string): object {
+    func InvokeMember(machine: object, name: string): object {
         method := MachineType.GetMethod(name)
         if method == null {
             throw new InvalidOperationException("Async probe machine has no member named '" + name + "'.")
@@ -236,7 +276,7 @@ class ColumnarAsyncProbeMachine {
         return AsyncProbeInvoke(method, machine, new object[](0))
     }
 
-    public func InvokeVoidMember(machine: object, name: string) {
+    func InvokeVoidMember(machine: object, name: string) {
         method := MachineType.GetMethod(name)
         if method == null {
             throw new InvalidOperationException("Async probe machine has no member named '" + name + "'.")
@@ -252,7 +292,8 @@ func AsyncProbeDefineMethod(
     name: string,
     attribute: object,
     returnType: Type,
-    parameterTypes: Type[]): object {
+    parameterTypes: Type[]
+): object {
     args := new object[](4)
     IteratorSetObject(args, 0, name)
     IteratorSetObject(args, 1, attribute)
@@ -367,7 +408,7 @@ func AsyncProbeEnumValue(enumTypeName: string, memberName: string): object {
 // A plain class whose public fields stand in for a synthesized state machine's fields, so a contract can
 // execute the planner's MoveNext/get_Current plans onto DynamicMethods and run a real iterator without the
 // C# emitter host.
-public class ColumnarIteratorRunProbe {
+class ColumnarIteratorRunProbe {
     public state: int
     public current: int
     public n: int
@@ -383,7 +424,7 @@ public class ColumnarIteratorRunProbe {
 
 // A run-probe for the string-element machines (array for..in + string instance call): field order
 // mirrors the planner layout [state, current, xs, <>__index0, x, r].
-public class ColumnarIteratorStringProbe {
+class ColumnarIteratorStringProbe {
     public state: int
     public current: string
     public xs: string[]
@@ -405,10 +446,10 @@ public class ColumnarIteratorStringProbe {
 // Signature facts (return canonical, parameters, type parameters, instance receiver) are supplied
 // explicitly so a contract exercises exactly one decision at a time.
 class ColumnarIteratorShapeProbe {
-    public Shape: ColumnarIteratorShape
-    public Nodes: ColumnarNodeTable
-    public BodyRoot: int
-    public Source: string
+    Shape: ColumnarIteratorShape
+    Nodes: ColumnarNodeTable
+    BodyRoot: int
+    Source: string
 
     constructor(
         source: string,
@@ -417,7 +458,8 @@ class ColumnarIteratorShapeProbe {
         paramCanonicals: string[],
         typeParamNames: string[],
         isInstance: bool,
-        isAsync: bool = false) {
+        isAsync: bool = false
+    ) {
         capacity := source.Length * 3 + 16
         rawKinds := new int[](capacity)
         rawStarts := new int[](capacity)
@@ -427,8 +469,15 @@ class ColumnarIteratorShapeProbe {
         tokenValueLengths := new int[](capacity)
         tokenCounts := new int[](2)
         tokenCount := TokenizeColumnarSourceInto(
-            source, rawKinds, rawStarts, rawValueLengths,
-            tokenKinds, tokenStarts, tokenValueLengths, tokenCounts)
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts
+        )
 
         funcIndex := 0
         while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
@@ -462,25 +511,75 @@ class ColumnarIteratorShapeProbe {
         result := new int[](9)
 
         status := ParseColumnarProductFunctionInfoInto(
-            source, tokenKinds, tokenStarts, tokenValueLengths, tokenCount, funcIndex, 0,
-            functionNameTexts, returnTypeTexts, paramNameTexts, paramTypeTexts, paramModifierKinds,
-            paramDefaultKinds, paramDefaultTexts, paramTupleNameCounts, paramTupleNameTexts,
-            returnTupleNameTexts, typeParamTexts, typeParamSpecials, typeParamConstraintCounts,
-            typeParamConstraintTypeTexts, nodeKinds, valueStarts, valueLengths, childStart, childCount,
-            childIndices, spanStarts, spanLengths, localFunctionNodeIndices, localFunctionTokenIndices, result)
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            funcIndex,
+            0,
+            functionNameTexts,
+            returnTypeTexts,
+            paramNameTexts,
+            paramTypeTexts,
+            paramModifierKinds,
+            paramDefaultKinds,
+            paramDefaultTexts,
+            paramTupleNameCounts,
+            paramTupleNameTexts,
+            returnTupleNameTexts,
+            typeParamTexts,
+            typeParamSpecials,
+            typeParamConstraintCounts,
+            typeParamConstraintTypeTexts,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStart,
+            childCount,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            localFunctionNodeIndices,
+            localFunctionTokenIndices,
+            result
+        )
         if status < 0 {
             throw new InvalidOperationException("Iterator-shape probe could not parse the func* body.")
         }
 
         bodyRoot := result[6]
         nodes := new ColumnarNodeTable(
-            nodeKinds, valueStarts, valueLengths, childStart, childCount, childIndices, spanStarts, spanLengths)
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStart,
+            childCount,
+            childIndices,
+            spanStarts,
+            spanLengths
+        )
         Nodes = nodes
         BodyRoot = bodyRoot
         Source = source
         Shape = ColumnarIteratorPlanner.AnalyzeShape(
-            nodes, source, bodyRoot, "Gen", 0, returnCanonical, paramNames, paramCanonicals, typeParamNames, isInstance,
-            "", new string[](0), new string[](0), new string[](0), new string[](0), isAsync)
+            nodes,
+            source,
+            bodyRoot,
+            "Gen",
+            0,
+            returnCanonical,
+            paramNames,
+            paramCanonicals,
+            typeParamNames,
+            isInstance,
+            "",
+            new string[](0),
+            new string[](0),
+            new string[](0),
+            new string[](0),
+            isAsync
+        )
     }
 }
 
@@ -519,7 +618,12 @@ func IteratorOne(a: string): string[] {
 test "iterator planner numbers zero yields with two fields and no resume states" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Zero(): IEnumerable<int> { }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.ElementCanonical == "int"
@@ -533,7 +637,12 @@ test "iterator planner numbers zero yields with two fields and no resume states"
 test "iterator planner numbers a single yield as one resume state" {
     probe := new ColumnarIteratorShapeProbe(
         "func* One(): IEnumerable<int> { yield 5 }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 1
@@ -542,7 +651,12 @@ test "iterator planner numbers a single yield as one resume state" {
 test "iterator planner numbers many yields sequentially" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Many(): IEnumerable<int> { yield 1\n yield 2\n yield 3 }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 3
@@ -551,7 +665,12 @@ test "iterator planner numbers many yields sequentially" {
 test "iterator planner excludes yield break from the resume-state count" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Break(): IEnumerable<int> { yield 1\n yield break }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 1
@@ -560,7 +679,12 @@ test "iterator planner excludes yield break from the resume-state count" {
 test "iterator planner lays out state, current, parameters, then locals in hoist order" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Count(n: int): IEnumerable<int> { i: int = 0\n while i < n { yield i\n i = i + 1 } }",
-        "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 1
@@ -580,7 +704,12 @@ test "iterator planner lays out state, current, parameters, then locals in hoist
 test "iterator planner infers the element type from an IEnumerable<T> return" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Strings(): IEnumerable<string> { yield break }",
-        "IEnumerable<string>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<string>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.ElementCanonical == "string"
@@ -590,7 +719,12 @@ test "iterator planner infers the element type from an IEnumerable<T> return" {
 test "iterator planner exposes the eight member and override specs" {
     probe := new ColumnarIteratorShapeProbe(
         "func* One(): IEnumerable<int> { yield 5 }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.MemberCount == 8
     assert probe.Shape.MemberNames[0] == ".ctor"
@@ -605,7 +739,12 @@ test "iterator planner exposes the eight member and override specs" {
 test "iterator planner models a generic iterator element as the type parameter" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Repeat(): IEnumerable<T> { yield break }",
-        "IEnumerable<T>", IteratorNoStrings(), IteratorNoStrings(), IteratorOne("T"), false)
+        "IEnumerable<T>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorOne("T"),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.ElementCanonical == "T"
@@ -622,7 +761,12 @@ func IteratorTwo(a: string, b: string): string[] {
 test "iterator planner captures type-parameter values in the repeat shape" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Repeat(value: T, count: int): IEnumerable<T> { i: int = 0\n while i < count { yield value\n i = i + 1 } }",
-        "IEnumerable<T>", IteratorTwo("value", "count"), IteratorTwo("T", "int"), IteratorOne("T"), false)
+        "IEnumerable<T>",
+        IteratorTwo("value", "count"),
+        IteratorTwo("T", "int"),
+        IteratorOne("T"),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 1
@@ -638,7 +782,12 @@ test "iterator planner captures type-parameter values in the repeat shape" {
 test "iterator planner declines binaries over type-parameter operands" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Sum(value: T, count: int): IEnumerable<T> { yield value + value }",
-        "IEnumerable<T>", IteratorTwo("value", "count"), IteratorTwo("T", "int"), IteratorOne("T"), false)
+        "IEnumerable<T>",
+        IteratorTwo("value", "count"),
+        IteratorTwo("T", "int"),
+        IteratorOne("T"),
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
@@ -647,7 +796,12 @@ test "iterator planner declines binaries over type-parameter operands" {
 test "iterator planner hoists an enumerable for..in as an enumerator field" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Loop(items: IEnumerable<int>): IEnumerable<int> { for x in items { yield x } }",
-        "IEnumerable<int>", IteratorOne("items"), IteratorOne("IEnumerable<int>"), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorOne("items"),
+        IteratorOne("IEnumerable<int>"),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.FieldCount == 5
@@ -664,7 +818,12 @@ test "iterator planner hoists an enumerable for..in as an enumerator field" {
 test "iterator planner hoists a list for..in through the same enumerator lowering" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Loop(items: List<int>): IEnumerable<int> { for x in items { yield x } }",
-        "IEnumerable<int>", IteratorOne("items"), IteratorOne("List<int>"), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorOne("items"),
+        IteratorOne("List<int>"),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.FieldCanonicals[2] == "List<int>"
@@ -675,7 +834,12 @@ test "iterator planner hoists a list for..in through the same enumerator lowerin
 test "iterator planner declines for..in over a non-sequence source" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Loop(n: int): IEnumerable<int> { for x in n { yield x } }",
-        "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
@@ -684,7 +848,12 @@ test "iterator planner declines for..in over a non-sequence source" {
 test "iterator planner declines for..in over an unlowered array element" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Loop(xs: int[][]): IEnumerable<int> { for x in xs { yield 1 } }",
-        "IEnumerable<int>", IteratorOne("xs"), IteratorOne("int[][]"), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorOne("xs"),
+        IteratorOne("int[][]"),
+        IteratorNoStrings(),
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
@@ -693,7 +862,12 @@ test "iterator planner declines for..in over an unlowered array element" {
 test "iterator planner declines an instance receiver" {
     probe := new ColumnarIteratorShapeProbe(
         "func* One(): IEnumerable<int> { yield 5 }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        true
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.instance-unsupported"
@@ -702,7 +876,12 @@ test "iterator planner declines an instance receiver" {
 test "iterator planner declines a nested or recursive call in the body" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Nested(): IEnumerable<int> { yield Other() }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.nested-unsupported"
@@ -711,7 +890,12 @@ test "iterator planner declines a nested or recursive call in the body" {
 test "iterator planner declines an otherwise-unlowered throw shape" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Throwing(): IEnumerable<int> { throw MakeError() }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
@@ -720,7 +904,13 @@ test "iterator planner declines an otherwise-unlowered throw shape" {
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
     source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n while i < n { yield i\n i = i + 1 } }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
     assert probe.Shape.Supported
     assert probe.Shape.FieldCount == 4
 
@@ -731,7 +921,15 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
     fields[2] = smType.GetField("n")
     fields[3] = smType.GetField("i")
     context := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
     getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
@@ -767,7 +965,7 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
 }
 
 // A run-probe machine with the `.ctor(int)` shape the clone and factory plans construct through.
-public class ColumnarIteratorCloneProbe {
+class ColumnarIteratorCloneProbe {
     public state: int
     public current: int
     public n: int
@@ -792,7 +990,13 @@ func IteratorVoidType(): Type {
 func IteratorCloneProbeContext(): ColumnarIteratorEmitContext {
     source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n while i < n { yield i\n i = i + 1 } }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
     smType := typeof(ColumnarIteratorCloneProbe)
     fields := new FieldInfo[](4)
     fields[0] = smType.GetField("state")
@@ -806,8 +1010,16 @@ func IteratorCloneProbeContext(): ColumnarIteratorEmitContext {
         throw new InvalidOperationException("ColumnarIteratorCloneProbe.ctor(int) was not found.")
     }
     return new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int),
-        probe.Shape.FieldNames, fields, smConstructor)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields,
+        smConstructor
+    )
 }
 
 test "iterator planner dispose plan marks the machine done" {
@@ -909,7 +1121,12 @@ test "iterator planner interface enumerator plan mirrors the clone body" {
 test "iterator planner drops dead statements after yield break" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Dead(): IEnumerable<int> { yield break\n yield 5 }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 0
@@ -918,7 +1135,13 @@ test "iterator planner drops dead statements after yield break" {
 test "iterator planner guard yield break plans run for both branch outcomes" {
     source := "func* Guarded(n: int): IEnumerable<int> { if n <= 0 { yield break }\n yield 1\n yield 2 }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 2
     assert probe.Shape.FieldCount == 3
@@ -929,7 +1152,15 @@ test "iterator planner guard yield break plans run for both branch outcomes" {
     fields[1] = smType.GetField("current")
     fields[2] = smType.GetField("n")
     context := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
     getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
@@ -964,7 +1195,13 @@ test "iterator planner guard yield break plans run for both branch outcomes" {
 test "iterator planner while body ending in yield break omits the back edge" {
     source := "func* LoopBreak(n: int): IEnumerable<int> { while n > 0 { yield break } }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 0
 
@@ -974,7 +1211,15 @@ test "iterator planner while body ending in yield break omits the back edge" {
     fields[1] = smType.GetField("current")
     fields[2] = smType.GetField("n")
     context := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
     moveNext := MakeIteratorDynamicMethod("LoopBreakMoveNext", typeof(bool), smType)
@@ -1007,7 +1252,7 @@ test "iterator planner factory plan constructs the machine from arguments" {
 
 // A run-probe machine for the array for..in lowering: a captured array parameter plus the loop's
 // synthetic index and element fields.
-public class ColumnarIteratorArrayProbe {
+class ColumnarIteratorArrayProbe {
     public state: int
     public current: int
     public xs: int[]
@@ -1026,7 +1271,12 @@ public class ColumnarIteratorArrayProbe {
 test "iterator planner hoists array for..in loops as index plus element fields" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Pass(xs: int[]): IEnumerable<int> { for x in xs { yield x } }",
-        "IEnumerable<int>", IteratorOne("xs"), IteratorOne("int[]"), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorOne("xs"),
+        IteratorOne("int[]"),
+        IteratorNoStrings(),
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 1
@@ -1044,7 +1294,13 @@ test "iterator planner hoists array for..in loops as index plus element fields" 
 
 func IteratorArrayProbeContext(source: string): ColumnarIteratorEmitContext {
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("xs"), IteratorOne("int[]"), IteratorNoStrings(), false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("xs"),
+        IteratorOne("int[]"),
+        IteratorNoStrings(),
+        false
+    )
     if !probe.Shape.Supported {
         throw new InvalidOperationException("Array probe shape unexpectedly declined: " + probe.Shape.DeclineMessage)
     }
@@ -1056,13 +1312,21 @@ func IteratorArrayProbeContext(source: string): ColumnarIteratorEmitContext {
     fields[3] = smType.GetField("idx")
     fields[4] = smType.GetField("x")
     return new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int),
-        probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
 }
 
 test "iterator planner array for..in plans run the full element sequence" {
     context := IteratorArrayProbeContext(
-        "func* Pass(xs: int[]): IEnumerable<int> { for x in xs { yield x } }")
+        "func* Pass(xs: int[]): IEnumerable<int> { for x in xs { yield x } }"
+    )
     moveNext := MakeIteratorDynamicMethod("ArrayMoveNext", typeof(bool), context.StateMachineType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
     getCurrent := MakeIteratorDynamicMethod("ArrayCurrent", typeof(int), context.StateMachineType)
@@ -1092,7 +1356,8 @@ test "iterator planner array for..in plans run the full element sequence" {
 
 test "iterator planner array for..in with a guard break stops mid-array" {
     context := IteratorArrayProbeContext(
-        "func* Until(xs: int[]): IEnumerable<int> { for x in xs { if x < 0 { yield break }\n yield x } }")
+        "func* Until(xs: int[]): IEnumerable<int> { for x in xs { if x < 0 { yield break }\n yield x } }"
+    )
     moveNext := MakeIteratorDynamicMethod("GuardArrayMoveNext", typeof(bool), context.StateMachineType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
     getCurrent := MakeIteratorDynamicMethod("GuardArrayCurrent", typeof(int), context.StateMachineType)
@@ -1123,7 +1388,13 @@ test "iterator planner array for..in with a guard break stops mid-array" {
 test "iterator planner throw plans classify and raise the constructed exception" {
     source := "func* Guard(n: int): IEnumerable<int> { if n == 0 { throw new ArgumentException(\"bad step\") }\n yield 1 }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 1
 
@@ -1133,7 +1404,15 @@ test "iterator planner throw plans classify and raise the constructed exception"
     fields[1] = smType.GetField("current")
     fields[2] = smType.GetField("n")
     context := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
     moveNext := MakeIteratorDynamicMethod("ThrowMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
     getCurrent := MakeIteratorDynamicMethod("ThrowCurrent", typeof(int), smType)
@@ -1172,7 +1451,13 @@ test "iterator planner throw plans classify and raise the constructed exception"
 test "iterator planner reuses the hoisted slot for same-typed disjoint redeclarations" {
     source := "func* UpOrDown(n: int): IEnumerable<int> { if n > 0 { v := n\n yield v } else { v := 0 - n\n yield v } }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
     assert probe.Shape.Supported
     assert probe.Shape.FieldCount == 4
     assert probe.Shape.FieldNames[3] == "v"
@@ -1184,7 +1469,15 @@ test "iterator planner reuses the hoisted slot for same-typed disjoint redeclara
     fields[2] = smType.GetField("n")
     fields[3] = smType.GetField("i")
     context := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
     moveNext := MakeIteratorDynamicMethod("SlotReuseMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
     getCurrent := MakeIteratorDynamicMethod("SlotReuseCurrent", typeof(int), smType)
@@ -1212,7 +1505,12 @@ test "iterator planner reuses the hoisted slot for same-typed disjoint redeclara
 test "iterator planner declines a differently-typed local redeclaration" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Mixed(n: int): IEnumerable<int> { if n > 0 { v := 1\n yield v } else { v := true\n yield 2 } }",
-        "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
@@ -1221,7 +1519,7 @@ test "iterator planner declines a differently-typed local redeclaration" {
 // A run-probe machine for the enumerator-hoisting lowering. The enumerator slot is object-typed on
 // the probe (its interface type sits outside the probe class's declarable surface); the plans bind
 // fields by handle and DynamicMethods execute unverified, so the runtime behavior is exact.
-public class ColumnarIteratorEnumProbe {
+class ColumnarIteratorEnumProbe {
     public state: int
     public current: int
     public xs: List<int>
@@ -1239,7 +1537,13 @@ public class ColumnarIteratorEnumProbe {
 
 func IteratorEnumProbeContext(source: string): ColumnarIteratorEmitContext {
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("xs"), IteratorOne("List<int>"), IteratorNoStrings(), false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("xs"),
+        IteratorOne("List<int>"),
+        IteratorNoStrings(),
+        false
+    )
     if !probe.Shape.Supported {
         throw new InvalidOperationException("Enum probe shape unexpectedly declined: " + probe.Shape.DeclineMessage)
     }
@@ -1251,13 +1555,21 @@ func IteratorEnumProbeContext(source: string): ColumnarIteratorEmitContext {
     fields[3] = smType.GetField("en")
     fields[4] = smType.GetField("item")
     return new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int),
-        probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
 }
 
 test "iterator planner enumerator for..in plans run and release the enumerator" {
     context := IteratorEnumProbeContext(
-        "func* Pass(xs: List<int>): IEnumerable<int> { for item in xs { yield item } }")
+        "func* Pass(xs: List<int>): IEnumerable<int> { for item in xs { yield item } }"
+    )
     moveNext := MakeIteratorDynamicMethod("EnumMoveNext", typeof(bool), context.StateMachineType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
     getCurrent := MakeIteratorDynamicMethod("EnumCurrent", typeof(int), context.StateMachineType)
@@ -1289,7 +1601,8 @@ test "iterator planner enumerator for..in plans run and release the enumerator" 
 
 test "iterator planner dispose plan releases a suspended enumerator" {
     context := IteratorEnumProbeContext(
-        "func* Pass(xs: List<int>): IEnumerable<int> { for item in xs { yield item } }")
+        "func* Pass(xs: List<int>): IEnumerable<int> { for item in xs { yield item } }"
+    )
     moveNext := MakeIteratorDynamicMethod("EnumSuspendMoveNext", typeof(bool), context.StateMachineType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
     dispose := MakeIteratorDynamicMethod("EnumSuspendDispose", IteratorVoidType(), context.StateMachineType)
@@ -1312,7 +1625,8 @@ test "iterator planner dispose plan releases a suspended enumerator" {
 
 test "iterator planner fault region disposes the enumerator on exception" {
     context := IteratorEnumProbeContext(
-        "func* Boom(xs: List<int>): IEnumerable<int> { for item in xs { throw new InvalidOperationException(\"boom\") }\n yield 1 }")
+        "func* Boom(xs: List<int>): IEnumerable<int> { for item in xs { throw new InvalidOperationException(\"boom\") }\n yield 1 }"
+    )
     moveNext := MakeIteratorDynamicMethod("EnumFaultMoveNext", typeof(bool), context.StateMachineType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
 
@@ -1336,7 +1650,7 @@ test "iterator planner fault region disposes the enumerator on exception" {
 
 // A generic run-probe machine: the repeat shape's fields with the element flowing through T. The
 // contract executes the plans against a CLOSED instantiation's runtime field handles.
-public class ColumnarIteratorGenericProbe<T> {
+class ColumnarIteratorGenericProbe<T> {
     public state: int
     public current: T
     public value: T
@@ -1355,7 +1669,13 @@ public class ColumnarIteratorGenericProbe<T> {
 test "iterator planner generic repeat plans run over a closed instantiation" {
     source := "func* Repeat(value: T, count: int): IEnumerable<T> { i: int = 0\n while i < count { yield value\n i = i + 1 } }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<T>", IteratorTwo("value", "count"), IteratorTwo("T", "int"), IteratorOne("T"), false)
+        source,
+        "IEnumerable<T>",
+        IteratorTwo("value", "count"),
+        IteratorTwo("T", "int"),
+        IteratorOne("T"),
+        false
+    )
     assert probe.Shape.Supported
 
     machine := new ColumnarIteratorGenericProbe<int>(0, 7, 3)
@@ -1368,8 +1688,15 @@ test "iterator planner generic repeat plans run over a closed instantiation" {
     fields[3] = smType.GetField("count")
     fields[4] = smType.GetField("i")
     context := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int),
-        probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
 
     moveNext := MakeIteratorDynamicMethod("GenericMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
@@ -1393,9 +1720,9 @@ test "iterator planner generic repeat plans run over a closed instantiation" {
 }
 
 // Enclosing-type probe for instance iterators, and a machine probe with the captured receiver slot.
-public class ColumnarIteratorHostProbe {
-    public Value: int
-    public Worth: int
+class ColumnarIteratorHostProbe {
+    Value: int
+    Worth: int
 
     constructor(value: int, worth: int) {
         Value = value
@@ -1403,7 +1730,7 @@ public class ColumnarIteratorHostProbe {
     }
 }
 
-public class ColumnarIteratorInstanceProbe {
+class ColumnarIteratorInstanceProbe {
     public state: int
     public current: int
     public thisRef: ColumnarIteratorHostProbe?
@@ -1418,13 +1745,32 @@ public class ColumnarIteratorInstanceProbe {
 test "iterator planner hoists the receiver and runs enclosing member reads" {
     parseProbe := new ColumnarIteratorShapeProbe(
         "func* Vals(): IEnumerable<int> { yield Value\n yield Worth }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
     memberNames := IteratorTwo("Value", "Worth")
     memberCanonicals := IteratorTwo("int", "int")
     shape := ColumnarIteratorPlanner.AnalyzeShape(
-        parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, "Vals", 0, "IEnumerable<int>",
-        IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true, "HostProbe",
-        memberNames, memberCanonicals, IteratorNoStrings(), IteratorNoStrings(), false)
+        parseProbe.Nodes,
+        parseProbe.Source,
+        parseProbe.BodyRoot,
+        "Vals",
+        0,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        true,
+        "HostProbe",
+        memberNames,
+        memberCanonicals,
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert shape.Supported
     assert shape.YieldReturnCount == 2
@@ -1443,9 +1789,24 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
     hostFields[0] = hostType.GetField("Value")
     hostFields[1] = hostType.GetField("Worth")
     context := new ColumnarIteratorEmitContext(
-        parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, shape, smType, typeof(int),
-        shape.FieldNames, fields, null, hostType, memberNames, hostFields, memberCanonicals,
-        IteratorNoStrings(), new MethodInfo[](0), IteratorNoStrings(), new Type[](0))
+        parseProbe.Nodes,
+        parseProbe.Source,
+        parseProbe.BodyRoot,
+        shape,
+        smType,
+        typeof(int),
+        shape.FieldNames,
+        fields,
+        null,
+        hostType,
+        memberNames,
+        hostFields,
+        memberCanonicals,
+        IteratorNoStrings(),
+        new MethodInfo[](0),
+        IteratorNoStrings(),
+        new Type[](0)
+    )
 
     moveNext := MakeIteratorDynamicMethod("InstanceMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
@@ -1472,11 +1833,30 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
 test "iterator planner declines enclosing member writes" {
     parseProbe := new ColumnarIteratorShapeProbe(
         "func* Bad(): IEnumerable<int> { Value = 3\n yield 1 }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
     shape := ColumnarIteratorPlanner.AnalyzeShape(
-        parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, "Bad", 0, "IEnumerable<int>",
-        IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true, "HostProbe",
-        IteratorOne("Value"), IteratorOne("int"), IteratorNoStrings(), IteratorNoStrings(), false)
+        parseProbe.Nodes,
+        parseProbe.Source,
+        parseProbe.BodyRoot,
+        "Bad",
+        0,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        true,
+        "HostProbe",
+        IteratorOne("Value"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
 
     assert !shape.Supported
     assert shape.DeclineSite == "emit.iterator.unsupported-shape"
@@ -1485,12 +1865,30 @@ test "iterator planner declines enclosing member writes" {
 test "iterator planner classifies member-call for..in sources" {
     parseProbe := new ColumnarIteratorShapeProbe(
         "func* Walk(): IEnumerable<int> { yield Value\n for child in Children { for v in child.Walk() { yield v } } }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
     shape := ColumnarIteratorPlanner.AnalyzeShape(
-        parseProbe.Nodes, parseProbe.Source, parseProbe.BodyRoot, "Walk", 0, "IEnumerable<int>",
-        IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), true, "TreeNode",
-        IteratorTwo("Value", "Children"), IteratorTwo("int", "List<TreeNode>"),
-        IteratorOne("Walk"), IteratorOne("IEnumerable<int>"), false)
+        parseProbe.Nodes,
+        parseProbe.Source,
+        parseProbe.BodyRoot,
+        "Walk",
+        0,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        true,
+        "TreeNode",
+        IteratorTwo("Value", "Children"),
+        IteratorTwo("int", "List<TreeNode>"),
+        IteratorOne("Walk"),
+        IteratorOne("IEnumerable<int>"),
+        false
+    )
 
     assert shape.Supported
     assert shape.YieldReturnCount == 2
@@ -1509,7 +1907,13 @@ test "iterator planner classifies member-call for..in sources" {
 test "async iterator planner classifies element type with await and yield resume counts" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Numbers(): IAsyncEnumerable<int> { await Task.Delay(1)\n yield 1 }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.IsAsync
@@ -1521,7 +1925,13 @@ test "async iterator planner classifies element type with await and yield resume
 test "async iterator planner counts each await as a distinct resume state" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Multi(): IAsyncEnumerable<int> { await Task.Delay(1)\n yield 1\n await Task.Delay(2)\n yield 2\n await Task.Delay(3) }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.IsAsync
@@ -1533,7 +1943,13 @@ test "async iterator planner counts each await as a distinct resume state" {
 test "async iterator planner classifies a yield-only body with zero awaits" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Just(): IAsyncEnumerable<int> { yield 7 }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.IsAsync
@@ -1544,7 +1960,13 @@ test "async iterator planner classifies a yield-only body with zero awaits" {
 test "async iterator planner counts awaits inside a while loop body" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Loop(): IAsyncEnumerable<int> { i := 0\n while i < 3 { await Task.Delay(5)\n yield i } }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.IsAsync
@@ -1555,7 +1977,13 @@ test "async iterator planner counts awaits inside a while loop body" {
 test "async classification declines a non-IAsyncEnumerable async iterator return" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Wrong(): IEnumerable<int> { await A()\n yield 1 }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-return-unsupported"
@@ -1564,7 +1992,13 @@ test "async classification declines a non-IAsyncEnumerable async iterator return
 test "synchronous iterator planner rejects IAsyncEnumerable without the async modifier" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Sync(): IAsyncEnumerable<int> { yield 1 }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, false)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-unsupported"
@@ -1573,7 +2007,13 @@ test "synchronous iterator planner rejects IAsyncEnumerable without the async mo
 test "synchronous iterator planner rejects an await expression" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Sync(): IEnumerable<int> { await A()\n yield 1 }",
-        "IEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, false)
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
@@ -1584,7 +2024,13 @@ test "synchronous iterator planner rejects an await expression" {
 test "async iterator planner lays out awaiter, promise, result, and continuation fields" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Numbers(n: int): IAsyncEnumerable<int> { i := 0\n while i < n { await Task.Delay(1)\n yield i\n i = i + 1 } }",
-        "IAsyncEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.IsAsync
@@ -1611,7 +2057,13 @@ test "async iterator planner lays out awaiter, promise, result, and continuation
 test "async iterator planner exposes the six async member and override specs" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Just(): IAsyncEnumerable<int> { yield 7 }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert probe.Shape.MemberCount == 6
     assert probe.Shape.MemberNames[0] == ".ctor"
@@ -1634,7 +2086,13 @@ test "async iterator planner exposes the six async member and override specs" {
 test "async iterator planner declines a generic async iterator" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Repeat(): IAsyncEnumerable<T> { yield break }",
-        "IAsyncEnumerable<T>", IteratorNoStrings(), IteratorNoStrings(), IteratorOne("T"), false, true)
+        "IAsyncEnumerable<T>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorOne("T"),
+        false,
+        true
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-unsupported"
@@ -1643,7 +2101,13 @@ test "async iterator planner declines a generic async iterator" {
 test "async iterator planner declines a non-Task-Delay awaited operand" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Bad(): IAsyncEnumerable<int> { await Other()\n yield 1 }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
@@ -1652,7 +2116,13 @@ test "async iterator planner declines a non-Task-Delay awaited operand" {
 test "async iterator planner declines an await in a value position" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Bad(): IAsyncEnumerable<int> { x := await Task.Delay(1)\n yield 1 }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
@@ -1661,7 +2131,13 @@ test "async iterator planner declines an await in a value position" {
 test "async iterator planner declines a non-int Task.Delay argument" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Bad(): IAsyncEnumerable<int> { await Task.Delay(true)\n yield 1 }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
@@ -1670,7 +2146,13 @@ test "async iterator planner declines a non-int Task.Delay argument" {
 test "async iterator planner declines for..in over a sequence source" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Bad(items: IEnumerable<int>): IAsyncEnumerable<int> { for x in items { yield x } }",
-        "IAsyncEnumerable<int>", IteratorOne("items"), IteratorOne("IEnumerable<int>"), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorOne("items"),
+        IteratorOne("IEnumerable<int>"),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
@@ -1679,7 +2161,13 @@ test "async iterator planner declines for..in over a sequence source" {
 test "async iterator planner declines await foreach inside an iterator body" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Bad(xs: IAsyncEnumerable<int>): IAsyncEnumerable<int> { await foreach x in xs { yield x } }",
-        "IAsyncEnumerable<int>", IteratorOne("xs"), IteratorOne("IAsyncEnumerable<int>"), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorOne("xs"),
+        IteratorOne("IAsyncEnumerable<int>"),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
@@ -1690,7 +2178,13 @@ test "async iterator planner declines await foreach inside an iterator body" {
 test "async iterator planner core plan completes a fast-path await and yield synchronously" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Fast(): IAsyncEnumerable<int> { await Task.Delay(0)\n yield 7 }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 1
     assert probe.Shape.AwaitResumeCount == 1
@@ -1713,7 +2207,13 @@ test "async iterator planner core plan completes a fast-path await and yield syn
 test "async iterator machine suspends on a real delay and resumes through the continuation" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Slow(): IAsyncEnumerable<int> { await Task.Delay(200)\n yield 42 }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
     assert probe.Shape.Supported
 
     host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeSlow")
@@ -1740,7 +2240,13 @@ test "async iterator machine suspends on a real delay and resumes through the co
 test "async iterator machine routes a synchronous body exception to the caller" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Boom(): IAsyncEnumerable<int> { await Task.Delay(0)\n throw new InvalidOperationException(\"boom\") }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
     assert probe.Shape.Supported
 
     host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeBoom")
@@ -1767,7 +2273,13 @@ test "async iterator machine routes a synchronous body exception to the caller" 
 test "async iterator machine routes a post-suspension exception through the promise" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* LateBoom(): IAsyncEnumerable<int> { await Task.Delay(200)\n throw new InvalidOperationException(\"late\") }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
     assert probe.Shape.Supported
 
     host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeLateBoom")
@@ -1796,7 +2308,13 @@ test "async iterator machine routes a post-suspension exception through the prom
 test "async iterator machine clone, dispose, and factory keep the sync machine discipline" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Capture(n: int): IAsyncEnumerable<int> { await Task.Delay(0)\n yield n }",
-        "IAsyncEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        true
+    )
     assert probe.Shape.Supported
 
     host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeCapture")
@@ -1822,8 +2340,16 @@ test "async iterator machine clone, dispose, and factory keep the sync machine d
 
     // The async factory constructs the machine at the initial state from the method arguments.
     factoryContext := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, host.MachineType, typeof(int),
-        probe.Shape.FieldNames, host.Fields, host.StateConstructor)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        host.MachineType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        host.Fields,
+        host.StateConstructor
+    )
     factoryPlan := ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(factoryContext)
     factory := MakeIteratorDynamicMethod("AsyncFactory", typeof(object), typeof(int))
     ColumnarCodePlanExecutor.Execute(factoryPlan, factory.GetILGenerator())
@@ -1841,7 +2367,13 @@ test "async iterator machine clone, dispose, and factory keep the sync machine d
 test "iterator planner classifies a classic for loop with a hoisted counter" {
     probe := new ColumnarIteratorShapeProbe(
         "func* UpTo(n: int): IEnumerable<int> { for i := 0; i < n; i++ { yield i } }",
-        "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, false)
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 1
@@ -1854,7 +2386,13 @@ test "iterator planner classifies a classic for loop with a hoisted counter" {
 test "async iterator planner classifies a classic for body with awaits" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Numbers(): IAsyncEnumerable<int> { for i := 0; i < 10; i++ { await Task.Delay(100)\n yield i } }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.IsAsync
@@ -1865,7 +2403,13 @@ test "async iterator planner classifies a classic for body with awaits" {
 test "async iterator planner classifies a postfix-stepped yield value" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Inf(): IAsyncEnumerable<int> { i := 0\n while true { await Task.Delay(200)\n yield i++ } }",
-        "IAsyncEnumerable<int>", IteratorNoStrings(), IteratorNoStrings(), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.AwaitResumeCount == 1
@@ -1875,7 +2419,13 @@ test "async iterator planner classifies a postfix-stepped yield value" {
 test "iterator planner declines a non-falling for clause" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Bad(n: int): IEnumerable<int> { for yield break; n < 3; n++ { yield 1 } }",
-        "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, false)
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
@@ -1884,7 +2434,13 @@ test "iterator planner declines a non-falling for clause" {
 test "iterator planner declines a postfix step of an unbound identifier" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Bad(n: int): IEnumerable<int> { for i := 0; i < n; j++ { yield i } }",
-        "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, false)
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
@@ -1893,7 +2449,13 @@ test "iterator planner declines a postfix step of an unbound identifier" {
 test "iterator planner declines a postfix step over a non-int binding" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Bad(x: double): IEnumerable<int> { x++\n yield 1 }",
-        "IEnumerable<int>", IteratorOne("x"), IteratorOne("double"), IteratorNoStrings(), false, false)
+        "IEnumerable<int>",
+        IteratorOne("x"),
+        IteratorOne("double"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
@@ -1902,7 +2464,13 @@ test "iterator planner declines a postfix step over a non-int binding" {
 test "iterator planner classifies an argument-free string instance call" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Up(xs: string[]): IEnumerable<string> { for x in xs { r := x.ToUpper()\n yield r } }",
-        "IEnumerable<string>", IteratorOne("xs"), IteratorOne("string[]"), IteratorNoStrings(), false, false)
+        "IEnumerable<string>",
+        IteratorOne("xs"),
+        IteratorOne("string[]"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert probe.Shape.Supported
     assert probe.Shape.ElementCanonical == "string"
@@ -1914,7 +2482,13 @@ test "iterator planner classifies an argument-free string instance call" {
 test "iterator planner declines a string call with arguments" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Pad(xs: string[]): IEnumerable<string> { for x in xs { r := x.PadLeft(3)\n yield r } }",
-        "IEnumerable<string>", IteratorOne("xs"), IteratorOne("string[]"), IteratorNoStrings(), false, false)
+        "IEnumerable<string>",
+        IteratorOne("xs"),
+        IteratorOne("string[]"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.nested-unsupported"
@@ -1923,7 +2497,13 @@ test "iterator planner declines a string call with arguments" {
 test "iterator planner declines an unlowerable string method name" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Cl(xs: string[]): IEnumerable<string> { for x in xs { r := x.Normalize()\n yield r } }",
-        "IEnumerable<string>", IteratorOne("xs"), IteratorOne("string[]"), IteratorNoStrings(), false, false)
+        "IEnumerable<string>",
+        IteratorOne("xs"),
+        IteratorOne("string[]"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.nested-unsupported"
@@ -1932,7 +2512,13 @@ test "iterator planner declines an unlowerable string method name" {
 test "iterator planner declines an instance call on a non-string receiver" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Num(n: int): IEnumerable<int> { r := n.ToUpper()\n yield 1 }",
-        "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, false)
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.nested-unsupported"
@@ -1941,7 +2527,14 @@ test "iterator planner declines an instance call on a non-string receiver" {
 test "iterator planner classic for plans run the counting sequence" {
     source := "func* UpTo(n: int): IEnumerable<int> { for i := 0; i < n; i++ { yield i } }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
     assert probe.Shape.Supported
 
     smType := typeof(ColumnarIteratorRunProbe)
@@ -1951,7 +2544,15 @@ test "iterator planner classic for plans run the counting sequence" {
     fields[2] = smType.GetField("n")
     fields[3] = smType.GetField("i")
     context := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
     moveNext := MakeIteratorDynamicMethod("ForMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
     getCurrent := MakeIteratorDynamicMethod("ForCurrent", typeof(int), smType)
@@ -1979,7 +2580,14 @@ test "iterator planner classic for plans run the counting sequence" {
 test "iterator planner postfix yield value steps after producing the old value" {
     source := "func* Steps(n: int): IEnumerable<int> { i := 0\n while i < n { yield i++ } }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, false)
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
     assert probe.Shape.Supported
 
     smType := typeof(ColumnarIteratorRunProbe)
@@ -1989,7 +2597,15 @@ test "iterator planner postfix yield value steps after producing the old value" 
     fields[2] = smType.GetField("n")
     fields[3] = smType.GetField("i")
     context := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(int), probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields
+    )
     moveNext := MakeIteratorDynamicMethod("StepMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
     getCurrent := MakeIteratorDynamicMethod("StepCurrent", typeof(int), smType)
@@ -2017,7 +2633,14 @@ test "iterator planner postfix yield value steps after producing the old value" 
 test "iterator planner string call plans transform each yielded element" {
     source := "func* Up(xs: string[]): IEnumerable<string> { for x in xs { r := x.ToUpper()\n yield r } }"
     probe := new ColumnarIteratorShapeProbe(
-        source, "IEnumerable<string>", IteratorOne("xs"), IteratorOne("string[]"), IteratorNoStrings(), false, false)
+        source,
+        "IEnumerable<string>",
+        IteratorOne("xs"),
+        IteratorOne("string[]"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
     assert probe.Shape.Supported
 
     smType := typeof(ColumnarIteratorStringProbe)
@@ -2029,7 +2652,15 @@ test "iterator planner string call plans transform each yielded element" {
     fields[4] = smType.GetField("x")
     fields[5] = smType.GetField("r")
     context := new ColumnarIteratorEmitContext(
-        probe.Nodes, probe.Source, probe.BodyRoot, probe.Shape, smType, typeof(string), probe.Shape.FieldNames, fields)
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        smType,
+        typeof(string),
+        probe.Shape.FieldNames,
+        fields
+    )
     moveNext := MakeIteratorDynamicMethod("UpMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
     getCurrent := MakeIteratorDynamicMethod("UpCurrent", typeof(string), smType)
@@ -2061,7 +2692,13 @@ test "iterator planner string call plans transform each yielded element" {
 test "async iterator machine drives a classic for body with fast-path awaits" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Numbers(n: int): IAsyncEnumerable<int> { for i := 0; i < n; i++ { await Task.Delay(0)\n yield i } }",
-        "IAsyncEnumerable<int>", IteratorOne("n"), IteratorOne("int"), IteratorNoStrings(), false, true)
+        "IAsyncEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        true
+    )
     assert probe.Shape.Supported
     assert probe.Shape.AwaitResumeCount == 1
     assert probe.Shape.YieldReturnCount == 1

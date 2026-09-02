@@ -77,7 +77,8 @@ func CidCodes(results: List<DiagnosticResult>): string {
 test "compiler errors are reported in their own order, with severity mapped to two levels" {
     errors := CidErrors([
         CidError(ErrorCode.InvalidSyntax, "first", "/p/a.nl", 3, ErrorSeverity.Error),
-        CidError(ErrorCode.InvalidSyntax, "second", "/p/b.nl", 4, ErrorSeverity.Warning)])
+        CidError(ErrorCode.InvalidSyntax, "second", "/p/b.nl", 4, ErrorSeverity.Warning)
+    ])
 
     results := CodeIntelligenceDiagnostics.Build("/p", errors, CidNoFiles(), CidNoUnits(), CidNoTexts(), null)
 
@@ -182,7 +183,8 @@ test "the shadowing file list is built from EVERY error and echoes the project-r
         CidError(ErrorCode.ShadowedDeclaration, "shadow", "/p/a.nl", 1, ErrorSeverity.Error),
         CidError(ErrorCode.InvalidSyntax, "other", "/p/b.nl", 1, ErrorSeverity.Error),
         CidError(ErrorCode.ShadowedDeclaration, "blank file", "   ", 1, ErrorSeverity.Error),
-        CidError(ErrorCode.ShadowedDeclaration, "no file", null, 1, ErrorSeverity.Error)])
+        CidError(ErrorCode.ShadowedDeclaration, "no file", null, 1, ErrorSeverity.Error)
+    ])
 
     files := CodeIntelligenceDiagnostics.CompilerShadowingErrorFiles(errors, "/p")
 

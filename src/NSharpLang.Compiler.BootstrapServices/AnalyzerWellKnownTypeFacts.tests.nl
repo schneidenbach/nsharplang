@@ -144,8 +144,7 @@ test "required types are found through the split core library, not only the core
         // The optional generics that are probed in their OWN assemblies are unaffected by the core
         // split, because those probes never consult the core assembly first.
         assert WellKnownTypeName(splitFacts.IQueryableOpen) == "System.Linq.IQueryable`1"
-        assert WellKnownTypeName(splitFacts.JsonTypeInfoOpen)
-            == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"
+        assert WellKnownTypeName(splitFacts.JsonTypeInfoOpen) == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1"
     } finally {
         scan.Dispose()
     }
@@ -182,13 +181,12 @@ test "the compiler-known open-generic table maps exactly the names resolvable wi
         assert AnalyzerWellKnownTypeFacts.KnownOpenGenericType(
             facts,
             "System.Text.Json.Serialization.Metadata.JsonTypeInfo",
-            1) == facts.JsonTypeInfoOpen
+            1
+        ) == facts.JsonTypeInfoOpen
 
         // Both Result spellings reach the lazy runtime definition.
-        assert AnalyzerWellKnownTypeFacts.KnownOpenGenericType(facts, "Result", 2)
-            == facts.GetRuntimeResultOpen()
-        assert AnalyzerWellKnownTypeFacts.KnownOpenGenericType(facts, "NSharpLang.Runtime.Result", 2)
-            == facts.GetRuntimeResultOpen()
+        assert AnalyzerWellKnownTypeFacts.KnownOpenGenericType(facts, "Result", 2) == facts.GetRuntimeResultOpen()
+        assert AnalyzerWellKnownTypeFacts.KnownOpenGenericType(facts, "NSharpLang.Runtime.Result", 2) == facts.GetRuntimeResultOpen()
     } finally {
         scan.Dispose()
     }
@@ -270,7 +268,8 @@ test "the binding-surrogate table is a strict subset of the compiler-known table
         assert AnalyzerWellKnownTypeFacts.BindingSurrogateOpenGenericType(
             facts,
             "System.Text.Json.Serialization.Metadata.JsonTypeInfo",
-            1) == null
+            1
+        ) == null
 
         // The same arity, case and qualification discipline applies.
         assert AnalyzerWellKnownTypeFacts.BindingSurrogateOpenGenericType(facts, "List", 2) == null
@@ -303,10 +302,8 @@ test "the no-metadata fallback answers with the compiler's own runtime types" {
 
     // `void` has no `typeof` on the columnar surface, so it is read out of the core library — and it
     // must land on the SAME instance the rest of the compiler would produce.
-    assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(BuiltInTypes.Void))
-        == "System.Void"
-    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(BuiltInTypes.Void)
-        == typeof(object).get_Assembly().GetType("System.Void")
+    assert WellKnownTypeName(AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(BuiltInTypes.Void)) == "System.Void"
+    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(BuiltInTypes.Void) == typeof(object).get_Assembly().GetType("System.Void")
 
     // The three non-value built-in names are not CLR types.
     assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(BuiltInTypes.Null) == null
@@ -318,39 +315,40 @@ test "the no-metadata fallback answers with the compiler's own runtime types" {
 }
 
 test "the no-metadata fallback descends arrays, nullables and oblivious wrappers" {
-    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new ArrayTypeInfo(BuiltInTypes.Int))
-        == typeof(int[])
+    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new ArrayTypeInfo(BuiltInTypes.Int)) == typeof(int[])
     assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-        new ArrayTypeInfo(new ArrayTypeInfo(BuiltInTypes.String))) == typeof(string[][])
+        new ArrayTypeInfo(new ArrayTypeInfo(BuiltInTypes.String))
+    ) == typeof(string[][])
 
     // A nullable is only a nullable when its inner type is a VALUE type; over a reference type the
     // whole conversion fails rather than answering the bare reference type.
     nullableInt := AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new NullableTypeInfo(BuiltInTypes.Int))
     assert nullableInt != null
     assert nullableInt.get_IsGenericType()
-    assert nullableInt.GetGenericTypeDefinition()
-        == typeof(object).get_Assembly().GetType("System.Nullable`1")
+    assert nullableInt.GetGenericTypeDefinition() == typeof(object).get_Assembly().GetType("System.Nullable`1")
     assert nullableInt.GetGenericArguments()[0] == typeof(int)
-    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new NullableTypeInfo(BuiltInTypes.String))
-        == null
-    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new NullableTypeInfo(BuiltInTypes.Object))
-        == null
+    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new NullableTypeInfo(BuiltInTypes.String)) == null
+    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new NullableTypeInfo(BuiltInTypes.Object)) == null
 
     // The oblivious wrapper is transparent.
-    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new ObliviousTypeInfo(BuiltInTypes.Bool))
-        == typeof(bool)
+    assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new ObliviousTypeInfo(BuiltInTypes.Bool)) == typeof(bool)
     assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-        new ObliviousTypeInfo(new ObliviousTypeInfo(BuiltInTypes.Char))) == typeof(char)
+        new ObliviousTypeInfo(new ObliviousTypeInfo(BuiltInTypes.Char))
+    ) == typeof(char)
     assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-        new ObliviousTypeInfo(new ArrayTypeInfo(BuiltInTypes.String))) == typeof(string[])
+        new ObliviousTypeInfo(new ArrayTypeInfo(BuiltInTypes.String))
+    ) == typeof(string[])
 
     // An unmappable element or inner type fails the whole descent.
     assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-        new ArrayTypeInfo(new SimpleTypeInfo("Widget"))) == null
+        new ArrayTypeInfo(new SimpleTypeInfo("Widget"))
+    ) == null
     assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-        new NullableTypeInfo(new SimpleTypeInfo("Widget"))) == null
+        new NullableTypeInfo(new SimpleTypeInfo("Widget"))
+    ) == null
     assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-        new ObliviousTypeInfo(new SimpleTypeInfo("Widget"))) == null
+        new ObliviousTypeInfo(new SimpleTypeInfo("Widget"))
+    ) == null
 }
 
 test "the no-metadata fallback answers null for every other type family and resolves no alias" {
@@ -367,24 +365,28 @@ test "the no-metadata fallback answers null for every other type family and reso
         genericArguments := new List<TypeInfo>()
         genericArguments.Add(BuiltInTypes.Int)
         assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-            new GenericTypeInfo("List", genericArguments)) == null
+            new GenericTypeInfo("List", genericArguments)
+        ) == null
 
         unionArms := new List<TypeInfo>()
         unionArms.Add(BuiltInTypes.Int)
         unionArms.Add(BuiltInTypes.String)
         assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-            new AnonymousUnionTypeInfo(unionArms)) == null
+            new AnonymousUnionTypeInfo(unionArms)
+        ) == null
 
         // A reflection type is NOT read through — this fallback exists precisely because no metadata
         // facts were built, so it never hands back a load-context type.
         assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(new ReflectionTypeInfo(typeof(int))) == null
         assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-            new ArrayTypeInfo(new ReflectionTypeInfo(typeof(int)))) == null
+            new ArrayTypeInfo(new ReflectionTypeInfo(typeof(int)))
+        ) == null
 
         // And an alias is NOT resolved here. The metadata-backed path normalizes aliases before it
         // descends; this one deliberately does not, and that difference is behaviour.
         assert AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType(
-            new AliasTypeInfo(new SimpleTypeReference("int"))) == null
+            new AliasTypeInfo(new SimpleTypeReference("int"))
+        ) == null
     } finally {
         scan.Dispose()
     }

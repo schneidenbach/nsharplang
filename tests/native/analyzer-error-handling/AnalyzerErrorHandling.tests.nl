@@ -53,7 +53,6 @@ import System.Collections
 // THE FIXTURES ARE THE DELETED ONES BYTE-FOR-BYTE, decoded by the C# compiler itself: each deleted
 // method's fixture-construction prefix was pasted unmodified into a generated console program that
 // printed the resulting string's sha256, its length and its N# spelling.
-
 func SetEhObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }

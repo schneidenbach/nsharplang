@@ -7,11 +7,11 @@ import System.Text
 import System.Text.Json
 
 static class OwnershipManagedFile {
-    public static func ReadAllBytes(path: string): byte[] {
+    static func ReadAllBytes(path: string): byte[] {
         return ReadAllBytesWithBufferSize(path, 8192)
     }
 
-    public static func ReadAllBytesWithBufferSize(path: string, bufferSize: int): byte[] {
+    static func ReadAllBytesWithBufferSize(path: string, bufferSize: int): byte[] {
         if bufferSize <= 0 {
             throw new ArgumentOutOfRangeException("bufferSize")
         }
@@ -37,7 +37,7 @@ static class OwnershipManagedFile {
     }
 }
 
-public class OwnershipClassification {
+class OwnershipClassification {
     Included: bool
     Unknown: bool
     Language: string
@@ -53,7 +53,7 @@ public class OwnershipClassification {
     }
 }
 
-public class OwnershipObservedFile {
+class OwnershipObservedFile {
     Path: string
     Language: string
     Surface: string
@@ -73,7 +73,8 @@ public class OwnershipObservedFile {
         nonBlankLines: int,
         assertionMarkers: int,
         bytes: int,
-        fingerprint: string) {
+        fingerprint: string
+    ) {
         Path = path
         Language = language
         Surface = surface
@@ -86,7 +87,7 @@ public class OwnershipObservedFile {
     }
 }
 
-public class OwnershipManifestEntry {
+class OwnershipManifestEntry {
     Path: string
     Language: string
     Surface: string
@@ -120,7 +121,7 @@ public class OwnershipManifestEntry {
     }
 }
 
-public class OwnershipManifest {
+class OwnershipManifest {
     SchemaVersion: int
     Phase: string
     EpochFileCount: int
@@ -140,7 +141,7 @@ public class OwnershipManifest {
     }
 }
 
-public class OwnershipDiagnostic {
+class OwnershipDiagnostic {
     Code: string
     Path: string
     Message: string
@@ -151,7 +152,7 @@ public class OwnershipDiagnostic {
         Message = message
     }
 
-    public func Render(): string {
+    func Render(): string {
         if Path == "" {
             return Code + ": " + Message
         }
@@ -160,20 +161,20 @@ public class OwnershipDiagnostic {
     }
 }
 
-public class OwnershipAuditResult {
+class OwnershipAuditResult {
     Diagnostics: List<OwnershipDiagnostic>
 
     constructor() {
         Diagnostics = new List<OwnershipDiagnostic>()
     }
 
-    public Succeeded: bool => Diagnostics.Count == 0
+    Succeeded: bool => Diagnostics.Count == 0
 
-    public func Add(code: string, path: string, message: string) {
+    func Add(code: string, path: string, message: string) {
         Diagnostics.Add(new OwnershipDiagnostic(code, path, message))
     }
 
-    public func Sort() {
+    func Sort() {
         i := 1
         while i < Diagnostics.Count {
             current := Diagnostics[i]
@@ -187,7 +188,7 @@ public class OwnershipAuditResult {
         }
     }
 
-    public func HasCode(code: string): bool {
+    func HasCode(code: string): bool {
         i := 0
         while i < Diagnostics.Count {
             if Diagnostics[i].Code == code {
@@ -199,7 +200,7 @@ public class OwnershipAuditResult {
         return false
     }
 
-    public func Report(): string {
+    func Report(): string {
         builder := new StringBuilder()
         builder.Append("N# ownership growth audit failed with ")
         builder.Append(Diagnostics.Count)
@@ -230,17 +231,17 @@ public class OwnershipAuditResult {
     }
 }
 
-public class OwnershipPolicy {
-    public static ManifestFileName: string => "non-nsharp-growth-ratchet.v1.json"
+class OwnershipPolicy {
+    static ManifestFileName: string => "non-nsharp-growth-ratchet.v1.json"
 
     // The path and epoch constants define E0. The reviewed-head constant ratchets every
     // accepted shrink or removal, so a manifest-only rebaseline can never pass the live gate.
-    public static EpochFileCount: int => 381
-    public static EpochPathFingerprint: string => "pathset-v1:8a26e1529863444b"
-    public static EpochFactFingerprint: string => "epochfacts-v1:1b3090747e517fc1"
-    public static ReviewedHeadFingerprint: string => "head-v1:ff22308bc20ee46a"
+    static EpochFileCount: int => 381
+    static EpochPathFingerprint: string => "pathset-v1:8a26e1529863444b"
+    static EpochFactFingerprint: string => "epochfacts-v1:1b3090747e517fc1"
+    static ReviewedHeadFingerprint: string => "head-v1:ff22308bc20ee46a"
 
-    public static func Classify(path: string): OwnershipClassification {
+    static func Classify(path: string): OwnershipClassification {
         normalized := NormalizeRelativePath(path)
         lower := normalized.ToLowerInvariant()
 
@@ -252,12 +253,7 @@ public class OwnershipPolicy {
             return Ignored()
         }
 
-        if lower.EndsWith(".nl") || lower.EndsWith(".tests.nl") || lower.EndsWith(".md")
-            || lower.EndsWith(".svg") || lower.EndsWith(".png")
-            || lower.EndsWith(".ico") || lower.EndsWith(".woff") || lower.EndsWith(".woff2")
-            || lower.EndsWith(".ttf")
-            || lower.EndsWith(".mp3") || lower.EndsWith(".rtf")
-            || lower.EndsWith(".icns") {
+        if lower.EndsWith(".nl") || lower.EndsWith(".tests.nl") || lower.EndsWith(".md") || lower.EndsWith(".svg") || lower.EndsWith(".png") || lower.EndsWith(".ico") || lower.EndsWith(".woff") || lower.EndsWith(".woff2") || lower.EndsWith(".ttf") || lower.EndsWith(".mp3") || lower.EndsWith(".rtf") || lower.EndsWith(".icns") {
             return Ignored()
         }
 
@@ -270,24 +266,19 @@ public class OwnershipPolicy {
         if lower.EndsWith(".vb") {
             return Included("visual-basic", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
-        if lower.EndsWith(".swift") || lower.EndsWith(".rb") || lower.EndsWith(".php")
-            || lower.EndsWith(".scala") || lower.EndsWith(".sql") {
+        if lower.EndsWith(".swift") || lower.EndsWith(".rb") || lower.EndsWith(".php") || lower.EndsWith(".scala") || lower.EndsWith(".sql") {
             return Included("source-code", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
         if lower.EndsWith(".js") || lower.EndsWith(".jsx") || lower.EndsWith(".mjs") || lower.EndsWith(".cjs") {
             return Included("javascript", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
-        if lower.EndsWith(".csproj") || lower.EndsWith(".props") || lower.EndsWith(".targets")
-            || lower.EndsWith(".sln") || lower.EndsWith(".slnx")
-            || lower.EndsWith(".fsproj") || lower.EndsWith(".vbproj") {
+        if lower.EndsWith(".csproj") || lower.EndsWith(".props") || lower.EndsWith(".targets") || lower.EndsWith(".sln") || lower.EndsWith(".slnx") || lower.EndsWith(".fsproj") || lower.EndsWith(".vbproj") {
             return Included("msbuild", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
-        if lower.EndsWith(".sh") || lower.EndsWith(".bash") || lower.EndsWith(".zsh")
-            || lower.EndsWith(".fish") || lower.EndsWith(".bat") || lower.EndsWith(".cmd") {
+        if lower.EndsWith(".sh") || lower.EndsWith(".bash") || lower.EndsWith(".zsh") || lower.EndsWith(".fish") || lower.EndsWith(".bat") || lower.EndsWith(".cmd") {
             return Included("shell", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
-        if lower.EndsWith(".ps1") || lower.EndsWith(".psm1") || lower.EndsWith(".psd1")
-            || lower.EndsWith(".ps1xml") {
+        if lower.EndsWith(".ps1") || lower.EndsWith(".psm1") || lower.EndsWith(".psd1") || lower.EndsWith(".ps1xml") {
             return Included("powershell", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
         if lower.EndsWith(".py") {
@@ -302,8 +293,7 @@ public class OwnershipPolicy {
         if lower.EndsWith(".java") {
             return Included("java", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
-        if lower.EndsWith(".c") || lower.EndsWith(".cc") || lower.EndsWith(".cpp")
-            || lower.EndsWith(".h") || lower.EndsWith(".hpp") {
+        if lower.EndsWith(".c") || lower.EndsWith(".cc") || lower.EndsWith(".cpp") || lower.EndsWith(".h") || lower.EndsWith(".hpp") {
             return Included("native", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
         if lower.EndsWith(".rs") {
@@ -321,8 +311,7 @@ public class OwnershipPolicy {
         if lower.EndsWith(".dylib") || lower.EndsWith(".node") {
             return Included("native-binary", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
-        if lower.EndsWith(".vsix") || lower.EndsWith(".nupkg") || lower.EndsWith(".asar")
-            || lower.EndsWith(".pak") {
+        if lower.EndsWith(".vsix") || lower.EndsWith(".nupkg") || lower.EndsWith(".asar") || lower.EndsWith(".pak") {
             return Included("package-binary", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
         if lower.EndsWith(".bin") {
@@ -337,13 +326,10 @@ public class OwnershipPolicy {
         if lower.EndsWith(".plist") || lower.EndsWith(".mobileconfig") {
             return Included("platform-config-binary", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
-        if lower.EndsWith(".txt") || lower.EndsWith(".log") || lower.EndsWith(".map")
-            || lower.EndsWith(".symbols") || lower.EndsWith(".stamp")
-            || lower.EndsWith(".tiktoken") || lower.EndsWith(".lock") {
+        if lower.EndsWith(".txt") || lower.EndsWith(".log") || lower.EndsWith(".map") || lower.EndsWith(".symbols") || lower.EndsWith(".stamp") || lower.EndsWith(".tiktoken") || lower.EndsWith(".lock") {
             return Included("policy-data", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
-        if lower.EndsWith(".toml") || lower.EndsWith(".ini") || lower.EndsWith(".conf")
-            || lower.EndsWith(".env") || lower.EndsWith(".mk") || lower.EndsWith(".xaml") {
+        if lower.EndsWith(".toml") || lower.EndsWith(".ini") || lower.EndsWith(".conf") || lower.EndsWith(".env") || lower.EndsWith(".mk") || lower.EndsWith(".xaml") {
             return Included("product-config", SurfaceFor(normalized), CampaignScopeFor(normalized))
         }
         if IsAuditedJson(normalized) {
@@ -367,11 +353,11 @@ public class OwnershipPolicy {
         return new OwnershipClassification(false, true, "unknown", SurfaceFor(normalized), CampaignScopeFor(normalized))
     }
 
-    public static func NormalizeRelativePath(path: string): string {
+    static func NormalizeRelativePath(path: string): string {
         return path.Replace('\\', '/').Trim()
     }
 
-    public static func IsCanonicalManifestPath(path: string): bool {
+    static func IsCanonicalManifestPath(path: string): bool {
         if path == "" || Path.IsPathRooted(path) || path[0] == '/' || path[path.Length - 1] == '/' {
             return false
         }
@@ -401,32 +387,24 @@ public class OwnershipPolicy {
         return path == NormalizeRelativePath(path)
     }
 
-    public static func ShouldSkipDirectory(path: string): bool {
+    static func ShouldSkipDirectory(path: string): bool {
         normalized := NormalizeRelativePath(path)
         name := Path.GetFileName(normalized) ?? ""
-        if name == ".git" || name == "bin" || name == "obj" || name == "node_modules"
-            || name == ".vscode-test" || name == ".nsharp" || name == "BenchmarkDotNet.Artifacts" {
+        if name == ".git" || name == "bin" || name == "obj" || name == "node_modules" || name == ".vscode-test" || name == ".nsharp" || name == "BenchmarkDotNet.Artifacts" {
             return true
         }
 
-        return normalized == "artifacts" || normalized == ".context" || normalized == ".claude"
-            || normalized == "editors/vscode/out" || normalized == "editors/vscode/server"
-            || normalized == "website/static/playground/wasm/_framework"
+        return normalized == "artifacts" || normalized == ".context" || normalized == ".claude" || normalized == "editors/vscode/out" || normalized == "editors/vscode/server" || normalized == "website/static/playground/wasm/_framework"
     }
 
-    public static func IsAssertionTracked(path: string, language: string): bool {
+    static func IsAssertionTracked(path: string, language: string): bool {
         lower := path.ToLowerInvariant()
-        isTest := lower.IndexOf("/test", StringComparison.Ordinal) >= 0
-            || lower.EndsWith(".test.ts") || lower.EndsWith(".tests.ts")
-            || lower.EndsWith("tests.cs") || lower.EndsWith("test.cs")
+        isTest := lower.IndexOf("/test", StringComparison.Ordinal) >= 0 || lower.EndsWith(".test.ts") || lower.EndsWith(".tests.ts") || lower.EndsWith("tests.cs") || lower.EndsWith("test.cs")
         return isTest && (language == "csharp" || language == "typescript" || language == "javascript")
     }
 
-    public static func IsBinaryLanguage(language: string): bool {
-        return language == "wasm-binary" || language == "managed-binary"
-            || language == "native-binary" || language == "package-binary"
-            || language == "opaque-binary" || language == "automation-binary"
-            || language == "platform-config-binary"
+    static func IsBinaryLanguage(language: string): bool {
+        return language == "wasm-binary" || language == "managed-binary" || language == "native-binary" || language == "package-binary" || language == "opaque-binary" || language == "automation-binary" || language == "platform-config-binary"
     }
 
     static func Included(language: string, surface: string, campaignScope: string): OwnershipClassification {
@@ -438,23 +416,7 @@ public class OwnershipPolicy {
     }
 
     static func IsProductAdjacent(path: string): bool {
-        return path.StartsWith("src/", StringComparison.Ordinal)
-            || path.StartsWith("editors/", StringComparison.Ordinal)
-            || path.StartsWith("scripts/", StringComparison.Ordinal)
-            || path.StartsWith("tests/", StringComparison.Ordinal)
-            || path.StartsWith("website/", StringComparison.Ordinal)
-            || path.StartsWith("templates/", StringComparison.Ordinal)
-            || path.StartsWith("examples/", StringComparison.Ordinal)
-            || path.StartsWith("ci/", StringComparison.Ordinal)
-            || path.StartsWith("benchmarks/", StringComparison.Ordinal)
-            || path.StartsWith(".github/", StringComparison.Ordinal)
-            || path == "Directory.Build.props" || path == "Directory.Build.targets"
-            || path == "Directory.Packages.props" || path == "global.json"
-            || path == "package.json" || path == "package-lock.json"
-            || path == "docker-compose.yml" || path == "docker-compose.yaml"
-            || path == "Dockerfile" || path == "Makefile"
-            || path.EndsWith(".sh", StringComparison.Ordinal) && path.IndexOf('/') < 0
-            || path == "NSharpLang.sln" || path == ".gitattributes" || path == ".gitignore"
+        return path.StartsWith("src/", StringComparison.Ordinal) || path.StartsWith("editors/", StringComparison.Ordinal) || path.StartsWith("scripts/", StringComparison.Ordinal) || path.StartsWith("tests/", StringComparison.Ordinal) || path.StartsWith("website/", StringComparison.Ordinal) || path.StartsWith("templates/", StringComparison.Ordinal) || path.StartsWith("examples/", StringComparison.Ordinal) || path.StartsWith("ci/", StringComparison.Ordinal) || path.StartsWith("benchmarks/", StringComparison.Ordinal) || path.StartsWith(".github/", StringComparison.Ordinal) || path == "Directory.Build.props" || path == "Directory.Build.targets" || path == "Directory.Packages.props" || path == "global.json" || path == "package.json" || path == "package-lock.json" || path == "docker-compose.yml" || path == "docker-compose.yaml" || path == "Dockerfile" || path == "Makefile" || path.EndsWith(".sh", StringComparison.Ordinal) && path.IndexOf('/') < 0 || path == "NSharpLang.sln" || path == ".gitattributes" || path == ".gitignore"
     }
 
     static func IsAuditedJson(path: string): bool {
@@ -462,8 +424,7 @@ public class OwnershipPolicy {
         if lower == "tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json" {
             return false
         }
-        if lower.StartsWith("tests/fixtures/", StringComparison.Ordinal)
-            && lower.EndsWith(".golden.json", StringComparison.Ordinal) {
+        if lower.StartsWith("tests/fixtures/", StringComparison.Ordinal) && lower.EndsWith(".golden.json", StringComparison.Ordinal) {
             return false
         }
         name := Path.GetFileName(lower) ?? ""
@@ -481,14 +442,7 @@ public class OwnershipPolicy {
     static func IsAuditedMarkupOrConfig(path: string): bool {
         lower := path.ToLowerInvariant()
         name := Path.GetFileName(lower) ?? ""
-        return lower.EndsWith(".vsixmanifest") || lower.EndsWith(".vscodeignore")
-            || lower.EndsWith(".toolchain") || lower.EndsWith(".config")
-            || lower.EndsWith(".xml") || lower.EndsWith(".html") || lower.EndsWith(".css")
-            || lower.EndsWith(".code-snippets") || lower.EndsWith(".tmlanguage")
-            || lower.EndsWith(".nojekyll")
-            || name == "dockerfile" || name.StartsWith("dockerfile.", StringComparison.Ordinal)
-            || name == ".dockerignore" || name == "makefile" || name == ".editorconfig"
-            || name == ".gitattributes" || name == ".gitignore"
+        return lower.EndsWith(".vsixmanifest") || lower.EndsWith(".vscodeignore") || lower.EndsWith(".toolchain") || lower.EndsWith(".config") || lower.EndsWith(".xml") || lower.EndsWith(".html") || lower.EndsWith(".css") || lower.EndsWith(".code-snippets") || lower.EndsWith(".tmlanguage") || lower.EndsWith(".nojekyll") || name == "dockerfile" || name.StartsWith("dockerfile.", StringComparison.Ordinal) || name == ".dockerignore" || name == "makefile" || name == ".editorconfig" || name == ".gitattributes" || name == ".gitignore"
     }
 
     static func IsKnownDataOrDocumentation(path: string): bool {
@@ -499,41 +453,28 @@ public class OwnershipPolicy {
     static func IsExactDataOrAssetException(path: string): bool {
         lower := path.ToLowerInvariant()
         name := Path.GetFileName(lower) ?? ""
-        if lower == "editors/vscode/nsharp-0.6.0.vsix"
-            || lower == "editors/vscode/package-lock.json"
-            || lower == "editors/vscode/test/fixtures/simple/.vscode/settings.json"
-            || lower == "website/static/playground/wasm/main.js"
-            || lower == "website/static/playground/wasm/package.json"
-            || lower == "website/static/playground/wasm/nsharplang.playground.wasm.runtimeconfig.json" {
+        if lower == "editors/vscode/nsharp-0.6.0.vsix" || lower == "editors/vscode/package-lock.json" || lower == "editors/vscode/test/fixtures/simple/.vscode/settings.json" || lower == "website/static/playground/wasm/main.js" || lower == "website/static/playground/wasm/package.json" || lower == "website/static/playground/wasm/nsharplang.playground.wasm.runtimeconfig.json" {
             return true
         }
-        if lower == ".claude/launch.json"
-            || lower == "examples/14-minimal-api/minimalapi.g.csproj"
-            || lower == "examples/17-issue-tracker/backend/issuetracker.g.csproj" {
+        if lower == ".claude/launch.json" || lower == "examples/14-minimal-api/minimalapi.g.csproj" || lower == "examples/17-issue-tracker/backend/issuetracker.g.csproj" {
             return true
         }
-        if name == "project.yml"
-            || lower == "tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json" {
+        if name == "project.yml" || lower == "tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json" {
             return true
         }
-        if lower.StartsWith("tests/fixtures/", StringComparison.Ordinal)
-            && lower.EndsWith(".golden.json", StringComparison.Ordinal) {
+        if lower.StartsWith("tests/fixtures/", StringComparison.Ordinal) && lower.EndsWith(".golden.json", StringComparison.Ordinal) {
             return true
         }
         if name == "license.txt" || name == "compile-debug.log" {
             return true
         }
-        if lower.StartsWith("tests/fixtures/", StringComparison.Ordinal)
-            && (lower.EndsWith(".golden.txt", StringComparison.Ordinal)
-                || lower.StartsWith("tests/fixtures/diagnostics/screenshots/", StringComparison.Ordinal)) {
+        if lower.StartsWith("tests/fixtures/", StringComparison.Ordinal) && (lower.EndsWith(".golden.txt", StringComparison.Ordinal) || lower.StartsWith("tests/fixtures/diagnostics/screenshots/", StringComparison.Ordinal)) {
             return true
         }
-        if lower.StartsWith("editors/visualstudio/nsharp.visualstudio/resources/", StringComparison.Ordinal)
-            && lower.EndsWith(".png.txt", StringComparison.Ordinal) {
+        if lower.StartsWith("editors/visualstudio/nsharp.visualstudio/resources/", StringComparison.Ordinal) && lower.EndsWith(".png.txt", StringComparison.Ordinal) {
             return true
         }
-        if lower.StartsWith("editors/rider-plugin/src/main/resources/filetemplates/", StringComparison.Ordinal)
-            && lower.EndsWith(".nl.ft", StringComparison.Ordinal) {
+        if lower.StartsWith("editors/rider-plugin/src/main/resources/filetemplates/", StringComparison.Ordinal) && lower.EndsWith(".nl.ft", StringComparison.Ordinal) {
             return true
         }
         return lower == "website/static/playground/wasm/.stamp"
@@ -549,15 +490,13 @@ public class OwnershipPolicy {
         if path.StartsWith("src/NSharpLang.Cli/", StringComparison.Ordinal) {
             return "cli"
         }
-        if path.StartsWith("src/NSharpLang.Build.Tasks/", StringComparison.Ordinal)
-            || path.StartsWith("src/NSharpLang.Sdk/", StringComparison.Ordinal) {
+        if path.StartsWith("src/NSharpLang.Build.Tasks/", StringComparison.Ordinal) || path.StartsWith("src/NSharpLang.Sdk/", StringComparison.Ordinal) {
             return "build-sdk"
         }
         if path.StartsWith("src/NSharpLang.LanguageServer/", StringComparison.Ordinal) {
             return "language-server"
         }
-        if path.StartsWith("src/NSharpLang.Playground", StringComparison.Ordinal)
-            || path.StartsWith("website/", StringComparison.Ordinal) {
+        if path.StartsWith("src/NSharpLang.Playground", StringComparison.Ordinal) || path.StartsWith("website/", StringComparison.Ordinal) {
             return "playground-web"
         }
         if path.StartsWith("editors/", StringComparison.Ordinal) {
@@ -575,9 +514,7 @@ public class OwnershipPolicy {
         if path.StartsWith("benchmarks/", StringComparison.Ordinal) {
             return "benchmark-reference"
         }
-        if path.StartsWith("scripts/", StringComparison.Ordinal)
-            || path.StartsWith("tests/scripts/", StringComparison.Ordinal)
-            || path.StartsWith(".github/", StringComparison.Ordinal) {
+        if path.StartsWith("scripts/", StringComparison.Ordinal) || path.StartsWith("tests/scripts/", StringComparison.Ordinal) || path.StartsWith(".github/", StringComparison.Ordinal) {
             return "gate-infrastructure"
         }
         if path.StartsWith("tests/", StringComparison.Ordinal) {
@@ -587,22 +524,19 @@ public class OwnershipPolicy {
     }
 
     static func CampaignScopeFor(path: string): string {
-        if path.StartsWith("src/NSharpLang.Runtime/", StringComparison.Ordinal)
-            || path.StartsWith("tests/native-benchmarks/", StringComparison.Ordinal)
-            || path.StartsWith("tests/benchmarks/native/", StringComparison.Ordinal)
-            || path.StartsWith("benchmarks/native-comparison/", StringComparison.Ordinal) {
+        if path.StartsWith("src/NSharpLang.Runtime/", StringComparison.Ordinal) || path.StartsWith("tests/native-benchmarks/", StringComparison.Ordinal) || path.StartsWith("tests/benchmarks/native/", StringComparison.Ordinal) || path.StartsWith("benchmarks/native-comparison/", StringComparison.Ordinal) {
             return "separate-campaign"
         }
         return "closeout"
     }
 }
 
-public class OwnershipFacts {
-    public static func NormalizeText(text: string): string {
+class OwnershipFacts {
+    static func NormalizeText(text: string): string {
         return text.Replace("\r\n", "\n").Replace('\r', '\n')
     }
 
-    public static func Fingerprint(text: string): string {
+    static func Fingerprint(text: string): string {
         normalized := NormalizeText(text)
         hash := 14695981039346656037UL
         i := 0
@@ -614,7 +548,7 @@ public class OwnershipFacts {
         return "text-v1:" + Hex64(hash)
     }
 
-    public static func FingerprintBytes(bytes: byte[]): string {
+    static func FingerprintBytes(bytes: byte[]): string {
         hash := 14695981039346656037UL
         i := 0
         while i < bytes.Length {
@@ -625,7 +559,7 @@ public class OwnershipFacts {
         return "binary-v1:" + Hex64(hash)
     }
 
-    public static func PathSetFingerprint(paths: List<string>): string {
+    static func PathSetFingerprint(paths: List<string>): string {
         ordered := new List<string>()
         i := 0
         while i < paths.Count {
@@ -636,7 +570,7 @@ public class OwnershipFacts {
         return "pathset-v1:" + Fingerprint(string.Join("\n", ordered)).Substring("text-v1:".Length)
     }
 
-    public static func EpochFactFingerprint(entries: List<OwnershipManifestEntry>): string {
+    static func EpochFactFingerprint(entries: List<OwnershipManifestEntry>): string {
         builder := new StringBuilder()
         i := 0
         while i < entries.Count {
@@ -655,7 +589,7 @@ public class OwnershipFacts {
         return "epochfacts-v1:" + Fingerprint(builder.ToString()).Substring("text-v1:".Length)
     }
 
-    public static func ReviewedHeadFingerprint(entries: List<OwnershipManifestEntry>): string {
+    static func ReviewedHeadFingerprint(entries: List<OwnershipManifestEntry>): string {
         builder := new StringBuilder()
         i := 0
         while i < entries.Count {
@@ -673,7 +607,7 @@ public class OwnershipFacts {
         return "head-v1:" + Fingerprint(builder.ToString()).Substring("text-v1:".Length)
     }
 
-    public static func Observe(path: string, classification: OwnershipClassification, text: string): OwnershipObservedFile {
+    static func Observe(path: string, classification: OwnershipClassification, text: string): OwnershipObservedFile {
         normalized := NormalizeText(text)
         lines := CountLines(normalized)
         nonBlank := CountNonBlankLines(normalized)
@@ -690,13 +624,15 @@ public class OwnershipFacts {
             nonBlank,
             assertions,
             0,
-            Fingerprint(normalized))
+            Fingerprint(normalized)
+        )
     }
 
-    public static func ObserveBinary(
+    static func ObserveBinary(
         path: string,
         classification: OwnershipClassification,
-        bytes: byte[]): OwnershipObservedFile {
+        bytes: byte[]
+    ): OwnershipObservedFile {
         return new OwnershipObservedFile(
             path,
             classification.Language,
@@ -706,10 +642,11 @@ public class OwnershipFacts {
             0,
             0,
             bytes.Length,
-            FingerprintBytes(bytes))
+            FingerprintBytes(bytes)
+        )
     }
 
-    public static func CountLines(normalizedText: string): int {
+    static func CountLines(normalizedText: string): int {
         if normalizedText.Length == 0 {
             return 0
         }
@@ -727,7 +664,7 @@ public class OwnershipFacts {
         return count
     }
 
-    public static func CountNonBlankLines(normalizedText: string): int {
+    static func CountNonBlankLines(normalizedText: string): int {
         count := 0
         lineStart := 0
         i := 0
@@ -752,17 +689,11 @@ public class OwnershipFacts {
         return count
     }
 
-    public static func CountAssertionMarkers(text: string): int {
-        return CountOccurrences(text, "[Fact]")
-            + CountOccurrences(text, "[Theory]")
-            + CountOccurrences(text, "Assert.")
-            + CountOccurrences(text, "Should(")
-            + CountOccurrences(text, "test(")
-            + CountOccurrences(text, "it(")
-            + CountOccurrences(text, "expect(")
+    static func CountAssertionMarkers(text: string): int {
+        return CountOccurrences(text, "[Fact]") + CountOccurrences(text, "[Theory]") + CountOccurrences(text, "Assert.") + CountOccurrences(text, "Should(") + CountOccurrences(text, "test(") + CountOccurrences(text, "it(") + CountOccurrences(text, "expect(")
     }
 
-    public static func SortStrings(values: List<string>) {
+    static func SortStrings(values: List<string>) {
         i := 1
         while i < values.Count {
             current := values[i]
@@ -815,8 +746,8 @@ public class OwnershipFacts {
     }
 }
 
-public class OwnershipAudit {
-    public static func AuditLiveRepository(): OwnershipAuditResult {
+class OwnershipAudit {
+    static func AuditLiveRepository(): OwnershipAuditResult {
         result := new OwnershipAuditResult()
         root := FindRepositoryRoot(Environment.CurrentDirectory)
         if root == null {
@@ -845,7 +776,8 @@ public class OwnershipAudit {
                 OwnershipPolicy.EpochFileCount,
                 OwnershipPolicy.EpochPathFingerprint,
                 OwnershipPolicy.EpochFactFingerprint,
-                OwnershipPolicy.ReviewedHeadFingerprint)
+                OwnershipPolicy.ReviewedHeadFingerprint
+            )
         } catch ex: Exception {
             result.Add("OWN010", "", "repository ownership scan failed: " + ex.Message)
             result.Sort()
@@ -853,10 +785,11 @@ public class OwnershipAudit {
         }
     }
 
-    public static func AuditSnapshot(
+    static func AuditSnapshot(
         manifestText: string,
         observed: List<OwnershipObservedFile>,
-        enforceLiveEpoch: bool): OwnershipAuditResult {
+        enforceLiveEpoch: bool
+    ): OwnershipAuditResult {
         if enforceLiveEpoch {
             return AuditSnapshotAgainstPolicy(
                 manifestText,
@@ -864,7 +797,8 @@ public class OwnershipAudit {
                 OwnershipPolicy.EpochFileCount,
                 OwnershipPolicy.EpochPathFingerprint,
                 OwnershipPolicy.EpochFactFingerprint,
-                OwnershipPolicy.ReviewedHeadFingerprint)
+                OwnershipPolicy.ReviewedHeadFingerprint
+            )
         }
         result := new OwnershipAuditResult()
         manifest := ParseManifest(manifestText, result)
@@ -879,13 +813,14 @@ public class OwnershipAudit {
         return result
     }
 
-    public static func AuditSnapshotAgainstPolicy(
+    static func AuditSnapshotAgainstPolicy(
         manifestText: string,
         observed: List<OwnershipObservedFile>,
         expectedEpochFileCount: int,
         expectedPathFingerprint: string,
         expectedEpochFactFingerprint: string,
-        expectedReviewedHeadFingerprint: string): OwnershipAuditResult {
+        expectedReviewedHeadFingerprint: string
+    ): OwnershipAuditResult {
         result := AuditSnapshot(manifestText, observed, false)
         parseResult := new OwnershipAuditResult()
         manifest := ParseManifest(manifestText, parseResult)
@@ -908,13 +843,11 @@ public class OwnershipAudit {
         return result
     }
 
-    public static func FindRepositoryRoot(startPath: string): string? {
+    static func FindRepositoryRoot(startPath: string): string? {
         current: string? = Path.GetFullPath(startPath)
         while current != null {
             value := current ?? ""
-            if File.Exists(Path.Combine(value, "AGENTS.md"))
-                && Directory.Exists(Path.Combine(value, "src"))
-                && Directory.Exists(Path.Combine(value, "tests")) {
+            if File.Exists(Path.Combine(value, "AGENTS.md")) && Directory.Exists(Path.Combine(value, "src")) && Directory.Exists(Path.Combine(value, "tests")) {
                 return value
             }
             parent := Path.GetDirectoryName(value)
@@ -927,7 +860,7 @@ public class OwnershipAudit {
         return null
     }
 
-    public static func ScanRepository(root: string, result: OwnershipAuditResult): List<OwnershipObservedFile> {
+    static func ScanRepository(root: string, result: OwnershipAuditResult): List<OwnershipObservedFile> {
         observed := new List<OwnershipObservedFile>()
         if !Directory.Exists(root) {
             result.Add("OWN010", "", "repository root does not exist: " + root)
@@ -946,7 +879,8 @@ public class OwnershipAudit {
         root: string,
         directory: string,
         observed: List<OwnershipObservedFile>,
-        result: OwnershipAuditResult) {
+        result: OwnershipAuditResult
+    ) {
         files := Directory.GetFiles(directory, "*", SearchOption.TopDirectoryOnly)
         SortStringArray(files)
         i := 0
@@ -957,13 +891,15 @@ public class OwnershipAudit {
                 result.Add(
                     "OWN009",
                     relative,
-                    "unknown product-adjacent file type; classify it in N# or remove it before it can enter the ownership epoch")
+                    "unknown product-adjacent file type; classify it in N# or remove it before it can enter the ownership epoch"
+                )
             } else if classification.Included {
                 if OwnershipPolicy.IsBinaryLanguage(classification.Language) {
                     observed.Add(OwnershipFacts.ObserveBinary(
                         relative,
                         classification,
-                        OwnershipManagedFile.ReadAllBytes(files[i])))
+                        OwnershipManagedFile.ReadAllBytes(files[i])
+                    ))
                 } else {
                     observed.Add(OwnershipFacts.Observe(relative, classification, File.ReadAllText(files[i])))
                 }
@@ -1119,7 +1055,8 @@ public class OwnershipAudit {
 
     static func ValidateManifest(
         manifest: OwnershipManifest,
-        result: OwnershipAuditResult) {
+        result: OwnershipAuditResult
+    ) {
         if manifest.SchemaVersion != 1 {
             result.Add("OWN001", "", "unsupported schemaVersion " + Number(manifest.SchemaVersion) + "; expected 1")
         }
@@ -1188,31 +1125,21 @@ public class OwnershipAudit {
     }
 
     static func ValidateMetrics(entry: OwnershipManifestEntry, result: OwnershipAuditResult) {
-        if entry.EpochLines < 0 || entry.CurrentLines < 0
-            || entry.EpochNonBlankLines < 0 || entry.CurrentNonBlankLines < 0
-            || entry.EpochAssertionMarkers < 0 || entry.CurrentAssertionMarkers < 0
-            || entry.EpochBytes < 0 || entry.CurrentBytes < 0 {
+        if entry.EpochLines < 0 || entry.CurrentLines < 0 || entry.EpochNonBlankLines < 0 || entry.CurrentNonBlankLines < 0 || entry.EpochAssertionMarkers < 0 || entry.CurrentAssertionMarkers < 0 || entry.EpochBytes < 0 || entry.CurrentBytes < 0 {
             result.Add("OWN001", entry.Path, "ownership metrics cannot be negative")
         }
         if OwnershipPolicy.IsBinaryLanguage(entry.Language) {
-            if entry.EpochLines != 0 || entry.CurrentLines != 0
-                || entry.EpochNonBlankLines != 0 || entry.CurrentNonBlankLines != 0
-                || entry.EpochAssertionMarkers != 0 || entry.CurrentAssertionMarkers != 0 {
+            if entry.EpochLines != 0 || entry.CurrentLines != 0 || entry.EpochNonBlankLines != 0 || entry.CurrentNonBlankLines != 0 || entry.EpochAssertionMarkers != 0 || entry.CurrentAssertionMarkers != 0 {
                 result.Add("OWN001", entry.Path, "binary ownership uses byte ceilings only; text metrics must be zero")
             }
         } else if entry.EpochBytes != 0 || entry.CurrentBytes != 0 {
             result.Add("OWN001", entry.Path, "text ownership uses line and assertion ceilings; byte metrics must be zero")
         }
-        if entry.CurrentLines > entry.EpochLines
-            || entry.CurrentNonBlankLines > entry.EpochNonBlankLines
-            || entry.CurrentAssertionMarkers > entry.EpochAssertionMarkers
-            || entry.CurrentBytes > entry.EpochBytes {
+        if entry.CurrentLines > entry.EpochLines || entry.CurrentNonBlankLines > entry.EpochNonBlankLines || entry.CurrentAssertionMarkers > entry.EpochAssertionMarkers || entry.CurrentBytes > entry.EpochBytes {
             result.Add("OWN004", entry.Path, "current ceilings cannot exceed immutable epoch ceilings")
         }
         if entry.State == "removed" {
-            if entry.CurrentLines != 0 || entry.CurrentNonBlankLines != 0 || entry.CurrentAssertionMarkers != 0
-                || entry.CurrentBytes != 0
-                || entry.CurrentFingerprint != "text-v1:removed" {
+            if entry.CurrentLines != 0 || entry.CurrentNonBlankLines != 0 || entry.CurrentAssertionMarkers != 0 || entry.CurrentBytes != 0 || entry.CurrentFingerprint != "text-v1:removed" {
                 result.Add("OWN001", entry.Path, "removed entries require zero current metrics and fingerprint 'text-v1:removed'")
             }
         } else if !IsFingerprintForLanguage(entry.CurrentFingerprint, entry.Language) {
@@ -1223,14 +1150,16 @@ public class OwnershipAudit {
             result.Add(
                 "OWN001",
                 entry.Path,
-                "currentFingerprint must be a lowercase deterministic " + expectedPrefix + " fingerprint")
+                "currentFingerprint must be a lowercase deterministic " + expectedPrefix + " fingerprint"
+            )
         }
     }
 
     static func CompareSnapshot(
         manifest: OwnershipManifest,
         observed: List<OwnershipObservedFile>,
-        result: OwnershipAuditResult) {
+        result: OwnershipAuditResult
+    ) {
         entries := new Dictionary<string, OwnershipManifestEntry>(StringComparer.Ordinal)
         i := 0
         while i < manifest.Files.Count {
@@ -1267,34 +1196,25 @@ public class OwnershipAudit {
                 continue
             }
 
-            if observedFile.Language != entry.Language || observedFile.Surface != entry.Surface
-                || observedFile.CampaignScope != entry.CampaignScope {
+            if observedFile.Language != entry.Language || observedFile.Surface != entry.Surface || observedFile.CampaignScope != entry.CampaignScope {
                 result.Add("OWN002", observedFile.Path, "observed classification does not match the manifest classification")
             }
-            if observedFile.Lines != entry.CurrentLines || observedFile.NonBlankLines != entry.CurrentNonBlankLines
-                || observedFile.AssertionMarkers != entry.CurrentAssertionMarkers
-                || observedFile.Bytes != entry.CurrentBytes {
+            if observedFile.Lines != entry.CurrentLines || observedFile.NonBlankLines != entry.CurrentNonBlankLines || observedFile.AssertionMarkers != entry.CurrentAssertionMarkers || observedFile.Bytes != entry.CurrentBytes {
                 result.Add(
                     "OWN004",
                     observedFile.Path,
-                    "observed metrics lines=" + Number(observedFile.Lines) + ", nonblank=" + Number(observedFile.NonBlankLines)
-                        + ", assertions=" + Number(observedFile.AssertionMarkers) + ", bytes=" + Number(observedFile.Bytes)
-                        + "; allowed current lines=" + Number(entry.CurrentLines)
-                        + ", nonblank=" + Number(entry.CurrentNonBlankLines) + ", assertions=" + Number(entry.CurrentAssertionMarkers)
-                        + ", bytes=" + Number(entry.CurrentBytes)
-                        + ". Never raise a ceiling")
+                    "observed metrics lines=" + Number(observedFile.Lines) + ", nonblank=" + Number(observedFile.NonBlankLines) + ", assertions=" + Number(observedFile.AssertionMarkers) + ", bytes=" + Number(observedFile.Bytes) + "; allowed current lines=" + Number(entry.CurrentLines) + ", nonblank=" + Number(entry.CurrentNonBlankLines) + ", assertions=" + Number(entry.CurrentAssertionMarkers) + ", bytes=" + Number(entry.CurrentBytes) + ". Never raise a ceiling"
+                )
             }
-            if observedFile.Lines > entry.EpochLines || observedFile.NonBlankLines > entry.EpochNonBlankLines
-                || observedFile.AssertionMarkers > entry.EpochAssertionMarkers
-                || observedFile.Bytes > entry.EpochBytes {
+            if observedFile.Lines > entry.EpochLines || observedFile.NonBlankLines > entry.EpochNonBlankLines || observedFile.AssertionMarkers > entry.EpochAssertionMarkers || observedFile.Bytes > entry.EpochBytes {
                 result.Add("OWN004", observedFile.Path, "observed ownership exceeds the immutable E0 epoch ceiling")
             }
             if observedFile.Fingerprint != entry.CurrentFingerprint {
                 result.Add(
                     "OWN005",
                     observedFile.Path,
-                    "fingerprint drift; observed " + observedFile.Fingerprint
-                        + ". For an approved shrink, review the same-commit N# owner, lower current ceilings, and update the fingerprint. Never raise a ceiling")
+                    "fingerprint drift; observed " + observedFile.Fingerprint + ". For an approved shrink, review the same-commit N# owner, lower current ceilings, and update the fingerprint. Never raise a ceiling"
+                )
             }
             i = i + 1
         }
@@ -1319,7 +1239,8 @@ public class OwnershipAudit {
         fields: HashSet<string>,
         name: string,
         path: string,
-        result: OwnershipAuditResult) {
+        result: OwnershipAuditResult
+    ) {
         if !fields.Contains(name) {
             result.Add("OWN001", path, "manifest entry is missing required field '" + name + "'")
         }

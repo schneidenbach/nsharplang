@@ -22,7 +22,8 @@ func TypeOfSimpleTree(name: string): ColumnarRangePlannerTestTree {
         0,
         0,
         builder.Source.Length,
-        ColumnarRangePlannerChildren1(typeNode))
+        ColumnarRangePlannerChildren1(typeNode)
+    )
     return builder.Build(root)
 }
 
@@ -30,7 +31,8 @@ func TypeOfUnaryTypeTree(
     typeKind: int,
     prefix: string,
     name: string,
-    suffix: string): ColumnarRangePlannerTestTree {
+    suffix: string
+): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     builder.AddToken("typeof(")
     typeStart := builder.AddToken(prefix)
@@ -42,7 +44,8 @@ func TypeOfUnaryTypeTree(
         0,
         typeStart,
         builder.Source.Length - typeStart,
-        ColumnarRangePlannerChildren1(element))
+        ColumnarRangePlannerChildren1(element)
+    )
     builder.AddToken(")")
     root := builder.AddNode(
         ColumnarExpressionNodeKind.TypeOfExpression(),
@@ -50,7 +53,8 @@ func TypeOfUnaryTypeTree(
         0,
         0,
         builder.Source.Length,
-        ColumnarRangePlannerChildren1(typeNode))
+        ColumnarRangePlannerChildren1(typeNode)
+    )
     return builder.Build(root)
 }
 
@@ -65,7 +69,8 @@ func TypeOfNullableTree(name: string): ColumnarRangePlannerTestTree {
 func TypeOfGenericTree(
     name: string,
     firstName: string,
-    secondName: string = ""): ColumnarRangePlannerTestTree {
+    secondName: string = ""
+): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     builder.AddToken("typeof(")
     typeStart := builder.AddToken(name)
@@ -84,7 +89,8 @@ func TypeOfGenericTree(
         name.Length,
         typeStart,
         builder.Source.Length - typeStart,
-        typeChildren)
+        typeChildren
+    )
     builder.AddToken(")")
     root := builder.AddNode(
         ColumnarExpressionNodeKind.TypeOfExpression(),
@@ -92,14 +98,16 @@ func TypeOfGenericTree(
         0,
         0,
         builder.Source.Length,
-        ColumnarRangePlannerChildren1(typeNode))
+        ColumnarRangePlannerChildren1(typeNode)
+    )
     return builder.Build(root)
 }
 
 func TypeOfTupleTree(
     firstName: string,
     secondName: string,
-    named: bool = false): ColumnarRangePlannerTestTree {
+    named: bool = false
+): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     builder.AddToken("typeof(")
     tupleStart := builder.AddToken("(")
@@ -116,7 +124,8 @@ func TypeOfTupleTree(
             4,
             firstNameStart,
             builder.Source.Length - firstNameStart,
-            ColumnarRangePlannerChildren1(first))
+            ColumnarRangePlannerChildren1(first)
+        )
     }
     builder.AddToken(",")
     secondNameStart := -1
@@ -132,7 +141,8 @@ func TypeOfTupleTree(
             5,
             secondNameStart,
             builder.Source.Length - secondNameStart,
-            ColumnarRangePlannerChildren1(second))
+            ColumnarRangePlannerChildren1(second)
+        )
     }
     builder.AddToken(")")
     tuple := builder.AddNode(
@@ -141,7 +151,8 @@ func TypeOfTupleTree(
         0,
         tupleStart,
         builder.Source.Length - tupleStart,
-        ColumnarRangePlannerChildren2(first, second))
+        ColumnarRangePlannerChildren2(first, second)
+    )
     builder.AddToken(")")
     root := builder.AddNode(
         ColumnarExpressionNodeKind.TypeOfExpression(),
@@ -149,13 +160,15 @@ func TypeOfTupleTree(
         0,
         0,
         builder.Source.Length,
-        ColumnarRangePlannerChildren1(tuple))
+        ColumnarRangePlannerChildren1(tuple)
+    )
     return builder.Build(root)
 }
 
 func TypeOfUnionTree(
     firstName: string,
-    secondName: string): ColumnarRangePlannerTestTree {
+    secondName: string
+): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     builder.AddToken("typeof(")
     first := builder.AddLeaf(0, firstName)
@@ -167,7 +180,8 @@ func TypeOfUnionTree(
         0,
         7,
         builder.Source.Length - 7,
-        ColumnarRangePlannerChildren2(first, second))
+        ColumnarRangePlannerChildren2(first, second)
+    )
     builder.AddToken(")")
     root := builder.AddNode(
         ColumnarExpressionNodeKind.TypeOfExpression(),
@@ -175,7 +189,8 @@ func TypeOfUnionTree(
         0,
         0,
         builder.Source.Length,
-        ColumnarRangePlannerChildren1(unionNode))
+        ColumnarRangePlannerChildren1(unionNode)
+    )
     return builder.Build(root)
 }
 
@@ -191,7 +206,8 @@ func TypeOfArrayUnionTree(name: string): ColumnarRangePlannerTestTree {
         0,
         firstStart,
         builder.Source.Length - firstStart,
-        ColumnarRangePlannerChildren1(firstElement))
+        ColumnarRangePlannerChildren1(firstElement)
+    )
     builder.AddToken("|")
     secondStart := builder.Source.Length
     secondElement := builder.AddLeaf(0, name)
@@ -202,14 +218,16 @@ func TypeOfArrayUnionTree(name: string): ColumnarRangePlannerTestTree {
         0,
         secondStart,
         builder.Source.Length - secondStart,
-        ColumnarRangePlannerChildren1(secondElement))
+        ColumnarRangePlannerChildren1(secondElement)
+    )
     unionNode := builder.AddNode(
         4,
         -1,
         0,
         firstStart,
         builder.Source.Length - firstStart,
-        ColumnarRangePlannerChildren2(first, second))
+        ColumnarRangePlannerChildren2(first, second)
+    )
     builder.AddToken(")")
     root := builder.AddNode(
         ColumnarExpressionNodeKind.TypeOfExpression(),
@@ -217,12 +235,14 @@ func TypeOfArrayUnionTree(name: string): ColumnarRangePlannerTestTree {
         0,
         0,
         builder.Source.Length,
-        ColumnarRangePlannerChildren1(unionNode))
+        ColumnarRangePlannerChildren1(unionNode)
+    )
     return builder.Build(root)
 }
 
 func TypeOfDelegateWithSourceCollectionTree(
-    sourceTypeName: string): ColumnarRangePlannerTestTree {
+    sourceTypeName: string
+): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     builder.AddToken("typeof(")
     functionStart := builder.AddToken("Func")
@@ -237,7 +257,8 @@ func TypeOfDelegateWithSourceCollectionTree(
         4,
         listStart,
         builder.Source.Length - listStart,
-        ColumnarRangePlannerChildren1(sourceType))
+        ColumnarRangePlannerChildren1(sourceType)
+    )
     builder.AddToken(",")
     resultType := builder.AddLeaf(0, "int")
     builder.AddToken(">")
@@ -247,7 +268,8 @@ func TypeOfDelegateWithSourceCollectionTree(
         4,
         functionStart,
         builder.Source.Length - functionStart,
-        ColumnarRangePlannerChildren2(listType, resultType))
+        ColumnarRangePlannerChildren2(listType, resultType)
+    )
     builder.AddToken(")")
     root := builder.AddNode(
         ColumnarExpressionNodeKind.TypeOfExpression(),
@@ -255,13 +277,15 @@ func TypeOfDelegateWithSourceCollectionTree(
         0,
         0,
         builder.Source.Length,
-        ColumnarRangePlannerChildren1(functionType))
+        ColumnarRangePlannerChildren1(functionType)
+    )
     return builder.Build(root)
 }
 
 func TypeOfMalformedTree(
     typeOfChildren: int[],
-    includeGeneric: bool = false): ColumnarRangePlannerTestTree {
+    includeGeneric: bool = false
+): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     builder.AddToken("typeof(")
     children := typeOfChildren
@@ -273,7 +297,8 @@ func TypeOfMalformedTree(
             4,
             nameStart,
             4,
-            new int[](0))
+            new int[](0)
+        )
         children = ColumnarRangePlannerChildren1(generic)
     }
     builder.AddToken(")")
@@ -283,19 +308,26 @@ func TypeOfMalformedTree(
         0,
         0,
         builder.Source.Length,
-        children)
+        children
+    )
     return builder.Build(root)
 }
 
 func TypeOfPlan(
     tree: ColumnarRangePlannerTestTree,
-    bindings: ColumnarFragmentBindings): ColumnarCodePlan {
+    bindings: ColumnarFragmentBindings
+): ColumnarCodePlan {
     plan := new ColumnarCodePlan()
     if ColumnarTypeOfPlanner.Plan(
-            tree.Nodes, tree.Source, tree.Root, bindings, plan)
-        != ColumnarFragmentPlanStatus.Planned {
+        tree.Nodes,
+        tree.Source,
+        tree.Root,
+        bindings,
+        plan
+    ) != ColumnarFragmentPlanStatus.Planned {
         throw new InvalidOperationException(
-            "Expected typeof planner ownership: " + tree.Source)
+            "Expected typeof planner ownership: " + tree.Source
+        )
     }
     ColumnarCodePlanExecutor.Validate(plan)
     return plan
@@ -305,7 +337,8 @@ func TypeOfRequiredRuntimeType(owner: Type, name: string): Type {
     result := owner.get_Assembly().GetType(name)
     if result == null {
         throw new InvalidOperationException(
-            "Required runtime type was not found: " + name)
+            "Required runtime type was not found: " + name
+        )
     }
     return result
 }
@@ -314,12 +347,14 @@ func TypeOfRequiredStaticField(owner: Type, name: string): object {
     field := owner.GetField(name)
     if field == null {
         throw new InvalidOperationException(
-            "Required runtime field was not found: " + name)
+            "Required runtime field was not found: " + name
+        )
     }
     value := field.GetValue(null)
     if value == null {
         throw new InvalidOperationException(
-            "Required runtime field returned null: " + name)
+            "Required runtime field returned null: " + name
+        )
     }
     return value
 }
@@ -327,11 +362,13 @@ func TypeOfRequiredStaticField(owner: Type, name: string): object {
 func TypeOfRequiredInvocation(
     method: MethodInfo,
     target: object?,
-    arguments: object[]): object {
+    arguments: object[]
+): object {
     parameters := method.GetParameters()
     if parameters.Length != arguments.Length {
         throw new InvalidOperationException(
-            "Required reflection invocation argument count is invalid.")
+            "Required reflection invocation argument count is invalid."
+        )
     }
     isStatic := method.get_IsStatic()
     offset := isStatic ? 0 : 1
@@ -341,7 +378,8 @@ func TypeOfRequiredInvocation(
         declaringType := method.get_DeclaringType()
         if declaringType == null || target == null {
             throw new InvalidOperationException(
-                "Required instance reflection invocation has no receiver.")
+                "Required instance reflection invocation has no receiver."
+            )
         }
         parameterTypes[0] = declaringType
         ExecutorSetObject(invocationArguments, 0, target)
@@ -358,7 +396,8 @@ func TypeOfRequiredInvocation(
     dynamicMethod := BoundDynamicMethod(
         "TypeOfReflectionInvocation",
         method.get_ReturnType(),
-        parameterTypes)
+        parameterTypes
+    )
     il := dynamicMethod.GetILGenerator()
     i = 0
     while i < parameterTypes.Length {
@@ -375,18 +414,21 @@ func TypeOfRequiredInvocation(
     value := dynamicMethod.Invoke(invocationTarget, invocationArguments)
     if value == null {
         throw new InvalidOperationException(
-            "Required reflection invocation returned null.")
+            "Required reflection invocation returned null."
+        )
     }
     return value
 }
 
 func TypeOfRequiredConstruction(
     constructorInfo: ConstructorInfo,
-    arguments: object[]): object {
+    arguments: object[]
+): object {
     value := constructorInfo.Invoke(arguments)
     if value == null {
         throw new InvalidOperationException(
-            "Required reflection construction returned null.")
+            "Required reflection construction returned null."
+        )
     }
     return value
 }
@@ -396,34 +438,48 @@ func TypeOfCreateSourceBuilder(name: string, generic: bool = false): TypeBuilder
     return TypeOfCreateBuilder(
         name,
         "ColumnarTypeOfTests." + name,
-        genericParameterCount)
+        genericParameterCount
+    )
 }
 
 func TypeOfCreateBuilder(
     name: string,
     assemblyIdentity: string,
-    genericParameterCount: int): TypeBuilder {
+    genericParameterCount: int
+): TypeBuilder {
     assemblyBuilderType := TypeOfRequiredRuntimeType(
-        typeof(TypeBuilder), "System.Reflection.Emit.AssemblyBuilder")
+        typeof(TypeBuilder),
+        "System.Reflection.Emit.AssemblyBuilder"
+    )
     assemblyBuilderAccessType := TypeOfRequiredRuntimeType(
-        typeof(TypeBuilder), "System.Reflection.Emit.AssemblyBuilderAccess")
+        typeof(TypeBuilder),
+        "System.Reflection.Emit.AssemblyBuilderAccess"
+    )
     moduleBuilderType := TypeOfRequiredRuntimeType(
-        typeof(TypeBuilder), "System.Reflection.Emit.ModuleBuilder")
+        typeof(TypeBuilder),
+        "System.Reflection.Emit.ModuleBuilder"
+    )
     typeAttributesType := TypeOfRequiredRuntimeType(
-        typeof(AssemblyName), "System.Reflection.TypeAttributes")
+        typeof(AssemblyName),
+        "System.Reflection.TypeAttributes"
+    )
 
     assemblyNameConstructorTypes := new Type[](1)
     assemblyNameConstructorTypes[0] = typeof(string)
     assemblyNameConstructor := ExecutorRequiredConstructor(
-        typeof(AssemblyName), assemblyNameConstructorTypes)
+        typeof(AssemblyName),
+        assemblyNameConstructorTypes
+    )
     assemblyNameArguments := new object[](1)
     ExecutorSetObject(
         assemblyNameArguments,
         0,
-        assemblyIdentity)
+        assemblyIdentity
+    )
     assemblyName := TypeOfRequiredConstruction(
         assemblyNameConstructor,
-        assemblyNameArguments)
+        assemblyNameArguments
+    )
 
     defineAssemblyTypes := new Type[](2)
     defineAssemblyTypes[0] = typeof(AssemblyName)
@@ -431,30 +487,35 @@ func TypeOfCreateBuilder(
     defineAssembly := ExecutorRequiredMethod(
         assemblyBuilderType,
         "DefineDynamicAssembly",
-        defineAssemblyTypes)
+        defineAssemblyTypes
+    )
     defineAssemblyArguments := new object[](2)
     ExecutorSetObject(defineAssemblyArguments, 0, assemblyName)
     ExecutorSetObject(
         defineAssemblyArguments,
         1,
-        TypeOfRequiredStaticField(assemblyBuilderAccessType, "Run"))
+        TypeOfRequiredStaticField(assemblyBuilderAccessType, "Run")
+    )
     assemblyBuilder := TypeOfRequiredInvocation(
         defineAssembly,
         null,
-        defineAssemblyArguments)
+        defineAssemblyArguments
+    )
 
     defineModuleTypes := new Type[](1)
     defineModuleTypes[0] = typeof(string)
     defineModule := ExecutorRequiredMethod(
         assemblyBuilderType,
         "DefineDynamicModule",
-        defineModuleTypes)
+        defineModuleTypes
+    )
     defineModuleArguments := new object[](1)
     ExecutorSetObject(defineModuleArguments, 0, name)
     moduleBuilder := TypeOfRequiredInvocation(
         defineModule,
         assemblyBuilder,
-        defineModuleArguments)
+        defineModuleArguments
+    )
 
     defineTypeTypes := new Type[](2)
     defineTypeTypes[0] = typeof(string)
@@ -462,21 +523,25 @@ func TypeOfCreateBuilder(
     defineType := ExecutorRequiredMethod(
         moduleBuilderType,
         "DefineType",
-        defineTypeTypes)
+        defineTypeTypes
+    )
     defineTypeArguments := new object[](2)
     ExecutorSetObject(defineTypeArguments, 0, name)
     ExecutorSetObject(
         defineTypeArguments,
         1,
-        TypeOfRequiredStaticField(typeAttributesType, "Public"))
+        TypeOfRequiredStaticField(typeAttributesType, "Public")
+    )
     created := TypeOfRequiredInvocation(
         defineType,
         moduleBuilder,
-        defineTypeArguments)
+        defineTypeArguments
+    )
     builder := created as TypeBuilder
     if builder == null {
         throw new InvalidOperationException(
-            "Reflection.Emit did not return a TypeBuilder.")
+            "Reflection.Emit did not return a TypeBuilder."
+        )
     }
 
     if genericParameterCount > 0 {
@@ -485,7 +550,8 @@ func TypeOfCreateBuilder(
         defineParameters := ExecutorRequiredMethod(
             typeof(TypeBuilder),
             "DefineGenericParameters",
-            genericParameterTypes)
+            genericParameterTypes
+        )
         parameterNames := new string[](genericParameterCount)
         parameterIndex := 0
         while parameterIndex < parameterNames.Length {
@@ -497,7 +563,8 @@ func TypeOfCreateBuilder(
         TypeOfRequiredInvocation(
             defineParameters,
             builder,
-            defineParameterArguments)
+            defineParameterArguments
+        )
     }
 
     return builder
@@ -507,15 +574,23 @@ func TypeOfInstallRuntimeUnion(): Type {
     builder := TypeOfCreateBuilder(
         "NSharpLang.Runtime.Union`2",
         "NSharpLang.Runtime",
-        2)
+        2
+    )
     createType := ExecutorRequiredMethod(
-        typeof(TypeBuilder), "CreateType", new Type[](0))
+        typeof(TypeBuilder),
+        "CreateType",
+        new Type[](0)
+    )
     value := TypeOfRequiredInvocation(
-        createType, builder, new object[](0))
+        createType,
+        builder,
+        new object[](0)
+    )
     runtimeType := value as Type
     if runtimeType == null {
         throw new InvalidOperationException(
-            "Runtime union fixture did not produce a Type.")
+            "Runtime union fixture did not produce a Type."
+        )
     }
     return runtimeType
 }
@@ -525,18 +600,26 @@ func TypeOfSourceDefinition(builder: TypeBuilder): ColumnarStructDef {
         builder,
         new string[](0),
         new Dictionary<string, FieldBuilder>(StringComparer.Ordinal),
-        true)
+        true
+    )
 }
 
 func TypeOfMethodBuilderIL(methodBuilder: MethodBuilder): ILGenerator {
     method := ExecutorRequiredMethod(
-        typeof(MethodBuilder), "GetILGenerator", new Type[](0))
+        typeof(MethodBuilder),
+        "GetILGenerator",
+        new Type[](0)
+    )
     value := TypeOfRequiredInvocation(
-        method, methodBuilder, new object[](0))
+        method,
+        methodBuilder,
+        new object[](0)
+    )
     il := value as ILGenerator
     if il == null {
         throw new InvalidOperationException(
-            "MethodBuilder.GetILGenerator returned an invalid value.")
+            "MethodBuilder.GetILGenerator returned an invalid value."
+        )
     }
     return il
 }
@@ -545,7 +628,8 @@ func TypeOfNullableIntType(): Type {
     definition := Type.GetType("System.Nullable`1")
     if definition == null {
         throw new InvalidOperationException(
-            "System.Nullable<T> runtime type was not found.")
+            "System.Nullable<T> runtime type was not found."
+        )
     }
     arguments := new Type[](1)
     arguments[0] = typeof(int)
@@ -555,7 +639,8 @@ func TypeOfNullableIntType(): Type {
 func TypeOfAssertTarget(
     tree: ColumnarRangePlannerTestTree,
     bindings: ColumnarFragmentBindings,
-    expected: Type) {
+    expected: Type
+) {
     plan := TypeOfPlan(tree, bindings)
     assert plan.TypeCount == 1
     assert plan.Types[0] == expected
@@ -601,7 +686,8 @@ test "typeof planner emits exact schema v3 type-handle plan and executes" {
         bindings,
         emitPlan,
         method.GetILGenerator(),
-        out resultType)
+        out resultType
+    )
     assert resultType == typeof(Type)
     method.GetILGenerator().Emit(OpCodes.Ret)
     assert BoundInvokeText(method, new object[](0)) == "System.String"
@@ -615,7 +701,9 @@ test "typeof planner resolves builtin enum array nullable tuple and anonymous un
     constants["None"] = 0
     constants["Ready"] = 1
     bindings.Enums["ProbeState"] = new ColumnarEnumDef(
-        typeof(ColumnarTypeOfProbeEnum), constants)
+        typeof(ColumnarTypeOfProbeEnum),
+        constants
+    )
 
     intTree := TypeOfSimpleTree("int")
     TypeOfAssertTarget(intTree, bindings, typeof(int))
@@ -623,7 +711,8 @@ test "typeof planner resolves builtin enum array nullable tuple and anonymous un
     TypeOfAssertTarget(
         enumTree,
         bindings,
-        typeof(ColumnarTypeOfProbeEnum))
+        typeof(ColumnarTypeOfProbeEnum)
+    )
     arrayTree := TypeOfArrayTree("int")
     TypeOfAssertTarget(arrayTree, bindings, typeof(int[]))
     nullableTree := TypeOfNullableTree("int")
@@ -631,7 +720,8 @@ test "typeof planner resolves builtin enum array nullable tuple and anonymous un
     TypeOfAssertTarget(
         nullableTree,
         bindings,
-        nullableType)
+        nullableType
+    )
     tupleType := typeof(ValueTuple<int, string>)
     tupleTree := TypeOfTupleTree("int", "string", false)
     TypeOfAssertTarget(tupleTree, bindings, tupleType)
@@ -648,7 +738,6 @@ test "typeof planner resolves builtin enum array nullable tuple and anonymous un
     assert unionArguments.Length == 2
     assert unionArguments[0] == typeof(int)
     assert unionArguments[1] == typeof(string)
-
 }
 
 test "typeof planner resolves live source struct union and closed generic builders" {
@@ -695,13 +784,19 @@ test "typeof source lookup honors exact qualified names and deterministic short 
     secondGeneric := TypeOfCreateSourceBuilder("TypeOfScopeB.Box", true)
     choiceStruct := TypeOfCreateSourceBuilder("TypeOfScopeA.Choice", false)
     genericChoiceType := TypeOfCreateSourceBuilder(
-        "TypeOfScopeA.GenericChoice", true)
+        "TypeOfScopeA.GenericChoice",
+        true
+    )
     dateTimeSource := TypeOfCreateSourceBuilder("DateTime", false)
     stringBuilderSource := TypeOfCreateSourceBuilder("StringBuilder", false)
     nonGenericBox := TypeOfCreateSourceBuilder(
-        "TypeOfScopeA.BlockedBox", false)
+        "TypeOfScopeA.BlockedBox",
+        false
+    )
     laterGenericBox := TypeOfCreateSourceBuilder(
-        "TypeOfScopeB.BlockedBox", true)
+        "TypeOfScopeB.BlockedBox",
+        true
+    )
     firstUnion := TypeOfCreateSourceBuilder("TypeOfScopeA.Choice", false)
     secondUnion := TypeOfCreateSourceBuilder("TypeOfScopeB.Choice", false)
     genericChoiceUnion := TypeOfCreateSourceBuilder("GenericChoice", true)
@@ -756,14 +851,18 @@ test "typeof source lookup honors exact qualified names and deterministic short 
     assert genericCategoryDefinition == expectedCategoryDefinition
 
     blockedGenericTree := TypeOfGenericTree(
-        "TypeOfScopeB.BlockedBox", "int", "")
+        "TypeOfScopeB.BlockedBox",
+        "int",
+        ""
+    )
     blockedGenericPlan := new ColumnarCodePlan()
     assert ColumnarTypeOfPlanner.Plan(
         blockedGenericTree.Nodes,
         blockedGenericTree.Source,
         blockedGenericTree.Root,
         bindings,
-        blockedGenericPlan) == ColumnarFragmentPlanStatus.NotOwned
+        blockedGenericPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(blockedGenericPlan)
 }
 
@@ -783,7 +882,8 @@ test "typeof rejects structurally equivalent source array union arms" {
         tree.Source,
         tree.Root,
         bindings,
-        plan) == ColumnarFragmentPlanStatus.NotOwned
+        plan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(plan)
 }
 
@@ -818,7 +918,8 @@ test "typeof delegate target keeps direct emit broader than receiver preflight" 
         "TypeOfBuilderDelegateEmit",
         attributes,
         typeof(Type),
-        new Type[](0))
+        new Type[](0)
+    )
     il := TypeOfMethodBuilderIL(methodBuilder)
     resultType := typeof(object)
     assert ColumnarTypeOfPlanner.TryEmit(
@@ -828,7 +929,8 @@ test "typeof delegate target keeps direct emit broader than receiver preflight" 
         bindings,
         emitPlan,
         il,
-        out resultType)
+        out resultType
+    )
     assert resultType == typeof(Type)
     il.Emit(OpCodes.Ret)
 
@@ -840,7 +942,8 @@ test "typeof delegate target keeps direct emit broader than receiver preflight" 
         tree.Root,
         bindings,
         preflight,
-        out preflightType)
+        out preflightType
+    )
     assert preflightType == typeof(Type)
     ColumnarRangePlannerAssertEmptyRollback(preflight)
 }
@@ -858,7 +961,8 @@ test "typeof append composes recursively and rolls back atomically on decline" {
         successTree.Root,
         bindings,
         plan,
-        out resultType)
+        out resultType
+    )
     assert resultType == typeof(Type)
     assert plan.OperationCount == 2
     assert plan.TypeCount == 1
@@ -879,7 +983,8 @@ test "typeof append composes recursively and rolls back atomically on decline" {
         rejectedTree.Root,
         bindings,
         rejected,
-        out rejectedResult)
+        out rejectedResult
+    )
     assert rejectedResult == typeof(Type)
     assert rejected.OperationCount == 1
     assert rejected.TypeCount == 0
@@ -896,8 +1001,7 @@ test "typeof planner admits resolved runtime enums in emit and preflight" {
 
     direct := TypeOfPlan(tree, bindings)
     assert direct.Types[0] == typeof(System.IO.SearchOption)
-    assert ExecutorRunV3ScalarPlan(direct, typeof(Type))
-        == "System.IO.SearchOption"
+    assert ExecutorRunV3ScalarPlan(direct, typeof(Type)) == "System.IO.SearchOption"
 
     preflight := new ColumnarCodePlan()
     resultType := typeof(object)
@@ -907,7 +1011,8 @@ test "typeof planner admits resolved runtime enums in emit and preflight" {
         tree.Root,
         bindings,
         preflight,
-        out resultType)
+        out resultType
+    )
     assert resultType == typeof(Type)
     ColumnarCodePlanExecutor.Validate(preflight)
 }
@@ -922,7 +1027,8 @@ test "typeof roots remain terminal while every rejected shape leaves an empty pl
         unknown.Source,
         unknown.Root,
         bindings,
-        unknownPlan) == ColumnarFragmentPlanStatus.NotOwned
+        unknownPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(unknownPlan)
 
     noChildren := TypeOfMalformedTree(new int[](0), false)
@@ -933,31 +1039,38 @@ test "typeof roots remain terminal while every rejected shape leaves an empty pl
         noChildren.Source,
         noChildren.Root,
         bindings,
-        noChildrenPlan) == ColumnarFragmentPlanStatus.NotOwned
+        noChildrenPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(noChildrenPlan)
 
     malformedGeneric := TypeOfMalformedTree(new int[](0), true)
     assert ColumnarTypeOfPlanner.ClaimsRoot(
-        malformedGeneric.Nodes, malformedGeneric.Root)
+        malformedGeneric.Nodes,
+        malformedGeneric.Root
+    )
     malformedPlan := new ColumnarCodePlan()
     assert ColumnarTypeOfPlanner.Plan(
         malformedGeneric.Nodes,
         malformedGeneric.Source,
         malformedGeneric.Root,
         bindings,
-        malformedPlan) == ColumnarFragmentPlanStatus.NotOwned
+        malformedPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(malformedPlan)
 
     unsupportedTuple := TypeOfTupleTree("ProbeState", "int", false)
     constants := new Dictionary<string, int>(StringComparer.Ordinal)
     bindings.Enums["ProbeState"] = new ColumnarEnumDef(
-        typeof(ColumnarTypeOfProbeEnum), constants)
+        typeof(ColumnarTypeOfProbeEnum),
+        constants
+    )
     unsupportedTuplePlan := new ColumnarCodePlan()
     assert ColumnarTypeOfPlanner.Plan(
         unsupportedTuple.Nodes,
         unsupportedTuple.Source,
         unsupportedTuple.Root,
         bindings,
-        unsupportedTuplePlan) == ColumnarFragmentPlanStatus.NotOwned
+        unsupportedTuplePlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(unsupportedTuplePlan)
 }

@@ -31,7 +31,6 @@ import System.Collections.Generic
 // (4) `TypeConversionSuggester`'s RULES ARE ORDERED. The explicit pairs are matched BEFORE the
 // nullable rules, and the nullable rules before the generic numeric fallback; an unordered table
 // would answer the wrong paragraph for `int` -> `long`.
-
 func SuggestionNames(candidates: List<string>, typo: string, maxSuggestions: int): string {
     suggester := new SmartSuggester(candidates)
     return string.Join(",", suggester.SuggestSimilarNames(typo, maxSuggestions))

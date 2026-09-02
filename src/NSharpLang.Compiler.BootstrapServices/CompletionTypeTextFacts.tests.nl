@@ -9,7 +9,6 @@ import NSharpLang.Compiler.Ast
 // assertions that came out of `CompletionEngine.cs` with the rules: what the SOURCE wrote beats what
 // the binder resolved, `params` is not a default, and a reflected type keeps its CLR name unless it
 // is one of exactly eight.
-
 func CttFunction(): FunctionTypeInfo {
     return new FunctionTypeInfo()
 }
@@ -155,8 +154,7 @@ test "a function type's parameter list renders defaults, refuses to default para
     withDefaults.SourceParameterTypes = CttSourceTypes(types)
     withDefaults.ParameterModifiers = CttModifiers(modifiers)
     withDefaults.RequiredParameterCount = requiredOne
-    assert CompletionTypeTextFacts.FormatFunctionTypeParameters(withDefaults) ==
-        "(count int, label string = ..., extras string[])"
+    assert CompletionTypeTextFacts.FormatFunctionTypeParameters(withDefaults) == "(count int, label string = ..., extras string[])"
 
     // NO required count is no default anywhere: the rule needs a number to compare against and
     // will not invent one.
@@ -164,8 +162,7 @@ test "a function type's parameter list renders defaults, refuses to default para
     unknownRequired.ParameterNames = CttNames(names)
     unknownRequired.SourceParameterTypes = CttSourceTypes(types)
     unknownRequired.ParameterModifiers = CttModifiers(modifiers)
-    assert CompletionTypeTextFacts.FormatFunctionTypeParameters(unknownRequired) ==
-        "(count int, label string, extras string[])"
+    assert CompletionTypeTextFacts.FormatFunctionTypeParameters(unknownRequired) == "(count int, label string, extras string[])"
 
     // Required = 0 defaults everything that is not `params`.
     allOptional := CttFunction()
@@ -173,16 +170,14 @@ test "a function type's parameter list renders defaults, refuses to default para
     allOptional.SourceParameterTypes = CttSourceTypes(types)
     allOptional.ParameterModifiers = CttModifiers(modifiers)
     allOptional.RequiredParameterCount = requiredNone
-    assert CompletionTypeTextFacts.FormatFunctionTypeParameters(allOptional) ==
-        "(count int = ..., label string = ..., extras string[])"
+    assert CompletionTypeTextFacts.FormatFunctionTypeParameters(allOptional) == "(count int = ..., label string = ..., extras string[])"
 
     // A MISSING modifier list still defaults — the modifier read is total and answers `None`.
     noModifiers := CttFunction()
     noModifiers.ParameterNames = CttNames(names)
     noModifiers.SourceParameterTypes = CttSourceTypes(types)
     noModifiers.RequiredParameterCount = requiredTwo
-    assert CompletionTypeTextFacts.FormatFunctionTypeParameters(noModifiers) ==
-        "(count int, label string, extras string[] = ...)"
+    assert CompletionTypeTextFacts.FormatFunctionTypeParameters(noModifiers) == "(count int, label string, extras string[] = ...)"
 
     // A name with no type on either list still appears, typed "unknown".
     untypedNames := new string[](1)
@@ -227,12 +222,9 @@ test "the reflected type text aliases exactly eight full names and keeps every o
     // A generic type loses its arity tick and shows its arguments, recursively — and the arguments
     // go through the SAME eight aliases.
     assert CompletionTypeTextFacts.FormatClrTypeText(typeof(List<int>)) == "List<int>"
-    assert CompletionTypeTextFacts.FormatClrTypeText(typeof(Dictionary<string, int>)) ==
-        "Dictionary<string, int>"
-    assert CompletionTypeTextFacts.FormatClrTypeText(typeof(List<List<string>>)) ==
-        "List<List<string>>"
-    assert CompletionTypeTextFacts.FormatClrTypeText(typeof(Dictionary<string, List<byte>>)) ==
-        "Dictionary<string, List<Byte>>"
+    assert CompletionTypeTextFacts.FormatClrTypeText(typeof(Dictionary<string, int>)) == "Dictionary<string, int>"
+    assert CompletionTypeTextFacts.FormatClrTypeText(typeof(List<List<string>>)) == "List<List<string>>"
+    assert CompletionTypeTextFacts.FormatClrTypeText(typeof(Dictionary<string, List<byte>>)) == "Dictionary<string, List<Byte>>"
 
     // An ARRAY is not special-cased: it keeps the CLR spelling of its name.
     assert CompletionTypeTextFacts.FormatClrTypeText(typeof(int[])) == "Int32[]"

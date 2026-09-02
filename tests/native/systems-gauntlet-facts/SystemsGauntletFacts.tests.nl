@@ -45,7 +45,6 @@ import System.Text.Json
 // golden key and never stated what else the analyzer said about the sample — including, on three of
 // the ten cases, findings no golden mentions at all.
 
-
 // ─── THE PARSER KERNEL, BY REFLECTION ─────────────────────────────────────────────────────────
 
 // The recovery parser is reached by reflection rather than by name: a DIRECT
@@ -224,8 +223,7 @@ func GfParameterCensus(declaration: object): string {
                 census = census + ","
             }
 
-            census = census + GfText(parameter, "Name") + ":" + GfTypeText(GfMember(parameter, "Type"))
-                + ":scoped=" + GfText(parameter, "IsScoped") + ":lifetime=" + GfText(parameter, "Lifetime")
+            census = census + GfText(parameter, "Name") + ":" + GfTypeText(GfMember(parameter, "Type")) + ":scoped=" + GfText(parameter, "IsScoped") + ":lifetime=" + GfText(parameter, "Lifetime")
         }
 
         index = index + 1
@@ -287,10 +285,7 @@ func GfDeclarationCensus(source: string, fileName: string): string {
             kind := declaration.GetType().Name
             census = census + kind + ":" + GfText(declaration, "Name")
             if kind == "FunctionDeclaration" {
-                census = census + ";typeParameters=" + GfTypeParameterCensus(declaration)
-                    + ";returnType=" + GfTypeText(GfMember(declaration, "ReturnType"))
-                    + ";returnLifetime=" + GfText(declaration, "ReturnLifetime")
-                    + ";parameters=" + GfParameterCensus(declaration)
+                census = census + ";typeParameters=" + GfTypeParameterCensus(declaration) + ";returnType=" + GfTypeText(GfMember(declaration, "ReturnType")) + ";returnLifetime=" + GfText(declaration, "ReturnLifetime") + ";parameters=" + GfParameterCensus(declaration)
             }
 
             if kind == "StructDeclaration" {
@@ -303,7 +298,6 @@ func GfDeclarationCensus(source: string, fileName: string): string {
 
     return census
 }
-
 
 // ─── THE SPAWN KERNEL ─────────────────────────────────────────────────────────────────────────
 
@@ -345,9 +339,7 @@ func GfRepositoryRoot(): string {
     current: string? = AppContext.BaseDirectory
     while current != null {
         directory := current ?? ""
-        if File.Exists(Path.Combine(directory, "NSharpLang.sln"))
-            && Directory.Exists(Path.Combine(directory, "src"))
-            && Directory.Exists(Path.Combine(directory, "tests")) {
+        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) && Directory.Exists(Path.Combine(directory, "tests")) {
             return directory
         }
 
@@ -372,7 +364,6 @@ func GfCliDll(): string {
 
     return cliDll
 }
-
 
 // ─── THE FIXTURE KERNEL ───────────────────────────────────────────────────────────────────────
 
@@ -416,7 +407,6 @@ func GfCleanup(directory: string) {
 func GfCheck(directory: string): GfRun {
     return GfRunProcess("dotnet", GfCliDll() + " check --project " + directory + " --systems-report", directory)
 }
-
 
 // ─── THE CENSUS KERNEL ────────────────────────────────────────────────────────────────────────
 
@@ -535,17 +525,7 @@ func GfEnvelope(stdout: string): string {
     document := JsonDocument.Parse(stdout)
     root := document.RootElement
     report := root.GetProperty("systemsReport")
-    text := "command=" + GfElementText(root.GetProperty("command"))
-        + ";ok=" + GfElementText(root.GetProperty("ok"))
-        + ";checkedFiles=" + GfElementText(root.GetProperty("checkedFiles"))
-        + ";envelopeSchema=" + GfElementText(root.GetProperty("schemaVersion"))
-        + ";reportSchema=" + GfElementText(report.GetProperty("schemaVersion"))
-        + ";profile=" + GfElementText(report.GetProperty("profile"))
-        + ";mode=" + GfElementText(report.GetProperty("mode"))
-        + ";aotTarget=" + GfElementText(report.GetProperty("aotTarget"))
-        + ";aot=" + GfElementText(report.GetProperty("aot"))
-        + ";warmup=" + GfElementText(report.GetProperty("warmup"))
-        + ";summary=" + GfElementText(report.GetProperty("summary"))
+    text := "command=" + GfElementText(root.GetProperty("command")) + ";ok=" + GfElementText(root.GetProperty("ok")) + ";checkedFiles=" + GfElementText(root.GetProperty("checkedFiles")) + ";envelopeSchema=" + GfElementText(root.GetProperty("schemaVersion")) + ";reportSchema=" + GfElementText(report.GetProperty("schemaVersion")) + ";profile=" + GfElementText(report.GetProperty("profile")) + ";mode=" + GfElementText(report.GetProperty("mode")) + ";aotTarget=" + GfElementText(report.GetProperty("aotTarget")) + ";aot=" + GfElementText(report.GetProperty("aot")) + ";warmup=" + GfElementText(report.GetProperty("warmup")) + ";summary=" + GfElementText(report.GetProperty("summary"))
     document.Dispose()
     return text
 }
@@ -563,18 +543,12 @@ func GfDiagnosticCensus(stdout: string): string {
             census = census + "|"
         }
 
-        census = census + GfElementText(entry.GetProperty("code")) + ":"
-            + GfElementText(entry.GetProperty("severity")) + "@"
-            + GfElementText(entry.GetProperty("line")) + ":"
-            + GfElementText(entry.GetProperty("column")) + "+"
-            + GfElementText(entry.GetProperty("length"))
+        census = census + GfElementText(entry.GetProperty("code")) + ":" + GfElementText(entry.GetProperty("severity")) + "@" + GfElementText(entry.GetProperty("line")) + ":" + GfElementText(entry.GetProperty("column")) + "+" + GfElementText(entry.GetProperty("length"))
     }
 
     document.Dispose()
     return census
 }
-
-
 
 // ─── THE GOLDEN KERNEL ────────────────────────────────────────────────────────────────────────
 
@@ -736,9 +710,7 @@ func GfEffectSiteMatches(stdout: string, effect: string, expected: string): bool
     while enumerator.MoveNext() {
         entry := enumerator.Current
         if entry.GetProperty("effect").GetString() == effect {
-            text := (entry.GetProperty("code").GetString() ?? "") + " " + effect + " "
-                + GfProperty(entry, "function") + " " + (entry.GetProperty("message").GetString() ?? "")
-                + " " + GfProperty(entry, "suggestion")
+            text := (entry.GetProperty("code").GetString() ?? "") + " " + effect + " " + GfProperty(entry, "function") + " " + (entry.GetProperty("message").GetString() ?? "") + " " + GfProperty(entry, "suggestion")
             if GfNormalize(text).IndexOf(want, StringComparison.Ordinal) >= 0 {
                 return true
             }
@@ -776,7 +748,6 @@ func GfMessageMatches(stdout: string, code: string, severity: string, expected: 
     return false
 }
 
-
 // ─── THE THREE GOLDEN READERS ─────────────────────────────────────────────────────────────────
 
 func GfSystemsGoldenVerdict(goldenPath: string, stdout: string, declarationCensus: string): string {
@@ -813,14 +784,20 @@ func GfSystemsGoldenVerdict(goldenPath: string, stdout: string, declarationCensu
         } else if name == "concurrencyPrimitive" {
             verdict = verdict + ";" + GfVerdict("concurrencyPrimitive", GfHasEffectFlag(stdout, "usesConcurrencyPrimitive"))
         } else if name == "returnLifetime" {
-            verdict = verdict + ";" + GfVerdict("returnLifetime",
-                declarationCensus.IndexOf("returnLifetime=" + (value.GetString() ?? ""), StringComparison.Ordinal) >= 0)
+            verdict = verdict + ";" + GfVerdict(
+                "returnLifetime",
+                declarationCensus.IndexOf("returnLifetime=" + (value.GetString() ?? ""), StringComparison.Ordinal) >= 0
+            )
         } else if name == "resultAbi" {
-            verdict = verdict + ";" + GfVerdict("resultAbi",
-                declarationCensus.IndexOf("returnType=" + (value.GetString() ?? ""), StringComparison.Ordinal) >= 0)
+            verdict = verdict + ";" + GfVerdict(
+                "resultAbi",
+                declarationCensus.IndexOf("returnType=" + (value.GetString() ?? ""), StringComparison.Ordinal) >= 0
+            )
         } else if name == "refStruct" {
-            verdict = verdict + ";" + GfVerdict("refStruct",
-                declarationCensus.IndexOf("StructDeclaration:" + (value.GetString() ?? "") + ";refStruct=True", StringComparison.Ordinal) >= 0)
+            verdict = verdict + ";" + GfVerdict(
+                "refStruct",
+                declarationCensus.IndexOf("StructDeclaration:" + (value.GetString() ?? "") + ";refStruct=True", StringComparison.Ordinal) >= 0
+            )
         } else if name == "failure" {
             verdict = verdict + ";" + GfVerdict("failure", GfFindingCount(stdout) > 0)
         } else if name == "code" {
@@ -834,14 +811,17 @@ func GfSystemsGoldenVerdict(goldenPath: string, stdout: string, declarationCensu
         } else if name == "aotTarget" {
             report := GfReport(stdout)
             target := value.GetString() ?? ""
-            verdict = verdict + ";" + GfVerdict("aotTarget",
-                (report.GetProperty("aotTarget").GetString() ?? "") == target
-                    && (report.GetProperty("aot").GetProperty("target").GetString() ?? "") == target)
+            verdict = verdict + ";" + GfVerdict(
+                "aotTarget",
+                (report.GetProperty("aotTarget").GetString() ?? "") == target && (report.GetProperty("aot").GetProperty("target").GetString() ?? "") == target
+            )
         } else if name == "aot" {
             verdict = verdict + ";" + GfVerdict("aot", !GfHasFindingWith(stdout, "code", "NSYS060"))
         } else if name == "nativeImageEmitted" {
-            verdict = verdict + ";" + GfVerdict("nativeImageEmitted",
-                GfReport(stdout).GetProperty("aot").GetProperty("nativeImageEmitted").GetBoolean() == value.GetBoolean())
+            verdict = verdict + ";" + GfVerdict(
+                "nativeImageEmitted",
+                GfReport(stdout).GetProperty("aot").GetProperty("nativeImageEmitted").GetBoolean() == value.GetBoolean()
+            )
         } else {
             verdict = verdict + ";" + name + "=<unhandled>"
         }
@@ -903,8 +883,10 @@ func GfPerfGoldenVerdict(goldenPath: string, stdout: string): string {
                 sites := value.EnumerateArray()
                 position := 0
                 while sites.MoveNext() {
-                    verdict = verdict + ";" + GfVerdict(name + "." + position.ToString(),
-                        GfEffectSiteMatches(stdout, effect, sites.Current.GetString() ?? ""))
+                    verdict = verdict + ";" + GfVerdict(
+                        name + "." + position.ToString(),
+                        GfEffectSiteMatches(stdout, effect, sites.Current.GetString() ?? "")
+                    )
                     position = position + 1
                 }
             }
@@ -915,8 +897,10 @@ func GfPerfGoldenVerdict(goldenPath: string, stdout: string): string {
                 verdict = verdict + ";" + GfVerdict("perfTrusted." + site, GfHasTrustedSite(stdout, site))
             }
         } else if name == "aotAnalysis" {
-            verdict = verdict + ";" + GfVerdict("aotAnalysis",
-                (GfReport(stdout).GetProperty("aot").GetProperty("analysis").GetString() ?? "") == (value.GetString() ?? ""))
+            verdict = verdict + ";" + GfVerdict(
+                "aotAnalysis",
+                (GfReport(stdout).GetProperty("aot").GetProperty("analysis").GetString() ?? "") == (value.GetString() ?? "")
+            )
         } else {
             verdict = verdict + ";" + name + "=<unhandled>"
         }
@@ -925,7 +909,6 @@ func GfPerfGoldenVerdict(goldenPath: string, stdout: string): string {
     document.Dispose()
     return verdict
 }
-
 
 // ─── THE RUNTIME ABI KERNEL ───────────────────────────────────────────────────────────────────
 
@@ -1017,10 +1000,7 @@ func GfTypeName(owner: object): string {
     return (ownerType.Namespace ?? "<null>") + "." + ownerType.Name
 }
 
-
-
 // ─── THE TEN GAUNTLET CASES ──────────────────────────────────────────────────────────────────
-
 
 test "020 s41 systems gauntlet facts: `01-packet-parser` — the packet parser discharges its slice preconditions, so the report is clean and the golden says PASS; the four goldens are on disk, and the whole report is pinned beside their verdicts (was SystemsNSharpTests.AcceptanceGauntlet_FixturesMatchSystemsPerfAndDiagnosticExpectations)" {
     caseDirectory := GfCaseDirectory("01-packet-parser")
@@ -1404,9 +1384,7 @@ test "020 s41 systems gauntlet facts: `10-json-cli` — the JSON CLI reports its
     assert perfVerdict == "schemaVersion=ok;command=ok;allocationSites.empty=ok"
 }
 
-
 // ─── THE LIFETIME SYNTAX THE CLI DOES NOT EXPOSE ──────────────────────────────────────────────
-
 
 test "020 s41 systems gauntlet facts: a lifetime-parameterised function records its type parameter, its RETURN lifetime and the `scoped` lifetime of the parameter that carries one — and the two parameters that carry none are pinned as well (was SystemsNSharpTests.LifetimeSyntax_ParsesScopedParameterAndReturnLifetime)" {
     source := "import System\n\nfunc Slice<'a>(buf: ReadOnlySpan<byte> scoped 'a, start: int, len: int): ReadOnlySpan<byte> returns 'a {\n    return buf.Slice(start, len)\n}\n"
@@ -1424,9 +1402,7 @@ test "020 s41 systems gauntlet facts: a `returns heap(arena)` lifetime is record
     assert declarations == "FunctionDeclaration:Slice;typeParameters=<null>;returnType=Span<byte>;returnLifetime=heap(arena);parameters=arena:&Arena:scoped=False:lifetime=<null>,start:int:scoped=False:lifetime=<null>,len:int:scoped=False:lifetime=<null>|StructDeclaration:Arena;refStruct=False"
 }
 
-
 // ─── THE RUNTIME ABI ──────────────────────────────────────────────────────────────────────────
-
 
 test "020 s41 systems gauntlet facts: the `Result<T, E>` runtime ABI is an allocation-free tagged struct — read through the LANGUAGE rather than through `typeof`, because N# spells this type natively, and through reflection only where the language declines (was SystemsNSharpTests.ResultRuntimeAbi_IsAllocationFreeTaggedStruct)" {
     ok := GfMakeOk()

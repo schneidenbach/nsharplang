@@ -41,7 +41,6 @@ import NSharpLang.Compiler.Columnar
 // (4) THE MAYBE-NULL FIX ALWAYS OFFERS THREE SUGGESTIONS AND SOMETIMES A FOURTH EDIT. The three
 // suggestion-only actions are unconditional; the editing action appears only when an unguarded `.`
 // or `[` is found at or before the diagnostic column.
-
 func CodeFixUnit(source: string): CompilationUnit {
     parsed := ColumnarParserRecovery.ParseFileAst(source, null)
     unit := parsed.CompilationUnit

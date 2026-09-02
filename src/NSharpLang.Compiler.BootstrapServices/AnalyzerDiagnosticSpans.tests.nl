@@ -23,16 +23,8 @@ import NSharpLang.Compiler.Ast
 //   * the same expression spans DIFFERENTLY in statement position, where the finding is about the
 //     whole written statement rather than one token;
 //   * a multi-line `SourceSpan` is REFUSED as a span, because one underlined run cannot render it.
-
 func SpanSource(): string {
-    return "package probe\n"
-        + "func main() {\n"
-        + "    total := customer.Account.Balance\n"
-        + "    name := \"he said \\\"hi\\\" ok\"\n"
-        + "    values := [1, 2, 3]\n"
-        + "    Compute(alpha,beta) ok\n"
-        + "    a.b = a.b\n"
-        + "}\n"
+    return "package probe\n" + "func main() {\n" + "    total := customer.Account.Balance\n" + "    name := \"he said \\\"hi\\\" ok\"\n" + "    values := [1, 2, 3]\n" + "    Compute(alpha,beta) ok\n" + "    a.b = a.b\n" + "}\n"
 }
 
 func SpanResolver(): AnalyzerDiagnosticSpans {
@@ -120,10 +112,12 @@ test "a null-conditional hop or an error placeholder closes the stable path" {
     assert AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(conditional) == null
     assert AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(errorReceiver) == null
     assert AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(
-        new MemberAccessExpression(overCall, "X", false, 3, 20)) == null
+        new MemberAccessExpression(overCall, "X", false, 3, 20)
+    ) == null
     assert AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(new ThisExpression(3, 14)) == "this"
     assert AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(
-        new ParenthesizedExpression(new ThisExpression(3, 15), 3, 14)) == "this"
+        new ParenthesizedExpression(new ThisExpression(3, 15), 3, 14)
+    ) == "this"
 }
 
 test "A PATH WRITTEN TWICE ON ONE LINE UNDERLINES THE OCCURRENCE THIS EXPRESSION IS" {
@@ -134,7 +128,11 @@ test "A PATH WRITTEN TWICE ON ONE LINE UNDERLINES THE OCCURRENCE THIS EXPRESSION
 
     assert SpanText(spans.GetStablePathDiagnosticSpan(second, "a.b", 7, 12)) == "7|11|3"
     assert SpanText(spans.GetStablePathDiagnosticSpan(
-        new MemberAccessExpression(SpanIdentifier("a", 7, 5), "b", false, 7, 6), "a.b", 7, 6)) == "7|5|3"
+        new MemberAccessExpression(SpanIdentifier("a", 7, 5), "b", false, 7, 6),
+        "a.b",
+        7,
+        6
+    )) == "7|5|3"
 }
 
 test "a path the line does not contain still reports, at the expression's start" {
@@ -180,18 +178,22 @@ test "THE SAME EXPRESSION SPANS DIFFERENTLY IN STATEMENT POSITION" {
 
     assert SpanText(spans.GetExpressionDiagnosticSpan(literal)) == "6|5|1"
     assert SpanText(spans.GetExpressionStatementDiagnosticSpan(
-        new BinaryExpression(literal, BinaryOperator.Add, literal, 6, 5))) == "6|5|22"
+        new BinaryExpression(literal, BinaryOperator.Add, literal, 6, 5)
+    )) == "6|5|22"
 }
 
 test "a statement reports through its own shape" {
     spans := SpanResolver()
 
     assert SpanText(spans.GetStatementDiagnosticSpan(
-        new ExpressionStatement(SpanIdentifier("total", 3, 5), 3, 5))) == "3|5|5"
+        new ExpressionStatement(SpanIdentifier("total", 3, 5), 3, 5)
+    )) == "3|5|5"
     assert SpanText(spans.GetStatementDiagnosticSpan(
-        new VariableDeclarationStatement("total", null, null, VariableKind.Let, 3, 5))) == "3|5|5"
+        new VariableDeclarationStatement("total", null, null, VariableKind.Let, 3, 5)
+    )) == "3|5|5"
     assert SpanText(AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(
-        new VariableDeclarationStatement("", null, null, VariableKind.Let, 3, 5))) == "3|5|1"
+        new VariableDeclarationStatement("", null, null, VariableKind.Let, 3, 5)
+    )) == "3|5|1"
 }
 
 test "a wrong binary operand reports on that operand; both wrong reports on the operator" {
@@ -244,21 +246,32 @@ test "a pattern reports on the name it introduces or matches" {
     assert SpanText(spans.GetPatternNameDiagnosticSpan(new IdentifierPattern("alpha", 6, 13))) == "6|13|5"
     assert SpanText(spans.GetPatternNameDiagnosticSpan(new UnionCasePattern("Some", null, 6, 13))) == "6|13|4"
     assert SpanText(spans.GetPatternNameDiagnosticSpan(
-        new TypePattern(new SimpleTypeReference("string", 6, 13), null, 6, 13))) == "6|13|6"
+        new TypePattern(new SimpleTypeReference("string", 6, 13), null, 6, 13)
+    )) == "6|13|6"
     assert spans.GetTypePatternNameLength(
-        new TypePattern(new GenericTypeReference("List", new List<TypeReference>(), 6, 13), null, 6, 13)) == 4
+        new TypePattern(new GenericTypeReference("List", new List<TypeReference>(), 6, 13), null, 6, 13)
+    ) == 4
 }
 
 test "A PROPERTY PATTERN WITH NO POSITION IS ANCHORED ON ITS ENCLOSING PATTERN" {
     spans := SpanResolver()
 
     assert SpanText(spans.GetPropertyPatternNameDiagnosticSpan(
-        new PropertyPattern("Name", null, null, 6, 13), 9, 7)) == "6|13|4"
+        new PropertyPattern("Name", null, null, 6, 13),
+        9,
+        7
+    )) == "6|13|4"
     assert SpanText(spans.GetPropertyPatternNameDiagnosticSpan(
-        new PropertyPattern("Name", null, null, 0, 0), 9, 7)) == "9|7|4"
+        new PropertyPattern("Name", null, null, 0, 0),
+        9,
+        7
+    )) == "9|7|4"
     // The parser's error placeholder measures the TOKEN, not the placeholder's own seven characters.
     assert SpanText(spans.GetPropertyPatternNameDiagnosticSpan(
-        new PropertyPattern("<error>", null, null, 6, 5), 9, 7)) == "6|5|13"
+        new PropertyPattern("<error>", null, null, 6, 5),
+        9,
+        7
+    )) == "6|5|13"
 }
 
 test "AN `is` EXPRESSION UNDERLINES THE KEYWORD THROUGH THE TESTED TYPE NAME" {
@@ -274,7 +287,8 @@ test "AN `is` EXPRESSION UNDERLINES THE KEYWORD THROUGH THE TESTED TYPE NAME" {
     // Without text, and past the end of the line, the keyword alone stands.
     assert SpanText(SpanResolverWithoutText().GetIsExpressionDiagnosticSpan(typed)) == "6|5|2"
     assert SpanText(resolver.GetIsExpressionDiagnosticSpan(
-        new IsExpression(SpanIdentifier("v", 6, 400), new SimpleTypeReference("string", 6, 400), null, 6, 400))) == "6|400|2"
+        new IsExpression(SpanIdentifier("v", 6, 400), new SimpleTypeReference("string", 6, 400), null, 6, 400)
+    )) == "6|400|2"
 }
 
 test "a function reports on its name, and a nameless one measures its token" {
@@ -301,7 +315,8 @@ func SpanFunction(name: string, line: int, column: int): FunctionDeclaration {
         false,
         false,
         line,
-        column)
+        column
+    )
 }
 
 test "AN ASSIGNMENT TARGET NEVER WIDENS TO A STABLE PATH" {
@@ -313,9 +328,15 @@ test "AN ASSIGNMENT TARGET NEVER WIDENS TO A STABLE PATH" {
     assert SpanText(spans.GetExpressionDiagnosticSpan(target)) == "7|5|3"
     assert SpanText(spans.GetAssignmentTargetNameDiagnosticSpan(target, 7, 5)) == "7|7|1"
     assert SpanText(spans.GetAssignmentTargetNameDiagnosticSpan(
-        new ParenthesizedExpression(target, 7, 4), 7, 5)) == "7|7|1"
+        new ParenthesizedExpression(target, 7, 4),
+        7,
+        5
+    )) == "7|7|1"
     assert SpanText(spans.GetAssignmentTargetNameDiagnosticSpan(
-        new IntLiteralExpression("1", 7, 5), 6, 5)) == "6|5|13"
+        new IntLiteralExpression("1", 7, 5),
+        6,
+        5
+    )) == "6|5|13"
 }
 
 test "a null receiver quotes its path, but the `this value` describer is not searchable text" {
@@ -325,7 +346,11 @@ test "a null receiver quotes its path, but the `this value` describer is not sea
     assert SpanText(spans.GetNullReceiverDiagnosticSpan(receiver, "a.b", 7, 6)) == "7|5|3"
     assert SpanText(spans.GetNullReceiverDiagnosticSpan(receiver, "this value", 7, 6)) == "7|5|3"
     assert SpanText(spans.GetNullReceiverDiagnosticSpan(
-        new ThisExpression(7, 5), "this value", 7, 5)) == "7|5|4"
+        new ThisExpression(7, 5),
+        "this value",
+        7,
+        5
+    )) == "7|5|4"
 }
 
 test "the expression START is the leftmost written character, not the node's operator position" {
@@ -337,7 +362,11 @@ test "the expression START is the leftmost written character, not the node's ope
 
     AnalyzerDiagnosticSpanFacts.GetExpressionStartPosition(
         new IndexAccessExpression(SpanIdentifier("values", 5, 5), new IntLiteralExpression("0", 5, 12), false, 5, 11),
-        11, 13, out line, out column)
+        11,
+        13,
+        out line,
+        out column
+    )
     assert line == 5
     assert column == 5
 
@@ -384,14 +413,25 @@ test "AN ATTRIBUTE ARGUMENT REPORTS ON THE NAME ONLY WHEN THE ARGUMENT IS UNNAME
     // name, the same value shape reports on the value instead.
     spans := SpanResolver()
     assignment: Expression = new AssignmentExpression(
-        SpanIdentifier("Skip", 4, 9), AssignmentOperator.Assign, new StringLiteralExpression("x", 4, 16), 4, 14)
+        SpanIdentifier("Skip", 4, 9),
+        AssignmentOperator.Assign,
+        new StringLiteralExpression("x", 4, 16),
+        4,
+        14
+    )
 
     assert SpanText(spans.GetAttributeArgumentDiagnosticSpan(
-        new Argument(null, assignment), assignment)) == "4|9|4"
+        new Argument(null, assignment),
+        assignment
+    )) == "4|9|4"
     assert SpanText(spans.GetAttributeArgumentDiagnosticSpan(
-        new Argument("Skip", assignment), assignment)) == "4|14|2"
+        new Argument("Skip", assignment),
+        assignment
+    )) == "4|14|2"
     assert SpanText(spans.GetAttributeArgumentDiagnosticSpan(
-        new Argument(null, SpanIdentifier("total", 3, 5)), SpanIdentifier("total", 3, 5))) == "3|5|5"
+        new Argument(null, SpanIdentifier("total", 3, 5)),
+        SpanIdentifier("total", 3, 5)
+    )) == "3|5|5"
 }
 
 test "a wrapper form spans as the expression it wraps" {

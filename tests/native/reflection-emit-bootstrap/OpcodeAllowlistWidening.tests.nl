@@ -3,7 +3,6 @@ namespace NSharpLang.ReflectionEmitBootstrap.Tests
 // Each new allowlist row is proved TWICE: that the compiler accepts the spelling at all (this file
 // would not compile otherwise — the same spellings decline with NL103 on the pre-widening compiler),
 // and that the instruction it emits is the right one, by running the body and reading its answer.
-
 test "the four short-form argument loads each emit and execute on their own ordinal" {
     assert OpcodeAllowlistWideningProbe.LoadArgumentByShortForm(0, 10, 20, 30, 40) == 10
     assert OpcodeAllowlistWideningProbe.LoadArgumentByShortForm(1, 10, 20, 30, 40) == 20

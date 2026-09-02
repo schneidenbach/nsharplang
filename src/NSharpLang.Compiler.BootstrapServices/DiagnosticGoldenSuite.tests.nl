@@ -1,8 +1,8 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.IO
 import System.Collections.Generic
+import System.IO
 import NSharpLang.Compiler.CodeIntelligence
 
 
@@ -54,7 +54,6 @@ import NSharpLang.Compiler.CodeIntelligence
 // editor underlines.
 
 // ── the corpus ────────────────────────────────────────────────────────────────────────────────
-
 class GoldenDiagnostic {
     Category: string
     Code: string
@@ -90,104 +89,320 @@ func DgsAdd(corpus: List<GoldenDiagnostic>, category: string, code: string, mess
 func DgsCorpus(): List<GoldenDiagnostic> {
     corpus := new List<GoldenDiagnostic>()
 
-    DgsAdd(corpus, "parser", "NL101", "Unexpected token ')'", "parser/missing-argument.nl", 3, 17, 1,
+    DgsAdd(
+        corpus,
+        "parser",
+        "NL101",
+        "Unexpected token ')'",
+        "parser/missing-argument.nl",
+        3,
+        17,
+        1,
         "    print(name, )",
         "The parser found `)` while it was still looking for an expression argument.",
-        "Add the missing expression before `)` or remove the dangling comma.")
-    DgsAdd(corpus, "parser", "NL102", "Expected ':' after parameter name", "parser/missing-parameter-colon.nl", 1, 12, 4,
+        "Add the missing expression before `)` or remove the dangling comma."
+    )
+    DgsAdd(
+        corpus,
+        "parser",
+        "NL102",
+        "Expected ':' after parameter name",
+        "parser/missing-parameter-colon.nl",
+        1,
+        12,
+        4,
         "func greet(name string) {",
         "Function parameters use `name: Type`; without the colon, the type name is parsed in the wrong slot.",
-        "Write `func greet(name: string) { ... }`.")
-    DgsAdd(corpus, "parser", "NL104", "Unexpected end of file", "parser/missing-closing-brace.nl", 5, 1, 1,
+        "Write `func greet(name: string) { ... }`."
+    )
+    DgsAdd(
+        corpus,
+        "parser",
+        "NL104",
+        "Unexpected end of file",
+        "parser/missing-closing-brace.nl",
+        5,
+        1,
+        1,
         "",
         "The file ended before the parser found the closing `}` for the current block.",
-        "Add the missing closing brace and re-run `nlc check`.")
-    DgsAdd(corpus, "parser", "NL106", "Missing closing brace", "parser/missing-match-brace.nl", 7, 1, 5,
+        "Add the missing closing brace and re-run `nlc check`."
+    )
+    DgsAdd(
+        corpus,
+        "parser",
+        "NL106",
+        "Missing closing brace",
+        "parser/missing-match-brace.nl",
+        7,
+        1,
+        5,
         "match status {",
         "A block started here but never closed, so later code may be attached to the wrong scope.",
-        "Close the block with `}` at the indentation level where the construct began.")
-    DgsAdd(corpus, "parser", "NL107", "Missing closing parenthesis", "parser/missing-call-paren.nl", 4, 14, 3,
+        "Close the block with `}` at the indentation level where the construct began."
+    )
+    DgsAdd(
+        corpus,
+        "parser",
+        "NL107",
+        "Missing closing parenthesis",
+        "parser/missing-call-paren.nl",
+        4,
+        14,
+        3,
         "    total := add(first, second",
         "This call opened `(` but did not close it before the line ended.",
-        "Add `)` after the final argument: `add(first, second)`.")
+        "Add `)` after the final argument: `add(first, second)`."
+    )
 
-    DgsAdd(corpus, "analyzer", "NL202", "Type mismatch", "analyzer/type-mismatch.nl", 3, 19, 5,
+    DgsAdd(
+        corpus,
+        "analyzer",
+        "NL202",
+        "Type mismatch",
+        "analyzer/type-mismatch.nl",
+        3,
+        19,
+        5,
         "let count: int = \"five\"",
         "This expression produces `string`, but the annotation says `int`.",
-        "Parse the string intentionally or change the annotation to `string`.")
-    DgsAdd(corpus, "analyzer", "NL203", "Cannot infer type", "analyzer/cannot-infer.nl", 2, 5, 5,
+        "Parse the string intentionally or change the annotation to `string`."
+    )
+    DgsAdd(
+        corpus,
+        "analyzer",
+        "NL203",
+        "Cannot infer type",
+        "analyzer/cannot-infer.nl",
+        2,
+        5,
+        5,
         "let value = null",
         "`null` by itself does not tell the analyzer which nullable type you want.",
-        "Add an explicit type, for example `let value: string? = null`.")
-    DgsAdd(corpus, "analyzer", "NL301", "Variable 'totla' not found", "analyzer/undefined-variable.nl", 6, 12, 5,
+        "Add an explicit type, for example `let value: string? = null`."
+    )
+    DgsAdd(
+        corpus,
+        "analyzer",
+        "NL301",
+        "Variable 'totla' not found",
+        "analyzer/undefined-variable.nl",
+        6,
+        12,
+        5,
         "    return totla",
         "There is no local, parameter, or member named `totla` in scope.",
-        "Did you mean `total`? Fix the spelling or declare the variable before use.")
-    DgsAdd(corpus, "analyzer", "NL302", "Type 'Usr' not found", "analyzer/undefined-type.nl", 1, 11, 3,
+        "Did you mean `total`? Fix the spelling or declare the variable before use."
+    )
+    DgsAdd(
+        corpus,
+        "analyzer",
+        "NL302",
+        "Type 'Usr' not found",
+        "analyzer/undefined-type.nl",
+        1,
+        11,
+        3,
         "let user: Usr",
         "The analyzer cannot resolve `Usr` from this file's declarations or imports.",
-        "Import the type, define it, or correct the spelling to `User`.")
-    DgsAdd(corpus, "analyzer", "NL303", "Member 'Lenght' not found on type 'string'", "analyzer/undefined-member.nl", 4, 17, 6,
+        "Import the type, define it, or correct the spelling to `User`."
+    )
+    DgsAdd(
+        corpus,
+        "analyzer",
+        "NL303",
+        "Member 'Lenght' not found on type 'string'",
+        "analyzer/undefined-member.nl",
+        4,
+        17,
+        6,
         "    return name.Lenght",
         "The receiver type is `string`, and `Lenght` is not one of its members.",
-        "Did you mean `Length`? Use the exact member name exposed by the type.")
-    DgsAdd(corpus, "analyzer", "NL305", "Not all code paths return a value of type 'int'", "analyzer/missing-return.nl", 1, 1, 4,
+        "Did you mean `Length`? Use the exact member name exposed by the type."
+    )
+    DgsAdd(
+        corpus,
+        "analyzer",
+        "NL305",
+        "Not all code paths return a value of type 'int'",
+        "analyzer/missing-return.nl",
+        1,
+        1,
+        4,
         "func score(ok: bool): int {",
         "This function promises to return `int`, but at least one branch can fall off the end.",
-        "Return an `int` on every path, or change the return type to `void` if no value is needed.")
-    DgsAdd(corpus, "analyzer", "NL401", "Function 'send' expects 2 arguments but got 1", "analyzer/wrong-argument-count.nl", 5, 5, 9,
+        "Return an `int` on every path, or change the return type to `void` if no value is needed."
+    )
+    DgsAdd(
+        corpus,
+        "analyzer",
+        "NL401",
+        "Function 'send' expects 2 arguments but got 1",
+        "analyzer/wrong-argument-count.nl",
+        5,
+        5,
+        9,
         "send(email)",
         "The call is missing one required argument from the function signature.",
-        "Pass the missing value, or update the function signature if it should be optional.")
-    DgsAdd(corpus, "analyzer", "NL501", "Pattern matching is not exhaustive", "analyzer/non-exhaustive-match.nl", 3, 5, 5,
+        "Pass the missing value, or update the function signature if it should be optional."
+    )
+    DgsAdd(
+        corpus,
+        "analyzer",
+        "NL501",
+        "Pattern matching is not exhaustive",
+        "analyzer/non-exhaustive-match.nl",
+        3,
+        5,
+        5,
         "    match color {",
         "The match does not handle every possible value of `Color`.",
-        "Add arms for the missing cases or a final `_ => ...` arm when a catch-all is intentional.")
-    DgsAdd(corpus, "analyzer", "NL306", "'count' is already declared in this scope", "analyzer/duplicate-declaration.nl", 3, 5, 5,
+        "Add arms for the missing cases or a final `_ => ...` arm when a catch-all is intentional."
+    )
+    DgsAdd(
+        corpus,
+        "analyzer",
+        "NL306",
+        "'count' is already declared in this scope",
+        "analyzer/duplicate-declaration.nl",
+        3,
+        5,
+        5,
         "    count := 2",
         "Two declarations share the name `count`; the second hides the first and is almost always a mistake.",
-        "Rename one of the declarations or remove the duplicate.")
+        "Rename one of the declarations or remove the duplicate."
+    )
 
-    DgsAdd(corpus, "linter", "NL001", "Variable 'temp' is declared but never read", "linter/unused-variable.nl", 2, 5, 4,
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL001",
+        "Variable 'temp' is declared but never read",
+        "linter/unused-variable.nl",
+        2,
+        5,
+        4,
         "    temp := 42",
         "Unused locals are almost always stale code or a missed side effect.",
-        "Remove the declaration or prefix it with `_` when the unused value is intentional.")
-    DgsAdd(corpus, "linter", "NL006", "Unreachable code detected", "linter/unreachable-code.nl", 4, 5, 5,
+        "Remove the declaration or prefix it with `_` when the unused value is intentional."
+    )
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL006",
+        "Unreachable code detected",
+        "linter/unreachable-code.nl",
+        4,
+        5,
+        5,
         "    print \"done\"",
         "Statements after a guaranteed exit cannot run and often hide a control-flow bug.",
-        "Move the statement before the exit or delete it.")
-    DgsAdd(corpus, "linter", "NL010", "Import 'System.Linq' is never used", "linter/unused-import.nl", 1, 1, 6,
+        "Move the statement before the exit or delete it."
+    )
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL010",
+        "Import 'System.Linq' is never used",
+        "linter/unused-import.nl",
+        1,
+        1,
+        6,
         "import System.Linq",
         "Unused imports make dependency intent harder to read and can mask stale code.",
-        "Remove the import or use a symbol from it.")
-    DgsAdd(corpus, "linter", "NL002", "I can't find 'List' — it looks like a missing import", "linter/missing-import.nl", 2, 18, 4,
+        "Remove the import or use a symbol from it."
+    )
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL002",
+        "I can't find 'List' — it looks like a missing import",
+        "linter/missing-import.nl",
+        2,
+        18,
+        4,
         "    items := new List<int>()",
         "`List` resolves to a known framework type whose namespace is not imported in this file.",
-        "Add `import System.Collections.Generic` at the top of the file.")
-    DgsAdd(corpus, "linter", "NL003", "Unnecessary null check on non-nullable value", "linter/unnecessary-null-check.nl", 3, 4, 4,
+        "Add `import System.Collections.Generic` at the top of the file."
+    )
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL003",
+        "Unnecessary null check on non-nullable value",
+        "linter/unnecessary-null-check.nl",
+        3,
+        4,
+        4,
         "if zero != null {",
         "The value is already known to be non-nullable, so the condition adds noise without protecting anything.",
-        "Delete the null check and keep the useful branch body.")
-    DgsAdd(corpus, "linter", "NL004", "Async function has no await", "linter/async-without-await.nl", 1, 1, 10,
+        "Delete the null check and keep the useful branch body."
+    )
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL004",
+        "Async function has no await",
+        "linter/async-without-await.nl",
+        1,
+        1,
+        10,
         "async func Load(): Task<int> {",
         "An async function with no await usually does not need the async state machine.",
-        "Remove `async` or await the asynchronous operation that should drive this function.")
-    DgsAdd(corpus, "linter", "NL011", "Empty catch block", "linter/empty-catch.nl", 5, 3, 5,
+        "Remove `async` or await the asynchronous operation that should drive this function."
+    )
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL011",
+        "Empty catch block",
+        "linter/empty-catch.nl",
+        5,
+        3,
+        5,
         "} catch (ex) {",
         "Swallowing errors silently makes failures hard to debug and can corrupt program state.",
-        "Handle the error, log it, or explain the intentional suppression with a comment.")
-    DgsAdd(corpus, "linter", "NL012", "Parameter 'options' is never used", "linter/unused-parameter.nl", 1, 11, 7,
+        "Handle the error, log it, or explain the intentional suppression with a comment."
+    )
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL012",
+        "Parameter 'options' is never used",
+        "linter/unused-parameter.nl",
+        1,
+        11,
+        7,
         "func Save(options: SaveOptions) {",
         "Unused parameters usually mean the call contract drifted from the implementation.",
-        "Use the parameter, remove it from the signature, or prefix it with `_` if required by an interface.")
-    DgsAdd(corpus, "linter", "NL016", "Redundant null check on a value that was just created", "linter/redundant-null-check.nl", 3, 4, 9,
+        "Use the parameter, remove it from the signature, or prefix it with `_` if required by an interface."
+    )
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL016",
+        "Redundant null check on a value that was just created",
+        "linter/redundant-null-check.nl",
+        3,
+        4,
+        9,
         "if new User() != null {",
         "The expression was just created with `new`, so the comparison against null is always true.",
-        "Remove the null check — the value cannot be null.")
-    DgsAdd(corpus, "linter", "NL020", "Variable 'count' shadows an outer variable", "linter/shadowed-variable.nl", 4, 9, 5,
+        "Remove the null check — the value cannot be null."
+    )
+    DgsAdd(
+        corpus,
+        "linter",
+        "NL020",
+        "Variable 'count' shadows an outer variable",
+        "linter/shadowed-variable.nl",
+        4,
+        9,
+        5,
         "        count := item.Count",
         "Shadowing makes reads ambiguous and can cause updates to affect the wrong variable.",
-        "Rename the inner variable or reuse the existing one intentionally.")
+        "Rename the inner variable or reuse the existing one intentionally."
+    )
 
     return corpus
 }
@@ -224,7 +439,8 @@ func DgsResults(): List<DiagnosticResult> {
             null,
             null,
             null,
-            diagnostic.DocsUrl))
+            diagnostic.DocsUrl
+        ))
     }
 
     return results

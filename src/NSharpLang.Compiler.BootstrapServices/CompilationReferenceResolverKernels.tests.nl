@@ -21,7 +21,6 @@ import NSharpLang.Compiler
 // path shape moved rather than one anonymous parameterised case.
 
 // ── the reference-type filter ─────────────────────────────────────────────────
-
 test "the reference filter keeps only the requested kind, in source order" {
     references := [
         new Reference { Nuget: "Serilog", Version: "3.1.1" },

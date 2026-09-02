@@ -15,7 +15,6 @@ namespace NSharpLang.Cli.Commands
 // AN UNKNOWN SUBCOMMAND DOES **NOT** ASK FOR HELP. `["bogus"]` answers `Unknown` with `ShowHelp`
 // FALSE, whereas NO arguments at all answers `ShowHelp` TRUE. The two are pinned separately below
 // because the command prints its help for one and an error for the other.
-
 test "the daemon subcommand, project option and help flag are read off the argument list" {
     summary := DaemonCommandKernels.GetOptionSummary(["status", "--project", "samples/demo"])
 
@@ -65,6 +64,5 @@ test "every daemon lifecycle sentence is spelled by a kernel, character for char
     assert DaemonCommandKernels.GetNoDaemonRunningMessage() == "No daemon running."
     assert DaemonCommandKernels.GetStoppedMessage() == "Daemon stopped."
     assert DaemonCommandKernels.GetStopFailedMessage() == "Failed to stop daemon."
-    assert DaemonCommandKernels.GetStatusNotRespondingMessage()
-        == "Daemon is running but not responding to status queries."
+    assert DaemonCommandKernels.GetStatusNotRespondingMessage() == "Daemon is running but not responding to status queries."
 }

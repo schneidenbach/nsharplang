@@ -38,7 +38,6 @@ import NSharpLang.Compiler
 //
 // (8) THE ORDER IS FILE (CASE-INSENSITIVE ORDINAL), LINE, COLUMN — AND STABLE. Two findings at one
 // position are read in the order the walk met them.
-
 func SfsConfig(profile: string, mode: string): ProjectConfig {
     config := ProjectFileParser.CreateDefault("finding-sink-contract")
     language := config.Language

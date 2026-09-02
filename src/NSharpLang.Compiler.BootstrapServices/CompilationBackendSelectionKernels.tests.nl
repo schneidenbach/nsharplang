@@ -22,7 +22,6 @@ import NSharpLang.Compiler
 // statements — and only the third row read a message. Every arm is a stated claim below.
 
 // ── the pure decision ─────────────────────────────────────────────────────────
-
 test "an explicit il backend is accepted, in any casing and with any surrounding space" {
     assert CompilationBackendSelectionKernels.EffectiveBackendKind("il", "") == 1
     assert CompilationBackendSelectionKernels.EffectiveBackendKind("IL", "") == 1
@@ -89,7 +88,7 @@ test "an invalid project backend throws, and the sentence echoes the value it re
     caught := false
     try {
         CompilationBackendSelectionKernels.Validate(null, config)
-    } catch (error: InvalidOperationException) {
+    } catch error: InvalidOperationException {
         caught = true
         assert error.Message == "Invalid backend: 'native'. Must be 'il'."
     }
@@ -107,7 +106,7 @@ test "the refused value in the sentence is the OPTION when the option is what wa
     caught := false
     try {
         CompilationBackendSelectionKernels.Validate("aot", config)
-    } catch (error: InvalidOperationException) {
+    } catch error: InvalidOperationException {
         caught = true
         assert error.Message == "Invalid backend: 'aot'. Must be 'il'."
     }

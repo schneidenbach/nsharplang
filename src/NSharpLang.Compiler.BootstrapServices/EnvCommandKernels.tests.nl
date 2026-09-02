@@ -12,7 +12,6 @@ namespace NSharpLang.Cli.Commands
 // different widths of the label column: `nlc version:` pads to one width, `nsharp packages:` is
 // long enough to set the column itself, and `project:` pads to the same width as the first. That
 // is the whole reason the kernel exists rather than an interpolation at each call site.
-
 test "env option summary reads the json and help flags" {
     summary := EnvCommandKernels.GetOptionSummary(["--json", "-h"])
 

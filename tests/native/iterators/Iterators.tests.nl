@@ -7,7 +7,6 @@ import System.Linq
 // Executed in-project proofs: this test assembly's own `func*` definitions are lowered by the N#
 // iterator planner and consumed directly below — no compiler-harness indirection. The positional
 // accumulator (`acc * 10 + v`) pins both the CONTENTS and the ORDER of each sequence.
-
 test "the counting iterator yields the full sequence in order" {
     count := 0
     positional := 0

@@ -14,7 +14,6 @@ import System.Collections.Generic
 // gates that decide whether a build FAILS (NL001 and NL012 are both build-blocking errors), and
 // each is a conjunction of three independent reasons to stay silent. A sample can pass while any
 // one of them is inverted; the cross cannot.
-
 func LbuNames(): List<string> {
     names := new List<string>()
     names.Add("value")

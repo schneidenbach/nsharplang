@@ -40,7 +40,6 @@ import NSharpLang.Compiler.Ast
 // (4) A NON-GENERIC TYPE IS REFUSED WITHOUT REACHING THE TABLE. `IsSequenceReturnType` casts to
 // `GenericTypeInfo` first and answers false when the cast fails, so a bare `IEnumerable` written
 // without type arguments never gets an arity or a name check at all.
-
 func GenSeqNoInfos(): List<TypeInfo> {
     return new List<TypeInfo>()
 }

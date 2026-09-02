@@ -26,7 +26,6 @@ import NSharpLang.Compiler.Ast
 //     which is what keeps `object` and an unreliable assembly silent;
 //   * the WALK PROTOCOL itself: which forms take a step, which take none, and that the report step is
 //     asked LAST so the answer the walk was holding cannot escape ahead of it.
-
 class MemberAccessHarness {
     Arm: AnalyzerMemberAccess
     Errors: List<CompilerError>
@@ -35,8 +34,8 @@ class MemberAccessHarness {
     Bindings: BindingMap
     Sink: AnalyzerDiagnosticSink
     Context: AnalyzerDeclarationContext
-    ImportedSymbols: Dictionary<string, Dictionary<string, TypeInfo> >
-    ImportedDeclarations: Dictionary<string, Dictionary<string, SymbolDeclaration> >
+    ImportedSymbols: Dictionary<string, Dictionary<string, TypeInfo>>
+    ImportedDeclarations: Dictionary<string, Dictionary<string, SymbolDeclaration>>
     Members: AnalyzerMemberResolution
     ExtensionResolution: AnalyzerExtensionMethodResolution
 
@@ -48,10 +47,11 @@ class MemberAccessHarness {
         bindings: BindingMap,
         sink: AnalyzerDiagnosticSink,
         context: AnalyzerDeclarationContext,
-        importedSymbols: Dictionary<string, Dictionary<string, TypeInfo> >,
-        importedDeclarations: Dictionary<string, Dictionary<string, SymbolDeclaration> >,
+        importedSymbols: Dictionary<string, Dictionary<string, TypeInfo>>,
+        importedDeclarations: Dictionary<string, Dictionary<string, SymbolDeclaration>>,
         members: AnalyzerMemberResolution,
-        extensionResolution: AnalyzerExtensionMethodResolution) {
+        extensionResolution: AnalyzerExtensionMethodResolution
+    ) {
         Arm = arm
         Errors = errors
         Scopes = scopes
@@ -82,8 +82,8 @@ func MemberArmOf(): MemberAccessHarness {
     sink := new AnalyzerDiagnosticSink(errors, provider)
     spans := new AnalyzerDiagnosticSpans(sink)
     usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
-    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal)
-    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
     namespaces := new List<string>()
     assemblies := new List<Assembly>()
     discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)

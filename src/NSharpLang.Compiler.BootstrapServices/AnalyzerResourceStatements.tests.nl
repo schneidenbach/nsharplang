@@ -25,7 +25,6 @@ import NSharpLang.Compiler.Ast
 //     the declaration form is measured only when its own declaration was clean;
 //   * `lock`'s gate is an else-if CHAIN, so a direct-column escape does NOT stop the value-type
 //     report while a type-parameter answer DOES.
-
 class ResHarness {
     Owner: AnalyzerResourceStatements
     Diagnostics: AnalyzerDiagnosticSink
@@ -50,7 +49,8 @@ class ResHarness {
         scopes: AnalyzerScopeStack,
         ambient: AnalyzerAmbientContext,
         assignability: AnalyzerAssignability,
-        clr: AnalyzerClrTypeConversion) {
+        clr: AnalyzerClrTypeConversion
+    ) {
         Owner = owner
         Diagnostics = diagnostics
         Errors = errors
@@ -93,7 +93,8 @@ class ResStep {
         line: int,
         column: int,
         errorsBefore: int,
-        finallyDepth: int) {
+        finallyDepth: int
+    ) {
         Kind = kind
         Node = node
         HasBody = hasBody
@@ -124,7 +125,8 @@ func ResHarnessNew(): ResHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -137,10 +139,11 @@ func ResHarnessNew(): ResHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         model,
-        new BindingMap())
+        new BindingMap()
+    )
     resolver.BeginAnalysis(ResPath(), null, model, new BindingMap())
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
@@ -154,7 +157,8 @@ func ResHarnessNew(): ResHarness {
         structural,
         substitution,
         new AnalyzerClrTypeConversion(context, null),
-        new AnalyzerImplicitConversionGuard())
+        new AnalyzerImplicitConversionGuard()
+    )
     owner := new AnalyzerResourceStatements(
         diagnostics,
         spans,
@@ -164,7 +168,8 @@ func ResHarnessNew(): ResHarness {
         substitution,
         ambient,
         escape,
-        throwability)
+        throwability
+    )
     ResDeclareTypes(scopes)
     return new ResHarness(
         owner,
@@ -173,7 +178,8 @@ func ResHarnessNew(): ResHarness {
         scopes,
         ambient,
         assignability,
-        new AnalyzerClrTypeConversion(context, null))
+        new AnalyzerClrTypeConversion(context, null)
+    )
 }
 
 // The type vocabulary every contract below shares: a throwable class, a plain class, a class that
@@ -197,7 +203,8 @@ func ResClass(name: string, baseClass: TypeReference?, members: DeclaredMemberIn
         new ParameterDeclarationInfo[](0),
         members,
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     return declared
 }
 
@@ -233,7 +240,8 @@ func ResDisposeMembers(): DeclaredMemberInfo[] {
         false,
         false,
         1,
-        1)
+        1
+    )
     return members
 }
 
@@ -262,7 +270,8 @@ func ResRun(harness: ResHarness, state: ResourceStatementState) {
             step.Line,
             step.Column,
             harness.Errors.Count,
-            harness.Ambient.FinallyDepth))
+            harness.Ambient.FinallyDepth
+        ))
 
         supplied: TypeInfo? = null
         if step.Kind == 1 {
@@ -306,7 +315,8 @@ func ResSimulateDeclaration(harness: ResHarness, step: ResourceStatementRequest)
             "injected",
             7,
             5,
-            ErrorSeverity.Error))
+            ErrorSeverity.Error
+        ))
         injected = injected + 1
     }
 
@@ -345,7 +355,8 @@ func ResBlock(count: int): BlockStatement {
         statements.Add(new ExpressionStatement(
             new CallExpression(ResName("Step"), new List<Argument>(), null, 8 + index, 9),
             8 + index,
-            9))
+            9
+        ))
         index = index + 1
     }
 
@@ -387,7 +398,8 @@ func ResUsingDeclaration(name: string): VariableDeclarationStatement {
         new CallExpression(ResName("Open"), new List<Argument>(), null, 7, 20),
         VariableKind.Let,
         7,
-        11)
+        11
+    )
 }
 
 func ResUsingWithDeclaration(name: string, hasBody: bool): UsingStatement {
@@ -438,7 +450,8 @@ func ResSoaColumns(): List<SoaColumnInfo> {
 
 func ResDeclareSoaTable(harness: ResHarness) {
     table: TypeInfo = new SoaRecordTypeInfo(
-        new SoaRecordDeclarationInfo("Points", ResSoaColumns(), 1, 1))
+        new SoaRecordDeclarationInfo("Points", ResSoaColumns(), 1, 1)
+    )
     harness.Scopes.Peek().Symbols["points"] = table
 }
 
@@ -463,7 +476,8 @@ func ResFunction(name: string, typeParameters: List<TypeParameter>?, constraints
         false,
         false,
         1,
-        1)
+        1
+    )
 }
 
 func ResTypeParameters(name: string): List<TypeParameter> {
@@ -544,10 +558,8 @@ test "a non-throwable catch type reports NL202 against the type reference" {
     assert harness.Errors.Count == 1
     reported := harness.Errors[0]
     assert reported.Code == ErrorCode.TypeMismatch
-    assert reported.Message
-        == "Catch type must be assignable to System.Exception, but this type is 'Widget'"
-    assert reported.Suggestion
-        == "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions."
+    assert reported.Message == "Catch type must be assignable to System.Exception, but this type is 'Widget'"
+    assert reported.Suggestion == "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions."
     assert reported.Line == 9
     assert reported.Column == 11
 }
@@ -658,10 +670,8 @@ test "a clean declaration of a non-disposable type reports NL103 at the declared
     assert harness.Errors.Count == 1
     reported := harness.Errors[0]
     assert reported.Code == ErrorCode.InvalidSyntax
-    assert reported.Message
-        == "Using resource of type 'Widget' must implement IDisposable or provide Dispose(): void"
-    assert reported.Suggestion
-        == "Use a resource type with a parameterless void Dispose method, or remove the using statement."
+    assert reported.Message == "Using resource of type 'Widget' must implement IDisposable or provide Dispose(): void"
+    assert reported.Suggestion == "Use a resource type with a parameterless void Dispose method, or remove the using statement."
     assert reported.Line == 7
     assert reported.Column == 11
 }
@@ -711,8 +721,7 @@ test "a row-view resource escapes and the column probe does NOT also run" {
     ResRun(harness, harness.Owner.BeginUsing(ResUsingWithExpression(ResSoaColumnRead(), true), harness.Assignability))
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a using resource; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a using resource; use the table and row index instead"
 }
 
 // ── the `lock` walk ───────────────────────────────────────────────────────
@@ -735,8 +744,7 @@ test "a value-typed lockee reports NL320 with the plain suggestion" {
     reported := harness.Errors[0]
     assert reported.Code == ErrorCode.LockRequiresReferenceType
     assert reported.Message == "'int' is not a reference type as required by the lock statement"
-    assert reported.Suggestion
-        == "Lock on a dedicated `object` field instead: `sync: object = new object()`"
+    assert reported.Suggestion == "Lock on a dedicated `object` field instead: `sync: object = new object()`"
 }
 
 test "the lockee report fires BEFORE the body scope opens" {
@@ -778,15 +786,15 @@ test "an UNCONSTRAINED type parameter lockee reports the type-parameter suggesti
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "'T' is not a reference type as required by the lock statement"
-    assert harness.Errors[0].Suggestion
-        == "Constrain `T` to a reference type (`where T: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`"
+    assert harness.Errors[0].Suggestion == "Constrain `T` to a reference type (`where T: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`"
 }
 
 test "a `where T: class` type parameter lockee is silent" {
     harness := ResHarnessNew()
     harness.Ambient.EnterFunctionDeclaration(
         ResFunction("run", ResTypeParameters("T"), ResClassConstraint("T")),
-        BuiltInTypes.Void)
+        BuiltInTypes.Void
+    )
     lockeeType: TypeInfo = new SimpleTypeInfo("T")
     harness.Answers.Add(lockeeType)
     ResRun(harness, harness.Owner.BeginLock(ResLock(ResName("gate")), null))
@@ -805,7 +813,8 @@ func ResGenericClass(name: string, typeParameterName: string): ClassDeclaration 
         Modifiers.None,
         new List<AttributeNode>(),
         1,
-        1)
+        1
+    )
 }
 
 test "a type parameter of the enclosing CLASS is recognised too" {
@@ -825,8 +834,7 @@ test "a row-view lockee escapes and is NOT also told it is not a reference type"
     ResRun(harness, harness.Owner.BeginLock(ResLock(ResName("particle")), null))
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be locked; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be locked; use the table and row index instead"
 }
 
 test "a direct-column lockee escapes AND the value-type arm still reports" {

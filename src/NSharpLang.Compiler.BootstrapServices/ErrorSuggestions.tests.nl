@@ -25,7 +25,6 @@ namespace NSharpLang.Compiler
 //
 // (3) `LevenshteinDistance` IS CASE-SENSITIVE. `SmartSuggester` lowercases both sides BEFORE calling
 // it; `IsPossibleTypo` and `FindSimilarType` do the same. The kernel itself never does.
-
 func ErrorSuggestionText(code: ErrorCode): string {
     return ErrorSuggestions.GetSuggestion(code, null, null) ?? "<null>"
 }

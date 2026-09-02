@@ -2,7 +2,6 @@ namespace NSharpLang.AsyncTaskLike.Tests
 
 // Every test touches a MEMBER of an async call result — the exact move that used to crash
 // `nlc check` for the bare-`Task` family before the task-identity fix.
-
 test "an async unit Task call result is a value whose members resolve and run" {
     work := UnitWork()
     work.Wait()

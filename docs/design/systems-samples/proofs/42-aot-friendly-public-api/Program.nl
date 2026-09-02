@@ -1,17 +1,17 @@
 namespace SystemsProofs.AotFriendlyPublicApi
 
-public enum NormalizeError {
+enum NormalizeError {
     Empty
 }
 
-public struct NormalizedName {
+struct NormalizedName {
     Value: string
 }
 
-public class NameApi {
+class NameApi {
     [boundary]
     [aotSafe(nativeaot)]
-    public static func Normalize(input: string): Result<NormalizedName, NormalizeError> {
+    static func Normalize(input: string): Result<NormalizedName, NormalizeError> {
         if input.Length == 0 {
             return Err(NormalizeError.Empty)
         }

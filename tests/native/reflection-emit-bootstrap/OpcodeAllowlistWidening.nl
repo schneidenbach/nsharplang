@@ -17,7 +17,7 @@ import System.Reflection.Emit
 // is INVOKED, so a name that binds but emits the wrong instruction fails on the answer rather than on
 // the compile. The bodies are deliberately PARAMETER-SHAPED: `ldarg.N` is only meaningful in a method
 // that has an argument N, which is exactly what B1's parameterless entry-point wrapper could not offer.
-public class OpcodeAllowlistWideningProbe {
+class OpcodeAllowlistWideningProbe {
     static func RequiredConstructor(owner: Type, parameterTypes: Type[]): ConstructorInfo {
         constructorInfo := owner.GetConstructor(parameterTypes)
         if constructorInfo == null {
@@ -61,12 +61,13 @@ public class OpcodeAllowlistWideningProbe {
 
     // ONE short-form load per body, so each of the four opcodes is proved on its own rather than as a
     // member of a sum that a wrong ordinal might still balance.
-    public static func LoadArgumentByShortForm(
+    static func LoadArgumentByShortForm(
         ordinal: int,
         first: int,
         second: int,
         third: int,
-        fourth: int): int {
+        fourth: int
+    ): int {
         method := DynamicMethodOf("NSharpB2LoadArgumentShortForm", typeof(int), FourInt32Parameters())
         il := method.GetILGenerator()
         if ordinal == 0 {
@@ -92,11 +93,12 @@ public class OpcodeAllowlistWideningProbe {
     }
 
     // All four short forms in ONE body. Weighted so that a repeated or omitted ordinal moves the answer.
-    public static func SumViaShortFormArgumentLoads(
+    static func SumViaShortFormArgumentLoads(
         first: int,
         second: int,
         third: int,
-        fourth: int): int {
+        fourth: int
+    ): int {
         method := DynamicMethodOf("NSharpB2SumShortFormArguments", typeof(int), FourInt32Parameters())
         il := method.GetILGenerator()
         il.Emit(OpCodes.Ldarg_0)
@@ -119,7 +121,7 @@ public class OpcodeAllowlistWideningProbe {
     // `unbox.any` over a VALUE type — the arm PASS 0e needs, where a record STRUCT's `Equals` must turn
     // its boxed `object` argument into the typed value before the typed store. `castclass` cannot
     // express this, so a body that runs and answers is proof the emitted instruction is the right one.
-    public static func UnboxAnyToInt32(boxed: object): int {
+    static func UnboxAnyToInt32(boxed: object): int {
         method := DynamicMethodOf("NSharpB2UnboxAnyValue", typeof(int), OneObjectParameter())
         il := method.GetILGenerator()
         il.Emit(OpCodes.Ldarg_0)
@@ -133,7 +135,7 @@ public class OpcodeAllowlistWideningProbe {
 
     // `unbox.any` over a REFERENCE type — the same opcode's castclass-shaped arm, which a record CLASS
     // would take. Proving both arms keeps the row from being pinned to the value case alone.
-    public static func UnboxAnyToText(boxed: object): string {
+    static func UnboxAnyToText(boxed: object): string {
         method := DynamicMethodOf("NSharpB2UnboxAnyReference", typeof(string), OneObjectParameter())
         il := method.GetILGenerator()
         il.Emit(OpCodes.Ldarg_0)

@@ -14,7 +14,6 @@ import System.Reflection
 // `List<string>` and `System.Collections.Generic.List{System.String}`, `int[]` and
 // `System.Int32[]` are the same `Type` read two ways, and the failure mode this family actually
 // has is answering one where the other was wanted — which looks right and finds no documentation.
-
 func DqrfMethodWithFirstParameter(owner: Type, name: string, firstParameterFullName: string, parameterCount: int): MethodInfo? {
     flags := BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance
     methods := owner.GetMethods(flags)

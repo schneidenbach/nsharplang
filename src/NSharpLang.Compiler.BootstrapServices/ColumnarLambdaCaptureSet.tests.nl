@@ -29,7 +29,12 @@ test "capture set captures an enclosing name read in the body" {
     enclosing[0] = "count"
 
     captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-        tree.Nodes, tree.Source, root, CaptureSetEmptyNames(), CaptureSetNames(enclosing))
+        tree.Nodes,
+        tree.Source,
+        root,
+        CaptureSetEmptyNames(),
+        CaptureSetNames(enclosing)
+    )
 
     assert captures.Count == 1
     assert captures.Contains("count")
@@ -44,7 +49,13 @@ test "capture set captures multiple enclosing names through a container expressi
     children[0] = left
     children[1] = right
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, children)
+        ColumnarExpressionNodeKind.BinaryExpression(),
+        operatorStart,
+        1,
+        operatorStart,
+        1,
+        children
+    )
     tree := builder.Build(root)
 
     enclosing := new string[](2)
@@ -52,7 +63,12 @@ test "capture set captures multiple enclosing names through a container expressi
     enclosing[1] = "amount"
 
     captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-        tree.Nodes, tree.Source, root, CaptureSetEmptyNames(), CaptureSetNames(enclosing))
+        tree.Nodes,
+        tree.Source,
+        root,
+        CaptureSetEmptyNames(),
+        CaptureSetNames(enclosing)
+    )
 
     assert captures.Count == 2
     assert captures.Contains("total")
@@ -70,7 +86,12 @@ test "capture set excludes a name bound by the lambda's own parameters" {
     bound[0] = "x"
 
     captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-        tree.Nodes, tree.Source, root, CaptureSetNames(bound), CaptureSetNames(enclosing))
+        tree.Nodes,
+        tree.Source,
+        root,
+        CaptureSetNames(bound),
+        CaptureSetNames(enclosing)
+    )
 
     assert captures.Count == 0
 }
@@ -85,7 +106,13 @@ test "capture set excludes a nested lambda's parameter but captures its free nam
     bodyChildren[0] = bodyLeft
     bodyChildren[1] = bodyRight
     nestedBody := builder.AddNode(
-        ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, bodyChildren)
+        ColumnarExpressionNodeKind.BinaryExpression(),
+        operatorStart,
+        1,
+        operatorStart,
+        1,
+        bodyChildren
+    )
     // Kind 39 is the parser's lambda node: children = [param identifiers..., body].
     lambdaChildren := new int[](2)
     lambdaChildren[0] = nestedParameter
@@ -98,7 +125,12 @@ test "capture set excludes a nested lambda's parameter but captures its free nam
     enclosing[1] = "z"
 
     captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-        tree.Nodes, tree.Source, root, CaptureSetEmptyNames(), CaptureSetNames(enclosing))
+        tree.Nodes,
+        tree.Source,
+        root,
+        CaptureSetEmptyNames(),
+        CaptureSetNames(enclosing)
+    )
 
     assert captures.Count == 1
     assert captures.Contains("z")
@@ -114,7 +146,13 @@ test "capture set captures a member-access base but not the member name" {
     memberChildren := new int[](1)
     memberChildren[0] = receiver
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, 4, memberStart, 4, memberChildren)
+        ColumnarExpressionNodeKind.MemberAccessExpression(),
+        memberStart,
+        4,
+        memberStart,
+        4,
+        memberChildren
+    )
     tree := builder.Build(root)
 
     enclosing := new string[](2)
@@ -122,7 +160,12 @@ test "capture set captures a member-access base but not the member name" {
     enclosing[1] = "Tags"
 
     captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-        tree.Nodes, tree.Source, root, CaptureSetEmptyNames(), CaptureSetNames(enclosing))
+        tree.Nodes,
+        tree.Source,
+        root,
+        CaptureSetEmptyNames(),
+        CaptureSetNames(enclosing)
+    )
 
     assert captures.Count == 1
     assert captures.Contains("item")
@@ -139,7 +182,13 @@ test "capture set steps over the type child of a cast expression" {
     castChildren[0] = typeChild
     castChildren[1] = valueChild
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.CastExpression(), -1, 0, 0, builder.Source.Length, castChildren)
+        ColumnarExpressionNodeKind.CastExpression(),
+        -1,
+        0,
+        0,
+        builder.Source.Length,
+        castChildren
+    )
     tree := builder.Build(root)
 
     enclosing := new string[](2)
@@ -147,7 +196,12 @@ test "capture set steps over the type child of a cast expression" {
     enclosing[1] = "w"
 
     captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-        tree.Nodes, tree.Source, root, CaptureSetEmptyNames(), CaptureSetNames(enclosing))
+        tree.Nodes,
+        tree.Source,
+        root,
+        CaptureSetEmptyNames(),
+        CaptureSetNames(enclosing)
+    )
 
     assert captures.Count == 1
     assert captures.Contains("w")
@@ -160,14 +214,25 @@ test "capture set skips a typeof subtree entirely" {
     typeofChildren := new int[](1)
     typeofChildren[0] = typeChild
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(), -1, 0, 0, builder.Source.Length, typeofChildren)
+        ColumnarExpressionNodeKind.TypeOfExpression(),
+        -1,
+        0,
+        0,
+        builder.Source.Length,
+        typeofChildren
+    )
     tree := builder.Build(root)
 
     enclosing := new string[](1)
     enclosing[0] = "T"
 
     captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-        tree.Nodes, tree.Source, root, CaptureSetEmptyNames(), CaptureSetNames(enclosing))
+        tree.Nodes,
+        tree.Source,
+        root,
+        CaptureSetEmptyNames(),
+        CaptureSetNames(enclosing)
+    )
 
     assert captures.Count == 0
 }
@@ -183,7 +248,12 @@ test "capture set skips a value-less masquerading type identifier" {
     enclosing[0] = "ignored"
 
     captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-        tree.Nodes, tree.Source, root, CaptureSetEmptyNames(), CaptureSetNames(enclosing))
+        tree.Nodes,
+        tree.Source,
+        root,
+        CaptureSetEmptyNames(),
+        CaptureSetNames(enclosing)
+    )
 
     assert captures.Count == 0
 }
@@ -197,7 +267,12 @@ test "capture set does not capture a name absent from the enclosing scope" {
     enclosing[0] = "other"
 
     captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-        tree.Nodes, tree.Source, root, CaptureSetEmptyNames(), CaptureSetNames(enclosing))
+        tree.Nodes,
+        tree.Source,
+        root,
+        CaptureSetEmptyNames(),
+        CaptureSetNames(enclosing)
+    )
 
     assert captures.Count == 0
 }

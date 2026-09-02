@@ -15,7 +15,6 @@ import NSharpLang.Compiler
 // same question `nlc query completions --file Program.nl --pos 8:18` asks. The production types are
 // reached by reflection, exactly as the extension-calls suite reaches MultiFileCompiler: this
 // project runs through `nlc test`, so the compiler under test is also the compiler that built it.
-
 func SetQueryObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -26,18 +25,22 @@ func SetQueryObject(values: object?[], index: int, value: object?) {
 func WriteQueryCompletionsFixture(): string {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-query-completions-" + Guid.NewGuid().ToString("N"))
+        "nsharp-query-completions-" + Guid.NewGuid().ToString("N")
+    )
     Directory.CreateDirectory(fixtureRoot)
 
     File.WriteAllText(
         Path.Combine(fixtureRoot, "project.yml"),
-        "name: CompletionsRegression\nversion: 1.0.0\noutputType: exe\ntargetFramework: net10.0\nentry: Program.nl\n")
+        "name: CompletionsRegression\nversion: 1.0.0\noutputType: exe\ntargetFramework: net10.0\nentry: Program.nl\n"
+    )
     File.WriteAllText(
         Path.Combine(fixtureRoot, "Models.nl"),
-        "namespace Regression.Models\n\npublic class Sensor {\n    Name: string = \"\"\n    Reading: double = 0\n}\n")
+        "namespace Regression.Models\n\npublic class Sensor {\n    Name: string = \"\"\n    Reading: double = 0\n}\n"
+    )
     File.WriteAllText(
         Path.Combine(fixtureRoot, "Program.nl"),
-        "namespace Regression.App\n\nimport System\nimport Regression.Models\n\nfunc Main() {\n    sensor := new Sensor()\n    print sensor.Name\n}\n")
+        "namespace Regression.App\n\nimport System\nimport Regression.Models\n\nfunc Main() {\n    sensor := new Sensor()\n    print sensor.Name\n}\n"
+    )
 
     return fixtureRoot
 }

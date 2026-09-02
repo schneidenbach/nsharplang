@@ -14,9 +14,9 @@ type IntBoxAlias = GenericBox<int>
 type IntDefaultAlias = GenericDefault<int>
 type IntOptionalAlias = GenericOptional<int>
 type RuntimeIntListAlias = System.Collections.Generic.List<int>
-type IntTupleAlias = System.ValueTuple<int,int>
+type IntTupleAlias = System.ValueTuple<int, int>
 type IntObjectInitializerAlias = GenericObjectInitializer<int>
-type MappedObjectInitializerAlias = MappedObjectInitializerDerived<int,long>
+type MappedObjectInitializerAlias = MappedObjectInitializerDerived<int, long>
 type NumberAlias = AliasNumber
 
 func RetainIntBoxAlias(value: IntBoxAlias): IntBoxAlias {
@@ -50,7 +50,7 @@ class FileAliasEnumDefaulted {
     Seed: int
     Selected: RightFile.Selection
 
-    constructor(seed: int, selected: RightFile.Selection = RightFile.Selection . Value) {
+    constructor(seed: int, selected: RightFile.Selection = RightFile.Selection.Value) {
         this.Seed = seed
         this.Selected = selected
     }
@@ -256,7 +256,9 @@ test "retained contextual construction families remain executable" {
     sizedWithExpression := RetainedSizedArray(2)
     inferredWithExpressions := RetainedInferredArray(3, 7)
     sourceOperatorWithExpression := RetainedSourceOperatorConstructor(
-        new AliasNumber(20), new AliasNumber(22))
+        new AliasNumber(20),
+        new AliasNumber(22)
+    )
     floatLeft := 1.25f
     floatRight := 2.75f
     retainedFloatArray := [

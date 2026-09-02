@@ -68,8 +68,6 @@ import System.Reflection
 // ZERO mismatches over 5,399 characters. The 57 SOURCE fixtures total 5,307 characters and 56 of
 // them are distinct; the one duplicate is `A.nl` and `B.nl` of the import-collision fixture, whose
 // whole subject is that two files declare the same class.
-
-
 func SetPgObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -327,7 +325,6 @@ func PgDetail(response: object, index: int): string {
 
     return PgText(entry, "SourceSnippet") + "|" + PgText(entry, "Explanation") + "|" + PgText(entry, "Suggestion") + "|" + PgText(entry, "Hint")
 }
-
 
 // ======== THE MIGRATED CUT — 55 fixture units over 34 deleted methods ========
 
@@ -1696,7 +1693,6 @@ test "020 s37 playground diagnostic spans: Check StringLiteralUnknownMember Retu
     assert PgRow(other, 0) == "NL303|error|Member 'ToUp' not found on type 'string'|Program.tests.nl|4|26|4"
 }
 
-
 // ======== THE CONTROLS — 19 contracts the deleted file never had ========
 //
 // V1-V15 are MINIMAL NEGATIVES: one substitution each, asserted to be a SINGLE occurrence
@@ -2061,7 +2057,6 @@ test "020 s37 playground diagnostic spans: W3 — error-placeholder-is-producibl
     assert PgRow(other, 2) == "NL303|error|Member 'Name' not found on type 'User'|Program.tests.nl|9|16|4"
 }
 
-
 // ======== TASK 020 SLICE 38 — THE FILE'S LAST `Check(source)` BODIES ========
 //
 // These replace THE 21 SURVIVING `Check(source)` bodies of `tests/PlaygroundCompilerTests.cs`, the
@@ -2091,7 +2086,6 @@ test "020 s37 playground diagnostic spans: W3 — error-placeholder-is-producibl
 //
 //   (d) THE SECOND ROUTE, WHICH NONE OF THE 21 DROVE. All 21 are pinned on both routes and all 21
 //       AGREE on `Ok`, the count and the census; only the `File` field moves.
-
 
 test "020 s38 playground diagnostic spans: Check ValidProgram HasNoErrors — SILENCE, and the test-file route agrees (was PlaygroundCompilerTests.Check_ValidProgram_HasNoErrors)" {
     source := "package Playground\n\nfunc main() {\n    message := \"Hello\"\n    print message\n}"
@@ -2563,7 +2557,6 @@ test "020 s38 playground diagnostic spans: Diagnostics AreDeduplicated — NL301
     assert PgCensus(other) == "NL301@2:11+7;"
     assert PgRow(other, 0) == "NL301|error|Variable 'missing' not found|Program.tests.nl|2|11|7"
 }
-
 
 // ======== SLICE 38's CONTROLS — TWENTY-ONE MINIMAL NEGATIVES AND ONE APPEND SWEEP ========
 //

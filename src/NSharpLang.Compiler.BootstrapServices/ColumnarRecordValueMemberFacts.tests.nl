@@ -17,7 +17,6 @@ import System.Reflection.Emit
 // the modeled surface, so the estate cannot measure how many bytes a row became. The corpus IL
 // byte-comparison is the authority for narrowing width; these blocks are the authority for what the
 // rows MEAN.
-
 func RecordFactsRequiredConstructor(owner: Type, parameterTypes: Type[]): ConstructorInfo {
     constructorInfo := owner.GetConstructor(parameterTypes)
     if constructorInfo == null {

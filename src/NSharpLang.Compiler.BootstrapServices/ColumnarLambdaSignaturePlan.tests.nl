@@ -52,7 +52,12 @@ test "contextual-lambda signature binds a single parameter to the delegate param
     parameterTypes[0] = typeof(int)
 
     signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
-        tree.Nodes, tree.Source, lambdaNode, parameterTypes, LambdaSignatureNoBindings())
+        tree.Nodes,
+        tree.Source,
+        lambdaNode,
+        parameterTypes,
+        LambdaSignatureNoBindings()
+    )
     if signature == null {
         throw new InvalidOperationException("Expected a bound single-parameter lambda signature.")
     }
@@ -82,7 +87,12 @@ test "contextual-lambda signature binds multiple parameters positionally" {
     parameterTypes[1] = typeof(string)
 
     signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
-        tree.Nodes, tree.Source, lambdaNode, parameterTypes, LambdaSignatureNoBindings())
+        tree.Nodes,
+        tree.Source,
+        lambdaNode,
+        parameterTypes,
+        LambdaSignatureNoBindings()
+    )
     if signature == null {
         throw new InvalidOperationException("Expected a bound two-parameter lambda signature.")
     }
@@ -113,7 +123,12 @@ test "contextual-lambda signature binds a zero-parameter lambda" {
     parameterTypes := new Type[](0)
 
     signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
-        tree.Nodes, tree.Source, lambdaNode, parameterTypes, LambdaSignatureNoBindings())
+        tree.Nodes,
+        tree.Source,
+        lambdaNode,
+        parameterTypes,
+        LambdaSignatureNoBindings()
+    )
     if signature == null {
         throw new InvalidOperationException("Expected a bound zero-parameter lambda signature.")
     }
@@ -133,7 +148,12 @@ test "contextual-lambda signature declines on delegate-arity mismatch" {
     parameterTypes[1] = typeof(int)
 
     signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
-        tree.Nodes, tree.Source, lambdaNode, parameterTypes, LambdaSignatureNoBindings())
+        tree.Nodes,
+        tree.Source,
+        lambdaNode,
+        parameterTypes,
+        LambdaSignatureNoBindings()
+    )
     assert signature == null
 }
 
@@ -149,7 +169,12 @@ test "contextual-lambda signature declines a non-identifier parameter node" {
     parameterTypes[0] = typeof(int)
 
     signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
-        tree.Nodes, tree.Source, lambdaNode, parameterTypes, LambdaSignatureNoBindings())
+        tree.Nodes,
+        tree.Source,
+        lambdaNode,
+        parameterTypes,
+        LambdaSignatureNoBindings()
+    )
     assert signature == null
 }
 
@@ -165,7 +190,12 @@ test "contextual-lambda signature declines a duplicate parameter name" {
     parameterTypes[1] = typeof(int)
 
     signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
-        tree.Nodes, tree.Source, lambdaNode, parameterTypes, LambdaSignatureNoBindings())
+        tree.Nodes,
+        tree.Source,
+        lambdaNode,
+        parameterTypes,
+        LambdaSignatureNoBindings()
+    )
     assert signature == null
 }
 
@@ -182,6 +212,11 @@ test "contextual-lambda signature declines a parameter that shadows an enclosing
     visible.Add("x")
 
     signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
-        tree.Nodes, tree.Source, lambdaNode, parameterTypes, visible)
+        tree.Nodes,
+        tree.Source,
+        lambdaNode,
+        parameterTypes,
+        visible
+    )
     assert signature == null
 }

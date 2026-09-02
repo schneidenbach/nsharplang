@@ -1,9 +1,9 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Globalization
 import System.Reflection
 import System.Reflection.Emit
-import System.Globalization
 
 class ColumnarConstructedConversionProbeMethods {
     static func AcceptSpan(_values: Span<int>): int {

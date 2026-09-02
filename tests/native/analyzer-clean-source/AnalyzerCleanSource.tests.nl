@@ -108,8 +108,6 @@ import System.Reflection
 // `@"…"` literal was copied unmodified into a generated console program that printed its sha256 and
 // its length, and the decoder that produced the strings below reproduces all 109 shas and lengths
 // with zero mismatches. All 109 are distinct.
-
-
 func SetAcObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -471,7 +469,6 @@ func AcAnalyzeWithSource(source: string): object {
     return analysis
 }
 
-
 // ---- slice 30's kernels: the ERROR-CODE census read ----
 //
 // `AnalyzerTests.cs`'s `AssertHasErrorCode(source, code)` and `AssertNoErrorCode(source, code)` are
@@ -641,7 +638,6 @@ func AcExplanation(analysis: object, index: int): string {
     return AcText(entry, "HumanExplanation")
 }
 
-
 // ---- slice 33's kernel: the PARSED UNIT'S OWN SHAPE, WHICH IS WHAT MAKES A SILENCE MEAN SOMETHING ----
 //
 // Tranche 5 is the campaign's first ALL-CLEAN tranche: every one of its 89 claims is an ABSENCE
@@ -686,7 +682,6 @@ func AcShapeOfUnit(unit: object): string {
 func AcUnitShape(source: string): string {
     return AcShapeOfUnit(AcParseUnit(source))
 }
-
 
 // ---- slice 34's kernel: the PROJECT-CONFIG ROUTE ----
 //
@@ -1070,7 +1065,6 @@ func AcLookupIdentifier(model: object, name: string): string {
 func AcExpressionTypes(model: object): string {
     return AcPositionCensus(AcMember(model, "ExpressionTypes"))
 }
-
 
 // ---- slice 36's kernels, part 2: THE THREE ENTRY POINTS THE FINISHER NEEDS ----
 //
@@ -2666,7 +2660,6 @@ test "020 s28 analyzer clean source: a zero-parameter lambda matches `Func<int>`
     assert AcErrorCount(analysis) == 0
     assert AcRow(analysis, 0) == "<no-such-error>"
 }
-
 
 // ================================================================================================
 // TRANCHE 1b — THE SEVEN REMAINING `#region`s OF `tests/AnalyzerTests.cs`. 82 `[Fact]`s, 1,193 C#
@@ -4498,7 +4491,6 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcErrorCount(rich) == 0
     assert AcRow(rich, 0) == "<no-such-error>"
 }
-
 
 // ======================================================================================
 // TRANCHE 2 — THE ERROR-CODE ASSERTION FAMILY (task 020 slice 30)
@@ -6944,7 +6936,6 @@ test "020 s30 analyzer error codes: a static member on a GENERIC type is refused
     rich := AcAnalyzeWithSource(source)
     assert AcCodeRow(rich, "FeatureNotImplemented") == codeRow
 }
-
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // TRANCHE 3 — THE WHOLE REMAINING DIRECT-`Analyze` + `ErrorCode` SHAPE, AND THE FIRST 56 OF THE
@@ -9677,7 +9668,6 @@ test "020 s31 analyzer error codes: an aliased small-int stackalloc length is ac
     assert AcCodeErrorCount(rich, "UndefinedVariable") == 0
     assert AcCodeRow(rich, "UndefinedVariable") == "<no-such-code>"
 }
-
 
 // ============================================================================================
 // 020 SLICE 32 — TRANCHE 4: THE `AnalyzeWithSource` + `ErrorCode` SHAPE CLOSES AT ZERO, AND THE
@@ -14013,7 +14003,6 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL501` at 3:12+5 — th
     assert AcCodeAnchor(rich, "NonExhaustiveMatch") == "NL501@3:12+5"
 }
 
-
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // TRANCHE 5 — THE FIRST LINE-CUT THIRD OF THE 281-METHOD `AssertNoErrors` FAMILY, AND THE
 // CAMPAIGN'S FIRST TRANCHE IN WHICH NOT ONE FIXTURE PRODUCES A DIAGNOSTIC. 87 methods
@@ -15756,7 +15745,6 @@ test "020 s33 analyzer clean source: V-CONTROL for `CharLiteral_HasCharType`: re
     assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Function 'Delimiter' should return char but returns string|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:24+3"
 }
-
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // TRANCHE 6 — THE SECOND LINE-CUT THIRD OF THE `AssertNoErrors` FAMILY, CUT AT THE FILE'S OWN
@@ -17662,7 +17650,6 @@ test "020 s34 analyzer clean source: S-CONTROL, THE NON-WEB SDK: `Sdk = Microsof
     assert AcErrorCount(analysis) == 1
     assert AcRow(analysis, 0) == "MethodGroupUsedAsValue|Method 'HandleList' must be called or passed to a delegate|Call `HandleList(...)`, or pass `HandleList` to a parameter with a delegate type.|Error"
 }
-
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // TRANCHE 7 — THE REST OF THE `AssertNoErrors` FAMILY, TAKEN WHOLE, AND THE HELPER'S DEATH.
@@ -19580,7 +19567,6 @@ test "020 s35 analyzer clean source: V-CONTROL for `IntTryParse_WithExistingOutV
     assert AcRow(rich, 0) == "UndefinedVariable|Variable 'result' not found|<null>|Error"
     assert AcHint(rich, 0) == "Make sure you've declared this variable before using it."
 }
-
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // TRANCHE 8 — THE FINISHER. THE LAST 46 `[Fact]`s, BOTH SURVIVING PRIVATE HELPERS, AND THE FILE.
@@ -22011,7 +21997,6 @@ test "undefined type names at declaration sites: NEGATIVE — a `where` constrai
     assert AcErrorCount(rich) == 0
     assert AcRow(rich, 0) == "<no-such-error>"
 }
-
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 // NL309 COVERAGE — THE READONLY-WRITE RULE OVER EVERY TYPE FORM AND EVERY NESTED BODY.

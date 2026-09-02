@@ -29,7 +29,6 @@ import NSharpLang.Compiler.CodeIntelligence
 // (3) THE OVERLAP MESSAGE READS TWO SLOTS, IN A FIXED ORDER. Slot 0 is the LOW edit and slot 1 is
 // the HIGH one, and the sentence puts slot 0 first. Swapping them produces a sentence that is still
 // grammatical, still contains "Overlapping edits detected", and blames the pair backwards.
-
 func FvmLines(): int[] {
     lines := new int[](3)
     lines[0] = 1

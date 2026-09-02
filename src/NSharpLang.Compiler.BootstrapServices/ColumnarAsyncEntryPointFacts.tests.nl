@@ -107,7 +107,6 @@ func AsyncEntryPointSetObject(values: object[], index: int, value: object) {
     values[index] = value
 }
 
-
 // THE BINDING MODE. This is the block the slice exists for: the awaiter slot is an IL LOCAL the plan
 // declares, not a field on a closure class, and the plan proves it by carrying no field row at all.
 test "the async entry-point wrapper binds its awaiter as an IL local, not a hoisted field" {

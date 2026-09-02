@@ -16,7 +16,6 @@ import NSharpLang.Compiler
 // reporting an operand.
 
 // ── the argument summary ──────────────────────────────────────────────────────
-
 test "the add argument summary reads both option values and all three flags" {
     summary := AddCommandKernels.GetArgumentSummary(["--version", "13.0.3", "--framework", "--prerelease", "Newtonsoft.Json"])
 

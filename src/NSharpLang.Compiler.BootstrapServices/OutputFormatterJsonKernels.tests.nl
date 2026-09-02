@@ -51,7 +51,6 @@ import System.Text.Json
 //       `src/B.nl`, and `SRC/A.NL` collapses into `src/a.nl` rather than sorting apart from it.
 
 // ── The decoders ────────────────────────────────────────────────────────────────────────────────
-
 func OfjkHasRootKey(json: string, key: string): bool {
     document := JsonDocument.Parse(json)
     root := document.RootElement
@@ -302,7 +301,8 @@ func OfjkDocFixture(): DocResult {
         parameters,
         null,
         null,
-        ["Object"])
+        ["Object"]
+    )
 }
 
 func OfjkCompletionsFixture(documentation: string?): CompletionResult {
@@ -325,7 +325,8 @@ func OfjkInspectFixture(): InspectResult {
         new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1), null),
         new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
         new InspectReferencesResult(2, 1, references),
-        OfjkCompletionsFixture(null))
+        OfjkCompletionsFixture(null)
+    )
 }
 
 // Five references across three files, two of them written with a backslash separator, and a
@@ -354,13 +355,13 @@ func OfjkSummaryInspectFixture(): InspectResult {
         new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1), null),
         new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
         new InspectReferencesResult(5, 1, references),
-        new CompletionResult(CompletionContext.MemberAccess, "service", "TaskService", completions))
+        new CompletionResult(CompletionContext.MemberAccess, "service", "TaskService", completions)
+    )
 }
 
 func OfjkEmptySystemsReport(): SystemsReport {
     return SystemsReport.Empty(ProjectFileParser.CreateDefault("JsonContract"))
 }
-
 
 // ---- THE DECODER STATES ITS OWN LIMITS -----------------------------------------------------------
 
@@ -375,7 +376,6 @@ test "a nested key never reads as a root key, and the root scan validates agains
     assert !OfjkRootKeysValidated(json).Contains("errors")
     assert OfjkHasRootKey(json, "summary")
 }
-
 
 // ---- THE SYMBOL ENVELOPE -------------------------------------------------------------------------
 
@@ -400,7 +400,6 @@ test "the symbols envelope root keys are exactly schemaVersion, command, ok, pro
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,projectRoot,results"
 }
 
-
 // ---- THE OUTLINE ENVELOPE ------------------------------------------------------------------------
 
 test "the outline envelope carries the imports and the nested structure" {
@@ -419,7 +418,6 @@ test "the outline envelope root keys are exactly schemaVersion, command, ok, fil
 
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,file,imports,outline"
 }
-
 
 // ---- THE DIAGNOSTIC ENVELOPES --------------------------------------------------------------------
 
@@ -479,10 +477,10 @@ test "the check-systems-report envelope root keys add diagnostics and systemsRep
         new List<DiagnosticResult>(),
         "/project",
         1,
-        OfjkEmptySystemsReport())
+        OfjkEmptySystemsReport()
+    )
 
-    assert OfjkRootKeysValidated(json)
-        == "schemaVersion,command,projectRoot,checkedFiles,ok,diagnostics,summary,systemsReport"
+    assert OfjkRootKeysValidated(json) == "schemaVersion,command,projectRoot,checkedFiles,ok,diagnostics,summary,systemsReport"
 }
 
 test "the trusted envelope root keys are exactly schemaVersion, command, ok, projectRoot, results, summary" {
@@ -491,7 +489,6 @@ test "the trusted envelope root keys are exactly schemaVersion, command, ok, pro
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,projectRoot,results,summary"
 }
 
-
 // ---- THE NAVIGATION ENVELOPES --------------------------------------------------------------------
 
 test "the type envelope carries the queried position and the resolved type" {
@@ -499,7 +496,8 @@ test "the type envelope carries the queried position and the resolved type" {
         new TypeResult("p", "Person", "class", new LocationResult("Models.nl", 5, 0), null),
         "Program.nl",
         8,
-        4)
+        4
+    )
 
     assert OfjkInt1(json, "schemaVersion") == 1
     assert OfjkString1(json, "command") == "type"
@@ -513,7 +511,8 @@ test "the type envelope root keys are exactly schemaVersion, command, ok, file, 
         new TypeResult("stats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1), null),
         "Program.nl",
         85,
-        22)
+        22
+    )
 
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,file,position,result"
 }
@@ -529,7 +528,8 @@ test "the definition envelope carries the name, kind and file of one result" {
 
 test "the definition envelope root keys are exactly schemaVersion, command, ok, result" {
     json := OutputFormatterJsonKernels.DefinitionToJson(
-        new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8))
+        new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8)
+    )
 
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,result"
 }
@@ -539,7 +539,8 @@ test "the references envelope carries the symbol, the count and every definition
         "Person",
         "class",
         new LocationResult("Models.nl", 5, 0),
-        OfjkReferencesFixture())
+        OfjkReferencesFixture()
+    )
 
     assert OfjkString1(json, "command") == "references"
     assert OfjkInt1(json, "count") == 2
@@ -552,7 +553,8 @@ test "the references envelope root keys are exactly schemaVersion, command, ok, 
         "Person",
         "class",
         new LocationResult("Models.nl", 5, 0),
-        OfjkReferencesFixture())
+        OfjkReferencesFixture()
+    )
 
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,symbol,count,results"
 }
@@ -562,10 +564,10 @@ test "the completions envelope root keys are exactly schemaVersion, command, ok,
         OfjkCompletionsFixture("Returns the task statistics"),
         "Program.nl",
         85,
-        22)
+        22
+    )
 
-    assert OfjkRootKeysValidated(json)
-        == "schemaVersion,command,ok,file,position,context,receiver,completions"
+    assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,file,position,context,receiver,completions"
 }
 
 test "the doc envelope root keys are exactly schemaVersion, command, ok, query, result" {
@@ -579,7 +581,6 @@ test "the perf envelope root keys are exactly schemaVersion, command, ok, projec
 
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,projectRoot,file,position,facts"
 }
-
 
 // ---- INSPECT, FULL AND COMPACT -------------------------------------------------------------------
 
@@ -627,7 +628,6 @@ test "the compact inspect envelope root keys are exactly schemaVersion, command,
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,file,position,summary"
 }
 
-
 // ---- THE ERROR ENVELOPE --------------------------------------------------------------------------
 
 test "the error envelope is not ok and carries a coded, detailed payload" {
@@ -644,7 +644,8 @@ test "the error envelope is not ok and carries a coded, detailed payload" {
         "No symbol found at Program.nl:83:1",
         "/project",
         "noSymbol",
-        details)
+        details
+    )
 
     assert OfjkString1(json, "command") == "type"
     assert !OfjkBool1(json, "ok")

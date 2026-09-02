@@ -7,14 +7,16 @@ import System.Reflection.Emit
 func ExactTypeScope(
     sources: string[],
     fileNames: string[],
-    activeSourceFileId: int): ColumnarBindingScopeFacts {
+    activeSourceFileId: int
+): ColumnarBindingScopeFacts {
     scope := ColumnarBindingScopeFacts.Create(
         ColumnarEmissionPlanner.BuildSourceFiles(sources, fileNames),
         ExternalEmptyEnums(),
         ExternalEmptyStructs(),
         ExternalEmptyUnions(),
         ExternalEmptyInterfaces(),
-        null)
+        null
+    )
     scope.PrepareExternalTypeBindings(null)
     return scope.ForSourceFile(activeSourceFileId)
 }
@@ -29,7 +31,8 @@ func ExactTypeSingleScope(source: string): ColumnarBindingScopeFacts {
 
 func ExactTypeDefinition(
     builder: TypeBuilder,
-    declaredName: string): ColumnarStructDef {
+    declaredName: string
+): ColumnarStructDef {
     return new ColumnarStructDef(
         builder,
         new string[](0),
@@ -37,25 +40,29 @@ func ExactTypeDefinition(
         true,
         false,
         false,
-        declaredName)
+        declaredName
+    )
 }
 
 func ExactTypeInput(
     name: string,
-    enclosingTypeName: string): ColumnarStructInput {
+    enclosingTypeName: string
+): ColumnarStructInput {
     input := ExternalStruct(
         name,
         new string[](0),
         new string[](0),
         new List<ColumnarFunctionInput>(),
         null,
-        true)
+        true
+    )
     input.EnclosingTypeName = enclosingTypeName
     return input
 }
 
 func ExactTypeBindings(
-    definitions: List<ColumnarStructDef>): ColumnarFragmentBindings {
+    definitions: List<ColumnarStructDef>
+): ColumnarFragmentBindings {
     bindings := ColumnarRangePlannerEmptyBindings()
     bindings.SourceTypeDefinitions = definitions
     exactSourceTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
@@ -72,7 +79,8 @@ func ExactTypeEmptyBindings(): ColumnarFragmentBindings {
 
 func ExactTypeProgram(
     sources: string[],
-    fileNames: string[]): ColumnarProgramInput {
+    fileNames: string[]
+): ColumnarProgramInput {
     program := ColumnarProgramInput.CreateFromSourceFiles(
         ColumnarEmissionPlanner.BuildSourceFiles(sources, fileNames),
         new List<ColumnarFunctionInput>(),
@@ -80,25 +88,29 @@ func ExactTypeProgram(
         ExternalEmptyStructs(),
         ExternalEmptyUnions(),
         ExternalEmptyInterfaces(),
-        null)
+        null
+    )
     program.PrepareExternalTypeBindings(null)
     return program
 }
 
 func ExactTypeResolutionBindings(
-    definitions: IEnumerable<ColumnarStructDef>): ColumnarFragmentBindings {
+    definitions: IEnumerable<ColumnarStructDef>
+): ColumnarFragmentBindings {
     return ColumnarFragmentBindings.CreateTypeResolutionBindings(
         new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
         definitions,
         new ColumnarUnionDef[](0),
-        new Dictionary<string, Type>(StringComparer.Ordinal))
+        new Dictionary<string, Type>(StringComparer.Ordinal)
+    )
 }
 
 func ExactTypeAssertResolved(
     scope: ColumnarBindingScopeFacts,
     bindings: ColumnarFragmentBindings,
     canonical: string,
-    expected: Type) {
+    expected: Type
+) {
     resolved := typeof(object)
     assert scope.TryResolveExactExplicitType(canonical, bindings, out resolved)
     assert resolved == expected
@@ -107,7 +119,8 @@ func ExactTypeAssertResolved(
 func ExactTypeAssertRejected(
     scope: ColumnarBindingScopeFacts,
     bindings: ColumnarFragmentBindings,
-    canonical: string) {
+    canonical: string
+) {
     resolved := typeof(object)
     assert !scope.TryResolveExactExplicitType(canonical, bindings, out resolved)
     assert resolved == typeof(object)
@@ -115,7 +128,8 @@ func ExactTypeAssertRejected(
 
 test "exact explicit type scope resolves language builtins arrays and external names" {
     scope := ExactTypeSingleScope(
-        "import System\nimport System.Text\nimport System.IO\nimport System.Collections.Generic\n")
+        "import System\nimport System.Text\nimport System.IO\nimport System.Collections.Generic\n"
+    )
     bindings := ExactTypeEmptyBindings()
 
     ExactTypeAssertResolved(scope, bindings, "int", typeof(int))
@@ -142,12 +156,14 @@ test "exact explicit type scope resolves language builtins arrays and external n
         scope,
         bindings,
         "ValueTuple<int,string>",
-        typeof(ValueTuple<int, string>))
+        typeof(ValueTuple<int, string>)
+    )
 
     nullableDefinition := Type.GetType("System.Nullable`1")
     if nullableDefinition == null {
         throw new InvalidOperationException(
-            "System.Nullable<T> runtime type was not found.")
+            "System.Nullable<T> runtime type was not found."
+        )
     }
     nullableArguments := new Type[](1)
     nullableArguments[0] = typeof(int)
@@ -155,18 +171,21 @@ test "exact explicit type scope resolves language builtins arrays and external n
         scope,
         bindings,
         "int?",
-        nullableDefinition.MakeGenericType(nullableArguments))
+        nullableDefinition.MakeGenericType(nullableArguments)
+    )
     ExactTypeAssertResolved(scope, bindings, "string?", typeof(string))
     ExactTypeAssertResolved(
         scope,
         bindings,
         "(File:string?,Line:int,Column:int)",
-        typeof(ValueTuple<string, int, int>))
+        typeof(ValueTuple<string, int, int>)
+    )
     ExactTypeAssertResolved(
         scope,
         bindings,
         "Dictionary<(File:string?,Line:int,Column:int),int>",
-        typeof(Dictionary<ValueTuple<string, int, int>, int>))
+        typeof(Dictionary<ValueTuple<string, int, int>, int>)
+    )
     ExactTypeAssertResolved(scope, bindings, "List<int>", typeof(List<int>))
 
     ExactTypeAssertRejected(scope, bindings, "")
@@ -183,7 +202,8 @@ test "exact explicit type scope gives source names and live type parameters sema
     definitions.Add(ExactTypeDefinition(sourceBuilder, "Scope.Widget"))
     bindings := ExactTypeBindings(definitions)
     scope := ExactTypeSingleScope(
-        "namespace Scope\nclass DateTime {}\nclass Widget {}\n")
+        "namespace Scope\nclass DateTime {}\nclass Widget {}\n"
+    )
 
     ExactTypeAssertResolved(scope, bindings, "DateTime", dateTimeBuilder)
     ExactTypeAssertResolved(scope, bindings, "Widget", sourceBuilder)
@@ -199,21 +219,29 @@ test "exact explicit type scope gives source names and live type parameters sema
     genericBindings := BindingRawTypeParameters(genericParameters)
     genericBindings.SourceTypeDefinitions = definitions
     ExactTypeAssertResolved(
-        scope, genericBindings, typeParameterName, typeParameter)
+        scope,
+        genericBindings,
+        typeParameterName,
+        typeParameter
+    )
     typeParameterArray := typeof(object)
     assert scope.TryResolveExactExplicitType(
         typeParameterName + "[][]",
         genericBindings,
-        out typeParameterArray)
+        out typeParameterArray
+    )
     assert typeParameterArray.get_IsSZArray()
     firstElement := typeParameterArray.GetElementType()
     if firstElement == null {
         throw new InvalidOperationException(
-            "Generic parameter array did not retain its first element type.")
+            "Generic parameter array did not retain its first element type."
+        )
     }
     assert firstElement.get_IsSZArray()
     assert ColumnarConstructionPlanner.SameObject(
-        firstElement.GetElementType(), typeParameter)
+        firstElement.GetElementType(),
+        typeParameter
+    )
 }
 
 test "exact explicit type scope preserves namespaced nested identity and ancestor lexical lookup" {
@@ -241,39 +269,60 @@ test "exact explicit type scope preserves namespaced nested identity and ancesto
         inputs,
         ExternalEmptyUnions(),
         ExternalEmptyInterfaces(),
-        null)
+        null
+    )
     scopeRoot.PrepareExternalTypeBindings(null)
     scope := scopeRoot.ForSourceFile(0)
 
     outerBuilder := TypeOfCreateSourceBuilder("Scope.Outer", false)
     nestedSiblingBuilder := TypeOfCreateSourceBuilder(
-        "Scope.Outer.Sibling", false)
+        "Scope.Outer.Sibling",
+        false
+    )
     middleBuilder := TypeOfCreateSourceBuilder(
-        "Scope.Outer.Middle", false)
+        "Scope.Outer.Middle",
+        false
+    )
     innerBuilder := TypeOfCreateSourceBuilder(
-        "Scope.Outer.Middle.Inner", false)
+        "Scope.Outer.Middle.Inner",
+        false
+    )
     topLevelSiblingBuilder := TypeOfCreateSourceBuilder("Scope.Sibling", false)
     definitions := new List<ColumnarStructDef>()
     definitions.Add(ExactTypeDefinition(outerBuilder, "Scope.Outer"))
     definitions.Add(ExactTypeDefinition(
-        nestedSiblingBuilder, "Scope.Outer.Sibling"))
+        nestedSiblingBuilder,
+        "Scope.Outer.Sibling"
+    ))
     definitions.Add(ExactTypeDefinition(
-        middleBuilder, "Scope.Outer.Middle"))
+        middleBuilder,
+        "Scope.Outer.Middle"
+    ))
     definitions.Add(ExactTypeDefinition(
-        innerBuilder, "Scope.Outer.Middle.Inner"))
+        innerBuilder,
+        "Scope.Outer.Middle.Inner"
+    ))
     definitions.Add(ExactTypeDefinition(
-        topLevelSiblingBuilder, "Scope.Sibling"))
+        topLevelSiblingBuilder,
+        "Scope.Sibling"
+    ))
     bindings := ExactTypeBindings(definitions)
 
     assert scopeRoot.ExactStructTypeName(outerInput) == "Scope.Outer"
-    assert scopeRoot.ExactStructTypeName(nestedSiblingInput)
-        == "Scope.Outer.Sibling"
+    assert scopeRoot.ExactStructTypeName(nestedSiblingInput) == "Scope.Outer.Sibling"
     ExactTypeAssertResolved(
-        scope, bindings, "Outer.Sibling", nestedSiblingBuilder)
+        scope,
+        bindings,
+        "Outer.Sibling",
+        nestedSiblingBuilder
+    )
     exactNestedName := ""
     exactNestedClaimed := false
     assert scope.TryResolveExactSourceDeclarationName(
-        "Outer.Sibling", out exactNestedName, out exactNestedClaimed)
+        "Outer.Sibling",
+        out exactNestedName,
+        out exactNestedClaimed
+    )
     assert exactNestedClaimed
     assert exactNestedName == "Scope.Outer.Sibling"
     resolved := typeof(object)
@@ -283,12 +332,19 @@ test "exact explicit type scope preserves namespaced nested identity and ancesto
         "Sibling",
         bindings,
         out resolved,
-        out claimed)
+        out claimed
+    )
     assert claimed
     assert ColumnarConstructionPlanner.SameObject(
-        resolved, nestedSiblingBuilder)
+        resolved,
+        nestedSiblingBuilder
+    )
     ExactTypeAssertResolved(
-        scope, bindings, "Sibling", topLevelSiblingBuilder)
+        scope,
+        bindings,
+        "Sibling",
+        topLevelSiblingBuilder
+    )
 }
 
 test "exact explicit type scope exposes nested declarations across files only when exported" {
@@ -312,21 +368,30 @@ test "exact explicit type scope exposes nested declarations across files only wh
         inputs,
         ExternalEmptyUnions(),
         ExternalEmptyInterfaces(),
-        null)
+        null
+    )
     scopeRoot.PrepareExternalTypeBindings(null)
     scope := scopeRoot.ForSourceFile(1)
 
     outerBuilder := TypeOfCreateSourceBuilder("Scope.Outer", false)
     innerBuilder := TypeOfCreateSourceBuilder(
-        "Scope.Outer.Inner", false)
+        "Scope.Outer.Inner",
+        false
+    )
     hiddenBuilder := TypeOfCreateSourceBuilder(
-        "Scope.Outer.hidden", false)
+        "Scope.Outer.hidden",
+        false
+    )
     definitions := new List<ColumnarStructDef>()
     definitions.Add(ExactTypeDefinition(outerBuilder, "Scope.Outer"))
     definitions.Add(ExactTypeDefinition(
-        innerBuilder, "Scope.Outer.Inner"))
+        innerBuilder,
+        "Scope.Outer.Inner"
+    ))
     definitions.Add(ExactTypeDefinition(
-        hiddenBuilder, "Scope.Outer.hidden"))
+        hiddenBuilder,
+        "Scope.Outer.hidden"
+    ))
     bindings := ExactTypeBindings(definitions)
 
     ExactTypeAssertResolved(scope, bindings, "Outer.Inner", innerBuilder)
@@ -358,12 +423,16 @@ test "exact explicit type scope resolves local aliases chains arrays and ordered
     assert leftScope.TryResolveExactExplicitType("WidgetArray", bindings, out aliasArray)
     assert aliasArray.get_IsSZArray()
     assert ColumnarConstructionPlanner.SameObject(
-        aliasArray.GetElementType(), leftBuilder)
+        aliasArray.GetElementType(),
+        leftBuilder
+    )
     intBox := typeof(object)
     assert leftScope.TryResolveExactExplicitType("IntBox", bindings, out intBox)
     assert intBox.get_IsGenericType()
     assert ColumnarConstructionPlanner.SameObject(
-        intBox.GetGenericTypeDefinition(), boxBuilder)
+        intBox.GetGenericTypeDefinition(),
+        boxBuilder
+    )
     intBoxArguments := intBox.GetGenericArguments()
     assert intBoxArguments.Length == 1
     assert intBoxArguments[0] == typeof(int)
@@ -375,9 +444,13 @@ test "exact explicit type scope resolves local aliases chains arrays and ordered
     cycleScope := ExactTypeSingleScope("type A = B\ntype B = A\n")
     ExactTypeAssertRejected(cycleScope, ExactTypeEmptyBindings(), "A")
     unsupportedAlias := ExactTypeSingleScope(
-        "type Values = DefinitelyMissingGeneric<int>\n")
+        "type Values = DefinitelyMissingGeneric<int>\n"
+    )
     ExactTypeAssertRejected(
-        unsupportedAlias, ExactTypeEmptyBindings(), "Values")
+        unsupportedAlias,
+        ExactTypeEmptyBindings(),
+        "Values"
+    )
 }
 
 test "exact explicit type scope resolves namespace and file aliases without tail stripping" {
@@ -411,7 +484,8 @@ test "exact explicit type scope resolves namespace and file aliases without tail
         runtimeAlias,
         ExactTypeEmptyBindings(),
         "Text.StringBuilder",
-        typeof(System.Text.StringBuilder))
+        typeof(System.Text.StringBuilder)
+    )
     ExactTypeAssertRejected(runtimeAlias, ExactTypeEmptyBindings(), "Text")
 }
 
@@ -431,21 +505,25 @@ test "exact explicit type scope fences visibility collisions missing imports and
         ExactTypeScope(visibilitySources, visibilityNames, 0),
         bindings,
         "Hidden",
-        hiddenBuilder)
+        hiddenBuilder
+    )
     ExactTypeAssertResolved(
         ExactTypeScope(visibilitySources, visibilityNames, 0),
         bindings,
         "Same.Hidden",
-        hiddenBuilder)
+        hiddenBuilder
+    )
     ExactTypeAssertResolved(
         ExactTypeScope(visibilitySources, visibilityNames, 0),
         bindings,
         "HiddenAlias",
-        hiddenBuilder)
+        hiddenBuilder
+    )
     ExactTypeAssertRejected(
         ExactTypeScope(visibilitySources, visibilityNames, 1),
         bindings,
-        "Hidden")
+        "Hidden"
+    )
 
     collisionSources := new string[](3)
     collisionNames := new string[](3)
@@ -457,13 +535,18 @@ test "exact explicit type scope fences visibility collisions missing imports and
     collisionNames[2] = "collision/right.nl"
     collisionBindings := new List<ColumnarStructDef>()
     collisionBindings.Add(ExactTypeDefinition(
-        TypeOfCreateSourceBuilder("Left.Widget", false), "Left.Widget"))
+        TypeOfCreateSourceBuilder("Left.Widget", false),
+        "Left.Widget"
+    ))
     collisionBindings.Add(ExactTypeDefinition(
-        TypeOfCreateSourceBuilder("Right.Widget", false), "Right.Widget"))
+        TypeOfCreateSourceBuilder("Right.Widget", false),
+        "Right.Widget"
+    ))
     ExactTypeAssertRejected(
         ExactTypeScope(collisionSources, collisionNames, 0),
         ExactTypeBindings(collisionBindings),
-        "Widget")
+        "Widget"
+    )
 
     missingSources := new string[](1)
     missingNames := new string[](1)
@@ -472,10 +555,12 @@ test "exact explicit type scope fences visibility collisions missing imports and
     ExactTypeAssertRejected(
         ExactTypeScope(missingSources, missingNames, 0),
         ExactTypeEmptyBindings(),
-        "int")
+        "int"
+    )
 
     duplicateAlias := ExactTypeSingleScope(
-        "import System as Lib\nimport System.Text as Lib\n")
+        "import System as Lib\nimport System.Text as Lib\n"
+    )
     ExactTypeAssertRejected(duplicateAlias, ExactTypeEmptyBindings(), "int")
 }
 
@@ -498,39 +583,60 @@ test "program exact type resolution selects same short name by source file" {
     left := typeof(object)
     leftClaimed := false
     assert program.TryResolveExactExplicitTypeForFile(
-        0, "Widget", bindings, out left, out leftClaimed)
+        0,
+        "Widget",
+        bindings,
+        out left,
+        out leftClaimed
+    )
     assert leftClaimed
     assert ColumnarConstructionPlanner.SameObject(left, leftBuilder)
 
     right := typeof(object)
     rightClaimed := false
     assert program.TryResolveExactExplicitTypeForFile(
-        1, "Widget", bindings, out right, out rightClaimed)
+        1,
+        "Widget",
+        bindings,
+        out right,
+        out rightClaimed
+    )
     assert rightClaimed
     assert ColumnarConstructionPlanner.SameObject(right, rightBuilder)
 
     leftName := ""
     leftNameClaimed := false
     assert program.TryResolveExactSourceDeclarationNameForFile(
-        0, "Widget", out leftName, out leftNameClaimed)
+        0,
+        "Widget",
+        out leftName,
+        out leftNameClaimed
+    )
     assert leftNameClaimed
     assert leftName == "Left.Widget"
 
     rightName := ""
     rightNameClaimed := false
     assert program.TryResolveExactSourceDeclarationNameForFile(
-        1, "Widget", out rightName, out rightNameClaimed)
+        1,
+        "Widget",
+        out rightName,
+        out rightNameClaimed
+    )
     assert rightNameClaimed
     assert rightName == "Right.Widget"
 }
 
 test "program exact type resolution selects one exported cross namespace name" {
     reportBuilder := TypeOfCreateSourceBuilder(
-        "NSharpLang.Compiler.Performance.SystemsReport", false)
+        "NSharpLang.Compiler.Performance.SystemsReport",
+        false
+    )
     definitions := new List<ColumnarStructDef>()
     definitions.Add(ExactTypeDefinition(
         reportBuilder,
-        "NSharpLang.Compiler.Performance.SystemsReport"))
+        "NSharpLang.Compiler.Performance.SystemsReport"
+    ))
     bindings := ExactTypeResolutionBindings(definitions)
 
     sources := new string[](2)
@@ -544,14 +650,23 @@ test "program exact type resolution selects one exported cross namespace name" {
     reportType := typeof(object)
     reportClaimed := false
     assert program.TryResolveExactExplicitTypeForFile(
-        1, "SystemsReport", bindings, out reportType, out reportClaimed)
+        1,
+        "SystemsReport",
+        bindings,
+        out reportType,
+        out reportClaimed
+    )
     assert reportClaimed
     assert ColumnarConstructionPlanner.SameObject(reportType, reportBuilder)
 
     reportName := ""
     reportNameClaimed := false
     assert program.TryResolveExactSourceDeclarationNameForFile(
-        1, "SystemsReport", out reportName, out reportNameClaimed)
+        1,
+        "SystemsReport",
+        out reportName,
+        out reportNameClaimed
+    )
     assert reportNameClaimed
     assert reportName == "NSharpLang.Compiler.Performance.SystemsReport"
 }
@@ -581,7 +696,8 @@ test "program exact type resolution rejects ambiguous exported cross namespace n
         "Widget",
         bindings,
         out ambiguousType,
-        out ambiguousTypeClaimed)
+        out ambiguousTypeClaimed
+    )
     assert ambiguousTypeClaimed
     assert ambiguousType == typeof(object)
 
@@ -591,14 +707,17 @@ test "program exact type resolution rejects ambiguous exported cross namespace n
         2,
         "Widget",
         out ambiguousName,
-        out ambiguousNameClaimed)
+        out ambiguousNameClaimed
+    )
     assert ambiguousNameClaimed
     assert ambiguousName == ""
 }
 
 test "type resolution binding factory copies only live type facts" {
     genericOwner := TypeOfCreateSourceBuilder(
-        "ExactResolutionBindingOwner", true)
+        "ExactResolutionBindingOwner",
+        true
+    )
     genericArguments := genericOwner.GetGenericArguments()
     assert genericArguments.Length == 1
     typeParameter := genericArguments[0]
@@ -609,7 +728,8 @@ test "type resolution binding factory copies only live type facts" {
         new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
         new ColumnarStructDef[](0),
         new ColumnarUnionDef[](0),
-        typeParameters)
+        typeParameters
+    )
 
     assert bindings.ParameterOrdinals.Count == 0
     assert bindings.ParameterTypes.Count == 0
@@ -634,14 +754,7 @@ test "program exact type resolution preserves runtime and source aliases" {
     sources := new string[](2)
     fileNames := new string[](2)
     sources[0] = "namespace Models\nclass Widget {}\n"
-    sources[1] = "namespace Caller\n"
-        + "import Models\n"
-        + "import System.Text as Text\n"
-        + "import System.Collections.Generic as Collections\n"
-        + "type SourceAlias = Widget\n"
-        + "type RuntimeAlias = Text.StringBuilder\n"
-        + "type RuntimeGenericAlias = Collections.List<int>\n"
-        + "type BrokenAlias = DefinitelyMissingGeneric<int>\n"
+    sources[1] = "namespace Caller\n" + "import Models\n" + "import System.Text as Text\n" + "import System.Collections.Generic as Collections\n" + "type SourceAlias = Widget\n" + "type RuntimeAlias = Text.StringBuilder\n" + "type RuntimeGenericAlias = Collections.List<int>\n" + "type BrokenAlias = DefinitelyMissingGeneric<int>\n"
     fileNames[0] = "exact-alias-program/models.nl"
     fileNames[1] = "exact-alias-program/caller.nl"
     program := ExactTypeProgram(sources, fileNames)
@@ -649,10 +762,17 @@ test "program exact type resolution preserves runtime and source aliases" {
     sourceAlias := typeof(object)
     sourceClaimed := false
     assert program.TryResolveExactExplicitTypeForFile(
-        1, "SourceAlias", bindings, out sourceAlias, out sourceClaimed)
+        1,
+        "SourceAlias",
+        bindings,
+        out sourceAlias,
+        out sourceClaimed
+    )
     assert sourceClaimed
     assert ColumnarConstructionPlanner.SameObject(
-        sourceAlias, widgetBuilder)
+        sourceAlias,
+        widgetBuilder
+    )
 
     sourceAliasName := ""
     sourceAliasNameClaimed := false
@@ -660,14 +780,20 @@ test "program exact type resolution preserves runtime and source aliases" {
         1,
         "SourceAlias",
         out sourceAliasName,
-        out sourceAliasNameClaimed)
+        out sourceAliasNameClaimed
+    )
     assert sourceAliasNameClaimed
     assert sourceAliasName == "Models.Widget"
 
     runtimeAlias := typeof(object)
     runtimeClaimed := false
     assert program.TryResolveExactExplicitTypeForFile(
-        1, "RuntimeAlias", bindings, out runtimeAlias, out runtimeClaimed)
+        1,
+        "RuntimeAlias",
+        bindings,
+        out runtimeAlias,
+        out runtimeClaimed
+    )
     assert runtimeClaimed
     assert runtimeAlias == typeof(System.Text.StringBuilder)
 
@@ -677,7 +803,8 @@ test "program exact type resolution preserves runtime and source aliases" {
         1,
         "RuntimeAlias",
         out runtimeAliasName,
-        out runtimeAliasNameClaimed)
+        out runtimeAliasNameClaimed
+    )
     assert runtimeAliasNameClaimed
     assert runtimeAliasName == ""
 
@@ -688,7 +815,8 @@ test "program exact type resolution preserves runtime and source aliases" {
         "RuntimeGenericAlias",
         bindings,
         out runtimeGenericAlias,
-        out runtimeGenericClaimed)
+        out runtimeGenericClaimed
+    )
     assert runtimeGenericClaimed
     assert runtimeGenericAlias == typeof(List<int>)
 
@@ -699,14 +827,20 @@ test "program exact type resolution preserves runtime and source aliases" {
         "Text.StringBuilder",
         bindings,
         out namespaceAlias,
-        out namespaceClaimed)
+        out namespaceClaimed
+    )
     assert namespaceClaimed
     assert namespaceAlias == typeof(System.Text.StringBuilder)
 
     rejected := typeof(object)
     rejectedClaimed := false
     assert !program.TryResolveExactExplicitTypeForFile(
-        1, "BrokenAlias", bindings, out rejected, out rejectedClaimed)
+        1,
+        "BrokenAlias",
+        bindings,
+        out rejected,
+        out rejectedClaimed
+    )
     assert rejectedClaimed
     assert rejected == typeof(object)
 
@@ -717,7 +851,8 @@ test "program exact type resolution preserves runtime and source aliases" {
         "DefinitelyMissingGeneric<int>",
         bindings,
         out unsupported,
-        out unsupportedClaimed)
+        out unsupportedClaimed
+    )
     assert !unsupportedClaimed
     assert unsupported == typeof(object)
 }

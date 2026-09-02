@@ -33,7 +33,6 @@ import NSharpLang.Compiler.Ast
 // unreachable. All three are live code a later parser change can reach and all three are pinned by
 // construction. So is the union-case property's EXPLICIT binding name, for the same reason slice 28
 // pinned the object pattern's: both parser productions pass null.
-
 class PatternAnalysisHarness {
     Analysis: AnalyzerPatternAnalysis
     Errors: List<CompilerError>
@@ -48,7 +47,8 @@ class PatternAnalysisHarness {
         context: AnalyzerDeclarationContext,
         soaEscape: AnalyzerSoaEscape,
         ambient: AnalyzerAmbientContext,
-        scopes: AnalyzerScopeStack) {
+        scopes: AnalyzerScopeStack
+    ) {
         Analysis = analysis
         Errors = errors
         Context = context
@@ -75,7 +75,8 @@ func PatternAnalysisDefault(): PatternAnalysisHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -87,10 +88,11 @@ func PatternAnalysisDefault(): PatternAnalysisHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -115,12 +117,14 @@ func PatternAnalysisDefault(): PatternAnalysisHarness {
             reachability,
             propertyBinding,
             escape,
-            ambient),
+            ambient
+        ),
         errors,
         context,
         escape,
         ambient,
-        scopes)
+        scopes
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -271,7 +275,8 @@ func PatternUnionCaseWithTwo(
     firstName: string,
     firstTypeName: string,
     secondName: string,
-    secondTypeName: string): UnionCase {
+    secondTypeName: string
+): UnionCase {
     properties := new List<UnionCaseProperty>()
     properties.Add(new UnionCaseProperty(firstName, new SimpleTypeReference(firstTypeName, 1, 1)))
     properties.Add(new UnionCaseProperty(secondName, new SimpleTypeReference(secondTypeName, 1, 1)))
@@ -296,7 +301,8 @@ func PatternUnion(
     harness: PatternAnalysisHarness,
     declaredName: string,
     typeParameters: List<TypeParameter>?,
-    cases: List<UnionCase>): UnionTypeInfo {
+    cases: List<UnionCase>
+): UnionTypeInfo {
     declared := new UnionTypeInfo(new UnionDeclarationInfo(declaredName, typeParameters, cases, 1, 1))
     declaredAsType: TypeInfo = declared
     harness.Context.RegisterCanonicalType(PatternAnalysisPath(), declaredName, declaredAsType)
@@ -321,7 +327,8 @@ func PatternClass(harness: PatternAnalysisHarness, name: string): TypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     harness.Context.RegisterCanonicalType(PatternAnalysisPath(), name, owner)
     return owner
 }
@@ -330,7 +337,8 @@ func PatternClassWithProperty(
     harness: PatternAnalysisHarness,
     name: string,
     propertyName: string,
-    propertyTypeName: string): TypeInfo {
+    propertyTypeName: string
+): TypeInfo {
     members := new DeclaredMemberInfo[](1)
     members[0] = new DeclaredMemberInfo(
         propertyName,
@@ -362,7 +370,8 @@ func PatternClassWithProperty(
         false,
         false,
         1,
-        1)
+        1
+    )
     owner: TypeInfo = new ClassTypeInfo(
         name,
         1,
@@ -374,7 +383,8 @@ func PatternClassWithProperty(
         new ParameterDeclarationInfo[](0),
         members,
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     harness.Context.RegisterCanonicalType(PatternAnalysisPath(), name, owner)
     return owner
 }
@@ -420,8 +430,7 @@ func PatternRenderStep(step: PatternAnalysisRequest): string {
     }
 
     if step.Kind == 4 {
-        return "declare:" + step.Name + ":" + PatternTypeName(step.CarriedType)
-            + ":" + step.Line.ToString() + ":" + step.Column.ToString()
+        return "declare:" + step.Name + ":" + PatternTypeName(step.CarriedType) + ":" + step.Line.ToString() + ":" + step.Column.ToString()
     }
 
     if step.Kind == 6 {
@@ -449,7 +458,8 @@ func PatternTranscriptAnswering(
     harness: PatternAnalysisHarness,
     patternNode: Pattern,
     valueType: TypeInfo,
-    answer: TypeInfo?): string {
+    answer: TypeInfo?
+): string {
     state := harness.Analysis.Begin(patternNode, valueType)
     rendered := ""
     step := harness.Analysis.NextStep(state)
@@ -473,7 +483,8 @@ func PatternTranscriptAnswering(
 func PatternTranscript(
     harness: PatternAnalysisHarness,
     patternNode: Pattern,
-    valueType: TypeInfo): string {
+    valueType: TypeInfo
+): string {
     return PatternTranscriptAnswering(harness, patternNode, valueType, BuiltInTypes.Int)
 }
 
@@ -482,7 +493,8 @@ func PatternTranscript(
 func PatternSwitchTranscript(
     harness: PatternAnalysisHarness,
     switchNode: SwitchStatement,
-    answer: TypeInfo?): string {
+    answer: TypeInfo?
+): string {
     state := harness.Analysis.BeginSwitch(switchNode)
     rendered := ""
     step := harness.Analysis.NextStep(state)
@@ -543,7 +555,8 @@ func PatternSoaColumns(): List<SoaColumnInfo> {
 
 func PatternRowType(): TypeInfo {
     row: TypeInfo = new SoaRowTypeInfo(
-        new SoaRecordDeclarationInfo("Particle", PatternSoaColumns(), 1, 1))
+        new SoaRecordDeclarationInfo("Particle", PatternSoaColumns(), 1, 1)
+    )
     return row
 }
 
@@ -555,7 +568,8 @@ func PatternRecordedColumnRead(harness: PatternAnalysisHarness): Expression {
         "x",
         false,
         7,
-        11)
+        11
+    )
     harness.SoaEscape.RecordColumnMemberAccess(member)
     read: Expression = member
     return read
@@ -568,8 +582,7 @@ func PatternRecordedColumnRead(harness: PatternAnalysisHarness): Expression {
 test "a plain name binds the scrutinee at the name's own position" {
     harness := PatternAnalysisDefault()
 
-    assert PatternTranscript(harness, PatternIdent("bound", 7, 9), BuiltInTypes.Int)
-        == "declare:bound:int:7:9"
+    assert PatternTranscript(harness, PatternIdent("bound", 7, 9), BuiltInTypes.Int) == "declare:bound:int:7:9"
     assert harness.Errors.Count == 0
 }
 
@@ -577,8 +590,7 @@ test "a NULLABLE scrutinee narrows an undotted name to the INNER type" {
     harness := PatternAnalysisDefault()
     box := PatternClass(harness, "Box")
 
-    assert PatternTranscript(harness, PatternIdent("inner", 7, 9), PatternNullableOf(box))
-        == "declare:inner:Box:7:9"
+    assert PatternTranscript(harness, PatternIdent("inner", 7, 9), PatternNullableOf(box)) == "declare:inner:Box:7:9"
     assert harness.Errors.Count == 0
 }
 
@@ -593,8 +605,7 @@ test "the discard binds NOTHING under a nullable scrutinee" {
 test "the discard is special ONLY under a nullable scrutinee — elsewhere it binds like any name" {
     harness := PatternAnalysisDefault()
 
-    assert PatternTranscript(harness, PatternIdent("_", 7, 9), BuiltInTypes.Int)
-        == "declare:_:int:7:9"
+    assert PatternTranscript(harness, PatternIdent("_", 7, 9), BuiltInTypes.Int) == "declare:_:int:7:9"
     assert harness.Errors.Count == 0
 }
 
@@ -604,7 +615,8 @@ test "a DOTTED name naming a real case binds nothing and says nothing" {
         harness,
         "Status",
         null,
-        PatternCaseList2(PatternUnionCaseBare("Open"), PatternUnionCaseBare("Closed")))
+        PatternCaseList2(PatternUnionCaseBare("Open"), PatternUnionCaseBare("Closed"))
+    )
     statusType: TypeInfo = status
 
     assert PatternTranscript(harness, PatternIdent("Status.Open", 7, 9), statusType) == "<none>"
@@ -617,13 +629,13 @@ test "a DOTTED name naming NO case reports and still binds nothing" {
         harness,
         "Status",
         null,
-        PatternCaseList2(PatternUnionCaseBare("Open"), PatternUnionCaseBare("Closed")))
+        PatternCaseList2(PatternUnionCaseBare("Open"), PatternUnionCaseBare("Closed"))
+    )
     statusType: TypeInfo = status
 
     assert PatternTranscript(harness, PatternIdent("Status.Pending", 7, 9), statusType) == "<none>"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "'Status.Pending' is not a case of union 'Status' — check the union definition for available cases"
+    assert harness.Errors[0].Message == "'Status.Pending' is not a case of union 'Status' — check the union definition for available cases"
     assert harness.Errors[0].DiagnosticId == "NL503"
     assert harness.Errors[0].Line == 7
     assert harness.Errors[0].Column == 9
@@ -634,8 +646,7 @@ test "a DOTTED name over a NON-union falls through to the plain binding" {
     harness := PatternAnalysisDefault()
     dog := PatternClass(harness, "Dog")
 
-    assert PatternTranscript(harness, PatternIdent("Dog.Puppy", 7, 9), dog)
-        == "declare:Dog.Puppy:Dog:7:9"
+    assert PatternTranscript(harness, PatternIdent("Dog.Puppy", 7, 9), dog) == "declare:Dog.Puppy:Dog:7:9"
     assert harness.Errors.Count == 0
 }
 
@@ -647,8 +658,7 @@ test "a DOTTED name skips the nullable narrowing and takes the union arm" {
     // A nullable is neither a union nor a generic instantiation, so `ResolveDeclaredUnionType`
     // declines and the dotted name falls all the way through to the plain binding — of the NULLABLE,
     // not of its inner type, because the narrowing guard was skipped by the dot.
-    assert PatternTranscript(harness, PatternIdent("Status.Open", 7, 9), PatternNullableOf(statusType))
-        == "declare:Status.Open:Status?:7:9"
+    assert PatternTranscript(harness, PatternIdent("Status.Open", 7, 9), PatternNullableOf(statusType)) == "declare:Status.Open:Status?:7:9"
     assert harness.Errors.Count == 0
 }
 
@@ -672,15 +682,15 @@ test "a case the union does not declare reports and yields no step" {
         harness,
         "Shape",
         null,
-        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int")))
+        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int"))
+    )
     shapeType: TypeInfo = shape
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyImplicit("b"))
 
     assert PatternTranscript(harness, PatternUnionCaseOf("Triangle", properties), shapeType) == "<none>"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "'Triangle' is not a case of union 'Shape' — check the union definition for available cases"
+    assert harness.Errors[0].Message == "'Triangle' is not a case of union 'Shape' — check the union definition for available cases"
     assert harness.Errors[0].DiagnosticId == "NL503"
     assert harness.Errors[0].Length == 8
 }
@@ -691,7 +701,8 @@ test "a case pattern with NO property list binds nothing and says nothing" {
         harness,
         "Shape",
         null,
-        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int")))
+        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int"))
+    )
     shapeType: TypeInfo = shape
 
     assert PatternTranscript(harness, PatternUnionCaseOf("Circle", null), shapeType) == "<none>"
@@ -704,15 +715,15 @@ test "a case with a NULL payload cannot be destructured" {
         harness,
         "Signal",
         null,
-        PatternCaseList1(PatternUnionCaseBare("Stop")))
+        PatternCaseList1(PatternUnionCaseBare("Stop"))
+    )
     signalType: TypeInfo = signal
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyImplicit("speed"))
 
     assert PatternTranscript(harness, PatternUnionCaseOf("Stop", properties), signalType) == "<none>"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "Union case 'Stop' doesn't carry any data — you can't destructure it with property patterns"
+    assert harness.Errors[0].Message == "Union case 'Stop' doesn't carry any data — you can't destructure it with property patterns"
     assert harness.Errors[0].DiagnosticId == "NL503"
 }
 
@@ -722,15 +733,15 @@ test "a case with an EMPTY payload reports the SAME message at the same span" {
         harness,
         "Signal",
         null,
-        PatternCaseList1(PatternUnionCaseEmpty("Stop")))
+        PatternCaseList1(PatternUnionCaseEmpty("Stop"))
+    )
     signalType: TypeInfo = signal
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyImplicit("speed"))
 
     assert PatternTranscript(harness, PatternUnionCaseOf("Stop", properties), signalType) == "<none>"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "Union case 'Stop' doesn't carry any data — you can't destructure it with property patterns"
+    assert harness.Errors[0].Message == "Union case 'Stop' doesn't carry any data — you can't destructure it with property patterns"
     assert harness.Errors[0].Line == 7
     assert harness.Errors[0].Column == 9
     assert harness.Errors[0].Length == 4
@@ -742,14 +753,14 @@ test "the case's properties arrive in WRITTEN order, one step each" {
         harness,
         "Shape",
         null,
-        PatternCaseList1(PatternUnionCaseWithTwo("Box", "width", "int", "label", "string")))
+        PatternCaseList1(PatternUnionCaseWithTwo("Box", "width", "int", "label", "string"))
+    )
     shapeType: TypeInfo = shape
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyNested("width", PatternIdent("w", 7, 20)))
     properties.Add(PatternPropertyImplicit("label"))
 
-    assert PatternTranscript(harness, PatternUnionCaseOf("Box", properties), shapeType)
-        == "analyze:IdentifierPattern:int|declare:label:string:7:11"
+    assert PatternTranscript(harness, PatternUnionCaseOf("Box", properties), shapeType) == "analyze:IdentifierPattern:int|declare:label:string:7:11"
     assert harness.Errors.Count == 0
 }
 
@@ -759,15 +770,15 @@ test "a case property the case does not carry reports and yields no step" {
         harness,
         "Shape",
         null,
-        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int")))
+        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int"))
+    )
     shapeType: TypeInfo = shape
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyAt("diameter", 7, 20))
 
     assert PatternTranscript(harness, PatternUnionCaseOf("Circle", properties), shapeType) == "<none>"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "Union case 'Circle' doesn't have a property named 'diameter' — check the case definition for available properties"
+    assert harness.Errors[0].Message == "Union case 'Circle' doesn't have a property named 'diameter' — check the case definition for available properties"
     assert harness.Errors[0].DiagnosticId == "NL503"
     assert harness.Errors[0].Line == 7
     assert harness.Errors[0].Column == 20
@@ -780,7 +791,8 @@ test "a missing case property REPORTS WHERE IT SITS — between the step before 
         harness,
         "Shape",
         null,
-        PatternCaseList1(PatternUnionCaseWithTwo("Box", "width", "int", "label", "string")))
+        PatternCaseList1(PatternUnionCaseWithTwo("Box", "width", "int", "label", "string"))
+    )
     shapeType: TypeInfo = shape
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyNested("width", PatternIdent("w", 7, 20)))
@@ -803,8 +815,7 @@ test "a missing case property REPORTS WHERE IT SITS — between the step before 
     // The report landed while advancing PAST `depth` — after the first step was handed over and
     // before the second was. A schedule computed up front would have reported before either.
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "Union case 'Box' doesn't have a property named 'depth' — check the case definition for available properties"
+    assert harness.Errors[0].Message == "Union case 'Box' doesn't have a property named 'depth' — check the case definition for available properties"
     harness.Analysis.Supply(state, null)
     assert harness.Analysis.NextStep(state) == null
 }
@@ -815,15 +826,15 @@ test "two missing case properties report twice, in written order, and neither st
         harness,
         "Shape",
         null,
-        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int")))
+        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int"))
+    )
     shapeType: TypeInfo = shape
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyAt("diameter", 7, 20))
     properties.Add(PatternPropertyImplicit("r"))
     properties.Add(PatternPropertyAt("girth", 7, 40))
 
-    assert PatternTranscript(harness, PatternUnionCaseOf("Circle", properties), shapeType)
-        == "declare:r:int:7:11"
+    assert PatternTranscript(harness, PatternUnionCaseOf("Circle", properties), shapeType) == "declare:r:int:7:11"
     assert harness.Errors.Count == 2
     assert harness.Errors[0].Column == 20
     assert harness.Errors[1].Column == 40
@@ -835,32 +846,32 @@ test "the SUBSTITUTION is what closes a generic union's case property" {
         harness,
         "Result",
         PatternOneTypeParameter("T"),
-        PatternCaseList1(PatternUnionCaseWith("Ok", "value", "T")))
+        PatternCaseList1(PatternUnionCaseWith("Ok", "value", "T"))
+    )
     resultType: TypeInfo = result
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyImplicit("value"))
 
     // The open union types its own case property by the type PARAMETER; the closed instantiation
     // types it by the argument, and nothing else about the arm changes.
-    assert PatternTranscript(harness, PatternUnionCaseOf("Ok", properties), resultType)
-        == "declare:value:T:7:11"
+    assert PatternTranscript(harness, PatternUnionCaseOf("Ok", properties), resultType) == "declare:value:T:7:11"
     assert PatternTranscript(
-            harness,
-            PatternUnionCaseOf("Ok", properties),
-            PatternGenericOf("Result", BuiltInTypes.Int, resultType))
-        == "declare:value:int:7:11"
+        harness,
+        PatternUnionCaseOf("Ok", properties),
+        PatternGenericOf("Result", BuiltInTypes.Int, resultType)
+    ) == "declare:value:int:7:11"
     assert PatternTranscript(
-            harness,
-            PatternUnionCaseOf("Ok", properties),
-            PatternGenericOf("Result", BuiltInTypes.String, resultType))
-        == "declare:value:string:7:11"
+        harness,
+        PatternUnionCaseOf("Ok", properties),
+        PatternGenericOf("Result", BuiltInTypes.String, resultType)
+    ) == "declare:value:string:7:11"
     // An instantiation whose definition does not resolve is NOT a union here, and the whole arm is
     // silent rather than partially bound.
     assert PatternTranscript(
-            harness,
-            PatternUnionCaseOf("Ok", properties),
-            PatternGenericOf("Result", BuiltInTypes.Int, null))
-        == "<none>"
+        harness,
+        PatternUnionCaseOf("Ok", properties),
+        PatternGenericOf("Result", BuiltInTypes.Int, null)
+    ) == "<none>"
     assert harness.Errors.Count == 0
 }
 
@@ -870,13 +881,13 @@ test "an EXPLICIT case-property binding name wins — an arm no parser productio
         harness,
         "Shape",
         null,
-        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int")))
+        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int"))
+    )
     shapeType: TypeInfo = shape
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyNamed("r", "radius"))
 
-    assert PatternTranscript(harness, PatternUnionCaseOf("Circle", properties), shapeType)
-        == "declare:radius:int:7:11"
+    assert PatternTranscript(harness, PatternUnionCaseOf("Circle", properties), shapeType) == "declare:radius:int:7:11"
     assert harness.Errors.Count == 0
 }
 
@@ -886,13 +897,13 @@ test "a case property with no position of its own is anchored on the ENCLOSING p
         harness,
         "Shape",
         null,
-        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int")))
+        PatternCaseList1(PatternUnionCaseWith("Circle", "r", "int"))
+    )
     shapeType: TypeInfo = shape
     properties := PatternPropertyList0()
     properties.Add(PatternPropertyAt("r", 0, 0))
 
-    assert PatternTranscript(harness, PatternUnionCaseOf("Circle", properties), shapeType)
-        == "declare:r:int:7:9"
+    assert PatternTranscript(harness, PatternUnionCaseOf("Circle", properties), shapeType) == "declare:r:int:7:9"
     assert harness.Errors.Count == 0
 }
 
@@ -903,8 +914,7 @@ test "a case property with no position of its own is anchored on the ENCLOSING p
 test "a literal pattern suspends ONCE — its two escape reports are no longer driver steps" {
     harness := PatternAnalysisDefault()
 
-    assert PatternTranscript(harness, PatternLiteralOf(3), BuiltInTypes.Int)
-        == "expr:IntLiteralExpression"
+    assert PatternTranscript(harness, PatternLiteralOf(3), BuiltInTypes.Int) == "expr:IntLiteralExpression"
     assert harness.Errors.Count == 0
 }
 
@@ -916,14 +926,13 @@ test "the literal arm's row report MEASURES the type the analysis before it answ
     // step. This is a strictly stronger pinning than the driver boolean it replaced — the reporter
     // itself decides now.
     assert PatternTranscriptAnswering(
-            harness,
-            PatternLiteralOf(3),
-            BuiltInTypes.Int,
-            PatternRowType())
-        == "expr:IntLiteralExpression"
+        harness,
+        PatternLiteralOf(3),
+        BuiltInTypes.Int,
+        PatternRowType()
+    ) == "expr:IntLiteralExpression"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a pattern value; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a pattern value; use the table and row index instead"
 }
 
 test "the literal arm never short-circuits — a row view AND a column read both report" {
@@ -931,18 +940,16 @@ test "the literal arm never short-circuits — a row view AND a column read both
     columnRead := PatternRecordedColumnRead(harness)
 
     assert PatternTranscriptAnswering(
-            harness,
-            PatternLiteralOfNode(columnRead),
-            BuiltInTypes.Int,
-            PatternRowType())
-        == "expr:MemberAccessExpression"
+        harness,
+        PatternLiteralOfNode(columnRead),
+        BuiltInTypes.Int,
+        PatternRowType()
+    ) == "expr:MemberAccessExpression"
     // TWO diagnostics on one literal. Every other arm in this family and in the loop family stops at
     // the first; the literal arm does not, and that is `Analyzer.cs`'s behaviour preserved.
     assert harness.Errors.Count == 2
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a pattern value; use the table and row index instead"
-    assert harness.Errors[1].Message
-        == "SoA table member 'x' cannot be used as a pattern value directly"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a pattern value; use the table and row index instead"
+    assert harness.Errors[1].Message == "SoA table member 'x' cannot be used as a pattern value directly"
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -953,11 +960,11 @@ test "a relational pattern suspends once, then judges comparability" {
     harness := PatternAnalysisDefault()
 
     assert PatternTranscriptAnswering(
-            harness,
-            PatternRelationalOf(">", 3),
-            BuiltInTypes.Int,
-            BuiltInTypes.Int)
-        == "expr:IntLiteralExpression"
+        harness,
+        PatternRelationalOf(">", 3),
+        BuiltInTypes.Int,
+        BuiltInTypes.Int
+    ) == "expr:IntLiteralExpression"
     assert harness.Errors.Count == 0
 }
 
@@ -967,14 +974,13 @@ test "an ESCAPING bound stops the chain before the column probe and before the j
     // The row report fires, so the direct-column probe is not run and the comparability judgement is
     // not asked at all — ONE diagnostic, not two, and no NL202 for the `int` versus row-view pair.
     assert PatternTranscriptAnswering(
-            harness,
-            PatternRelationalOf(">", 3),
-            BuiltInTypes.Int,
-            PatternRowType())
-        == "expr:IntLiteralExpression"
+        harness,
+        PatternRelationalOf(">", 3),
+        BuiltInTypes.Int,
+        PatternRowType()
+    ) == "expr:IntLiteralExpression"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a relational pattern value; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a relational pattern value; use the table and row index instead"
 }
 
 test "a DIRECT-COLUMN bound reports once, with the row report silent and the judgement skipped" {
@@ -987,14 +993,13 @@ test "a DIRECT-COLUMN bound reports once, with the row report silent and the jud
     // by a fixture, and what it must do is suppress the comparability report that `int` versus
     // `string` would otherwise raise.
     assert PatternTranscriptAnswering(
-            harness,
-            PatternRelationalOfNode(">", columnRead),
-            BuiltInTypes.Int,
-            BuiltInTypes.String)
-        == "expr:MemberAccessExpression"
+        harness,
+        PatternRelationalOfNode(">", columnRead),
+        BuiltInTypes.Int,
+        BuiltInTypes.String
+    ) == "expr:MemberAccessExpression"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA table member 'x' cannot be used as a relational pattern value directly"
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be used as a relational pattern value directly"
 }
 
 test "the comparability judgement is handed the ANSWERED type, not the scrutinee" {
@@ -1002,17 +1007,16 @@ test "the comparability judgement is handed the ANSWERED type, not the scrutinee
 
     // `int` against a bound the driver typed `string` is exactly the mismatch the judgement reports.
     assert PatternTranscriptAnswering(
-            harness,
-            PatternRelationalOf(">", 3),
-            BuiltInTypes.Int,
-            BuiltInTypes.String)
-        == "expr:IntLiteralExpression"
+        harness,
+        PatternRelationalOf(">", 3),
+        BuiltInTypes.Int,
+        BuiltInTypes.String
+    ) == "expr:IntLiteralExpression"
     assert harness.Errors.Count == 1
     // The comparability report belongs to the SHAPE owner and carries the general type-mismatch
     // code, not the pattern family's own NL503/NL504.
     assert harness.Errors[0].DiagnosticId == "NL202"
-    assert harness.Errors[0].Message
-        == "Relational pattern '>' can't compare 'int' with 'string' before IL emission"
+    assert harness.Errors[0].Message == "Relational pattern '>' can't compare 'int' with 'string' before IL emission"
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1023,8 +1027,7 @@ test "an AND pattern analyses left then right, both against the scrutinee" {
     harness := PatternAnalysisDefault()
     node := PatternAndOf(PatternIdent("a", 7, 9), PatternIdent("b", 7, 15))
 
-    assert PatternTranscript(harness, node, BuiltInTypes.Int)
-        == "analyze:IdentifierPattern:int|analyze:IdentifierPattern:int"
+    assert PatternTranscript(harness, node, BuiltInTypes.Int) == "analyze:IdentifierPattern:int|analyze:IdentifierPattern:int"
     assert harness.Errors.Count == 0
 }
 
@@ -1032,16 +1035,14 @@ test "an OR pattern analyses left then right, both against the scrutinee" {
     harness := PatternAnalysisDefault()
     node := PatternOrOf(PatternIdent("a", 7, 9), PatternIdent("b", 7, 15))
 
-    assert PatternTranscript(harness, node, BuiltInTypes.String)
-        == "analyze:IdentifierPattern:string|analyze:IdentifierPattern:string"
+    assert PatternTranscript(harness, node, BuiltInTypes.String) == "analyze:IdentifierPattern:string|analyze:IdentifierPattern:string"
     assert harness.Errors.Count == 0
 }
 
 test "a NOT pattern yields exactly one step" {
     harness := PatternAnalysisDefault()
 
-    assert PatternTranscript(harness, PatternNotOf(PatternIdent("a", 7, 9)), BuiltInTypes.Int)
-        == "analyze:IdentifierPattern:int"
+    assert PatternTranscript(harness, PatternNotOf(PatternIdent("a", 7, 9)), BuiltInTypes.Int) == "analyze:IdentifierPattern:int"
     assert harness.Errors.Count == 0
 }
 
@@ -1050,18 +1051,17 @@ test "a POSITIONAL pattern analyses every element against the SCRUTINEE, not a p
     elements := PatternNodeList3(
         PatternIdent("a", 7, 9),
         PatternLiteralOf(1),
-        PatternIdent("c", 7, 20))
+        PatternIdent("c", 7, 20)
+    )
 
-    assert PatternTranscript(harness, PatternPositionalOf(elements), BuiltInTypes.Int)
-        == "analyze:IdentifierPattern:int|analyze:LiteralPattern:int|analyze:IdentifierPattern:int"
+    assert PatternTranscript(harness, PatternPositionalOf(elements), BuiltInTypes.Int) == "analyze:IdentifierPattern:int|analyze:LiteralPattern:int|analyze:IdentifierPattern:int"
     assert harness.Errors.Count == 0
 }
 
 test "an EMPTY positional pattern yields no step" {
     harness := PatternAnalysisDefault()
 
-    assert PatternTranscript(harness, PatternPositionalOf(PatternNodeList0()), BuiltInTypes.Int)
-        == "<none>"
+    assert PatternTranscript(harness, PatternPositionalOf(PatternNodeList0()), BuiltInTypes.Int) == "<none>"
     assert harness.Errors.Count == 0
 }
 
@@ -1076,8 +1076,7 @@ test "the object arm forwards the property walk's two requests as its own" {
     properties.Add(PatternPropertyNested("Age", PatternIdent("a", 7, 20)))
     properties.Add(PatternPropertyImplicit("Age"))
 
-    assert PatternTranscript(harness, PatternObjectOf(properties), dog)
-        == "analyze:IdentifierPattern:int|declare:Age:int:7:11"
+    assert PatternTranscript(harness, PatternObjectOf(properties), dog) == "analyze:IdentifierPattern:int|declare:Age:int:7:11"
     assert harness.Errors.Count == 0
 }
 
@@ -1121,8 +1120,7 @@ test "a list pattern analyses every element against the ONE element type" {
     harness := PatternAnalysisDefault()
     elements := PatternNodeList2(PatternIdent("a", 7, 11), PatternLiteralOf(2))
 
-    assert PatternTranscript(harness, PatternListOf(elements), PatternArrayOf(BuiltInTypes.String))
-        == "analyze:IdentifierPattern:string|analyze:LiteralPattern:string"
+    assert PatternTranscript(harness, PatternListOf(elements), PatternArrayOf(BuiltInTypes.String)) == "analyze:IdentifierPattern:string|analyze:LiteralPattern:string"
     assert harness.Errors.Count == 0
 }
 
@@ -1130,8 +1128,7 @@ test "a slice element binds an ARRAY of the element type at the LIST pattern's p
     harness := PatternAnalysisDefault()
     elements := PatternNodeList2(PatternLiteralOf(1), PatternSliceOf("rest"))
 
-    assert PatternTranscript(harness, PatternListOf(elements), PatternArrayOf(BuiltInTypes.Int))
-        == "analyze:LiteralPattern:int|declare:rest:int[]:7:9"
+    assert PatternTranscript(harness, PatternListOf(elements), PatternArrayOf(BuiltInTypes.Int)) == "analyze:LiteralPattern:int|declare:rest:int[]:7:9"
     assert harness.Errors.Count == 0
 }
 
@@ -1139,8 +1136,7 @@ test "a slice element with NO binding name is passed over in silence" {
     harness := PatternAnalysisDefault()
     elements := PatternNodeList2(PatternLiteralOf(1), PatternSliceOf(null))
 
-    assert PatternTranscript(harness, PatternListOf(elements), PatternArrayOf(BuiltInTypes.Int))
-        == "analyze:LiteralPattern:int"
+    assert PatternTranscript(harness, PatternListOf(elements), PatternArrayOf(BuiltInTypes.Int)) == "analyze:LiteralPattern:int"
     assert harness.Errors.Count == 0
 }
 
@@ -1149,18 +1145,17 @@ test "two bound slices both declare, and the element between them is still analy
     elements := PatternNodeList3(
         PatternSliceOf("head"),
         PatternLiteralOf(1),
-        PatternSliceOf("tail"))
+        PatternSliceOf("tail")
+    )
 
-    assert PatternTranscript(harness, PatternListOf(elements), PatternArrayOf(BuiltInTypes.Int))
-        == "declare:head:int[]:7:9|analyze:LiteralPattern:int|declare:tail:int[]:7:9"
+    assert PatternTranscript(harness, PatternListOf(elements), PatternArrayOf(BuiltInTypes.Int)) == "declare:head:int[]:7:9|analyze:LiteralPattern:int|declare:tail:int[]:7:9"
     assert harness.Errors.Count == 0
 }
 
 test "an EMPTY list pattern yields no step" {
     harness := PatternAnalysisDefault()
 
-    assert PatternTranscript(harness, PatternListOf(PatternNodeList0()), PatternArrayOf(BuiltInTypes.Int))
-        == "<none>"
+    assert PatternTranscript(harness, PatternListOf(PatternNodeList0()), PatternArrayOf(BuiltInTypes.Int)) == "<none>"
     assert harness.Errors.Count == 0
 }
 
@@ -1171,8 +1166,7 @@ test "a list pattern over a NON-list scrutinee still analyses its elements, agai
 
     // The shape owner reports the bad scrutinee ONCE and answers `unknown`, so the elements are
     // still analysed and one bad list does not cascade into one report per element.
-    assert PatternTranscript(harness, PatternListOf(elements), dog)
-        == "analyze:IdentifierPattern:unknown"
+    assert PatternTranscript(harness, PatternListOf(elements), dog) == "analyze:IdentifierPattern:unknown"
     assert harness.Errors.Count == 1
     assert harness.Errors[0].DiagnosticId == "NL504"
 }
@@ -1188,8 +1182,7 @@ test "a type pattern binds the TARGET type at the pattern's position" {
     // project discovery, not through the declaration context's canonical registry, so a class
     // registered on the harness resolves to a different `TypeInfo` than the scrutinee and the
     // reachability judgement then refuses a type against itself.
-    assert PatternTranscript(harness, PatternTypeOf("int", "d"), BuiltInTypes.Int)
-        == "declare:d:int:7:9"
+    assert PatternTranscript(harness, PatternTypeOf("int", "d"), BuiltInTypes.Int) == "declare:d:int:7:9"
     assert harness.Errors.Count == 0
 }
 
@@ -1207,8 +1200,7 @@ test "an IMPOSSIBLE type pattern reports and STILL binds" {
 
     // An `int` is never a `string`, and the binding happens anyway — the reachability report does
     // not suppress the declaration.
-    assert PatternTranscript(harness, PatternTypeOf("string", "s"), BuiltInTypes.Int)
-        == "declare:s:string:7:9"
+    assert PatternTranscript(harness, PatternTypeOf("string", "s"), BuiltInTypes.Int) == "declare:s:string:7:9"
     assert harness.Errors.Count == 1
     assert harness.Errors[0].DiagnosticId == "NL506"
 }
@@ -1222,8 +1214,7 @@ test "a BARE slice binds an array of the SCRUTINEE, not of an element type" {
 
     // The recovery parser builds a SlicePattern only INSIDE a list pattern, so this arm is
     // unreachable from source; it is live code a later parser change can reach.
-    assert PatternTranscript(harness, PatternSliceOf("rest"), BuiltInTypes.Int)
-        == "declare:rest:int[]:7:9"
+    assert PatternTranscript(harness, PatternSliceOf("rest"), BuiltInTypes.Int) == "declare:rest:int[]:7:9"
     assert harness.Errors.Count == 0
 }
 
@@ -1311,8 +1302,7 @@ test "a fresh switch state opens in its own form and its own phase band" {
 test "a switch with no cases analyses its value and nothing else" {
     harness := PatternAnalysisDefault()
 
-    assert PatternSwitchTranscript(harness, PatternSwitchOf(PatternSwitchCases0()), BuiltInTypes.Int)
-        == "expr:IdentifierExpression"
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(PatternSwitchCases0()), BuiltInTypes.Int) == "expr:IdentifierExpression"
     assert harness.Errors.Count == 0
 }
 
@@ -1321,8 +1311,7 @@ test "one case opens a scope, analyses its pattern, analyses its body, closes th
     cases := PatternSwitchCases0()
     cases.Add(PatternCaseOf(PatternIdent("bound", 7, 9), PatternStatementList1("hit"), 6, 5))
 
-    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int)
-        == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:int|stmts:1|scope-"
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int) == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:int|stmts:1|scope-"
     assert harness.Errors.Count == 0
 }
 
@@ -1334,8 +1323,7 @@ test "the case scope is positioned at the SWITCH, not at the case and not at the
     // deliberately does not, because `Analyzer.cs` did not.
     cases.Add(PatternCaseOf(PatternIdent("bound", 7, 9), PatternStatementList0(), 6, 5))
 
-    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int)
-        == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:int|stmts:0|scope-"
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int) == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:int|stmts:0|scope-"
 }
 
 test "a DEFAULT case still opens and closes its own scope, with no pattern step between" {
@@ -1343,8 +1331,7 @@ test "a DEFAULT case still opens and closes its own scope, with no pattern step 
     cases := PatternSwitchCases0()
     cases.Add(PatternCaseOf(null, PatternStatementList1("fallback"), 6, 5))
 
-    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int)
-        == "expr:IdentifierExpression|scope+:4:5|stmts:1|scope-"
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int) == "expr:IdentifierExpression|scope+:4:5|stmts:1|scope-"
     assert harness.Errors.Count == 0
 }
 
@@ -1355,11 +1342,7 @@ test "three cases replay the four operations three times, and every scope is bal
     cases.Add(PatternCaseOf(PatternIdent("b", 8, 9), PatternStatementList0(), 7, 5))
     cases.Add(PatternCaseOf(null, PatternStatementList1("d"), 8, 5))
 
-    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int)
-        == "expr:IdentifierExpression"
-            + "|scope+:4:5|analyze:IdentifierPattern:int|stmts:1|scope-"
-            + "|scope+:4:5|analyze:IdentifierPattern:int|stmts:0|scope-"
-            + "|scope+:4:5|stmts:1|scope-"
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.Int) == "expr:IdentifierExpression" + "|scope+:4:5|analyze:IdentifierPattern:int|stmts:1|scope-" + "|scope+:4:5|analyze:IdentifierPattern:int|stmts:0|scope-" + "|scope+:4:5|stmts:1|scope-"
     assert harness.Errors.Count == 0
 }
 
@@ -1368,8 +1351,7 @@ test "every case pattern is measured against the value's ANSWERED type, not the 
     cases := PatternSwitchCases0()
     cases.Add(PatternCaseOf(PatternIdent("a", 7, 9), PatternStatementList0(), 6, 5))
 
-    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.String)
-        == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:string|stmts:0|scope-"
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), BuiltInTypes.String) == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:string|stmts:0|scope-"
 }
 
 test "a ROW-VIEW switch value reports once and collapses every case pattern to unknown" {
@@ -1377,11 +1359,9 @@ test "a ROW-VIEW switch value reports once and collapses every case pattern to u
     cases := PatternSwitchCases0()
     cases.Add(PatternCaseOf(PatternIdent("a", 7, 9), PatternStatementList0(), 6, 5))
 
-    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), PatternRowType())
-        == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:unknown|stmts:0|scope-"
+    assert PatternSwitchTranscript(harness, PatternSwitchOf(cases), PatternRowType()) == "expr:IdentifierExpression|scope+:4:5|analyze:IdentifierPattern:unknown|stmts:0|scope-"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a switch value; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a switch value; use the table and row index instead"
 }
 
 test "the switch value's row report SHORT-CIRCUITS the column probe" {
@@ -1391,11 +1371,9 @@ test "the switch value's row report SHORT-CIRCUITS the column probe" {
 
     // The value is BOTH a row view by type and a recorded column read by syntax. `switch` joins its
     // two reports with `||`, so only the first fires — unlike `print`, which reports both.
-    assert PatternSwitchTranscript(harness, switchNode, PatternRowType())
-        == "expr:MemberAccessExpression"
+    assert PatternSwitchTranscript(harness, switchNode, PatternRowType()) == "expr:MemberAccessExpression"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a switch value; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a switch value; use the table and row index instead"
 }
 
 test "a DIRECT-COLUMN switch value reports the column form and also collapses to unknown" {
@@ -1405,11 +1383,9 @@ test "a DIRECT-COLUMN switch value reports the column form and also collapses to
     cases.Add(PatternCaseOf(PatternIdent("a", 7, 9), PatternStatementList0(), 6, 5))
     switchNode := new SwitchStatement(columnRead, cases, 4, 5)
 
-    assert PatternSwitchTranscript(harness, switchNode, BuiltInTypes.Int)
-        == "expr:MemberAccessExpression|scope+:4:5|analyze:IdentifierPattern:unknown|stmts:0|scope-"
+    assert PatternSwitchTranscript(harness, switchNode, BuiltInTypes.Int) == "expr:MemberAccessExpression|scope+:4:5|analyze:IdentifierPattern:unknown|stmts:0|scope-"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA table member 'x' cannot be used as a switch value directly"
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be used as a switch value directly"
 }
 
 test "the switch moves ONLY the break target's finally depth, and restores it on the way out" {
@@ -1460,4 +1436,3 @@ test "an exhausted switch walk keeps answering null rather than replaying its ca
     assert harness.Analysis.NextStep(state) == null
     assert harness.Analysis.NextStep(state) == null
 }
-

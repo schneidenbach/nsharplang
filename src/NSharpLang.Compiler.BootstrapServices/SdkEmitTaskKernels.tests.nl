@@ -17,7 +17,6 @@ import NSharpLang.Compiler
 // The task used to restate the `DEBUG` rule and re-implement the define splitter. Both now reach the
 // owners `nlc` itself uses, so "resolves `#if` identically to `nlc`" is a shared owner rather than a
 // hopeful comment.
-
 test "an MSBuild build defines DEBUG for every configuration except the release one" {
     debugBuild := new ProjectConfig()
     SdkEmitTaskKernels.ApplyMsBuildDefines(debugBuild, "Debug", null)

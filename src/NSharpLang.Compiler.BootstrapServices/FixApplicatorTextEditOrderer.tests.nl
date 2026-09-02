@@ -36,7 +36,6 @@ import NSharpLang.Compiler.CodeIntelligence
 // pair of broken sorts would still have to satisfy separately.
 
 // ── The generator that replaces System.Random ─────────────────────────────────────────────────────
-
 func FteoSeed(seed: int): int[] {
     state := new int[](1)
     state[0] = seed

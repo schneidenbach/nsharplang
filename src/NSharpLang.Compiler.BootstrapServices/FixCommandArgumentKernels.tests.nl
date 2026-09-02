@@ -16,7 +16,6 @@ namespace NSharpLang.Cli.Commands
 // proved that `nlc check` REACHES it.
 
 // ── the fix argument summary ──────────────────────────────────────────────────
-
 test "the fix argument summary separates a positional project from the --project option" {
     summary := FixCommandArgumentKernels.GetArgumentSummary([
         "--dry-run",

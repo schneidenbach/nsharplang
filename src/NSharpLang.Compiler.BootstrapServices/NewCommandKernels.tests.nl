@@ -16,7 +16,6 @@ import NSharpLang.Compiler
 // `nlc new systems-cli PacketTool`.
 
 // ── the argument summary ──────────────────────────────────────────────────────
-
 test "the new argument summary reads the template option, the systems flag and the help flag" {
     summary := NewCommandKernels.GetArgumentSummary(["--template", "library", "--systems", "PacketCore", "-h"])
 
@@ -294,28 +293,13 @@ test "the systems-lib project.yml is the same profile as a LIBRARY with no entry
 // ── the generated global.json and NuGet.config ────────────────────────────────
 
 test "the generated global.json pins the SDK feature band and the MSBuild SDK version" {
-    assert NewCommandKernels.GetGlobalJsonText() == "{\n"
-        + "  \"sdk\": {\n"
-        + "    \"version\": \"10.0.100\",\n"
-        + "    \"rollForward\": \"latestFeature\"\n"
-        + "  },\n"
-        + "  \"msbuild-sdks\": {\n"
-        + "    \"NSharpLang.Sdk\": \"0.1.0\"\n"
-        + "  }\n"
-        + "}\n"
+    assert NewCommandKernels.GetGlobalJsonText() == "{\n" + "  \"sdk\": {\n" + "    \"version\": \"10.0.100\",\n" + "    \"rollForward\": \"latestFeature\"\n" + "  },\n" + "  \"msbuild-sdks\": {\n" + "    \"NSharpLang.Sdk\": \"0.1.0\"\n" + "  }\n" + "}\n"
 }
 
 test "the generated NuGet.config clears inherited sources and adds nuget.org plus the local feed" {
     defaultNuGetConfig := NewCommandKernels.GetNuGetConfigText("%HOME%/.nsharp/packages")
 
-    assert defaultNuGetConfig == "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-        + "<configuration>\n"
-        + "  <packageSources>\n"
-        + "    <clear />\n"
-        + "    <add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" />\n"
-        + "    <add key=\"nsharp-local\" value=\"%HOME%/.nsharp/packages\" />\n"
-        + "  </packageSources>\n"
-        + "</configuration>\n"
+    assert defaultNuGetConfig == "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" + "<configuration>\n" + "  <packageSources>\n" + "    <clear />\n" + "    <add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" />\n" + "    <add key=\"nsharp-local\" value=\"%HOME%/.nsharp/packages\" />\n" + "  </packageSources>\n" + "</configuration>\n"
 }
 
 test "the feed path is XML-attribute escaped, all five characters" {

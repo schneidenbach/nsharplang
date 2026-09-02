@@ -10,7 +10,6 @@ import NSharpLang.Compiler
 // value, so none of this family needs the spawned-CLI route.
 
 // ── the project-reference deduplicator ────────────────────────────────────────
-
 test "duplicate project references collapse case-insensitively, keeping the FIRST spelling" {
     deduplicated := RestoreCommandKernels.DeduplicateProjectReferences([
         "../Shared/Shared.csproj",
@@ -101,7 +100,8 @@ test "the generated props file is exactly this, and carries no ItemGroup without
         "il",
         "xunit",
         "Microsoft.NET.Sdk",
-        new string[](0))
+        new string[](0)
+    )
 
     assert propsWithoutReferences == "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Exe</OutputType>\n    <_NSharpOriginalOutputType>Exe</_NSharpOriginalOutputType>\n    <AssemblyName>Demo</AssemblyName>\n    <NSharpCompilationBackend>il</NSharpCompilationBackend>\n    <NSharpTestFramework>xunit</NSharpTestFramework>\n    <_NSharpBaseSdk>Microsoft.NET.Sdk</_NSharpBaseSdk>\n  </PropertyGroup>\n</Project>\n"
     assert !propsWithoutReferences.Contains("<ItemGroup>")
@@ -115,7 +115,8 @@ test "a project reference is written as an escaped ProjectReference item" {
         "il",
         "nunit",
         "Microsoft.NET.Sdk.Web",
-        ["../Shared/Shared.csproj", "/tmp/a&b<c>d\"e.csproj"])
+        ["../Shared/Shared.csproj", "/tmp/a&b<c>d\"e.csproj"]
+    )
 
     assert propsWithReferences.Contains("    <ProjectReference Include=\"../Shared/Shared.csproj\" />\n")
     // ALL FIVE XML attribute escapes are applied, which is what keeps a path with a quote in it
@@ -135,7 +136,8 @@ test "the props file carries the OTHER output type and SDK through unchanged" {
         "il",
         "nunit",
         "Microsoft.NET.Sdk.Web",
-        ["../Shared/Shared.csproj"])
+        ["../Shared/Shared.csproj"]
+    )
 
     assert propsWithReferences.Contains("<OutputType>Library</OutputType>")
     assert propsWithReferences.Contains("<_NSharpOriginalOutputType>Library</_NSharpOriginalOutputType>")

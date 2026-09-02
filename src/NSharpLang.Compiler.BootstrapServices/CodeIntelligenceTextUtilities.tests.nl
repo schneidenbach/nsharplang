@@ -21,11 +21,9 @@ import System
 // escapes; a normal string ends on the first UNESCAPED `"` or at the end of its LINE; the two
 // interpolated forms differ from those and from each other in where their content starts. The
 // assertions are grouped that way so that a scan broken in one form fails in its own group.
-
 func TuInside(text: string, line: int, character: int): bool {
     return CodeIntelligenceTextUtilities.IsEditorPositionInsideStringLiteral(text, line, character)
 }
-
 
 // ── a plain string literal ─────────────────────────────────────────────────────────────────────
 
@@ -70,7 +68,6 @@ test "an unterminated literal swallows the rest of its own line" {
     assert !TuInside(text, 0, 4)
 }
 
-
 // ── a raw string literal ───────────────────────────────────────────────────────────────────────
 
 test "a position inside a raw literal is inside" {
@@ -80,7 +77,6 @@ test "a position inside a raw literal is inside" {
     assert TuInside(text, 0, 12)
     assert !TuInside(text, 0, 5)
 }
-
 
 // ── an interpolated literal, where the holes are code ──────────────────────────────────────────
 
@@ -114,7 +110,6 @@ test "a raw interpolated literal separates its holes from its text the same way"
     assert !TuInside(text, 0, 13)
     assert TuInside(text, 0, 15)
 }
-
 
 // ── the position itself ────────────────────────────────────────────────────────────────────────
 

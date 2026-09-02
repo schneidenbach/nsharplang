@@ -66,20 +66,28 @@ func ExternalGuardPersistedBuilder(fullName: string, genericParameterCount: int,
     // lives in System.Reflection.Emit, so the owner-assembly lookup the other fixtures use cannot
     // find it. Resolve it by assembly-qualified name instead.
     persistedBuilderType := Type.GetType(
-        "System.Reflection.Emit.PersistedAssemblyBuilder, System.Reflection.Emit")
+        "System.Reflection.Emit.PersistedAssemblyBuilder, System.Reflection.Emit"
+    )
     if persistedBuilderType == null {
         throw new InvalidOperationException(
-            "System.Reflection.Emit.PersistedAssemblyBuilder was not found.")
+            "System.Reflection.Emit.PersistedAssemblyBuilder was not found."
+        )
     }
     moduleBuilderType := TypeOfRequiredRuntimeType(
-        typeof(TypeBuilder), "System.Reflection.Emit.ModuleBuilder")
+        typeof(TypeBuilder),
+        "System.Reflection.Emit.ModuleBuilder"
+    )
     typeAttributesType := TypeOfRequiredRuntimeType(
-        typeof(AssemblyName), "System.Reflection.TypeAttributes")
+        typeof(AssemblyName),
+        "System.Reflection.TypeAttributes"
+    )
 
     assemblyNameConstructorTypes := new Type[](1)
     assemblyNameConstructorTypes[0] = typeof(string)
     assemblyNameConstructor := ExecutorRequiredConstructor(
-        typeof(AssemblyName), assemblyNameConstructorTypes)
+        typeof(AssemblyName),
+        assemblyNameConstructorTypes
+    )
     assemblyNameArguments := new object[](1)
     ExecutorSetObject(assemblyNameArguments, 0, "ExternalTypeGuardPersistedAsm")
     assemblyName := TypeOfRequiredConstruction(assemblyNameConstructor, assemblyNameArguments)
@@ -104,7 +112,8 @@ func ExternalGuardPersistedBuilder(fullName: string, genericParameterCount: int,
 
     if persistedConstructor == null {
         throw new InvalidOperationException(
-            "PersistedAssemblyBuilder has no (AssemblyName, Assembly, ...) constructor.")
+            "PersistedAssemblyBuilder has no (AssemblyName, Assembly, ...) constructor."
+        )
     }
 
     persistedArguments := new object[](persistedParameterCount)
@@ -115,11 +124,17 @@ func ExternalGuardPersistedBuilder(fullName: string, genericParameterCount: int,
     defineModuleTypes := new Type[](1)
     defineModuleTypes[0] = typeof(string)
     defineModule := ExecutorRequiredMethod(
-        persistedBuilderType, "DefineDynamicModule", defineModuleTypes)
+        persistedBuilderType,
+        "DefineDynamicModule",
+        defineModuleTypes
+    )
     defineModuleArguments := new object[](1)
     ExecutorSetObject(defineModuleArguments, 0, "ExternalTypeGuardPersistedModule")
     moduleBuilder := TypeOfRequiredInvocation(
-        defineModule, persistedBuilder, defineModuleArguments)
+        defineModule,
+        persistedBuilder,
+        defineModuleArguments
+    )
 
     defineTypeTypes := new Type[](3)
     defineTypeTypes[0] = typeof(string)
@@ -129,20 +144,27 @@ func ExternalGuardPersistedBuilder(fullName: string, genericParameterCount: int,
     defineTypeArguments := new object[](3)
     ExecutorSetObject(defineTypeArguments, 0, fullName)
     ExecutorSetObject(
-        defineTypeArguments, 1, TypeOfRequiredStaticField(typeAttributesType, "Public"))
+        defineTypeArguments,
+        1,
+        TypeOfRequiredStaticField(typeAttributesType, "Public")
+    )
     ExecutorSetObject(defineTypeArguments, 2, parent)
     created := TypeOfRequiredInvocation(defineType, moduleBuilder, defineTypeArguments)
     builder := created as TypeBuilder
     if builder == null {
         throw new InvalidOperationException(
-            "The persisted-emit fixture did not return a TypeBuilder.")
+            "The persisted-emit fixture did not return a TypeBuilder."
+        )
     }
 
     if genericParameterCount > 0 {
         genericParameterTypes := new Type[](1)
         genericParameterTypes[0] = typeof(string[])
         defineParameters := ExecutorRequiredMethod(
-            typeof(TypeBuilder), "DefineGenericParameters", genericParameterTypes)
+            typeof(TypeBuilder),
+            "DefineGenericParameters",
+            genericParameterTypes
+        )
         parameterNames := new string[](genericParameterCount)
         parameterIndex := 0
         while parameterIndex < parameterNames.Length {
@@ -262,7 +284,8 @@ test "the external-type head declines an open generic the element guard cannot s
     // The plain persisted class in the same namespace IS admitted, so the decline above is the
     // open-generic guard and not something about persisted builders in general.
     assert ColumnarTypeOfPlanner.IsSupportedExternalType(
-        ExternalGuardPersistedBuilder("Microsoft.AspNetCore.Builder.OpenOwnerPeer", 0, typeof(object)))
+        ExternalGuardPersistedBuilder("Microsoft.AspNetCore.Builder.OpenOwnerPeer", 0, typeof(object))
+    )
 
     // A generic PARAMETER is the other open shape, and it is declined by the same owner.
     parameters := openDefinition.GetGenericArguments()
@@ -313,7 +336,10 @@ test "the external-type head still declines value types in the admitted namespac
     // where nothing but `IsValueType` can turn it down.
     valueTypeBase := TypeOfRequiredRuntimeType(typeof(AssemblyName), "System.ValueType")
     aspNetStruct := ExternalGuardPersistedBuilder(
-        "Microsoft.AspNetCore.Builder.AdmittedNamespaceStruct", 0, valueTypeBase)
+        "Microsoft.AspNetCore.Builder.AdmittedNamespaceStruct",
+        0,
+        valueTypeBase
+    )
     assert aspNetStruct.get_IsValueType()
     assert (aspNetStruct.Namespace ?? "").StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal)
     assert !ColumnarTypeOfPlanner.IsSupportedExternalType(aspNetStruct)

@@ -69,7 +69,10 @@ test "range handle owner rejects foreign generic definitions and null elements" 
             handles.StringCharsGetter,
             handles.StringSubstring,
             handles.TupleItem1,
-            handles.TupleItem2)
+            handles.TupleItem2
+        )
     }
-    assert throws InvalidOperationException { handles.CloseGetSubArray(null) }
+    assert throws InvalidOperationException {
+        handles.CloseGetSubArray(null)
+    }
 }

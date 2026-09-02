@@ -27,7 +27,6 @@ import NSharpLang.Compiler.Ast
 //
 // (4) THE THREE TRANSPARENT WRAPPERS ARE SEEN THROUGH, and the RECEIVER walk sees through one more:
 // a `ref` binding. Both lists are exact.
-
 class SoaEscHarness {
     Escape: AnalyzerSoaEscape
     Scopes: AnalyzerScopeStack
@@ -38,7 +37,8 @@ class SoaEscHarness {
         escape: AnalyzerSoaEscape,
         scopes: AnalyzerScopeStack,
         errors: List<CompilerError>,
-        model: SemanticModel) {
+        model: SemanticModel
+    ) {
         Escape = escape
         Scopes = scopes
         Errors = errors
@@ -110,8 +110,7 @@ func SoaEscColumnRead(): MemberAccessExpression {
 
 func SoaEscErrorText(harness: SoaEscHarness, index: int): string {
     error := harness.Errors[index]
-    return error.Message + "|" + error.Line.ToString() + ":" + error.Column.ToString()
-        + "+" + error.Length.ToString()
+    return error.Message + "|" + error.Line.ToString() + ":" + error.Column.ToString() + "+" + error.Length.ToString()
 }
 
 // Declares a name into the harness's scope, which is what makes the DECLARED fallback probe — as
@@ -141,10 +140,8 @@ test "THE ROW ESCAPE NAMES THE ACTION AND UNDERLINES THE WHOLE EXPRESSION" {
     harness.Escape.ReportSoaRowEscape(SoaEscName("row"), "returned")
 
     assert harness.Errors.Count == 1
-    assert SoaEscErrorText(harness, 0)
-        == "SoA row views cannot be returned; use the table and row index instead|4:9+3"
-    assert harness.Errors[0].Suggestion
-        == "Read or write a column with table[index].column in the same expression."
+    assert SoaEscErrorText(harness, 0) == "SoA row views cannot be returned; use the table and row index instead|4:9+3"
+    assert harness.Errors[0].Suggestion == "Read or write a column with table[index].column in the same expression."
 }
 
 test "THE ROW ESCAPE IS ASKED WITH A TYPE, AND ONLY A ROW VIEW ANSWERS YES" {
@@ -152,8 +149,7 @@ test "THE ROW ESCAPE IS ASKED WITH A TYPE, AND ONLY A ROW VIEW ANSWERS YES" {
 
     assert harness.Escape.ReportSoaRowEscapeIfNeeded(SoaEscName("row"), SoaEscRowType(), "thrown")
     assert harness.Errors.Count == 1
-    assert SoaEscErrorText(harness, 0)
-        == "SoA row views cannot be thrown; use the table and row index instead|4:9+3"
+    assert SoaEscErrorText(harness, 0) == "SoA row views cannot be thrown; use the table and row index instead|4:9+3"
 
     // The TABLE is not a row view, and neither is anything else.
     assert !harness.Escape.ReportSoaRowEscapeIfNeeded(SoaEscName("row"), SoaEscTableType(), "thrown")
@@ -170,12 +166,9 @@ test "EVERY ACTION WORD THE ESTATE PASSES REACHES THE MESSAGE VERBATIM" {
     harness.Escape.ReportSoaRowEscape(SoaEscName("row"), "stored in a field")
 
     assert harness.Errors.Count == 3
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a foreach collection; use the table and row index instead"
-    assert harness.Errors[1].Message
-        == "SoA row views cannot be used as an operator operand; use the table and row index instead"
-    assert harness.Errors[2].Message
-        == "SoA row views cannot be stored in a field; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a foreach collection; use the table and row index instead"
+    assert harness.Errors[1].Message == "SoA row views cannot be used as an operator operand; use the table and row index instead"
+    assert harness.Errors[2].Message == "SoA row views cannot be stored in a field; use the table and row index instead"
 }
 
 // ── the column registry ──────────────────────────────────────────────────────
@@ -266,13 +259,16 @@ test "THE RECEIVER WALK SEES THROUGH THE THREE WRAPPERS AND THROUGH A ref BINDIN
 
     assert SoaEscFound(
         harness,
-        SoaEscAccess(new ParenthesizedExpression(SoaEscName("points"), 4, 8), "x")) == "x@4:9"
+        SoaEscAccess(new ParenthesizedExpression(SoaEscName("points"), 4, 8), "x")
+    ) == "x@4:9"
     assert SoaEscFound(
         harness,
-        SoaEscAccess(new CheckedExpression(SoaEscName("points"), 4, 8), "x")) == "x@4:9"
+        SoaEscAccess(new CheckedExpression(SoaEscName("points"), 4, 8), "x")
+    ) == "x@4:9"
     assert SoaEscFound(
         harness,
-        SoaEscAccess(new UncheckedExpression(SoaEscName("points"), 4, 8), "x")) == "x@4:9"
+        SoaEscAccess(new UncheckedExpression(SoaEscName("points"), 4, 8), "x")
+    ) == "x@4:9"
 
     // A `ref` to a table is a table.
     byRef := SoaEscDefault()
@@ -295,7 +291,12 @@ test "A RECEIVER THAT IS NOT AN IDENTIFIER ANSWERS NOTHING" {
 
     // An indexed receiver is a ROW, not a table, and the receiver walk has no arm for it.
     indexed: Expression = new IndexAccessExpression(
-        SoaEscName("points"), new IntLiteralExpression("0", 4, 16), false, 4, 9)
+        SoaEscName("points"),
+        new IntLiteralExpression("0", 4, 16),
+        false,
+        4,
+        9
+    )
     assert SoaEscFound(harness, SoaEscAccess(indexed, "x")) == "<none>"
 }
 
@@ -307,13 +308,12 @@ test "THE COLUMN ESCAPE NAMES THE COLUMN AND UNDERLINES THE WHOLE EXPRESSION" {
 
     assert harness.Escape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
         SoaEscColumnRead(),
-        "returned")
+        "returned"
+    )
 
     assert harness.Errors.Count == 1
-    assert SoaEscErrorText(harness, 0)
-        == "SoA table member 'x' cannot be returned directly|4:9+8"
-    assert harness.Errors[0].Suggestion
-        == "Use table.column[row] for element access, Table.wrap for table views, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations."
+    assert SoaEscErrorText(harness, 0) == "SoA table member 'x' cannot be returned directly|4:9+8"
+    assert harness.Errors[0].Suggestion == "Use table.column[row] for element access, Table.wrap for table views, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations."
 }
 
 test "THE COLUMN ESCAPE IS SILENT FOR ANYTHING THAT IS NOT A COLUMN READ" {
@@ -322,10 +322,12 @@ test "THE COLUMN ESCAPE IS SILENT FOR ANYTHING THAT IS NOT A COLUMN READ" {
 
     assert !harness.Escape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
         SoaEscName("points"),
-        "returned")
+        "returned"
+    )
     assert !harness.Escape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(
         SoaEscAccess(SoaEscName("points"), "z"),
-        "returned")
+        "returned"
+    )
     assert harness.Errors.Count == 0
 }
 
@@ -349,11 +351,11 @@ test "THE RAW COLUMN REPORTER TAKES THE SPAN AND THE NAME FROM DIFFERENT NODES" 
     harness.Escape.ReportUnsupportedSoaDirectColumnValueEscape(
         SoaEscName("elsewhere"),
         SoaEscColumnRead(),
-        "used as the receiver for 'Fill'")
+        "used as the receiver for 'Fill'"
+    )
 
     assert harness.Errors.Count == 1
-    assert SoaEscErrorText(harness, 0)
-        == "SoA table member 'x' cannot be used as the receiver for 'Fill' directly|4:9+9"
+    assert SoaEscErrorText(harness, 0) == "SoA table member 'x' cannot be used as the receiver for 'Fill' directly|4:9+9"
 }
 
 test "A RECORDED COLUMN REPORTS EVEN WHEN NO TABLE IS DECLARED ANYWHERE" {
@@ -374,8 +376,7 @@ test "BOTH REPORTS APPEND TO THE SAME LIST IN CALL ORDER" {
     harness.Escape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(SoaEscColumnRead(), "printed")
 
     assert harness.Errors.Count == 2
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be printed; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be printed; use the table and row index instead"
     assert harness.Errors[1].Message == "SoA table member 'x' cannot be printed directly"
 }
 

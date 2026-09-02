@@ -43,7 +43,8 @@ func AssignabilityDefault(): AnalyzerAssignability {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     resolver := new AnalyzerTypeResolver(
         scopes,
@@ -52,10 +53,11 @@ func AssignabilityDefault(): AnalyzerAssignability {
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -208,11 +210,20 @@ test "the known-generic relation is covariant only where the interface is read-o
 
     listOfString: TypeInfo = new GenericTypeInfo("List", AssignabilityOne(BuiltInTypes.String), listDefinition)
     enumerableOfString: TypeInfo = new GenericTypeInfo(
-        "IEnumerable", AssignabilityOne(BuiltInTypes.String), enumerableDefinition)
+        "IEnumerable",
+        AssignabilityOne(BuiltInTypes.String),
+        enumerableDefinition
+    )
     enumerableOfObject: TypeInfo = new GenericTypeInfo(
-        "IEnumerable", AssignabilityOne(BuiltInTypes.Object), enumerableDefinition)
+        "IEnumerable",
+        AssignabilityOne(BuiltInTypes.Object),
+        enumerableDefinition
+    )
     collectionOfObject: TypeInfo = new GenericTypeInfo(
-        "ICollection", AssignabilityOne(BuiltInTypes.Object), collectionDefinition)
+        "ICollection",
+        AssignabilityOne(BuiltInTypes.Object),
+        collectionDefinition
+    )
 
     assert assignability.IsAssignable(enumerableOfString, listOfString)
     // COVARIANT: IEnumerable<object> accepts IEnumerable<string>.
@@ -269,7 +280,10 @@ test "the delegate signature score ranks exact above convertible above open abov
 
     unknownScore := 0
     assert assignability.TryGetDelegateSignatureConversionScore(
-        BuiltInTypes.Int, BuiltInTypes.Unknown, out unknownScore)
+        BuiltInTypes.Int,
+        BuiltInTypes.Unknown,
+        out unknownScore
+    )
     assert unknownScore == 1
 
     parameterScore := 0
@@ -277,20 +291,29 @@ test "the delegate signature score ranks exact above convertible above open abov
     listParameters := listDefinitionType.GetGenericArguments()
     openParameter: TypeInfo = new ReflectionTypeInfo(listParameters[0])
     assert assignability.TryGetDelegateSignatureConversionScore(
-        BuiltInTypes.String, openParameter, out parameterScore)
+        BuiltInTypes.String,
+        openParameter,
+        out parameterScore
+    )
     assert parameterScore == 2
 
     referenceScore := 0
     objectTarget: TypeInfo = new ReflectionTypeInfo(typeof(object))
     stringSource: TypeInfo = new ReflectionTypeInfo(typeof(string))
     assert assignability.TryGetDelegateSignatureConversionScore(
-        objectTarget, stringSource, out referenceScore)
+        objectTarget,
+        stringSource,
+        out referenceScore
+    )
     assert referenceScore == 4
 
     // A value type cannot cross a delegate REFERENCE conversion at all.
     refused := 0
     assert !assignability.TryGetDelegateSignatureConversionScore(
-        BuiltInTypes.Long, BuiltInTypes.Int, out refused)
+        BuiltInTypes.Long,
+        BuiltInTypes.Int,
+        out refused
+    )
     assert refused == 0
 }
 
@@ -375,11 +398,20 @@ test "a lambda's function type matches a Func by argument order and an Action by
     actionDefinition: TypeInfo = new ReflectionTypeInfo(actionDefinitionType)
 
     funcIntToInt: TypeInfo = new GenericTypeInfo(
-        "Func", AssignabilityTwo(BuiltInTypes.Int, BuiltInTypes.Int), funcDefinition)
+        "Func",
+        AssignabilityTwo(BuiltInTypes.Int, BuiltInTypes.Int),
+        funcDefinition
+    )
     funcIntToString: TypeInfo = new GenericTypeInfo(
-        "Func", AssignabilityTwo(BuiltInTypes.Int, BuiltInTypes.String), funcDefinition)
+        "Func",
+        AssignabilityTwo(BuiltInTypes.Int, BuiltInTypes.String),
+        funcDefinition
+    )
     actionOfInt: TypeInfo = new GenericTypeInfo(
-        "Action", AssignabilityOne(BuiltInTypes.Int), actionDefinition)
+        "Action",
+        AssignabilityOne(BuiltInTypes.Int),
+        actionDefinition
+    )
 
     lambda: TypeInfo = AssignabilityLambda(AssignabilityOne(BuiltInTypes.Int), BuiltInTypes.Int)
     assert assignability.IsAssignable(funcIntToInt, lambda)
@@ -389,7 +421,9 @@ test "a lambda's function type matches a Func by argument order and an Action by
     assert assignability.IsAssignable(actionOfInt, voidLambda)
 
     wrongArity: TypeInfo = AssignabilityLambda(
-        AssignabilityTwo(BuiltInTypes.Int, BuiltInTypes.Int), BuiltInTypes.Int)
+        AssignabilityTwo(BuiltInTypes.Int, BuiltInTypes.Int),
+        BuiltInTypes.Int
+    )
     assert !assignability.IsAssignable(funcIntToInt, wrongArity)
 
     // An UNKNOWN lambda parameter is not pre-judged.
@@ -438,7 +472,8 @@ func AssignabilityWithWellKnownTypes(loadContext: MetadataLoadContext): Analyzer
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     resolver := new AnalyzerTypeResolver(
         scopes,
@@ -447,10 +482,11 @@ func AssignabilityWithWellKnownTypes(loadContext: MetadataLoadContext): Analyzer
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, wellKnown)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -486,7 +522,10 @@ test "the bridge answers a reflected comparer against the source-spelled interfa
 
         comparerDefinition: TypeInfo = new ReflectionTypeInfo(comparerDefinitionType)
         comparerOfString: TypeInfo = new GenericTypeInfo(
-            "IComparer", AssignabilityOne(BuiltInTypes.String), comparerDefinition)
+            "IComparer",
+            AssignabilityOne(BuiltInTypes.String),
+            comparerDefinition
+        )
         stringComparer: TypeInfo = new ReflectionTypeInfo(stringComparerType)
 
         // StringComparer implements IComparer<string>: the NL402/NL202 shape this bridge exists for.
@@ -494,7 +533,10 @@ test "the bridge answers a reflected comparer against the source-spelled interfa
 
         // The instantiation is exact: the same comparer does NOT satisfy IComparer<int>.
         comparerOfInt: TypeInfo = new GenericTypeInfo(
-            "IComparer", AssignabilityOne(BuiltInTypes.Int), comparerDefinition)
+            "IComparer",
+            AssignabilityOne(BuiltInTypes.Int),
+            comparerDefinition
+        )
         assert !assignability.IsAssignable(comparerOfInt, stringComparer)
     } finally {
         scan.Dispose()

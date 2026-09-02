@@ -4,17 +4,20 @@ import System
 import System.Collections.Generic
 
 func SemanticEnumIndex(
-    definitions: Dictionary<string, ColumnarEnumDef>): ColumnarSemanticDefinitionIndex<ColumnarEnumDef> {
+    definitions: Dictionary<string, ColumnarEnumDef>
+): ColumnarSemanticDefinitionIndex<ColumnarEnumDef> {
     return ColumnarSemanticDefinitionIndexes.Enums(definitions)
 }
 
 func SemanticStructIndex(
-    definitions: Dictionary<string, ColumnarStructDef>): ColumnarSemanticDefinitionIndex<ColumnarStructDef> {
+    definitions: Dictionary<string, ColumnarStructDef>
+): ColumnarSemanticDefinitionIndex<ColumnarStructDef> {
     return ColumnarSemanticDefinitionIndexes.Structs(definitions)
 }
 
 func SemanticUnionIndex(
-    definitions: Dictionary<string, ColumnarUnionDef>): ColumnarSemanticDefinitionIndex<ColumnarUnionDef> {
+    definitions: Dictionary<string, ColumnarUnionDef>
+): ColumnarSemanticDefinitionIndex<ColumnarUnionDef> {
     return ColumnarSemanticDefinitionIndexes.Unions(definitions)
 }
 
@@ -25,11 +28,19 @@ func SemanticTypeResolution(
     structs: Dictionary<string, ColumnarStructDef>,
     unions: Dictionary<string, ColumnarUnionDef>,
     typeParameters: Dictionary<string, Type>?,
-    enclosingSourceDeclarationName: string?): ColumnarSemanticTypeResolution {
+    enclosingSourceDeclarationName: string?
+): ColumnarSemanticTypeResolution {
     catalog := new ColumnarSemanticTypeResolutionCatalog(
-        program, enums, structs, unions)
+        program,
+        enums,
+        structs,
+        unions
+    )
     return catalog.For(
-        sourceFileId, typeParameters, enclosingSourceDeclarationName)
+        sourceFileId,
+        typeParameters,
+        enclosingSourceDeclarationName
+    )
 }
 
 func SemanticEmptyEnums(): Dictionary<string, ColumnarEnumDef> {
@@ -55,24 +66,37 @@ test "semantic type resolution catalog caches each exact view identity" {
         ExactTypeProgram(sources, fileNames),
         SemanticEmptyEnums(),
         SemanticEmptyStructs(),
-        SemanticEmptyUnions())
+        SemanticEmptyUnions()
+    )
 
     first := catalog.For(0, null, null)
     assert ColumnarConstructionPlanner.SameObject(
-        first, catalog.For(0, null, null))
+        first,
+        catalog.For(0, null, null)
+    )
     assert !ColumnarConstructionPlanner.SameObject(
-        first, catalog.For(1, null, null))
+        first,
+        catalog.For(1, null, null)
+    )
 
     firstOwner := catalog.For(0, null, "First.Owner")
     assert ColumnarConstructionPlanner.SameObject(
-        firstOwner, catalog.For(0, null, "First.Owner"))
+        firstOwner,
+        catalog.For(0, null, "First.Owner")
+    )
     assert !ColumnarConstructionPlanner.SameObject(
-        firstOwner, catalog.For(0, null, "First.Other"))
+        firstOwner,
+        catalog.For(0, null, "First.Other")
+    )
     assert !ColumnarConstructionPlanner.SameObject(
-        firstOwner, catalog.For(1, null, "First.Owner"))
+        firstOwner,
+        catalog.For(1, null, "First.Owner")
+    )
 
     genericOwner := TypeOfCreateSourceBuilder(
-        "SemanticCatalogGenericOwner", true)
+        "SemanticCatalogGenericOwner",
+        true
+    )
     genericArguments := genericOwner.GetGenericArguments()
     assert genericArguments.Length == 1
     genericParameter := genericArguments[0]
@@ -82,17 +106,27 @@ test "semantic type resolution catalog caches each exact view identity" {
     equivalentParameters[genericParameter.Name] = genericParameter
     generic := catalog.For(0, firstParameters, "First.Owner")
     assert ColumnarConstructionPlanner.SameObject(
-        generic, catalog.For(0, firstParameters, "First.Owner"))
+        generic,
+        catalog.For(0, firstParameters, "First.Owner")
+    )
     assert !ColumnarConstructionPlanner.SameObject(
-        generic, catalog.For(0, equivalentParameters, "First.Owner"))
+        generic,
+        catalog.For(0, equivalentParameters, "First.Owner")
+    )
     assert !ColumnarConstructionPlanner.SameObject(
-        generic, catalog.For(1, firstParameters, "First.Owner"))
+        generic,
+        catalog.For(1, firstParameters, "First.Owner")
+    )
     assert !ColumnarConstructionPlanner.SameObject(
-        generic, catalog.For(0, firstParameters, "First.Other"))
+        generic,
+        catalog.For(0, firstParameters, "First.Other")
+    )
 
     emptyParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
     assert !ColumnarConstructionPlanner.SameObject(
-        first, catalog.For(0, emptyParameters, null))
+        first,
+        catalog.For(0, emptyParameters, null)
+    )
 }
 
 test "semantic type resolution catalog preserves exact maps behind source aliases" {
@@ -112,7 +146,8 @@ test "semantic type resolution catalog preserves exact maps behind source aliase
         ExactTypeProgram(sources, fileNames),
         SemanticEmptyEnums(),
         structs,
-        SemanticEmptyUnions())
+        SemanticEmptyUnions()
+    )
     resolution := catalog.For(1, null, null)
 
     exactTypes := resolution.Structs.Resolver.ExactSourceTypes
@@ -122,11 +157,16 @@ test "semantic type resolution catalog preserves exact maps behind source aliase
     selectedType := typeof(object)
     claimed := false
     assert resolution.Structs.Resolver.TryResolve(
-        "IntBox", out selectedType, out claimed)
+        "IntBox",
+        out selectedType,
+        out claimed
+    )
     assert claimed
     assert selectedType.get_IsGenericType()
     assert ColumnarConstructionPlanner.SameObject(
-        selectedType.GetGenericTypeDefinition(), boxBuilder)
+        selectedType.GetGenericTypeDefinition(),
+        boxBuilder
+    )
     arguments := selectedType.GetGenericArguments()
     assert arguments.Length == 1
     assert arguments[0] == typeof(int)
@@ -134,34 +174,44 @@ test "semantic type resolution catalog preserves exact maps behind source aliase
     selectedDefinition := boxDefinition
     assert resolution.Structs.TryGetValue("IntBox", out selectedDefinition)
     assert ColumnarConstructionPlanner.SameObject(
-        selectedDefinition, boxDefinition)
+        selectedDefinition,
+        boxDefinition
+    )
 }
 
 test "semantic resolver selects nested source types from the exact lexical owner" {
     outer := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("Lexical.Outer", false),
-        "Lexical.Outer")
+        "Lexical.Outer"
+    )
     outerSibling := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("Lexical.Outer.Sibling", false),
-        "Lexical.Outer.Sibling")
+        "Lexical.Outer.Sibling"
+    )
     middle := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("Lexical.Outer.Middle", false),
-        "Lexical.Outer.Middle")
+        "Lexical.Outer.Middle"
+    )
     inner := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("Lexical.Outer.Middle.Inner", false),
-        "Lexical.Outer.Middle.Inner")
+        "Lexical.Outer.Middle.Inner"
+    )
     other := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("Lexical.Other", false),
-        "Lexical.Other")
+        "Lexical.Other"
+    )
     otherSibling := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("Lexical.Other.Sibling", false),
-        "Lexical.Other.Sibling")
+        "Lexical.Other.Sibling"
+    )
     otherInner := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("Lexical.Other.Inner", false),
-        "Lexical.Other.Inner")
+        "Lexical.Other.Inner"
+    )
     topLevelSibling := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("Lexical.Sibling", false),
-        "Lexical.Sibling")
+        "Lexical.Sibling"
+    )
 
     structs := SemanticEmptyStructs()
     structs[outer.DeclaredTypeName] = outer
@@ -175,13 +225,7 @@ test "semantic resolver selects nested source types from the exact lexical owner
 
     sources := new string[](1)
     fileNames := new string[](1)
-    sources[0] = "namespace Lexical\n"
-        + "class Sibling {}\n"
-        + "class Outer {\n"
-        + "  class Sibling {}\n"
-        + "  class Middle { class Inner {} }\n"
-        + "}\n"
-        + "class Other { class Sibling {} class Inner {} }\n"
+    sources[0] = "namespace Lexical\n" + "class Sibling {}\n" + "class Outer {\n" + "  class Sibling {}\n" + "  class Middle { class Inner {} }\n" + "}\n" + "class Other { class Sibling {} class Inner {} }\n"
     fileNames[0] = "semantic-registry/nested-owner.nl"
     program := ExactTypeProgram(sources, fileNames)
 
@@ -192,32 +236,43 @@ test "semantic resolver selects nested source types from the exact lexical owner
         structs,
         SemanticEmptyUnions(),
         null,
-        inner.DeclaredTypeName)
+        inner.DeclaredTypeName
+    )
     selected := topLevelSibling
     if !outerResolution.Structs.TryGetValue("Sibling", out selected) {
         throw new InvalidOperationException(
-            "Nested semantic registry did not resolve the ancestor sibling.")
+            "Nested semantic registry did not resolve the ancestor sibling."
+        )
     }
     if !ColumnarConstructionPlanner.SameObject(selected, outerSibling) {
         throw new InvalidOperationException(
-            "Nested semantic registry selected the wrong ancestor sibling.")
+            "Nested semantic registry selected the wrong ancestor sibling."
+        )
     }
 
     exactSelected := typeof(object)
     exactClaimed := false
     if !outerResolution.Structs.Resolver.TryResolve(
-            "Sibling", out exactSelected, out exactClaimed) {
+        "Sibling",
+        out exactSelected,
+        out exactClaimed
+    ) {
         throw new InvalidOperationException(
-            "Nested exact resolver did not return the ancestor sibling type.")
+            "Nested exact resolver did not return the ancestor sibling type."
+        )
     }
     if !exactClaimed {
         throw new InvalidOperationException(
-            "Nested exact resolver did not claim the ancestor sibling spelling.")
+            "Nested exact resolver did not claim the ancestor sibling spelling."
+        )
     }
     if !ColumnarConstructionPlanner.SameObject(
-            exactSelected, outerSibling.Builder) {
+        exactSelected,
+        outerSibling.Builder
+    ) {
         throw new InvalidOperationException(
-            "Nested exact resolver returned the wrong ancestor sibling type.")
+            "Nested exact resolver returned the wrong ancestor sibling type."
+        )
     }
 
     dotted := topLevelSibling
@@ -228,15 +283,20 @@ test "semantic resolver selects nested source types from the exact lexical owner
         structs,
         SemanticEmptyUnions(),
         null,
-        outer.DeclaredTypeName)
+        outer.DeclaredTypeName
+    )
     if !outerOwnerResolution.Structs.TryGetValue(
-            "Middle.Inner", out dotted) {
+        "Middle.Inner",
+        out dotted
+    ) {
         throw new InvalidOperationException(
-            "Nested semantic registry did not resolve a dotted descendant.")
+            "Nested semantic registry did not resolve a dotted descendant."
+        )
     }
     if !ColumnarConstructionPlanner.SameObject(dotted, inner) {
         throw new InvalidOperationException(
-            "Nested semantic registry selected the wrong dotted descendant.")
+            "Nested semantic registry selected the wrong dotted descendant."
+        )
     }
 
     otherResolution := SemanticTypeResolution(
@@ -246,26 +306,31 @@ test "semantic resolver selects nested source types from the exact lexical owner
         structs,
         SemanticEmptyUnions(),
         null,
-        otherInner.DeclaredTypeName)
+        otherInner.DeclaredTypeName
+    )
     selected = topLevelSibling
     if !otherResolution.Structs.TryGetValue("Sibling", out selected) {
         throw new InvalidOperationException(
-            "Second nested semantic view did not resolve its sibling.")
+            "Second nested semantic view did not resolve its sibling."
+        )
     }
     if !ColumnarConstructionPlanner.SameObject(selected, otherSibling) {
         throw new InvalidOperationException(
-            "Second nested semantic view reused the first owner's cached sibling.")
+            "Second nested semantic view reused the first owner's cached sibling."
+        )
     }
 
     synthesized := outerResolution.Structs.ForSynthesizedMethod(inner.Builder)
     selected = topLevelSibling
     if !synthesized.TryGetValue("Sibling", out selected) {
         throw new InvalidOperationException(
-            "Synthesized semantic view lost its enclosing source declaration.")
+            "Synthesized semantic view lost its enclosing source declaration."
+        )
     }
     if !ColumnarConstructionPlanner.SameObject(selected, outerSibling) {
         throw new InvalidOperationException(
-            "Synthesized semantic view selected the wrong enclosing sibling.")
+            "Synthesized semantic view selected the wrong enclosing sibling."
+        )
     }
 }
 
@@ -281,18 +346,29 @@ test "semantic resolver caches exact source aliases and preserves closed generic
     fileNames[0] = "semantic-registry/left.nl"
     program := ExactTypeProgram(sources, fileNames)
     resolution := SemanticTypeResolution(
-        program, 0, SemanticEmptyEnums(), structs, SemanticEmptyUnions(), null, "")
+        program,
+        0,
+        SemanticEmptyEnums(),
+        structs,
+        SemanticEmptyUnions(),
+        null,
+        ""
+    )
 
     firstType := typeof(object)
     firstClaimed := false
     assert resolution.Structs.Resolver.TryResolve(
-        "IntBox", out firstType, out firstClaimed)
+        "IntBox",
+        out firstType,
+        out firstClaimed
+    )
     assert firstClaimed
     assert firstType.get_IsGenericType()
     assert ColumnarConstructionPlanner.SameObject(
-        firstType.GetGenericTypeDefinition(), boxBuilder)
-    assert resolution.Structs.Resolver
-        .RuntimeGenericValidationCanonical(firstType) == null
+        firstType.GetGenericTypeDefinition(),
+        boxBuilder
+    )
+    assert resolution.Structs.Resolver.RuntimeGenericValidationCanonical(firstType) == null
     arguments := firstType.GetGenericArguments()
     assert arguments.Length == 1
     assert arguments[0] == typeof(int)
@@ -300,7 +376,10 @@ test "semantic resolver caches exact source aliases and preserves closed generic
     repeatedType := typeof(object)
     repeatedClaimed := false
     assert resolution.Structs.Resolver.TryResolve(
-        "IntBox", out repeatedType, out repeatedClaimed)
+        "IntBox",
+        out repeatedType,
+        out repeatedClaimed
+    )
     assert repeatedClaimed
     assert ColumnarConstructionPlanner.SameObject(firstType, repeatedType)
 
@@ -336,12 +415,16 @@ test "semantic registry treats ambiguous source claims as terminal negative cach
         structs,
         SemanticEmptyUnions(),
         null,
-        "")
+        ""
+    )
 
     selectedType := typeof(object)
     claimed := false
     assert !resolution.Structs.Resolver.TryResolve(
-        "SemanticWidget", out selectedType, out claimed)
+        "SemanticWidget",
+        out selectedType,
+        out claimed
+    )
     assert claimed
     assert selectedType == typeof(object)
 
@@ -360,12 +443,14 @@ test "semantic enum registry preserves erased source identity before runtime ide
         typeof(string),
         new Dictionary<string, int>(StringComparer.Ordinal),
         leftStrings,
-        "Left.SemanticState")
+        "Left.SemanticState"
+    )
     right := new ColumnarEnumDef(
         typeof(string),
         new Dictionary<string, int>(StringComparer.Ordinal),
         rightStrings,
-        "Right.SemanticState")
+        "Right.SemanticState"
+    )
     enums := SemanticEmptyEnums()
     enums[left.DeclaredTypeName] = left
     enums[right.DeclaredTypeName] = right
@@ -385,7 +470,8 @@ test "semantic enum registry preserves erased source identity before runtime ide
         SemanticEmptyStructs(),
         SemanticEmptyUnions(),
         null,
-        "")
+        ""
+    )
 
     selected := left
     assert resolution.Enums.TryGetValue("SemanticState", out selected)
@@ -401,15 +487,15 @@ test "semantic enum registry distinguishes source declarations from erased runti
         typeof(string),
         new Dictionary<string, int>(StringComparer.Ordinal),
         stringConstants,
-        "Models.Selection")
+        "Models.Selection"
+    )
     enums := SemanticEmptyEnums()
     enums[selection.DeclaredTypeName] = selection
 
     sources := new string[](2)
     fileNames := new string[](2)
     sources[0] = "namespace Models\nenum Selection: string { Value = \"enum\" }\n"
-    sources[1] = "namespace Caller\nimport Models\ntype Text = string\n"
-        + "type SelectionAlias = Selection\n"
+    sources[1] = "namespace Caller\nimport Models\ntype Text = string\n" + "type SelectionAlias = Selection\n"
     fileNames[0] = "semantic-registry/erased-model.nl"
     fileNames[1] = "semantic-registry/erased-caller.nl"
     resolution := SemanticTypeResolution(
@@ -419,7 +505,8 @@ test "semantic enum registry distinguishes source declarations from erased runti
         SemanticEmptyStructs(),
         SemanticEmptyUnions(),
         null,
-        "")
+        ""
+    )
 
     assert !resolution.Enums.ContainsKey("Text")
     assert !resolution.Enums.ContainsSourceDeclaration("Text")
@@ -436,13 +523,15 @@ test "semantic definition index rejects duplicate runtime identities" {
         runtimeType,
         firstConstants,
         noStrings,
-        "Fake.FirstDay")
+        "Fake.FirstDay"
+    )
     secondConstants := new Dictionary<string, int>(StringComparer.Ordinal)
     second := new ColumnarEnumDef(
         runtimeType,
         secondConstants,
         noStrings,
-        "Fake.SecondDay")
+        "Fake.SecondDay"
+    )
     enums := SemanticEmptyEnums()
     enums[first.DeclaredTypeName] = first
     enums[second.DeclaredTypeName] = second
@@ -461,7 +550,8 @@ test "semantic definition index rejects duplicate runtime identities" {
         SemanticEmptyStructs(),
         SemanticEmptyUnions(),
         null,
-        "")
+        ""
+    )
     selected := first
     assert !resolution.Enums.TryGetValue("int", out selected)
 }
@@ -469,7 +559,10 @@ test "semantic definition index rejects duplicate runtime identities" {
 test "semantic resolver keeps syntax-owned generic shapes ahead of exact source resolution" {
     listBuilder := TypeOfCreateSourceBuilder("List", true)
     funcBuilder := TypeOfCreateBuilder(
-        "Func", "ColumnarSemanticRegistry.Func", 2)
+        "Func",
+        "ColumnarSemanticRegistry.Func",
+        2
+    )
     actionBuilder := TypeOfCreateSourceBuilder("Action", true)
     pointBuilder := TypeOfCreateSourceBuilder("SemanticPoint", false)
     listDefinition := ExactTypeDefinition(listBuilder, "List")
@@ -484,16 +577,7 @@ test "semantic resolver keeps syntax-owned generic shapes ahead of exact source 
 
     sources := new string[](1)
     fileNames := new string[](1)
-    sources[0] = "import System.Buffers\nimport System.Collections.Generic\n"
-        + "class List<T> {}\nclass Func<T,R> {}\nclass Action<T> {}\n"
-        + "class SemanticPoint {}\n"
-        + "type QualifiedPointMap = System.Collections.Generic.Dictionary<SemanticPoint,int>\n"
-        + "type ImportedPointMap = Dictionary<SemanticPoint,int>\n"
-        + "type AllowedPointMap = Dictionary<string,SemanticPoint>\n"
-        + "type UnknownRuntimeGeneric = KeyValuePair<string,int>\n"
-        + "type ByteArrayPool = System.Buffers.ArrayPool<byte>\n"
-        + "type IntArrayPool = System.Buffers.ArrayPool<int>\n"
-        + "type NestedBytePool = System.Collections.Generic.List<System.Buffers.ArrayPool<byte>>\n"
+    sources[0] = "import System.Buffers\nimport System.Collections.Generic\n" + "class List<T> {}\nclass Func<T,R> {}\nclass Action<T> {}\n" + "class SemanticPoint {}\n" + "type QualifiedPointMap = System.Collections.Generic.Dictionary<SemanticPoint,int>\n" + "type ImportedPointMap = Dictionary<SemanticPoint,int>\n" + "type AllowedPointMap = Dictionary<string,SemanticPoint>\n" + "type UnknownRuntimeGeneric = KeyValuePair<string,int>\n" + "type ByteArrayPool = System.Buffers.ArrayPool<byte>\n" + "type IntArrayPool = System.Buffers.ArrayPool<int>\n" + "type NestedBytePool = System.Collections.Generic.List<System.Buffers.ArrayPool<byte>>\n"
     fileNames[0] = "semantic-registry/syntax-owned.nl"
     resolution := SemanticTypeResolution(
         ExactTypeProgram(sources, fileNames),
@@ -502,33 +586,43 @@ test "semantic resolver keeps syntax-owned generic shapes ahead of exact source 
         structs,
         SemanticEmptyUnions(),
         null,
-        "")
+        ""
+    )
     resolver := resolution.Structs.Resolver
 
     funcTerminal := true
     assert resolver.TryClassifySyntaxOwnedShape(
-        "Func<int,string>", out funcTerminal)
+        "Func<int,string>",
+        out funcTerminal
+    )
     assert !funcTerminal
     nestedFuncTerminal := true
     assert resolver.TryClassifySyntaxOwnedShape(
         "Dictionary<string,(callback:Func<int,string>,count:int)>[]",
-        out nestedFuncTerminal)
+        out nestedFuncTerminal
+    )
     assert !nestedFuncTerminal
     funcType := typeof(object)
     funcClaimed := true
     assert !resolver.TryResolve(
-        "Func<int,string>", out funcType, out funcClaimed)
+        "Func<int,string>",
+        out funcType,
+        out funcClaimed
+    )
     assert !funcClaimed
     assert funcType == typeof(object)
 
     listTerminal := false
     assert resolver.TryClassifySyntaxOwnedShape(
-        "List<int>", out listTerminal)
+        "List<int>",
+        out listTerminal
+    )
     assert listTerminal
     nestedListTerminal := false
     assert resolver.TryClassifySyntaxOwnedShape(
         "Dictionary<string,(items:List<int>?,fallback:int|string)>[]",
-        out nestedListTerminal)
+        out nestedListTerminal
+    )
     assert nestedListTerminal
     listType := typeof(object)
     listClaimed := false
@@ -538,94 +632,127 @@ test "semantic resolver keeps syntax-owned generic shapes ahead of exact source 
 
     importedTerminal := true
     assert resolver.TryClassifySyntaxOwnedShape(
-        "Dictionary<SemanticPoint,int>", out importedTerminal)
+        "Dictionary<SemanticPoint,int>",
+        out importedTerminal
+    )
     assert !importedTerminal
     qualifiedTerminal := true
     assert resolver.TryClassifySyntaxOwnedShape(
         "System.Collections.Generic.Dictionary<SemanticPoint,int>",
-        out qualifiedTerminal)
+        out qualifiedTerminal
+    )
     assert !qualifiedTerminal
     importedDirectType := typeof(object)
     importedDirectClaimed := true
     assert !resolver.TryResolve(
         "Dictionary<SemanticPoint,int>",
         out importedDirectType,
-        out importedDirectClaimed)
+        out importedDirectClaimed
+    )
     assert !importedDirectClaimed
     qualifiedDirectType := typeof(object)
     qualifiedDirectClaimed := true
     assert !resolver.TryResolve(
         "System.Collections.Generic.Dictionary<SemanticPoint,int>",
         out qualifiedDirectType,
-        out qualifiedDirectClaimed)
+        out qualifiedDirectClaimed
+    )
     assert !qualifiedDirectClaimed
 
     qualifiedAliasType := typeof(object)
     qualifiedAliasClaimed := false
     assert resolver.TryResolve(
-        "QualifiedPointMap", out qualifiedAliasType, out qualifiedAliasClaimed)
+        "QualifiedPointMap",
+        out qualifiedAliasType,
+        out qualifiedAliasClaimed
+    )
     assert qualifiedAliasClaimed
-    assert resolver.RuntimeGenericValidationCanonical(qualifiedAliasType)
-        == "Dictionary<SemanticPoint,int>"
+    assert resolver.RuntimeGenericValidationCanonical(qualifiedAliasType) == "Dictionary<SemanticPoint,int>"
     importedAliasType := typeof(object)
     importedAliasClaimed := false
     assert resolver.TryResolve(
-        "ImportedPointMap", out importedAliasType, out importedAliasClaimed)
+        "ImportedPointMap",
+        out importedAliasType,
+        out importedAliasClaimed
+    )
     assert importedAliasClaimed
-    assert resolver.RuntimeGenericValidationCanonical(importedAliasType)
-        == "Dictionary<SemanticPoint,int>"
+    assert resolver.RuntimeGenericValidationCanonical(importedAliasType) == "Dictionary<SemanticPoint,int>"
     allowedAliasType := typeof(object)
     allowedAliasClaimed := false
     assert resolver.TryResolve(
-        "AllowedPointMap", out allowedAliasType, out allowedAliasClaimed)
+        "AllowedPointMap",
+        out allowedAliasType,
+        out allowedAliasClaimed
+    )
     assert allowedAliasClaimed
-    assert resolver.RuntimeGenericValidationCanonical(allowedAliasType)
-        == "Dictionary<string,SemanticPoint>"
+    assert resolver.RuntimeGenericValidationCanonical(allowedAliasType) == "Dictionary<string,SemanticPoint>"
     unknownAliasType := typeof(object)
     unknownAliasClaimed := false
     assert resolver.TryResolve(
-        "UnknownRuntimeGeneric", out unknownAliasType, out unknownAliasClaimed)
+        "UnknownRuntimeGeneric",
+        out unknownAliasType,
+        out unknownAliasClaimed
+    )
     assert unknownAliasClaimed
     assert resolver.RuntimeGenericValidationCanonical(unknownAliasType) == "*"
 
     bytePoolType := typeof(object)
     bytePoolClaimed := false
     assert resolver.TryResolve(
-        "ByteArrayPool", out bytePoolType, out bytePoolClaimed)
+        "ByteArrayPool",
+        out bytePoolType,
+        out bytePoolClaimed
+    )
     assert bytePoolClaimed
     assert resolver.RuntimeGenericValidationCanonical(bytePoolType) == "*"
     intPoolType := typeof(object)
     intPoolClaimed := false
     assert resolver.TryResolve(
-        "IntArrayPool", out intPoolType, out intPoolClaimed)
+        "IntArrayPool",
+        out intPoolType,
+        out intPoolClaimed
+    )
     assert intPoolClaimed
     assert resolver.RuntimeGenericValidationCanonical(intPoolType) == "*"
     nestedPoolType := typeof(object)
     nestedPoolClaimed := false
     assert resolver.TryResolve(
-        "NestedBytePool", out nestedPoolType, out nestedPoolClaimed)
+        "NestedBytePool",
+        out nestedPoolType,
+        out nestedPoolClaimed
+    )
     assert nestedPoolClaimed
-    assert resolver.RuntimeGenericValidationCanonical(nestedPoolType)
-        == "List<System.Buffers.ArrayPool<byte>>"
+    assert resolver.RuntimeGenericValidationCanonical(nestedPoolType) == "List<System.Buffers.ArrayPool<byte>>"
 
     actionTerminal := false
     assert !resolver.TryClassifySyntaxOwnedShape(
-        "Action<int>", out actionTerminal)
+        "Action<int>",
+        out actionTerminal
+    )
     actionType := typeof(object)
     actionClaimed := false
     assert resolver.TryResolve(
-        "Action<int>", out actionType, out actionClaimed)
+        "Action<int>",
+        out actionType,
+        out actionClaimed
+    )
     assert actionClaimed
     assert actionType.get_IsGenericType()
     assert ColumnarConstructionPlanner.SameObject(
-        actionType.GetGenericTypeDefinition(), actionBuilder)
+        actionType.GetGenericTypeDefinition(),
+        actionBuilder
+    )
 }
 
 test "synthesized semantic views fence type parameters owned by another type" {
     genericOwner := TypeOfCreateSourceBuilder(
-        "SemanticGenericOwner", true)
+        "SemanticGenericOwner",
+        true
+    )
     synthesizedOwner := TypeOfCreateSourceBuilder(
-        "SemanticSynthesizedOwner", false)
+        "SemanticSynthesizedOwner",
+        false
+    )
     genericArguments := genericOwner.GetGenericArguments()
     assert genericArguments.Length == 1
     typeParameter := genericArguments[0]
@@ -633,9 +760,13 @@ test "synthesized semantic views fence type parameters owned by another type" {
     typeParameters[typeParameter.Name] = typeParameter
 
     collidingBuilder := TypeOfCreateSourceBuilder(
-        "SemanticCollision", false)
+        "SemanticCollision",
+        false
+    )
     collidingDefinition := ExactTypeDefinition(
-        collidingBuilder, typeParameter.Name)
+        collidingBuilder,
+        typeParameter.Name
+    )
     structs := SemanticEmptyStructs()
     structs[collidingDefinition.DeclaredTypeName] = collidingDefinition
     sources := new string[](1)
@@ -649,12 +780,16 @@ test "synthesized semantic views fence type parameters owned by another type" {
         structs,
         SemanticEmptyUnions(),
         typeParameters,
-        "")
+        ""
+    )
 
     visible := typeof(object)
     visibleClaimed := false
     assert resolution.Structs.Resolver.TryResolve(
-        typeParameter.Name, out visible, out visibleClaimed)
+        typeParameter.Name,
+        out visible,
+        out visibleClaimed
+    )
     assert visibleClaimed
     assert ColumnarConstructionPlanner.SameObject(visible, typeParameter)
 
@@ -665,79 +800,101 @@ test "synthesized semantic views fence type parameters owned by another type" {
     blockedShapes[2] = "(" + typeParameter.Name + ",int)"
     blockedShapes[3] = "(value:" + typeParameter.Name + ",count:int)"
     blockedShapes[4] = typeParameter.Name + "|string"
-    blockedShapes[5] = "List<(value:" + typeParameter.Name
-        + "?,fallback:" + typeParameter.Name + "|string)>[]"
-    blockedShapes[6] = "&Dictionary<string,(value:"
-        + typeParameter.Name + ",count:int)>"
+    blockedShapes[5] = "List<(value:" + typeParameter.Name + "?,fallback:" + typeParameter.Name + "|string)>[]"
+    blockedShapes[6] = "&Dictionary<string,(value:" + typeParameter.Name + ",count:int)>"
     for blockedShape in blockedShapes {
         blocked := typeof(object)
         blockedClaimed := false
         assert synthesized.Resolver.ClaimsTypeParameterShape(blockedShape)
         assert !synthesized.Resolver.TryResolve(
-            blockedShape, out blocked, out blockedClaimed)
+            blockedShape,
+            out blocked,
+            out blockedClaimed
+        )
         assert blockedClaimed
         assert blocked == typeof(object)
     }
     collision := collidingDefinition
     assert !synthesized.TryGetValue(typeParameter.Name, out collision)
     assert !synthesized.TryGetValue(
-        typeParameter.Name + "?", out collision)
+        typeParameter.Name + "?",
+        out collision
+    )
 
     ownedSynthesized := resolution.Structs.ForSynthesizedMethod(genericOwner)
     ownedTypeParameter := typeof(object)
     ownedClaimed := false
     if !ownedSynthesized.Resolver.TryResolve(
-            typeParameter.Name,
-            out ownedTypeParameter,
-            out ownedClaimed) {
+        typeParameter.Name,
+        out ownedTypeParameter,
+        out ownedClaimed
+    ) {
         throw new InvalidOperationException(
-            "Synthesized view on the declaring type lost its type parameter.")
+            "Synthesized view on the declaring type lost its type parameter."
+        )
     }
     if !ownedClaimed {
         throw new InvalidOperationException(
-            "Synthesized view on the declaring type did not claim its type parameter.")
+            "Synthesized view on the declaring type did not claim its type parameter."
+        )
     }
     if !ColumnarConstructionPlanner.SameObject(
-            ownedTypeParameter, typeParameter) {
+        ownedTypeParameter,
+        typeParameter
+    ) {
         throw new InvalidOperationException(
-            "Synthesized view on the declaring type selected the wrong type parameter.")
+            "Synthesized view on the declaring type selected the wrong type parameter."
+        )
     }
     ownedArray := typeof(object)
     ownedArrayClaimed := false
     if !ownedSynthesized.Resolver.TryResolve(
-            typeParameter.Name + "[]",
-            out ownedArray,
-            out ownedArrayClaimed) {
+        typeParameter.Name + "[]",
+        out ownedArray,
+        out ownedArrayClaimed
+    ) {
         throw new InvalidOperationException(
-            "Synthesized view on the declaring type lost a type-parameter array.")
+            "Synthesized view on the declaring type lost a type-parameter array."
+        )
     }
-    if !ownedArrayClaimed || !ownedArray.get_IsSZArray()
-        || !ColumnarConstructionPlanner.SameObject(
-            ownedArray.GetElementType(), typeParameter) {
+    if !ownedArrayClaimed || !ownedArray.get_IsSZArray() || !ColumnarConstructionPlanner.SameObject(
+        ownedArray.GetElementType(),
+        typeParameter
+    ) {
         throw new InvalidOperationException(
-            "Synthesized view returned the wrong type-parameter array shape.")
+            "Synthesized view returned the wrong type-parameter array shape."
+        )
     }
 
     noParameters := new Type[](0)
-    if ColumnarSemanticTypeRegistryBridge
-            .IsValidSynthesizedMethodSignature(
-                typeParameter, noParameters, synthesizedOwner) {
+    if ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(
+        typeParameter,
+        noParameters,
+        synthesizedOwner
+    ) {
         throw new InvalidOperationException(
-            "Foreign type parameter was admitted in a synthesized signature.")
+            "Foreign type parameter was admitted in a synthesized signature."
+        )
     }
-    if !ColumnarSemanticTypeRegistryBridge
-            .IsValidSynthesizedMethodSignature(
-                typeParameter, noParameters, genericOwner) {
+    if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(
+        typeParameter,
+        noParameters,
+        genericOwner
+    ) {
         throw new InvalidOperationException(
-            "Declaring type parameter was rejected from a synthesized signature.")
+            "Declaring type parameter was rejected from a synthesized signature."
+        )
     }
     parameterTypes := new Type[](1)
     parameterTypes[0] = ownedArray
-    if !ColumnarSemanticTypeRegistryBridge
-            .IsValidSynthesizedMethodSignature(
-                typeof(int), parameterTypes, genericOwner) {
+    if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(
+        typeof(int),
+        parameterTypes,
+        genericOwner
+    ) {
         throw new InvalidOperationException(
-            "Declaring type-parameter array was rejected from a synthesized signature.")
+            "Declaring type-parameter array was rejected from a synthesized signature."
+        )
     }
 }
 
@@ -747,20 +904,24 @@ test "synthesized program views reject parent method type parameters in signatur
         program,
         "Outer",
         new Type[](0),
-        SourceCallVoidType())
+        SourceCallVoidType()
+    )
     BindingMakeGenericMethod(outer.Builder, "TMethod")
     arguments := outer.Builder.GetGenericArguments()
     assert arguments.Length == 1
     methodParameter := arguments[0]
     assert methodParameter.get_DeclaringMethod() != null
     assert ColumnarConstructionPlanner.SameObject(
-        methodParameter.get_DeclaringMethod(), outer.Builder)
+        methodParameter.get_DeclaringMethod(),
+        outer.Builder
+    )
 
     typeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
     typeParameters[methodParameter.Name] = methodParameter
     collision := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("SemanticMethodCollision", false),
-        methodParameter.Name)
+        methodParameter.Name
+    )
     structs := SemanticEmptyStructs()
     structs[collision.DeclaredTypeName] = collision
     sources := new string[](1)
@@ -774,29 +935,35 @@ test "synthesized program views reject parent method type parameters in signatur
         structs,
         SemanticEmptyUnions(),
         typeParameters,
-        "")
+        ""
+    )
 
     visibleArray := typeof(object)
     visibleClaimed := false
     assert resolution.Structs.Resolver.TryResolve(
         methodParameter.Name + "[]",
         out visibleArray,
-        out visibleClaimed)
+        out visibleClaimed
+    )
     assert visibleClaimed
     assert visibleArray.get_IsSZArray()
     assert ColumnarConstructionPlanner.SameObject(
-        visibleArray.GetElementType(), methodParameter)
+        visibleArray.GetElementType(),
+        methodParameter
+    )
 
     synthesized := resolution.Structs.ForSynthesizedMethod(program.Builder)
     blocked := typeof(object)
     blockedClaimed := false
     assert synthesized.Resolver.ClaimsTypeParameterShape(methodParameter.Name)
     assert synthesized.Resolver.ClaimsTypeParameterShape(
-        methodParameter.Name + "[]")
+        methodParameter.Name + "[]"
+    )
     assert !synthesized.Resolver.TryResolve(
         methodParameter.Name + "[]",
         out blocked,
-        out blockedClaimed)
+        out blockedClaimed
+    )
     assert blockedClaimed
     assert blocked == typeof(object)
     selected := collision
@@ -804,10 +971,13 @@ test "synthesized program views reject parent method type parameters in signatur
 
     signatureParameters := new Type[](1)
     signatureParameters[0] = methodParameter
-    assert !ColumnarSemanticTypeRegistryBridge
-        .IsValidSynthesizedMethodSignature(
-            typeof(int), signatureParameters, program.Builder)
-    assert !ColumnarSemanticTypeRegistryBridge
-        .IsValidSynthesizedMethodSignatureType(
-            visibleArray, program.Builder)
+    assert !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(
+        typeof(int),
+        signatureParameters,
+        program.Builder
+    )
+    assert !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(
+        visibleArray,
+        program.Builder
+    )
 }

@@ -21,7 +21,6 @@ import NSharpLang.Compiler.Ast
 // between two of them — because the whole reason this walk yields instead of handing back a
 // schedule is that `_errors` is one list and the walk's own report must not overtake a diagnostic
 // that a preceding property's nested pattern already produced.
-
 class PropertyPatternHarness {
     Binding: AnalyzerPropertyPatternBinding
     Errors: List<CompilerError>
@@ -32,7 +31,8 @@ class PropertyPatternHarness {
         binding: AnalyzerPropertyPatternBinding,
         errors: List<CompilerError>,
         context: AnalyzerDeclarationContext,
-        scopes: AnalyzerScopeStack) {
+        scopes: AnalyzerScopeStack
+    ) {
         Binding = binding
         Errors = errors
         Context = context
@@ -57,7 +57,8 @@ func PropertyPatternDefault(): PropertyPatternHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -69,24 +70,27 @@ func PropertyPatternDefault(): PropertyPatternHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
 
     return new PropertyPatternHarness(
         new AnalyzerPropertyPatternBinding(diagnostics, spans, context, substitution),
         errors,
         context,
-        scopes)
+        scopes
+    )
 }
 
 // A declared VALUE member — the only kind `TryResolveDeclaredValueMember` answers for.
 func PropertyPatternMember(
     kind: DeclaredMemberKind,
     name: string,
-    memberType: TypeReference?): DeclaredMemberInfo {
+    memberType: TypeReference?
+): DeclaredMemberInfo {
     return new DeclaredMemberInfo(
         name,
         "Owner",
@@ -117,14 +121,16 @@ func PropertyPatternMember(
         false,
         false,
         1,
-        1)
+        1
+    )
 }
 
 func PropertyPatternProperty(name: string, typeName: string): DeclaredMemberInfo {
     return PropertyPatternMember(
         DeclaredMemberKind.Property,
         name,
-        new SimpleTypeReference(typeName, 0, 0))
+        new SimpleTypeReference(typeName, 0, 0)
+    )
 }
 
 func PropertyPatternMembers(members: DeclaredMemberInfo[]): DeclaredMemberInfo[] {
@@ -139,7 +145,8 @@ func PropertyPatternOneMember(member: DeclaredMemberInfo): DeclaredMemberInfo[] 
 
 func PropertyPatternTwoMembers(
     first: DeclaredMemberInfo,
-    second: DeclaredMemberInfo): DeclaredMemberInfo[] {
+    second: DeclaredMemberInfo
+): DeclaredMemberInfo[] {
     result := new DeclaredMemberInfo[](2)
     result[0] = first
     result[1] = second
@@ -159,7 +166,8 @@ func PropertyPatternOneTypeParameter(name: string): TypeParameter[] {
 func PropertyPatternUnownedClass(
     name: string,
     typeParameters: TypeParameter[],
-    members: DeclaredMemberInfo[]): TypeInfo {
+    members: DeclaredMemberInfo[]
+): TypeInfo {
     owner: TypeInfo = new ClassTypeInfo(
         name,
         1,
@@ -171,14 +179,16 @@ func PropertyPatternUnownedClass(
         new ParameterDeclarationInfo[](0),
         members,
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     return owner
 }
 
 func PropertyPatternOwn(
     harness: PropertyPatternHarness,
     name: string,
-    owner: TypeInfo): TypeInfo {
+    owner: TypeInfo
+): TypeInfo {
     harness.Context.RegisterCanonicalType(PropertyPatternPath(), name, owner)
     return owner
 }
@@ -187,24 +197,28 @@ func PropertyPatternClass(
     harness: PropertyPatternHarness,
     name: string,
     typeParameters: TypeParameter[],
-    members: DeclaredMemberInfo[]): TypeInfo {
+    members: DeclaredMemberInfo[]
+): TypeInfo {
     return PropertyPatternOwn(
         harness,
         name,
-        PropertyPatternUnownedClass(name, typeParameters, members))
+        PropertyPatternUnownedClass(name, typeParameters, members)
+    )
 }
 
 func PropertyPatternPlainClass(
     harness: PropertyPatternHarness,
     name: string,
-    members: DeclaredMemberInfo[]): TypeInfo {
+    members: DeclaredMemberInfo[]
+): TypeInfo {
     return PropertyPatternClass(harness, name, new TypeParameter[](0), members)
 }
 
 func PropertyPatternStruct(
     harness: PropertyPatternHarness,
     name: string,
-    members: DeclaredMemberInfo[]): TypeInfo {
+    members: DeclaredMemberInfo[]
+): TypeInfo {
     owner: TypeInfo = new StructTypeInfo(
         name,
         1,
@@ -213,7 +227,8 @@ func PropertyPatternStruct(
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         members,
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     return PropertyPatternOwn(harness, name, owner)
 }
 
@@ -223,7 +238,8 @@ func PropertyPatternRecord(
     harness: PropertyPatternHarness,
     name: string,
     primary: ParameterDeclarationInfo[],
-    members: DeclaredMemberInfo[]): TypeInfo {
+    members: DeclaredMemberInfo[]
+): TypeInfo {
     owner: TypeInfo = new RecordTypeInfo(
         name,
         1,
@@ -233,7 +249,8 @@ func PropertyPatternRecord(
         new TypeParameter[](0),
         primary,
         members,
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     return PropertyPatternOwn(harness, name, owner)
 }
 
@@ -243,14 +260,16 @@ func PropertyPatternOneParameter(name: string, typeName: string): ParameterDecla
         name,
         new SimpleTypeReference(typeName, 0, 0),
         1,
-        1)
+        1
+    )
     return result
 }
 
 func PropertyPatternGeneric(
     name: string,
     definition: TypeInfo?,
-    arguments: List<TypeInfo>): TypeInfo {
+    arguments: List<TypeInfo>
+): TypeInfo {
     generic: TypeInfo = new GenericTypeInfo(name, arguments, definition)
     return generic
 }
@@ -302,7 +321,8 @@ func PropertyPatternTranscript(
     properties: List<PropertyPattern>,
     valueType: TypeInfo,
     line: int,
-    column: int): string {
+    column: int
+): string {
     state := harness.Binding.Begin(properties, valueType, line, column)
     rendered := ""
     step := harness.Binding.NextStep(state)
@@ -313,9 +333,7 @@ func PropertyPatternTranscript(
         if step.Kind == 1 {
             rendered = rendered + "analyze:" + PropertyPatternTypeName(step.CarriedType)
         } else {
-            rendered = rendered + "declare:" + step.Name + ":"
-                + PropertyPatternTypeName(step.CarriedType)
-                + ":" + step.Line.ToString() + ":" + step.Column.ToString()
+            rendered = rendered + "declare:" + step.Name + ":" + PropertyPatternTypeName(step.CarriedType) + ":" + step.Line.ToString() + ":" + step.Column.ToString()
         }
         step = harness.Binding.NextStep(state)
     }
@@ -336,7 +354,8 @@ test "a plain source scrutinee is its own owner under no substitution" {
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
 
     state := harness.Binding.Begin(PropertyPatternList(), dog, 7, 5)
 
@@ -354,11 +373,13 @@ test "a closed generic scrutinee answers the DEFINITION and the substitution its
         harness,
         "Box",
         PropertyPatternOneTypeParameter("T"),
-        PropertyPatternOneMember(PropertyPatternProperty("Value", "T")))
+        PropertyPatternOneMember(PropertyPatternProperty("Value", "T"))
+    )
     closed := PropertyPatternGeneric(
         "Box",
         definition,
-        PropertyPatternOneArgument(BuiltInTypes.Int))
+        PropertyPatternOneArgument(BuiltInTypes.Int)
+    )
 
     state := harness.Binding.Begin(PropertyPatternList(), closed, 7, 5)
     substitution := state.Substitution
@@ -378,7 +399,8 @@ test "a generic whose definition carries no type parameters answers a NULL subst
     closed := PropertyPatternGeneric(
         "List",
         definition,
-        PropertyPatternOneArgument(BuiltInTypes.Int))
+        PropertyPatternOneArgument(BuiltInTypes.Int)
+    )
 
     state := harness.Binding.Begin(PropertyPatternList(), closed, 7, 5)
 
@@ -391,7 +413,8 @@ test "a generic with no resolvable definition keeps the instantiation as its own
     closed := PropertyPatternGeneric(
         "Nowhere",
         null,
-        PropertyPatternOneArgument(BuiltInTypes.Int))
+        PropertyPatternOneArgument(BuiltInTypes.Int)
+    )
 
     state := harness.Binding.Begin(PropertyPatternList(), closed, 7, 5)
 
@@ -420,7 +443,8 @@ test "a nested pattern yields ONE analyse step carrying the property's resolved 
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     nested := PropertyPatternSomePattern()
     properties := PropertyPatternList()
     properties.Add(PropertyPatternNested("Age", nested))
@@ -442,7 +466,8 @@ test "a property with no nested pattern yields ONE declare step naming the prope
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Age"))
 
@@ -464,7 +489,8 @@ test "a property the scrutinee does not have yields NO step and reports" {
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternNested("Weight", PropertyPatternSomePattern()))
 
@@ -479,7 +505,10 @@ test "a property the scrutinee does not have yields NO step and reports" {
 test "an empty property list finishes immediately and says nothing" {
     harness := PropertyPatternDefault()
     dog: TypeInfo = PropertyPatternPlainClass(
-        harness, "Dog", new DeclaredMemberInfo[](0))
+        harness,
+        "Dog",
+        new DeclaredMemberInfo[](0)
+    )
 
     state := harness.Binding.Begin(PropertyPatternList(), dog, 7, 5)
 
@@ -493,7 +522,8 @@ test "an exhausted walk keeps answering null rather than restarting" {
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Age"))
 
@@ -516,13 +546,14 @@ test "the steps arrive in WRITTEN order, one per property" {
         "Dog",
         PropertyPatternTwoMembers(
             PropertyPatternProperty("Age", "int"),
-            PropertyPatternProperty("Name", "string")))
+            PropertyPatternProperty("Name", "string")
+        )
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternNested("Age", PropertyPatternSomePattern()))
     properties.Add(PropertyPatternImplicit("Name"))
 
-    assert PropertyPatternTranscript(harness, properties, dog, 7, 5)
-        == "analyze:int|declare:Name:string:7:11"
+    assert PropertyPatternTranscript(harness, properties, dog, 7, 5) == "analyze:int|declare:Name:string:7:11"
     assert harness.Errors.Count == 0
 }
 
@@ -533,7 +564,9 @@ test "a missing property REPORTS WHERE IT SITS — between the step before it an
         "Dog",
         PropertyPatternTwoMembers(
             PropertyPatternProperty("Age", "int"),
-            PropertyPatternProperty("Name", "string")))
+            PropertyPatternProperty("Name", "string")
+        )
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternNested("Age", PropertyPatternSomePattern()))
     properties.Add(PropertyPatternAt("Weight", 7, 20))
@@ -563,7 +596,8 @@ test "two missing properties report twice, in written order, and neither stops t
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternAt("Alpha", 7, 11))
     properties.Add(PropertyPatternAt("Beta", 7, 21))
@@ -586,16 +620,19 @@ test "a declared member of a class, a struct and a record all resolve" {
     dogClass: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     point: TypeInfo = PropertyPatternStruct(
         harness,
         "Point",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     item: TypeInfo = PropertyPatternRecord(
         harness,
         "Item",
         new ParameterDeclarationInfo[](0),
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Age"))
 
@@ -611,12 +648,20 @@ test "a FIELD is a value member and a FUNCTION is not" {
         harness,
         "WithField",
         PropertyPatternOneMember(PropertyPatternMember(
-            DeclaredMemberKind.Field, "Age", new SimpleTypeReference("int", 0, 0))))
+            DeclaredMemberKind.Field,
+            "Age",
+            new SimpleTypeReference("int", 0, 0)
+        ))
+    )
     withFunction: TypeInfo = PropertyPatternPlainClass(
         harness,
         "WithFunction",
         PropertyPatternOneMember(PropertyPatternMember(
-            DeclaredMemberKind.Function, "Age", new SimpleTypeReference("int", 0, 0))))
+            DeclaredMemberKind.Function,
+            "Age",
+            new SimpleTypeReference("int", 0, 0)
+        ))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Age"))
 
@@ -636,7 +681,8 @@ test "a record's PRIMARY CONSTRUCTOR PARAMETER is not a value member here, and i
         harness,
         "Item",
         PropertyPatternOneParameter("Count", "int"),
-        new DeclaredMemberInfo[](0))
+        new DeclaredMemberInfo[](0)
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Count"))
 
@@ -651,17 +697,20 @@ test "the SUBSTITUTION is what gives a generic property its closed type" {
         harness,
         "Box",
         PropertyPatternOneTypeParameter("T"),
-        PropertyPatternOneMember(PropertyPatternProperty("Value", "T")))
+        PropertyPatternOneMember(PropertyPatternProperty("Value", "T"))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Value"))
 
     intBox := PropertyPatternGeneric("Box", definition, PropertyPatternOneArgument(BuiltInTypes.Int))
     stringBox := PropertyPatternGeneric(
-        "Box", definition, PropertyPatternOneArgument(BuiltInTypes.String))
+        "Box",
+        definition,
+        PropertyPatternOneArgument(BuiltInTypes.String)
+    )
 
     assert PropertyPatternTranscript(harness, properties, intBox, 7, 5) == "declare:Value:int:7:11"
-    assert PropertyPatternTranscript(harness, properties, stringBox, 7, 5)
-        == "declare:Value:string:7:11"
+    assert PropertyPatternTranscript(harness, properties, stringBox, 7, 5) == "declare:Value:string:7:11"
     // The OPEN definition, matched directly, answers the parameter itself.
     assert PropertyPatternTranscript(harness, properties, definition, 7, 5) == "declare:Value:T:7:11"
     assert harness.Errors.Count == 0
@@ -677,20 +726,17 @@ test "a REFLECTED scrutinee is asked its metadata, and the NULLABILITY conversio
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Name"))
 
-    assert PropertyPatternTranscript(harness, properties, reflected, 7, 5)
-        == "declare:Name:string:7:11"
+    assert PropertyPatternTranscript(harness, properties, reflected, 7, 5) == "declare:Name:string:7:11"
     assert harness.Errors.Count == 0
 
     nullableProperties := PropertyPatternList()
     nullableProperties.Add(PropertyPatternImplicit("FullName"))
-    assert PropertyPatternTranscript(harness, nullableProperties, reflected, 7, 5)
-        == "declare:FullName:string?:7:11"
+    assert PropertyPatternTranscript(harness, nullableProperties, reflected, 7, 5) == "declare:FullName:string?:7:11"
     assert harness.Errors.Count == 0
 
     boolProperties := PropertyPatternList()
     boolProperties.Add(PropertyPatternImplicit("IsAbstract"))
-    assert PropertyPatternTranscript(harness, boolProperties, reflected, 7, 5)
-        == "declare:IsAbstract:bool:7:11"
+    assert PropertyPatternTranscript(harness, boolProperties, reflected, 7, 5) == "declare:IsAbstract:bool:7:11"
     assert harness.Errors.Count == 0
 }
 
@@ -702,8 +748,7 @@ test "a reflected scrutinee with no such property reports like any other" {
 
     assert PropertyPatternTranscript(harness, properties, reflected, 7, 5) == "<none>"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "'" + PropertyPatternTypeName(reflected) + "' doesn't have a property named 'Nope'"
+    assert harness.Errors[0].Message == "'" + PropertyPatternTypeName(reflected) + "' doesn't have a property named 'Nope'"
 }
 
 test "the DECLARED shape is asked before reflection, and only a declared MISS falls through" {
@@ -714,14 +759,14 @@ test "the DECLARED shape is asked before reflection, and only a declared MISS fa
     shadowing: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Type",
-        PropertyPatternOneMember(PropertyPatternProperty("Name", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Name", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Name"))
     missingProperties := PropertyPatternList()
     missingProperties.Add(PropertyPatternImplicit("FullName"))
 
-    assert PropertyPatternTranscript(harness, properties, shadowing, 7, 5)
-        == "declare:Name:int:7:11"
+    assert PropertyPatternTranscript(harness, properties, shadowing, 7, 5) == "declare:Name:int:7:11"
     assert harness.Errors.Count == 0
     assert PropertyPatternTranscript(harness, missingProperties, shadowing, 7, 5) == "<none>"
     assert harness.Errors.Count == 1
@@ -733,7 +778,8 @@ test "a scrutinee with neither a source shape nor reflected metadata reports eve
     properties.Add(PropertyPatternImplicit("Length"))
 
     nullable: TypeInfo = new NullableTypeInfo(
-        PropertyPatternPlainClass(harness, "Box", new DeclaredMemberInfo[](0)))
+        PropertyPatternPlainClass(harness, "Box", new DeclaredMemberInfo[](0))
+    )
     array: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
 
     assert PropertyPatternTranscript(harness, properties, BuiltInTypes.Int, 7, 5) == "<none>"
@@ -753,7 +799,11 @@ test "an UNKNOWN-typed declared member still resolves — it is a member, just n
         harness,
         "Untyped",
         PropertyPatternOneMember(PropertyPatternMember(
-            DeclaredMemberKind.Property, "Age", null)))
+            DeclaredMemberKind.Property,
+            "Age",
+            null
+        ))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Age"))
 
@@ -774,18 +824,19 @@ test "an UNOWNED owner still FINDS its member — it just cannot type it" {
     unowned := PropertyPatternUnownedClass(
         "Stranger",
         new TypeParameter[](0),
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternImplicit("Age"))
 
-    assert PropertyPatternTranscript(harness, properties, unowned, 7, 5)
-        == "declare:Age:unknown:7:11"
+    assert PropertyPatternTranscript(harness, properties, unowned, 7, 5) == "declare:Age:unknown:7:11"
     assert harness.Errors.Count == 0
 
     owned := PropertyPatternPlainClass(
         harness,
         "Owned",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     assert PropertyPatternTranscript(harness, properties, owned, 7, 5) == "declare:Age:int:7:11"
     assert harness.Errors.Count == 0
 }
@@ -799,7 +850,8 @@ test "the implicit binding takes the PROPERTY NAME, which is the only shape the 
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(new PropertyPattern("Age", null, null, 7, 11))
 
@@ -819,7 +871,8 @@ test "an EXPLICIT binding name wins — an arm no parser production reaches, pin
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(new PropertyPattern("Age", null, "renamed", 7, 11))
 
@@ -838,7 +891,8 @@ test "a property with no position of its own is anchored on the ENCLOSING patter
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     properties := PropertyPatternList()
     properties.Add(new PropertyPattern("Age", null, null, 0, 0))
 
@@ -853,7 +907,10 @@ test "a property with no position of its own is anchored on the ENCLOSING patter
 test "the missing-property diagnostic carries the property NAME's own span" {
     harness := PropertyPatternDefault()
     dog: TypeInfo = PropertyPatternPlainClass(
-        harness, "Dog", new DeclaredMemberInfo[](0))
+        harness,
+        "Dog",
+        new DeclaredMemberInfo[](0)
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternAt("Weight", 12, 21))
 
@@ -869,7 +926,10 @@ test "the missing-property diagnostic carries the property NAME's own span" {
 test "an unpositioned missing property falls back to the enclosing pattern's position" {
     harness := PropertyPatternDefault()
     dog: TypeInfo = PropertyPatternPlainClass(
-        harness, "Dog", new DeclaredMemberInfo[](0))
+        harness,
+        "Dog",
+        new DeclaredMemberInfo[](0)
+    )
     properties := PropertyPatternList()
     properties.Add(new PropertyPattern("Weight", null, null, 0, 0))
 
@@ -888,9 +948,13 @@ test "the diagnostic renders the SCRUTINEE, not the owner the members were found
         harness,
         "Box",
         PropertyPatternOneTypeParameter("T"),
-        PropertyPatternOneMember(PropertyPatternProperty("Value", "T")))
+        PropertyPatternOneMember(PropertyPatternProperty("Value", "T"))
+    )
     closed := PropertyPatternGeneric(
-        "Box", definition, PropertyPatternOneArgument(BuiltInTypes.Int))
+        "Box",
+        definition,
+        PropertyPatternOneArgument(BuiltInTypes.Int)
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternAt("Nope", 7, 11))
 
@@ -898,15 +962,17 @@ test "the diagnostic renders the SCRUTINEE, not the owner the members were found
 
     assert harness.Binding.NextStep(state) == null
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "'" + PropertyPatternTypeName(closed) + "' doesn't have a property named 'Nope'"
+    assert harness.Errors[0].Message == "'" + PropertyPatternTypeName(closed) + "' doesn't have a property named 'Nope'"
     assert harness.Errors[0].Message != "'Box' doesn't have a property named 'Nope'"
 }
 
 test "the diagnostic is NL503 with no suggestion line" {
     harness := PropertyPatternDefault()
     dog: TypeInfo = PropertyPatternPlainClass(
-        harness, "Dog", new DeclaredMemberInfo[](0))
+        harness,
+        "Dog",
+        new DeclaredMemberInfo[](0)
+    )
     properties := PropertyPatternList()
     properties.Add(PropertyPatternAt("Weight", 7, 11))
 
@@ -917,7 +983,6 @@ test "the diagnostic is NL503 with no suggestion line" {
     assert harness.Errors[0].Code == ErrorCode.InvalidPattern
     assert harness.Errors[0].Suggestion == null
 }
-
 
 // ---- `BoundName`, the ONE answer to what a property pattern binds (playground union-shorthand chip) ----
 //
@@ -951,7 +1016,8 @@ test "BoundName is what the object-pattern walk itself uses — the walk's step 
     dog: TypeInfo = PropertyPatternPlainClass(
         harness,
         "Dog",
-        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int"))
+    )
     property := PropertyPatternAt("Age", 7, 11)
     properties := PropertyPatternList()
     properties.Add(property)

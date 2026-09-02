@@ -36,7 +36,6 @@ import NSharpLang.Compiler.Ast
 //   * a `ref`/`out` argument is analysed against the BYREF's INNER type and folded back WRAPPED,
 //     its write-target table is open across the analysis, and the target rule that follows it is
 //     SILENCED by anything the analysis itself reported.
-
 func CallWalkErrors(): List<CompilerError> {
     return new List<CompilerError>()
 }
@@ -70,8 +69,8 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
     provider := new AnalyzerProjectSourceProvider()
     namespaces := new List<string>()
     usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
-    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal)
-    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
     discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)
     probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)
     sink := new AnalyzerDiagnosticSink(errors, provider)
@@ -87,12 +86,34 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
     spans := new AnalyzerDiagnosticSpans(sink)
     reporter := new AnalyzerSyntheticCallReporter(sink, spans)
     walk := new AnalyzerSyntheticCallWalk(
-        resolver, binder, reporter, scoring, assignability, spans, sink)
+        resolver,
+        binder,
+        reporter,
+        scoring,
+        assignability,
+        spans,
+        sink
+    )
     constants := new AnalyzerConstantExpressionFacts(scopes, context)
     validator := new AnalyzerSyntheticCallValidator(
-        context, resolver, assignability, scoring, walk, reporter, spans, sink, constants)
+        context,
+        resolver,
+        assignability,
+        scoring,
+        walk,
+        reporter,
+        spans,
+        sink,
+        constants
+    )
     reflectionReporter := new AnalyzerReflectionCallReporter(
-        scopes, context, facts, spans, sink, new AnalyzerCallableReferenceReportLog())
+        scopes,
+        context,
+        facts,
+        spans,
+        sink,
+        new AnalyzerCallableReferenceReportLog()
+    )
     functionTypes := new AnalyzerFunctionTypeFactory(context, substitution)
     extensions := new List<FunctionDeclaration>()
     extensionResolution := new AnalyzerExtensionMethodResolution(resolver, assignability, context, functionTypes, clrConversion, extensions, namespaces, assemblies)
@@ -106,8 +127,21 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
     writeTargets := new AnalyzerWriteTargets(sink, spans, scopes, context, substitution, clrConversion, ambient, soaEscape, memberAccess, indexAccess)
     argumentBinder := new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring, resolver)
     owner := new AnalyzerCallAnalysis(
-        reporter, walk, validator, reflectionReporter, argumentBinder, clrConversion, substitution,
-        assignability, sink, spans, scopes, ambient, writeTargets, identifierResolution)
+        reporter,
+        walk,
+        validator,
+        reflectionReporter,
+        argumentBinder,
+        clrConversion,
+        substitution,
+        assignability,
+        sink,
+        spans,
+        scopes,
+        ambient,
+        writeTargets,
+        identifierResolution
+    )
     return new CallWalkHarness(owner, errors, scopes, ambient)
 }
 
@@ -176,7 +210,9 @@ func CallWalkSignature(parameterTypes: List<TypeInfo>, returnType: TypeInfo?): F
 // `this p1: T, p2: <second>` — the receiver-style GENERIC shape the whole protocol is about.
 func CallWalkReceiverGeneric(second: TypeInfo, secondReference: TypeReference): FunctionTypeInfo {
     signature := CallWalkSignature(
-        CallWalkTypes2(BuiltInTypes.Int, second), BuiltInTypes.String)
+        CallWalkTypes2(BuiltInTypes.Int, second),
+        BuiltInTypes.String
+    )
     signature.SourceHasReceiverParameter = true
     signature.SourceParameterTypes = CallWalkReferences2(new SimpleTypeReference("T"), secondReference)
     typeParameters := new List<TypeParameter>()
@@ -188,10 +224,14 @@ func CallWalkReceiverGeneric(second: TypeInfo, secondReference: TypeReference): 
 // `this p1: int, p2: string` — receiver-style but NOT generic, so it never reads the receiver.
 func CallWalkReceiverPlain(): FunctionTypeInfo {
     signature := CallWalkSignature(
-        CallWalkTypes2(BuiltInTypes.Int, BuiltInTypes.String), BuiltInTypes.String)
+        CallWalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
+        BuiltInTypes.String
+    )
     signature.SourceHasReceiverParameter = true
     signature.SourceParameterTypes = CallWalkReferences2(
-        new SimpleTypeReference("int"), new SimpleTypeReference("string"))
+        new SimpleTypeReference("int"),
+        new SimpleTypeReference("string")
+    )
     return signature
 }
 
@@ -306,7 +346,8 @@ func CallWalkRun(
     receiverType: TypeInfo?,
     argumentAnswer: TypeInfo,
     lambdaAnswer: TypeInfo?,
-    firedGate: int): string {
+    firedGate: int
+): string {
     call := state.Call
     transcript := ""
     step := owner.NextCallStep(state)
@@ -702,7 +743,14 @@ test "a receiver-style generic call reads the member-access receiver EXACTLY thr
     signature := CallWalkReceiverGeneric(BuiltInTypes.String, new SimpleTypeReference("string"))
 
     transcript := CallWalkRun(
-        harness.Owner, state, signature, BuiltInTypes.Int, BuiltInTypes.String, null, 0)
+        harness.Owner,
+        state,
+        signature,
+        BuiltInTypes.Int,
+        BuiltInTypes.String,
+        null,
+        0
+    )
 
     // 6 before the arguments (closing the inference), then 6 again for validation and 6 again for
     // the return type. Each one is a real analysis that reports again. The leading `6(callee)` is
@@ -720,7 +768,14 @@ test "the same signature called WITHOUT a member access reads no receiver at all
     state := harness.Owner.BeginCall(call)
 
     transcript := CallWalkRun(
-        harness.Owner, state, signature, BuiltInTypes.Int, BuiltInTypes.String, null, 0)
+        harness.Owner,
+        state,
+        signature,
+        BuiltInTypes.Int,
+        BuiltInTypes.String,
+        null,
+        0
+    )
 
     assert CallWalkCount(transcript, "6") == 0
     assert CallWalkCount(transcript, "6(callee)") == 0
@@ -745,7 +800,8 @@ test "an overload group whose winner is not receiver-style generic reads the rec
         BuiltInTypes.Int,
         BuiltInTypes.String,
         null,
-        0)
+        0
+    )
 
     assert CallWalkCount(transcript, "6") == 1
     // 14 is the semantic-model record for the chosen overload, and it happens between the binding
@@ -769,7 +825,8 @@ test "an overload group whose winner IS receiver-style generic reads the receive
         BuiltInTypes.Int,
         BuiltInTypes.String,
         null,
-        0)
+        0
+    )
 
     assert CallWalkCount(transcript, "6") == 3
     assert transcript == "6(callee) 3 4(<null>) 8 6 14 6 6"
@@ -811,7 +868,8 @@ test "a method-group lambda argument is not analysed here and folds unknown" {
         null,
         BuiltInTypes.String,
         null,
-        0)
+        0
+    )
 
     // The skipped argument is no longer a STEP at all — kind 5 was a round trip that relayed a
     // report the walk now makes itself — so the transcript goes straight from the null-call report
@@ -842,7 +900,8 @@ test "a ref method-group lambda argument is still refused as a write target" {
         null,
         BuiltInTypes.String,
         null,
-        0)
+        0
+    )
 
     assert transcript == "3 8"
     assert errors.Count == 1
@@ -865,7 +924,8 @@ test "a reflected call that binds to nothing answers unknown through the reporte
         null,
         BuiltInTypes.String,
         null,
-        0)
+        0
+    )
 
     // THE ARGUMENT IS ANALYSED TWICE AND ALWAYS WAS. The walk's own argument schedule analyses it
     // once for the call's argument types; the reflected bind analyses every NON-LAMBDA argument again
@@ -918,7 +978,8 @@ func CallWalkTaggedCandidate(score: int, usesParams: bool, defaultsUsed: int, ta
         new List<ReflectionBoundArgument>(),
         score,
         usesParams,
-        defaultsUsed)
+        defaultsUsed
+    )
 }
 
 func CallWalkCandidateTags(candidates: List<ReflectionPreBoundCandidate>): string {
@@ -1102,7 +1163,14 @@ test "a newtype construction checks arity first and the underlying type second" 
     state := harness.Owner.BeginCall(call)
 
     transcript := CallWalkRun(
-        harness.Owner, state, newtypeInfo, null, BuiltInTypes.String, null, 0)
+        harness.Owner,
+        state,
+        newtypeInfo,
+        null,
+        BuiltInTypes.String,
+        null,
+        0
+    )
 
     assert transcript == "3 4(<null>) 8"
     assert CallWalkTypeText(state.Result) == "UserId"
@@ -1118,7 +1186,14 @@ test "a newtype construction checks arity first and the underlying type second" 
     arityState := arityHarness.Owner.BeginCall(arityCall)
 
     _ = CallWalkRun(
-        arityHarness.Owner, arityState, newtypeInfo, null, BuiltInTypes.Int, null, 0)
+        arityHarness.Owner,
+        arityState,
+        newtypeInfo,
+        null,
+        BuiltInTypes.Int,
+        null,
+        0
+    )
 
     assert arityErrors.Count == 1
     assert arityErrors[0].Message.Contains("expects exactly 1 argument but got 2")
@@ -1132,7 +1207,14 @@ test "a callee the walk does not recognise answers unknown after the whole sched
     state := harness.Owner.BeginCall(call)
 
     transcript := CallWalkRun(
-        harness.Owner, state, BuiltInTypes.Unknown, null, BuiltInTypes.String, null, 0)
+        harness.Owner,
+        state,
+        BuiltInTypes.Unknown,
+        null,
+        BuiltInTypes.String,
+        null,
+        0
+    )
 
     // The arguments are still analysed and the gates still run — an unrecognised callee must not
     // silence the diagnostics its arguments would have produced.
@@ -1165,7 +1247,14 @@ test "an argument's expected type comes from the signature, closed once before t
     signature := CallWalkReceiverGeneric(typeParameter, new SimpleTypeReference("T"))
 
     transcript := CallWalkRun(
-        harness.Owner, state, signature, BuiltInTypes.Int, BuiltInTypes.String, null, 0)
+        harness.Owner,
+        state,
+        signature,
+        BuiltInTypes.Int,
+        BuiltInTypes.String,
+        null,
+        0
+    )
 
     // `p2: T` with the receiver binding `T = int` — the expected type is the CLOSED one, and it is
     // closed from the receiver read before the loop rather than from the arguments analysed so far.

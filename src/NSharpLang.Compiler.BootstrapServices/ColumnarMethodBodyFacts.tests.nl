@@ -2,9 +2,9 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Globalization
 import System.Reflection
 import System.Reflection.Emit
-import System.Globalization
 
 
 // `015-B3` — STATEMENT KIND 20 (`Return`) AS AN ORDINARY USER BODY SEES IT.
@@ -36,7 +36,6 @@ import System.Globalization
 // DRIVER, plus the shared-owner widening that lets one literal owner serve a method body.
 
 // ---- shared fixtures ----
-
 func MethodBodyFactsVoidType(): Type {
     result := Type.GetType("System.Void")
     if result == null {
@@ -250,7 +249,8 @@ func MethodBodyFactsPlanBody(nodes: ColumnarNodeTable, source: string, returnTyp
         new Dictionary<string, Type>(StringComparer.Ordinal),
         false,
         new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal),
-        plan)
+        plan
+    )
 }
 
 func MethodBodyFactsPlanLiteralBody(literalKind: int, text: string, returnType: Type, plan: ColumnarCodePlan): bool {
@@ -315,7 +315,6 @@ func MethodBodyFactsIntArguments(count: int, lastValue: int): object[] {
     return result
 }
 
-
 // ---- BLOCK 1 — THE ROW ----
 //
 // 0x2A = 42, and the row belongs to the method-body schema ALONE. The asymmetry is the whole content:
@@ -352,7 +351,6 @@ test "the ret row is 42 and only a method body may carry it" {
     ColumnarCodePlanExecutor.Validate(body)
 }
 
-
 // ---- BLOCK 2 — THE EXECUTOR ARM ----
 //
 // The row becomes a real `ret` at BOTH arities. A void body returns and does not fault; a value body
@@ -378,7 +376,6 @@ test "the executor's ret arm ends a real method body at both arities" {
     valueTarget: object? = null
     assert Convert.ToInt32(valueMethod.Invoke(valueTarget, MethodBodyFactsNoArguments())) == 4242
 }
-
 
 // ---- BLOCK 3 — THE HEIGHT MODEL ----
 //
@@ -436,7 +433,6 @@ test "the height model refuses every ret that does not balance its declared resu
     leaving.CompleteMethodBody(MethodBodyFactsVoidType())
     ColumnarCodePlanExecutor.Validate(leaving)
 }
-
 
 // ---- BLOCK 4 — THE TERMINATION RULE ----
 //
@@ -526,7 +522,6 @@ test "the try arm of the termination rule demands a catch and ignores the finall
     assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(bothKinds, twoCounts, twoChildren, twoZeros, twoZeros, 1), 0)
 }
 
-
 // ---- BLOCK 5 — THE DRIVER ----
 //
 // The first ordinary USER body the plan path claims end to end. Every earlier schema-v4 producer was
@@ -594,7 +589,6 @@ test "the body driver declines every shape whose bytes it cannot promise" {
     // different route and must not be claimed here.
     assert !MethodBodyFactsPlanBody(MethodBodyFactsLeaf(20, 1), " ", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), new ColumnarCodePlan())
 }
-
 
 // ---- BLOCK 7 — THE BOOLEAN CLASS (015-B4) ----
 //
@@ -671,7 +665,6 @@ test "the boolean literal owner appends into both its schemas and keeps v1 singl
     assert ColumnarBooleanLiteralPlanner.Plan(intNodes, "1", 2, new ColumnarCodePlan()) == ColumnarFragmentPlanStatus.NotOwned
     assert ColumnarBooleanLiteralPlanner.Plan(literalNodes, "true", 2, new ColumnarCodePlan()) == ColumnarFragmentPlanStatus.Planned
 }
-
 
 // ---- BLOCK 8 — THE PARAMETER CLASS (015-B4) ----
 //
@@ -779,7 +772,8 @@ test "the bound identifier owner appends into a method body and still refuses th
         new string[](0),
         new string[](0),
         new string[](0),
-        new Dictionary<string, Type>(StringComparer.Ordinal))
+        new Dictionary<string, Type>(StringComparer.Ordinal)
+    )
 
     // v4, no fragment: accepted.
     body := new ColumnarCodePlan()
@@ -807,7 +801,6 @@ test "the bound identifier owner appends into a method body and still refuses th
         ColumnarBoundIdentifierPlanner.TryAppend(identifierNodes, "p", 2, bindings, boolean, out booleanType)
     }
 }
-
 
 // ---- BLOCK 9 — THE VOID ARITY (015-B4) ----
 //
@@ -849,7 +842,6 @@ test "the body driver claims both void shapes and refuses everything that is not
     assert !MethodBodyFactsPlanBody(MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IntLiteralExpression(), "1"), "1", MethodBodyFactsVoidType(), true, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), new ColumnarCodePlan())
 }
 
-
 // ---- BLOCK 10 — THE SECOND STATEMENT-SHAPE PREDICATE (015-B4) ----
 //
 // `ContainsReturnStatement` moved out of `ColumnarIlEmitter.cs` for the same reason `AlwaysReturns`
@@ -877,7 +869,6 @@ test "the columnar return search finds a return at any depth and refuses invalid
         ColumnarMethodBodyPlanner.ContainsReturnStatement(MethodBodyFactsLeaf(20, 0), 9)
     }
 }
-
 
 // ---- BLOCK 6 — THE SHARED WIDENING ----
 //
@@ -914,7 +905,6 @@ test "the scalar literal owner appends into a method body and still refuses the 
         ColumnarScalarLiteralPlanner.TryAppendLiteral(literalNodes, "9", 2, recursive, out recursiveType)
     }
 }
-
 
 // ---- 015-B5 — THE APPEND-MODE EXPRESSION FRONT DOOR ----
 //
@@ -988,7 +978,8 @@ func MethodBodyFactsEmptyBindings(): ColumnarFragmentBindings {
         new string[](0),
         new string[](0),
         new string[](0),
-        new Dictionary<string, Type>(StringComparer.Ordinal))
+        new Dictionary<string, Type>(StringComparer.Ordinal)
+    )
 }
 
 // Bindings whose ONLY fact is a current instance carrying one field and one property.
@@ -1017,7 +1008,6 @@ func MethodBodyFactsDoorPlan(name: string, bindings: ColumnarFragmentBindings, r
     plan.CompleteMethodBody(returnType)
     return true
 }
-
 
 // ---- BLOCK 11 — THE DOOR IS TOTAL ----
 //
@@ -1119,7 +1109,6 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     assert untouched.OperationCount == 0
 }
 
-
 // ---- BLOCK 12 — THE BY-REF PARAMETER CLASS (X) ----
 //
 // `015-B4` pinned this shape as a DECLINE and named it a future claim class; this is that future. A
@@ -1153,7 +1142,6 @@ test "the body driver claims a by-ref parameter return and derefs it through the
     // stays with the host's `Ldobj` deref arm. The claim is the table, not "any by-ref".
     assert !MethodBodyFactsPlanParameterBody("r", 0, typeof(decimal).MakeByRefType(), typeof(decimal), new ColumnarCodePlan())
 }
-
 
 // ---- BLOCK 13 — THE CURRENT-FIELD CLASS (F) ----
 //
@@ -1205,7 +1193,6 @@ test "the expression door claims a current field on a reference and on a value r
     assert !MethodBodyFactsDoorPlan("Field", MethodBodyFactsCurrentBindings(typeof(ColumnarMethodBodyCurrentClassProbe), true), typeof(long), new ColumnarCodePlan())
 }
 
-
 // ---- BLOCK 13a — THE CURRENT-PROPERTY CLASS (R) ----
 //
 // Not the same class as the field: a property read is a receiver plus a getter CALL, and the CALL FORM
@@ -1243,7 +1230,6 @@ test "the expression door claims a current property and picks the call form from
     assert !MethodBodyFactsDoorPlan("Value", MethodBodyFactsCurrentBindings(typeof(ColumnarMethodBodyCurrentClassProbe), true), typeof(long), new ColumnarCodePlan())
 }
 
-
 // ---- BLOCK 14 — THE SELECTION FILTER, BOTH WAYS ----
 //
 // The door claims FIVE of the owner's eight selection kinds. The filter is asked directly, in both
@@ -1280,7 +1266,6 @@ test "the identifier filter claims exactly five selection kinds and refuses the 
     assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(localNodes, "n", 2, localBindings, untouched, out localType)
     assert untouched.OperationCount == 0
 }
-
 
 // ---- 015-B6 — THE NINE-OWNER GATE WIDENING AND THE STATEMENT LOOP ----
 //
@@ -1411,7 +1396,6 @@ func MethodBodyFactsInts7(a: int, b: int, c: int, d: int, e: int, f: int, g: int
     return result
 }
 
-
 // ---- BLOCKS 22-30 — THE NINE GATES, ONE BLOCK EACH ----
 //
 // Every block asks the SAME two questions of one owner: does its append entry reach its own logic on a
@@ -1538,7 +1522,6 @@ test "the typeof owner's gate admits a method body and still refuses the recursi
         ColumnarTypeOfPlanner.TryAppendTypeOf(nodes, "t", 0, MethodBodyFactsEmptyBindings(), recursive, out resultType)
     }
 }
-
 
 // ---- BLOCK 31 — THE COMPOSED-INPUT PROBE: A COMPOSITE CLAIMS END TO END ----
 //
@@ -1975,7 +1958,6 @@ test "a plan-declared local resolves as its own selection tier and refuses every
     }
 }
 
-
 // ---- 015-B7 SHARED FIXTURES — THE DIRECT-CALL COMPOSITE ----
 //
 // The call subtrees are built on the DIRECT-CALL owner's OWN fixture builder rather than on a second
@@ -2121,13 +2103,13 @@ func MethodBodyFactsPlanCallBody(tree: ColumnarRangePlannerTestTree, returnType:
         new Dictionary<string, Type>(StringComparer.Ordinal),
         false,
         siblingCallables,
-        plan)
+        plan
+    )
 }
 
 func MethodBodyFactsNoSourceTypes(): ColumnarStructDef[] {
     return new ColumnarStructDef[](0)
 }
-
 
 // ---- BLOCK 40 — THE DIRECT-CALL COMPOSITE IN RETURN POSITION (class C) ----
 //
@@ -2159,7 +2141,6 @@ test "the door claims a direct call as a return value and executes it" {
     target: object? = null
     assert Object.ReferenceEquals(method.Invoke(target, MethodBodyFactsNoArguments()), typeof(string))
 }
-
 
 // ---- BLOCK 41 — THE SAME CALL AS A DECLARATION INITIALIZER (class DC) ----
 //
@@ -2197,7 +2178,6 @@ test "the door claims a direct call as a declaration initializer and the return 
     assert Object.ReferenceEquals(method.Invoke(target, MethodBodyFactsNoArguments()), typeof(string))
 }
 
-
 // ---- BLOCK 42 — THE ROUTED SIBLING MAP IS A BRANCH SELECTOR, NOT A CONVENIENCE ----
 //
 // `015-B5` and `015-B6` deliberately left `SiblingCallables` unrouted and recorded that it becomes
@@ -2229,7 +2209,6 @@ test "the routed sibling map decides a bare call and an empty map declines it" {
     declaredEmpty := new ColumnarCodePlan()
     assert !MethodBodyFactsPlanCallBody(declaredTree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), declaredEmpty)
 }
-
 
 // ---- BLOCK 43 — ⚠ A VOID CALL DECLINES INSTEAD OF LEAVING THE COMPILER ----
 //
@@ -2271,7 +2250,6 @@ test "a void direct call declines on a method body and still completes a schema-
     assert !MethodBodyFactsPlanCallBody(declaredTree, typeof(int), SourceCallDefinitions(owner), MethodBodyFactsNoSiblings(), declaredPlan)
 }
 
-
 // ---- BLOCK 44 — THE ROOT SEQUENCE IS ONE COPY, NOT TWO ----
 //
 // `TryAppendRoot` was FACTORED OUT of `Plan` rather than written beside it, and that is the whole
@@ -2308,7 +2286,6 @@ test "the direct-call root sequence produces the same rows through Plan and thro
     assert viaDoor.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
     assert viaDoor.OpenFragmentCount == 0
 }
-
 
 // ---- BLOCK 45 — ⚠ THE SHAPE `015-B7` DECLINED WHOLE, NOW CLAIMED (015-B8) ----
 //
@@ -2350,7 +2327,6 @@ test "the door claims a declaration whose local is read inside the returned call
     assert plan.OpenFragmentCount == 0
 }
 
-
 // ---- BLOCK 46 — THE MULTI-LOCAL BODY, WHICH IS THE ALL-USED EXEMPTION END TO END ----
 //
 // Two declarations and a return whose call reads only the SECOND. The scratch that types that argument
@@ -2382,7 +2358,6 @@ test "the door claims two declarations when the returned call reads only the sec
     assert plan.OpCodeValues[6] == ColumnarCodePlanContract.Ret()
 }
 
-
 // ---- BLOCK 47 — THE VOCABULARY ITSELF: INDEXED BY POOL INDEX, AND EMPTY OFF THE DOOR'S PATH ----
 //
 // `ColumnarFragmentBindings.PlanLocalMirrorTypes` is what every scratch site arms its plan with. Two
@@ -2413,7 +2388,6 @@ test "the plan-local mirror vocabulary is indexed by pool index and empty withou
     assert scratch.Types[scratch.PlanLocalTypeIndices[2]] == typeof(string)
     assert scratch.PlanLocalIsMirror[2]
 }
-
 
 // `{ return <left> <operator> <right> }`. The OPERATOR's own token carries the node's value span,
 // which is what `IsClaimedOperatorText` reads to decide the family.
@@ -2457,7 +2431,6 @@ func MethodBodyFactsDeclareThenIndexArgumentBody(initMember: string, returnMembe
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
 }
 
-
 // `{ <local> := <initMember>()  return <returnMember>(<local>[1 + 1]) }` — the same shape with a
 // BINARY selector, which is what the index owner's inherited value surface buys (015-B10).
 func MethodBodyFactsDeclareThenBinaryIndexArgumentBody(initMember: string, returnMember: string, localName: string): ColumnarRangePlannerTestTree {
@@ -2477,7 +2450,6 @@ func MethodBodyFactsDeclareThenBinaryIndexArgumentBody(initMember: string, retur
     statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(call))
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
 }
-
 
 // ---- BLOCK 48 — THE PRIMITIVE-BINARY COMPOSITE IN RETURN POSITION (class PB, 015-B9) ----
 //
@@ -2515,7 +2487,6 @@ test "the door claims a primitive binary as a return value and executes it" {
     assert !MethodBodyFactsPlanCallBody(MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression(), "2", ColumnarExpressionNodeKind.IntLiteralExpression(), "3"), typeof(long), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), longPlan)
 }
 
-
 // ---- BLOCK 49 — THE BINARY ROOT SEQUENCE IS ONE SEQUENCE, NOT TWO ----
 //
 // The same block `015-B7` wrote for the direct-call owner, for the same reason: the door's claim is
@@ -2549,7 +2520,6 @@ test "the binary root sequence produces the same rows through Plan and through t
     assert viaDoor.OpenFragmentCount == 0
 }
 
-
 // ---- BLOCK 50 — THE KIND MOVED SIDES, AND `015-B12` BROUGHT THE SHORT-CIRCUIT FAMILY WITH IT ----
 //
 // ⚠ THIS BLOCK IS A REWRITE, AND THE THING IT USED TO ASSERT IS WORTH RECORDING RATHER THAN ERASING.
@@ -2579,7 +2549,6 @@ test "the door claims the binary kind and now claims the short-circuit family to
     assert equalityPlan.LabelCount == 0
 }
 
-
 // ---- BLOCK 51 — A BINARY *ARGUMENT* IS THE OTHER HALF, AND IT IS THE CALL OWNER'S DECISION ----
 //
 // `015-B8`'s `P8` (`return Callee(n + 1)`) declined at the direct-call ROOT rather than at the door,
@@ -2604,7 +2573,6 @@ test "the door claims a call whose argument is a primitive binary" {
     // The rule is ONE decision, and it is the one the type side and the append side both read.
     assert ColumnarDirectCallPlanner.ArgumentsAdmitPrimitiveBinary()
 }
-
 
 // ---- BLOCK 52 — THE INDEX-ACCESS ARGUMENT, AND THE ROOT RULE IT DID NOT WEAKEN ----
 //
@@ -2638,9 +2606,7 @@ test "the door claims a call whose argument is an ordinary index over a plan loc
     assert plan.OpCodeValues[6] == ColumnarCodePlanContract.Ret()
     assert plan.PlanLocalCount == 1
     assert plan.Types[plan.PlanLocalTypeIndices[0]] == typeof(int[])
-
 }
-
 
 // ---- BLOCK 53 — THE ROOT RULE THE FRAME DID NOT WEAKEN ----
 //
@@ -2677,7 +2643,6 @@ func MethodBodyFactsOrdinaryIndexTree(name: string, selectorText: string): Colum
     return builder.Build(builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(receiver, selector)))
 }
 
-
 // ---- BLOCK 54 — A COMPOSITE INDEX SELECTOR, END TO END THROUGH THE DOOR (015-B10) ----
 //
 // `015-B9` left `P9` (`Callee(arr[s.Length - 4])`) declining and named the reason: the index owner typed
@@ -2706,7 +2671,6 @@ test "the door claims a call whose index argument carries a binary selector" {
     assert plan.OpCodeValues[8] == ColumnarCodePlanContract.Ret()
     assert plan.OpenFragmentCount == 0
 }
-
 
 // ---- 015-B12: THE DOOR'S KIND-12 SPLIT, AND THE FIRST CLAIMED KIND WHOSE ROWS BRANCH ----
 
@@ -2799,7 +2763,6 @@ test "a mixed-arm ternary declines at the door and leaves the plan clean" {
     assert plan.FragmentCount == 0
     assert plan.LabelCount == 0
 }
-
 
 // ---- 015-B13: THE CHECKED CONTEXT (class K) — THE ONE CLAIMED KIND WITH NO OWNER BEHIND IT ----
 
@@ -2949,7 +2912,6 @@ func MethodBodyFactsFragmentKindsAgree(tree: ColumnarRangePlannerTestTree, plan:
     return true
 }
 
-
 // ---- BLOCK 56 — THE CHECKED CONTEXT WRITES THE OVERFLOW OPCODE THE HOST WRITES ----
 //
 // The routed flag has had exactly one production consumer since `015-B9` — `ColumnarPrimitiveBinaryPlanner`'s
@@ -3013,7 +2975,6 @@ test "the door claims a checked binary and writes the overflow opcode" {
     assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression())
 }
 
-
 // ---- BLOCK 57 — `unchecked` IS THE SAME NODE AND THE OTHER DIRECTION ----
 //
 // The two keywords share one node kind, so an arm that read the kind and not the TEXT would claim both
@@ -3032,7 +2993,6 @@ test "the unchecked keyword turns the same node back into the plain opcode" {
     assert bare.OperationCount == plain.OperationCount
     assert bare.OpCodeValues[2] == plain.OpCodeValues[2]
 }
-
 
 // ---- BLOCK 58 — THE INNER KEYWORD WINS, AND THE FLAG IS PUT BACK ----
 //
@@ -3060,7 +3020,6 @@ test "the checked context restores the flag it set, and the inner keyword wins" 
     assert leak.OpCodeValues[7] == ColumnarCodePlanContract.Ret()
     assert leak.PlanLocalCount == 1
 }
-
 
 // ---- BLOCK 59 — ONE SHAPE THE ARM REFUSES BY CONSTRUCTION, AND ONE THAT STOPPED BEING REFUSED ----
 //
@@ -3115,7 +3074,6 @@ test "the checked arm claims a parenthesised operand without losing the flag and
     assert MethodBodyFactsPlanCallBody(literal, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), literalPlan)
 }
 
-
 // ---- BLOCK 60 — THE KEYWORD IS READ, AND A MALFORMED NODE DECLINES RATHER THAN THROWS ----
 //
 // `ColumnarNodeTable.Text` is a bare `Substring`, so a kind-57 node with no keyword span would THROW
@@ -3146,7 +3104,6 @@ test "the checked arm refuses an unknown keyword, an absent span and a wrong ari
     assert wellFormed.OpCodeValues[2] == ColumnarCodePlanContract.AddOvf()
 }
 
-
 // ---- BLOCK 61 — THE CLAIM REACHES BOTH DOORS, AND THE RETURN DOOR CANNOT PRE-EMPT IT ----
 //
 // `TryAppendLocalDeclaration` and `TryAppendReturnValue` share one dispatcher, so a widening reaches
@@ -3175,7 +3132,6 @@ test "the checked claim reaches the initializer door as well as the return door"
     assert valuePlan.OperationCount == returnPlan.OperationCount
     assert valuePlan.OpCodeValues[2] == returnPlan.OpCodeValues[2]
 }
-
 
 // ---- BLOCK 62 — EVERY FRAGMENT RECORDS THE KIND OF ITS OWN SOURCE NODE (015-B13, item 5) ----
 //
@@ -3258,7 +3214,6 @@ test "every fragment a door-claimed plan opens records the kind of its own sourc
     binaryPlan.FragmentKinds[0] = ColumnarExpressionNodeKind.TernaryExpression()
     assert !MethodBodyFactsFragmentKindsAgree(binaryTree, binaryPlan)
 }
-
 
 // `{ return <receiver>.<member> }`, or with a non-empty `localName`,
 // `{ <localName> := <receiver>.<member>  return <localName> }` — the member-access ROOT in each of the
@@ -3352,9 +3307,9 @@ func MethodBodyFactsPlanMemberBody(tree: ColumnarRangePlannerTestTree, returnTyp
         new Dictionary<string, Type>(StringComparer.Ordinal),
         false,
         new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal),
-        plan)
+        plan
+    )
 }
-
 
 // ---- BLOCK 63 — THE MEMBER-ACCESS ROOT IN RETURN POSITION (class M, 015-B14) ----
 //
@@ -3449,7 +3404,6 @@ test "a parenthesised member-access root is claimed and costs no row of its own"
     assert !MethodBodyFactsPlanMemberBody(MethodBodyFactsParenthesisedMemberBody("values", "Length"), typeof(long), "values", 0, typeof(byte[]), widened)
 }
 
-
 // ---- BLOCK 64 — `S3` IS REACHED, AND THE ROOT'S SURFACE IS WHAT LIMITS IT (015-B14) ----
 //
 // `ColumnarInstanceMemberPlanner.TryGetComposedReceiverType` — `S3` — is called ONLY from `ClaimsRoot`,
@@ -3485,7 +3439,6 @@ test "the member-access root keeps the plain surface at the door as well as at t
     binaryPlan := new ColumnarCodePlan()
     assert !MethodBodyFactsPlanMemberBody(binary, typeof(int), "names", 0, typeof(string[]), binaryPlan)
 }
-
 
 // ---- BLOCK 65 — THE CASCADE'S ORDER, AND BOTH OF ITS ARMS (class X, 015-B14 → 015-B15) ----
 //
@@ -3645,7 +3598,6 @@ test "a declined external static root leaves one open plan fit for the next owne
     assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
 }
 
-
 // ---- BLOCK 66 — THE PARENTHESIS ROOT (class G, 015-B16) ----
 //
 // The door's SECOND claimed kind with no planner of its own. The host's arm is one line
@@ -3755,7 +3707,6 @@ test "the parenthesised negative literal is claimed in return position with the 
     assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(bare.Nodes, bare.Source, parenthesis)
     assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(bare.Nodes, bare.Source, bare.Nodes.Child(parenthesis, 0))
 }
-
 
 // ---- BLOCK 67 — THE TYPEOF ROOT (class Y, 015-B16) ----
 //

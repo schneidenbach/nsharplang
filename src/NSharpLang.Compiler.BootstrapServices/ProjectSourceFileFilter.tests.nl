@@ -15,7 +15,6 @@ import System.IO
 // compiles. Every arm is separated below. A `*` that crossed a directory separator, or a `**/` that
 // did not, would have passed the deleted file's single pattern and would silently change what an
 // `exclude:` list means in every project that has one.
-
 func PsfPaths(a: string, b: string, c: string, d: string): string[] {
     result := new string[](4)
     result[0] = a

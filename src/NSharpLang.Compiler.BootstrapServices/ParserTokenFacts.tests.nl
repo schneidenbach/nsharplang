@@ -35,7 +35,6 @@ namespace NSharpLang.Compiler
 // `throw`, `func` and `match` each appear in more than one table. Each predicate is swept over all
 // 148 tokens rather than spot-checked, so an arm added to the wrong table is caught by the OTHER
 // table's sweep.
-
 func ParserTokenContains(candidates: TokenType[], tokenType: TokenType): bool {
     index := 0
     while index < candidates.Length {

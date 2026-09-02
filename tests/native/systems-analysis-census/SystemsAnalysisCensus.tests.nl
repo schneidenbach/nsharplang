@@ -73,9 +73,7 @@ import System.Text.Json
 // `query perf` writes 138 bytes to standard error on a missing project and 70 on a malformed
 // `--pos`, so that channel is live and the silence is kept as a claim.
 
-
 // ─── THE SPAWN KERNEL ─────────────────────────────────────────────────────────────────────────
-
 class SacRun {
     ExitCode: int
     Stdout: string
@@ -114,9 +112,7 @@ func SacRepositoryRoot(): string {
     current: string? = AppContext.BaseDirectory
     while current != null {
         directory := current ?? ""
-        if File.Exists(Path.Combine(directory, "NSharpLang.sln"))
-            && Directory.Exists(Path.Combine(directory, "src"))
-            && Directory.Exists(Path.Combine(directory, "tests")) {
+        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) && Directory.Exists(Path.Combine(directory, "tests")) {
             return directory
         }
 
@@ -141,7 +137,6 @@ func SacCliDll(): string {
 
     return cliDll
 }
-
 
 // ─── THE FIXTURE KERNEL ───────────────────────────────────────────────────────────────────────
 
@@ -175,7 +170,6 @@ func SacCheck(directory: string): SacRun {
 func SacInvoke(directory: string, arguments: string): SacRun {
     return SacRunProcess("dotnet", SacCliDll() + " " + arguments, directory)
 }
-
 
 // ─── THE CENSUS KERNEL ────────────────────────────────────────────────────────────────────────
 
@@ -294,17 +288,7 @@ func SacEnvelope(stdout: string): string {
     document := JsonDocument.Parse(stdout)
     root := document.RootElement
     report := root.GetProperty("systemsReport")
-    text := "command=" + SacElementText(root.GetProperty("command"))
-        + ";ok=" + SacElementText(root.GetProperty("ok"))
-        + ";checkedFiles=" + SacElementText(root.GetProperty("checkedFiles"))
-        + ";envelopeSchema=" + SacElementText(root.GetProperty("schemaVersion"))
-        + ";reportSchema=" + SacElementText(report.GetProperty("schemaVersion"))
-        + ";profile=" + SacElementText(report.GetProperty("profile"))
-        + ";mode=" + SacElementText(report.GetProperty("mode"))
-        + ";aotTarget=" + SacElementText(report.GetProperty("aotTarget"))
-        + ";aot=" + SacElementText(report.GetProperty("aot"))
-        + ";warmup=" + SacElementText(report.GetProperty("warmup"))
-        + ";summary=" + SacElementText(report.GetProperty("summary"))
+    text := "command=" + SacElementText(root.GetProperty("command")) + ";ok=" + SacElementText(root.GetProperty("ok")) + ";checkedFiles=" + SacElementText(root.GetProperty("checkedFiles")) + ";envelopeSchema=" + SacElementText(root.GetProperty("schemaVersion")) + ";reportSchema=" + SacElementText(report.GetProperty("schemaVersion")) + ";profile=" + SacElementText(report.GetProperty("profile")) + ";mode=" + SacElementText(report.GetProperty("mode")) + ";aotTarget=" + SacElementText(report.GetProperty("aotTarget")) + ";aot=" + SacElementText(report.GetProperty("aot")) + ";warmup=" + SacElementText(report.GetProperty("warmup")) + ";summary=" + SacElementText(report.GetProperty("summary"))
     document.Dispose()
     return text
 }
@@ -322,17 +306,12 @@ func SacDiagnosticCensus(stdout: string): string {
             census = census + "|"
         }
 
-        census = census + SacElementText(entry.GetProperty("code")) + ":"
-            + SacElementText(entry.GetProperty("severity")) + "@"
-            + SacElementText(entry.GetProperty("line")) + ":"
-            + SacElementText(entry.GetProperty("column")) + "+"
-            + SacElementText(entry.GetProperty("length"))
+        census = census + SacElementText(entry.GetProperty("code")) + ":" + SacElementText(entry.GetProperty("severity")) + "@" + SacElementText(entry.GetProperty("line")) + ":" + SacElementText(entry.GetProperty("column")) + "+" + SacElementText(entry.GetProperty("length"))
     }
 
     document.Dispose()
     return census
 }
-
 
 // ─── THE CLI-ENVELOPE KERNEL ──────────────────────────────────────────────────────────────────
 
@@ -478,16 +457,10 @@ func SacStderrCensus(stderr: string): string {
         successful = "True"
     }
 
-    return "warningBanners=" + SacCountOccurrences(stderr, "-- WARNING").ToString()
-        + ";errorBanners=" + SacCountOccurrences(stderr, "-- ERROR").ToString()
-        + ";buildSuccessful=" + successful
+    return "warningBanners=" + SacCountOccurrences(stderr, "-- WARNING").ToString() + ";errorBanners=" + SacCountOccurrences(stderr, "-- ERROR").ToString() + ";buildSuccessful=" + successful
 }
 
-
-
-
 // ─── THE 54 ANALYSIS BLOCKS ──────────────────────────────────────────────────────────────────
-
 
 test "020 s41 systems analysis census: a `[hot]` function that allocates reports NSYS010 at the `new`, and the whole row — position, policy, call path and suggestion — is pinned (was SystemsNSharpTests.HotFunction_RejectsHeapAllocation)" {
     directory := SacFixture("hotfunction-rejectsheapallocation", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: default\n  systems:\n    mode: strict\n")
@@ -1989,8 +1962,6 @@ test "020 s41 systems analysis census: a source-inferred helper that gains an al
     assert function1 == "name=ParseDigits;file=Program.nl;line=2;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[FormatForDebug]"
     assert trustedCount == 0
 }
-
-
 
 // ─── THE FOUR CLI BLOCKS ─────────────────────────────────────────────────────────────────────
 

@@ -24,7 +24,6 @@ import System.Collections.Generic
 // THE KIND RANK IS A FILTER, NOT A SORT KEY. `GetArtifactDirectoryKindRank` returns 1 for `bin`,
 // 2 for `obj`, 3 for `.nlc` and 0 for everything else, and `Order` consults it only as
 // `rank > 0`. The three nonzero values are never compared against one another.
-
 func CleanDirectoryList(): List<string> {
     directories := new List<string>()
     directories.Add("/repo/bin")

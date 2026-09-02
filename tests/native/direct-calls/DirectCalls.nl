@@ -1,7 +1,8 @@
 namespace NSharpLang.DirectCalls.Tests
 
 // `Func<...>` is parser-owned function-type syntax even when a source generic collides.
-class Func<T, R> {}
+class Func<T, R> {
+}
 
 type ByteArrayPool = System.Buffers.ArrayPool<byte>
 

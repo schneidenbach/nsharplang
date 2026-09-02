@@ -37,7 +37,6 @@ import NSharpLang.Compiler.Ast
 //
 // (7) NL322 IS DELIBERATELY UNDER-ENFORCING. An unresolvable hop stays silent, an ARRAY ELEMENT is a
 // variable, and a FIELD hop passes the question to its own receiver.
-
 class AssignmentValueProbe {
     Count: int => 0
     Mutable: int
@@ -110,8 +109,8 @@ func AssignmentHarnessWith(sourceText: string?): AssignmentHarness {
     sink.BeginAnalysis(AssignmentPath(), sourceText)
     spans := new AnalyzerDiagnosticSpans(sink)
     usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
-    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal)
-    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
     namespaces := new List<string>()
     discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)
     probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)

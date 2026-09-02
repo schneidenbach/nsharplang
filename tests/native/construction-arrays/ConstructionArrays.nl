@@ -58,7 +58,7 @@ class RuntimeEnumDefaulted {
     Seed: int
     Day: System.DayOfWeek
 
-    constructor(seed: int, day: System.DayOfWeek = System . DayOfWeek . Friday) {
+    constructor(seed: int, day: System.DayOfWeek = System.DayOfWeek.Friday) {
         this.Seed = seed
         this.Day = day
     }
@@ -137,7 +137,7 @@ class AliasNumberConstructed {
 }
 
 class LexicalOuter {
-    public class Sibling {
+    class Sibling {
         Value: int
 
         constructor(value: int) {
@@ -145,8 +145,8 @@ class LexicalOuter {
         }
     }
 
-    public class Middle {
-        public class Inner {
+    class Middle {
+        class Inner {
             func Echo(value: Sibling): Sibling {
                 return value
             }
@@ -165,8 +165,12 @@ class ObjectInitializerClass {
     propertyValue: int
 
     PropertyValue: int {
-        get { return propertyValue }
-        set { propertyValue = value }
+        get {
+            return propertyValue
+        }
+        set {
+            propertyValue = value
+        }
     }
 }
 
@@ -195,20 +199,24 @@ class NestedObjectInitializerOuter {
     Inner: NestedObjectInitializerInner
 }
 
-class MappedObjectInitializerBase<A,B> {
+class MappedObjectInitializerBase<A, B> {
     Fixed: A
     reordered: B
 
     Reordered: B {
-        get { return reordered }
-        set { reordered = value }
+        get {
+            return reordered
+        }
+        set {
+            reordered = value
+        }
     }
 }
 
-class MappedObjectInitializerMiddle<T>: MappedObjectInitializerBase<string,T> {
+class MappedObjectInitializerMiddle<T>: MappedObjectInitializerBase<string, T> {
 }
 
-class MappedObjectInitializerDerived<X,Y>: MappedObjectInitializerMiddle<Y> {
+class MappedObjectInitializerDerived<X, Y>: MappedObjectInitializerMiddle<Y> {
 }
 
 class TargetConstructed {
@@ -388,7 +396,8 @@ func RetainedSourceConstructor(left: int, right: int): ExactArityConstructed {
 
 func RetainedSourceOperatorConstructor(
     left: AliasNumber,
-    right: AliasNumber): AliasNumberConstructed {
+    right: AliasNumber
+): AliasNumberConstructed {
     return new AliasNumberConstructed(left + right)
 }
 
@@ -404,8 +413,8 @@ func RetainedDirectRuntimeList(left: int, right: int): System.Collections.Generi
     return new System.Collections.Generic.List<int>(left + right)
 }
 
-func RetainedDirectValueTuple(left: int, right: int): ValueTuple<int,int> {
-    return new ValueTuple<int,int>(left + right, right + 1)
+func RetainedDirectValueTuple(left: int, right: int): ValueTuple<int, int> {
+    return new ValueTuple<int, int>(left + right, right + 1)
 }
 
 func RetainedNestedOverload(left: int, right: int): RetainedOverload {
@@ -434,7 +443,8 @@ func RetainedInferredArray(first: int, second: int): int[] {
 
 func RetainedNullableLiteralObjectInitializer(
     left: int,
-    right: int): NullableLiteralObjectInitializer {
+    right: int
+): NullableLiteralObjectInitializer {
     return new NullableLiteralObjectInitializer {
         ByteValue: 255,
         ShortValue: 32767,

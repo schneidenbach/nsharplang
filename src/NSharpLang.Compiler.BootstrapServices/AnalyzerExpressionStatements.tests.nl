@@ -33,7 +33,6 @@ import NSharpLang.Compiler.Ast
 // same 71 targets reaches 886 asserts and 7 assert-throws, every one of them clean. So all four
 // diagnostics, both NL313 forms, all four must-use reason shapes and every SoA escape in this family
 // exist ONLY here and in the fixtures.
-
 class EsHarness {
     Owner: AnalyzerExpressionStatements
     Diagnostics: AnalyzerDiagnosticSink
@@ -51,7 +50,8 @@ class EsHarness {
         diagnostics: AnalyzerDiagnosticSink,
         errors: List<CompilerError>,
         scopes: AnalyzerScopeStack,
-        clr: AnalyzerClrTypeConversion) {
+        clr: AnalyzerClrTypeConversion
+    ) {
         Owner = owner
         Diagnostics = diagnostics
         Errors = errors
@@ -86,7 +86,8 @@ class EsStep {
         text: string?,
         line: int,
         column: int,
-        errorsBefore: int) {
+        errorsBefore: int
+    ) {
         Kind = kind
         Node = node
         StatementCount = statementCount
@@ -115,7 +116,8 @@ func EsHarnessWith(sourceText: string?): EsHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -128,10 +130,11 @@ func EsHarnessWith(sourceText: string?): EsHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         model,
-        new BindingMap())
+        new BindingMap()
+    )
     resolver.BeginAnalysis(EsPath(), null, model, new BindingMap())
 
     escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
@@ -144,7 +147,8 @@ func EsHarnessWith(sourceText: string?): EsHarness {
         diagnostics,
         errors,
         scopes,
-        clr)
+        clr
+    )
 }
 
 // TWO REAL TYPES, so the throwability rule is measured rather than injected. The question stopped
@@ -169,7 +173,8 @@ func EsClassType(name: string, baseClass: TypeReference?): TypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     return declared
 }
 
@@ -183,7 +188,8 @@ func EsSoaColumns(): List<SoaColumnInfo> {
 
 func EsDeclareSoaTable(harness: EsHarness) {
     table: TypeInfo = new SoaRecordTypeInfo(
-        new SoaRecordDeclarationInfo("Points", EsSoaColumns(), 1, 1))
+        new SoaRecordDeclarationInfo("Points", EsSoaColumns(), 1, 1)
+    )
     harness.Scopes.Peek().Symbols["points"] = table
 }
 
@@ -278,7 +284,8 @@ func EsAssertThrows(typeName: string, bodyCount: int): AssertThrowsStatement {
         new SimpleTypeReference(typeName, 7, 19),
         EsBlock(bodyCount),
         7,
-        5)
+        5
+    )
 }
 
 func EsRowType(): SoaRowTypeInfo {
@@ -337,7 +344,8 @@ func EsRun(harness: EsHarness, state: ExpressionStatementState) {
             step.Text,
             step.Line,
             step.Column,
-            harness.Errors.Count))
+            harness.Errors.Count
+        ))
 
         supplied: TypeInfo? = null
         if step.Kind == 1 {
@@ -348,7 +356,8 @@ func EsRun(harness: EsHarness, state: ExpressionStatementState) {
                     "injected",
                     7,
                     5,
-                    ErrorSeverity.Error))
+                    ErrorSeverity.Error
+                ))
                 injected = injected + 1
             }
 
@@ -430,8 +439,7 @@ test "a for iterator names itself in the SoA report and nowhere else changes" {
 
     assert EsKinds(harness.Steps) == "1"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA table member 'x' cannot be used as a 'for' iterator directly"
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be used as a 'for' iterator directly"
 }
 
 test "the expression step carries the expression itself and answers nothing else" {
@@ -519,8 +527,7 @@ test "an SoA row-view answer ends the walk at the row report" {
     assert EsKinds(harness.Steps) == "1"
     // The row report speaks, and the validity report — which `row` would otherwise earn — does not.
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be discarded; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be discarded; use the table and row index instead"
 }
 
 test "an SoA row-view iterator names the iterator in its report" {
@@ -530,8 +537,7 @@ test "an SoA row-view iterator names the iterator in its report" {
 
     assert EsKinds(harness.Steps) == "1"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a 'for' iterator; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a 'for' iterator; use the table and row index instead"
 }
 
 test "a fired column escape ends the walk with no validity report" {
@@ -872,8 +878,7 @@ test "an SoA row condition reports under the asserted wording" {
 
     assert EsKinds(harness.Steps) == "1"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be asserted; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be asserted; use the table and row index instead"
 }
 
 test "an SoA row message reports under the message wording" {
@@ -884,8 +889,7 @@ test "an SoA row message reports under the message wording" {
 
     assert EsKinds(harness.Steps) == "1,1"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as an assertion message; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as an assertion message; use the table and row index instead"
 }
 
 test "an assert does not short-circuit on a fired column escape" {
@@ -898,8 +902,7 @@ test "an assert does not short-circuit on a fired column escape" {
     assert EsKinds(harness.Steps) == "1,1"
     assert harness.Errors.Count == 2
     assert harness.Errors[0].Message == "SoA table member 'x' cannot be asserted directly"
-    assert harness.Errors[1].Message
-        == "SoA table member 'x' cannot be used as an assertion message directly"
+    assert harness.Errors[1].Message == "SoA table member 'x' cannot be used as an assertion message directly"
 }
 
 test "an assert has no error-count guard" {
@@ -1022,8 +1025,7 @@ test "the exception type is RESOLVED before it is measured, and the resolution i
 
     assert EsAssertThrowsReports(throwable).Count == 0
     assert EsAssertThrowsReports(refused).Count == 1
-    assert EsAssertThrowsReports(refused)[0].Message
-        == "Assert throws type must be assignable to System.Exception, but this type is 'Widget'"
+    assert EsAssertThrowsReports(refused)[0].Message == "Assert throws type must be assignable to System.Exception, but this type is 'Widget'"
 }
 
 test "the body step carries the body's own statement list" {
@@ -1173,8 +1175,7 @@ test "a non-throwable throw operand reports NL202 with the operand's own span" {
 
     assert harness.Errors.Count == 1
     error := harness.Errors[0]
-    assert error.Message
-        == "Throw expressions must be assignable to System.Exception, but this expression is 'int'"
+    assert error.Message == "Throw expressions must be assignable to System.Exception, but this expression is 'int'"
     assert error.Code == ErrorCode.TypeMismatch
     assert error.Line == 7
     assert error.Column == 5
@@ -1189,8 +1190,7 @@ test "a row-view throw operand escapes and is NOT also told it is not throwable"
     // The throwability question is never even asked, and exactly one diagnostic lands.
     assert EsKinds(harness.Steps) == "1"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be thrown; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be thrown; use the table and row index instead"
 }
 
 test "a direct column throw operand escapes on syntax with the throw's action word" {
@@ -1223,8 +1223,7 @@ test "print runs BOTH escape reports and neither short-circuits the other" {
     EsRunPrint(harness, EsSoaColumnRead())
 
     assert harness.Errors.Count == 2
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be printed; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be printed; use the table and row index instead"
     assert harness.Errors[1].Message == "SoA table member 'x' cannot be printed directly"
 }
 
@@ -1315,8 +1314,7 @@ test "a handle that is NOT a subscription reports NL318 on the whole handle expr
     assert harness.Errors.Count == 1
     assert harness.Errors[0].DiagnosticId == "NL318"
     assert harness.Errors[0].Message == "`off` expects a subscription returned by `on`"
-    assert harness.Errors[0].Suggestion
-        == "Capture the subscription first (`sub := on <object>.<Event> handler`), then detach it with `off sub`."
+    assert harness.Errors[0].Suggestion == "Capture the subscription first (`sub := on <object>.<Event> handler`), then detach it with `off sub`."
     assert harness.Errors[0].Line == 7
     assert harness.Errors[0].Column == 5
 }
@@ -1347,8 +1345,7 @@ test "a row-view off handle escapes with the off action word and is not ALSO tol
 
     assert EsKinds(harness.Steps) == "1"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as an off handle; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as an off handle; use the table and row index instead"
 }
 
 test "a direct column off handle escapes on syntax, and the row report does not fire with it" {
@@ -1360,8 +1357,7 @@ test "a direct column off handle escapes on syntax, and the row report does not 
     // ONE diagnostic: the row report declined on the answered type, the column probe fired, and the
     // subscription rule was never reached. `off` short-circuits like `throw`, unlike `print`.
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA table member 'x' cannot be used as an off handle directly"
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be used as an off handle directly"
 }
 
 test "a row view that is ALSO a column read reports ONCE for off, where print reports twice" {
@@ -1372,8 +1368,7 @@ test "a row view that is ALSO a column read reports ONCE for off, where print re
     EsRunOff(harness, EsSoaColumnRead())
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as an off handle; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as an off handle; use the table and row index instead"
 }
 
 // ── the rebuilt CLR funnel is carried, not held ───────────────────────────

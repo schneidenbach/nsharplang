@@ -22,12 +22,8 @@ import System
 // `parse.function` covers three distinct failures, `parse.enum`, `parse.struct`, `parse.union`,
 // `parse.test`, `parse.interface`, `parse.interface.params` and `parse.function.constraints` two
 // each — so pinning only site ids would leave those rows interchangeable.
-
 func ParseDeclineIsWellFormed(decline: ColumnarParseDecline): bool {
-    return decline.SiteId.StartsWith("parse.", StringComparison.Ordinal)
-        && decline.SiteId.Length > "parse.".Length
-        && decline.Message.Length > 0
-        && !decline.Message.EndsWith(".", StringComparison.Ordinal)
+    return decline.SiteId.StartsWith("parse.", StringComparison.Ordinal) && decline.SiteId.Length > "parse.".Length && decline.Message.Length > 0 && !decline.Message.EndsWith(".", StringComparison.Ordinal)
 }
 
 test "the columnar parse decline vocabulary — tokenization — is spelled exactly as a user reads it" {
@@ -266,7 +262,8 @@ test "a vocabulary row renders into the sentence NL103 shows, through the owner 
         ColumnarParseDeclines.FunctionBody.Message,
         -1,
         0,
-        "")
+        ""
+    )
     assert ColumnarDeclineReasonFacts.FormatDetail(bare, null, 0, 0) == "Declined at parse.function.body: function body was not materialized as a supported block or expression body."
 
     located := new ColumnarDeclineReason(
@@ -274,7 +271,8 @@ test "a vocabulary row renders into the sentence NL103 shows, through the owner 
         ColumnarParseDeclines.PropertySetterNodes.Message,
         42,
         6,
-        "Widget.Size")
+        "Widget.Size"
+    )
     assert ColumnarDeclineReasonFacts.FormatDetail(located, "Program.nl", 12, 5) == "Declined at parse.property.setter-nodes: property setter node table was invalid in 'Widget.Size' (Program.nl:12:5)."
 
     scan := new ColumnarDeclineReason(
@@ -282,7 +280,8 @@ test "a vocabulary row renders into the sentence NL103 shows, through the owner 
         ColumnarParseDeclines.DeclarationScan(-6).Message,
         0,
         1,
-        "")
+        ""
+    )
     assert ColumnarDeclineReasonFacts.FormatDetail(scan, "Program.nl", 1, 1) == "Declined at parse.declaration-scan: top-level declaration scan failed at struct-like scan; the source may contain an unmodeled declaration shape such as setup or teardown (Program.nl:1:1)."
 }
 

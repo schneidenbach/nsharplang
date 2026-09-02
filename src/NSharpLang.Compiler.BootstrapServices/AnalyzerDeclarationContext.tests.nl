@@ -33,7 +33,8 @@ class AnalyzerContextTestUnit {
     constructor(
         namespaceValue: object?,
         imports: List<object>,
-        declarations: List<object>) {
+        declarations: List<object>
+    ) {
         Package = null
         Namespace = namespaceValue
         Imports = imports
@@ -71,24 +72,28 @@ func StubClass(name: string): NSharpLang.Compiler.TestStubs.ClassDeclaration {
 
 func StubClassWithBase(
     name: string,
-    baseClass: TypeReference): NSharpLang.Compiler.TestStubs.ClassDeclaration {
+    baseClass: TypeReference
+): NSharpLang.Compiler.TestStubs.ClassDeclaration {
     return new NSharpLang.Compiler.TestStubs.ClassDeclaration(name, baseClass)
 }
 
 func StubAlias(
     name: string,
-    typeReference: TypeReference): NSharpLang.Compiler.TestStubs.TypeAliasDeclaration {
+    typeReference: TypeReference
+): NSharpLang.Compiler.TestStubs.TypeAliasDeclaration {
     return new NSharpLang.Compiler.TestStubs.TypeAliasDeclaration(name, typeReference)
 }
 
 func StubField(
     name: string,
     typeReference: TypeReference,
-    modifiers: int): NSharpLang.Compiler.TestStubs.FieldDeclaration {
+    modifiers: int
+): NSharpLang.Compiler.TestStubs.FieldDeclaration {
     return new NSharpLang.Compiler.TestStubs.FieldDeclaration(
         name,
         typeReference,
-        modifiers)
+        modifiers
+    )
 }
 
 func AnalyzerContextDeclarations(first: object): List<object> {
@@ -111,7 +116,8 @@ func AnalyzerContextTypeReferences(first: TypeReference): List<TypeReference> {
 
 func AnalyzerContextTypeReferencePair(
     first: TypeReference,
-    second: TypeReference): List<TypeReference> {
+    second: TypeReference
+): List<TypeReference> {
     result := AnalyzerContextTypeReferences(first)
     result.Add(second)
     return result
@@ -133,12 +139,14 @@ func AnalyzerContextFor(path: string, declarations: List<object>): AnalyzerDecla
 
 func AnalyzerContextForImports(
     path: string,
-    imports: List<object>): AnalyzerDeclarationContext {
+    imports: List<object>
+): AnalyzerDeclarationContext {
     context := new AnalyzerDeclarationContext()
     context.Reset("/tmp", AnalyzerContextAssemblies())
     context.AddCompilationUnit(
         path,
-        new AnalyzerContextTestUnit(new List<object>(), imports))
+        new AnalyzerContextTestUnit(new List<object>(), imports)
+    )
     return context
 }
 
@@ -147,18 +155,22 @@ func AnalyzerContextAddUnit(
     path: string,
     namespaceName: string,
     imports: List<object>,
-    declarations: List<object>) {
+    declarations: List<object>
+) {
     context.AddCompilationUnit(
         path,
         new AnalyzerContextTestUnit(
             new AnalyzerContextTestNamespace(namespaceName),
             imports,
-            declarations))
+            declarations
+        )
+    )
 }
 
 func AnalyzerContextClass(
     name: string,
-    nestedTypes: NestedTypeInfo[]): ClassTypeInfo {
+    nestedTypes: NestedTypeInfo[]
+): ClassTypeInfo {
     return new ClassTypeInfo(
         name,
         1,
@@ -170,7 +182,8 @@ func AnalyzerContextClass(
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         nestedTypes,
-        true)
+        true
+    )
 }
 
 func AnalyzerContextTypeParameters(name: string): TypeParameter[] {
@@ -182,7 +195,8 @@ func AnalyzerContextTypeParameters(name: string): TypeParameter[] {
 func AnalyzerContextGenericClass(
     name: string,
     parameterName: string,
-    nestedTypes: NestedTypeInfo[]): ClassTypeInfo {
+    nestedTypes: NestedTypeInfo[]
+): ClassTypeInfo {
     return new ClassTypeInfo(
         name,
         1,
@@ -194,12 +208,14 @@ func AnalyzerContextGenericClass(
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         nestedTypes,
-        true)
+        true
+    )
 }
 
 func AnalyzerContextGenericStruct(
     name: string,
-    parameterName: string): StructTypeInfo {
+    parameterName: string
+): StructTypeInfo {
     return new StructTypeInfo(
         name,
         1,
@@ -208,12 +224,14 @@ func AnalyzerContextGenericStruct(
         AnalyzerContextTypeParameters(parameterName),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func AnalyzerContextGenericRecord(
     name: string,
-    parameterName: string): RecordTypeInfo {
+    parameterName: string
+): RecordTypeInfo {
     return new RecordTypeInfo(
         name,
         1,
@@ -223,12 +241,14 @@ func AnalyzerContextGenericRecord(
         AnalyzerContextTypeParameters(parameterName),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func AnalyzerContextGenericInterface(
     name: string,
-    parameterName: string): InterfaceTypeInfo {
+    parameterName: string
+): InterfaceTypeInfo {
     return new InterfaceTypeInfo(
         name,
         1,
@@ -237,19 +257,22 @@ func AnalyzerContextGenericInterface(
         new TypeReference[](0),
         AnalyzerContextTypeParameters(parameterName),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func AnalyzerContextAssertOpenParameter(
     context: AnalyzerDeclarationContext,
     owner: TypeInfo,
-    name: string) {
+    name: string
+) {
     resolved := new TypeInfo()
     assert context.TryResolveTypeForOwner(
         new SimpleTypeReference(name),
         owner,
         null,
-        out resolved)
+        out resolved
+    )
     simple := resolved as SimpleTypeInfo
     assert simple != null
     assert simple.Name == name
@@ -259,18 +282,28 @@ test "declaration context keeps source identifiers case-sensitive" {
     path := "/tmp/case-sensitive.nl"
     declaration := StubAlias(
         "Widget",
-        new SimpleTypeReference("int"))
+        new SimpleTypeReference("int")
+    )
     context := AnalyzerContextFor(
         path,
-        AnalyzerContextDeclarations(declaration))
+        AnalyzerContextDeclarations(declaration)
+    )
 
     exact := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert context.TryResolveName(path, "Widget", out exact)
     assert TypeInfoIdentityFacts.AreEqual(exact.Type, BuiltInTypes.Int)
 
     wrongCase := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert !context.TryResolveName(path, "widget", out wrongCase)
     assert !wrongCase.Claimed
 }
@@ -285,7 +318,8 @@ test "project imports are exhausted before runtime imports" {
         sourcePath,
         "MyTypes",
         new List<object>(),
-        AnalyzerContextDeclarations(StubClass("DateTime")))
+        AnalyzerContextDeclarations(StubClass("DateTime"))
+    )
     imports := new List<object>()
     imports.Add(new AnalyzerContextTestImport("System"))
     imports.Add(new AnalyzerContextTestImport("MyTypes"))
@@ -294,10 +328,15 @@ test "project imports are exhausted before runtime imports" {
         consumerPath,
         "Consumer",
         imports,
-        new List<object>())
+        new List<object>()
+    )
 
     selection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert context.TryResolveName(consumerPath, "DateTime", out selection)
     sourceType := selection.Type as ClassTypeInfo
     assert sourceType != null
@@ -308,7 +347,11 @@ test "bare runtime names and generic arity use the assembly scan" {
     path := "/tmp/bare-runtime-types.nl"
     context := AnalyzerContextFor(path, new List<object>())
     dateTimeSelection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert context.TryResolveName(path, "DateTime", out dateTimeSelection)
     dateTimeType := dateTimeSelection.Type as ReflectionTypeInfo
     assert dateTimeType != null
@@ -323,7 +366,8 @@ test "bare runtime names and generic arity use the assembly scan" {
         stackReference,
         owner,
         null,
-        out resolvedStack)
+        out resolvedStack
+    )
     stackType := resolvedStack as GenericTypeInfo
     assert stackType != null
     stackDefinition := stackType.GenericDefinition as ReflectionTypeInfo
@@ -343,16 +387,22 @@ test "unique exported lookup skips non-exported declarations" {
         privatePath,
         "A",
         new List<object>(),
-        AnalyzerContextDeclarations(privateWidget))
+        AnalyzerContextDeclarations(privateWidget)
+    )
     AnalyzerContextAddUnit(
         context,
         publicPath,
         "B",
         new List<object>(),
-        AnalyzerContextDeclarations(StubClass("Widget")))
+        AnalyzerContextDeclarations(StubClass("Widget"))
+    )
 
     selection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert context.TryResolveUniqueExportedType("Widget", out selection)
     assert selection.FilePath == publicPath
     assert context.GetDeclarationFile(selection.Type) == publicPath
@@ -364,10 +414,15 @@ test "declaration context terminates mixed source alias cycles" {
     second := StubAlias("B", new SimpleTypeReference("A"))
     context := AnalyzerContextFor(
         path,
-        AnalyzerContextDeclarationPair(first, second))
+        AnalyzerContextDeclarationPair(first, second)
+    )
 
     selection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert !context.TryResolveName(path, "A", out selection)
     assert selection.Claimed
     assert BuiltInTypes.IsUnknown(selection.Type)
@@ -386,45 +441,59 @@ test "source aliases do not steal declaration context from their targets" {
         sourceDependencyPath,
         "SourceDeps",
         new List<object>(),
-        AnalyzerContextDeclarations(StubClass("Dependency")))
+        AnalyzerContextDeclarations(StubClass("Dependency"))
+    )
     AnalyzerContextAddUnit(
         context,
         aliasDependencyPath,
         "AliasDeps",
         new List<object>(),
-        AnalyzerContextDeclarations(StubClass("Dependency")))
+        AnalyzerContextDeclarations(StubClass("Dependency"))
+    )
 
     sourceImports := new List<object>()
     sourceImports.Add(new AnalyzerContextTestImport("SourceDeps"))
     sourceType := StubClassWithBase(
         "SourceType",
-        new SimpleTypeReference("Dependency"))
+        new SimpleTypeReference("Dependency")
+    )
     AnalyzerContextAddUnit(
         context,
         sourcePath,
         "Source",
         sourceImports,
-        AnalyzerContextDeclarations(sourceType))
+        AnalyzerContextDeclarations(sourceType)
+    )
 
     aliasImports := new List<object>()
     aliasImports.Add(new AnalyzerContextTestImport("Source"))
     aliasImports.Add(new AnalyzerContextTestImport("AliasDeps"))
     alias := StubAlias(
         "Alias",
-        new SimpleTypeReference("SourceType"))
+        new SimpleTypeReference("SourceType")
+    )
     AnalyzerContextAddUnit(
         context,
         aliasPath,
         "Alias",
         aliasImports,
-        AnalyzerContextDeclarations(alias))
+        AnalyzerContextDeclarations(alias)
+    )
 
     selection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert context.TryResolveName(aliasPath, "Alias", out selection)
     assert context.GetDeclarationFile(selection.Type) == sourcePath
     cachedSelection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert context.TryResolveName(aliasPath, "Alias", out cachedSelection)
     assert Object.ReferenceEquals(selection.Type, cachedSelection.Type)
     assert context.GetDeclarationFile(cachedSelection.Type) == sourcePath
@@ -445,14 +514,16 @@ test "matching primary parameters claim unresolved member types" {
         "Value",
         new SimpleTypeReference("DefinitelyMissingAnalyzerType"),
         1,
-        1)
+        1
+    )
     memberType := BuiltInTypes.Int as TypeInfo
     assert context.TryResolvePrimaryParameter(
         owner,
         parameters,
         "Value",
         null,
-        out memberType)
+        out memberType
+    )
     assert BuiltInTypes.IsUnknown(memberType)
 }
 
@@ -462,12 +533,14 @@ test "open generic owner members keep lexical type parameters" {
     classOwner := AnalyzerContextGenericClass(
         "GenericClass",
         "TClass",
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     structOwner := AnalyzerContextGenericStruct("GenericStruct", "TStruct")
     recordOwner := AnalyzerContextGenericRecord("GenericRecord", "TRecord")
     interfaceOwner := AnalyzerContextGenericInterface(
         "GenericInterface",
-        "TInterface")
+        "TInterface"
+    )
     context.RegisterCanonicalType(path, "GenericClass", classOwner)
     context.RegisterCanonicalType(path, "GenericStruct", structOwner)
     context.RegisterCanonicalType(path, "GenericRecord", recordOwner)
@@ -485,7 +558,8 @@ test "open generic owner members keep lexical type parameters" {
         new SimpleTypeReference("TClass"),
         classOwner,
         closedSubstitution,
-        out closed)
+        out closed
+    )
     assert TypeInfoIdentityFacts.AreEqual(closed, BuiltInTypes.Int)
 }
 
@@ -511,7 +585,8 @@ test "nested owners see own nested types and ancestor parameters and siblings" {
         new SimpleTypeReference("Leaf"),
         inner,
         null,
-        out ownNested)
+        out ownNested
+    )
     assert TypeInfoIdentityFacts.AreEqual(ownNested, leaf)
 
     ancestorSibling := new TypeInfo()
@@ -519,7 +594,8 @@ test "nested owners see own nested types and ancestor parameters and siblings" {
         new SimpleTypeReference("Sibling"),
         inner,
         null,
-        out ancestorSibling)
+        out ancestorSibling
+    )
     assert TypeInfoIdentityFacts.AreEqual(ancestorSibling, sibling)
 }
 
@@ -530,20 +606,25 @@ test "readonly member eligibility follows closed generic bases and terminal shad
     baseDeclaration.Members.Add(StubField(
         "Value",
         new SimpleTypeReference("T"),
-        512))
+        512
+    ))
 
     baseArguments := AnalyzerContextTypeReferences(
-        new SimpleTypeReference("int"))
+        new SimpleTypeReference("int")
+    )
     derivedDeclaration := StubClassWithBase(
         "Derived",
-        new GenericTypeReference("Base", baseArguments))
+        new GenericTypeReference("Base", baseArguments)
+    )
     shadowDeclaration := StubClassWithBase(
         "Shadow",
-        new GenericTypeReference("Base", baseArguments))
+        new GenericTypeReference("Base", baseArguments)
+    )
     shadowDeclaration.Members.Add(StubField(
         "Value",
         new SimpleTypeReference("int"),
-        0))
+        0
+    ))
     declarations := new List<object>()
     declarations.Add(baseDeclaration)
     declarations.Add(derivedDeclaration)
@@ -551,7 +632,11 @@ test "readonly member eligibility follows closed generic bases and terminal shad
     context := AnalyzerContextFor(path, declarations)
 
     derivedSelection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert context.TryResolveName(path, "Derived", out derivedSelection)
     fieldName := ""
     claimed := false
@@ -560,7 +645,8 @@ test "readonly member eligibility follows closed generic bases and terminal shad
         "Value",
         false,
         out fieldName,
-        out claimed)
+        out claimed
+    )
     assert claimed
     assert fieldName == "Value"
 
@@ -571,11 +657,16 @@ test "readonly member eligibility follows closed generic bases and terminal shad
         "Value",
         true,
         out staticName,
-        out staticClaimed)
+        out staticClaimed
+    )
     assert staticClaimed
 
     shadowSelection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert context.TryResolveName(path, "Shadow", out shadowSelection)
     shadowName := ""
     shadowClaimed := false
@@ -584,7 +675,8 @@ test "readonly member eligibility follows closed generic bases and terminal shad
         "Value",
         false,
         out shadowName,
-        out shadowClaimed)
+        out shadowClaimed
+    )
     assert shadowClaimed
 
     missingName := ""
@@ -594,7 +686,8 @@ test "readonly member eligibility follows closed generic bases and terminal shad
         "Missing",
         false,
         out missingName,
-        out missingClaimed)
+        out missingClaimed
+    )
     assert !missingClaimed
 }
 
@@ -604,18 +697,29 @@ test "source aliases preserve the target member declaration identity" {
     person.Members.Add(StubField(
         "Name",
         new SimpleTypeReference("string"),
-        0))
+        0
+    ))
     alias := StubAlias(
         "PersonAlias",
-        new SimpleTypeReference("Person"))
+        new SimpleTypeReference("Person")
+    )
     context := AnalyzerContextFor(
         path,
-        AnalyzerContextDeclarationPair(person, alias))
+        AnalyzerContextDeclarationPair(person, alias)
+    )
 
     personSelection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     aliasSelection := new AnalyzerSourceTypeSelection(
-        BuiltInTypes.Unknown, null, null, false)
+        BuiltInTypes.Unknown,
+        null,
+        null,
+        false
+    )
     assert context.TryResolveName(path, "Person", out personSelection)
     assert context.TryResolveName(path, "PersonAlias", out aliasSelection)
     assert Object.ReferenceEquals(personSelection.Type, aliasSelection.Type)
@@ -623,9 +727,15 @@ test "source aliases preserve the target member declaration identity" {
     directMember := new AnalyzerMemberSelection()
     aliasMember := new AnalyzerMemberSelection()
     assert context.TryFindMember(
-        personSelection.Type, "Name", out directMember)
+        personSelection.Type,
+        "Name",
+        out directMember
+    )
     assert context.TryFindMember(
-        aliasSelection.Type, "Name", out aliasMember)
+        aliasSelection.Type,
+        "Name",
+        out aliasMember
+    )
     assert directMember.Member != null
     assert Object.ReferenceEquals(directMember.Member, aliasMember.Member)
     assert Object.ReferenceEquals(personSelection.Type, aliasMember.Owner)
@@ -642,12 +752,15 @@ test "readonly selection crosses imported closed generic bases without reflectio
     baseDeclaration.Members.Add(StubField(
         "Value",
         new SimpleTypeReference("T"),
-        512))
+        512
+    ))
     derivedArguments := AnalyzerContextTypeReferences(
-        new SimpleTypeReference("T"))
+        new SimpleTypeReference("T")
+    )
     derivedDeclaration := StubClassWithBase(
         "Derived",
-        new GenericTypeReference("Base", derivedArguments))
+        new GenericTypeReference("Base", derivedArguments)
+    )
     derivedDeclaration.TypeParameters.Add(new TypeParameter("T"))
     declarations := new List<object>()
     declarations.Add(baseDeclaration)
@@ -657,7 +770,8 @@ test "readonly selection crosses imported closed generic bases without reflectio
         providerPath,
         "Models",
         new List<object>(),
-        declarations)
+        declarations
+    )
 
     imports := new List<object>()
     imports.Add(new AnalyzerContextTestImport("Models"))
@@ -666,23 +780,30 @@ test "readonly selection crosses imported closed generic bases without reflectio
         consumerPath,
         "Consumer",
         imports,
-        new List<object>())
+        new List<object>()
+    )
 
     closedArguments := AnalyzerContextTypeReferences(
-        new SimpleTypeReference("int"))
+        new SimpleTypeReference("int")
+    )
     closedReference := new GenericTypeReference(
-        "Derived", closedArguments)
+        "Derived",
+        closedArguments
+    )
     closedDerived := new TypeInfo()
     closedDerived = context.ResolveTypeReference(
         closedReference,
         consumerPath,
         null,
-        null)
+        null
+    )
     closedGeneric := closedDerived as GenericTypeInfo
     assert closedGeneric != null
     assert closedGeneric.TypeArguments.Count == 1
     assert TypeInfoIdentityFacts.AreEqual(
-        closedGeneric.TypeArguments[0], BuiltInTypes.Int)
+        closedGeneric.TypeArguments[0],
+        BuiltInTypes.Int
+    )
 
     fieldName := ""
     claimed := false
@@ -691,7 +812,8 @@ test "readonly selection crosses imported closed generic bases without reflectio
         "Value",
         false,
         out fieldName,
-        out claimed)
+        out claimed
+    )
     assert claimed
     assert fieldName == "Value"
 }
@@ -707,19 +829,22 @@ test "file import alias type ownership preserves nested visibility and claimed f
         providerPath,
         "Provider",
         new List<object>(),
-        new List<object>())
+        new List<object>()
+    )
     AnalyzerContextAddUnit(
         context,
         consumerPath,
         "Consumer",
         new List<object>(),
-        new List<object>())
+        new List<object>()
+    )
     AnalyzerContextAddUnit(
         context,
         samePackagePath,
         "Provider",
         new List<object>(),
-        new List<object>())
+        new List<object>()
+    )
 
     visible := AnalyzerContextClass("Visible", new NestedTypeInfo[](0))
     hidden := AnalyzerContextClass("hidden", new NestedTypeInfo[](0))
@@ -732,13 +857,20 @@ test "file import alias type ownership preserves nested visibility and claimed f
     symbols := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
     symbols["Outer"] = outer
     symbolsByAlias := new Dictionary<string, Dictionary<string, TypeInfo>>(
-        StringComparer.Ordinal)
+        StringComparer.Ordinal
+    )
     symbolsByAlias["dep"] = symbols
     declarations := new Dictionary<string, SymbolDeclaration>(StringComparer.Ordinal)
     declarations["Outer"] = new SymbolDeclaration(
-        "Outer", providerPath, 1, 1, "class")
+        "Outer",
+        providerPath,
+        1,
+        1,
+        "class"
+    )
     declarationsByAlias := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(
-        StringComparer.Ordinal)
+        StringComparer.Ordinal
+    )
     declarationsByAlias["dep"] = declarations
 
     selectedType := BuiltInTypes.Unknown as TypeInfo
@@ -751,7 +883,8 @@ test "file import alias type ownership preserves nested visibility and claimed f
         declarationsByAlias,
         out selectedType,
         out selectedDeclaration,
-        out claimed)
+        out claimed
+    )
     assert claimed
     assert Object.ReferenceEquals(selectedType, visible)
     assert selectedDeclaration != null
@@ -767,7 +900,8 @@ test "file import alias type ownership preserves nested visibility and claimed f
         declarationsByAlias,
         out selectedType,
         out selectedDeclaration,
-        out claimed)
+        out claimed
+    )
     assert claimed
     assert BuiltInTypes.IsUnknown(selectedType)
     assert selectedDeclaration == null
@@ -779,7 +913,8 @@ test "file import alias type ownership preserves nested visibility and claimed f
         declarationsByAlias,
         out selectedType,
         out selectedDeclaration,
-        out claimed)
+        out claimed
+    )
     assert claimed
     assert BuiltInTypes.IsUnknown(selectedType)
     assert selectedDeclaration == null
@@ -791,7 +926,8 @@ test "file import alias type ownership preserves nested visibility and claimed f
         declarationsByAlias,
         out selectedType,
         out selectedDeclaration,
-        out claimed)
+        out claimed
+    )
     assert Object.ReferenceEquals(selectedType, hidden)
 
     claimed = true
@@ -802,7 +938,8 @@ test "file import alias type ownership preserves nested visibility and claimed f
         declarationsByAlias,
         out selectedType,
         out selectedDeclaration,
-        out claimed)
+        out claimed
+    )
     assert !claimed
 }
 
@@ -820,7 +957,8 @@ test "declaration context binds runtime generic definitions only at exact arity"
         exactReference,
         path,
         null,
-        null)
+        null
+    )
     exact := listOfInt as GenericTypeInfo
     assert exact != null
     assert exact.GenericDefinition != null
@@ -828,14 +966,16 @@ test "declaration context binds runtime generic definitions only at exact arity"
     stringReference := new SimpleTypeReference("string")
     wrongArguments := AnalyzerContextTypeReferencePair(
         intReference,
-        stringReference)
+        stringReference
+    )
     wrongReference := new GenericTypeReference("List", wrongArguments)
     listWithWrongArity := new TypeInfo()
     listWithWrongArity = context.ResolveTypeReference(
         wrongReference,
         path,
         null,
-        null)
+        null
+    )
     wrong := listWithWrongArity as GenericTypeInfo
     assert wrong != null
     assert wrong.GenericDefinition == null
@@ -848,7 +988,8 @@ test "runtime generic arity retries an imported non-generic metadata head" {
     context := AnalyzerContextForImports(path, imports)
     arguments := AnalyzerContextTypeReferencePair(
         new SimpleTypeReference("int"),
-        new SimpleTypeReference("string"))
+        new SimpleTypeReference("string")
+    )
     reference := new GenericTypeReference("ValueTuple", arguments)
     resolved := new TypeInfo()
     resolved = context.ResolveTypeReference(reference, path, null, null)
@@ -865,7 +1006,8 @@ test "runtime generic arity retries an imported non-generic metadata head" {
         reference,
         barePath,
         null,
-        null)
+        null
+    )
     bareGeneric := bareResolved as GenericTypeInfo
     assert bareGeneric != null
     assert bareGeneric.GenericDefinition != null
@@ -880,41 +1022,69 @@ test "runtime Result structural members preserve nominal source arguments" {
     resultDefinition := TypeOfCreateBuilder(
         "NSharpLang.Runtime.Result`2",
         "NSharpLang.Runtime",
-        2)
+        2
+    )
     resultType := new GenericTypeInfo(
         "Result",
         arguments,
-        new ReflectionTypeInfo(resultDefinition))
+        new ReflectionTypeInfo(resultDefinition)
+    )
 
     memberType := BuiltInTypes.Unknown as TypeInfo
     assert context.TryResolveKnownGenericStructuralMember(
-        resultType, "OkValue", out memberType)
+        resultType,
+        "OkValue",
+        out memberType
+    )
     assert Object.ReferenceEquals(memberType, sourceOk)
     assert context.TryResolveKnownGenericStructuralMember(
-        resultType, "OkValueUnchecked", out memberType)
+        resultType,
+        "OkValueUnchecked",
+        out memberType
+    )
     assert Object.ReferenceEquals(memberType, sourceOk)
     assert context.TryResolveKnownGenericStructuralMember(
-        resultType, "ErrValue", out memberType)
+        resultType,
+        "ErrValue",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.String)
     assert context.TryResolveKnownGenericStructuralMember(
-        resultType, "ErrValueUnchecked", out memberType)
+        resultType,
+        "ErrValueUnchecked",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.String)
     assert context.TryResolveKnownGenericStructuralMember(
-        resultType, "IsOk", out memberType)
+        resultType,
+        "IsOk",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Bool)
     assert context.TryResolveKnownGenericStructuralMember(
-        resultType, "IsErr", out memberType)
+        resultType,
+        "IsErr",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Bool)
     assert !context.TryResolveKnownGenericStructuralMember(
-        resultType, "Missing", out memberType)
+        resultType,
+        "Missing",
+        out memberType
+    )
 
     impostor := new GenericTypeInfo(
         "Result",
         arguments,
         new ReflectionTypeInfo(
-            typeof(ValueTuple<int, string>).GetGenericTypeDefinition()))
+            typeof(ValueTuple<int, string>).GetGenericTypeDefinition()
+        )
+    )
     assert !context.TryResolveKnownGenericStructuralMember(
-        impostor, "OkValue", out memberType)
+        impostor,
+        "OkValue",
+        out memberType
+    )
 }
 
 test "runtime span structural properties resolve without constructing mixed reflection types" {
@@ -926,16 +1096,27 @@ test "runtime span structural properties resolve without constructing mixed refl
         "Span",
         arguments,
         new ReflectionTypeInfo(
-            typeof(Span<byte>).GetGenericTypeDefinition()))
+            typeof(Span<byte>).GetGenericTypeDefinition()
+        )
+    )
     memberType := BuiltInTypes.Unknown as TypeInfo
     assert context.TryResolveKnownGenericStructuralMember(
-        spanType, "Length", out memberType)
+        spanType,
+        "Length",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Int)
     assert context.TryResolveKnownGenericStructuralMember(
-        spanType, "IsEmpty", out memberType)
+        spanType,
+        "IsEmpty",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Bool)
     assert context.TryResolveKnownGenericStructuralMember(
-        spanType, "ptr", out memberType)
+        spanType,
+        "ptr",
+        out memberType
+    )
     spanPointer := memberType as ReflectionTypeInfo
     assert spanPointer != null
     assert spanPointer.Type.get_IsPointer()
@@ -943,21 +1124,35 @@ test "runtime span structural properties resolve without constructing mixed refl
     assert spanPointerElement != null
     assert spanPointerElement.get_FullName() == "System.Void"
     assert !context.TryResolveKnownGenericStructuralMember(
-        spanType, "Missing", out memberType)
+        spanType,
+        "Missing",
+        out memberType
+    )
 
     readOnlySpanType := new GenericTypeInfo(
         "ReadOnlySpan",
         arguments,
         new ReflectionTypeInfo(
-            typeof(ReadOnlySpan<byte>).GetGenericTypeDefinition()))
+            typeof(ReadOnlySpan<byte>).GetGenericTypeDefinition()
+        )
+    )
     assert context.TryResolveKnownGenericStructuralMember(
-        readOnlySpanType, "Length", out memberType)
+        readOnlySpanType,
+        "Length",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Int)
     assert context.TryResolveKnownGenericStructuralMember(
-        readOnlySpanType, "IsEmpty", out memberType)
+        readOnlySpanType,
+        "IsEmpty",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Bool)
     assert context.TryResolveKnownGenericStructuralMember(
-        readOnlySpanType, "ptr", out memberType)
+        readOnlySpanType,
+        "ptr",
+        out memberType
+    )
     readOnlySpanPointer := memberType as ReflectionTypeInfo
     assert readOnlySpanPointer != null
     assert readOnlySpanPointer.Type.get_IsPointer()
@@ -969,11 +1164,19 @@ test "runtime span structural properties resolve without constructing mixed refl
         "Span",
         arguments,
         new ReflectionTypeInfo(
-            typeof(List<byte>).GetGenericTypeDefinition()))
+            typeof(List<byte>).GetGenericTypeDefinition()
+        )
+    )
     assert !context.TryResolveKnownGenericStructuralMember(
-        impostor, "Length", out memberType)
+        impostor,
+        "Length",
+        out memberType
+    )
     assert !context.TryResolveKnownGenericStructuralMember(
-        impostor, "ptr", out memberType)
+        impostor,
+        "ptr",
+        out memberType
+    )
 }
 
 test "runtime read-only collection count resolves across inherited interface shape" {
@@ -986,44 +1189,76 @@ test "runtime read-only collection count resolves across inherited interface sha
         "IReadOnlyCollection",
         arguments,
         new ReflectionTypeInfo(
-            typeof(IReadOnlyCollection<string>).GetGenericTypeDefinition()))
+            typeof(IReadOnlyCollection<string>).GetGenericTypeDefinition()
+        )
+    )
     assert context.TryResolveKnownGenericStructuralMember(
-        collectionType, "Count", out memberType)
+        collectionType,
+        "Count",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Int)
 
     listType := new GenericTypeInfo(
         "IReadOnlyList",
         arguments,
         new ReflectionTypeInfo(
-            typeof(IReadOnlyList<string>).GetGenericTypeDefinition()))
+            typeof(IReadOnlyList<string>).GetGenericTypeDefinition()
+        )
+    )
     assert context.TryResolveKnownGenericStructuralMember(
-        listType, "Count", out memberType)
+        listType,
+        "Count",
+        out memberType
+    )
     assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Int)
     assert !context.TryResolveKnownGenericStructuralMember(
-        listType, "Length", out memberType)
+        listType,
+        "Length",
+        out memberType
+    )
 
     impostor := new GenericTypeInfo(
         "IReadOnlyList",
         arguments,
         new ReflectionTypeInfo(
-            typeof(List<string>).GetGenericTypeDefinition()))
+            typeof(List<string>).GetGenericTypeDefinition()
+        )
+    )
     assert !context.TryResolveKnownGenericStructuralMember(
-        impostor, "Count", out memberType)
+        impostor,
+        "Count",
+        out memberType
+    )
 }
 
 test "runtime array AsSpan extension preserves element identity and System import scope" {
     context := new AnalyzerDeclarationContext()
     sourceElement := AnalyzerContextClass(
-        "ArrayExtensionSourceElement", new NestedTypeInfo[](0))
+        "ArrayExtensionSourceElement",
+        new NestedTypeInfo[](0)
+    )
     arrayType := new ArrayTypeInfo(sourceElement)
     memberType := BuiltInTypes.Unknown as TypeInfo
 
     assert !context.TryResolveKnownArrayExtensionMember(
-        arrayType, "AsSpan", false, out memberType)
+        arrayType,
+        "AsSpan",
+        false,
+        out memberType
+    )
     assert !context.TryResolveKnownArrayExtensionMember(
-        arrayType, "Missing", true, out memberType)
+        arrayType,
+        "Missing",
+        true,
+        out memberType
+    )
     assert context.TryResolveKnownArrayExtensionMember(
-        arrayType, "AsSpan", true, out memberType)
+        arrayType,
+        "AsSpan",
+        true,
+        out memberType
+    )
 
     group := memberType as NSharpMethodGroupInfo
     assert group != null
@@ -1034,19 +1269,24 @@ test "runtime array AsSpan extension preserves element identity and System impor
     assert functions[1].ParameterTypes != null
     assert functions[1].ParameterTypes.Count == 2
     assert TypeInfoIdentityFacts.AreEqual(
-        functions[1].ParameterTypes[0], BuiltInTypes.Int)
+        functions[1].ParameterTypes[0],
+        BuiltInTypes.Int
+    )
     assert TypeInfoIdentityFacts.AreEqual(
-        functions[1].ParameterTypes[1], BuiltInTypes.Int)
+        functions[1].ParameterTypes[1],
+        BuiltInTypes.Int
+    )
 
     spanType := functions[0].ReturnType as GenericTypeInfo
     assert spanType != null
     assert spanType.TypeArguments.Count == 1
     assert TypeInfoIdentityFacts.AreEqual(
-        spanType.TypeArguments[0], sourceElement)
+        spanType.TypeArguments[0],
+        sourceElement
+    )
     spanDefinition := spanType.GenericDefinition as ReflectionTypeInfo
     assert spanDefinition != null
-    assert spanDefinition.Type
-        == typeof(Span<int>).GetGenericTypeDefinition()
+    assert spanDefinition.Type == typeof(Span<int>).GetGenericTypeDefinition()
 }
 
 test "runtime interface method resolution includes inherited IDisposable members" {
@@ -1054,17 +1294,27 @@ test "runtime interface method resolution includes inherited IDisposable members
     memberType := BuiltInTypes.Unknown as TypeInfo
     runtimeTypeOwner := typeof(Type)
     runtimeOwnerDefinition := TypeOfRequiredRuntimeType(
-        runtimeTypeOwner, "System.Buffers.IMemoryOwner`1")
+        runtimeTypeOwner,
+        "System.Buffers.IMemoryOwner`1"
+    )
     runtimeListDefinition := TypeOfRequiredRuntimeType(
-        runtimeTypeOwner, "System.Collections.Generic.List`1")
+        runtimeTypeOwner,
+        "System.Collections.Generic.List`1"
+    )
     runtimeDisposable := TypeOfRequiredRuntimeType(
-        runtimeTypeOwner, "System.IDisposable")
+        runtimeTypeOwner,
+        "System.IDisposable"
+    )
     runtimeArguments := new Type[](1)
     runtimeArguments[0] = typeof(byte)
     runtimeOwner := runtimeOwnerDefinition.MakeGenericType(runtimeArguments)
     runtimeList := runtimeListDefinition.MakeGenericType(runtimeArguments)
     resolved := context.TryResolveRuntimeInterfaceMethodMember(
-        runtimeOwner, "Dispose", false, out memberType)
+        runtimeOwner,
+        "Dispose",
+        false,
+        out memberType
+    )
     assert resolved
     group := memberType as ReflectionMethodGroupInfo
     assert group != null
@@ -1073,10 +1323,18 @@ test "runtime interface method resolution includes inherited IDisposable members
     assert group.Methods[0].get_DeclaringType() == runtimeDisposable
 
     resolved = context.TryResolveRuntimeInterfaceMethodMember(
-        runtimeList, "Dispose", false, out memberType)
+        runtimeList,
+        "Dispose",
+        false,
+        out memberType
+    )
     assert !resolved
     resolved = context.TryResolveRuntimeInterfaceMethodMember(
-        runtimeOwner, "Missing", false, out memberType)
+        runtimeOwner,
+        "Missing",
+        false,
+        out memberType
+    )
     assert !resolved
 
     scan := ExternalAssemblyScan.OpenWithReferences(null)
@@ -1087,15 +1345,18 @@ test "runtime interface method resolution includes inherited IDisposable members
         metadataOwner := memoryAssembly.GetType("System.Buffers.IMemoryOwner`1")
         assert metadataOwner != null
         resolved = context.TryResolveRuntimeInterfaceMethodMember(
-            metadataOwner, "Dispose", false, out memberType)
+            metadataOwner,
+            "Dispose",
+            false,
+            out memberType
+        )
         assert resolved
         metadataGroup := memberType as ReflectionMethodGroupInfo
         assert metadataGroup != null
         assert metadataGroup.Methods.Length == 1
         assert metadataGroup.Methods[0].get_Name() == "Dispose"
         assert metadataGroup.Methods[0].get_DeclaringType() != null
-        assert metadataGroup.Methods[0].get_DeclaringType().FullName
-            == "System.IDisposable"
+        assert metadataGroup.Methods[0].get_DeclaringType().FullName == "System.IDisposable"
     } finally {
         scan.Dispose()
     }
@@ -1111,7 +1372,8 @@ test "017 slice 4: registering a declared alias is an instance fact and leaves t
     path := "/tmp/s4-alias-register.nl"
     context := AnalyzerContextFor(
         path,
-        AnalyzerContextDeclarations(StubAlias("Meters", new SimpleTypeReference("int"))))
+        AnalyzerContextDeclarations(StubAlias("Meters", new SimpleTypeReference("int")))
+    )
     alias := new AliasTypeInfo(new SimpleTypeReference("int"))
 
     assert !context.ContainsSourceType(alias)
@@ -1144,7 +1406,8 @@ test "017 slice 4: an owned alias resolves to its target and an unowned alias is
     path := "/tmp/s4-alias-resolve.nl"
     context := AnalyzerContextFor(
         path,
-        AnalyzerContextDeclarations(StubClass("Widget")))
+        AnalyzerContextDeclarations(StubClass("Widget"))
+    )
 
     unowned := new AliasTypeInfo(new SimpleTypeReference("int")) as TypeInfo
     assert context.ResolveDeclaredAlias(unowned) == unowned
@@ -1163,14 +1426,16 @@ test "017 slice 4: an owned alias resolves to its target and an unowned alias is
 
     // Array / nullable / generic shells over the alias target are rebuilt, not flattened.
     arrayAlias := new AliasTypeInfo(
-        new ArrayTypeReference(new SimpleTypeReference("int")))
+        new ArrayTypeReference(new SimpleTypeReference("int"))
+    )
     context.RegisterDeclaredAlias(path, arrayAlias)
     resolvedArray := context.ResolveDeclaredAlias(arrayAlias) as ArrayTypeInfo
     assert resolvedArray != null
     assert BuiltInTypes.Is(resolvedArray.ElementType, BuiltInTypes.Int)
 
     nullableAlias := new AliasTypeInfo(
-        new NullableTypeReference(new SimpleTypeReference("string")))
+        new NullableTypeReference(new SimpleTypeReference("string"))
+    )
     context.RegisterDeclaredAlias(path, nullableAlias)
     resolvedNullable := context.ResolveDeclaredAlias(nullableAlias) as NullableTypeInfo
     assert resolvedNullable != null
@@ -1183,7 +1448,9 @@ test "017 slice 4: an alias chain walks to a fixed point and a self-referential 
         path,
         AnalyzerContextDeclarationPair(
             StubAlias("Meters", new SimpleTypeReference("int")),
-            StubAlias("Distance", new SimpleTypeReference("Meters"))))
+            StubAlias("Distance", new SimpleTypeReference("Meters"))
+        )
+    )
 
     // `type Chain = Distance` where `Distance` is itself an alias declaration: the answer is the
     // END of the chain, not the next link.
@@ -1197,7 +1464,8 @@ test "017 slice 4: an alias chain walks to a fixed point and a self-referential 
     loopPath := "/tmp/s4-alias-loop.nl"
     loopContext := AnalyzerContextFor(
         loopPath,
-        AnalyzerContextDeclarations(StubAlias("Loop", new SimpleTypeReference("Loop"))))
+        AnalyzerContextDeclarations(StubAlias("Loop", new SimpleTypeReference("Loop")))
+    )
     loop := new AliasTypeInfo(new SimpleTypeReference("Loop"))
     loopContext.RegisterCanonicalType(loopPath, "Loop", loop)
     assert BuiltInTypes.IsUnknown(loopContext.ResolveDeclaredAlias(loop))
@@ -1207,21 +1475,26 @@ test "017 slice 4: the oblivious wrapper is transparent and every other TypeInfo
     path := "/tmp/s4-alias-oblivious.nl"
     context := AnalyzerContextFor(
         path,
-        AnalyzerContextDeclarations(StubClass("Widget")))
+        AnalyzerContextDeclarations(StubClass("Widget"))
+    )
 
     alias := new AliasTypeInfo(new SimpleTypeReference("int"))
     context.RegisterDeclaredAlias(path, alias)
 
     assert BuiltInTypes.Is(
         context.ResolveDeclaredAlias(new ObliviousTypeInfo(alias)),
-        BuiltInTypes.Int)
+        BuiltInTypes.Int
+    )
     assert BuiltInTypes.Is(
         context.ResolveDeclaredAlias(
-            new ObliviousTypeInfo(new ObliviousTypeInfo(alias))),
-        BuiltInTypes.Int)
+            new ObliviousTypeInfo(new ObliviousTypeInfo(alias))
+        ),
+        BuiltInTypes.Int
+    )
     assert BuiltInTypes.Is(
         context.ResolveDeclaredAlias(new ObliviousTypeInfo(BuiltInTypes.String)),
-        BuiltInTypes.String)
+        BuiltInTypes.String
+    )
 
     // Non-alias, non-oblivious values are returned by IDENTITY — no re-resolution, no copy.
     simple := new SimpleTypeInfo("int") as TypeInfo

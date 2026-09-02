@@ -21,7 +21,6 @@ import NSharpLang.Compiler.Ast
 // a list pattern containing a malformed element makes the recovery parser panic through the whole
 // file (measured: the fixture emits 60 syntax diagnostics and never builds a ListPattern). Both arms
 // are live code that a future parser change can reach, and both are pinned here by construction.
-
 class ReachabilityHarness {
     Reachability: AnalyzerPatternReachability
     Errors: List<CompilerError>
@@ -30,7 +29,8 @@ class ReachabilityHarness {
     constructor(
         reachability: AnalyzerPatternReachability,
         errors: List<CompilerError>,
-        context: AnalyzerDeclarationContext) {
+        context: AnalyzerDeclarationContext
+    ) {
         Reachability = reachability
         Errors = errors
         Context = context
@@ -54,7 +54,8 @@ func ReachabilityDefault(): ReachabilityHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -66,10 +67,11 @@ func ReachabilityDefault(): ReachabilityHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -80,7 +82,8 @@ func ReachabilityDefault(): ReachabilityHarness {
     return new ReachabilityHarness(
         new AnalyzerPatternReachability(diagnostics, spans, context, assignability),
         errors,
-        context)
+        context
+    )
 }
 
 func ReachabilityClass(name: string, isSealed: bool): TypeInfo {
@@ -95,7 +98,8 @@ func ReachabilityClass(name: string, isSealed: bool): TypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     return result
 }
 
@@ -111,7 +115,8 @@ func ReachabilityDerivedClass(name: string, baseName: string, isSealed: bool): T
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     return result
 }
 
@@ -124,7 +129,8 @@ func ReachabilityStruct(name: string): TypeInfo {
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     return result
 }
 
@@ -138,7 +144,8 @@ func ReachabilityRecord(name: string, isStruct: bool): TypeInfo {
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     return result
 }
 
@@ -151,13 +158,15 @@ func ReachabilityInterface(name: string): TypeInfo {
         new TypeReference[](0),
         new TypeParameter[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     return result
 }
 
 func ReachabilityEnum(name: string): TypeInfo {
     result: TypeInfo = new EnumTypeInfo(
-        new EnumDeclarationInfo(name, new List<EnumMemberInfo>(), EnumType.Int))
+        new EnumDeclarationInfo(name, new List<EnumMemberInfo>(), EnumType.Int)
+    )
     return result
 }
 
@@ -210,7 +219,8 @@ func ReachabilityIsExpression(name: string, line: int, column: int): IsExpressio
         new SimpleTypeReference(name),
         null,
         line,
-        column)
+        column
+    )
 }
 
 func ReachabilityPlaceholder(): Expression {
@@ -259,10 +269,12 @@ test "a REFLECTED type on either side admits, whatever it is" {
     assert harness.Reachability.IsPatternPossible(reflected, BuiltInTypes.Int)
     assert harness.Reachability.IsPatternPossible(
         reflected,
-        ReachabilityReflected(typeof(Version)))
+        ReachabilityReflected(typeof(Version))
+    )
     assert harness.Reachability.IsPatternPossible(
         ReachabilityReflected(typeof(int)),
-        ReachabilityStruct("Vec"))
+        ReachabilityStruct("Vec")
+    )
 }
 
 test "a generic instantiation on either side admits" {
@@ -287,7 +299,8 @@ test "the same declaration HANDLE admits by reference, and two equal simple name
     // A struct is not a simple type, so two distinct struct handles with the SAME name still refuse.
     assert !harness.Reachability.IsPatternPossible(
         ReachabilityStruct("Vec"),
-        ReachabilityStruct("Vec"))
+        ReachabilityStruct("Vec")
+    )
 }
 
 test "an INTERFACE on either side admits — including against a value type, which is what makes the two inner interface guards unreachable" {
@@ -351,12 +364,14 @@ test "two unrelated NON-sealed classes admit: an unseen subclass could be both" 
 
     assert harness.Reachability.IsPatternPossible(
         ReachabilityClass("Dog", false),
-        ReachabilityClass("Cat", false))
+        ReachabilityClass("Cat", false)
+    )
 
     // A record class is a reference type and takes the same fall-through.
     assert harness.Reachability.IsPatternPossible(
         ReachabilityRecord("Person", false),
-        ReachabilityClass("Dog", false))
+        ReachabilityClass("Dog", false)
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -433,12 +448,12 @@ test "an impossible TYPE PATTERN reports NL506 once, naming the pattern, at the 
     harness.Reachability.CheckTypePattern(
         ReachabilityTypePattern("bool", 7, 9),
         BuiltInTypes.Int,
-        BuiltInTypes.Bool)
+        BuiltInTypes.Bool
+    )
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.ImpossiblePattern
-    assert harness.Errors[0].Message
-        == "This 'bool' pattern can never match — a 'int' is never a 'bool'"
+    assert harness.Errors[0].Message == "This 'bool' pattern can never match — a 'int' is never a 'bool'"
     assert harness.Errors[0].Line == 7
     assert harness.Errors[0].Column == 9
 }
@@ -449,12 +464,12 @@ test "an impossible `is` EXPRESSION reports NL506 once, naming the TEST, at the 
     harness.Reachability.CheckIsExpression(
         ReachabilityIsExpression("int", 4, 12),
         BuiltInTypes.String,
-        BuiltInTypes.Int)
+        BuiltInTypes.Int
+    )
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.ImpossiblePattern
-    assert harness.Errors[0].Message
-        == "This 'is int' check is always false — a 'string' is never a 'int'"
+    assert harness.Errors[0].Message == "This 'is int' check is always false — a 'string' is never a 'int'"
     assert harness.Errors[0].Line == 4
     assert harness.Errors[0].Column == 12
 }
@@ -465,11 +480,13 @@ test "a POSSIBLE test reports nothing at either site" {
     harness.Reachability.CheckTypePattern(
         ReachabilityTypePattern("Dog", 7, 9),
         ReachabilityClass("Animal", false),
-        ReachabilityClass("Dog", false))
+        ReachabilityClass("Dog", false)
+    )
     harness.Reachability.CheckIsExpression(
         ReachabilityIsExpression("Dog", 4, 12),
         BuiltInTypes.Object,
-        ReachabilityClass("Dog", false))
+        ReachabilityClass("Dog", false)
+    )
 
     assert harness.Errors.Count == 0
 }
@@ -480,11 +497,13 @@ test "each site reports ONCE PER ASK, in ask order, and the two messages stay di
     harness.Reachability.CheckIsExpression(
         ReachabilityIsExpression("bool", 2, 5),
         BuiltInTypes.Int,
-        BuiltInTypes.Bool)
+        BuiltInTypes.Bool
+    )
     harness.Reachability.CheckTypePattern(
         ReachabilityTypePattern("bool", 3, 5),
         BuiltInTypes.Int,
-        BuiltInTypes.Bool)
+        BuiltInTypes.Bool
+    )
 
     assert harness.Errors.Count == 2
     assert harness.Errors[0].Message == "This 'is bool' check is always false — a 'int' is never a 'bool'"
@@ -498,16 +517,19 @@ test "each site reports ONCE PER ASK, in ask order, and the two messages stay di
 test "the walk knows exactly two artifacts: an `<error>` identifier and an `<error>` member name" {
     assert AnalyzerParserErrorPlaceholders.PlaceholderName() == "<error>"
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new IdentifierExpression("<error>", 1, 1))
+        new IdentifierExpression("<error>", 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new MemberAccessExpression(ReachabilityClean(), "<error>", false, 1, 1))
+        new MemberAccessExpression(ReachabilityClean(), "<error>", false, 1, 1)
+    )
 
     // A well-formed identifier and a well-formed member name are not artifacts, and neither is a
     // differently-spelled one.
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(new IdentifierExpression("value", 1, 1))
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(new IdentifierExpression("error", 1, 1))
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new MemberAccessExpression(ReachabilityClean(), "Length", false, 1, 1))
+        new MemberAccessExpression(ReachabilityClean(), "Length", false, 1, 1)
+    )
 }
 
 test "a member access descends into its RECEIVER when its own name is clean" {
@@ -527,36 +549,44 @@ test "an expression kind with no children is never an artifact" {
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(new BaseExpression(1, 1))
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(new DefaultExpression(1, 1))
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new TypeOfExpression(new SimpleTypeReference("int"), 1, 1))
+        new TypeOfExpression(new SimpleTypeReference("int"), 1, 1)
+    )
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new SizeOfExpression(new SimpleTypeReference("int"), 1, 1))
+        new SizeOfExpression(new SimpleTypeReference("int"), 1, 1)
+    )
 }
 
 test "an interpolated string looks at its HOLES and ignores its text" {
     withText := new List<InterpolatedStringPart>()
     withText.Add(new InterpolatedStringText("<error>", 1, 1))
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new InterpolatedStringExpression(withText, 1, 1))
+        new InterpolatedStringExpression(withText, 1, 1)
+    )
 
     withHole := new List<InterpolatedStringPart>()
     withHole.Add(new InterpolatedStringText("value: ", 1, 1))
     withHole.Add(new InterpolatedStringHole(ReachabilityPlaceholder(), null, 1, 1))
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new InterpolatedStringExpression(withHole, 1, 1))
+        new InterpolatedStringExpression(withHole, 1, 1)
+    )
 
     empty := new List<InterpolatedStringPart>()
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new InterpolatedStringExpression(empty, 1, 1))
+        new InterpolatedStringExpression(empty, 1, 1)
+    )
 }
 
 test "a range asks both ends and tolerates either being absent" {
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(new RangeExpression(null, null, 1, 1))
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new RangeExpression(ReachabilityPlaceholder(), null, 1, 1))
+        new RangeExpression(ReachabilityPlaceholder(), null, 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new RangeExpression(null, ReachabilityPlaceholder(), 1, 1))
+        new RangeExpression(null, ReachabilityPlaceholder(), 1, 1)
+    )
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new RangeExpression(ReachabilityClean(), ReachabilityClean(), 1, 1))
+        new RangeExpression(ReachabilityClean(), ReachabilityClean(), 1, 1)
+    )
 }
 
 test "a call asks its callee AND every argument" {
@@ -571,13 +601,16 @@ test "a call asks its callee AND every argument" {
 
 test "every two-operand expression asks BOTH operands" {
     left := AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new BinaryExpression(ReachabilityPlaceholder(), BinaryOperator.Add, ReachabilityClean(), 1, 1))
+        new BinaryExpression(ReachabilityPlaceholder(), BinaryOperator.Add, ReachabilityClean(), 1, 1)
+    )
     right := AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new BinaryExpression(ReachabilityClean(), BinaryOperator.Add, ReachabilityPlaceholder(), 1, 1))
+        new BinaryExpression(ReachabilityClean(), BinaryOperator.Add, ReachabilityPlaceholder(), 1, 1)
+    )
     assert left
     assert right
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new BinaryExpression(ReachabilityClean(), BinaryOperator.Add, ReachabilityClean(), 1, 1))
+        new BinaryExpression(ReachabilityClean(), BinaryOperator.Add, ReachabilityClean(), 1, 1)
+    )
 
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
         new AssignmentExpression(
@@ -585,48 +618,67 @@ test "every two-operand expression asks BOTH operands" {
             AssignmentOperator.Assign,
             ReachabilityClean(),
             1,
-            1))
+            1
+        )
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
         new AssignmentExpression(
             ReachabilityClean(),
             AssignmentOperator.Assign,
             ReachabilityPlaceholder(),
             1,
-            1))
+            1
+        )
+    )
 
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new IndexAccessExpression(ReachabilityPlaceholder(), ReachabilityClean(), false, 1, 1))
+        new IndexAccessExpression(ReachabilityPlaceholder(), ReachabilityClean(), false, 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new IndexAccessExpression(ReachabilityClean(), ReachabilityPlaceholder(), false, 1, 1))
+        new IndexAccessExpression(ReachabilityClean(), ReachabilityPlaceholder(), false, 1, 1)
+    )
 }
 
 test "every single-operand wrapper asks its operand" {
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new UnaryExpression(UnaryOperator.Not, ReachabilityPlaceholder(), 1, 1))
+        new UnaryExpression(UnaryOperator.Not, ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new MustExpression(ReachabilityPlaceholder(), 1, 1))
+        new MustExpression(ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new ParenthesizedExpression(ReachabilityPlaceholder(), 1, 1))
+        new ParenthesizedExpression(ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new CheckedExpression(ReachabilityPlaceholder(), 1, 1))
+        new CheckedExpression(ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new UncheckedExpression(ReachabilityPlaceholder(), 1, 1))
+        new UncheckedExpression(ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new AllocExpression(ReachabilityPlaceholder(), 1, 1))
+        new AllocExpression(ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new StackAllocExpression(new SimpleTypeReference("byte"), ReachabilityPlaceholder(), 1, 1))
+        new StackAllocExpression(new SimpleTypeReference("byte"), ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new CastExpression(ReachabilityPlaceholder(), new SimpleTypeReference("int"), CastKind.Hard, 1, 1))
+        new CastExpression(ReachabilityPlaceholder(), new SimpleTypeReference("int"), CastKind.Hard, 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new IsExpression(ReachabilityPlaceholder(), new SimpleTypeReference("int"), null, 1, 1))
+        new IsExpression(ReachabilityPlaceholder(), new SimpleTypeReference("int"), null, 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new AwaitExpression(ReachabilityPlaceholder(), 1, 1))
+        new AwaitExpression(ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new ThrowExpression(ReachabilityPlaceholder(), 1, 1))
+        new ThrowExpression(ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new SpreadExpression(ReachabilityPlaceholder(), 1, 1))
+        new SpreadExpression(ReachabilityPlaceholder(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new NameofExpression(ReachabilityPlaceholder(), 1, 1))
+        new NameofExpression(ReachabilityPlaceholder(), 1, 1)
+    )
 }
 
 test "a lambda asks its EXPRESSION body only, and a block-bodied lambda is never an artifact" {
@@ -635,7 +687,8 @@ test "a lambda asks its EXPRESSION body only, and a block-bodied lambda is never
         ReachabilityPlaceholder(),
         null,
         1,
-        1)
+        1
+    )
     withoutExpressionBody := new LambdaExpression(new List<Parameter>(), null, null, 1, 1)
 
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(withExpressionBody)
@@ -644,13 +697,17 @@ test "a lambda asks its EXPRESSION body only, and a block-bodied lambda is never
 
 test "a ternary asks all three of its parts" {
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new TernaryExpression(ReachabilityPlaceholder(), ReachabilityClean(), ReachabilityClean(), 1, 1))
+        new TernaryExpression(ReachabilityPlaceholder(), ReachabilityClean(), ReachabilityClean(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new TernaryExpression(ReachabilityClean(), ReachabilityPlaceholder(), ReachabilityClean(), 1, 1))
+        new TernaryExpression(ReachabilityClean(), ReachabilityPlaceholder(), ReachabilityClean(), 1, 1)
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new TernaryExpression(ReachabilityClean(), ReachabilityClean(), ReachabilityPlaceholder(), 1, 1))
+        new TernaryExpression(ReachabilityClean(), ReachabilityClean(), ReachabilityPlaceholder(), 1, 1)
+    )
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new TernaryExpression(ReachabilityClean(), ReachabilityClean(), ReachabilityClean(), 1, 1))
+        new TernaryExpression(ReachabilityClean(), ReachabilityClean(), ReachabilityClean(), 1, 1)
+    )
 }
 
 test "an array literal and a tuple ask every element" {
@@ -658,15 +715,18 @@ test "an array literal and a tuple ask every element" {
     elements.Add(ReachabilityClean())
     elements.Add(ReachabilityPlaceholder())
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new ArrayLiteralExpression(elements, false, 1, 1))
+        new ArrayLiteralExpression(elements, false, 1, 1)
+    )
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new ArrayLiteralExpression(new List<Expression>(), false, 1, 1))
+        new ArrayLiteralExpression(new List<Expression>(), false, 1, 1)
+    )
 
     tupleElements := new List<TupleElement>()
     tupleElements.Add(new TupleElement("first", ReachabilityClean()))
     tupleElements.Add(new TupleElement(null, ReachabilityPlaceholder()))
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new TupleExpression(tupleElements, 1, 1))
+        new TupleExpression(tupleElements, 1, 1)
+    )
 }
 
 test "a `new` asks its constructor arguments, its initializer AND its array length" {
@@ -675,7 +735,8 @@ test "a `new` asks its constructor arguments, its initializer AND its array leng
         ReachabilityPlaceholderArguments(),
         null,
         1,
-        1)
+        1
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(argumentBroken)
 
     initializerProperties := new List<PropertyInitializer>()
@@ -685,7 +746,8 @@ test "a `new` asks its constructor arguments, its initializer AND its array leng
         ReachabilityCleanArguments(),
         new ObjectInitializerExpression(initializerProperties, 1, 1),
         1,
-        1)
+        1
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(initializerBroken)
 
     lengthBroken := new NewExpression(
@@ -694,7 +756,8 @@ test "a `new` asks its constructor arguments, its initializer AND its array leng
         null,
         1,
         1,
-        ReachabilityPlaceholder())
+        ReachabilityPlaceholder()
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(lengthBroken)
 
     clean := new NewExpression(
@@ -702,7 +765,8 @@ test "a `new` asks its constructor arguments, its initializer AND its array leng
         ReachabilityCleanArguments(),
         null,
         1,
-        1)
+        1
+    )
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(clean)
 }
 
@@ -710,20 +774,24 @@ test "an initializer property asks its INDEX expression as well as its value, in
     indexBroken := new List<PropertyInitializer>()
     indexBroken.Add(new PropertyInitializer(null, ReachabilityPlaceholder(), ReachabilityClean()))
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new ObjectInitializerExpression(indexBroken, 1, 1))
+        new ObjectInitializerExpression(indexBroken, 1, 1)
+    )
 
     valueBroken := new List<PropertyInitializer>()
     valueBroken.Add(new PropertyInitializer("Age", null, ReachabilityPlaceholder()))
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new WithExpression(ReachabilityClean(), valueBroken, 1, 1))
+        new WithExpression(ReachabilityClean(), valueBroken, 1, 1)
+    )
 
     // A `with` also asks its TARGET.
     cleanProperties := new List<PropertyInitializer>()
     cleanProperties.Add(new PropertyInitializer("Age", null, ReachabilityClean()))
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new WithExpression(ReachabilityPlaceholder(), cleanProperties, 1, 1))
+        new WithExpression(ReachabilityPlaceholder(), cleanProperties, 1, 1)
+    )
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new WithExpression(ReachabilityClean(), cleanProperties, 1, 1))
+        new WithExpression(ReachabilityClean(), cleanProperties, 1, 1)
+    )
 }
 
 test "a match asks its scrutinee, and every arm's PATTERN, guard and body" {
@@ -732,36 +800,44 @@ test "a match asks its scrutinee, and every arm's PATTERN, guard and body" {
     scrutineeCases := new List<MatchCase>()
     scrutineeCases.Add(cleanCase)
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new MatchExpression(ReachabilityPlaceholder(), scrutineeCases, 1, 1))
+        new MatchExpression(ReachabilityPlaceholder(), scrutineeCases, 1, 1)
+    )
 
     patternCases := new List<MatchCase>()
     patternCases.Add(new MatchCase(
         new RelationalPattern(">", ReachabilityPlaceholder(), 1, 1),
         null,
-        ReachabilityClean()))
+        ReachabilityClean()
+    ))
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new MatchExpression(ReachabilityClean(), patternCases, 1, 1))
+        new MatchExpression(ReachabilityClean(), patternCases, 1, 1)
+    )
 
     guardCases := new List<MatchCase>()
     guardCases.Add(new MatchCase(
         new IdentifierPattern("value", 1, 1),
         ReachabilityPlaceholder(),
-        ReachabilityClean()))
+        ReachabilityClean()
+    ))
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new MatchExpression(ReachabilityClean(), guardCases, 1, 1))
+        new MatchExpression(ReachabilityClean(), guardCases, 1, 1)
+    )
 
     bodyCases := new List<MatchCase>()
     bodyCases.Add(new MatchCase(
         new IdentifierPattern("value", 1, 1),
         null,
-        ReachabilityPlaceholder()))
+        ReachabilityPlaceholder()
+    ))
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new MatchExpression(ReachabilityClean(), bodyCases, 1, 1))
+        new MatchExpression(ReachabilityClean(), bodyCases, 1, 1)
+    )
 
     cleanCases := new List<MatchCase>()
     cleanCases.Add(cleanCase)
     assert !AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new MatchExpression(ReachabilityClean(), cleanCases, 1, 1))
+        new MatchExpression(ReachabilityClean(), cleanCases, 1, 1)
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -772,21 +848,26 @@ test "a pattern kind with no expression and no sub-pattern is never an artifact"
     assert !AnalyzerParserErrorPlaceholders.ContainsInPattern(new IdentifierPattern("<error>", 1, 1))
     assert !AnalyzerParserErrorPlaceholders.ContainsInPattern(new SlicePattern("rest", 1, 1))
     assert !AnalyzerParserErrorPlaceholders.ContainsInPattern(
-        new TypePattern(new SimpleTypeReference("<error>"), "value", 1, 1))
+        new TypePattern(new SimpleTypeReference("<error>"), "value", 1, 1)
+    )
 }
 
 test "a LITERAL pattern asks its literal — the arm no source can reach, because a literal is one token" {
     assert AnalyzerParserErrorPlaceholders.ContainsInPattern(
-        new LiteralPattern(ReachabilityPlaceholder(), 1, 1))
+        new LiteralPattern(ReachabilityPlaceholder(), 1, 1)
+    )
     assert !AnalyzerParserErrorPlaceholders.ContainsInPattern(
-        new LiteralPattern(ReachabilityClean(), 1, 1))
+        new LiteralPattern(ReachabilityClean(), 1, 1)
+    )
 }
 
 test "a RELATIONAL pattern asks its bound — the one pattern arm malformed source actually reaches" {
     assert AnalyzerParserErrorPlaceholders.ContainsInPattern(
-        new RelationalPattern(">", ReachabilityPlaceholder(), 1, 1))
+        new RelationalPattern(">", ReachabilityPlaceholder(), 1, 1)
+    )
     assert !AnalyzerParserErrorPlaceholders.ContainsInPattern(
-        new RelationalPattern(">", ReachabilityClean(), 1, 1))
+        new RelationalPattern(">", ReachabilityClean(), 1, 1)
+    )
 }
 
 test "a union-case pattern asks its properties, and a payload-less case has NONE to ask" {
@@ -796,11 +877,13 @@ test "a union-case pattern asks its properties, and a payload-less case has NONE
     properties := new List<PropertyPattern>()
     properties.Add(new PropertyPattern("r", new RelationalPattern(">", ReachabilityPlaceholder(), 1, 1), null))
     assert AnalyzerParserErrorPlaceholders.ContainsInPattern(
-        new UnionCasePattern("Circle", properties, 1, 1))
+        new UnionCasePattern("Circle", properties, 1, 1)
+    )
 
     empty := new List<PropertyPattern>()
     assert !AnalyzerParserErrorPlaceholders.ContainsInPattern(
-        new UnionCasePattern("Circle", empty, 1, 1))
+        new UnionCasePattern("Circle", empty, 1, 1)
+    )
 }
 
 test "an object pattern asks its properties" {
@@ -816,9 +899,11 @@ test "an object pattern asks its properties" {
 
 test "a property pattern with NO nested pattern — a pure binding — carries nothing" {
     assert !AnalyzerParserErrorPlaceholders.ContainsInPropertyPattern(
-        new PropertyPattern("Name", null, "n"))
+        new PropertyPattern("Name", null, "n")
+    )
     assert AnalyzerParserErrorPlaceholders.ContainsInPropertyPattern(
-        new PropertyPattern("Age", new RelationalPattern(">", ReachabilityPlaceholder(), 1, 1), null))
+        new PropertyPattern("Age", new RelationalPattern(">", ReachabilityPlaceholder(), 1, 1), null)
+    )
 }
 
 test "a LIST pattern asks every element — the second arm no source can reach, because the recovery parser panics first" {
@@ -868,9 +953,11 @@ test "the three entry points are ONE mutually recursive walk: expression to patt
     cases.Add(new MatchCase(
         new NotPattern(new UnionCasePattern("Circle", properties, 1, 1), 1, 1),
         null,
-        ReachabilityClean()))
+        ReachabilityClean()
+    ))
     nested: Expression = new MatchExpression(ReachabilityClean(), cases, 1, 1)
 
     assert AnalyzerParserErrorPlaceholders.ContainsInExpression(
-        new ParenthesizedExpression(new CheckedExpression(nested, 1, 1), 1, 1))
+        new ParenthesizedExpression(new CheckedExpression(nested, 1, 1), 1, 1)
+    )
 }

@@ -38,7 +38,6 @@ import System.IO
 //
 // Maps: no deleted test. The deleted suite never covered the opt-out; this contract exists because reading
 // the emitter to write the other four files turned up a documented switch that no longer exists.
-
 class ProcessResult {
     ExitCode: int
     Stdout: string
@@ -52,6 +51,7 @@ class ProcessResult {
 }
 
 class OptOutProbe {
+
     // Start a child process, drain both pipes before waiting (so a chatty child cannot deadlock on a full
     // pipe buffer), and dispose it, so this project leaves no orphan `dotnet` behind.
     //
@@ -83,9 +83,7 @@ class OptOutProbe {
         current: string? = AppContext.BaseDirectory
         while current != null {
             directory := current ?? ""
-            if File.Exists(Path.Combine(directory, "NSharpLang.sln"))
-                && Directory.Exists(Path.Combine(directory, "src"))
-                && Directory.Exists(Path.Combine(directory, "tests")) {
+            if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) && Directory.Exists(Path.Combine(directory, "tests")) {
                 return directory
             }
 

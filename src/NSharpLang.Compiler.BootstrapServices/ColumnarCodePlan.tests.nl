@@ -3,8 +3,9 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Reflection
 
-public class ColumnarCodePlanVoidProbe {
-    public static func Nothing() {}
+class ColumnarCodePlanVoidProbe {
+    static func Nothing() {
+    }
 }
 
 func ValidBooleanCodePlan(): ColumnarCodePlan {
@@ -29,7 +30,8 @@ func SingleNodeTable(kind: int, textLength: int): ColumnarNodeTable {
         valueLengths,
         childStarts,
         childCounts,
-        new int[](0))
+        new int[](0)
+    )
 }
 
 test "boolean code-plan schema pins CLR opcode values" {
@@ -139,18 +141,15 @@ test "boolean planner consumes the live parser node-kind ledger" {
 
     plan := new ColumnarCodePlan()
     trueNodes := SingleNodeTable(ColumnarExpressionNodeKind.BoolLiteralExpression(), 4)
-    assert ColumnarBooleanLiteralPlanner.Plan(trueNodes, "true", 0, plan)
-        == ColumnarFragmentPlanStatus.Planned
+    assert ColumnarBooleanLiteralPlanner.Plan(trueNodes, "true", 0, plan) == ColumnarFragmentPlanStatus.Planned
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4_1()
 
     falseNodes := SingleNodeTable(ColumnarExpressionNodeKind.BoolLiteralExpression(), 5)
-    assert ColumnarBooleanLiteralPlanner.Plan(falseNodes, "false", 0, plan)
-        == ColumnarFragmentPlanStatus.Planned
+    assert ColumnarBooleanLiteralPlanner.Plan(falseNodes, "false", 0, plan) == ColumnarFragmentPlanStatus.Planned
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4_0()
 
     otherNodes := SingleNodeTable(ColumnarExpressionNodeKind.IntLiteralExpression(), 1)
-    assert ColumnarBooleanLiteralPlanner.Plan(otherNodes, "1", 0, plan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarBooleanLiteralPlanner.Plan(otherNodes, "1", 0, plan) == ColumnarFragmentPlanStatus.NotOwned
 }
 
 test "boolean planner rejects corrupt parser payloads" {
@@ -207,7 +206,8 @@ func CodePlanRequiredParameterlessVoidMethod(): MethodInfo {
     method := typeof(ColumnarCodePlanVoidProbe).GetMethod("Nothing")
     if method == null {
         throw new InvalidOperationException(
-            "Required parameterless void method was not found.")
+            "Required parameterless void method was not found."
+        )
     }
     return method
 }
@@ -285,7 +285,9 @@ test "schema v2 lifecycle is explicit sealed and one shot" {
 
     plan.ConsumeV2()
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
-    assert throws InvalidOperationException { plan.ConsumeV2() }
+    assert throws InvalidOperationException {
+        plan.ConsumeV2()
+    }
     assert throws InvalidOperationException {
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
     }
@@ -443,7 +445,9 @@ test "schema v2 append APIs reject mismatched or unavailable operands" {
     }
     assert throws InvalidOperationException {
         plan.AppendArgumentInstruction(
-            ColumnarCodePlanContract.Ldarga(), addressArgumentIndex)
+            ColumnarCodePlanContract.Ldarga(),
+            addressArgumentIndex
+        )
     }
     assert throws InvalidOperationException {
         plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldelem(), typeIndex + 1)
@@ -456,10 +460,18 @@ test "schema v2 append APIs reject mismatched or unavailable operands" {
     assert throws InvalidOperationException {
         plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), labelIndex + 1)
     }
-    assert throws ArgumentNullException { plan.AddAmbientLocal(null) }
-    assert throws ArgumentNullException { plan.AddMethod(null) }
-    assert throws ArgumentNullException { plan.AddConstructor(null) }
-    assert throws ArgumentNullException { plan.AddField(null) }
+    assert throws ArgumentNullException {
+        plan.AddAmbientLocal(null)
+    }
+    assert throws ArgumentNullException {
+        plan.AddMethod(null)
+    }
+    assert throws ArgumentNullException {
+        plan.AddConstructor(null)
+    }
+    assert throws ArgumentNullException {
+        plan.AddField(null)
+    }
 
     plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
     plan.CompleteFragment(root, typeof(int))
@@ -566,11 +578,15 @@ test "schema v3 admits exact array allocation duplication and store rows" {
     }
     assert throws InvalidOperationException {
         invalid.AppendTypeInstruction(
-            ColumnarCodePlanContract.Newarr(), invalidType + 1)
+            ColumnarCodePlanContract.Newarr(),
+            invalidType + 1
+        )
     }
     assert throws InvalidOperationException {
         invalid.AppendTypeInstruction(
-            ColumnarCodePlanContract.Stelem(), invalidType + 1)
+            ColumnarCodePlanContract.Stelem(),
+            invalidType + 1
+        )
     }
     assert invalid.OperationCount == operationCount
 }
@@ -662,7 +678,9 @@ test "schema v1 and v2 fence schema v3 array rows from append and tamper paths" 
     tamperedRoot := tamperedTypeV2.BeginFragment(-1, 523, 0)
     tamperedType := tamperedTypeV2.AddType(typeof(int))
     tamperedTypeV2.AppendTypeInstruction(
-        ColumnarCodePlanContract.Ldelem(), tamperedType)
+        ColumnarCodePlanContract.Ldelem(),
+        tamperedType
+    )
     tamperedTypeV2.CompleteFragment(tamperedRoot, typeof(int))
     tamperedTypeV2.CompleteV2(typeof(int))
     tamperedTypeV2.OpCodeValues[0] = ColumnarCodePlanContract.Newarr()
@@ -715,16 +733,22 @@ test "schema v3 rejects corrupt array opcode and operand pairings purely" {
 
     typed.OperandKinds[0] = ColumnarCodePlanContract.NoOperand()
     typed.OperandIndices[0] = -1
-    assert throws InvalidOperationException { typed.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        typed.ValidateSealedStructure()
+    }
     typed.OperandKinds[0] = ColumnarCodePlanContract.TypeOperand()
     typed.OperandIndices[0] = typedIndex
     typed.ValidateSealedStructure()
     typed.OperandIndices[0] = typedIndex + 1
-    assert throws InvalidOperationException { typed.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        typed.ValidateSealedStructure()
+    }
     typed.OperandIndices[0] = typedIndex
     typed.ValidateSealedStructure()
     typed.OpCodeValues[0] = ColumnarCodePlanContract.Dup()
-    assert throws InvalidOperationException { typed.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        typed.ValidateSealedStructure()
+    }
     typed.OpCodeValues[0] = ColumnarCodePlanContract.Newarr()
     typed.ValidateSealedStructure()
 
@@ -738,12 +762,16 @@ test "schema v3 rejects corrupt array opcode and operand pairings purely" {
 
     fixed.OperandKinds[0] = ColumnarCodePlanContract.TypeOperand()
     fixed.OperandIndices[0] = fixedType
-    assert throws InvalidOperationException { fixed.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        fixed.ValidateSealedStructure()
+    }
     fixed.OperandKinds[0] = ColumnarCodePlanContract.NoOperand()
     fixed.OperandIndices[0] = -1
     fixed.ValidateSealedStructure()
     fixed.OpCodeValues[0] = ColumnarCodePlanContract.Stelem()
-    assert throws InvalidOperationException { fixed.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        fixed.ValidateSealedStructure()
+    }
     fixed.OpCodeValues[0] = ColumnarCodePlanContract.StelemI4()
     fixed.ValidateSealedStructure()
 }
@@ -787,7 +815,8 @@ test "sealed schema v3 rejects corrupt void fragment and root result relationshi
     nonvoidRootWithVoidResult.PrepareV3()
     nonvoidRoot := nonvoidRootWithVoidResult.BeginFragment(-1, 508, 0)
     nonvoidRootWithVoidResult.AppendInstructionWithoutOperand(
-        ColumnarCodePlanContract.LdcI4_1())
+        ColumnarCodePlanContract.LdcI4_1()
+    )
     nonvoidRootWithVoidResult.CompleteFragment(nonvoidRoot, typeof(int))
     nonvoidRootWithVoidResult.CompleteV3(typeof(int))
     nonvoidRootWithVoidResult.ResultType = CodePlanVoidType()
@@ -805,7 +834,9 @@ test "sealed schema v3 rejects corrupt void fragment and root result relationshi
     nestedVoid.CompleteFragment(root, typeof(int))
     nestedVoid.CompleteV3(typeof(int))
     nestedVoid.FragmentResultTypes[child] = CodePlanVoidType()
-    assert throws InvalidOperationException { nestedVoid.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        nestedVoid.ValidateSealedStructure()
+    }
 }
 
 test "sealed recursive schemas reject ldtoken version and operand corruption" {
@@ -817,7 +848,9 @@ test "sealed recursive schemas reject ldtoken version and operand corruption" {
     schemaV2.CompleteFragment(v2Root, typeof(int))
     schemaV2.CompleteV2(typeof(int))
     schemaV2.OpCodeValues[0] = ColumnarCodePlanContract.Ldtoken()
-    assert throws InvalidOperationException { schemaV2.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        schemaV2.ValidateSealedStructure()
+    }
 
     wrongOperand := new ColumnarCodePlan()
     wrongOperand.PrepareV3()
@@ -827,7 +860,9 @@ test "sealed recursive schemas reject ldtoken version and operand corruption" {
     wrongOperand.CompleteFragment(v3Root, typeof(RuntimeTypeHandle))
     wrongOperand.CompleteV3(typeof(RuntimeTypeHandle))
     wrongOperand.OperandKinds[0] = ColumnarCodePlanContract.Int32Operand()
-    assert throws InvalidOperationException { wrongOperand.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        wrongOperand.ValidateSealedStructure()
+    }
 }
 
 test "schema v2 checkpoint rollback removes recursive partial state transactionally" {
@@ -874,8 +909,7 @@ test "schema v2 checkpoint rollback removes recursive partial state transactiona
     assert plan.LabelCount == 0
     assert plan.FragmentCount == 1
     assert !plan.FragmentCompleted[0]
-    assert plan.FragmentResultTypes[0]
-        == ColumnarCodePlanContract.UnsealedFragmentResultType()
+    assert plan.FragmentResultTypes[0] == ColumnarCodePlanContract.UnsealedFragmentResultType()
 
     plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
     plan.CompleteFragment(root, typeof(int))
@@ -892,12 +926,16 @@ test "schema v2 rejects foreign and stale checkpoints" {
     second := new ColumnarCodePlan()
     second.PrepareV2()
     second.BeginFragment(-1, 701, 0)
-    assert throws InvalidOperationException { second.Rollback(checkpoint) }
+    assert throws InvalidOperationException {
+        second.Rollback(checkpoint)
+    }
 
     first.Reset()
     first.PrepareV2()
     first.BeginFragment(-1, 702, 0)
-    assert throws InvalidOperationException { first.Rollback(checkpoint) }
+    assert throws InvalidOperationException {
+        first.Rollback(checkpoint)
+    }
 
     branched := new ColumnarCodePlan()
     branched.PrepareV2()
@@ -908,7 +946,9 @@ test "schema v2 rejects foreign and stale checkpoints" {
     discarded := branched.CreateCheckpoint()
     branched.Rollback(outer)
     branched.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_2())
-    assert throws InvalidOperationException { branched.Rollback(discarded) }
+    assert throws InvalidOperationException {
+        branched.Rollback(discarded)
+    }
     branched.Rollback(outer)
     branched.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
     branched.CompleteFragment(branchRoot, typeof(int))
@@ -948,28 +988,40 @@ test "schema v2 validates deeply nested fragment ownership linearly" {
 test "schema v2 rejects corrupt columns pools and opcode operand pairings purely" {
     nullOwnerColumn := ValidV2CodePlan()
     nullOwnerColumn.OperationOwnerFragmentIndices = null
-    assert throws InvalidOperationException { nullOwnerColumn.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        nullOwnerColumn.ValidateSealedStructure()
+    }
 
     shortOwnerColumn := ValidV2CodePlan()
     shortOwnerColumn.OperationOwnerFragmentIndices = new int[](0)
-    assert throws InvalidOperationException { shortOwnerColumn.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        shortOwnerColumn.ValidateSealedStructure()
+    }
 
     unknownOperation := ValidV2CodePlan()
     unknownOperation.OperationKinds[0] = 99
-    assert throws InvalidOperationException { unknownOperation.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        unknownOperation.ValidateSealedStructure()
+    }
 
     wrongOperand := ValidV2CodePlan()
     wrongOperand.OperandKinds[0] = ColumnarCodePlanContract.Int32Operand()
     wrongOperand.OperandIndices[0] = 0
-    assert throws InvalidOperationException { wrongOperand.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        wrongOperand.ValidateSealedStructure()
+    }
 
     unknownOpcode := ValidV2CodePlan()
     unknownOpcode.OpCodeValues[0] = (short)31
-    assert throws InvalidOperationException { unknownOpcode.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        unknownOpcode.ValidateSealedStructure()
+    }
 
     corruptPool := ValidV2CodePlan()
     corruptPool.TypeCount = 1
-    assert throws InvalidOperationException { corruptPool.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        corruptPool.ValidateSealedStructure()
+    }
 
     building := new ColumnarCodePlan()
     building.PrepareV2()
@@ -977,7 +1029,9 @@ test "schema v2 rejects corrupt columns pools and opcode operand pairings purely
     building.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
     building.CompleteFragment(root, typeof(int))
     building.OperationKinds[0] = 99
-    assert throws InvalidOperationException { building.CompleteV2(typeof(int)) }
+    assert throws InvalidOperationException {
+        building.CompleteV2(typeof(int))
+    }
     assert building.Lifecycle == ColumnarCodePlanLifecycle.Building
     assert building.Status == ColumnarFragmentPlanStatus.NotOwned
     assert building.ResultType == null
@@ -988,103 +1042,147 @@ test "schema v2 rejects corrupt nested sibling and operation owner intervals" {
     equalParentInterval := ValidNestedV2CodePlan()
     equalParentInterval.FragmentOperationStarts[1] = 0
     equalParentInterval.FragmentOperationCounts[1] = equalParentInterval.OperationCount
-    assert throws InvalidOperationException { equalParentInterval.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        equalParentInterval.ValidateSealedStructure()
+    }
 
     outsideParent := ValidNestedV2CodePlan()
     outsideParent.FragmentOperationStarts[1] = outsideParent.OperationCount
-    assert throws InvalidOperationException { outsideParent.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        outsideParent.ValidateSealedStructure()
+    }
 
     overlappingSiblings := ValidNestedV2CodePlan()
-    overlappingSiblings.FragmentOperationStarts[2] =
-        overlappingSiblings.FragmentOperationStarts[1]
-    assert throws InvalidOperationException { overlappingSiblings.ValidateSealedStructure() }
+    overlappingSiblings.FragmentOperationStarts[2] = overlappingSiblings.FragmentOperationStarts[1]
+    assert throws InvalidOperationException {
+        overlappingSiblings.ValidateSealedStructure()
+    }
 
     corruptParent := ValidNestedV2CodePlan()
     corruptParent.FragmentParentIndices[1] = 1
-    assert throws InvalidOperationException { corruptParent.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        corruptParent.ValidateSealedStructure()
+    }
 
     corruptKind := ValidNestedV2CodePlan()
     corruptKind.FragmentKinds[1] = -1
-    assert throws InvalidOperationException { corruptKind.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        corruptKind.ValidateSealedStructure()
+    }
 
     corruptSource := ValidNestedV2CodePlan()
     corruptSource.FragmentSourceNodeIndices[1] = -1
-    assert throws InvalidOperationException { corruptSource.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        corruptSource.ValidateSealedStructure()
+    }
 
     unsealedResult := ValidNestedV2CodePlan()
-    unsealedResult.FragmentResultTypes[1] =
-        ColumnarCodePlanContract.UnsealedFragmentResultType()
-    assert throws InvalidOperationException { unsealedResult.ValidateSealedStructure() }
+    unsealedResult.FragmentResultTypes[1] = ColumnarCodePlanContract.UnsealedFragmentResultType()
+    assert throws InvalidOperationException {
+        unsealedResult.ValidateSealedStructure()
+    }
 
     ancestorOwnsChildRow := ValidNestedV2CodePlan()
     ancestorOwnsChildRow.OperationOwnerFragmentIndices[1] = 0
-    assert throws InvalidOperationException { ancestorOwnsChildRow.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        ancestorOwnsChildRow.ValidateSealedStructure()
+    }
 
     childOwnsParentRow := ValidNestedV2CodePlan()
     childOwnsParentRow.OperationOwnerFragmentIndices[0] = 1
-    assert throws InvalidOperationException { childOwnsParentRow.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        childOwnsParentRow.ValidateSealedStructure()
+    }
 
     unknownOwner := ValidNestedV2CodePlan()
     unknownOwner.OperationOwnerFragmentIndices[0] = 99
-    assert throws InvalidOperationException { unknownOwner.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        unknownOwner.ValidateSealedStructure()
+    }
 }
 
 test "schema v1 rejects schema v2 row value and argument smuggling" {
     operandIndex := OpenBooleanCodePlan()
     operandIndex.OperandIndices[0] = 0
-    assert throws InvalidOperationException { operandIndex.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        operandIndex.CompleteBoolean()
+    }
 
     operationOwner := OpenBooleanCodePlan()
     operationOwner.OperationOwnerFragmentIndices[0] = 0
-    assert throws InvalidOperationException { operationOwner.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        operationOwner.CompleteBoolean()
+    }
 
     types := OpenBooleanCodePlan()
     types.TypeCount = 1
-    assert throws InvalidOperationException { types.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        types.CompleteBoolean()
+    }
 
     integers := OpenBooleanCodePlan()
     integers.Int32Count = 1
-    assert throws InvalidOperationException { integers.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        integers.CompleteBoolean()
+    }
 
     arguments := OpenBooleanCodePlan()
     arguments.ArgumentCount = 1
-    assert throws InvalidOperationException { arguments.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        arguments.CompleteBoolean()
+    }
 
     ambientLocals := OpenBooleanCodePlan()
     ambientLocals.AmbientLocalCount = 1
-    assert throws InvalidOperationException { ambientLocals.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        ambientLocals.CompleteBoolean()
+    }
 }
 
 test "schema v1 rejects schema v2 handle local label and fragment smuggling" {
     methods := OpenBooleanCodePlan()
     methods.MethodCount = 1
-    assert throws InvalidOperationException { methods.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        methods.CompleteBoolean()
+    }
 
     constructors := OpenBooleanCodePlan()
     constructors.ConstructorCount = 1
-    assert throws InvalidOperationException { constructors.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        constructors.CompleteBoolean()
+    }
 
     fields := OpenBooleanCodePlan()
     fields.FieldCount = 1
-    assert throws InvalidOperationException { fields.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        fields.CompleteBoolean()
+    }
 }
 
 test "schema v1 rejects schema v2 local label fragment and sealed smuggling" {
     planLocals := OpenBooleanCodePlan()
     planLocals.PlanLocalCount = 1
-    assert throws InvalidOperationException { planLocals.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        planLocals.CompleteBoolean()
+    }
 
     labels := OpenBooleanCodePlan()
     labels.LabelCount = 1
-    assert throws InvalidOperationException { labels.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        labels.CompleteBoolean()
+    }
 
     fragments := OpenBooleanCodePlan()
     fragments.FragmentCount = 1
-    assert throws InvalidOperationException { fragments.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        fragments.CompleteBoolean()
+    }
 
     sealedPlan := ValidBooleanCodePlan()
     sealedPlan.ArgumentCount = 1
-    assert throws InvalidOperationException { ColumnarCodePlanExecutor.Validate(sealedPlan) }
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(sealedPlan)
+    }
 }
 
 func OpenV3CodePlan(): ColumnarCodePlan {
@@ -1137,9 +1235,11 @@ test "schema v3 pins its envelope and has a sealed one-shot lifecycle" {
     assert ColumnarCodePlanContract.LdindR8() == 79
     assert ColumnarCodePlanContract.LdindRef() == 80
     assert ColumnarCodePlanContract.IsScalarNoOperandOpcode(
-        ColumnarCodePlanContract.LdindI1())
+        ColumnarCodePlanContract.LdindI1()
+    )
     assert ColumnarCodePlanContract.IsScalarNoOperandOpcode(
-        ColumnarCodePlanContract.LdindR8())
+        ColumnarCodePlanContract.LdindR8()
+    )
     assert ColumnarCodePlanContract.Int64Operand() == 10
     assert ColumnarCodePlanContract.SingleOperand() == 11
     assert ColumnarCodePlanContract.DoubleOperand() == 12
@@ -1153,9 +1253,15 @@ test "schema v3 pins its envelope and has a sealed one-shot lifecycle" {
 
     plan.ConsumeV3()
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
-    assert throws InvalidOperationException { plan.ConsumeV3() }
-    assert throws InvalidOperationException { plan.ConsumeV2() }
-    assert throws InvalidOperationException { plan.AddInt64((long)1) }
+    assert throws InvalidOperationException {
+        plan.ConsumeV3()
+    }
+    assert throws InvalidOperationException {
+        plan.ConsumeV2()
+    }
+    assert throws InvalidOperationException {
+        plan.AddInt64((long)1)
+    }
 
     plan.Reset()
     assert plan.SchemaVersion == ColumnarCodePlanContract.CurrentSchemaVersion()
@@ -1196,7 +1302,8 @@ test "schema v3 admits the exact Add row and keeps it isolated from schema v2" {
     _v2Root := v2Builder.BeginFragment(-1, 1217, 0)
     assert throws InvalidOperationException {
         v2Builder.AppendInstructionWithoutOperand(
-            ColumnarCodePlanContract.Add())
+            ColumnarCodePlanContract.Add()
+        )
     }
     assert v2Builder.OperationCount == 0
 
@@ -1234,7 +1341,9 @@ test "ldind.ref remains scalar-only and rejected appends are atomic" {
     stringType := recursive.AddType(typeof(string))
     addressArgument := recursive.AddArgument(0, stringType, true)
     recursive.AppendArgumentInstruction(
-        ColumnarCodePlanContract.Ldarg(), addressArgument)
+        ColumnarCodePlanContract.Ldarg(),
+        addressArgument
+    )
     operationCount := recursive.OperationCount
 
     assert throws InvalidOperationException {
@@ -1248,12 +1357,16 @@ test "ldind.ref remains scalar-only and rejected appends are atomic" {
     smuggledStringType := smuggled.AddType(typeof(string))
     smuggledArgument := smuggled.AddArgument(0, smuggledStringType, true)
     smuggled.AppendArgumentInstruction(
-        ColumnarCodePlanContract.Ldarg(), smuggledArgument)
+        ColumnarCodePlanContract.Ldarg(),
+        smuggledArgument
+    )
     smuggled.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindRef())
     smuggled.CompleteFragment(root, typeof(string))
     smuggled.CompleteV3(typeof(string))
     smuggled.SchemaVersion = ColumnarCodePlanContract.RecursiveSchemaVersion()
-    assert throws InvalidOperationException { smuggled.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        smuggled.ValidateSealedStructure()
+    }
 }
 
 test "schema v3 grows every scalar pool without losing values" {
@@ -1281,7 +1394,9 @@ test "schema v3 grows every scalar pool without losing values" {
     assert plan.SingleValues[11] == (float)11 + (float)0.25
     assert plan.DoubleValues[11] == (double)11 + 0.5
     assert plan.StringValues[11] == "scalar"
-    assert throws ArgumentNullException { plan.AddString(null) }
+    assert throws ArgumentNullException {
+        plan.AddString(null)
+    }
 }
 
 test "schema v3 checkpoint rollback restores every scalar pool transactionally" {
@@ -1328,85 +1443,119 @@ test "schema v3 rejects stale foreign and cross-version checkpoints" {
     second := new ColumnarCodePlan()
     second.PrepareV3()
     second.BeginFragment(-1, 1204, 0)
-    assert throws InvalidOperationException { second.Rollback(checkpoint) }
+    assert throws InvalidOperationException {
+        second.Rollback(checkpoint)
+    }
 
     first.Reset()
     first.PrepareV3()
     first.BeginFragment(-1, 1205, 0)
-    assert throws InvalidOperationException { first.Rollback(checkpoint) }
+    assert throws InvalidOperationException {
+        first.Rollback(checkpoint)
+    }
 
     crossVersion := new ColumnarCodePlan()
     crossVersion.PrepareV3()
     crossVersion.BeginFragment(-1, 1206, 0)
     v3Checkpoint := crossVersion.CreateCheckpoint()
     crossVersion.SchemaVersion = ColumnarCodePlanContract.RecursiveSchemaVersion()
-    assert throws InvalidOperationException { crossVersion.Rollback(v3Checkpoint) }
+    assert throws InvalidOperationException {
+        crossVersion.Rollback(v3Checkpoint)
+    }
 
     reverse := new ColumnarCodePlan()
     reverse.PrepareV2()
     reverse.BeginFragment(-1, 1207, 0)
     v2Checkpoint := reverse.CreateCheckpoint()
     reverse.SchemaVersion = ColumnarCodePlanContract.ScalarSchemaVersion()
-    assert throws InvalidOperationException { reverse.Rollback(v2Checkpoint) }
+    assert throws InvalidOperationException {
+        reverse.Rollback(v2Checkpoint)
+    }
 }
 
 test "schema v3 rejects every corrupt scalar pool column purely" {
     int64Column := ValidV3CodePlan()
     int64Column.Int64Values = null
-    assert throws InvalidOperationException { int64Column.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        int64Column.ValidateSealedStructure()
+    }
 
     singleColumn := ValidV3CodePlan()
     singleColumn.SingleValues = null
-    assert throws InvalidOperationException { singleColumn.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        singleColumn.ValidateSealedStructure()
+    }
 
     doubleColumn := ValidV3CodePlan()
     doubleColumn.DoubleValues = null
-    assert throws InvalidOperationException { doubleColumn.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        doubleColumn.ValidateSealedStructure()
+    }
 
     stringColumn := ValidV3CodePlan()
     stringColumn.StringValues = null
-    assert throws InvalidOperationException { stringColumn.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        stringColumn.ValidateSealedStructure()
+    }
 
     negativeCount := ValidV3CodePlan()
     negativeCount.Int64Count = -1
-    assert throws InvalidOperationException { negativeCount.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        negativeCount.ValidateSealedStructure()
+    }
 
     negativeSingleCount := ValidV3CodePlan()
     negativeSingleCount.SingleCount = -1
-    assert throws InvalidOperationException { negativeSingleCount.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        negativeSingleCount.ValidateSealedStructure()
+    }
 
     negativeDoubleCount := ValidV3CodePlan()
     negativeDoubleCount.DoubleCount = -1
-    assert throws InvalidOperationException { negativeDoubleCount.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        negativeDoubleCount.ValidateSealedStructure()
+    }
 
     negativeStringCount := ValidV3CodePlan()
     negativeStringCount.StringCount = -1
-    assert throws InvalidOperationException { negativeStringCount.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        negativeStringCount.ValidateSealedStructure()
+    }
 
     shortInt64Column := ValidV3CodePlan()
     shortInt64Column.Int64Count = 1
     shortInt64Column.Int64Values = new long[](0)
-    assert throws InvalidOperationException { shortInt64Column.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        shortInt64Column.ValidateSealedStructure()
+    }
 
     shortSingleColumn := ValidV3CodePlan()
     shortSingleColumn.SingleCount = 1
     shortSingleColumn.SingleValues = new float[](0)
-    assert throws InvalidOperationException { shortSingleColumn.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        shortSingleColumn.ValidateSealedStructure()
+    }
 
     shortDoubleColumn := ValidV3CodePlan()
     shortDoubleColumn.DoubleCount = 1
     shortDoubleColumn.DoubleValues = new double[](0)
-    assert throws InvalidOperationException { shortDoubleColumn.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        shortDoubleColumn.ValidateSealedStructure()
+    }
 
     shortStringColumn := ValidV3CodePlan()
     shortStringColumn.StringCount = 1
     shortStringColumn.StringValues = new string[](0)
-    assert throws InvalidOperationException { shortStringColumn.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        shortStringColumn.ValidateSealedStructure()
+    }
 
     nullStringEntry := ValidV3CodePlan()
     nullStringEntry.StringCount = 1
     nullStringEntry.StringValues = new string[](1)
-    assert throws InvalidOperationException { nullStringEntry.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        nullStringEntry.ValidateSealedStructure()
+    }
 }
 
 test "schema v3 appends only exact scalar opcode and pool pairings" {
@@ -1466,83 +1615,121 @@ test "schema v3 appends only exact scalar opcode and pool pairings" {
 test "schema v3 rejects tampered scalar opcode and operand rows structurally" {
     unknownOpcode := ValidInt64V3CodePlan()
     unknownOpcode.OpCodeValues[0] = (short)31
-    assert throws InvalidOperationException { unknownOpcode.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        unknownOpcode.ValidateSealedStructure()
+    }
 
     unknownOperand := ValidInt64V3CodePlan()
     unknownOperand.OperandKinds[0] = 99
-    assert throws InvalidOperationException { unknownOperand.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        unknownOperand.ValidateSealedStructure()
+    }
 
     wrongScalarPair := ValidInt64V3CodePlan()
     wrongScalarPair.OpCodeValues[0] = ColumnarCodePlanContract.LdcR8()
-    assert throws InvalidOperationException { wrongScalarPair.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        wrongScalarPair.ValidateSealedStructure()
+    }
 }
 
 test "schema v1 and v2 reject schema v3 scalar-pool smuggling" {
     int64V1 := OpenBooleanCodePlan()
     int64V1.Int64Count = 1
-    assert throws InvalidOperationException { int64V1.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        int64V1.CompleteBoolean()
+    }
 
     singleV1 := OpenBooleanCodePlan()
     singleV1.SingleCount = 1
-    assert throws InvalidOperationException { singleV1.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        singleV1.CompleteBoolean()
+    }
 
     doubleV1 := OpenBooleanCodePlan()
     doubleV1.DoubleCount = 1
-    assert throws InvalidOperationException { doubleV1.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        doubleV1.CompleteBoolean()
+    }
 
     stringV1 := OpenBooleanCodePlan()
     stringV1.StringCount = 1
-    assert throws InvalidOperationException { stringV1.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        stringV1.CompleteBoolean()
+    }
 
     int64V2 := ValidV2CodePlan()
     int64V2.Int64Count = 1
-    assert throws InvalidOperationException { int64V2.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        int64V2.ValidateSealedStructure()
+    }
 
     singleV2 := ValidV2CodePlan()
     singleV2.SingleCount = 1
-    assert throws InvalidOperationException { singleV2.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        singleV2.ValidateSealedStructure()
+    }
 
     doubleV2 := ValidV2CodePlan()
     doubleV2.DoubleCount = 1
-    assert throws InvalidOperationException { doubleV2.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        doubleV2.ValidateSealedStructure()
+    }
 
     stringV2 := ValidV2CodePlan()
     stringV2.StringCount = 1
-    assert throws InvalidOperationException { stringV2.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        stringV2.ValidateSealedStructure()
+    }
 }
 
 test "schema v1 and v2 reject corrupt hidden schema v3 pool columns" {
     int64V1 := OpenBooleanCodePlan()
     int64V1.Int64Values = null
-    assert throws InvalidOperationException { int64V1.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        int64V1.CompleteBoolean()
+    }
 
     singleV1 := OpenBooleanCodePlan()
     singleV1.SingleValues = null
-    assert throws InvalidOperationException { singleV1.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        singleV1.CompleteBoolean()
+    }
 
     doubleV1 := OpenBooleanCodePlan()
     doubleV1.DoubleValues = null
-    assert throws InvalidOperationException { doubleV1.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        doubleV1.CompleteBoolean()
+    }
 
     stringV1 := OpenBooleanCodePlan()
     stringV1.StringValues = null
-    assert throws InvalidOperationException { stringV1.CompleteBoolean() }
+    assert throws InvalidOperationException {
+        stringV1.CompleteBoolean()
+    }
 
     int64V2 := ValidV2CodePlan()
     int64V2.Int64Values = null
-    assert throws InvalidOperationException { int64V2.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        int64V2.ValidateSealedStructure()
+    }
 
     singleV2 := ValidV2CodePlan()
     singleV2.SingleValues = null
-    assert throws InvalidOperationException { singleV2.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        singleV2.ValidateSealedStructure()
+    }
 
     doubleV2 := ValidV2CodePlan()
     doubleV2.DoubleValues = null
-    assert throws InvalidOperationException { doubleV2.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        doubleV2.ValidateSealedStructure()
+    }
 
     stringV2 := ValidV2CodePlan()
     stringV2.StringValues = null
-    assert throws InvalidOperationException { stringV2.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        stringV2.ValidateSealedStructure()
+    }
 }
 
 test "schema completion entrypoints cannot cross-seal versions" {
@@ -1551,10 +1738,14 @@ test "schema completion entrypoints cannot cross-seal versions" {
     v2Root := v2.BeginFragment(-1, 1208, 0)
     v2.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
     v2.CompleteFragment(v2Root, typeof(int))
-    assert throws InvalidOperationException { v2.CompleteV3(typeof(int)) }
+    assert throws InvalidOperationException {
+        v2.CompleteV3(typeof(int))
+    }
 
     v3 := OpenV3CodePlan()
-    assert throws InvalidOperationException { v3.CompleteV2(typeof(int)) }
+    assert throws InvalidOperationException {
+        v3.CompleteV2(typeof(int))
+    }
 }
 
 test "schema v2 carries argument address and exact declared method columns" {
@@ -1576,7 +1767,8 @@ test "schema v2 carries argument address and exact declared method columns" {
         suppliedParameters,
         typeof(int),
         false,
-        false)
+        false
+    )
     plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argument)
     plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
     plan.CompleteFragment(root, typeof(int))
@@ -1605,7 +1797,11 @@ test "schema v2 carries ldarga and exact declared field columns" {
     receiverType := plan.AddType(tupleType)
     receiver := plan.AddArgument(0, receiverType, false)
     fieldIndex := plan.AddFieldWithSignature(
-        field, tupleType, typeof(int), false)
+        field,
+        tupleType,
+        typeof(int),
+        false
+    )
     plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), receiver)
     plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldIndex)
     plan.CompleteFragment(root, typeof(int))
@@ -1625,7 +1821,8 @@ test "schema v3 seals stfld rows while earlier recursive schemas reject them" {
     field := tupleType.GetField("Item1")
     if field == null {
         throw new InvalidOperationException(
-            "Required ValueTuple.Item1 field was not found.")
+            "Required ValueTuple.Item1 field was not found."
+        )
     }
 
     plan := new ColumnarCodePlan()
@@ -1634,9 +1831,15 @@ test "schema v3 seals stfld rows while earlier recursive schemas reject them" {
     tupleTypeIndex := plan.AddType(tupleType)
     tupleArgument := plan.AddArgument(0, tupleTypeIndex, false)
     fieldIndex := plan.AddFieldWithSignature(
-        field, tupleType, typeof(int), false)
+        field,
+        tupleType,
+        typeof(int),
+        false
+    )
     plan.AppendArgumentInstruction(
-        ColumnarCodePlanContract.Ldarga(), tupleArgument)
+        ColumnarCodePlanContract.Ldarga(),
+        tupleArgument
+    )
     plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
     plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldIndex)
     plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
@@ -1653,7 +1856,9 @@ test "schema v3 seals stfld rows while earlier recursive schemas reject them" {
     schemaV2Field := schemaV2.AddField(field)
     assert throws InvalidOperationException {
         schemaV2.AppendFieldInstruction(
-            ColumnarCodePlanContract.Stfld(), schemaV2Field)
+            ColumnarCodePlanContract.Stfld(),
+            schemaV2Field
+        )
     }
 }
 
@@ -1673,7 +1878,9 @@ test "schema v2 rejects malformed argument address and declared method columns" 
     missingAddress.CompleteFragment(addressRoot, typeof(string))
     missingAddress.CompleteV2(typeof(string))
     missingAddress.ArgumentIsAddress = null
-    assert throws InvalidOperationException { missingAddress.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        missingAddress.ValidateSealedStructure()
+    }
 
     missingSignature := new ColumnarCodePlan()
     missingSignature.PrepareV2()
@@ -1686,15 +1893,22 @@ test "schema v2 rejects malformed argument address and declared method columns" 
         noTypes,
         typeof(int),
         false,
-        false)
+        false
+    )
     missingSignature.AppendArgumentInstruction(
-        ColumnarCodePlanContract.Ldarg(), signatureArgument)
+        ColumnarCodePlanContract.Ldarg(),
+        signatureArgument
+    )
     missingSignature.AppendMethodInstruction(
-        ColumnarCodePlanContract.Callvirt(), signatureMethod)
+        ColumnarCodePlanContract.Callvirt(),
+        signatureMethod
+    )
     missingSignature.CompleteFragment(signatureRoot, typeof(int))
     missingSignature.CompleteV2(typeof(int))
     missingSignature.MethodParameterTypes = null
-    assert throws InvalidOperationException { missingSignature.ValidateSealedStructure() }
+    assert throws InvalidOperationException {
+        missingSignature.ValidateSealedStructure()
+    }
 
     tupleType := typeof(ValueTuple<int, int>)
     field := tupleType.GetField("Item1")
@@ -1707,11 +1921,19 @@ test "schema v2 rejects malformed argument address and declared method columns" 
     tupleTypeIndex := missingFieldSignature.AddType(tupleType)
     tupleArgument := missingFieldSignature.AddArgument(0, tupleTypeIndex, false)
     fieldIndex := missingFieldSignature.AddFieldWithSignature(
-        field, tupleType, typeof(int), false)
+        field,
+        tupleType,
+        typeof(int),
+        false
+    )
     missingFieldSignature.AppendArgumentInstruction(
-        ColumnarCodePlanContract.Ldarga(), tupleArgument)
+        ColumnarCodePlanContract.Ldarga(),
+        tupleArgument
+    )
     missingFieldSignature.AppendFieldInstruction(
-        ColumnarCodePlanContract.Ldfld(), fieldIndex)
+        ColumnarCodePlanContract.Ldfld(),
+        fieldIndex
+    )
     missingFieldSignature.CompleteFragment(fieldRoot, typeof(int))
     missingFieldSignature.CompleteV2(typeof(int))
     missingFieldSignature.FieldValueTypes = null
@@ -1755,7 +1977,6 @@ test "schema v2 exact declared method API rejects null signature facts" {
         plan.AddFieldWithSignature(field, typeof(ValueTuple<int, int>), null, false)
     }
 }
-
 
 // ---- 015-B8 — THE PLAN-LOCAL MIRROR: ARMING, MATERIALISATION, AND WHAT IT IS NOT ----
 //
@@ -1814,14 +2035,20 @@ test "a plan-local mirror is armed on a fresh plan and materialised by every pre
 test "a plan-local mirror refuses a used plan a null vocabulary and a null slot" {
     used := new ColumnarCodePlan()
     used.PrepareV3()
-    assert throws InvalidOperationException { used.EnablePlanLocalMirror(new Type[](0)) }
+    assert throws InvalidOperationException {
+        used.EnablePlanLocalMirror(new Type[](0))
+    }
 
     fresh := new ColumnarCodePlan()
-    assert throws ArgumentNullException { fresh.EnablePlanLocalMirror(null) }
+    assert throws ArgumentNullException {
+        fresh.EnablePlanLocalMirror(null)
+    }
 
     holed := new Type[](2)
     holed[0] = typeof(int)
-    assert throws InvalidOperationException { fresh.EnablePlanLocalMirror(holed) }
+    assert throws InvalidOperationException {
+        fresh.EnablePlanLocalMirror(holed)
+    }
     assert !fresh.HasPlanLocalMirror()
 }
 
@@ -1867,7 +2094,9 @@ test "a nested-value frame is armed on a fresh plan and survives every prepare" 
 test "a nested-value frame refuses a plan that has already been used" {
     prepared := new ColumnarCodePlan()
     prepared.PrepareV3()
-    assert throws InvalidOperationException { prepared.EnableNestedValueFrame() }
+    assert throws InvalidOperationException {
+        prepared.EnableNestedValueFrame()
+    }
     assert !prepared.HasNestedValueFrame()
 
     // A plan that has already opened a fragment is used in the sense that matters — the frame is a
@@ -1875,5 +2104,7 @@ test "a nested-value frame refuses a plan that has already been used" {
     building := new ColumnarCodePlan()
     building.PrepareV3()
     building.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
-    assert throws InvalidOperationException { building.EnableNestedValueFrame() }
+    assert throws InvalidOperationException {
+        building.EnableNestedValueFrame()
+    }
 }

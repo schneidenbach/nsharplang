@@ -39,7 +39,6 @@ namespace NSharpLang.Compiler.Performance
 // enum; the sixth is deliberately the WIDEST layout, because a fact that has not been computed must
 // not claim to be a struct. The deleted file asserted five of the six and left `ValueLayout` — the
 // one that is not the enum's first member — unasserted.
-
 func PerfFactsMake(escape: EscapeKind, allocation: AllocationKind, dispatch: DispatchKind): PerformanceFacts {
     return new PerformanceFacts(escape, CaptureKind.None, allocation, dispatch, ValueLayoutKind.Struct, AotSafetyKind.NoReflection)
 }
@@ -218,7 +217,8 @@ test "performance fact store facts carry every member they were built with" {
         AllocationKind.IteratorStateMachine,
         DispatchKind.ConstrainedValueType,
         ValueLayoutKind.RefStruct,
-        AotSafetyKind.DynamicCodeRequired)
+        AotSafetyKind.DynamicCodeRequired
+    )
 
     assert facts.Escape == EscapeKind.PassedToUnknown
     assert facts.Capture == CaptureKind.CapturesRefLike

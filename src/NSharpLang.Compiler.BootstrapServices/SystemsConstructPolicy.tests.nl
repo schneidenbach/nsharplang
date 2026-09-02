@@ -41,7 +41,6 @@ import NSharpLang.Compiler.Ast
 //
 // (8) A `[boundary]` DOWNGRADES A POLICY ARM AND SILENCES NOTHING, while it leaves a hot-only arm
 // exactly as loud as it was, because that arm never consulted the boundary in the first place.
-
 func SxpConfig(profile: string, mode: string): ProjectConfig {
     config := ProjectFileParser.CreateDefault("construct-policy-contract")
     language := config.Language

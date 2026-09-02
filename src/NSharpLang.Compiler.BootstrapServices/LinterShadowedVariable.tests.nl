@@ -16,7 +16,6 @@ import System.Collections.Generic
 // asks a question whose first half can never decide anything: `"_"` starts with `"_"`. The
 // equivalence is asserted rather than assumed, so collapsing it is a proved simplification and not
 // a hopeful one.
-
 func LsvScopes(): Stack<Dictionary<string, (int, int, bool)>> {
     return new Stack<Dictionary<string, (int, int, bool)>>()
 }
@@ -66,7 +65,6 @@ func LsvFinding(name: string, scopes: Stack<Dictionary<string, (int, int, bool)>
     return LinterShadowedVariable.ShadowedVariable(name, 4, 9, scopes, LsvConfig())
 }
 
-
 // ── which names the rule will talk about ─────────────────────────────────────────────────────
 
 test "an ordinary name is a candidate" {
@@ -110,7 +108,6 @@ test "the empty name is a candidate, because the rule is about the prefix and no
     assert LinterShadowedVariable.IsCandidate("")
 }
 
-
 // ── which scopes are consulted ───────────────────────────────────────────────────────────────
 
 test "a name declared in the one enclosing scope shadows" {
@@ -147,7 +144,6 @@ test "the lookup is ordinal — a name differing only in case is a different nam
     assert LinterShadowedVariable.ShadowsOuterScope("Value", scopes)
     assert !LinterShadowedVariable.ShadowsOuterScope("value", scopes)
 }
-
 
 // ── the rule ─────────────────────────────────────────────────────────────────────────────────
 

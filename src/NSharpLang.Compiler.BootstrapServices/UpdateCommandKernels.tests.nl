@@ -12,7 +12,6 @@ namespace NSharpLang.Cli.Commands
 // skipped as an operand because it DOES begin with `-`) beside it.
 
 // ── the argument summary ──────────────────────────────────────────────────────
-
 test "the update argument summary reads the package operand, the dry-run flag and the help flag" {
     summary := UpdateCommandKernels.GetArgumentSummary(["--dry-run", "-v", "Newtonsoft.Json", "-h"])
 

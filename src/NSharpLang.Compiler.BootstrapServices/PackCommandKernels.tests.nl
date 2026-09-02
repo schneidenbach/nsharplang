@@ -21,7 +21,6 @@ namespace NSharpLang.Cli.Commands
 // and they are DIFFERENT. The deleted-in-spirit assertion only ever saw the text one.
 
 // ── the missing-project pair ──────────────────────────────────────────────────
-
 test "the text missing-project sentence is two lines and names the CURRENT DIRECTORY" {
     assert PackCommandKernels.GetMissingProjectFileTextMessage() == "No project.yml found in current directory.\nRun 'nlc new <name>' to create a project."
 }
@@ -52,8 +51,7 @@ test "the stderr line the missing-project failure writes is the error prefix ove
     // THE EXACT VALUE the de-tautologised C# body now asserts as a literal. Stated here as a
     // COMPOSITION so the two halves stay connected — and stated there as a LITERAL so neither half
     // can move without one of the two blocks going red.
-    assert ProgramCommandKernels.GetErrorLine(PackCommandKernels.GetMissingProjectFileTextMessage())
-        == "Error: No project.yml found in current directory.\nRun 'nlc new <name>' to create a project."
+    assert ProgramCommandKernels.GetErrorLine(PackCommandKernels.GetMissingProjectFileTextMessage()) == "Error: No project.yml found in current directory.\nRun 'nlc new <name>' to create a project."
 }
 
 test "the error prefix is applied once, at the front, and is not repeated per line" {

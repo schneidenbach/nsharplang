@@ -10,7 +10,6 @@ namespace NSharpLang.Cli.Commands
 // `GetClearNuGetCachesFailedMessage` HAS TWO SHAPES AND BOTH ARE PINNED: given an empty detail it
 // is one line, and given a detail it appends a NEWLINE and the detail. A single assertion on the
 // non-empty case would have let the empty case grow a trailing blank line unnoticed.
-
 test "clean option summary reads the project, all and help flags" {
     summary := CleanCommandKernels.GetOptionSummary(["--project", "samples/demo", "--all", "-h"])
 
@@ -40,10 +39,8 @@ test "the clean help text names the command, its usage and its failure banner" {
 }
 
 test "every clean sentence is spelled by a kernel, character for character" {
-    assert CleanCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing")
-        == "Project directory not found: /tmp/nsharp-missing"
-    assert CleanCommandKernels.GetNoArtifactsFoundMessage("/tmp/nsharp")
-        == "No build artifacts found under /tmp/nsharp."
+    assert CleanCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing") == "Project directory not found: /tmp/nsharp-missing"
+    assert CleanCommandKernels.GetNoArtifactsFoundMessage("/tmp/nsharp") == "No build artifacts found under /tmp/nsharp."
     assert CleanCommandKernels.GetRemovedArtifactLine("bin/Debug") == "  bin/Debug"
     assert CleanCommandKernels.GetClearedNuGetCachesMessage() == "Cleared NuGet caches."
     assert CleanCommandKernels.GetCleanFailedMessage("access denied") == "Clean failed: access denied"
@@ -56,6 +53,5 @@ test "the removed-artifacts header is singular for one directory and plural for 
 
 test "a nuget-cache failure appends its detail on a second line, and appends nothing when empty" {
     assert CleanCommandKernels.GetClearNuGetCachesFailedMessage("") == "Failed to clear NuGet caches."
-    assert CleanCommandKernels.GetClearNuGetCachesFailedMessage("nuget failed")
-        == "Failed to clear NuGet caches.\nnuget failed"
+    assert CleanCommandKernels.GetClearNuGetCachesFailedMessage("nuget failed") == "Failed to clear NuGet caches.\nnuget failed"
 }

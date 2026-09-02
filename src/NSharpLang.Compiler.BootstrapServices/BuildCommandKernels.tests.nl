@@ -8,7 +8,6 @@ namespace NSharpLang.Cli
 // them, so the pair cannot drift back apart.
 
 // ── the configuration names ───────────────────────────────────────────────────
-
 test "the two build configurations are exactly Release and Debug" {
     assert BuildCommandKernels.GetConfigurationName(true) == "Release"
     assert BuildCommandKernels.GetConfigurationName(false) == "Debug"

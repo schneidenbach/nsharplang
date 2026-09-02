@@ -13,7 +13,6 @@ import System.Collections.Generic
 // NL010 is BUILD-BLOCKING at `error` severity in the estate's own configuration, so a table row
 // silently lost here does not merely under-report — it breaks a build that was green. Every count
 // below is therefore an exact equality rather than a lower bound.
-
 func LniuSet(names: string[]): HashSet<string> {
     result := new HashSet<string>(StringComparer.Ordinal)
     index := 0
@@ -62,7 +61,6 @@ func LniuDistinctCount(names: string[]): int {
 func LniuTableNamespaces(): string[] {
     return ["System", "System.Collections.Generic", "System.Text", "System.Text.RegularExpressions", "System.IO", "System.Net.Http", "System.Text.Json", "System.Threading.Tasks", "System.Threading", "System.Linq"]
 }
-
 
 // ── the decision: which of the three answers a namespace gets ────────────────────────────────
 
@@ -179,7 +177,6 @@ test "a file naming many types marks exactly the namespaces that provide them" {
     assert LinterNamespaceImportUsage.IsUsed("System.Net.Http", identifiers, members) == false
     assert LinterNamespaceImportUsage.IsUsed("System", identifiers, members) == false
 }
-
 
 // ── the table itself: exact membership, because a lost row breaks a green build ───────────────
 

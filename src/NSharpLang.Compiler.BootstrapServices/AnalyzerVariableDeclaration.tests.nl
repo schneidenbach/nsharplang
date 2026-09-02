@@ -34,7 +34,6 @@ import NSharpLang.Compiler.Ast
 // none is a `const` or a `readonly`, no SoA row is ever stored in a variable and no direct-column
 // escape ever fires. So the four other diagnostics, both `const` shapes, the row-view step and the
 // declaration-kind arms exist ONLY here and in the fixtures.
-
 class VariableDeclarationHarness {
     Owner: AnalyzerVariableDeclaration
     Scopes: AnalyzerScopeStack
@@ -50,7 +49,8 @@ class VariableDeclarationHarness {
         context: AnalyzerDeclarationContext,
         diagnostics: AnalyzerDiagnosticSink,
         errors: List<CompilerError>,
-        model: SemanticModel) {
+        model: SemanticModel
+    ) {
         Owner = owner
         Scopes = scopes
         Context = context
@@ -83,7 +83,8 @@ class VdStep {
         text: string?,
         line: int,
         column: int,
-        errorsBefore: int) {
+        errorsBefore: int
+    ) {
         Kind = kind
         Node = node
         Name = name
@@ -109,7 +110,8 @@ func VdHarness(sourceText: string?): VariableDeclarationHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -122,10 +124,11 @@ func VdHarness(sourceText: string?): VariableDeclarationHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         model,
-        new BindingMap())
+        new BindingMap()
+    )
     resolver.BeginAnalysis(VdPath(), null, model, new BindingMap())
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
@@ -138,12 +141,21 @@ func VdHarness(sourceText: string?): VariableDeclarationHarness {
     escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
     return new VariableDeclarationHarness(
         new AnalyzerVariableDeclaration(
-            diagnostics, spans, resolver, assignability, nullFlow, scopes, context, escape),
+            diagnostics,
+            spans,
+            resolver,
+            assignability,
+            nullFlow,
+            scopes,
+            context,
+            escape
+        ),
         scopes,
         context,
         diagnostics,
         errors,
-        model)
+        model
+    )
 }
 
 func VdDefault(): VariableDeclarationHarness {
@@ -160,7 +172,8 @@ func VdDeclaration(
     name: string,
     typeReference: TypeReference?,
     initializer: Expression?,
-    kind: VariableKind): VariableDeclarationStatement {
+    kind: VariableKind
+): VariableDeclarationStatement {
     return new VariableDeclarationStatement(name, typeReference, initializer, kind, 7, 5)
 }
 
@@ -201,7 +214,8 @@ func VdClass(name: string): TypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     return result
 }
 
@@ -212,7 +226,8 @@ func VdClass(name: string): TypeInfo {
 func VdRun(
     harness: VariableDeclarationHarness,
     declaration: VariableDeclarationStatement,
-    answer: TypeInfo?) {
+    answer: TypeInfo?
+) {
     steps := harness.Steps
     steps.Clear()
     state := harness.Owner.Begin(declaration)
@@ -227,7 +242,8 @@ func VdRun(
             step.Text,
             step.Line,
             step.Column,
-            harness.Errors.Count))
+            harness.Errors.Count
+        ))
 
         supplied: TypeInfo? = null
         if step.Kind == 1 {
@@ -249,7 +265,8 @@ func VdSoaColumns(): List<SoaColumnInfo> {
 
 func VdDeclareSoaTable(harness: VariableDeclarationHarness) {
     table: TypeInfo = new SoaRecordTypeInfo(
-        new SoaRecordDeclarationInfo("Points", VdSoaColumns(), 1, 1))
+        new SoaRecordDeclarationInfo("Points", VdSoaColumns(), 1, 1)
+    )
     harness.Scopes.Peek().Symbols["points"] = table
 }
 
@@ -415,8 +432,7 @@ test "the answer also CHOOSES which escape report fires — a row view takes the
     VdRun(harness, VdLet("row", null, VdName("particles")), rowType)
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be stored in a variable; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be stored in a variable; use the table and row index instead"
 }
 test "anything that is not a row view is offered to the direct-column probe instead" {
     harness := VdDefault()
@@ -1048,7 +1064,8 @@ func VdNullablePair(): Type {
 func VdRunTuple(
     harness: VariableDeclarationHarness,
     tuple: TupleDeconstructionStatement,
-    answer: TypeInfo?) {
+    answer: TypeInfo?
+) {
     steps := harness.Steps
     steps.Clear()
     state := harness.Owner.BeginTuple(tuple)
@@ -1063,7 +1080,8 @@ func VdRunTuple(
             step.Text,
             step.Line,
             step.Column,
-            harness.Errors.Count))
+            harness.Errors.Count
+        ))
 
         supplied: TypeInfo? = null
         if step.Kind == 6 {
@@ -1128,8 +1146,7 @@ test "a row-view source takes the ROW report and never probes for a column at al
 
     assert VdKinds(steps) == "64545"
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be deconstructed; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be deconstructed; use the table and row index instead"
 }
 test "a deconstruction target is declared WITHOUT a declaration kind, unlike an annotated local" {
     harness := VdDefault()
@@ -1369,7 +1386,8 @@ test "a fired COLUMN escape makes the source unknown even though the source was 
     VdRunTuple(
         harness,
         VdTuple(VdNames2("a", "b"), VdSoaColumnRead()),
-        VdTupleType(BuiltInTypes.Int, BuiltInTypes.String))
+        VdTupleType(BuiltInTypes.Int, BuiltInTypes.String)
+    )
     steps := harness.Steps
 
     assert harness.Errors.Count == 1
@@ -1665,7 +1683,6 @@ test "an annotated declaration and a deconstruction run through the SAME owner w
     assert annotated == "145"
     assert VdKinds(harness.Steps) == "64545"
 }
-
 
 // ── THE ERROR-CAPTURE CONVENTION, AS A NAMED FACT ──────────────────────────────────────────────
 //

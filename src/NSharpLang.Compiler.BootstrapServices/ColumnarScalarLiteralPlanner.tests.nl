@@ -2,10 +2,10 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 
-public class ColumnarScalarPlannerTestTree {
-    public Nodes: ColumnarNodeTable
-    public Source: string
-    public Root: int
+class ColumnarScalarPlannerTestTree {
+    Nodes: ColumnarNodeTable
+    Source: string
+    Root: int
 
     constructor(nodes: ColumnarNodeTable, source: string, root: int) {
         Nodes = nodes
@@ -19,7 +19,8 @@ func ColumnarScalarPlannerRawTree(
     text: string,
     childCount: int,
     valueStart: int,
-    valueLength: int): ColumnarScalarPlannerTestTree {
+    valueLength: int
+): ColumnarScalarPlannerTestTree {
     kinds := new int[](1)
     kinds[0] = kind
     valueStarts := new int[](1)
@@ -43,7 +44,8 @@ func ColumnarScalarPlannerRawTree(
         childCounts,
         children,
         spanStarts,
-        spanLengths)
+        spanLengths
+    )
     return new ColumnarScalarPlannerTestTree(nodes, text, 0)
 }
 
@@ -53,7 +55,8 @@ func ColumnarScalarPlannerTree(kind: int, text: string): ColumnarScalarPlannerTe
 
 func ColumnarScalarPlannerTreeWithChild(
     kind: int,
-    text: string): ColumnarScalarPlannerTestTree {
+    text: string
+): ColumnarScalarPlannerTestTree {
     return ColumnarScalarPlannerRawTree(kind, text, 1, 0, text.Length)
 }
 
@@ -61,7 +64,8 @@ func ColumnarScalarPlannerTreeWithSpan(
     kind: int,
     text: string,
     valueStart: int,
-    valueLength: int): ColumnarScalarPlannerTestTree {
+    valueLength: int
+): ColumnarScalarPlannerTestTree {
     return ColumnarScalarPlannerRawTree(kind, text, 0, valueStart, valueLength)
 }
 
@@ -147,8 +151,7 @@ func ColumnarScalarPlannerAssertSingle(text: string, expected: float) {
 func ColumnarScalarPlannerDeclines(kind: int, text: string) {
     tree := ColumnarScalarPlannerTree(kind, text)
     plan := new ColumnarCodePlan()
-    assert ColumnarScalarLiteralPlanner.Plan(tree.Nodes, tree.Source, tree.Root, plan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarScalarLiteralPlanner.Plan(tree.Nodes, tree.Source, tree.Root, plan) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarScalarPlannerAssertEmpty(plan)
 }
 
@@ -158,10 +161,16 @@ func ColumnarScalarPlannerEscapedChar(code: string): string {
 
 func ColumnarScalarPlannerTryAppend(
     tree: ColumnarScalarPlannerTestTree,
-    plan: ColumnarCodePlan): bool {
+    plan: ColumnarCodePlan
+): bool {
     resultType := typeof(int)
     return ColumnarScalarLiteralPlanner.TryAppendLiteral(
-        tree.Nodes, tree.Source, tree.Root, plan, out resultType)
+        tree.Nodes,
+        tree.Source,
+        tree.Root,
+        plan,
+        out resultType
+    )
 }
 
 test "scalar literal planner owns exact integer families and bit patterns" {
@@ -173,7 +182,10 @@ test "scalar literal planner owns exact integer families and bit patterns" {
 
     ColumnarScalarPlannerAssertInt64("7l", 7L, typeof(long))
     ColumnarScalarPlannerAssertInt64(
-        "9223372036854775807L", 9223372036854775807L, typeof(long))
+        "9223372036854775807L",
+        9223372036854775807L,
+        typeof(long)
+    )
     ColumnarScalarPlannerAssertInt64("7uL", 7L, typeof(ulong))
     ColumnarScalarPlannerAssertInt64("9223372036854775808Lu", long.MinValue, typeof(ulong))
     ColumnarScalarPlannerAssertInt64("18446744073709551615UL", -1L, typeof(ulong))
@@ -227,47 +239,76 @@ test "scalar literal planner owns integer and fractional decimal literals" {
     // `5m` arrives as an Int literal token; `2.5m` as a Float literal token. Both lower to the
     // exact legacy shape: ldc.i4 x5 + newobj Decimal(int, int, int, bool, byte).
     ColumnarScalarPlannerAssertDecimal(
-        ColumnarExpressionNodeKind.IntLiteralExpression(), "5m", "5")
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "5m",
+        "5"
+    )
     ColumnarScalarPlannerAssertDecimal(
-        ColumnarExpressionNodeKind.IntLiteralExpression(), "5M", "5")
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "5M",
+        "5"
+    )
     ColumnarScalarPlannerAssertDecimal(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "2.5m", "2.5")
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "2.5m",
+        "2.5"
+    )
     ColumnarScalarPlannerAssertDecimal(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "24.5m", "24.5")
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "24.5m",
+        "24.5"
+    )
     ColumnarScalarPlannerAssertDecimal(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1_000.2_5m", "1000.25")
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1_000.2_5m",
+        "1000.25"
+    )
     // The scale survives exactly: 5.00m prints its two fractional digits.
     ColumnarScalarPlannerAssertDecimal(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "5.00m", "5.00")
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "5.00m",
+        "5.00"
+    )
     ColumnarScalarPlannerAssertDecimal(
         ColumnarExpressionNodeKind.FloatLiteralExpression(),
         "79228162514264337593543950335m",
-        "79228162514264337593543950335")
+        "79228162514264337593543950335"
+    )
 }
 
 test "scalar literal planner preserves TryParse overflow and narrowing bounds" {
     maxDouble := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
         ColumnarExpressionNodeKind.FloatLiteralExpression(),
-        "1.7976931348623157e308"))
+        "1.7976931348623157e308"
+    ))
     overflowDouble := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1e9999"))
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1e9999"
+    ))
     assert overflowDouble.DoubleValues[0] > maxDouble.DoubleValues[0]
 
     underflowDouble := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1e-5000"))
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1e-5000"
+    ))
     assert underflowDouble.DoubleValues[0] == 0.0
     assert 1.0 / underflowDouble.DoubleValues[0] > 0.0
 
     maxSingle := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "3.4028234e38f"))
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "3.4028234e38f"
+    ))
     overflowSingle := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "3.5e38f"))
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "3.5e38f"
+    ))
     assert overflowSingle.SingleValues[0] > maxSingle.SingleValues[0]
 }
 
 test "scalar literal planner decodes every admitted character escape" {
     direct := ColumnarScalarPlannerPlan(
-        ColumnarScalarPlannerTree(ColumnarExpressionNodeKind.CharLiteralExpression(), "'x'"))
+        ColumnarScalarPlannerTree(ColumnarExpressionNodeKind.CharLiteralExpression(), "'x'")
+    )
     assert direct.ResultType == typeof(char)
     assert direct.Int32Values[direct.OperandIndices[0]] == (int)'x'
 
@@ -300,7 +341,8 @@ test "scalar literal planner decodes every admitted character escape" {
     while i < codes.Length {
         plan := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
             ColumnarExpressionNodeKind.CharLiteralExpression(),
-            ColumnarScalarPlannerEscapedChar(codes[i])))
+            ColumnarScalarPlannerEscapedChar(codes[i])
+        ))
         assert plan.ResultType == typeof(char)
         assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
         assert plan.Int32Values[plan.OperandIndices[0]] == expected[i]
@@ -311,20 +353,26 @@ test "scalar literal planner decodes every admitted character escape" {
 test "scalar literal planner decodes ordinary strings and preserves triple strings" {
     quote := "\""
     empty := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.StringLiteralExpression(), quote + quote))
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        quote + quote
+    ))
     assert empty.ResultType == typeof(string)
     assert empty.StringValues[empty.OperandIndices[0]] == ""
 
     ordinaryText := quote + "line\\nquote\\\"slash\\\\" + quote
     ordinary := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.StringLiteralExpression(), ordinaryText))
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        ordinaryText
+    ))
     assert ordinary.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
     assert ordinary.StringValues[ordinary.OperandIndices[0]] == "line\nquote\"slash\\"
 
     triple := quote + quote + quote
     rawText := triple + "slash\\n" + triple
     raw := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.StringLiteralExpression(), rawText))
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        rawText
+    ))
     assert raw.StringValues[raw.OperandIndices[0]] == "slash\\n"
 }
 
@@ -332,7 +380,8 @@ test "scalar literal planner folds the complete zero-hole interpolated family" {
     quote := "\""
     interpolated := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
         ColumnarExpressionNodeKind.StringLiteralExpression(),
-        "$" + quote + "line\\n{{value}}" + quote))
+        "$" + quote + "line\\n{{value}}" + quote
+    ))
     assert interpolated.ResultType == typeof(string)
     assert interpolated.OperationCount == 1
     assert interpolated.StringCount == 1
@@ -342,29 +391,40 @@ test "scalar literal planner folds the complete zero-hole interpolated family" {
     triple := quote + quote + quote
     raw := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
         ColumnarExpressionNodeKind.StringLiteralExpression(),
-        "$" + triple + "slash\\n{{value}}" + triple))
+        "$" + triple + "slash\\n{{value}}" + triple
+    ))
     assert raw.StringValues[raw.OperandIndices[0]] == "slash\\n{value}"
 
     empty := ColumnarScalarPlannerPlan(ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.StringLiteralExpression(), "$" + quote + quote))
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        "$" + quote + quote
+    ))
     assert empty.StringValues[empty.OperandIndices[0]] == ""
 }
 
 test "scalar literal planner facades report the sealed exact type" {
     tree := ColumnarScalarPlannerTree(
         ColumnarExpressionNodeKind.IntLiteralExpression(),
-        "9223372036854775807L")
+        "9223372036854775807L"
+    )
     plan := new ColumnarCodePlan()
     resultType := typeof(int)
     assert ColumnarScalarLiteralPlanner.TryGetType(
-        tree.Nodes, tree.Source, tree.Root, plan, out resultType)
+        tree.Nodes,
+        tree.Source,
+        tree.Root,
+        plan,
+        out resultType
+    )
     assert resultType == typeof(long)
     assert plan.ResultType == typeof(long)
     assert plan.Status == ColumnarFragmentPlanStatus.Planned
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
 
     floatingTree := ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25f")
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1.25f"
+    )
     floatingPlan := new ColumnarCodePlan()
     resultType = typeof(int)
     assert ColumnarScalarLiteralPlanner.TryGetType(
@@ -372,12 +432,15 @@ test "scalar literal planner facades report the sealed exact type" {
         floatingTree.Source,
         floatingTree.Root,
         floatingPlan,
-        out resultType)
+        out resultType
+    )
     assert resultType == typeof(float)
     assert floatingPlan.ResultType == typeof(float)
 
     doubleTree := ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25d")
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1.25d"
+    )
     doublePlan := new ColumnarCodePlan()
     resultType = typeof(int)
     assert ColumnarScalarLiteralPlanner.TryGetType(
@@ -385,7 +448,8 @@ test "scalar literal planner facades report the sealed exact type" {
         doubleTree.Source,
         doubleTree.Root,
         doublePlan,
-        out resultType)
+        out resultType
+    )
     assert resultType == typeof(double)
     assert doublePlan.ResultType == typeof(double)
 }
@@ -409,7 +473,9 @@ test "scalar literal planner rejects excluded and malformed literal families wit
     i := 0
     while i < invalidIntegers.Length {
         ColumnarScalarPlannerDeclines(
-            ColumnarExpressionNodeKind.IntLiteralExpression(), invalidIntegers[i])
+            ColumnarExpressionNodeKind.IntLiteralExpression(),
+            invalidIntegers[i]
+        )
         i = i + 1
     }
 
@@ -423,7 +489,9 @@ test "scalar literal planner rejects excluded and malformed literal families wit
     i = 0
     while i < invalidChars.Length {
         ColumnarScalarPlannerDeclines(
-            ColumnarExpressionNodeKind.CharLiteralExpression(), invalidChars[i])
+            ColumnarExpressionNodeKind.CharLiteralExpression(),
+            invalidChars[i]
+        )
         i = i + 1
     }
 
@@ -431,14 +499,20 @@ test "scalar literal planner rejects excluded and malformed literal families wit
     triple := quote + quote + quote
     ColumnarScalarPlannerDeclines(
         ColumnarExpressionNodeKind.StringLiteralExpression(),
-        "$" + quote + "{value}" + quote)
+        "$" + quote + "{value}" + quote
+    )
     ColumnarScalarPlannerDeclines(
         ColumnarExpressionNodeKind.StringLiteralExpression(),
-        "$" + triple + "{value}" + triple)
+        "$" + triple + "{value}" + triple
+    )
     ColumnarScalarPlannerDeclines(
-        ColumnarExpressionNodeKind.StringLiteralExpression(), quote + "unterminated")
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        quote + "unterminated"
+    )
     ColumnarScalarPlannerDeclines(
-        ColumnarExpressionNodeKind.StringLiteralExpression(), triple + "short")
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        triple + "short"
+    )
 
     // Decimal literal text (`1.25m`) is now owned by the decimal-constructor lowering; only its
     // malformed forms remain rejections (see the decimal-literal ownership test).
@@ -459,7 +533,9 @@ test "scalar literal planner rejects excluded and malformed literal families wit
     i = 0
     while i < invalidFloating.Length {
         ColumnarScalarPlannerDeclines(
-            ColumnarExpressionNodeKind.FloatLiteralExpression(), invalidFloating[i])
+            ColumnarExpressionNodeKind.FloatLiteralExpression(),
+            invalidFloating[i]
+        )
         i = i + 1
     }
 
@@ -469,37 +545,59 @@ test "scalar literal planner rejects excluded and malformed literal families wit
 
 test "scalar literal planner rolls malformed table shapes back exactly" {
     childTree := ColumnarScalarPlannerTreeWithChild(
-        ColumnarExpressionNodeKind.IntLiteralExpression(), "7")
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "7"
+    )
     childPlan := new ColumnarCodePlan()
     assert ColumnarScalarLiteralPlanner.Plan(
-        childTree.Nodes, childTree.Source, childTree.Root, childPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+        childTree.Nodes,
+        childTree.Source,
+        childTree.Root,
+        childPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarScalarPlannerAssertEmpty(childPlan)
 
     floatingChildTree := ColumnarScalarPlannerTreeWithChild(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25")
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1.25"
+    )
     floatingChildPlan := new ColumnarCodePlan()
     assert ColumnarScalarLiteralPlanner.Plan(
         floatingChildTree.Nodes,
         floatingChildTree.Source,
         floatingChildTree.Root,
-        floatingChildPlan) == ColumnarFragmentPlanStatus.NotOwned
+        floatingChildPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarScalarPlannerAssertEmpty(floatingChildPlan)
 
     badStart := ColumnarScalarPlannerTreeWithSpan(
-        ColumnarExpressionNodeKind.IntLiteralExpression(), "7", -1, 1)
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "7",
+        -1,
+        1
+    )
     badStartPlan := new ColumnarCodePlan()
     assert ColumnarScalarLiteralPlanner.Plan(
-        badStart.Nodes, badStart.Source, badStart.Root, badStartPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+        badStart.Nodes,
+        badStart.Source,
+        badStart.Root,
+        badStartPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarScalarPlannerAssertEmpty(badStartPlan)
 
     badLength := ColumnarScalarPlannerTreeWithSpan(
-        ColumnarExpressionNodeKind.IntLiteralExpression(), "7", 0, 2)
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "7",
+        0,
+        2
+    )
     badLengthPlan := new ColumnarCodePlan()
     assert ColumnarScalarLiteralPlanner.Plan(
-        badLength.Nodes, badLength.Source, badLength.Root, badLengthPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+        badLength.Nodes,
+        badLength.Source,
+        badLength.Root,
+        badLengthPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarScalarPlannerAssertEmpty(badLengthPlan)
 }
 
@@ -510,7 +608,12 @@ test "scalar literal recursive append is atomic and enforces schema lifecycle" {
     fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
     resultType := typeof(string)
     assert ColumnarScalarLiteralPlanner.TryAppendLiteral(
-        valid.Nodes, valid.Source, valid.Root, plan, out resultType)
+        valid.Nodes,
+        valid.Source,
+        valid.Root,
+        plan,
+        out resultType
+    )
     assert resultType == typeof(int)
     assert plan.OperationCount == 1
     assert plan.Int32Count == 1
@@ -530,7 +633,9 @@ test "scalar literal recursive append is atomic and enforces schema lifecycle" {
     assert atomic.Int32Values[0] == 99
 
     malformedFloating := ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.FloatLiteralExpression(), "1e+")
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1e+"
+    )
     floatingAtomic := new ColumnarCodePlan()
     floatingAtomic.PrepareV3()
     floatingAtomic.BeginFragment(-1, ColumnarExpressionNodeKind.FloatLiteralExpression(), 0)
@@ -543,7 +648,9 @@ test "scalar literal recursive append is atomic and enforces schema lifecycle" {
     assert floatingAtomic.DoubleValues[0] == 99.0
 
     hole := ColumnarScalarPlannerTree(
-        ColumnarExpressionNodeKind.StringLiteralExpression(), "$\"{value}\"")
+        ColumnarExpressionNodeKind.StringLiteralExpression(),
+        "$\"{value}\""
+    )
     assert !ColumnarScalarPlannerTryAppend(hole, atomic)
     assert atomic.OperationCount == 1
     assert atomic.Int32Count == 1
@@ -552,14 +659,21 @@ test "scalar literal recursive append is atomic and enforces schema lifecycle" {
     v2 := new ColumnarCodePlan()
     v2.PrepareV2()
     v2.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
-    assert throws InvalidOperationException { ColumnarScalarPlannerTryAppend(valid, v2) }
+    assert throws InvalidOperationException {
+        ColumnarScalarPlannerTryAppend(valid, v2)
+    }
 
     closed := new ColumnarCodePlan()
     closed.PrepareV3()
     closedFragment := closed.BeginFragment(
-        -1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+        -1,
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        0
+    )
     closed.CompleteFragment(closedFragment, typeof(int))
-    assert throws InvalidOperationException { ColumnarScalarPlannerTryAppend(valid, closed) }
+    assert throws InvalidOperationException {
+        ColumnarScalarPlannerTryAppend(valid, closed)
+    }
 }
 
 test "scalar literal planner validates nulls and root indices before mutation" {

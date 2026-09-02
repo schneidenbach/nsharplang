@@ -22,7 +22,6 @@ import NSharpLang.Compiler.Ast
 //   * does-not-swallow-following (Parser_DanglingBinaryOperator_...): the package-then-bad
 //     case proves the declaration-boundary panic reset lets the following bad token report
 //     its own diagnostic instead of being swallowed.
-
 func RunPreamble(source: string): List<CompilerError> {
     return ColumnarParserRecovery.ParseFilePreamble(source, "a.nl")
 }

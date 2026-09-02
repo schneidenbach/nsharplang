@@ -70,7 +70,8 @@ class ImportHarness {
         declarationFiles: Dictionary<string, string>,
         packages: HashSet<string>,
         model: SemanticModel,
-        bindings: BindingMap) {
+        bindings: BindingMap
+    ) {
         Owner = owner
         Errors = errors
         Scopes = scopes
@@ -113,8 +114,8 @@ func ImportHarnessOf(sourceLine: string?): ImportHarness {
     provider.BeginAnalysis(ImportRoot())
     namespaces := new List<string>()
     aliases := new Dictionary<string, string>(StringComparer.Ordinal)
-    symbolsByAlias := new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal)
-    declarationsByAlias := new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal)
+    symbolsByAlias := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    declarationsByAlias := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
     declarationFiles := new Dictionary<string, string>(StringComparer.Ordinal)
     packages := new HashSet<string>(StringComparer.Ordinal)
     probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)

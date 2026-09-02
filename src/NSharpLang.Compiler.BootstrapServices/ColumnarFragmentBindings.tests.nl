@@ -31,14 +31,16 @@ func BindingRawTypeParameters(typeParameters: Dictionary<string, Type>): Columna
         emptyNames,
         emptyNames,
         emptyNames,
-        typeParameters)
+        typeParameters
+    )
 }
 
 func BindingSourceDefinition(runtimeName: string, declaredName: string, genericParameterCount: int = 0): ColumnarStructDef {
     builder := TypeOfCreateBuilder(
         runtimeName,
         runtimeName + ".Bindings.Tests",
-        genericParameterCount)
+        genericParameterCount
+    )
     return new ColumnarStructDef(
         builder,
         new string[](0),
@@ -46,7 +48,8 @@ func BindingSourceDefinition(runtimeName: string, declaredName: string, genericP
         true,
         false,
         false,
-        declaredName)
+        declaredName
+    )
 }
 
 func BindingEmpty(): ColumnarFragmentBindings {
@@ -59,7 +62,8 @@ func BindingEmpty(): ColumnarFragmentBindings {
         BindingEmptyNames(),
         BindingEmptyNames(),
         BindingEmptyNames(),
-        BindingEmptyNames())
+        BindingEmptyNames()
+    )
 }
 
 func BindingMakeGenericMethod(method: MethodBuilder, parameterName: string) {
@@ -68,7 +72,8 @@ func BindingMakeGenericMethod(method: MethodBuilder, parameterName: string) {
     defineParameters := ExecutorRequiredMethod(
         typeof(MethodBuilder),
         "DefineGenericParameters",
-        parameterTypes)
+        parameterTypes
+    )
     names := new string[](1)
     names[0] = parameterName
     arguments := new object[](1)
@@ -94,7 +99,8 @@ test "fragment bindings preserve raw maps and blocked-name precedence" {
         BindingNames("boxed"),
         BindingNames("enclosing"),
         BindingNames("callable"),
-        visibleCallables)
+        visibleCallables
+    )
 
     assert bindings.ParameterOrdinals["parameter"] == 0
     assert bindings.ParameterTypes["parameter"] == typeof(int)
@@ -128,7 +134,8 @@ test "fragment bindings observe live shadow and textual-callable sources" {
         boxed,
         enclosing,
         declaredCallables,
-        visibleCallables)
+        visibleCallables
+    )
 
     assert !bindings.IsBlocked("laterLifted")
     assert !bindings.IsBlocked("laterBoxed")
@@ -155,13 +162,17 @@ test "fragment bindings observe live shadow and textual-callable sources" {
 
 test "fragment bindings merge live method and enclosing type parameter handles by lexical precedence" {
     methodOwner := BindingSourceDefinition(
-        "GenericBindingMethodOwner", "GenericBindingMethodOwner", 0)
+        "GenericBindingMethodOwner",
+        "GenericBindingMethodOwner",
+        0
+    )
     noParameters := new Type[](0)
     methodDefinition := SourceCallPublicStatic(
         methodOwner,
         "GenericBindingMethod",
         noParameters,
-        typeof(int))
+        typeof(int)
+    )
     BindingMakeGenericMethod(methodDefinition.Builder, "T0")
     methodArguments := methodDefinition.Builder.GetGenericArguments()
     methodParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
@@ -179,10 +190,14 @@ test "fragment bindings merge live method and enclosing type parameter handles b
     resolved := typeof(object)
     assert bindings.TryGetTypeParameter("T0", out resolved)
     assert ColumnarConstructionPlanner.SameObject(
-        resolved, methodArguments[0])
+        resolved,
+        methodArguments[0]
+    )
     assert bindings.TryGetTypeParameter("T1", out resolved)
     assert ColumnarConstructionPlanner.SameObject(
-        resolved, ownerArguments[1])
+        resolved,
+        ownerArguments[1]
+    )
     assert !bindings.TryGetTypeParameter("Missing", out resolved)
     assert bindings.EnclosingTypeDefinition == owner
 }
@@ -208,12 +223,17 @@ test "selected source type resolution prefers exact identity and deduplicates re
     resolved := typeof(object)
     assert bindings.TryResolveSelectedSourceType("Alpha.Widget", "Widget", out resolved)
     assert ColumnarConstructionPlanner.SameObject(
-        resolved, alpha.Builder)
+        resolved,
+        alpha.Builder
+    )
 }
 
 test "selected exact source declaration requires one distinct candidate" {
     selected := BindingSourceDefinition(
-        "SelectedRuntimeWidget", "Selected.Widget", 0)
+        "SelectedRuntimeWidget",
+        "Selected.Widget",
+        0
+    )
     uniqueDefinitions := new List<ColumnarStructDef>()
     uniqueDefinitions.Add(selected)
     unique := BindingEmpty()
@@ -222,12 +242,20 @@ test "selected exact source declaration requires one distinct candidate" {
     resolved := typeof(object)
     assert unique.TryResolveSelectedSourceType("Selected.Widget", "Widget", out resolved)
     assert ColumnarConstructionPlanner.SameObject(
-        resolved, selected.Builder)
+        resolved,
+        selected.Builder
+    )
 
     first := BindingSourceDefinition(
-        "FirstRuntimeWidget", "Selected.Widget", 0)
+        "FirstRuntimeWidget",
+        "Selected.Widget",
+        0
+    )
     second := BindingSourceDefinition(
-        "SecondRuntimeWidget", "Selected.Widget", 0)
+        "SecondRuntimeWidget",
+        "Selected.Widget",
+        0
+    )
     ambiguousDefinitions := new List<ColumnarStructDef>()
     ambiguousDefinitions.Add(first)
     ambiguousDefinitions.Add(second)
@@ -241,12 +269,14 @@ test "selected source type resolution inspects enum and union definitions withou
         typeof(int),
         new Dictionary<string, int>(StringComparer.Ordinal),
         null,
-        "Palette.Color")
+        "Palette.Color"
+    )
     fallbackDefinition := new ColumnarEnumDef(
         typeof(long),
         new Dictionary<string, int>(StringComparer.Ordinal),
         null,
-        "Other.Color")
+        "Other.Color"
+    )
     enumBindings := BindingEmpty()
     enumBindings.Enums["Color"] = enumDefinition
     enumBindings.Enums["LegacyColor"] = enumDefinition
@@ -257,7 +287,10 @@ test "selected source type resolution inspects enum and union definitions withou
     assert resolved == typeof(int)
 
     unionSource := BindingSourceDefinition(
-        "Results.Outcome", "Results.Outcome", 0)
+        "Results.Outcome",
+        "Results.Outcome",
+        0
+    )
     unionDefinition := new ColumnarUnionDef(unionSource.Builder, 0, "Results.Outcome")
     unions := new List<ColumnarUnionDef>()
     unions.Add(unionDefinition)
@@ -266,5 +299,7 @@ test "selected source type resolution inspects enum and union definitions withou
     unionBindings.SourceUnionDefinitions = unions
     assert unionBindings.TryResolveSelectedSourceType("Results.Outcome", "Outcome", out resolved)
     assert ColumnarConstructionPlanner.SameObject(
-        resolved, unionSource.Builder)
+        resolved,
+        unionSource.Builder
+    )
 }

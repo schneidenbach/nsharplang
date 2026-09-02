@@ -12,25 +12,37 @@ func ReferenceConversionClosedType(definition: Type, argument: Type): Type {
 
 test "structural reference facts classify exact source interface edges and boxing" {
     target := SourceCallInterfaceDefinition(
-        "ReferenceConversionSourceTarget")
+        "ReferenceConversionSourceTarget"
+    )
     derived := SourceCallInterfaceDefinition(
-        "ReferenceConversionSourceDerived")
+        "ReferenceConversionSourceDerived"
+    )
     derived.InterfaceBases.Add(target)
 
     referenceImplementer := SourceCallDefinition(
-        "ReferenceConversionSourceClass", true)
+        "ReferenceConversionSourceClass",
+        true
+    )
     referenceImplementer.ImplementedInterfaces.Add(target)
     inheritedImplementer := SourceCallDefinition(
-        "ReferenceConversionInheritedClass", true)
+        "ReferenceConversionInheritedClass",
+        true
+    )
     inheritedImplementer.ImplementedInterfaces.Add(derived)
     baseImplementer := SourceCallDefinition(
-        "ReferenceConversionBaseClass", true)
+        "ReferenceConversionBaseClass",
+        true
+    )
     baseImplementer.ImplementedInterfaces.Add(target)
     derivedClass := SourceCallDefinition(
-        "ReferenceConversionDerivedClass", true)
+        "ReferenceConversionDerivedClass",
+        true
+    )
     derivedClass.BaseDef = baseImplementer
     valueImplementer := SourceCallDefinition(
-        "ReferenceConversionSourceStruct", false)
+        "ReferenceConversionSourceStruct",
+        false
+    )
     valueImplementer.ImplementedInterfaces.Add(target)
 
     definitions := new ColumnarStructDef[](7)
@@ -43,93 +55,115 @@ test "structural reference facts classify exact source interface edges and boxin
     definitions[6] = valueImplementer
 
     sourceIsReference := false
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            referenceImplementer.Builder,
-            target.Builder,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        referenceImplementer.Builder,
+        target.Builder,
+        definitions,
+        out sourceIsReference
+    )
     assert sourceIsReference
 
     sourceIsReference = false
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            inheritedImplementer.Builder,
-            target.Builder,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        inheritedImplementer.Builder,
+        target.Builder,
+        definitions,
+        out sourceIsReference
+    )
     assert sourceIsReference
 
     sourceIsReference = false
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            derived.Builder,
-            target.Builder,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        derived.Builder,
+        target.Builder,
+        definitions,
+        out sourceIsReference
+    )
     assert sourceIsReference
 
     sourceIsReference = false
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            derivedClass.Builder,
-            target.Builder,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        derivedClass.Builder,
+        target.Builder,
+        definitions,
+        out sourceIsReference
+    )
     assert sourceIsReference
 
     sourceIsReference = true
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            valueImplementer.Builder,
-            target.Builder,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        valueImplementer.Builder,
+        target.Builder,
+        definitions,
+        out sourceIsReference
+    )
     assert !sourceIsReference
 }
 
 test "structural reference facts classify exact external interfaces through source hierarchies" {
     disposableType := TypeOfRequiredRuntimeType(
-        typeof(Type), "System.IDisposable")
+        typeof(Type),
+        "System.IDisposable"
+    )
     collectionType := TypeOfRequiredRuntimeType(
-        typeof(Type), "System.Collections.IList")
+        typeof(Type),
+        "System.Collections.IList"
+    )
     enumerableType := TypeOfRequiredRuntimeType(
-        typeof(Type), "System.Collections.IEnumerable")
+        typeof(Type),
+        "System.Collections.IEnumerable"
+    )
     externalBase := SourceCallInterfaceDefinition(
-        "ReferenceConversionExternalBase")
+        "ReferenceConversionExternalBase"
+    )
     externalBase.ExternalInterfaces.Add(disposableType)
     externalBase.Builder.AddInterfaceImplementation(disposableType)
     derivedInterface := SourceCallInterfaceDefinition(
-        "ReferenceConversionExternalDerived")
+        "ReferenceConversionExternalDerived"
+    )
     derivedInterface.InterfaceBases.Add(externalBase)
     derivedInterface.Builder.AddInterfaceImplementation(externalBase.Builder)
 
     directClass := SourceCallDefinition(
-        "ReferenceConversionExternalClass", true)
+        "ReferenceConversionExternalClass",
+        true
+    )
     directClass.ExternalInterfaces.Add(disposableType)
     directClass.Builder.AddInterfaceImplementation(disposableType)
     directStruct := SourceCallDefinition(
-        "ReferenceConversionExternalStruct", false)
+        "ReferenceConversionExternalStruct",
+        false
+    )
     directStruct.ExternalInterfaces.Add(disposableType)
     directStruct.Builder.AddInterfaceImplementation(disposableType)
     interfaceClass := SourceCallDefinition(
-        "ReferenceConversionExternalInterfaceClass", true)
+        "ReferenceConversionExternalInterfaceClass",
+        true
+    )
     interfaceClass.ImplementedInterfaces.Add(derivedInterface)
     interfaceClass.Builder.AddInterfaceImplementation(
-        derivedInterface.Builder)
+        derivedInterface.Builder
+    )
     baseClass := SourceCallDefinition(
-        "ReferenceConversionExternalBaseClass", true)
+        "ReferenceConversionExternalBaseClass",
+        true
+    )
     baseClass.ExternalInterfaces.Add(disposableType)
     baseClass.Builder.AddInterfaceImplementation(disposableType)
     derivedClass := SourceCallDefinition(
-        "ReferenceConversionExternalDerivedClass", true)
+        "ReferenceConversionExternalDerivedClass",
+        true
+    )
     derivedClass.BaseDef = baseClass
 
     collectionClass := SourceCallDefinition(
-        "ReferenceConversionExternalCollectionClass", true)
+        "ReferenceConversionExternalCollectionClass",
+        true
+    )
     collectionClass.ExternalInterfaces.Add(collectionType)
     collectionClass.Builder.AddInterfaceImplementation(
-        collectionType)
+        collectionType
+    )
 
     definitions := new ColumnarStructDef[](8)
     definitions[0] = externalBase
@@ -142,87 +176,103 @@ test "structural reference facts classify exact external interfaces through sour
     definitions[7] = collectionClass
 
     sourceIsReference := false
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            directClass.Builder,
-            disposableType,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        directClass.Builder,
+        disposableType,
+        definitions,
+        out sourceIsReference
+    )
     assert sourceIsReference
 
     sourceIsReference = true
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            directStruct.Builder,
-            disposableType,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        directStruct.Builder,
+        disposableType,
+        definitions,
+        out sourceIsReference
+    )
     assert !sourceIsReference
 
     sourceIsReference = false
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            interfaceClass.Builder,
-            disposableType,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        interfaceClass.Builder,
+        disposableType,
+        definitions,
+        out sourceIsReference
+    )
     assert sourceIsReference
 
     sourceIsReference = false
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            derivedClass.Builder,
-            disposableType,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        derivedClass.Builder,
+        disposableType,
+        definitions,
+        out sourceIsReference
+    )
     assert sourceIsReference
 
     sourceIsReference = false
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            derivedInterface.Builder,
-            disposableType,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        derivedInterface.Builder,
+        disposableType,
+        definitions,
+        out sourceIsReference
+    )
     assert sourceIsReference
 
     sourceIsReference = false
-    assert ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            collectionClass.Builder,
-            enumerableType,
-            definitions,
-            out sourceIsReference)
+    assert ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        collectionClass.Builder,
+        enumerableType,
+        definitions,
+        out sourceIsReference
+    )
     assert sourceIsReference
 }
 
 test "structural reference facts reject same-spelled and unsupported external interface near misses" {
     disposableType := TypeOfRequiredRuntimeType(
-        typeof(Type), "System.IDisposable")
+        typeof(Type),
+        "System.IDisposable"
+    )
     comparableType := TypeOfRequiredRuntimeType(
-        typeof(Type), "System.IComparable")
+        typeof(Type),
+        "System.IComparable"
+    )
     objectType := typeof(object)
     enumerableType := TypeOfRequiredRuntimeType(
-        typeof(Type), "System.Collections.IEnumerable")
+        typeof(Type),
+        "System.Collections.IEnumerable"
+    )
     sameSpelled := SourceCallInterfaceDefinition(
-        "ReferenceConversionExternalSameSpelled")
+        "ReferenceConversionExternalSameSpelled"
+    )
     sameSpelled.DeclaredTypeName = "IDisposable"
     sameSpelledImplementer := SourceCallDefinition(
-        "ReferenceConversionExternalSameSpelledClass", true)
+        "ReferenceConversionExternalSameSpelledClass",
+        true
+    )
     sameSpelledImplementer.ImplementedInterfaces.Add(sameSpelled)
     sameSpelledImplementer.Builder.AddInterfaceImplementation(
-        sameSpelled.Builder)
+        sameSpelled.Builder
+    )
 
     unrelated := SourceCallDefinition(
-        "ReferenceConversionExternalUnrelatedClass", true)
+        "ReferenceConversionExternalUnrelatedClass",
+        true
+    )
     unrelated.ExternalInterfaces.Add(comparableType)
     unrelated.Builder.AddInterfaceImplementation(comparableType)
     exact := SourceCallDefinition(
-        "ReferenceConversionExternalExactClass", true)
+        "ReferenceConversionExternalExactClass",
+        true
+    )
     exact.ExternalInterfaces.Add(disposableType)
     exact.Builder.AddInterfaceImplementation(disposableType)
     unregistered := SourceCallDefinition(
-        "ReferenceConversionExternalUnregisteredClass", true)
+        "ReferenceConversionExternalUnregisteredClass",
+        true
+    )
     unregistered.Builder.AddInterfaceImplementation(disposableType)
 
     definitions := new ColumnarStructDef[](5)
@@ -233,58 +283,64 @@ test "structural reference facts reject same-spelled and unsupported external in
     definitions[4] = unregistered
 
     sourceIsReference := true
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            sameSpelledImplementer.Builder,
-            disposableType,
-            definitions,
-            out sourceIsReference)
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        sameSpelledImplementer.Builder,
+        disposableType,
+        definitions,
+        out sourceIsReference
+    )
     assert !sourceIsReference
 
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            unrelated.Builder,
-            disposableType,
-            definitions,
-            out sourceIsReference)
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            exact.Builder,
-            comparableType,
-            definitions,
-            out sourceIsReference)
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            exact.Builder,
-            objectType,
-            definitions,
-            out sourceIsReference)
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            exact.Builder,
-            enumerableType,
-            definitions,
-            out sourceIsReference)
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            unregistered.Builder,
-            disposableType,
-            definitions,
-            out sourceIsReference)
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        unrelated.Builder,
+        disposableType,
+        definitions,
+        out sourceIsReference
+    )
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        exact.Builder,
+        comparableType,
+        definitions,
+        out sourceIsReference
+    )
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        exact.Builder,
+        objectType,
+        definitions,
+        out sourceIsReference
+    )
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        exact.Builder,
+        enumerableType,
+        definitions,
+        out sourceIsReference
+    )
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        unregistered.Builder,
+        disposableType,
+        definitions,
+        out sourceIsReference
+    )
 }
 
 test "structural reference facts reject same-spelled source interface near misses" {
     comparableType := TypeOfRequiredRuntimeType(
-        typeof(Type), "System.IComparable")
+        typeof(Type),
+        "System.IComparable"
+    )
     target := SourceCallInterfaceDefinition(
-        "ReferenceConversionExactTarget")
+        "ReferenceConversionExactTarget"
+    )
     nearMiss := SourceCallInterfaceDefinition(
-        "ReferenceConversionNearMissTarget")
+        "ReferenceConversionNearMissTarget"
+    )
     target.DeclaredTypeName = "INotifier"
     nearMiss.DeclaredTypeName = "INotifier"
 
     implementer := SourceCallDefinition(
-        "ReferenceConversionNearMissImplementer", true)
+        "ReferenceConversionNearMissImplementer",
+        true
+    )
     implementer.ImplementedInterfaces.Add(nearMiss)
 
     definitions := new ColumnarStructDef[](3)
@@ -293,33 +349,36 @@ test "structural reference facts reject same-spelled source interface near misse
     definitions[2] = implementer
 
     sourceIsReference := true
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            implementer.Builder,
-            target.Builder,
-            definitions,
-            out sourceIsReference)
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        implementer.Builder,
+        target.Builder,
+        definitions,
+        out sourceIsReference
+    )
     assert !sourceIsReference
 
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            implementer.Builder,
-            comparableType,
-            definitions,
-            out sourceIsReference)
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        implementer.Builder,
+        comparableType,
+        definitions,
+        out sourceIsReference
+    )
 }
 
 test "structural reference facts exclude closed source interface shapes without substituted facts" {
     target := SourceCallInterfaceDefinition(
-        "ReferenceConversionClosedSourceTarget")
+        "ReferenceConversionClosedSourceTarget"
+    )
     genericTarget := SourceCallInterfaceDefinition(
-        "ReferenceConversionClosedGenericTarget")
+        "ReferenceConversionClosedGenericTarget"
+    )
     defineParameterTypes := new Type[](1)
     defineParameterTypes[0] = typeof(string[])
     defineParameters := ExecutorRequiredMethod(
         typeof(TypeBuilder),
         "DefineGenericParameters",
-        defineParameterTypes)
+        defineParameterTypes
+    )
     parameterNames := new string[](1)
     parameterNames[0] = "T"
     defineArguments := new object[](1)
@@ -327,13 +386,17 @@ test "structural reference facts exclude closed source interface shapes without 
     TypeOfRequiredInvocation(
         defineParameters,
         genericTarget.Builder,
-        defineArguments)
+        defineArguments
+    )
 
     genericImplementer := SourceCallGenericDefinition(
-        "ReferenceConversionClosedSourceImplementer")
+        "ReferenceConversionClosedSourceImplementer"
+    )
     genericImplementer.ImplementedInterfaces.Add(target)
     exactImplementer := SourceCallDefinition(
-        "ReferenceConversionClosedTargetImplementer", true)
+        "ReferenceConversionClosedTargetImplementer",
+        true
+    )
     exactImplementer.ImplementedInterfaces.Add(genericTarget)
 
     definitions := new ColumnarStructDef[](4)
@@ -350,20 +413,20 @@ test "structural reference facts exclude closed source interface shapes without 
     closedTarget := genericTargetType.MakeGenericType(arguments)
     sourceIsReference := true
 
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            closedImplementer,
-            target.Builder,
-            definitions,
-            out sourceIsReference)
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        closedImplementer,
+        target.Builder,
+        definitions,
+        out sourceIsReference
+    )
     assert !sourceIsReference
 
-    assert !ColumnarReferenceConversionFacts
-        .TryClassifyExactSourceInterfaceUpcast(
-            exactImplementer.Builder,
-            closedTarget,
-            definitions,
-            out sourceIsReference)
+    assert !ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+        exactImplementer.Builder,
+        closedTarget,
+        definitions,
+        out sourceIsReference
+    )
 }
 
 test "structural reference facts admit every exact TypeBuilder-backed BCL interface edge" {
@@ -371,53 +434,99 @@ test "structural reference facts admit every exact TypeBuilder-backed BCL interf
     elementType: Type = element.Builder
 
     listType := ReferenceConversionClosedType(
-        typeof(List<int>).GetGenericTypeDefinition(), elementType)
+        typeof(List<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     hashSetType := ReferenceConversionClosedType(
-        typeof(HashSet<int>).GetGenericTypeDefinition(), elementType)
+        typeof(HashSet<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     stackType := ReferenceConversionClosedType(
-        typeof(Stack<int>).GetGenericTypeDefinition(), elementType)
+        typeof(Stack<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     readOnlyListType := ReferenceConversionClosedType(
-        typeof(IReadOnlyList<int>).GetGenericTypeDefinition(), elementType)
+        typeof(IReadOnlyList<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     readOnlySetType := ReferenceConversionClosedType(
-        typeof(IReadOnlySet<int>).GetGenericTypeDefinition(), elementType)
+        typeof(IReadOnlySet<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     readOnlyCollectionType := ReferenceConversionClosedType(
-        typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition(), elementType)
+        typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     enumerableType := ReferenceConversionClosedType(
-        typeof(IEnumerable<int>).GetGenericTypeDefinition(), elementType)
+        typeof(IEnumerable<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     arrayType := elementType.MakeArrayType()
 
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        listType, readOnlyListType)
+        listType,
+        readOnlyListType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        listType, readOnlyCollectionType)
+        listType,
+        readOnlyCollectionType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        listType, enumerableType)
+        listType,
+        enumerableType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        hashSetType, readOnlySetType)
+        hashSetType,
+        readOnlySetType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        hashSetType, readOnlyCollectionType)
+        hashSetType,
+        readOnlyCollectionType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        hashSetType, enumerableType)
+        hashSetType,
+        enumerableType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        readOnlyListType, readOnlyCollectionType)
+        readOnlyListType,
+        readOnlyCollectionType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        readOnlySetType, readOnlyCollectionType)
+        readOnlySetType,
+        readOnlyCollectionType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        readOnlyListType, enumerableType)
+        readOnlyListType,
+        enumerableType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        readOnlySetType, enumerableType)
+        readOnlySetType,
+        enumerableType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        readOnlyCollectionType, enumerableType)
+        readOnlyCollectionType,
+        enumerableType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        stackType, readOnlyCollectionType)
+        stackType,
+        readOnlyCollectionType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        stackType, enumerableType)
+        stackType,
+        enumerableType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        arrayType, readOnlyListType)
+        arrayType,
+        readOnlyListType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        arrayType, readOnlyCollectionType)
+        arrayType,
+        readOnlyCollectionType
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        arrayType, enumerableType)
+        arrayType,
+        enumerableType
+    )
 }
 
 test "structural reference facts reject variance reversal unrelated shells and unequal arguments" {
@@ -425,43 +534,69 @@ test "structural reference facts reject variance reversal unrelated shells and u
     elementType: Type = element.Builder
 
     listType := ReferenceConversionClosedType(
-        typeof(List<int>).GetGenericTypeDefinition(), elementType)
+        typeof(List<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     readOnlyListType := ReferenceConversionClosedType(
-        typeof(IReadOnlyList<int>).GetGenericTypeDefinition(), elementType)
+        typeof(IReadOnlyList<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     readOnlySetType := ReferenceConversionClosedType(
-        typeof(IReadOnlySet<int>).GetGenericTypeDefinition(), elementType)
+        typeof(IReadOnlySet<int>).GetGenericTypeDefinition(),
+        elementType
+    )
     stringReadOnlyListType := ReferenceConversionClosedType(
-        typeof(IReadOnlyList<int>).GetGenericTypeDefinition(), typeof(string))
+        typeof(IReadOnlyList<int>).GetGenericTypeDefinition(),
+        typeof(string)
+    )
     stringEnumerableType := ReferenceConversionClosedType(
-        typeof(IEnumerable<int>).GetGenericTypeDefinition(), typeof(string))
+        typeof(IEnumerable<int>).GetGenericTypeDefinition(),
+        typeof(string)
+    )
 
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        readOnlyListType, listType)
+        readOnlyListType,
+        listType
+    )
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        listType, readOnlySetType)
+        listType,
+        readOnlySetType
+    )
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        listType, stringReadOnlyListType)
+        listType,
+        stringReadOnlyListType
+    )
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        elementType.MakeArrayType(), stringEnumerableType)
+        elementType.MakeArrayType(),
+        stringEnumerableType
+    )
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        listType, listType)
+        listType,
+        listType
+    )
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        typeof(List<int>).GetGenericTypeDefinition(), readOnlyListType)
+        typeof(List<int>).GetGenericTypeDefinition(),
+        readOnlyListType
+    )
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        typeof(string), typeof(object))
+        typeof(string),
+        typeof(object)
+    )
 }
 
 test "structural reference facts follow exact reordered dynamic generic base chains" {
     baseBuilder := TypeOfCreateBuilder(
         "ReferenceConversionMappedBase",
         "ColumnarReferenceConversionTests.ReferenceConversionMappedBase",
-        2)
+        2
+    )
     baseType: Type = baseBuilder
 
     middleBuilder := TypeOfCreateBuilder(
         "ReferenceConversionMappedMiddle",
         "ColumnarReferenceConversionTests.ReferenceConversionMappedMiddle",
-        1)
+        1
+    )
     middleType: Type = middleBuilder
     middleArguments := middleBuilder.GetGenericArguments()
     openBaseArguments := new Type[](2)
@@ -469,26 +604,31 @@ test "structural reference facts follow exact reordered dynamic generic base cha
     openBaseArguments[1] = middleArguments[0]
     ConstructionSetParent(
         middleBuilder,
-        baseType.MakeGenericType(openBaseArguments))
+        baseType.MakeGenericType(openBaseArguments)
+    )
 
     derivedBuilder := TypeOfCreateBuilder(
         "ReferenceConversionMappedDerived",
         "ColumnarReferenceConversionTests.ReferenceConversionMappedDerived",
-        2)
+        2
+    )
     derivedType: Type = derivedBuilder
     derivedArguments := derivedBuilder.GetGenericArguments()
     openMiddleArguments := new Type[](1)
     openMiddleArguments[0] = derivedArguments[1]
     ConstructionSetParent(
         derivedBuilder,
-        middleType.MakeGenericType(openMiddleArguments))
+        middleType.MakeGenericType(openMiddleArguments)
+    )
 
     closedDerivedArguments := new Type[](2)
     closedDerivedArguments[0] = typeof(int)
     closedDerivedArguments[1] = typeof(long)
     closedDerived := derivedType.MakeGenericType(closedDerivedArguments)
     closedMiddle := ReferenceConversionClosedType(
-        middleType, typeof(long))
+        middleType,
+        typeof(long)
+    )
     closedBaseArguments := new Type[](2)
     closedBaseArguments[0] = typeof(string)
     closedBaseArguments[1] = typeof(long)
@@ -499,11 +639,19 @@ test "structural reference facts follow exact reordered dynamic generic base cha
     wrongBase := baseType.MakeGenericType(wrongBaseArguments)
 
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        closedDerived, closedMiddle)
+        closedDerived,
+        closedMiddle
+    )
     assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        closedDerived, closedBase)
+        closedDerived,
+        closedBase
+    )
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        closedDerived, wrongBase)
+        closedDerived,
+        wrongBase
+    )
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
-        closedBase, closedDerived)
+        closedBase,
+        closedDerived
+    )
 }

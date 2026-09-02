@@ -102,7 +102,8 @@ class ColumnarConstructorDefaultParseProbe {
             tokenKinds,
             tokenStarts,
             tokenValueLengths,
-            tokenCounts)
+            tokenCounts
+        )
 
         ParamNameTexts = new string[](capacity)
         ParamTypeTexts = new string[](capacity)
@@ -141,7 +142,8 @@ class ColumnarConstructorDefaultParseProbe {
             childIndices,
             spanStarts,
             spanLengths,
-            Result)
+            Result
+        )
     }
 }
 
@@ -169,7 +171,8 @@ class ColumnarStructDeclarationParseProbe {
             tokenKinds,
             tokenStarts,
             tokenValueLengths,
-            tokenCounts)
+            tokenCounts
+        )
 
         fieldNameTexts := new string[](capacity)
         fieldTypeTexts := new string[](capacity)
@@ -186,10 +189,7 @@ class ColumnarStructDeclarationParseProbe {
         StructNameTexts = new string[](1)
         Result = new int[](10)
         structIndex := 0
-        while structIndex < tokenCount
-            && tokenKinds[structIndex] != 8
-            && tokenKinds[structIndex] != 9
-            && tokenKinds[structIndex] != 13 {
+        while structIndex < tokenCount && tokenKinds[structIndex] != 8 && tokenKinds[structIndex] != 9 && tokenKinds[structIndex] != 13 {
             structIndex = structIndex + 1
         }
         FieldCount = ParseColumnarStructInfoInto(
@@ -214,7 +214,8 @@ class ColumnarStructDeclarationParseProbe {
             TypeParamTexts,
             BaseNameTexts,
             StructNameTexts,
-            Result)
+            Result
+        )
     }
 }
 
@@ -244,7 +245,8 @@ class ColumnarNestedStructDeclarationProbe {
             tokenKinds,
             tokenStarts,
             tokenValueLengths,
-            tokenCounts)
+            tokenCounts
+        )
 
         StructIndices = new int[](capacity)
         ReferenceFlags = new int[](capacity)
@@ -273,7 +275,8 @@ class ColumnarNestedStructDeclarationProbe {
             RecordFlags,
             VisibilityFlags,
             EnclosingTypeNames,
-            result)
+            result
+        )
         Count = ScanStatus < 0 ? -1 : result[5]
     }
 }
@@ -304,7 +307,8 @@ class ColumnarFunctionGeneratorScanProbe {
             tokenKinds,
             tokenStarts,
             tokenValueLengths,
-            tokenCounts)
+            tokenCounts
+        )
 
         FuncIndices = new int[](capacity)
         AsyncFlags = new int[](capacity)
@@ -331,7 +335,8 @@ class ColumnarFunctionGeneratorScanProbe {
             new int[](capacity),
             new int[](capacity),
             new string[](capacity),
-            result)
+            result
+        )
         FuncCount = ScanStatus < 0 ? -1 : result[1]
     }
 }
@@ -360,7 +365,8 @@ class ColumnarFunctionBodyYieldProbe {
             tokenKinds,
             tokenStarts,
             tokenValueLengths,
-            tokenCounts)
+            tokenCounts
+        )
 
         funcIndex := 0
         while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
@@ -425,7 +431,8 @@ class ColumnarFunctionBodyYieldProbe {
             spanLengths,
             localFunctionNodeIndices,
             localFunctionTokenIndices,
-            result)
+            result
+        )
 
         YieldNodeCount = 0
         if Status >= 0 {
@@ -471,7 +478,8 @@ class ColumnarFunctionBodyAwaitForeachProbe {
             tokenKinds,
             tokenStarts,
             tokenValueLengths,
-            tokenCounts)
+            tokenCounts
+        )
 
         funcIndex := 0
         while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
@@ -536,7 +544,8 @@ class ColumnarFunctionBodyAwaitForeachProbe {
             spanLengths,
             localFunctionNodeIndices,
             localFunctionTokenIndices,
-            result)
+            result
+        )
 
         AwaitForeachNodeCount = 0
         VarText = ""
@@ -622,7 +631,8 @@ test "literal node-kind ledger owns every primary literal ordinal" {
 
 test "constructor parser preserves dotted enum member defaults" {
     probe := new ColumnarConstructorDefaultParseProbe(
-        "constructor(count: int, day: System.DayOfWeek = System . DayOfWeek . Friday) {}")
+        "constructor(count: int, day: System.DayOfWeek = System . DayOfWeek . Friday) {}"
+    )
 
     assert probe.ParamCount == 2
     assert probe.Result[2] == 2
@@ -638,7 +648,8 @@ test "constructor parser preserves dotted enum member defaults" {
 
 test "primary constructor parser canonicalizes dotted enum member defaults" {
     probe := new ColumnarConstructorDefaultParseProbe(
-        "class Schedule(count: int, day: System.DayOfWeek = System . DayOfWeek . Friday) {}")
+        "class Schedule(count: int, day: System.DayOfWeek = System . DayOfWeek . Friday) {}"
+    )
 
     assert probe.ParamCount == 2
     assert probe.Result[2] == 2
@@ -654,7 +665,8 @@ test "primary constructor parser canonicalizes dotted enum member defaults" {
 
 test "struct parser preserves generic parameters alongside a constructed base" {
     probe := new ColumnarStructDeclarationParseProbe(
-        "class Derived<X,Y>: Base<string,Y> {}")
+        "class Derived<X,Y>: Base<string,Y> {}"
+    )
 
     assert probe.FieldCount == 0
     assert probe.Result[7] == 2
@@ -667,7 +679,8 @@ test "struct parser preserves generic parameters alongside a constructed base" {
 
 test "struct parser leaves namespace ownership with the file binding scope" {
     probe := new ColumnarStructDeclarationParseProbe(
-        "namespace Scope\nclass Widget {}")
+        "namespace Scope\nclass Widget {}"
+    )
 
     assert probe.FieldCount == 0
     assert probe.StructNameTexts[0] == "Widget"
@@ -680,7 +693,8 @@ test "struct parser accepts a method parameter whose nested generic closes with 
     // `Dictionary<string, Dictionary<string, int>>` as another type argument, so the struct scan
     // declined at parse.struct (real corpus site: AnalyzerDeclarationContext.TryResolveFileImportAliasType).
     probe := new ColumnarStructDeclarationParseProbe(
-        "class Holder { func Route(name: string, table: Dictionary<string, Dictionary<string, int>>, out claimed: bool): bool { claimed = true\nreturn true } }")
+        "class Holder { func Route(name: string, table: Dictionary<string, Dictionary<string, int>>, out claimed: bool): bool { claimed = true\nreturn true } }"
+    )
 
     assert probe.FieldCount == 0
     assert probe.StructNameTexts[0] == "Holder"
@@ -692,7 +706,8 @@ test "struct parser binds a '?' after a split >> close to the OUTER generic para
     // must not wrap the INNER List nullable — the suffix belongs to the enclosing type after its
     // close consumes the owed `>`. A desync here mis-scans the signature and declines the scan.
     probe := new ColumnarStructDeclarationParseProbe(
-        "class Holder { func Find(map: Dictionary<string, List<int>>?): bool { return map != null } }")
+        "class Holder { func Find(map: Dictionary<string, List<int>>?): bool { return map != null } }"
+    )
 
     assert probe.FieldCount == 0
     assert probe.StructNameTexts[0] == "Holder"
@@ -701,7 +716,8 @@ test "struct parser binds a '?' after a split >> close to the OUTER generic para
 
 test "program declaration scanner appends nested lexical owner paths and declaration kinds" {
     probe := new ColumnarNestedStructDeclarationProbe(
-        "class Outer { public class Sibling {} class Middle { record struct Value {} class Inner {} } func Run() { value := typeof(string) } }")
+        "class Outer { public class Sibling {} class Middle { record struct Value {} class Inner {} } func Run() { value := typeof(string) } }"
+    )
 
     assert probe.ScanStatus >= 0
     assert probe.Count == 5
@@ -723,7 +739,8 @@ test "program declaration scanner appends nested lexical owner paths and declara
 
 test "declaration scanner parses func* and records the generator fact parallel to async" {
     probe := new ColumnarFunctionGeneratorScanProbe(
-        "func Plain(): int { return 1 }\nfunc* Gen(count: int): IEnumerable<int> { yield count }")
+        "func Plain(): int { return 1 }\nfunc* Gen(count: int): IEnumerable<int> { yield count }"
+    )
 
     assert probe.ScanStatus >= 0
     assert probe.FuncCount == 2
@@ -735,7 +752,8 @@ test "declaration scanner parses func* and records the generator fact parallel t
 
 test "declaration scanner records async and generator facts independently for async func*" {
     probe := new ColumnarFunctionGeneratorScanProbe(
-        "async func* Stream(): IAsyncEnumerable<int> { yield 1 }")
+        "async func* Stream(): IAsyncEnumerable<int> { yield 1 }"
+    )
 
     assert probe.ScanStatus >= 0
     assert probe.FuncCount == 1
@@ -745,7 +763,8 @@ test "declaration scanner records async and generator facts independently for as
 
 test "function body parser lands a value yield as YieldStatement kind 72" {
     probe := new ColumnarFunctionBodyYieldProbe(
-        "func* Gen(): IEnumerable<int> { yield 41 }")
+        "func* Gen(): IEnumerable<int> { yield 41 }"
+    )
 
     assert probe.Status >= 0
     assert probe.YieldNodeCount == 1
@@ -753,7 +772,8 @@ test "function body parser lands a value yield as YieldStatement kind 72" {
 
 test "function body parser lands a yield break as YieldStatement kind 72" {
     probe := new ColumnarFunctionBodyYieldProbe(
-        "func* Gen(): IEnumerable<int> { yield break }")
+        "func* Gen(): IEnumerable<int> { yield break }"
+    )
 
     assert probe.Status >= 0
     assert probe.YieldNodeCount == 1
@@ -761,7 +781,8 @@ test "function body parser lands a yield break as YieldStatement kind 72" {
 
 test "function body parser lands await foreach as AwaitForeachStatement kind 73" {
     probe := new ColumnarFunctionBodyAwaitForeachProbe(
-        "async func Consume(xs: IAsyncEnumerable<int>) { await foreach n in xs { print n } }")
+        "async func Consume(xs: IAsyncEnumerable<int>) { await foreach n in xs { print n } }"
+    )
 
     assert probe.Status >= 0
     assert probe.AwaitForeachNodeCount == 1
@@ -773,7 +794,8 @@ test "function body parser lands await foreach as AwaitForeachStatement kind 73"
 
 test "function body parser lands a call-collection await foreach as kind 73" {
     probe := new ColumnarFunctionBodyAwaitForeachProbe(
-        "async func Consume() { await foreach item in GetItemsAsync() { print item } }")
+        "async func Consume() { await foreach item in GetItemsAsync() { print item } }"
+    )
 
     assert probe.Status >= 0
     assert probe.AwaitForeachNodeCount == 1
@@ -784,7 +806,8 @@ test "function body parser lands a call-collection await foreach as kind 73" {
 
 test "function body parser keeps a bare await statement an expression statement" {
     probe := new ColumnarFunctionBodyAwaitForeachProbe(
-        "async func Wait(t: Task) { await t }")
+        "async func Wait(t: Task) { await t }"
+    )
 
     assert probe.Status >= 0
     assert probe.AwaitForeachNodeCount == 0
@@ -792,14 +815,16 @@ test "function body parser keeps a bare await statement an expression statement"
 
 test "await foreach without the in keyword refuses" {
     probe := new ColumnarFunctionBodyAwaitForeachProbe(
-        "async func Consume(xs: IAsyncEnumerable<int>) { await foreach n xs { print n } }")
+        "async func Consume(xs: IAsyncEnumerable<int>) { await foreach n xs { print n } }"
+    )
 
     assert probe.Status < 0
 }
 
 test "parenthesised await foreach stays deferred like foreach" {
     probe := new ColumnarFunctionBodyAwaitForeachProbe(
-        "async func Consume(xs: IAsyncEnumerable<int>) { await foreach (n in xs) { print n } }")
+        "async func Consume(xs: IAsyncEnumerable<int>) { await foreach (n in xs) { print n } }"
+    )
 
     assert probe.Status < 0
 }
@@ -1208,7 +1233,6 @@ test "the case label names the plain description or the description plus its row
     secondCase := new ColumnarTestCaseBodyProbe(table, 1)
     assert secondCase.Label() == "adds (20, 30, 50)"
 }
-
 
 // ---- THE MODIFIER-BIT WORDS THIS FILE'S KERNELS WRITE -----------------------------------------
 //

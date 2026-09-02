@@ -178,9 +178,11 @@ test "extension resolution prefers exact arity over trailing-optional and reject
 
     preference := new ColumnarExtensionMethodIndex()
     exactCandidate := MakeExtensionFixtureCandidate(
-        RequiredExtensionStaticMethod(typeof(string), "IsNullOrEmpty", ExtensionOneType(typeof(string))))
+        RequiredExtensionStaticMethod(typeof(string), "IsNullOrEmpty", ExtensionOneType(typeof(string)))
+    )
     optionalCandidate := MakeExtensionFixtureCandidate(
-        RequiredExtensionStaticMethod(RequiredExtensionFixtureType("System.ArgumentException"), "ThrowIfNullOrEmpty", ExtensionTwoTypes(typeof(string), typeof(string))))
+        RequiredExtensionStaticMethod(RequiredExtensionFixtureType("System.ArgumentException"), "ThrowIfNullOrEmpty", ExtensionTwoTypes(typeof(string), typeof(string)))
+    )
     preference.Add("Combine", exactCandidate)
     preference.Add("Combine", optionalCandidate)
 
@@ -191,9 +193,11 @@ test "extension resolution prefers exact arity over trailing-optional and reject
 
     ambiguous := new ColumnarExtensionMethodIndex()
     ambiguous.Add("Ambiguous", MakeExtensionFixtureCandidate(
-        RequiredExtensionStaticMethod(typeof(string), "IsNullOrEmpty", ExtensionOneType(typeof(string)))))
+        RequiredExtensionStaticMethod(typeof(string), "IsNullOrEmpty", ExtensionOneType(typeof(string)))
+    ))
     ambiguous.Add("Ambiguous", MakeExtensionFixtureCandidate(
-        RequiredExtensionStaticMethod(typeof(string), "IsNullOrWhiteSpace", ExtensionOneType(typeof(string)))))
+        RequiredExtensionStaticMethod(typeof(string), "IsNullOrWhiteSpace", ExtensionOneType(typeof(string)))
+    ))
 
     ambiguousSelection := ColumnarExtensionMethodResolver.Resolve(ambiguous, typeof(string), "Ambiguous", new Type[](0), facts)
     assert !ambiguousSelection.IsSelected, "Two equally-ranked extensions across static classes must decline."
@@ -206,7 +210,8 @@ test "extension resolution fills a trailing optional null-default parameter" {
     // ArgumentNullException.ThrowIfNull(object value, string? paramName = null): the receiver slot is
     // `value` and `paramName` is a trailing optional with a null metadata default.
     optionalCandidate := MakeExtensionFixtureCandidate(
-        RequiredExtensionStaticMethod(RequiredExtensionFixtureType("System.ArgumentNullException"), "ThrowIfNull", ExtensionTwoTypes(typeof(object), typeof(string))))
+        RequiredExtensionStaticMethod(RequiredExtensionFixtureType("System.ArgumentNullException"), "ThrowIfNull", ExtensionTwoTypes(typeof(object), typeof(string)))
+    )
     index.Add("Guard", optionalCandidate)
 
     selection := ColumnarExtensionMethodResolver.Resolve(index, typeof(string), "Guard", new Type[](0), facts)

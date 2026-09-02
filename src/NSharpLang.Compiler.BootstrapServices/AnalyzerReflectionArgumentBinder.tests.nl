@@ -24,7 +24,6 @@ import NSharpLang.Compiler.Ast
 //   * a method group picks its BEST overload and a tie is a non-binding, never an arbitrary choice;
 //   * `Action`/`Func` signatures are read STRUCTURALLY from their type arguments rather than through
 //     `Invoke`, because the open form's `Invoke` would lose the N# TypeInfo overrides.
-
 func BinderRuntimeType(canonicalName: string): Type {
     resolved := Type.GetType(canonicalName)
     if resolved == null {
@@ -50,13 +49,15 @@ func BinderContext(): AnalyzerDeclarationContext {
 
 func BinderResolver(
     scopes: AnalyzerScopeStack,
-    context: AnalyzerDeclarationContext): AnalyzerTypeResolver {
+    context: AnalyzerDeclarationContext
+): AnalyzerTypeResolver {
     provider := new AnalyzerProjectSourceProvider()
     discovery := new AnalyzerProjectTypeDiscovery(
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     return new AnalyzerTypeResolver(
         scopes,
@@ -65,10 +66,11 @@ func BinderResolver(
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
 }
 
 // The binder with NO well-known-type bag. Every arm but the delegate ones runs in this state, and
@@ -91,9 +93,20 @@ func BinderFor(wellKnown: AnalyzerWellKnownTypes?): AnalyzerReflectionArgumentBi
     clrConversion := new AnalyzerClrTypeConversion(context, wellKnown)
     guard := new AnalyzerImplicitConversionGuard()
     assignability := new AnalyzerAssignability(
-        context, facts, structural, substitution, clrConversion, guard)
+        context,
+        facts,
+        structural,
+        substitution,
+        clrConversion,
+        guard
+    )
     scoring := new AnalyzerOverloadScoring(
-        context, clrConversion, assignability, resolver, wellKnown)
+        context,
+        clrConversion,
+        assignability,
+        resolver,
+        wellKnown
+    )
     return new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring, resolver)
 }
 
@@ -110,7 +123,8 @@ func BinderMlcType(wellKnown: AnalyzerWellKnownTypes, fullName: string): Type {
     resolved := coreAssembly.GetType(fullName)
     if resolved == null {
         throw new InvalidOperationException(
-            "The load context does not define '" + fullName + "'.")
+            "The load context does not define '" + fullName + "'."
+        )
     }
 
     return resolved
@@ -172,8 +186,7 @@ func BinderSubstringMethod(argumentCount: int): MethodInfo {
     index := 0
     while index < methods.Length {
         candidate := methods[index]
-        if candidate.get_Name() == "Substring"
-            && candidate.GetParameters().Length == argumentCount {
+        if candidate.get_Name() == "Substring" && candidate.GetParameters().Length == argumentCount {
             return candidate
         }
 
@@ -192,9 +205,7 @@ func BinderTryParseMethod(): MethodInfo {
         candidate := methods[index]
         if candidate.get_Name() == "TryParse" {
             parameters := candidate.GetParameters()
-            if parameters.Length == 2
-                && parameters[0].get_ParameterType() == typeof(string)
-                && parameters[1].get_ParameterType().get_IsByRef() {
+            if parameters.Length == 2 && parameters[0].get_ParameterType() == typeof(string) && parameters[1].get_ParameterType().get_IsByRef() {
                 return candidate
             }
         }
@@ -265,7 +276,17 @@ func BinderLambda(parameterCount: int, typeName: string): Argument {
         parameterType: TypeReference = new SimpleTypeReference(typeName, 0, 0)
         parameterName := "p" + index.ToString()
         parameter := new Parameter(
-            parameterName, parameterType, null, false, ParameterModifier.None, null, 1, 1, false, null)
+            parameterName,
+            parameterType,
+            null,
+            false,
+            ParameterModifier.None,
+            null,
+            1,
+            1,
+            false,
+            null
+        )
         parameters.Add(parameter)
         index = index + 1
     }
@@ -366,7 +387,8 @@ test "the binding walk places written arguments before it fills any default" {
     index = 0
     while index < parameters.Length {
         analyzedValues.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(
-            AnalyzerOverloadFacts.GetByRefElementType(parameters[index].get_ParameterType())))
+            AnalyzerOverloadFacts.GetByRefElementType(parameters[index].get_ParameterType())
+        ))
         index = index + 1
     }
 
@@ -375,10 +397,18 @@ test "the binding walk places written arguments before it fills any default" {
     usesParams := false
     defaultsUsed := 0
     assert binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(arguments),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed(analyzedValues),
-        out bound, out score, out usesParams, out defaultsUsed)
+        parameters,
+        0,
+        BinderCall(arguments),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed(analyzedValues),
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
     assert defaultsUsed == 0
     assert bound.Count == parameters.Length
 
@@ -398,10 +428,18 @@ test "the binding walk places written arguments before it fills any default" {
     }
 
     assert binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(shortArguments),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed(shortAnalyzed),
-        out bound, out score, out usesParams, out defaultsUsed)
+        parameters,
+        0,
+        BinderCall(shortArguments),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed(shortAnalyzed),
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
     assert defaultsUsed == 1
     lastBound := bound[bound.Count - 1]
     filled := lastBound as DefaultReflectionBoundArgument
@@ -423,10 +461,18 @@ test "a named argument binds by name and a name that does not match fails the ca
     usesParams := false
     defaultsUsed := 0
     assert binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(named),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed1(BuiltInTypes.Int),
-        out bound, out score, out usesParams, out defaultsUsed)
+        parameters,
+        0,
+        BinderCall(named),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(BuiltInTypes.Int),
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
     supplied := bound[0] as SuppliedReflectionBoundArgument
     assert supplied != null
     assert supplied.ParameterIndex == 0
@@ -436,21 +482,36 @@ test "a named argument binds by name and a name that does not match fails the ca
     unknown := BinderArguments()
     unknown.Add(BinderNamed("thisIsNotAParameter", "x"))
     assert !binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(unknown),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed1(BuiltInTypes.Int),
-        out bound, out score, out usesParams, out defaultsUsed)
+        parameters,
+        0,
+        BinderCall(unknown),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(BuiltInTypes.Int),
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
 
     // A name that lands on a position already taken is a DOUBLE binding, also a refusal.
     duplicated := BinderArguments()
     duplicated.Add(BinderNamed(parameterName, "x"))
     duplicated.Add(BinderNamed(parameterName, "y"))
     assert !binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(duplicated),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
+        parameters,
+        0,
+        BinderCall(duplicated),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
         new Dictionary<int, FunctionTypeInfo>(),
         BinderAnalyzed2(BuiltInTypes.Int, BuiltInTypes.Int),
-        out bound, out score, out usesParams, out defaultsUsed)
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
 }
 
 test "a receiver offset position is never supplied by name and never filled" {
@@ -468,20 +529,36 @@ test "a receiver offset position is never supplied by name and never filled" {
     usesParams := false
     defaultsUsed := 0
     assert !binder.TryBindReflectionArguments(
-        parameters, 1, BinderCall(named),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed1(BuiltInTypes.Int),
-        out bound, out score, out usesParams, out defaultsUsed)
+        parameters,
+        1,
+        BinderCall(named),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(BuiltInTypes.Int),
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
 
     // One positional argument now fills the SECOND position, and the bound list never carries the
     // receiver's own.
     positional := BinderArguments()
     positional.Add(BinderPositional("x"))
     assert binder.TryBindReflectionArguments(
-        parameters, 1, BinderCall(positional),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed1(BuiltInTypes.Int),
-        out bound, out score, out usesParams, out defaultsUsed)
+        parameters,
+        1,
+        BinderCall(positional),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(BuiltInTypes.Int),
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
     assert bound.Count == 1
     supplied := bound[0] as SuppliedReflectionBoundArgument
     assert supplied != null
@@ -502,11 +579,18 @@ test "a params tail expands into elements that record the ELEMENT type" {
     usesParams := false
     defaultsUsed := 0
     assert binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(arguments),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
+        parameters,
+        0,
+        BinderCall(arguments),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
         new Dictionary<int, FunctionTypeInfo>(),
         BinderAnalyzed3(BuiltInTypes.String, BuiltInTypes.Int, BuiltInTypes.String),
-        out bound, out score, out usesParams, out defaultsUsed)
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
     assert usesParams
     assert bound.Count == 2
 
@@ -550,11 +634,18 @@ test "a single trailing array is passed DIRECTLY and records the array type" {
     usesParams := false
     defaultsUsed := 0
     assert binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(arguments),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
+        parameters,
+        0,
+        BinderCall(arguments),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
         new Dictionary<int, FunctionTypeInfo>(),
         BinderAnalyzed2(BuiltInTypes.String, objectArray),
-        out bound, out score, out usesParams, out defaultsUsed)
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
 
     direct := bound[1] as SuppliedReflectionBoundArgument
     assert direct != null
@@ -566,21 +657,36 @@ test "a single trailing array is passed DIRECTLY and records the array type" {
     spreadArguments.Add(BinderPositional("format"))
     spreadArguments.Add(BinderSpread("values"))
     assert binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(spreadArguments),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
+        parameters,
+        0,
+        BinderCall(spreadArguments),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
         new Dictionary<int, FunctionTypeInfo>(),
         BinderAnalyzed2(BuiltInTypes.String, objectArray),
-        out bound, out score, out usesParams, out defaultsUsed)
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
     assert bound[1] is ParamsReflectionBoundArgument
 
     // An EMPTY tail is still a params binding with no elements.
     emptyArguments := BinderArguments()
     emptyArguments.Add(BinderPositional("format"))
     assert binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(emptyArguments),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed1(BuiltInTypes.String),
-        out bound, out score, out usesParams, out defaultsUsed)
+        parameters,
+        0,
+        BinderCall(emptyArguments),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(BuiltInTypes.String),
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
     emptyTail := bound[1] as ParamsReflectionBoundArgument
     assert emptyTail != null
     assert emptyTail.Arguments.Count == 0
@@ -589,14 +695,18 @@ test "a single trailing array is passed DIRECTLY and records the array type" {
 
 test "the direct-params question answers on a TRIAL copy and leaves the bindings alone" {
     binder := BinderDefault()
-    genericParameter := BinderRuntimeType("System.Func`2, System.Private.CoreLib")
-        .GetGenericArguments()[0]
+    genericParameter := BinderRuntimeType("System.Func`2, System.Private.CoreLib").GetGenericArguments()[0]
     openArray := genericParameter.MakeArrayType()
 
     bindings := new Dictionary<Type, Type>()
     intArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
     assert binder.ShouldPassReflectionParamsArgumentDirectly(
-        BinderPositional("values"), 0, openArray, bindings, BinderAnalyzed1(intArray))
+        BinderPositional("values"),
+        0,
+        openArray,
+        bindings,
+        BinderAnalyzed1(intArray)
+    )
 
     // The match BOUND the open element type — but only inside the trial copy.
     assert bindings.Count == 0
@@ -604,22 +714,51 @@ test "the direct-params question answers on a TRIAL copy and leaves the bindings
     // A spread is the expansion; an explicit `default` is the null ARRAY, so it always is direct;
     // a lambda has no type until a delegate context exists.
     assert !binder.ShouldPassReflectionParamsArgumentDirectly(
-        BinderSpread("values"), 0, typeof(object[]), bindings, BinderAnalyzed1(intArray))
+        BinderSpread("values"),
+        0,
+        typeof(object[]),
+        bindings,
+        BinderAnalyzed1(intArray)
+    )
     assert binder.ShouldPassReflectionParamsArgumentDirectly(
-        BinderDefaultArgument(), 0, typeof(object[]), bindings, BinderAnalyzed1(null))
+        BinderDefaultArgument(),
+        0,
+        typeof(object[]),
+        bindings,
+        BinderAnalyzed1(null)
+    )
     assert !binder.ShouldPassReflectionParamsArgumentDirectly(
-        BinderLambda(1, "int"), 0, typeof(object[]), bindings, BinderAnalyzed1(null))
+        BinderLambda(1, "int"),
+        0,
+        typeof(object[]),
+        bindings,
+        BinderAnalyzed1(null)
+    )
 
     // An UNKNOWN or untyped argument is not the array either.
     assert !binder.ShouldPassReflectionParamsArgumentDirectly(
-        BinderPositional("values"), 0, typeof(object[]), bindings,
-        BinderAnalyzed1(BuiltInTypes.Unknown))
+        BinderPositional("values"),
+        0,
+        typeof(object[]),
+        bindings,
+        BinderAnalyzed1(BuiltInTypes.Unknown)
+    )
     assert !binder.ShouldPassReflectionParamsArgumentDirectly(
-        BinderPositional("values"), 0, typeof(object[]), bindings, BinderAnalyzed1(null))
+        BinderPositional("values"),
+        0,
+        typeof(object[]),
+        bindings,
+        BinderAnalyzed1(null)
+    )
 
     // A loose element is not the array.
     assert !binder.ShouldPassReflectionParamsArgumentDirectly(
-        BinderPositional("value"), 0, typeof(int[]), bindings, BinderAnalyzed1(BuiltInTypes.Int))
+        BinderPositional("value"),
+        0,
+        typeof(int[]),
+        bindings,
+        BinderAnalyzed1(BuiltInTypes.Int)
+    )
 }
 
 test "by-ref direction is an equality and a params element is exempt from it" {
@@ -635,11 +774,18 @@ test "by-ref direction is an equality and a params element is exempt from it" {
     usesParams := false
     defaultsUsed := 0
     assert binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(matching),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
+        parameters,
+        0,
+        BinderCall(matching),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
         new Dictionary<int, FunctionTypeInfo>(),
         BinderAnalyzed2(BuiltInTypes.String, BuiltInTypes.Int),
-        out bound, out score, out usesParams, out defaultsUsed)
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
 
     // The by-ref shell is stripped off the recorded open parameter type.
     outBound := bound[1] as SuppliedReflectionBoundArgument
@@ -651,35 +797,65 @@ test "by-ref direction is an equality and a params element is exempt from it" {
     missing.Add(BinderPositional("text"))
     missing.Add(BinderPositional("parsed"))
     assert !binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(missing),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
+        parameters,
+        0,
+        BinderCall(missing),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
         new Dictionary<int, FunctionTypeInfo>(),
         BinderAnalyzed2(BuiltInTypes.String, BuiltInTypes.Int),
-        out bound, out score, out usesParams, out defaultsUsed)
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
 
     // And so is a modifier the declaration did not ask for.
     extra := BinderArguments()
     extra.Add(BinderOut("text"))
     extra.Add(BinderOut("parsed"))
     assert !binder.TryBindReflectionArguments(
-        parameters, 0, BinderCall(extra),
-        new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
+        parameters,
+        0,
+        BinderCall(extra),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
         new Dictionary<int, FunctionTypeInfo>(),
         BinderAnalyzed2(BuiltInTypes.String, BuiltInTypes.Int),
-        out bound, out score, out usesParams, out defaultsUsed)
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
 
     // A params ELEMENT is exempt: the element of a by-ref params array is not itself by-ref.
     element := new SuppliedReflectionBoundArgument(
-        1, typeof(int), BinderPositional("parsed"), 1)
+        1,
+        typeof(int),
+        BinderPositional("parsed"),
+        1
+    )
     elementScore := 0
     assert !binder.TryScoreReflectionSuppliedArgument(
-        element, parameters[1], new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
+        element,
+        parameters[1],
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
         new Dictionary<int, FunctionTypeInfo>(),
-        BinderAnalyzed2(BuiltInTypes.String, BuiltInTypes.Int), false, out elementScore)
+        BinderAnalyzed2(BuiltInTypes.String, BuiltInTypes.Int),
+        false,
+        out elementScore
+    )
     assert binder.TryScoreReflectionSuppliedArgument(
-        element, parameters[1], new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
+        element,
+        parameters[1],
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
         new Dictionary<int, FunctionTypeInfo>(),
-        BinderAnalyzed2(BuiltInTypes.String, BuiltInTypes.Int), true, out elementScore)
+        BinderAnalyzed2(BuiltInTypes.String, BuiltInTypes.Int),
+        true,
+        out elementScore
+    )
 }
 
 test "the per-argument score ladder orders candidates by how much was assumed" {
@@ -689,32 +865,64 @@ test "the per-argument score ladder orders candidates by how much was assumed" {
 
     // An explicit `default` fits any parameter exactly.
     defaulted := new SuppliedReflectionBoundArgument(
-        0, typeof(int), BinderDefaultArgument(), 0)
+        0,
+        typeof(int),
+        BinderDefaultArgument(),
+        0
+    )
     score := 0
     assert binder.TryScoreReflectionSuppliedArgument(
-        defaulted, parameters[0], new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed1(null), false, out score)
+        defaulted,
+        parameters[0],
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(null),
+        false,
+        out score
+    )
     assert score == 8
 
     // An identical CLR type scores on the reflection ladder.
     exact := new SuppliedReflectionBoundArgument(0, typeof(int), BinderPositional("x"), 0)
     assert binder.TryScoreReflectionSuppliedArgument(
-        exact, parameters[0], new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed1(BuiltInTypes.Int), false, out score)
+        exact,
+        parameters[0],
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(BuiltInTypes.Int),
+        false,
+        out score
+    )
     assert score == 8
 
     // A widening scores strictly below it.
     widened := new SuppliedReflectionBoundArgument(0, typeof(long), BinderPositional("x"), 0)
     assert binder.TryScoreReflectionSuppliedArgument(
-        widened, parameters[0], new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed1(BuiltInTypes.Int), false, out score)
+        widened,
+        parameters[0],
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(BuiltInTypes.Int),
+        false,
+        out score
+    )
     assert score == 6
 
     // An argument the analyzer could not type is never a binding.
     untyped := new SuppliedReflectionBoundArgument(0, typeof(int), BinderPositional("x"), 0)
     assert !binder.TryScoreReflectionSuppliedArgument(
-        untyped, parameters[0], new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(), BinderAnalyzed1(null), false, out score)
+        untyped,
+        parameters[0],
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(null),
+        false,
+        out score
+    )
 }
 
 // ------------------------------------------------------------------ the delegate arms
@@ -748,9 +956,14 @@ test "a delegate signature is read structurally for Action and Func and through 
         // A delegate that is neither goes through `Invoke`, whose parameters carry their own
         // nullability metadata.
         comparisonOfInt := BinderClosed(
-            BinderMlcType(wellKnown, "System.Comparison`1"), wellKnown.Int32)
+            BinderMlcType(wellKnown, "System.Comparison`1"),
+            wellKnown.Int32
+        )
         comparisonSignature := binder.CreateDelegateSignatureFromOpenType(
-            comparisonOfInt, overrides, bindings)
+            comparisonOfInt,
+            overrides,
+            bindings
+        )
         assert comparisonSignature != null
         assert comparisonSignature.ParameterTypes != null
         assert comparisonSignature.ParameterTypes.Count == 2
@@ -758,13 +971,22 @@ test "a delegate signature is read structurally for Action and Func and through 
         // A NON-delegate answers null — "not callable", which the caller distinguishes from a
         // delegate with no signature.
         assert binder.CreateDelegateSignatureFromOpenType(
-            wellKnown.Int32, overrides, bindings) == null
+            wellKnown.Int32,
+            overrides,
+            bindings
+        ) == null
         assert binder.CreateDelegateSignatureFromOpenType(
-            wellKnown.String, overrides, bindings) == null
+            wellKnown.String,
+            overrides,
+            bindings
+        ) == null
 
         // The two abstract ROOTS have no invocation signature and are excluded too.
         assert binder.CreateDelegateSignatureFromOpenType(
-            wellKnown.Delegate, overrides, bindings) == null
+            wellKnown.Delegate,
+            overrides,
+            bindings
+        ) == null
     } finally {
         scan.Dispose()
     }
@@ -797,7 +1019,10 @@ test "an N# TypeInfo override survives the structural Action and Func read" {
 
         // With NO override the same read answers with the bound CLR type instead.
         plain := binder.CreateDelegateSignatureFromOpenType(
-            openFunc, new Dictionary<Type, TypeInfo>(), bindings)
+            openFunc,
+            new Dictionary<Type, TypeInfo>(),
+            bindings
+        )
         assert plain != null
         assert plain.ParameterTypes != null
         assert BinderTypeName(plain.ParameterTypes[0]) == "int"
@@ -821,7 +1046,12 @@ test "a method group picks its best overload and a tie is a non-binding" {
         score := 0
         single: TypeInfo = BinderSourceFunction("Twice", BuiltInTypes.Int, BuiltInTypes.Int)
         assert binder.TryBindMethodGroupToReflectionDelegate(
-            funcOfIntInt, single, new Dictionary<Type, Type>(), out selected, out score)
+            funcOfIntInt,
+            single,
+            new Dictionary<Type, Type>(),
+            out selected,
+            out score
+        )
         assert score >= 4
         selectedObject := selected as object
         singleObject := single as object
@@ -830,7 +1060,12 @@ test "a method group picks its best overload and a tie is a non-binding" {
         // A LAMBDA-shaped function type has no source identity and is not a method group.
         anonymous: TypeInfo = BinderAnonymousFunction(BuiltInTypes.Int, BuiltInTypes.Int)
         assert !binder.TryBindMethodGroupToReflectionDelegate(
-            funcOfIntInt, anonymous, new Dictionary<Type, Type>(), out selected, out score)
+            funcOfIntInt,
+            anonymous,
+            new Dictionary<Type, Type>(),
+            out selected,
+            out score
+        )
 
         // A group picks the overload that matches.
         functions := new List<FunctionTypeInfo>()
@@ -838,7 +1073,12 @@ test "a method group picks its best overload and a tie is a non-binding" {
         functions.Add(BinderSourceFunction("Twice", BuiltInTypes.Int, BuiltInTypes.Int))
         group: TypeInfo = new NSharpMethodGroupInfo(functions)
         assert binder.TryBindMethodGroupToReflectionDelegate(
-            funcOfIntInt, group, new Dictionary<Type, Type>(), out selected, out score)
+            funcOfIntInt,
+            group,
+            new Dictionary<Type, Type>(),
+            out selected,
+            out score
+        )
         assert selected != null
         assert selected.ParameterTypes != null
         assert BinderTypeName(selected.ParameterTypes[0]) == "int"
@@ -850,16 +1090,31 @@ test "a method group picks its best overload and a tie is a non-binding" {
         tied.Add(BinderSourceFunction("Twice", BuiltInTypes.Int, BuiltInTypes.Int))
         ambiguous: TypeInfo = new NSharpMethodGroupInfo(tied)
         assert !binder.TryBindMethodGroupToReflectionDelegate(
-            funcOfIntInt, ambiguous, new Dictionary<Type, Type>(), out selected, out score)
+            funcOfIntInt,
+            ambiguous,
+            new Dictionary<Type, Type>(),
+            out selected,
+            out score
+        )
 
         // An EMPTY group has nothing to select.
         empty: TypeInfo = new NSharpMethodGroupInfo(new List<FunctionTypeInfo>())
         assert !binder.TryBindMethodGroupToReflectionDelegate(
-            funcOfIntInt, empty, new Dictionary<Type, Type>(), out selected, out score)
+            funcOfIntInt,
+            empty,
+            new Dictionary<Type, Type>(),
+            out selected,
+            out score
+        )
 
         // A NON-delegate parameter never takes a method group.
         assert !binder.TryBindMethodGroupToReflectionDelegate(
-            wellKnown.Int32, single, new Dictionary<Type, Type>(), out selected, out score)
+            wellKnown.Int32,
+            single,
+            new Dictionary<Type, Type>(),
+            out selected,
+            out score
+        )
     } finally {
         scan.Dispose()
     }
@@ -873,9 +1128,17 @@ test "without a well-known-type bag nothing is a delegate and every delegate arm
     single: TypeInfo = BinderSourceFunction("Twice", BuiltInTypes.Int, BuiltInTypes.Int)
 
     assert !binder.TryBindMethodGroupToReflectionDelegate(
-        funcOfIntInt, single, new Dictionary<Type, Type>(), out selected, out score)
+        funcOfIntInt,
+        single,
+        new Dictionary<Type, Type>(),
+        out selected,
+        out score
+    )
     assert binder.CreateDelegateSignatureFromOpenType(
-        funcOfIntInt, new Dictionary<Type, TypeInfo>(), new Dictionary<Type, Type>()) == null
+        funcOfIntInt,
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<Type, Type>()
+    ) == null
 }
 
 test "a selected method group's signature flows back into the reflected type parameters" {
@@ -894,7 +1157,11 @@ test "a selected method group's signature flows back into the reflected type par
         source := BinderSourceFunction("Twice", BuiltInTypes.Int, BuiltInTypes.String)
 
         assert binder.TryPopulateReflectionBindingsFromMethodGroupDelegate(
-            openFunc, source, bindings, typeInfoBindings)
+            openFunc,
+            source,
+            bindings,
+            typeInfoBindings
+        )
         assert bindings.Count == 2
         // The bound CLR types are the CONTEXT'S, not the compiler's own.
         assert bindings[openArguments[0]] == wellKnown.Int32
@@ -909,11 +1176,19 @@ test "a selected method group's signature flows back into the reflected type par
         wide := BinderSourceFunction("Twice", BuiltInTypes.Int, BuiltInTypes.Int)
         wide.ParameterTypes = twoParameters
         assert !binder.TryPopulateReflectionBindingsFromMethodGroupDelegate(
-            openFunc, wide, new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>())
+            openFunc,
+            wide,
+            new Dictionary<Type, Type>(),
+            new Dictionary<Type, TypeInfo>()
+        )
 
         // A type with no `Invoke` is not a delegate signature at all.
         assert !binder.TryPopulateReflectionBindingsFromMethodGroupDelegate(
-            wellKnown.Int32, source, new Dictionary<Type, Type>(), new Dictionary<Type, TypeInfo>())
+            wellKnown.Int32,
+            source,
+            new Dictionary<Type, Type>(),
+            new Dictionary<Type, TypeInfo>()
+        )
     } finally {
         scan.Dispose()
     }
@@ -968,19 +1243,26 @@ test "an array argument contributes its ELEMENT type to every read-only sequence
     // An open ARRAY parameter takes the element type too.
     arrayBindings := new Dictionary<Type, TypeInfo>()
     binder.PopulateTypeInfoBindingsFromType(
-        openParameter.MakeArrayType(), intArray, arrayBindings)
+        openParameter.MakeArrayType(),
+        intArray,
+        arrayBindings
+    )
     assert BinderTypeName(arrayBindings[openParameter]) == "int"
 
     // A parameter that is NOT a read-only sequence takes nothing from an array argument: the set is
     // deliberately closed.
     dictionaryDefinition := BinderRuntimeType(
-        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib"
+    )
     dictionaryArguments := new Type[](2)
     dictionaryArguments[0] = openParameter
     dictionaryArguments[1] = openParameter
     dictionaryBindings := new Dictionary<Type, TypeInfo>()
     binder.PopulateTypeInfoBindingsFromType(
-        dictionaryDefinition.MakeGenericType(dictionaryArguments), intArray, dictionaryBindings)
+        dictionaryDefinition.MakeGenericType(dictionaryArguments),
+        intArray,
+        dictionaryBindings
+    )
     assert dictionaryBindings.Count == 0
 }
 
@@ -999,7 +1281,9 @@ test "a generic argument that does not match the parameter's definition is trace
 
         // DIRECT: the argument's own definition matches the parameter's, so the positions line up.
         directArgument: TypeInfo = new GenericTypeInfo(
-            "IEnumerable", BinderTypeArguments(BuiltInTypes.String))
+            "IEnumerable",
+            BinderTypeArguments(BuiltInTypes.String)
+        )
         directBindings := new Dictionary<Type, TypeInfo>()
         binder.PopulateTypeInfoBindingsFromType(openEnumerable, directArgument, directBindings)
         assert BinderTypeName(directBindings[openParameter]) == "string"
@@ -1037,13 +1321,21 @@ test "both halves of inference run together and the by-ref shell is stripped fir
     bindings := new Dictionary<Type, Type>()
     typeInfoBindings := new Dictionary<Type, TypeInfo>()
     binder.PopulateReflectionBindingsFromTypeInfo(
-        openParameter.MakeByRefType(), BuiltInTypes.Int, bindings, typeInfoBindings)
+        openParameter.MakeByRefType(),
+        BuiltInTypes.Int,
+        bindings,
+        typeInfoBindings
+    )
     assert bindings[openParameter] == typeof(int)
     assert BinderTypeName(typeInfoBindings[openParameter]) == "int"
 
     // FIRST BINDING WINS on BOTH sides.
     binder.PopulateReflectionBindingsFromTypeInfo(
-        openParameter, BuiltInTypes.String, bindings, typeInfoBindings)
+        openParameter,
+        BuiltInTypes.String,
+        bindings,
+        typeInfoBindings
+    )
     assert bindings[openParameter] == typeof(int)
     assert BinderTypeName(typeInfoBindings[openParameter]) == "int"
 
@@ -1052,7 +1344,11 @@ test "both halves of inference run together and the by-ref shell is stripped fir
     arrayTypeInfos := new Dictionary<Type, TypeInfo>()
     intArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.String)
     binder.PopulateReflectionBindingsFromTypeInfo(
-        openParameter.MakeArrayType(), intArray, arrayBindings, arrayTypeInfos)
+        openParameter.MakeArrayType(),
+        intArray,
+        arrayBindings,
+        arrayTypeInfos
+    )
     assert arrayBindings[openParameter] == typeof(string)
 
     // A SOURCE type has no CLR form, so only the TypeInfo half binds — which is exactly why the two
@@ -1061,7 +1357,11 @@ test "both halves of inference run together and the by-ref shell is stripped fir
     sourceTypeInfos := new Dictionary<Type, TypeInfo>()
     sourceType: TypeInfo = new SimpleTypeInfo("Point")
     binder.PopulateReflectionBindingsFromTypeInfo(
-        openParameter, sourceType, sourceBindings, sourceTypeInfos)
+        openParameter,
+        sourceType,
+        sourceBindings,
+        sourceTypeInfos
+    )
     assert sourceBindings.Count == 0
     assert BinderTypeName(sourceTypeInfos[openParameter]) == "Point"
 }
@@ -1077,7 +1377,12 @@ test "a receiver contributes bindings only when its declaring type mentions a ty
     bindings := new Dictionary<Type, Type>()
     typeInfoBindings := new Dictionary<Type, TypeInfo>()
     assert binder.TryPopulateReceiverGenericTypeBindings(
-        listDefinition, closedList, listTypeInfo, bindings, typeInfoBindings)
+        listDefinition,
+        closedList,
+        listTypeInfo,
+        bindings,
+        typeInfoBindings
+    )
     assert bindings[listDefinition.GetGenericArguments()[0]] == typeof(int)
 
     // A declaring type with NO type parameter contributes nothing and is NOT a failure — the two
@@ -1085,18 +1390,33 @@ test "a receiver contributes bindings only when its declaring type mentions a ty
     plainBindings := new Dictionary<Type, Type>()
     plainTypeInfos := new Dictionary<Type, TypeInfo>()
     assert binder.TryPopulateReceiverGenericTypeBindings(
-        typeof(string), typeof(string), BuiltInTypes.String, plainBindings, plainTypeInfos)
+        typeof(string),
+        typeof(string),
+        BuiltInTypes.String,
+        plainBindings,
+        plainTypeInfos
+    )
     assert plainBindings.Count == 0
 
     // So does a null declaring type.
     assert binder.TryPopulateReceiverGenericTypeBindings(
-        null, typeof(string), BuiltInTypes.String, plainBindings, plainTypeInfos)
+        null,
+        typeof(string),
+        BuiltInTypes.String,
+        plainBindings,
+        plainTypeInfos
+    )
 
     // A receiver that does not match the declaring type IS a failure.
     mismatchBindings := new Dictionary<Type, Type>()
     mismatchTypeInfos := new Dictionary<Type, TypeInfo>()
     assert !binder.TryPopulateReceiverGenericTypeBindings(
-        listDefinition, typeof(string), BuiltInTypes.String, mismatchBindings, mismatchTypeInfos)
+        listDefinition,
+        typeof(string),
+        BuiltInTypes.String,
+        mismatchBindings,
+        mismatchTypeInfos
+    )
 }
 
 // The generic type DEFINITION whose members the mask re-finds. A test body cannot narrow a
@@ -1132,10 +1452,8 @@ func maskProbeOpenAdd(): MethodInfo {
     }
     definition := declaring.GetGenericTypeDefinition()
     candidates := definition.GetMethods(
-        BindingFlags.Public
-            | BindingFlags.NonPublic
-            | BindingFlags.Instance
-            | BindingFlags.Static)
+        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static
+    )
     i := 0
     while i < candidates.Length {
         candidate := candidates[i]
@@ -1152,10 +1470,8 @@ test "the binding mask combines and selects the filtered enumeration" {
 
     publicInstance := definition.GetMethods(BindingFlags.Public | BindingFlags.Instance)
     declared := definition.GetMethods(
-        BindingFlags.Public
-            | BindingFlags.NonPublic
-            | BindingFlags.Instance
-            | BindingFlags.Static)
+        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static
+    )
 
     // The mask is not decoration: the wider request answers strictly more members.
     assert publicInstance.Length > 0
@@ -1176,8 +1492,7 @@ test "a single mask member and a hoisted mask both bind" {
     assert single.Length == 0
 
     hoisted: BindingFlags = BindingFlags.Public | BindingFlags.Instance
-    assert definition.GetMethods(hoisted).Length
-        == definition.GetMethods(BindingFlags.Public | BindingFlags.Instance).Length
+    assert definition.GetMethods(hoisted).Length == definition.GetMethods(BindingFlags.Public | BindingFlags.Instance).Length
     assert definition.GetMethods(hoisted).Length > 0
 }
 
@@ -1197,7 +1512,8 @@ test "the open signature reduces a generic method to its own definition" {
     // type parameters inference must bind are gone.
     listType := BinderClosed(
         BinderRuntimeType("System.Collections.Generic.List`1, System.Private.CoreLib"),
-        typeof(int))
+        typeof(int)
+    )
     convertAll := listType.GetMethod("ConvertAll")
     assert convertAll != null
     assert convertAll.get_IsGenericMethodDefinition()
@@ -1212,7 +1528,8 @@ test "the open signature is re-found on the declaring type's definition" {
     // `void Add(T)`, and only the definition's own member table has it.
     closedListType := BinderClosed(
         BinderRuntimeType("System.Collections.Generic.List`1, System.Private.CoreLib"),
-        typeof(int))
+        typeof(int)
+    )
     closed := closedListType.GetMethod("Add")
     assert closed != null
     closedParameters := closed.GetParameters()
@@ -1265,7 +1582,12 @@ test "the pre-binder answers a candidate with its score and both tie-breaks" {
     assert substring != null
 
     bound := binder.PreBindReflectionMethod(
-        substring, PreBindCall(1), typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed1(BuiltInTypes.Int))
+        substring,
+        PreBindCall(1),
+        typeof(string),
+        new ReflectionTypeInfo(typeof(string)),
+        BinderAnalyzed1(BuiltInTypes.Int)
+    )
     assert bound != null
     assert bound.RuntimeMethod.get_MetadataToken() == substring.get_MetadataToken()
     assert bound.SignatureMethod.get_MetadataToken() == substring.get_MetadataToken()
@@ -1276,9 +1598,19 @@ test "the pre-binder answers a candidate with its score and both tie-breaks" {
 
     // ARITY IS EXACT: the same candidate refuses a call it cannot fill.
     assert binder.PreBindReflectionMethod(
-        substring, PreBindCall(3), typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed3(BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int)) == null
+        substring,
+        PreBindCall(3),
+        typeof(string),
+        new ReflectionTypeInfo(typeof(string)),
+        BinderAnalyzed3(BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int)
+    ) == null
     assert binder.PreBindReflectionMethod(
-        substring, PreBindCall(0), typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed(new List<TypeInfo?>())) == null
+        substring,
+        PreBindCall(0),
+        typeof(string),
+        new ReflectionTypeInfo(typeof(string)),
+        BinderAnalyzed(new List<TypeInfo?>())
+    ) == null
 }
 
 test "the pre-binder refuses written type arguments a candidate cannot take" {
@@ -1290,11 +1622,21 @@ test "the pre-binder refuses written type arguments a candidate cannot take" {
     // wrong COUNT is a non-binding rather than a partial inference.
     typed := PreBindCallWithTypeArguments(1, 1)
     assert binder.PreBindReflectionMethod(
-        substring, typed, typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed1(BuiltInTypes.Int)) == null
+        substring,
+        typed,
+        typeof(string),
+        new ReflectionTypeInfo(typeof(string)),
+        BinderAnalyzed1(BuiltInTypes.Int)
+    ) == null
 
     // The same call WITHOUT the type argument binds, so the refusal is the type argument's doing.
     assert binder.PreBindReflectionMethod(
-        substring, PreBindCall(1), typeof(string), new ReflectionTypeInfo(typeof(string)), BinderAnalyzed1(BuiltInTypes.Int)) != null
+        substring,
+        PreBindCall(1),
+        typeof(string),
+        new ReflectionTypeInfo(typeof(string)),
+        BinderAnalyzed1(BuiltInTypes.Int)
+    ) != null
 }
 
 // A call on a MEMBER-ACCESS callee, which is the shape a reflected instance call always has, with
@@ -1418,8 +1760,12 @@ test "the finalising walk asks once per supplied argument and answers the call's
     assert substring != null
 
     candidate := binder.PreBindReflectionMethod(
-        substring, PreBindCall(1), typeof(string), new ReflectionTypeInfo(typeof(string)),
-        BinderAnalyzed1(BuiltInTypes.Int))
+        substring,
+        PreBindCall(1),
+        typeof(string),
+        new ReflectionTypeInfo(typeof(string)),
+        BinderAnalyzed1(BuiltInTypes.Int)
+    )
     assert candidate != null
 
     state := binder.BeginFinalizeReflectionCall(candidate)
@@ -1444,12 +1790,18 @@ test "the finalising walk asks once per supplied argument and answers the call's
 test "an argument that does not assign ends the walk and no later argument is asked for" {
     binder := BinderDefault()
     substring := typeof(string).GetMethod(
-        "Substring", PreBindTypeArray2(typeof(int), typeof(int)))
+        "Substring",
+        PreBindTypeArray2(typeof(int), typeof(int))
+    )
     assert substring != null
 
     candidate := binder.PreBindReflectionMethod(
-        substring, PreBindCall(2), typeof(string), new ReflectionTypeInfo(typeof(string)),
-        BinderAnalyzed2(BuiltInTypes.Int, BuiltInTypes.Int))
+        substring,
+        PreBindCall(2),
+        typeof(string),
+        new ReflectionTypeInfo(typeof(string)),
+        BinderAnalyzed2(BuiltInTypes.Int, BuiltInTypes.Int)
+    )
     assert candidate != null
 
     // Both positions are asked for when both answers assign.
@@ -1475,9 +1827,15 @@ test "a defaulted position contributes a parameter type without asking for an an
     method := BinderOptionalMethod()
     parameters := method.GetParameters()
     firstType := AnalyzerReflectionTypeConversion.ConvertReflectionType(
-        AnalyzerOverloadFacts.GetByRefElementType(parameters[0].get_ParameterType()))
+        AnalyzerOverloadFacts.GetByRefElementType(parameters[0].get_ParameterType())
+    )
     candidate := binder.PreBindReflectionMethod(
-        method, PreBindCall(1), null, null, BinderAnalyzed1(firstType))
+        method,
+        PreBindCall(1),
+        null,
+        null,
+        BinderAnalyzed1(firstType)
+    )
     assert candidate != null
 
     state := binder.BeginFinalizeReflectionCall(candidate)
@@ -1500,8 +1858,12 @@ test "an expanded params tail asks once per element" {
     binder := BinderDefault()
     format := BinderFormatMethod()
     candidate := binder.PreBindReflectionMethod(
-        format, PreBindCall(4), null, null,
-        BinderAnalyzed(FinalizeStringValues(4)))
+        format,
+        PreBindCall(4),
+        null,
+        null,
+        BinderAnalyzed(FinalizeStringValues(4))
+    )
     assert candidate != null
 
     state := binder.BeginFinalizeReflectionCall(candidate)
@@ -1534,7 +1896,8 @@ test "a phase-one lambda answer binds the method's one remaining type parameter"
             FinalizeCall(2, 1),
             null,
             null,
-            BinderAnalyzed2(new ReflectionTypeInfo(intArray), null))
+            BinderAnalyzed2(new ReflectionTypeInfo(intArray), null)
+        )
         assert candidate != null
 
         state := binder.BeginFinalizeReflectionCall(candidate)
@@ -1549,7 +1912,9 @@ test "a phase-one lambda answer binds the method's one remaining type parameter"
         // The answer INFERS: with exactly one type parameter still unbound, the lambda's return
         // type takes it.
         binder.SupplyReflectionAnalysis(
-            state, FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String))
+            state,
+            FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String)
+        )
 
         // PHASE TWO. The array position, then the SAME lambda again — and its signature is now the
         // bound one, which is why the second analysis is not a repeat of the first.
@@ -1565,7 +1930,9 @@ test "a phase-one lambda answer binds the method's one remaining type parameter"
         // reflected delegate's metadata, which is why the second signature is not merely "(int)->string".
         assert FinalizeSignatureText(third) == "(int)->string?"
         binder.SupplyReflectionAnalysis(
-            state, FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String))
+            state,
+            FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String)
+        )
 
         assert binder.NextReflectionAnalysis(state) == null
         assert state.Result != null
@@ -1591,7 +1958,8 @@ test "a type parameter the pre-pass never binds is a non-finalisation rather tha
             FinalizeCall(2, 1),
             null,
             null,
-            BinderAnalyzed2(new ReflectionTypeInfo(intArray), null))
+            BinderAnalyzed2(new ReflectionTypeInfo(intArray), null)
+        )
         assert candidate != null
 
         state := binder.BeginFinalizeReflectionCall(candidate)
@@ -1601,7 +1969,9 @@ test "a type parameter the pre-pass never binds is a non-finalisation rather tha
         // A lambda whose return type is UNKNOWN converts to no CLR type, so `TOutput` stays open.
         // The walk answers nothing at all rather than closing the method on a guess.
         binder.SupplyReflectionAnalysis(
-            state, FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.Unknown))
+            state,
+            FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.Unknown)
+        )
         assert binder.NextReflectionAnalysis(state) == null
         assert state.Result == null
         assert state.Failed
@@ -1625,7 +1995,8 @@ test "the finalisation leaves the candidate's own recorded inference untouched" 
             FinalizeCall(2, 1),
             null,
             null,
-            BinderAnalyzed2(new ReflectionTypeInfo(intArray), null))
+            BinderAnalyzed2(new ReflectionTypeInfo(intArray), null)
+        )
         assert candidate != null
 
         bindingsBefore := candidate.Bindings.Count
@@ -1636,7 +2007,9 @@ test "the finalisation leaves the candidate's own recorded inference untouched" 
         while request != null {
             if request.Lambda != null {
                 binder.SupplyReflectionAnalysis(
-                    state, FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String))
+                    state,
+                    FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String)
+                )
             } else {
                 binder.SupplyReflectionAnalysis(state, request.ExpectedType)
             }

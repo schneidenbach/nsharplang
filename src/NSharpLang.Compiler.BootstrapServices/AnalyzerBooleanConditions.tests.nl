@@ -28,7 +28,6 @@ import NSharpLang.Compiler.Ast
 //
 // (5) THE SUPPRESSIONS ARE THE SAME IN ALL FIVE. `unknown` and a parser error placeholder both mean
 // the developer has already been told what is wrong.
-
 class CondHarness {
     Conditions: AnalyzerBooleanConditions
     Escape: AnalyzerSoaEscape
@@ -41,7 +40,8 @@ class CondHarness {
         escape: AnalyzerSoaEscape,
         scopes: AnalyzerScopeStack,
         assignability: AnalyzerAssignability,
-        errors: List<CompilerError>) {
+        errors: List<CompilerError>
+    ) {
         Conditions = conditions
         Escape = escape
         Scopes = scopes
@@ -62,7 +62,8 @@ func CondSourceText(): string {
 
 func CondAssignability(
     provider: AnalyzerProjectSourceProvider,
-    diagnostics: AnalyzerDiagnosticSink): AnalyzerAssignability {
+    diagnostics: AnalyzerDiagnosticSink
+): AnalyzerAssignability {
     context := new AnalyzerDeclarationContext()
     assemblies := new List<Assembly>()
     assemblies.Add(typeof(List<int>).get_Assembly())
@@ -74,7 +75,8 @@ func CondAssignability(
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     resolver := new AnalyzerTypeResolver(
         scopes,
@@ -83,10 +85,11 @@ func CondAssignability(
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         model,
-        new BindingMap())
+        new BindingMap()
+    )
     resolver.BeginAnalysis(CondPath(), null, model, new BindingMap())
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
@@ -116,7 +119,8 @@ func CondHarnessWith(sourceText: string?): CondHarness {
         escape,
         scopes,
         CondAssignability(provider, diagnostics),
-        errors)
+        errors
+    )
 }
 
 func CondDefault(): CondHarness {
@@ -158,8 +162,7 @@ func CondColumnRead(harness: CondHarness): MemberAccessExpression {
 
 func CondErrorText(harness: CondHarness, index: int): string {
     error := harness.Errors[index]
-    return error.Message + "|" + error.Line.ToString() + ":" + error.Column.ToString()
-        + "+" + error.Length.ToString()
+    return error.Message + "|" + error.Line.ToString() + ":" + error.Column.ToString() + "+" + error.Length.ToString()
 }
 
 func CondPlaceholder(): IdentifierExpression {
@@ -172,11 +175,14 @@ test "THE PLAIN REPORT NAMES THE OWNER AND THE TYPE AND UNDERLINES THE CONDITION
     harness := CondDefault()
 
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("count"), "a 'while' loop", "used as a 'while' condition", BuiltInTypes.Int)
+        CondName("count"),
+        "a 'while' loop",
+        "used as a 'while' condition",
+        BuiltInTypes.Int
+    )
 
     assert harness.Errors.Count == 1
-    assert CondErrorText(harness, 0)
-        == "The condition in a 'while' loop must be a boolean, but I found 'int'|4:8+5"
+    assert CondErrorText(harness, 0) == "The condition in a 'while' loop must be a boolean, but I found 'int'|4:8+5"
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
 }
 
@@ -184,45 +190,69 @@ test "ALL THREE PLAIN OWNERS REACH THE WORDING VERBATIM" {
     harness := CondDefault()
 
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("count"), "a 'while' loop", "used as a 'while' condition", BuiltInTypes.Int)
+        CondName("count"),
+        "a 'while' loop",
+        "used as a 'while' condition",
+        BuiltInTypes.Int
+    )
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("count"), "a 'for' loop", "used as a 'for' condition", BuiltInTypes.String)
+        CondName("count"),
+        "a 'for' loop",
+        "used as a 'for' condition",
+        BuiltInTypes.String
+    )
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("count"), "a ternary expression", "used as a ternary condition", BuiltInTypes.Double)
+        CondName("count"),
+        "a ternary expression",
+        "used as a ternary condition",
+        BuiltInTypes.Double
+    )
 
     assert harness.Errors.Count == 3
-    assert harness.Errors[0].Message
-        == "The condition in a 'while' loop must be a boolean, but I found 'int'"
-    assert harness.Errors[1].Message
-        == "The condition in a 'for' loop must be a boolean, but I found 'string'"
-    assert harness.Errors[2].Message
-        == "The condition in a ternary expression must be a boolean, but I found 'double'"
+    assert harness.Errors[0].Message == "The condition in a 'while' loop must be a boolean, but I found 'int'"
+    assert harness.Errors[1].Message == "The condition in a 'for' loop must be a boolean, but I found 'string'"
+    assert harness.Errors[2].Message == "The condition in a ternary expression must be a boolean, but I found 'double'"
 }
 
 test "A BOOLEAN CONDITION IS SILENT, AND THE TEST IS IDENTITY RATHER THAN ASSIGNABILITY" {
     harness := CondDefault()
 
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("flag"), "a 'while' loop", "used as a 'while' condition", BuiltInTypes.Bool)
+        CondName("flag"),
+        "a 'while' loop",
+        "used as a 'while' condition",
+        BuiltInTypes.Bool
+    )
     assert harness.Errors.Count == 0
 
     // `bool?` is NOT a boolean condition. Neither is anything that merely converts to one.
     nullableBool: TypeInfo = new NullableTypeInfo(BuiltInTypes.Bool)
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("flag"), "a 'while' loop", "used as a 'while' condition", nullableBool)
+        CondName("flag"),
+        "a 'while' loop",
+        "used as a 'while' condition",
+        nullableBool
+    )
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "The condition in a 'while' loop must be a boolean, but I found 'bool?'"
+    assert harness.Errors[0].Message == "The condition in a 'while' loop must be a boolean, but I found 'bool?'"
 }
 
 test "A CONDITION THAT ALREADY CARRIES ITS OWN COMPLAINT IS NOT COMPLAINED ABOUT TWICE" {
     harness := CondDefault()
 
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("count"), "a 'for' loop", "used as a 'for' condition", BuiltInTypes.Unknown)
+        CondName("count"),
+        "a 'for' loop",
+        "used as a 'for' condition",
+        BuiltInTypes.Unknown
+    )
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondPlaceholder(), "a 'for' loop", "used as a 'for' condition", BuiltInTypes.Int)
+        CondPlaceholder(),
+        "a 'for' loop",
+        "used as a 'for' condition",
+        BuiltInTypes.Int
+    )
 
     assert harness.Errors.Count == 0
 }
@@ -233,11 +263,14 @@ test "A ROW VIEW CONDITION IS TOLD ONCE, AND NOT ALSO TOLD IT IS NOT A BOOLEAN" 
     harness := CondDefault()
 
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("row"), "a 'while' loop", "used as a 'while' condition", CondRowType())
+        CondName("row"),
+        "a 'while' loop",
+        "used as a 'while' condition",
+        CondRowType()
+    )
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a 'while' condition; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a 'while' condition; use the table and row index instead"
 }
 
 test "A DIRECT COLUMN CONDITION IS TOLD ONCE, AND NOT ALSO TOLD IT IS NOT A BOOLEAN" {
@@ -248,11 +281,14 @@ test "A DIRECT COLUMN CONDITION IS TOLD ONCE, AND NOT ALSO TOLD IT IS NOT A BOOL
     // not a boolean either. Only the escape is reported.
     arrayType: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        column, "a 'for' loop", "used as a 'for' condition", arrayType)
+        column,
+        "a 'for' loop",
+        "used as a 'for' condition",
+        arrayType
+    )
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA table member 'x' cannot be used as a 'for' condition directly"
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be used as a 'for' condition directly"
 }
 
 test "THE ROW REPORT DOES NOT SHORT-CIRCUIT THE COLUMN PROBE" {
@@ -262,13 +298,15 @@ test "THE ROW REPORT DOES NOT SHORT-CIRCUIT THE COLUMN PROBE" {
     // A syntactic column read whose ANSWERED type is a row view asks both questions and is told
     // both things. The five C# arms read two independent locals; an `if`-chain would drop one.
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        column, "a ternary expression", "used as a ternary condition", CondRowType())
+        column,
+        "a ternary expression",
+        "used as a ternary condition",
+        CondRowType()
+    )
 
     assert harness.Errors.Count == 2
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a ternary condition; use the table and row index instead"
-    assert harness.Errors[1].Message
-        == "SoA table member 'x' cannot be used as a ternary condition directly"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a ternary condition; use the table and row index instead"
+    assert harness.Errors[1].Message == "SoA table member 'x' cannot be used as a ternary condition directly"
 }
 
 test "THE ESCAPE ACTION WORD AND THE OWNER NAME ARE DIFFERENT STRINGS" {
@@ -277,9 +315,17 @@ test "THE ESCAPE ACTION WORD AND THE OWNER NAME ARE DIFFERENT STRINGS" {
     // The escape talks about the VALUE; the mismatch talks about the CONSTRUCT. Passing one where
     // the other belongs is the mistake this pins.
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("row"), "a 'for' loop", "used as a 'for' condition", CondRowType())
+        CondName("row"),
+        "a 'for' loop",
+        "used as a 'for' condition",
+        CondRowType()
+    )
     harness.Conditions.ReportConditionTypeMismatchIfNeeded(
-        CondName("count"), "a 'for' loop", "used as a 'for' condition", BuiltInTypes.Int)
+        CondName("count"),
+        "a 'for' loop",
+        "used as a 'for' condition",
+        BuiltInTypes.Int
+    )
 
     assert harness.Errors.Count == 2
     assert harness.Errors[0].Message.Contains("used as a 'for' condition")
@@ -317,8 +363,7 @@ test "THE `if` CONDITION FALLS BACK TO THE PLAIN WORDING WITH NO SNIPPET" {
     harness.Conditions.ReportIfConditionTypeMismatchIfNeeded(CondName("count"), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
-    assert CondErrorText(harness, 0)
-        == "The condition in an 'if' must be a boolean, but I found 'int'|4:8+5"
+    assert CondErrorText(harness, 0) == "The condition in an 'if' must be a boolean, but I found 'int'|4:8+5"
     assert harness.Errors[0].SourceSnippet == null
 }
 
@@ -337,8 +382,7 @@ test "THE `if` ARM RUNS THE SAME TEST, THE SAME SUPPRESSIONS AND THE SAME ESCAPE
 
     harness.Conditions.ReportIfConditionTypeMismatchIfNeeded(CondName("row"), CondRowType())
     assert harness.Errors.Count == 2
-    assert harness.Errors[1].Message
-        == "SoA row views cannot be used as an 'if' condition; use the table and row index instead"
+    assert harness.Errors[1].Message == "SoA row views cannot be used as an 'if' condition; use the table and row index instead"
 }
 
 // ── the `match` guard, which is the one that differs ─────────────────────────
@@ -347,11 +391,13 @@ test "A MATCH GUARD IS MEASURED BY ASSIGNABILITY AND REPORTS UNDER ITS OWN CODE"
     harness := CondDefault()
 
     harness.Conditions.ReportMatchGuardTypeMismatchIfNeeded(
-        CondName("count"), BuiltInTypes.Int, harness.Assignability)
+        CondName("count"),
+        BuiltInTypes.Int,
+        harness.Assignability
+    )
 
     assert harness.Errors.Count == 1
-    assert CondErrorText(harness, 0)
-        == "A match guard must be a boolean, but this expression is 'int'|4:8+5"
+    assert CondErrorText(harness, 0) == "A match guard must be a boolean, but this expression is 'int'|4:8+5"
     assert harness.Errors[0].Code == ErrorCode.GuardNotBoolean
 }
 
@@ -361,9 +407,15 @@ test "A MATCH GUARD ACCEPTS WHAT THE OTHER FOUR REFUSE, AND THAT IS DELIBERATE" 
     // `unknown` is assignable to `bool`, so the guard is silent for the SAME reason the other four
     // are — but it reaches that answer through the oracle rather than through a suppression.
     harness.Conditions.ReportMatchGuardTypeMismatchIfNeeded(
-        CondName("count"), BuiltInTypes.Unknown, harness.Assignability)
+        CondName("count"),
+        BuiltInTypes.Unknown,
+        harness.Assignability
+    )
     harness.Conditions.ReportMatchGuardTypeMismatchIfNeeded(
-        CondName("flag"), BuiltInTypes.Bool, harness.Assignability)
+        CondName("flag"),
+        BuiltInTypes.Bool,
+        harness.Assignability
+    )
 
     assert harness.Errors.Count == 0
 }
@@ -372,9 +424,11 @@ test "A MATCH GUARD RUNS THE SAME ESCAPE GATE, WITH ITS OWN ACTION WORD" {
     harness := CondDefault()
 
     harness.Conditions.ReportMatchGuardTypeMismatchIfNeeded(
-        CondName("row"), CondRowType(), harness.Assignability)
+        CondName("row"),
+        CondRowType(),
+        harness.Assignability
+    )
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "SoA row views cannot be used as a match guard; use the table and row index instead"
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a match guard; use the table and row index instead"
 }

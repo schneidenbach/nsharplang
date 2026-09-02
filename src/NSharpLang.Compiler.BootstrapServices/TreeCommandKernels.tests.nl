@@ -19,7 +19,6 @@ import System.Collections.Generic
 // Those rows moved to `tests/native/cli-command-contracts`, which spawns the real CLI.
 
 // ── the option summary ────────────────────────────────────────────────────────
-
 test "tree option summary reads the project, depth, json and help flags" {
     summary := TreeCommandKernels.GetOptionSummary(["--project", "samples/demo", "--depth", "2", "--json", "-h"])
 
@@ -126,15 +125,12 @@ test "the tree help text names the command, its usage and its failure banner" {
 }
 
 test "every tree message is spelled by a kernel, character for character" {
-    assert TreeCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing")
-        == "Project directory not found: /tmp/nsharp-missing"
+    assert TreeCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing") == "Project directory not found: /tmp/nsharp-missing"
     assert TreeCommandKernels.GetTreeFailedMessage("bad graph") == "Tree failed: bad graph"
     assert TreeCommandKernels.GetNoProjectFileMessage().Contains("No project.yml or .csproj found")
     assert TreeCommandKernels.GetProjectYmlLimitationMessage().Contains("direct runtime dependencies")
-    assert TreeCommandKernels.GetTransitiveResolutionFailedLimitation("restore failed")
-        == "Transitive NuGet dependency resolution through MSBuild failed: restore failed"
-    assert TreeCommandKernels.GetDotnetRestoreRetryMessage("restore failed")
-        == "restore failed Run 'dotnet restore' and retry."
+    assert TreeCommandKernels.GetTransitiveResolutionFailedLimitation("restore failed") == "Transitive NuGet dependency resolution through MSBuild failed: restore failed"
+    assert TreeCommandKernels.GetDotnetRestoreRetryMessage("restore failed") == "restore failed Run 'dotnet restore' and retry."
     assert TreeCommandKernels.GetDotnetListFailedMessage() == "dotnet list package failed."
 }
 

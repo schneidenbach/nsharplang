@@ -159,7 +159,8 @@ func ExternalAssertLiteralField(
     memberName: string,
     expectedType: Type,
     expectedText: string,
-    factSource: string) {
+    factSource: string
+) {
     tree := ExternalStaticMemberTree(ownerName, memberName)
     ExternalStampScope(tree, factSource)
     plan := ExternalPlan(tree, ColumnarRangePlannerEmptyBindings())
@@ -269,13 +270,17 @@ test "external static-member planner owns runtime enum and primitive literal fie
     byteEnumTree := ExternalStaticMemberTree("JsonValueKind", "Object")
     ExternalStampScope(byteEnumTree, "import System.Text.Json\n")
     byteEnumPlan := ExternalPlan(
-        byteEnumTree, ColumnarRangePlannerEmptyBindings())
+        byteEnumTree,
+        ColumnarRangePlannerEmptyBindings()
+    )
     assert byteEnumPlan.ResultType == typeof(JsonValueKind)
     assert byteEnumPlan.FieldCount == 0
     assert byteEnumPlan.OperationCount == 1
     assert byteEnumPlan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
     assert ExecutorRunV3ScalarPlan(
-        byteEnumPlan, typeof(JsonValueKind)) == "Object"
+        byteEnumPlan,
+        typeof(JsonValueKind)
+    ) == "Object"
 
     ExternalAssertLiteralField("int", "MinValue", typeof(int), "-2147483648", "")
     ExternalAssertLiteralField("int", "MaxValue", typeof(int), "2147483647", "")
@@ -298,18 +303,21 @@ test "external static-member planner owns runtime enum and primitive literal fie
         "TopDirectoryOnly",
         typeof(SearchOption),
         "TopDirectoryOnly",
-        "import System.IO\n")
+        "import System.IO\n"
+    )
     numberStylesType := Type.GetType("System.Globalization.NumberStyles")
     if numberStylesType == null {
         throw new InvalidOperationException(
-            "NumberStyles runtime type was not found.")
+            "NumberStyles runtime type was not found."
+        )
     }
     ExternalAssertLiteralField(
         "NumberStyles",
         "HexNumber",
         numberStylesType,
         "HexNumber",
-        "import System.Globalization\n")
+        "import System.Globalization\n"
+    )
 
     nestedParts := new string[](2)
     nestedParts[0] = "Environment"
@@ -323,7 +331,9 @@ test "external static-member planner owns runtime enum and primitive literal fie
     }
     assert nestedPlan.ResultType == nestedType
     assert ExecutorRunV3ScalarPlan(
-        nestedPlan, nestedType) == "UserProfile"
+        nestedPlan,
+        nestedType
+    ) == "UserProfile"
 }
 
 test "external static-member planner owns closed pool properties and exact type aliases" {
@@ -335,36 +345,39 @@ test "external static-member planner owns closed pool properties and exact type 
         throw new InvalidOperationException("ArrayPool plan had no result type.")
     }
     assert arrayType.get_IsGenericType()
-    assert arrayType.GetGenericTypeDefinition().FullName
-        == "System.Buffers.ArrayPool`1"
+    assert arrayType.GetGenericTypeDefinition().FullName == "System.Buffers.ArrayPool`1"
     assert arrayPlan.MethodCount == 1
     assert arrayPlan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
 
     aliasTree := ExternalStaticMemberTree("ByteArrayPool", "Shared")
     ExternalStampScope(
         aliasTree,
-        "import System.Buffers\ntype ByteArrayPool = ArrayPool<byte>\n")
+        "import System.Buffers\ntype ByteArrayPool = ArrayPool<byte>\n"
+    )
     aliasPlan := ExternalPlan(aliasTree, ColumnarRangePlannerEmptyBindings())
     assert aliasPlan.ResultType == arrayType
 
     wrongElementAlias := ExternalStaticMemberTree("ByteArrayPool", "Shared")
     ExternalStampScope(
         wrongElementAlias,
-        "import System.Buffers\ntype ByteArrayPool = ArrayPool<int>\n")
+        "import System.Buffers\ntype ByteArrayPool = ArrayPool<int>\n"
+    )
     ExternalAssertDeclines(
-        wrongElementAlias, ColumnarRangePlannerEmptyBindings())
+        wrongElementAlias,
+        ColumnarRangePlannerEmptyBindings()
+    )
 
     memoryTree := ExternalStaticMemberTree("ByteMemoryPool", "Shared")
     ExternalStampScope(
         memoryTree,
-        "import System.Buffers\ntype ByteMemoryPool = MemoryPool<byte>\n")
+        "import System.Buffers\ntype ByteMemoryPool = MemoryPool<byte>\n"
+    )
     memoryPlan := ExternalPlan(memoryTree, ColumnarRangePlannerEmptyBindings())
     memoryType := memoryPlan.ResultType
     if memoryType == null {
         throw new InvalidOperationException("MemoryPool plan had no result type.")
     }
-    assert memoryType.GetGenericTypeDefinition().FullName
-        == "System.Buffers.MemoryPool`1"
+    assert memoryType.GetGenericTypeDefinition().FullName == "System.Buffers.MemoryPool`1"
 
     wrongAlias := ExternalStaticMemberTree("ByteArrayPool", "Shared")
     ExternalStampScope(wrongAlias, "type ByteArrayPool = string\n")
@@ -392,22 +405,35 @@ test "external static-member planner owns fully qualified fields and properties"
     ExternalStampScope(valueShadow, valueShadow.Source)
     valueBindings := ExternalBindings(null, null, null, null, null)
     ColumnarRangePlannerAddParameter(
-        valueBindings, "System", 0, typeof(string))
+        valueBindings,
+        "System",
+        0,
+        typeof(string)
+    )
     ExternalAssertDeclines(valueShadow, valueBindings)
 
     aliasShadow := ExternalQualifiedStaticMemberTree(opcodeOwner, "Ldsfld")
     ExternalStampScope(
-        aliasShadow, "import System.Reflection.Emit as System\n")
+        aliasShadow,
+        "import System.Reflection.Emit as System\n"
+    )
     ExternalAssertDeclines(
-        aliasShadow, ColumnarRangePlannerEmptyBindings())
+        aliasShadow,
+        ColumnarRangePlannerEmptyBindings()
+    )
 
     exactSourceShadow := ExternalQualifiedStaticMemberTree(
-        opcodeOwner, "Ldsfld")
+        opcodeOwner,
+        "Ldsfld"
+    )
     ExternalStampScope(
         exactSourceShadow,
-        "namespace System.Reflection.Emit\nclass OpCodes {}\n")
+        "namespace System.Reflection.Emit\nclass OpCodes {}\n"
+    )
     ExternalAssertDeclines(
-        exactSourceShadow, ColumnarRangePlannerEmptyBindings())
+        exactSourceShadow,
+        ColumnarRangePlannerEmptyBindings()
+    )
 
     environmentOwner := new string[](2)
     environmentOwner[0] = "System"
@@ -425,12 +451,17 @@ test "external static-member planner owns fully qualified fields and properties"
     nestedOwner[1] = "Environment"
     nestedOwner[2] = "SpecialFolder"
     nestedSourceShadow := ExternalQualifiedStaticMemberTree(
-        nestedOwner, "UserProfile")
+        nestedOwner,
+        "UserProfile"
+    )
     ExternalStampScope(
         nestedSourceShadow,
-        "namespace System\nclass Environment { class SpecialFolder {} }\n")
+        "namespace System\nclass Environment { class SpecialFolder {} }\n"
+    )
     ExternalAssertDeclines(
-        nestedSourceShadow, ColumnarRangePlannerEmptyBindings())
+        nestedSourceShadow,
+        ColumnarRangePlannerEmptyBindings()
+    )
 }
 
 test "external static-member planner fails closed and rolls unsupported shapes back" {
@@ -1176,7 +1207,6 @@ test "range planner composes external static properties recursively" {
 
     ColumnarRangePlannerAssertEmptyRollback(shadowedPlan)
 }
-
 
 // ---- THE ROOT-APPEND SEQUENCE IS A FACTORING, NOT A SECOND SPELLING (015-B15) ----
 //

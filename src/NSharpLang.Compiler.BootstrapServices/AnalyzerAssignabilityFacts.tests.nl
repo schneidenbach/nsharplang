@@ -12,7 +12,6 @@ import NSharpLang.Compiler.Ast
 // The known-generic and function-type decisions answer with the PENDING-PAIR protocol, so these
 // contracts assert on the protocol itself — a decided verdict, or the exact pairs handed back — and
 // never on a recursive assignability answer, which is not this owner's to give.
-
 func AssignabilityContext(path: string): AnalyzerDeclarationContext {
     context := new AnalyzerDeclarationContext()
     assemblies := new List<Assembly>()
@@ -45,11 +44,13 @@ func AssignabilityArgs2(first: TypeInfo, second: TypeInfo): List<TypeInfo> {
 func AssignabilityKnownGeneric(
     name: string,
     definition: Type,
-    argument: TypeInfo): GenericTypeInfo {
+    argument: TypeInfo
+): GenericTypeInfo {
     return new GenericTypeInfo(
         name,
         AssignabilityArgs(argument),
-        new ReflectionTypeInfo(definition))
+        new ReflectionTypeInfo(definition)
+    )
 }
 
 // The same spelling with NO definition — a source-declared type that merely shares the name.
@@ -59,7 +60,8 @@ func AssignabilitySpelledGeneric(name: string, argument: TypeInfo): GenericTypeI
 
 func AssignabilityFunction(
     returnType: TypeInfo?,
-    parameters: List<TypeInfo>): FunctionTypeInfo {
+    parameters: List<TypeInfo>
+): FunctionTypeInfo {
     functionType := new FunctionTypeInfo()
     functionType.ParameterTypes = parameters
     functionType.ReturnType = returnType
@@ -120,7 +122,8 @@ func AssignabilityReadOnlyListOpen(): Type {
 
 func AssignabilityReadOnlyCollectionOpen(): Type {
     return AssignabilityOpen(
-        "System.Collections.Generic.IReadOnlyCollection`1, System.Private.CoreLib")
+        "System.Collections.Generic.IReadOnlyCollection`1, System.Private.CoreLib"
+    )
 }
 
 func AssignabilitySortedSetOpen(): Type {
@@ -151,18 +154,21 @@ func AssignabilityKnownGeneric2(
     name: string,
     definition: Type,
     first: TypeInfo,
-    second: TypeInfo): GenericTypeInfo {
+    second: TypeInfo
+): GenericTypeInfo {
     return new GenericTypeInfo(
         name,
         AssignabilityArgs2(first, second),
-        new ReflectionTypeInfo(definition))
+        new ReflectionTypeInfo(definition)
+    )
 }
 
 // The two-argument spelling with NO definition — a source-declared type that merely shares the name.
 func AssignabilitySpelledGeneric2(
     name: string,
     first: TypeInfo,
-    second: TypeInfo): GenericTypeInfo {
+    second: TypeInfo
+): GenericTypeInfo {
     return new GenericTypeInfo(name, AssignabilityArgs2(first, second), null)
 }
 
@@ -209,8 +215,7 @@ func AssignabilityDecisionShape(decision: AnalyzerAssignabilityDecision): string
     while index < decision.PendingTargets.Count {
         target := decision.PendingTargets[index]
         source := decision.PendingSources[index]
-        rendered = rendered + " [" + AssignabilityTypeName(target)
-            + "<-" + AssignabilityTypeName(source) + "]"
+        rendered = rendered + " [" + AssignabilityTypeName(target) + "<-" + AssignabilityTypeName(source) + "]"
         index = index + 1
     }
 
@@ -263,55 +268,67 @@ test "the known-generic relation is a closed table over the runtime collection t
     // Every accepted pair, with identical arguments, is decided TRUE with nothing pending.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int))) == "decided:true"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
+    )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("HashSet", hashSetOpen, BuiltInTypes.Int))) == "decided:true"
+        AssignabilityKnownGeneric("HashSet", hashSetOpen, BuiltInTypes.Int)
+    )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("Queue", queueOpen, BuiltInTypes.Int))) == "decided:true"
+        AssignabilityKnownGeneric("Queue", queueOpen, BuiltInTypes.Int)
+    )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("ICollection", collectionOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int))) == "decided:true"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
+    )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IList", listInterfaceOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int))) == "decided:true"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
+    )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IReadOnlyList", readOnlyListOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int))) == "decided:true"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
+    )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IReadOnlyCollection", readOnlyCollectionOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("IReadOnlyList", readOnlyListOpen, BuiltInTypes.Int)))
-        == "decided:true"
+        AssignabilityKnownGeneric("IReadOnlyList", readOnlyListOpen, BuiltInTypes.Int)
+    )) == "decided:true"
 
     // The table is CLOSED: the relation does not run backwards, and it does not invent pairs.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int)))
-        == "decided:false"
+        AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int)
+    )) == "decided:false"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IList", listInterfaceOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("HashSet", hashSetOpen, BuiltInTypes.Int))) == "decided:false"
+        AssignabilityKnownGeneric("HashSet", hashSetOpen, BuiltInTypes.Int)
+    )) == "decided:false"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("ICollection", collectionOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("Queue", queueOpen, BuiltInTypes.Int))) == "decided:false"
+        AssignabilityKnownGeneric("Queue", queueOpen, BuiltInTypes.Int)
+    )) == "decided:false"
 
     // Both sides must carry the REAL runtime definition. A same-spelled source type does not
     // acquire the relation, in either position.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilitySpelledGeneric("IEnumerable", BuiltInTypes.Int),
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int))) == "decided:false"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
+    )) == "decided:false"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int),
-        AssignabilitySpelledGeneric("List", BuiltInTypes.Int))) == "decided:false"
+        AssignabilitySpelledGeneric("List", BuiltInTypes.Int)
+    )) == "decided:false"
 
     // Nothing but a generic instantiation can stand in the relation at all.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         BuiltInTypes.Object,
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int))) == "decided:false"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
+    )) == "decided:false"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int),
-        new ArrayTypeInfo(BuiltInTypes.Int))) == "decided:false"
+        new ArrayTypeInfo(BuiltInTypes.Int)
+    )) == "decided:false"
 }
 
 test "known-generic arity must agree and the covariant targets hand back their argument pairs" {
@@ -325,32 +342,36 @@ test "known-generic arity must agree and the covariant targets hand back their a
     twoArgument := new GenericTypeInfo(
         "IEnumerable",
         AssignabilityArgs2(BuiltInTypes.Int, BuiltInTypes.String),
-        new ReflectionTypeInfo(dictionaryOpen))
+        new ReflectionTypeInfo(dictionaryOpen)
+    )
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         twoArgument,
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int))) == "decided:false"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
+    )) == "decided:false"
 
     // A COVARIANT target with differing reference-like arguments hands back exactly that pair.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Object),
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String)))
-        == "pending [object<-string]"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String)
+    )) == "pending [object<-string]"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IReadOnlyList", AssignabilityReadOnlyListOpen(), new ArrayTypeInfo(BuiltInTypes.Object)),
-        AssignabilityKnownGeneric("List", listOpen, new ArrayTypeInfo(BuiltInTypes.String))))
-        == "pending [object[]<-string[]]"
+        AssignabilityKnownGeneric("List", listOpen, new ArrayTypeInfo(BuiltInTypes.String))
+    )) == "pending [object[]<-string[]]"
 
     // A covariant target whose arguments are VALUE types is decided false without any pair: an
     // `IEnumerable<int>` is not an `IEnumerable<long>`, and no recursion could make it one.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Long),
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int))) == "decided:false"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
+    )) == "decided:false"
 
     // A MUTABLE target is invariant: differing arguments are rejected outright, reference-like or
     // not, because a caller holding the target could insert the wrong element.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("ICollection", collectionOpen, BuiltInTypes.Object),
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String))) == "decided:false"
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String)
+    )) == "decided:false"
 }
 
 // THE TWO-ARGUMENT WIDENING, AND THE GATE IT USED TO DIE AT.
@@ -371,68 +392,68 @@ test "the two-argument dictionary widening is decided, and it is decided invaria
 
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
-        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
-        == "decided:true"
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)
+    )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.Int),
-        AssignabilityKnownGeneric2("SortedDictionary", sortedOpen, BuiltInTypes.String, BuiltInTypes.Int)))
-        == "decided:true"
+        AssignabilityKnownGeneric2("SortedDictionary", sortedOpen, BuiltInTypes.String, BuiltInTypes.Int)
+    )) == "decided:true"
 
     // BOTH ARGUMENTS ARE INVARIANT and NO pending pair is ever handed back, because the read-only
     // dictionary is deliberately absent from `IsCovariantKnownGenericTarget`. A covariant target
     // would answer `pending [...]` here; this one answers `decided:false` on either axis.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.Object),
-        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
-        == "decided:false"
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)
+    )) == "decided:false"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.Object, BuiltInTypes.String),
-        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
-        == "decided:false"
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)
+    )) == "decided:false"
 
     // The relation is one-directional and it does not reach its own head or an unrelated one.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String),
-        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String)))
-        == "decided:false"
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String)
+    )) == "decided:false"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
-        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String)))
-        == "decided:false"
+        AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String)
+    )) == "decided:false"
 
     // `IDictionary<K, V>` is the two-argument head that stays OUT: no conversion row names it, and
     // the identity table does not admit it, so it is refused in either position.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("IDictionary", dictionaryInterfaceOpen, BuiltInTypes.String, BuiltInTypes.String),
-        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
-        == "decided:false"
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)
+    )) == "decided:false"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
-        AssignabilityKnownGeneric2("IDictionary", dictionaryInterfaceOpen, BuiltInTypes.String, BuiltInTypes.String)))
-        == "decided:false"
+        AssignabilityKnownGeneric2("IDictionary", dictionaryInterfaceOpen, BuiltInTypes.String, BuiltInTypes.String)
+    )) == "decided:false"
 
     // A same-spelled SOURCE declaration does not acquire the relation, in either position — the same
     // rule the one-argument rows above state.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilitySpelledGeneric2("IReadOnlyDictionary", BuiltInTypes.String, BuiltInTypes.String),
-        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)))
-        == "decided:false"
+        AssignabilityKnownGeneric2("Dictionary", dictionaryOpen, BuiltInTypes.String, BuiltInTypes.String)
+    )) == "decided:false"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
-        AssignabilitySpelledGeneric2("Dictionary", BuiltInTypes.String, BuiltInTypes.String)))
-        == "decided:false"
+        AssignabilitySpelledGeneric2("Dictionary", BuiltInTypes.String, BuiltInTypes.String)
+    )) == "decided:false"
 
     // ARITY still decides first: a one-argument source cannot reach a two-argument target.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric2("IReadOnlyDictionary", readOnlyOpen, BuiltInTypes.String, BuiltInTypes.String),
-        AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.String)))
-        == "decided:false"
+        AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.String)
+    )) == "decided:false"
 
     // CONTROL — the one-argument row this mirrors is unmoved.
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("IReadOnlyList", AssignabilityReadOnlyListOpen(), BuiltInTypes.Int),
-        AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.Int)))
-        == "decided:true"
+        AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.Int)
+    )) == "decided:true"
 }
 
 test "an alias is resolved before variance is judged" {
@@ -478,18 +499,22 @@ test "reference-likeness is transparent through the nullable and oblivious shell
     assert owner.IsReferenceLikeForVariance(new ObliviousTypeInfo(BuiltInTypes.String))
     assert !owner.IsReferenceLikeForVariance(new ObliviousTypeInfo(BuiltInTypes.Int))
     assert owner.IsReferenceLikeForVariance(
-        new NullableTypeInfo(new ArrayTypeInfo(BuiltInTypes.Int)))
+        new NullableTypeInfo(new ArrayTypeInfo(BuiltInTypes.Int))
+    )
 
     // A generic instantiation may carry a reference conversion — unless it is the one value-typed
     // shape spelled generically. That rule is the whole difference between the two predicates:
     // `MayUseDelegateReferenceConversion` sees `Nullable<T>` itself, while
     // `IsReferenceLikeForVariance` never does, because the shell is unwrapped first.
     assert owner.MayUseDelegateReferenceConversion(
-        AssignabilitySpelledGeneric("List", BuiltInTypes.Int))
+        AssignabilitySpelledGeneric("List", BuiltInTypes.Int)
+    )
     assert !owner.MayUseDelegateReferenceConversion(
-        AssignabilitySpelledGeneric("Nullable", BuiltInTypes.Int))
+        AssignabilitySpelledGeneric("Nullable", BuiltInTypes.Int)
+    )
     assert owner.MayUseDelegateReferenceConversion(
-        AssignabilitySpelledGeneric("Widget", BuiltInTypes.Int))
+        AssignabilitySpelledGeneric("Widget", BuiltInTypes.Int)
+    )
 }
 
 test "a collection expression targets the runtime collections and names their element type" {
@@ -499,27 +524,32 @@ test "a collection expression targets the runtime collections and names their el
     // The generic arm accepts fifteen spellings, and every one must carry the runtime definition.
     assert owner.TryGetCollectionElementType(
         AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.Int),
-        out element)
+        out element
+    )
     assert AssignabilityTypeName(element) == "int"
     assert owner.TryGetCollectionElementType(
         AssignabilityKnownGeneric("SortedSet", AssignabilitySortedSetOpen(), BuiltInTypes.String),
-        out element)
+        out element
+    )
     assert AssignabilityTypeName(element) == "string"
     assert owner.TryGetCollectionElementType(
         AssignabilityKnownGeneric("IReadOnlyCollection", AssignabilityReadOnlyCollectionOpen(), new ArrayTypeInfo(BuiltInTypes.Int)),
-        out element)
+        out element
+    )
     assert AssignabilityTypeName(element) == "int[]"
 
     // Not carrying the runtime definition is a decline, and the element type is left unknown.
     assert !owner.TryGetCollectionElementType(
         AssignabilitySpelledGeneric("List", BuiltInTypes.Int),
-        out element)
+        out element
+    )
     assert BuiltInTypes.IsUnknown(element)
 
     // A runtime collection NOT in the table declines even though it is a real generic.
     assert !owner.TryGetCollectionElementType(
         AssignabilityKnownGeneric("Dictionary", AssignabilityDictionaryOpen(), BuiltInTypes.Int),
-        out element)
+        out element
+    )
     assert !owner.TryGetCollectionElementType(new ArrayTypeInfo(BuiltInTypes.Int), out element)
     assert !owner.TryGetCollectionElementType(BuiltInTypes.String, out element)
 }
@@ -530,15 +560,18 @@ test "the reflection collection arm matches metadata names and refuses an open d
 
     assert owner.TryGetCollectionElementType(
         new ReflectionTypeInfo(AssignabilityClosed(AssignabilityListOpen(), typeof(int))),
-        out element)
+        out element
+    )
     assert AssignabilityTypeName(element) == "System.Int32"
     assert owner.TryGetCollectionElementType(
         new ReflectionTypeInfo(AssignabilityClosed(AssignabilityHashSetOpen(), typeof(string))),
-        out element)
+        out element
+    )
     assert AssignabilityTypeName(element) == "System.String"
     assert owner.TryGetCollectionElementType(
         new ReflectionTypeInfo(AssignabilityClosed(AssignabilityEnumerableOpen(), typeof(int))),
-        out element)
+        out element
+    )
     assert AssignabilityTypeName(element) == "System.Int32"
 
     // An OPEN definition names no element type. This is the one place the reflection arm differs
@@ -546,23 +579,28 @@ test "the reflection collection arm matches metadata names and refuses an open d
     // would hand a caller a `T` as if it were the element.
     assert !owner.TryGetCollectionElementType(
         new ReflectionTypeInfo(AssignabilityListOpen()),
-        out element)
+        out element
+    )
     assert BuiltInTypes.IsUnknown(element)
 
     // The reflection arm is deliberately NARROWER than the generic one: the three read-only and
     // sorted spellings the generic arm accepts have no counterpart here.
     assert !owner.TryGetCollectionElementType(
         new ReflectionTypeInfo(AssignabilityClosed(AssignabilitySortedSetOpen(), typeof(int))),
-        out element)
+        out element
+    )
     assert !owner.TryGetCollectionElementType(
         new ReflectionTypeInfo(AssignabilityClosed(AssignabilityReadOnlyListOpen(), typeof(int))),
-        out element)
+        out element
+    )
     assert !owner.TryGetCollectionElementType(
         new ReflectionTypeInfo(AssignabilityClosed(AssignabilityReadOnlyCollectionOpen(), typeof(int))),
-        out element)
+        out element
+    )
     assert !owner.TryGetCollectionElementType(
         new ReflectionTypeInfo(AssignabilityDictionaryClosed()),
-        out element)
+        out element
+    )
     assert !owner.TryGetCollectionElementType(new ReflectionTypeInfo(typeof(string)), out element)
 }
 
@@ -575,18 +613,22 @@ test "an array widens to a span only nominally and only on the exact element typ
 
     assert owner.IsArrayToSpanAssignable(
         AssignabilityKnownGeneric("Span", spanOpen, BuiltInTypes.Int),
-        new ArrayTypeInfo(BuiltInTypes.Int))
+        new ArrayTypeInfo(BuiltInTypes.Int)
+    )
     assert owner.IsArrayToSpanAssignable(
         AssignabilityKnownGeneric("ReadOnlySpan", readOnlySpanOpen, BuiltInTypes.Int),
-        new ArrayTypeInfo(BuiltInTypes.Int))
+        new ArrayTypeInfo(BuiltInTypes.Int)
+    )
 
     // The element type must be IDENTICAL — a span is not variant and not numerically widening.
     assert !owner.IsArrayToSpanAssignable(
         AssignabilityKnownGeneric("Span", spanOpen, BuiltInTypes.Long),
-        new ArrayTypeInfo(BuiltInTypes.Int))
+        new ArrayTypeInfo(BuiltInTypes.Int)
+    )
     assert !owner.IsArrayToSpanAssignable(
         AssignabilityKnownGeneric("Span", spanOpen, BuiltInTypes.Object),
-        new ArrayTypeInfo(BuiltInTypes.String))
+        new ArrayTypeInfo(BuiltInTypes.String)
+    )
 
     // An alias is resolved on BOTH halves before the identity comparison.
     meters := new AliasTypeInfo(new SimpleTypeReference("int"))
@@ -594,24 +636,29 @@ test "an array widens to a span only nominally and only on the exact element typ
     alias := meters as TypeInfo
     assert owner.IsArrayToSpanAssignable(
         AssignabilityKnownGeneric("Span", spanOpen, alias),
-        new ArrayTypeInfo(BuiltInTypes.Int))
+        new ArrayTypeInfo(BuiltInTypes.Int)
+    )
     assert owner.IsArrayToSpanAssignable(
         AssignabilityKnownGeneric("Span", spanOpen, BuiltInTypes.Int),
-        new ArrayTypeInfo(alias))
+        new ArrayTypeInfo(alias)
+    )
 
     // NOMINAL on the target: a source-declared `Span<T>` of the program's own does not acquire the
     // conversion, and neither does another runtime generic that merely takes one argument.
     assert !owner.IsArrayToSpanAssignable(
         AssignabilitySpelledGeneric("Span", BuiltInTypes.Int),
-        new ArrayTypeInfo(BuiltInTypes.Int))
+        new ArrayTypeInfo(BuiltInTypes.Int)
+    )
     assert !owner.IsArrayToSpanAssignable(
         AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.Int),
-        new ArrayTypeInfo(BuiltInTypes.Int))
+        new ArrayTypeInfo(BuiltInTypes.Int)
+    )
 
     // And the source must be an array: a list of the element type is not a span source.
     assert !owner.IsArrayToSpanAssignable(
         AssignabilityKnownGeneric("Span", spanOpen, BuiltInTypes.Int),
-        AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.Int))
+        AssignabilityKnownGeneric("List", AssignabilityListOpen(), BuiltInTypes.Int)
+    )
 }
 
 test "function-type assignability compares arity, skips inferred parameters and reverses direction" {
@@ -620,98 +667,110 @@ test "function-type assignability compares arity, skips inferred parameters and 
     // Identical signatures need no recursion at all beyond the pairs themselves.
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters()),
-        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())))
-        == "pending [void<-void]"
+        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())
+    )) == "pending [void<-void]"
 
     // Arity disagreement is decided immediately.
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         AssignabilityFunction(BuiltInTypes.Void, AssignabilityArgs(BuiltInTypes.Int)),
-        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())))
-        == "decided:false"
+        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())
+    )) == "decided:false"
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters()),
-        AssignabilityFunction(BuiltInTypes.Void, AssignabilityArgs(BuiltInTypes.Int))))
-        == "decided:false"
+        AssignabilityFunction(BuiltInTypes.Void, AssignabilityArgs(BuiltInTypes.Int))
+    )) == "decided:false"
 
     // THE DIRECTIONS. A parameter pair is handed back source ← target; the return pair is handed
     // back target ← source. Getting this backwards would silently invert variance.
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         AssignabilityFunction(BuiltInTypes.String, AssignabilityArgs(BuiltInTypes.Int)),
-        AssignabilityFunction(BuiltInTypes.Object, AssignabilityArgs(BuiltInTypes.Long))))
-        == "pending [int<-long] [object<-string]"
+        AssignabilityFunction(BuiltInTypes.Object, AssignabilityArgs(BuiltInTypes.Long))
+    )) == "pending [int<-long] [object<-string]"
 
     // An INFERRED source parameter is accepted without a pair rather than rejected, because a
     // lambda still being inferred must not be pre-judged.
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         AssignabilityFunction(BuiltInTypes.Void, AssignabilityArgs(BuiltInTypes.Unknown)),
-        AssignabilityFunction(BuiltInTypes.Void, AssignabilityArgs(BuiltInTypes.Int))))
-        == "pending [void<-void]"
+        AssignabilityFunction(BuiltInTypes.Void, AssignabilityArgs(BuiltInTypes.Int))
+    )) == "pending [void<-void]"
 
     // An unknown or absent RETURN drops the return pair entirely, and with no parameters left the
     // whole relation is decided true.
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         AssignabilityFunction(BuiltInTypes.Unknown, AssignabilityNoParameters()),
-        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())))
-        == "decided:true"
+        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())
+    )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         AssignabilityFunction(null, AssignabilityNoParameters()),
-        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())))
-        == "decided:true"
+        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())
+    )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters()),
-        AssignabilityFunction(null, AssignabilityNoParameters())))
-        == "decided:true"
+        AssignabilityFunction(null, AssignabilityNoParameters())
+    )) == "decided:true"
 
     // A NULL parameter list counts as zero parameters on either side.
     nullParameters := new FunctionTypeInfo()
     nullParameters.ReturnType = BuiltInTypes.Void
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         nullParameters,
-        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())))
-        == "pending [void<-void]"
+        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())
+    )) == "pending [void<-void]"
     assert AssignabilityDecisionShape(owner.ClassifyFunctionTypeAssignability(
         nullParameters,
-        AssignabilityFunction(BuiltInTypes.Void, AssignabilityArgs(BuiltInTypes.Int))))
-        == "decided:false"
+        AssignabilityFunction(BuiltInTypes.Void, AssignabilityArgs(BuiltInTypes.Int))
+    )) == "decided:false"
 }
 
 test "a callable reference binds only to a function, the two delegate generics, or a real delegate" {
     owner := AssignabilityOwner("/tmp/assign-callable.nl")
 
     assert owner.CanBindCallableReferenceToExpectedType(
-        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters()))
+        AssignabilityFunction(BuiltInTypes.Void, AssignabilityNoParameters())
+    )
     assert owner.CanBindCallableReferenceToExpectedType(
-        AssignabilitySpelledGeneric("Func", BuiltInTypes.Int))
+        AssignabilitySpelledGeneric("Func", BuiltInTypes.Int)
+    )
     assert owner.CanBindCallableReferenceToExpectedType(
-        AssignabilitySpelledGeneric("Action", BuiltInTypes.Int))
+        AssignabilitySpelledGeneric("Action", BuiltInTypes.Int)
+    )
 
     // The two names are exact; nothing else spelled generically binds a callable reference.
     assert !owner.CanBindCallableReferenceToExpectedType(
-        AssignabilitySpelledGeneric("List", BuiltInTypes.Int))
+        AssignabilitySpelledGeneric("List", BuiltInTypes.Int)
+    )
     assert !owner.CanBindCallableReferenceToExpectedType(
-        AssignabilitySpelledGeneric("func", BuiltInTypes.Int))
+        AssignabilitySpelledGeneric("func", BuiltInTypes.Int)
+    )
     assert !owner.CanBindCallableReferenceToExpectedType(BuiltInTypes.Object)
     assert !owner.CanBindCallableReferenceToExpectedType(BuiltInTypes.String)
     assert !owner.CanBindCallableReferenceToExpectedType(new ArrayTypeInfo(BuiltInTypes.Int))
 
     // The shells are transparent, so `Func<int>?` still binds.
     assert owner.CanBindCallableReferenceToExpectedType(
-        new NullableTypeInfo(AssignabilitySpelledGeneric("Func", BuiltInTypes.Int)))
+        new NullableTypeInfo(AssignabilitySpelledGeneric("Func", BuiltInTypes.Int))
+    )
     assert owner.CanBindCallableReferenceToExpectedType(
-        new ObliviousTypeInfo(AssignabilitySpelledGeneric("Action", BuiltInTypes.Int)))
+        new ObliviousTypeInfo(AssignabilitySpelledGeneric("Action", BuiltInTypes.Int))
+    )
     assert !owner.CanBindCallableReferenceToExpectedType(
-        new NullableTypeInfo(BuiltInTypes.String))
+        new NullableTypeInfo(BuiltInTypes.String)
+    )
 
     // A runtime delegate TYPE is recognized through the callable-reference facts even with no
     // metadata bag at all, because that classification reads the CLR base identity.
     assert owner.CanBindCallableReferenceToExpectedType(
-        new ReflectionTypeInfo(AssignabilityActionType()))
+        new ReflectionTypeInfo(AssignabilityActionType())
+    )
     assert owner.CanBindCallableReferenceToExpectedType(
-        new ReflectionTypeInfo(AssignabilityFuncClosed()))
+        new ReflectionTypeInfo(AssignabilityFuncClosed())
+    )
     assert !owner.CanBindCallableReferenceToExpectedType(
-        new ReflectionTypeInfo(typeof(string)))
+        new ReflectionTypeInfo(typeof(string))
+    )
     assert !owner.CanBindCallableReferenceToExpectedType(
-        new ReflectionTypeInfo(AssignabilityClosed(AssignabilityListOpen(), typeof(int))))
+        new ReflectionTypeInfo(AssignabilityClosed(AssignabilityListOpen(), typeof(int)))
+    )
 }
 
 test "without metadata facts nothing is a delegate type" {
@@ -735,7 +794,8 @@ test "with metadata facts a concrete delegate is one and the two abstract roots 
         facts := new AnalyzerWellKnownTypes(context, core)
         owner := new AnalyzerAssignabilityFacts(
             AssignabilityContext("/tmp/assign-delegate-facts.nl"),
-            facts)
+            facts
+        )
 
         action := core.GetType("System.Action")
         assert action != null

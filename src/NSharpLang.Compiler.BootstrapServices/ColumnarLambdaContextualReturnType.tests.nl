@@ -9,7 +9,6 @@ import System
 // it preflights, and a visible local-function method group — each gated to a supported non-void type,
 // and passes null for a form that does not apply. N# owns which candidate the return type comes from:
 // the lambda form takes precedence, and a pair of null candidates is the standard inference decline.
-
 test "contextual return-type inference prefers the lambda body candidate over the local function" {
     lambdaCandidate := typeof(string)
     localCandidate := typeof(int)

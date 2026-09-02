@@ -23,7 +23,6 @@ import System.Collections.Generic
 // `FindMetadataIndex` on its own, the exact `out` value on every rejection (the deleted file used
 // `out _` and could not see it), and `GetAssemblyVersionOrDefault`, which no C# assertion ever
 // called.
-
 func AvuTryVersionText(packageVersion: string?): string {
     parsed := AssemblyVersionUtilities.DefaultAssemblyVersion
     if AssemblyVersionUtilities.TryGetAssemblyVersion(packageVersion, out parsed) {

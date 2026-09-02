@@ -43,7 +43,6 @@ import NSharpLang.Compiler
 // against the individual diagnostics, which is a claim about the report as a whole.
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────
-
 func OfdckMissingSemicolon(fileName: string, line: int, snippet: string): DiagnosticResult {
     return new DiagnosticResult("NL102", "error", "Expected token ';'", fileName, line, 5, 1, snippet, null, "Add ';'", null, null, null, null)
 }
@@ -300,14 +299,14 @@ test "leading whitespace and declaration modifiers are skipped, and only for the
 
 func OfdckConstruct(snippet: string): string {
     return OutputFormatterDiagnosticClusterBuilder.DiagnosticSourceConstructName(
-        OutputFormatterDiagnosticClusterKernels.InferDiagnosticSourceConstruct(snippet))
+        OutputFormatterDiagnosticClusterKernels.InferDiagnosticSourceConstruct(snippet)
+    )
 }
 
 // ── The message pattern, the cluster id and the next command ────────────────────────────────────
 
 test "the message pattern erases quoted text and digits so cascades collapse into one cluster" {
-    assert OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Undefined variable 'customer'")
-        == OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Undefined variable 'order'")
+    assert OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Undefined variable 'customer'") == OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Undefined variable 'order'")
 
     assert OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Undefined variable 'x'") == "Undefined variable {value}"
     assert OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Expected 3 arguments") == "Expected # arguments"
@@ -318,8 +317,7 @@ test "the message pattern erases quoted text and digits so cascades collapse int
     assert OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("   ") == "unknown-message"
 
     // Two different messages do NOT collapse.
-    assert OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Undefined variable 'x'")
-        != OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Undefined type 'x'")
+    assert OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Undefined variable 'x'") != OutputFormatterDiagnosticClusterKernels.NormalizeMessagePattern("Undefined type 'x'")
 }
 
 test "the cluster id is a stable lower-case hex digest of the six fields that define a cluster" {

@@ -19,7 +19,6 @@ import NSharpLang.Compiler.CodeIntelligence
 // them asserted that the kernel agrees with a SECOND implementation written in the test. That is
 // not a pin: both could drift together, and neither says what the order IS. The expectations are
 // written out literally below.
-
 func DocSymbol(name: string, kind: SymbolKind): SymbolResult {
     return new SymbolResult(name, kind, "/tmp/Program.nl", 1, 1, null, null, null, null)
 }

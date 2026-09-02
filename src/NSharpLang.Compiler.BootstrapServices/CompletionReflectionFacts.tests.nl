@@ -16,7 +16,6 @@ import NSharpLang.Compiler.Ast
 // analyzer builds `ReflectionTypeInfo` straight out of a load context, so a metadata type reaches
 // this family in production — and the deleted C# closed a LIVE generic definition over one, which
 // the CLR answers with a `TypeBuilderInstantiation` whose every member lookup throws.
-
 func CrfReflected(clrType: Type): TypeInfo {
     reflected: TypeInfo = new ReflectionTypeInfo(clrType)
     return reflected
@@ -97,7 +96,6 @@ func CrfMlcType(loadContext: MetadataLoadContext, fullName: string): Type {
     return resolved
 }
 
-
 // ── the BindingFlags decision ────────────────────────────────────────────────────────────────
 
 test "the three filters pick Public plus Instance, Public plus Static, and Public plus both" {
@@ -147,7 +145,6 @@ test "no FlattenHierarchy means INHERITED STATICS are NOT offered" {
     assert CrfFind(instanceItems, "DerivedInstance") != null
     assert CrfFind(instanceItems, "BaseInstance") != null
 }
-
 
 // ── which receivers reflect ──────────────────────────────────────────────────────────────────
 
@@ -230,17 +227,12 @@ test "all fifteen generic definitions load, are open, and carry the arity their 
 }
 
 test "the fully qualified generic spellings answer the same definitions as the short ones" {
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Collections.Generic.List")
-        == CompletionReflectionFacts.KnownReceiverGenericDefinition("List")
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Collections.Generic.IReadOnlyDictionary")
-        == CompletionReflectionFacts.KnownReceiverGenericDefinition("IReadOnlyDictionary")
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Nullable")
-        == CompletionReflectionFacts.KnownReceiverGenericDefinition("Nullable")
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Threading.Tasks.ValueTask")
-        == CompletionReflectionFacts.KnownReceiverGenericDefinition("ValueTask")
+    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Collections.Generic.List") == CompletionReflectionFacts.KnownReceiverGenericDefinition("List")
+    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Collections.Generic.IReadOnlyDictionary") == CompletionReflectionFacts.KnownReceiverGenericDefinition("IReadOnlyDictionary")
+    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Nullable") == CompletionReflectionFacts.KnownReceiverGenericDefinition("Nullable")
+    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Threading.Tasks.ValueTask") == CompletionReflectionFacts.KnownReceiverGenericDefinition("ValueTask")
     assert CompletionReflectionFacts.KnownReceiverGenericDefinition("Span") == null
 }
-
 
 // ── resolving a receiver's CLR type ──────────────────────────────────────────────────────────
 
@@ -300,7 +292,6 @@ test "THE FAMILY NEVER ANSWERS A TYPE IT CANNOT READ: a null reflected type is a
     assert CompletionReflectionFacts.ResolveCompletionReflectionType(CrfReflected(nullBacked)) == null
 }
 
-
 // ── which type a type ARGUMENT becomes ───────────────────────────────────────────────────────
 
 test "the sixteen built-in arguments answer their CLR types in both spellings" {
@@ -336,7 +327,6 @@ test "the ARGUMENT table is wider than the RECEIVER table, and everything else i
     // A reflected argument passes through verbatim.
     assert CompletionReflectionFacts.GetReflectionTypeArgumentOrObject(CrfReflected(typeof(Exception))) == typeof(Exception)
 }
-
 
 // ── the member read ──────────────────────────────────────────────────────────────────────────
 
@@ -416,7 +406,6 @@ test "an empty read is an empty list, not a null one" {
     assert items != null
     assert items.Count == 0
 }
-
 
 // ── the MetadataLoadContext dimension ────────────────────────────────────────────────────────
 
@@ -504,7 +493,6 @@ test "a metadata argument that the built-in table can spell is NOT poisoned, bec
         scan.Dispose()
     }
 }
-
 
 // ── what kind of receiver this is (task 019 slice 3) ─────────────────────────────────────────
 
@@ -621,14 +609,14 @@ test "the filter a receiver chooses is the filter the reflected read then uses" 
 
     items := CompletionReflectionFacts.BuildReflectionMemberItems(
         resolved,
-        CompletionReflectionFacts.GetReflectionBindingFlags(staticFilter))
+        CompletionReflectionFacts.GetReflectionBindingFlags(staticFilter)
+    )
     assert CrfFind(items, "WriteLine") != null
 
     // And the instance read of the same static class offers nothing but what Object declares.
     instanceItems := CompletionReflectionFacts.BuildReflectionMemberItems(resolved, CrfInstanceFlags())
     assert CrfFind(instanceItems, "WriteLine") == null
 }
-
 
 // ── fixtures ─────────────────────────────────────────────────────────────────────────────────
 

@@ -20,7 +20,6 @@ import NSharpLang.Compiler.Ast
 // content is what `GetProperty` / `GetProperties` / `GetIndexParameters` answer on real types:
 // `IReadOnlyList<int>` is the case that proves the inherited-interface walk, since its `Count` is
 // declared on `IReadOnlyCollection<T>` and interfaces do not inherit members in reflection.
-
 class PatternShapesHarness {
     Shapes: AnalyzerPatternShapes
     Errors: List<CompilerError>
@@ -29,7 +28,8 @@ class PatternShapesHarness {
     constructor(
         shapes: AnalyzerPatternShapes,
         errors: List<CompilerError>,
-        context: AnalyzerDeclarationContext) {
+        context: AnalyzerDeclarationContext
+    ) {
         Shapes = shapes
         Errors = errors
         Context = context
@@ -53,7 +53,8 @@ func PatternShapesDefault(): PatternShapesHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -65,10 +66,11 @@ func PatternShapesDefault(): PatternShapesHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -79,7 +81,8 @@ func PatternShapesDefault(): PatternShapesHarness {
     return new PatternShapesHarness(
         new AnalyzerPatternShapes(diagnostics, spans, context, assignability),
         errors,
-        context)
+        context
+    )
 }
 
 func PatternShapesList(elementTypeName: string): TypeInfo {
@@ -122,7 +125,8 @@ func PatternShapesName(candidate: TypeInfo?): string {
 // unregistered alias resolves to itself, which is a different (and also pinned) answer.
 func PatternShapesOwnedAlias(
     harness: PatternShapesHarness,
-    aliased: TypeReference): TypeInfo {
+    aliased: TypeReference
+): TypeInfo {
     alias := new AliasTypeInfo(aliased)
     harness.Context.RegisterDeclaredAlias(PatternShapesAliasPath(), alias)
     owned: TypeInfo = alias
@@ -165,11 +169,14 @@ test "an indexable generic answers its FIRST type argument" {
     harness := PatternShapesDefault()
 
     assert PatternShapesName(harness.Shapes.FindListPatternElementType(
-        PatternShapesList("int"))) == "int"
+        PatternShapesList("int")
+    )) == "int"
     assert PatternShapesName(harness.Shapes.FindListPatternElementType(
-        PatternShapesGeneric("IList", "string"))) == "string"
+        PatternShapesGeneric("IList", "string")
+    )) == "string"
     assert PatternShapesName(harness.Shapes.FindListPatternElementType(
-        PatternShapesGeneric("IReadOnlyList", "double"))) == "double"
+        PatternShapesGeneric("IReadOnlyList", "double")
+    )) == "double"
 }
 
 test "an indexable generic with NO type argument answers unknown, not `no shape`" {
@@ -189,11 +196,14 @@ test "a generic that is not one of the three has no list shape at all" {
     harness := PatternShapesDefault()
 
     assert harness.Shapes.FindListPatternElementType(
-        PatternShapesGeneric("IEnumerable", "int")) == null
+        PatternShapesGeneric("IEnumerable", "int")
+    ) == null
     assert harness.Shapes.FindListPatternElementType(
-        PatternShapesGeneric("IReadOnlyCollection", "int")) == null
+        PatternShapesGeneric("IReadOnlyCollection", "int")
+    ) == null
     assert harness.Shapes.FindListPatternElementType(
-        PatternShapesGeneric("Dictionary", "string")) == null
+        PatternShapesGeneric("Dictionary", "string")
+    ) == null
 }
 
 test "a simple type has no list shape" {
@@ -208,7 +218,8 @@ test "a DECLARED ALIAS of an array resolves through to the array's element type"
     harness := PatternShapesDefault()
     rowAlias := PatternShapesOwnedAlias(
         harness,
-        new ArrayTypeReference(new SimpleTypeReference("int")))
+        new ArrayTypeReference(new SimpleTypeReference("int"))
+    )
 
     assert PatternShapesName(harness.Shapes.FindListPatternElementType(rowAlias)) == "int"
 
@@ -243,7 +254,8 @@ test "a reflected INTERFACE finds its Count on an INHERITED interface" {
     // report NL505.
     assert typeof(IReadOnlyList<int>).GetProperty(
         "Count",
-        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance) == null
+        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+    ) == null
 
     answer := AnalyzerPatternShapes.FindReflectionListPatternElementType(typeof(IReadOnlyList<int>))
 
@@ -283,13 +295,13 @@ test "a list pattern over a shapeless value reports NL505 ONCE and answers unkno
 
     answer := harness.Shapes.ResolveListPatternElementType(
         listPattern,
-        PatternShapesGeneric("IEnumerable", "int"))
+        PatternShapesGeneric("IEnumerable", "int")
+    )
 
     assert BuiltInTypes.IsUnknown(answer)
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.PatternTypeMismatch
-    assert harness.Errors[0].Message
-        == "A list pattern can only match arrays or indexable collections, but this value is 'IEnumerable<int>'"
+    assert harness.Errors[0].Message == "A list pattern can only match arrays or indexable collections, but this value is 'IEnumerable<int>'"
     assert harness.Errors[0].Line == 12
     assert harness.Errors[0].Column == 21
 }
@@ -299,7 +311,8 @@ test "a list pattern over a shaped value answers the element type and stays sile
 
     answer := harness.Shapes.ResolveListPatternElementType(
         PatternShapesListPattern(3, 5),
-        new ArrayTypeInfo(BuiltInTypes.String))
+        new ArrayTypeInfo(BuiltInTypes.String)
+    )
 
     assert PatternShapesName(answer) == "string"
     assert harness.Errors.Count == 0
@@ -315,9 +328,7 @@ test "the NL505 message renders the ORIGINAL spelling, not the alias-resolved on
     harness.Shapes.ResolveListPatternElementType(PatternShapesListPattern(1, 1), nameAlias)
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "A list pattern can only match arrays or indexable collections, but this value is '"
-            + PatternShapesName(nameAlias) + "'"
+    assert harness.Errors[0].Message == "A list pattern can only match arrays or indexable collections, but this value is '" + PatternShapesName(nameAlias) + "'"
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -379,9 +390,13 @@ test "a NULLABLE spelling is stripped before the comparability test" {
     harness := PatternShapesDefault()
 
     assert harness.Shapes.IsRelationalPatternComparableType(
-        new NullableTypeInfo(BuiltInTypes.Int), false)
+        new NullableTypeInfo(BuiltInTypes.Int),
+        false
+    )
     assert !harness.Shapes.IsRelationalPatternComparableType(
-        new NullableTypeInfo(BuiltInTypes.String), false)
+        new NullableTypeInfo(BuiltInTypes.String),
+        false
+    )
 }
 
 test "the REFLECTED arm admits the same primitives and rejects decimal" {
@@ -418,7 +433,8 @@ test "the nullable question answers both spellings, and resolves aliases first" 
     harness := PatternShapesDefault()
     maybeInt := PatternShapesOwnedAlias(
         harness,
-        new NullableTypeReference(new SimpleTypeReference("int")))
+        new NullableTypeReference(new SimpleTypeReference("int"))
+    )
 
     assert harness.Shapes.IsNullableRelationalPatternType(new NullableTypeInfo(BuiltInTypes.Int))
     assert harness.Shapes.IsNullableRelationalPatternType(maybeInt)
@@ -432,7 +448,8 @@ test "an ordered comparison of two ints is silent" {
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         BuiltInTypes.Int,
-        BuiltInTypes.Int)
+        BuiltInTypes.Int
+    )
 
     assert harness.Errors.Count == 0
 }
@@ -445,11 +462,13 @@ test "an UNKNOWN on either side returns before any judgement is made" {
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         BuiltInTypes.Unknown,
-        BuiltInTypes.String)
+        BuiltInTypes.String
+    )
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         BuiltInTypes.String,
-        BuiltInTypes.Unknown)
+        BuiltInTypes.Unknown
+    )
 
     assert harness.Errors.Count == 0
 }
@@ -460,14 +479,13 @@ test "a decimal comparison reports, with the verbatim message, suggestion and OP
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational(">="),
         BuiltInTypes.Decimal,
-        BuiltInTypes.Decimal)
+        BuiltInTypes.Decimal
+    )
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
-    assert harness.Errors[0].Message
-        == "Relational pattern '>=' can't compare 'decimal' with 'decimal' before IL emission"
-    assert harness.Errors[0].Suggestion
-        == "Use numeric operands with a supported common type, use a literal pattern for string equality, or move custom comparisons into a match guard."
+    assert harness.Errors[0].Message == "Relational pattern '>=' can't compare 'decimal' with 'decimal' before IL emission"
+    assert harness.Errors[0].Suggestion == "Use numeric operands with a supported common type, use a literal pattern for string equality, or move custom comparisons into a match guard."
     assert harness.Errors[0].Line == 7
     assert harness.Errors[0].Column == 5
     assert harness.Errors[0].Length == 2
@@ -479,7 +497,8 @@ test "the span is at least one character even for a one-character operator" {
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         BuiltInTypes.String,
-        BuiltInTypes.String)
+        BuiltInTypes.String
+    )
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Length == 1
@@ -491,11 +510,11 @@ test "a string comparison reports under EVERY operator, equality included" {
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("=="),
         BuiltInTypes.String,
-        BuiltInTypes.String)
+        BuiltInTypes.String
+    )
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "Relational pattern '==' can't compare 'string' with 'string' before IL emission"
+    assert harness.Errors[0].Message == "Relational pattern '==' can't compare 'string' with 'string' before IL emission"
 }
 
 test "a bool comparison is silent under equality and reports under ordering" {
@@ -504,16 +523,17 @@ test "a bool comparison is silent under equality and reports under ordering" {
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("!="),
         BuiltInTypes.Bool,
-        BuiltInTypes.Bool)
+        BuiltInTypes.Bool
+    )
     assert harness.Errors.Count == 0
 
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational(">"),
         BuiltInTypes.Bool,
-        BuiltInTypes.Bool)
+        BuiltInTypes.Bool
+    )
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "Relational pattern '>' can't compare 'bool' with 'bool' before IL emission"
+    assert harness.Errors[0].Message == "Relational pattern '>' can't compare 'bool' with 'bool' before IL emission"
 }
 
 test "a NULLABLE scrutinee reports even though its underlying type is comparable" {
@@ -523,11 +543,11 @@ test "a NULLABLE scrutinee reports even though its underlying type is comparable
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         nullableInt,
-        BuiltInTypes.Int)
+        BuiltInTypes.Int
+    )
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "Relational pattern '<' can't compare 'int?' with 'int' before IL emission"
+    assert harness.Errors[0].Message == "Relational pattern '<' can't compare 'int?' with 'int' before IL emission"
 }
 
 test "a nullable PATTERN VALUE reports the same way the scrutinee does" {
@@ -536,11 +556,11 @@ test "a nullable PATTERN VALUE reports the same way the scrutinee does" {
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         BuiltInTypes.Int,
-        new NullableTypeInfo(BuiltInTypes.Int))
+        new NullableTypeInfo(BuiltInTypes.Int)
+    )
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "Relational pattern '<' can't compare 'int' with 'int?' before IL emission"
+    assert harness.Errors[0].Message == "Relational pattern '<' can't compare 'int' with 'int?' before IL emission"
 }
 
 test "two comparable primitives that are NOT assignable still report" {
@@ -556,11 +576,11 @@ test "two comparable primitives that are NOT assignable still report" {
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         BuiltInTypes.Int,
-        BuiltInTypes.Double)
+        BuiltInTypes.Double
+    )
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Message
-        == "Relational pattern '<' can't compare 'int' with 'double' before IL emission"
+    assert harness.Errors[0].Message == "Relational pattern '<' can't compare 'int' with 'double' before IL emission"
 }
 
 test "the widening that DOES hold is silent" {
@@ -569,11 +589,13 @@ test "the widening that DOES hold is silent" {
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         BuiltInTypes.Double,
-        BuiltInTypes.Int)
+        BuiltInTypes.Int
+    )
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         BuiltInTypes.Long,
-        BuiltInTypes.Int)
+        BuiltInTypes.Int
+    )
 
     assert harness.Errors.Count == 0
 }
@@ -586,7 +608,8 @@ test "each judgement reports at most ONCE, however many of the four tests fail" 
     harness.Shapes.ValidateRelationalPattern(
         PatternShapesRelational("<"),
         BuiltInTypes.String,
-        BuiltInTypes.Decimal)
+        BuiltInTypes.Decimal
+    )
 
     assert harness.Errors.Count == 1
 }

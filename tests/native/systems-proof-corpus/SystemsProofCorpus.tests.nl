@@ -52,9 +52,7 @@ import System.Text.Json
 // census is counted by ordinal `IndexOf`; the ANSI wrapper sits outside the marker text and does
 // not disturb it, which the diagnostic censuses below prove on all 21 projects.
 
-
 // ─── THE SPAWN KERNEL ─────────────────────────────────────────────────────────────────────────
-
 class ProofRun {
     ExitCode: int
     Stdout: string
@@ -87,7 +85,6 @@ func RunProcess(fileName: string, arguments: string, workingDirectory: string): 
     return new ProofRun(exitCode, stdout, stderr)
 }
 
-
 // ─── THE CORPUS ON DISK ───────────────────────────────────────────────────────────────────────
 
 // The repository root, found by walking up from the directory this test assembly was loaded into
@@ -96,9 +93,7 @@ func ProofRepositoryRoot(): string {
     current: string? = AppContext.BaseDirectory
     while current != null {
         directory := current ?? ""
-        if File.Exists(Path.Combine(directory, "NSharpLang.sln"))
-            && Directory.Exists(Path.Combine(directory, "src"))
-            && Directory.Exists(Path.Combine(directory, "docs")) {
+        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) && Directory.Exists(Path.Combine(directory, "docs")) {
             return directory
         }
 
@@ -138,7 +133,6 @@ func ProofDirectory(name: string): string {
 func ProofOutputDirectory(name: string): string {
     return Path.Combine(Path.Combine(Path.Combine(ProofDirectory(name), "bin"), "Debug"), "net10.0")
 }
-
 
 // ─── THE THREE CLI ENTRY POINTS, EACH A REAL PROCESS ──────────────────────────────────────────
 
@@ -184,10 +178,8 @@ func CheckProjectJson(directory: string): ProofRun {
 // `assembly=<bool> runtime=<bool>` — the two artifacts the deleted body checked with `File.Exists`.
 func ProofArtifacts(name: string, assemblyName: string): string {
     outputDirectory := ProofOutputDirectory(name)
-    return "assembly=" + BoolText(File.Exists(Path.Combine(outputDirectory, assemblyName + ".dll")))
-        + " runtime=" + BoolText(File.Exists(Path.Combine(outputDirectory, "NSharpLang.Runtime.dll")))
+    return "assembly=" + BoolText(File.Exists(Path.Combine(outputDirectory, assemblyName + ".dll"))) + " runtime=" + BoolText(File.Exists(Path.Combine(outputDirectory, "NSharpLang.Runtime.dll")))
 }
-
 
 // ─── THE TEXT KERNELS ─────────────────────────────────────────────────────────────────────────
 
@@ -218,10 +210,8 @@ func CountOccurrences(text: string, needle: string): int {
 // `-- ERROR` was absent and that `-- WARNING` occurred N times; stating both halves as one row
 // makes an unexpected error a named failure rather than a silent one.
 func DiagnosticCensus(stderr: string): string {
-    return "errors=" + IntText(CountOccurrences(stderr, "-- ERROR"))
-        + " warnings=" + IntText(CountOccurrences(stderr, "-- WARNING"))
+    return "errors=" + IntText(CountOccurrences(stderr, "-- ERROR")) + " warnings=" + IntText(CountOccurrences(stderr, "-- WARNING"))
 }
-
 
 // ─── THE ENVELOPE READERS ─────────────────────────────────────────────────────────────────────
 
@@ -266,17 +256,7 @@ func BuildEnvelope(stdout: string): string {
 func PerfCensus(stdout: string): string {
     document := JsonDocument.Parse(stdout)
     perf := document.RootElement.GetProperty("perfReport")
-    row := "allocationSites=" + IntText(ArrayCount(perf, "allocationSites"))
-        + " delegateSites=" + IntText(ArrayCount(perf, "delegateSites"))
-        + " boxingSites=" + IntText(ArrayCount(perf, "boxingSites"))
-        + " dispatchSites=" + IntText(ArrayCount(perf, "dispatchSites"))
-        + " closureCaptures=" + IntText(ArrayCount(perf, "closureCaptures"))
-        + " poolSites=" + IntText(ArrayCount(perf, "poolSites"))
-        + " resourceSites=" + IntText(ArrayCount(perf, "resourceSites"))
-        + " boundaryLeakSites=" + IntText(ArrayCount(perf, "boundaryLeakSites"))
-        + " hotReadinessSites=" + IntText(ArrayCount(perf, "hotReadinessSites"))
-        + " implicitTrapSites=" + IntText(ArrayCount(perf, "implicitTrapSites"))
-        + " trustedSites=" + IntText(ArrayCount(perf, "trustedSites"))
+    row := "allocationSites=" + IntText(ArrayCount(perf, "allocationSites")) + " delegateSites=" + IntText(ArrayCount(perf, "delegateSites")) + " boxingSites=" + IntText(ArrayCount(perf, "boxingSites")) + " dispatchSites=" + IntText(ArrayCount(perf, "dispatchSites")) + " closureCaptures=" + IntText(ArrayCount(perf, "closureCaptures")) + " poolSites=" + IntText(ArrayCount(perf, "poolSites")) + " resourceSites=" + IntText(ArrayCount(perf, "resourceSites")) + " boundaryLeakSites=" + IntText(ArrayCount(perf, "boundaryLeakSites")) + " hotReadinessSites=" + IntText(ArrayCount(perf, "hotReadinessSites")) + " implicitTrapSites=" + IntText(ArrayCount(perf, "implicitTrapSites")) + " trustedSites=" + IntText(ArrayCount(perf, "trustedSites"))
     document.Dispose()
     return row
 }
@@ -295,8 +275,7 @@ func PerfSiteRow(stdout: string, arrayName: string, index: int): string {
 func PerfTrustedRow(stdout: string, index: int): string {
     document := JsonDocument.Parse(stdout)
     site := ElementAt(document.RootElement.GetProperty("perfReport"), "trustedSites", index)
-    row := Text(site, "function") + "|" + Text(site, "owner") + "|" + Text(site, "review")
-        + "|" + Text(site, "expires") + "|" + Flag(site, "hasUnsafe")
+    row := Text(site, "function") + "|" + Text(site, "owner") + "|" + Text(site, "review") + "|" + Text(site, "expires") + "|" + Flag(site, "hasUnsafe")
     document.Dispose()
     return row
 }
@@ -306,10 +285,7 @@ func CheckEnvelope(stdout: string): string {
     document := JsonDocument.Parse(stdout)
     root := document.RootElement
     summary := root.GetProperty("summary")
-    row := IntText(root.GetProperty("schemaVersion").GetInt32()) + "|" + Text(root, "command") + "|" + Flag(root, "ok")
-        + "|errors=" + IntText(summary.GetProperty("errors").GetInt32())
-        + "|warnings=" + IntText(summary.GetProperty("warnings").GetInt32())
-        + "|info=" + IntText(summary.GetProperty("info").GetInt32())
+    row := IntText(root.GetProperty("schemaVersion").GetInt32()) + "|" + Text(root, "command") + "|" + Flag(root, "ok") + "|errors=" + IntText(summary.GetProperty("errors").GetInt32()) + "|warnings=" + IntText(summary.GetProperty("warnings").GetInt32()) + "|info=" + IntText(summary.GetProperty("info").GetInt32())
     document.Dispose()
     return row
 }
@@ -330,9 +306,7 @@ func CheckDiagnosticCensus(stdout: string): string {
             row = row + "|"
         }
 
-        row = row + Text(diagnostic, "code") + ":" + Text(diagnostic, "severity")
-            + "@" + IntText(diagnostic.GetProperty("line").GetInt32())
-            + ":" + IntText(diagnostic.GetProperty("column").GetInt32())
+        row = row + Text(diagnostic, "code") + ":" + Text(diagnostic, "severity") + "@" + IntText(diagnostic.GetProperty("line").GetInt32()) + ":" + IntText(diagnostic.GetProperty("column").GetInt32())
     }
 
     document.Dispose()
@@ -381,11 +355,7 @@ func SystemsFunctionRow(stdout: string, name: string): string {
         function := enumerator.Current
         if Text(function, "name") == name {
             effects := function.GetProperty("effects")
-            row = Flag(function, "isHot") + "|" + Flag(function, "isBoundary")
-                + "|" + Flag(effects, "allocates")
-                + "|" + Flag(effects, "hasImplicitTrapObligation")
-                + "|" + Flag(effects, "usesUnknownExternalCall")
-                + "|" + Flag(effects, "aotSafe")
+            row = Flag(function, "isHot") + "|" + Flag(function, "isBoundary") + "|" + Flag(effects, "allocates") + "|" + Flag(effects, "hasImplicitTrapObligation") + "|" + Flag(effects, "usesUnknownExternalCall") + "|" + Flag(effects, "aotSafe")
         }
     }
 
@@ -397,8 +367,7 @@ func SystemsFunctionRow(stdout: string, name: string): string {
 func TrustedQueryEnvelope(stdout: string): string {
     document := JsonDocument.Parse(stdout)
     root := document.RootElement
-    row := IntText(root.GetProperty("schemaVersion").GetInt32()) + "|" + Text(root, "command") + "|" + Flag(root, "ok")
-        + "|results=" + IntText(root.GetProperty("results").GetArrayLength())
+    row := IntText(root.GetProperty("schemaVersion").GetInt32()) + "|" + Text(root, "command") + "|" + Flag(root, "ok") + "|results=" + IntText(root.GetProperty("results").GetArrayLength())
     document.Dispose()
     return row
 }
@@ -407,14 +376,10 @@ func TrustedQueryEnvelope(stdout: string): string {
 func TrustedQueryRow(stdout: string, index: int): string {
     document := JsonDocument.Parse(stdout)
     result := ElementAt(document.RootElement, "results", index)
-    row := Text(result, "function") + "|" + Text(result, "owner") + "|" + Text(result, "review")
-        + "|" + Text(result, "expires") + "|" + Flag(result, "hasUnsafe")
-        + "|" + IntText(result.GetProperty("bodyStatementCount").GetInt32())
+    row := Text(result, "function") + "|" + Text(result, "owner") + "|" + Text(result, "review") + "|" + Text(result, "expires") + "|" + Flag(result, "hasUnsafe") + "|" + IntText(result.GetProperty("bodyStatementCount").GetInt32())
     document.Dispose()
     return row
 }
-
-
 
 // ─── THE 21 BUILDS ────────────────────────────────────────────────────────────────────────────
 // One block per shipped proof project. Each spawns the real `nlc build --project … --perf-report`,
@@ -625,7 +590,6 @@ test "020 s40 systems proof corpus: 48-effect-drift builds — the perf report i
     assert PerfSiteRow(build.Stdout, "allocationSites", 0) == "NSYS001|allocation|Main"
 }
 
-
 // ─── THE 18 RUN BLOCKS: THE 11 THE DELETED BODY MADE, THE TWO NATIVE-IMPORT PROOFS, AND FIVE MORE ─────────────────────────────────────────────────────
 // Every emitted assembly is EXECUTED AS A PROCESS from its own output directory. Each proof
 // `Main` is self-checking — it returns a distinct nonzero code per failed step — so `exit 0` is
@@ -828,7 +792,6 @@ test "020 s40 systems proof corpus: 46-dapper-boundary runs — the database bou
     assert run.Stderr == ""
 }
 
-
 // ─── THE TWO SYSTEMS-REPORT CHECKS ────────────────────────────────────────────────────────────
 // `nlc check --project … --systems-report`, spawned. Both blocks pin the FULL function census the
 // deleted body's `Single(function => …)` lookups only assumed, and the whole four-field AOT block
@@ -855,7 +818,6 @@ test "020 s40 systems proof corpus: 42-aot-friendly-public-api checks AOT-clean 
     assert SystemsFunctionNames(check.Stdout) == "NameApi.Normalize"
     assert SystemsFunctionRow(check.Stdout, "NameApi.Normalize") == "false|true|false|false|true|true"
 }
-
 
 // ─── THE TWO TRUSTED-SITE QUERIES ─────────────────────────────────────────────────────────────
 // `nlc query trusted --project …`, spawned. The C# read three fields off each result; these rows

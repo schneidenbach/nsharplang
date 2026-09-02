@@ -47,7 +47,6 @@ import NSharpLang.Compiler
 // (5) A REQUIRED-EMISSION ERROR KEEPS ITS FIRST SENTENCE AND APPENDS THE DETAIL. The four factories
 // differ ONLY in that first sentence and in the explanation behind it, so a caller that reads
 // `Message` sees a stable prefix and a decline-specific tail.
-
 func DeclineFactsReason(siteId: string, message: string, memberName: string): ColumnarDeclineReason {
     return new ColumnarDeclineReason(siteId, message, 42, 6, memberName)
 }
@@ -175,7 +174,8 @@ test "columnar decline reason facts render the human detail sentence" {
         "unsupported statement (node kind 29)",
         42,
         6,
-        "Main")
+        "Main"
+    )
 
     assert ColumnarDeclineReasonFacts.FormatDetail(reason, "Program.nl", 15, 5) == "Declined at emit.statement.unhandled-kind: unsupported statement (node kind 29) in 'Main' (Program.nl:15:5)."
 }
@@ -202,7 +202,8 @@ test "columnar decline reason facts render the machine readable trace line" {
         "string.CompareTo with 1 argument is not modeled",
         91,
         19,
-        "Main")
+        "Main"
+    )
 
     assert ColumnarDeclineReasonFacts.FormatTraceLine(reason, "Program.nl", 15, 5) == "decline site=emit.call.instance-member-unmodeled message=\"string.CompareTo with 1 argument is not modeled\" span=91:19 member=\"Main\" location=Program.nl:15:5"
 }
@@ -248,7 +249,8 @@ test "columnar emission diagnostics preserve the first sentence and attach the l
         "Program.nl",
         3,
         9,
-        4)
+        4
+    )
 
     assert emissionError.Message.StartsWith("Columnar emission is required for 'Hello', but the columnar backend declined.", StringComparison.Ordinal)
     assert emissionError.Message.EndsWith(" Declined at emit.expression.unhandled-kind: unsupported expression.", StringComparison.Ordinal)

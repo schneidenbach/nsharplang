@@ -10,7 +10,6 @@ namespace NSharpLang.Cli.Commands
 // `nlc doctor` is the command a user runs when something is already wrong, so each of its lines
 // has to name both the symptom and the fix — and a substring assertion would let the fix half
 // rot silently. The eleven message rows below are exact-match for that reason.
-
 test "doctor option summary reads json, both vscode switches and help together" {
     summary := DoctorCommandKernels.GetOptionSummary(["--json", "--require-vscode", "--skip-vscode", "-h"])
 
@@ -42,21 +41,15 @@ test "the doctor help text names the command, its usage and its failure banner" 
 test "every doctor remedy sentence is spelled by a kernel, character for character" {
     assert DoctorCommandKernels.GetDotnetNotFoundMessage() == "dotnet CLI was not found on PATH"
     assert DoctorCommandKernels.GetDotnetVersionFailedMessage() == "dotnet --version failed"
-    assert DoctorCommandKernels.GetNlcCommandMissingMessage()
-        == "nlc is running, but no nlc command was found on PATH; source ~/.nsharp/env or use your package manager shell integration"
-    assert DoctorCommandKernels.GetPackageCacheMissingMessage("/tmp/nsharp")
-        == "N# package cache was not found at /tmp/nsharp; rerun the N# installer"
+    assert DoctorCommandKernels.GetNlcCommandMissingMessage() == "nlc is running, but no nlc command was found on PATH; source ~/.nsharp/env or use your package manager shell integration"
+    assert DoctorCommandKernels.GetPackageCacheMissingMessage("/tmp/nsharp") == "N# package cache was not found at /tmp/nsharp; rerun the N# installer"
     assert DoctorCommandKernels.GetTemplateInstalledMessage() == "nsharp-console template is installed"
-    assert DoctorCommandKernels.GetTemplatesMissingMessage()
-        == "nsharp-console template was not found; run the N# installer or dotnet new install NSharpLang.Templates"
-    assert DoctorCommandKernels.GetLanguageServerMissingMessage()
-        == "nsharp-lsp was not found on PATH; source ~/.nsharp/env or reinstall N#"
+    assert DoctorCommandKernels.GetTemplatesMissingMessage() == "nsharp-console template was not found; run the N# installer or dotnet new install NSharpLang.Templates"
+    assert DoctorCommandKernels.GetLanguageServerMissingMessage() == "nsharp-lsp was not found on PATH; source ~/.nsharp/env or reinstall N#"
     assert DoctorCommandKernels.GetVscodeSkippedMessage() == "skipped by --skip-vscode"
     assert DoctorCommandKernels.GetVscodeRequiredMissingMessage() == "VS Code 'code' CLI was not found on PATH"
-    assert DoctorCommandKernels.GetVscodeOptionalMissingMessage()
-        == "VS Code 'code' CLI was not found; install VS Code or rerun with --require-vscode on developer machines"
-    assert DoctorCommandKernels.GetVscodeExtensionMissingMessage("nsharp.nsharp")
-        == "nsharp.nsharp is not installed; run code --install-extension nsharp.nsharp"
+    assert DoctorCommandKernels.GetVscodeOptionalMissingMessage() == "VS Code 'code' CLI was not found; install VS Code or rerun with --require-vscode on developer machines"
+    assert DoctorCommandKernels.GetVscodeExtensionMissingMessage("nsharp.nsharp") == "nsharp.nsharp is not installed; run code --install-extension nsharp.nsharp"
 }
 
 test "the doctor report's header, status line and three check markers are kernel-spelled" {

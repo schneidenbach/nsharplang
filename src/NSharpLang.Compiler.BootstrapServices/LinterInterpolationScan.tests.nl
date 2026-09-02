@@ -17,7 +17,6 @@ import System.Collections.Generic
 //
 // THE INPUT IS RAW SOURCE TEXT, quotes included, because that is what a `StringLiteralExpression`
 // carries. A test that passed decoded content would be testing a function nobody calls.
-
 func LisNames(value: string): string[] {
     return LinterInterpolationScan.UsedIdentifiers(value).ToArray()
 }
@@ -67,7 +66,6 @@ func LisHoles(value: string): string {
     return result
 }
 
-
 // ── which literals are scanned at all ────────────────────────────────────────────────────────
 
 test "a literal without the dollar is not scanned, however many braces it holds" {
@@ -95,7 +93,6 @@ test "a dollar that does not open an interpolated literal is scanned as nothing"
     assert LisCount("$") == 0
     assert LisCount("$'{name}'") == 0
 }
-
 
 // ── what a hole credits ──────────────────────────────────────────────────────────────────────
 
@@ -166,7 +163,6 @@ test "a name is credited by its position in the literal, not by where the text i
     assert LisJoin("$\"prefix {alpha} middle {beta} suffix\"") == "alpha,beta"
 }
 
-
 // ── brace depth ──────────────────────────────────────────────────────────────────────────────
 
 test "a hole ends at its MATCHING brace, so a nested brace does not close it early" {
@@ -212,7 +208,6 @@ test "the escaped-brace pair opens no hole" {
     assert LisJoin("$\"{{a}} {b} {{c}}\"") == "b"
 }
 
-
 // ── the parts, asked directly ────────────────────────────────────────────────────────────────
 
 test "hole texts are trimmed, and the trim is what makes the separator scan see a bare name" {
@@ -241,7 +236,6 @@ test "the separator index is the LOWEST one, not the first separator that happen
     assert LinterInterpolationScan.FirstSeparatorIndex("") == 0
 }
 
-
 // ── what the caller does with the answer ─────────────────────────────────────────────────────
 
 test "the answer is a list and not a set, because the caller marks each name used" {
@@ -250,7 +244,6 @@ test "the answer is a list and not a set, because the caller marks each name use
     assert LisCount("$\"{a}{a}{a}\"") == 3
     assert LisJoin("$\"{a}{a}{a}\"") == "a,a,a"
 }
-
 
 // ── the scan's positions, which the semantic-token layer places tokens with ────────────────────
 //

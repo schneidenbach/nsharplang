@@ -7,36 +7,39 @@ namespace NSharpLang.AsBoxing.Tests
 // at the same point (`5 as object` IS a box). These contracts pin all three halves of that rule:
 // the boxed answer for a value operand, the legitimate NULL answers that must survive it, and the
 // reference-operand `x as object` idiom the .nl estate already depends on, which must not move.
+enum AsBoxColors {
+    Red = 1,
+    Green = 2,
+    Blue = 4
+}
 
-public enum AsBoxColors { Red = 1, Green = 2, Blue = 4 }
-
-public interface AsBoxNamed {
+interface AsBoxNamed {
     func Label(): string
 }
 
-public interface AsBoxUnimplemented {
+interface AsBoxUnimplemented {
     func Ping(): string
 }
 
-public struct AsBoxPoint : AsBoxNamed {
-    public X: int
-    public Y: int
+struct AsBoxPoint: AsBoxNamed {
+    X: int
+    Y: int
 
-    public func Label(): string {
+    func Label(): string {
         return "point"
     }
 }
 
-public class AsBoxCarrier : AsBoxNamed {
-    public Tag: string = "carrier"
+class AsBoxCarrier: AsBoxNamed {
+    Tag: string = "carrier"
 
-    public func Label(): string {
+    func Label(): string {
         return "carrier"
     }
 }
 
-public class AsBoxUnrelated {
-    public Slot: int = 0
+class AsBoxUnrelated {
+    Slot: int = 0
 }
 
 // `object.ToString()` is typed `string?`, so the rendering goes through one place that names both

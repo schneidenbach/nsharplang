@@ -26,8 +26,8 @@ namespace NSharpLang.SystemsVectorizationFacts.Tests
 //
 // Maps: ILShapeInspector.cs — the deleted instrument this file replaces. It had no test methods of its own;
 // its `Decode`, `CountOpcode` and `CountCall` entry points are what `IlShape` re-provides.
-
 class InstrumentKernels {
+
     // Accepted by TryMatchWhileReduction: `i < n`, `acc = acc + a[i]`, `i = i + 1`.
     static func Canonical(a: int[], n: int): int {
         acc := 0

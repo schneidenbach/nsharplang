@@ -33,7 +33,6 @@ import NSharpLang.Compiler.CodeIntelligence
 // (4) THE MALFORMED-CALL GUARD. An output buffer with no room, and a count larger than the columns
 // that carry it, are both refused with -1 rather than read out of bounds. `FixApplicatorCore` cannot
 // produce either, which is precisely why the guard needs its own statement.
-
 func FeeInts(a: int, b: int): int[] {
     values := new int[](2)
     values[0] = a

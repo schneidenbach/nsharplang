@@ -15,7 +15,6 @@ namespace NSharpLang.Cli
 // LOWERCASE answers 0 — it is not the version flag. A user who types `nlc -v` gets an unknown
 // command, which is the behaviour the deleted body pinned and which is easy to break by
 // "tidying" the comparison.
-
 test "an empty argument list is its own command kind" {
     assert ProgramCommandKernels.GetCommandKind(new string[](0)) == 29
 }
@@ -44,8 +43,7 @@ test "an unrecognised command answers zero" {
 test "the version line and the error line are one-line kernels" {
     assert ProgramCommandKernels.GetVersionText("1.2.3") == "nlc 1.2.3"
     assert ProgramCommandKernels.GetErrorLine("boom") == "Error: boom"
-    assert ProgramCommandKernels.GetUnknownCommandMessage("frobnicate")
-        == "Unknown command: frobnicate. Run 'nlc help' to see available commands."
+    assert ProgramCommandKernels.GetUnknownCommandMessage("frobnicate") == "Unknown command: frobnicate. Run 'nlc help' to see available commands."
 }
 
 // NOT IN THE DELETED FILE AT ALL, AND THE FOLD MOVED HERE TO BE PINNED.
@@ -54,16 +52,12 @@ test "the unknown-command message lowercases the argument INVARIANTLY, so the CL
     // Under `LC_ALL=tr_TR.UTF-8` that made `nlc FROBNICATE` answer with a dotless i, and
     // `tests/native/cli-command-contracts`, which pins the lowercasing end to end against the real
     // binary, was measured RED there. The fold is the kernel's now, and it is invariant.
-    assert ProgramCommandKernels.GetUnknownCommandMessage("FROBNICATE")
-        == "Unknown command: frobnicate. Run 'nlc help' to see available commands."
-    assert ProgramCommandKernels.GetUnknownCommandMessage("INIT")
-        == "Unknown command: init. Run 'nlc help' to see available commands."
-    assert ProgramCommandKernels.GetUnknownCommandMessage("Build")
-        == "Unknown command: build. Run 'nlc help' to see available commands."
+    assert ProgramCommandKernels.GetUnknownCommandMessage("FROBNICATE") == "Unknown command: frobnicate. Run 'nlc help' to see available commands."
+    assert ProgramCommandKernels.GetUnknownCommandMessage("INIT") == "Unknown command: init. Run 'nlc help' to see available commands."
+    assert ProgramCommandKernels.GetUnknownCommandMessage("Build") == "Unknown command: build. Run 'nlc help' to see available commands."
 
     // The empty argument the host passes when there is no argument at all still answers.
-    assert ProgramCommandKernels.GetUnknownCommandMessage("")
-        == "Unknown command: . Run 'nlc help' to see available commands."
+    assert ProgramCommandKernels.GetUnknownCommandMessage("") == "Unknown command: . Run 'nlc help' to see available commands."
 }
 
 test "the help text opens with a version-stamped header and names both of its section banners" {

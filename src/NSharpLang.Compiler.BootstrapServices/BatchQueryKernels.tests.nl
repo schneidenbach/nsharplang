@@ -20,16 +20,12 @@ import System.Collections.Generic
 // which is only correct if bit 63 is masked OFF because it is past the item count. That masking is
 // the whole subtlety of the kernel, so it is pinned here directly rather than inferred from a
 // summary count, and the two refusals either side of it are pinned as throws.
-
 test "every batch message is spelled by a kernel, character for character" {
-    assert BatchQueryKernels.GetRequestsFileNotFoundMessage("/tmp/requests.json")
-        == "Requests file not found: /tmp/requests.json"
-    assert BatchQueryKernels.GetPayloadShapeMessage()
-        == "Batch requests must be a JSON array or an object with a 'requests' array."
+    assert BatchQueryKernels.GetRequestsFileNotFoundMessage("/tmp/requests.json") == "Requests file not found: /tmp/requests.json"
+    assert BatchQueryKernels.GetPayloadShapeMessage() == "Batch requests must be a JSON array or an object with a 'requests' array."
     assert BatchQueryKernels.GetRequestObjectRequiredMessage() == "Each batch request must be a JSON object."
     assert BatchQueryKernels.GetRequestDeserializeFailedMessage() == "Failed to deserialize a batch request."
-    assert BatchQueryKernels.GetDuplicateRequestIdsMessage("alpha, zeta")
-        == "Duplicate batch request ids are not allowed: alpha, zeta"
+    assert BatchQueryKernels.GetDuplicateRequestIdsMessage("alpha, zeta") == "Duplicate batch request ids are not allowed: alpha, zeta"
     assert BatchQueryKernels.GetUnsupportedCommandMessage("unknown") == "Unsupported batch query command 'unknown'."
     assert BatchQueryKernels.GetOutlineFileRequiredMessage() == "file is required for outline requests."
     assert BatchQueryKernels.GetDocQueryRequiredMessage() == "query is required for doc requests."

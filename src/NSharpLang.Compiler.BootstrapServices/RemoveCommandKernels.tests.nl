@@ -14,7 +14,6 @@ namespace NSharpLang.Cli.Commands
 // whole edit.
 
 // ── the argument summary ──────────────────────────────────────────────────────
-
 test "the remove argument summary reads the package operand and the help flag" {
     summary := RemoveCommandKernels.GetArgumentSummary(["--dry-run", "Serilog", "-h"])
 

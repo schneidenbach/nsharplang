@@ -136,7 +136,6 @@ import System.Collections
 // `FindColumn(source, line, needle, occurrence)` helper verbatim for the six cursor columns the
 // deleted methods computed at runtime. Every contract asserts its fixture's own byte LENGTH against
 // that count before it analyses anything.
-
 func SetSmObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }

@@ -41,7 +41,6 @@ import System
 // (3) THE OPERATOR TABLE IS ORDERED, LONGEST FIRST. `??=` is matched before `??`, `...` before
 // `..`, `:=` before `:` — an unordered table would underline one character of a three-character
 // operator and still pass a "never zero length" test.
-
 func DiagnosticSpanContractColumn(sourceLine: string, oneBasedColumn: int): int {
     snippetError := CompilerError.WithSnippet(ErrorCode.InvalidSyntax, "diagnostic", "test.nl", 1, oneBasedColumn, sourceLine, 0, null, ErrorSeverity.Error)
     return snippetError.Column

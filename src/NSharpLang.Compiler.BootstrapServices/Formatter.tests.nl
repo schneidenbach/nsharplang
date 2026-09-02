@@ -37,7 +37,6 @@ import NSharpLang.Compiler.Ast
 //   (l) THE STATE IS BORROWED, NOT OWNED. A declaration formatter and the statement arms inside it
 //       agree about the indent depth to the character, and the depth a format ends at is the depth
 //       it started at.
-
 func FmtConfig(size: int, spaces: bool, maxLine: int): FormatterConfig {
     config := new FormatterConfig()
     config.IndentSize = size

@@ -9,7 +9,6 @@ import System.Reflection
 // indirectly, through end-to-end diagnostics. This is their first DIRECT pinning, and it deliberately
 // pins the CACHE's participation in the probe order, which is the part that is easy to mistake for an
 // optimisation and delete.
-
 func ProbeAssemblies(): List<Assembly> {
     assemblies := new List<Assembly>()
     assemblies.Add(typeof(object).get_Assembly())
@@ -73,10 +72,12 @@ test "every import is tried IN ORDER, and the first one that resolves answers" {
     // An import that resolves NOTHING does not shadow a later one that does, in either position.
     trailing := new AnalyzerExternalTypeProbe(
         ProbeAssemblies(),
-        ProbeNamespaces(["Nonexistent.Namespace", "System.Text"]))
+        ProbeNamespaces(["Nonexistent.Namespace", "System.Text"])
+    )
     leading := new AnalyzerExternalTypeProbe(
         ProbeAssemblies(),
-        ProbeNamespaces(["System.Text", "Nonexistent.Namespace"]))
+        ProbeNamespaces(["System.Text", "Nonexistent.Namespace"])
+    )
     assert ProbeTypeName(trailing.ResolveExternalType("Encoding")) == "System.Text.Encoding"
     assert ProbeTypeName(leading.ResolveExternalType("Encoding")) == "System.Text.Encoding"
 
@@ -88,7 +89,8 @@ test "every import is tried IN ORDER, and the first one that resolves answers" {
     // the right namespace does not resolve.
     prefixOnly := new AnalyzerExternalTypeProbe(
         ProbeAssemblies(),
-        ProbeNamespaces(["System.Te"]))
+        ProbeNamespaces(["System.Te"])
+    )
     assert prefixOnly.ResolveExternalType("xt.Encoding") == null
 }
 
@@ -189,13 +191,11 @@ test "known generic head arities sweep the compiler table and the arity-qualifie
 
     // With no well-known-type facts the table half answers nothing, so every arity found here came
     // from the arity-qualified metadata probe. `Func` exists at 1..17 in the core library.
-    assert ProbeArityText(probe.KnownGenericHeadArities(null, "Func"))
-        == "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17"
+    assert ProbeArityText(probe.KnownGenericHeadArities(null, "Func")) == "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17"
 
     // `Action` has no arity-1..16 gap either, but `Action` itself is non-generic, so arity 0 is not
     // in the sweep at all: the sweep starts at 1 and 0 is never a reportable "available arity".
-    assert ProbeArityText(probe.KnownGenericHeadArities(null, "Action"))
-        == "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16"
+    assert ProbeArityText(probe.KnownGenericHeadArities(null, "Action")) == "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16"
 
     // `Tuple` and `ValueTuple` stop at 8, which is what makes the "available arities are ..."
     // diagnostic finite and truthful.

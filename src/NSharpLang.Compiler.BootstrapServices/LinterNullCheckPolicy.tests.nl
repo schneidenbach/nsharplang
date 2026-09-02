@@ -17,7 +17,6 @@ import NSharpLang.Compiler.Ast
 //
 // THE GATES ARE ASYMMETRIC AND THAT ASYMMETRY IS INHERITED. NL016 is silent unless its code is
 // PRESENT in the configuration's severity table; NL003 has no such gate. Both are asserted.
-
 func LncpConfig(): LinterConfig {
     return LinterConfig.Default()
 }
@@ -98,7 +97,6 @@ func LncpAllOperands(): List<Expression> {
     return operands
 }
 
-
 // ── the shape both rules read ────────────────────────────────────────────────────────────────
 
 test "the checked operand is the one that is NOT the null literal, in either order" {
@@ -135,7 +133,6 @@ test "null == null answers with the LEFT operand, and both rules then stay silen
     assert LinterNullCheckPolicy.UnnecessaryNullCheck(condition, LncpConfig()) == null
     assert LinterNullCheckPolicy.RedundantNullCheck(condition, LncpConfig()) == null
 }
-
 
 // ── NL003 ────────────────────────────────────────────────────────────────────────────────────
 
@@ -183,7 +180,6 @@ test "NL003 has NO presence gate — it speaks even with its code out of the sev
     assert LinterNullCheckPolicy.UnnecessaryNullCheck(LncpNotEqualNull(LncpInt()), LncpConfigWithout("NL003")) != null
 }
 
-
 // ── NL016 ────────────────────────────────────────────────────────────────────────────────────
 
 test "a new expression and an array literal are freshly created; nothing else is" {
@@ -228,7 +224,6 @@ test "the gate is checked BEFORE the shape, so a gated-off NL016 is silent about
         index = index + 1
     }
 }
-
 
 // ── the two rules PARTITION the question ─────────────────────────────────────────────────────
 

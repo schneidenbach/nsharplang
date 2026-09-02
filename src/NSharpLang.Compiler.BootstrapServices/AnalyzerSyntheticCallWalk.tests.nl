@@ -25,7 +25,6 @@ import NSharpLang.Compiler.Ast
 //     arity tables reject cannot cause a receiver to be analysed that the walk never touches;
 //   * a violated constraint anchors on the ARGUMENT that bound the parameter only when there is
 //     exactly one — none and two both fall back to the call.
-
 func WalkErrors(): List<CompilerError> {
     return new List<CompilerError>()
 }
@@ -40,7 +39,8 @@ func WalkOwner(errors: List<CompilerError>): AnalyzerSyntheticCallWalk {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     sink := new AnalyzerDiagnosticSink(errors, provider)
     resolver := new AnalyzerTypeResolver(
@@ -50,10 +50,11 @@ func WalkOwner(errors: List<CompilerError>): AnalyzerSyntheticCallWalk {
         probe,
         sink,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -65,7 +66,14 @@ func WalkOwner(errors: List<CompilerError>): AnalyzerSyntheticCallWalk {
     spans := new AnalyzerDiagnosticSpans(sink)
     reporter := new AnalyzerSyntheticCallReporter(sink, spans)
     return new AnalyzerSyntheticCallWalk(
-        resolver, binder, reporter, scoring, assignability, spans, sink)
+        resolver,
+        binder,
+        reporter,
+        scoring,
+        assignability,
+        spans,
+        sink
+    )
 }
 
 // ------------------------------------------------------------------ signature and call shapes
@@ -176,7 +184,9 @@ func WalkMemberCall(arguments: List<Argument>): CallExpression {
 }
 
 func WalkMemberCallWithTypeArguments(
-    arguments: List<Argument>, typeArguments: List<TypeReference>): CallExpression {
+    arguments: List<Argument>,
+    typeArguments: List<TypeReference>
+): CallExpression {
     receiver: Expression = WalkIdentifier("receiver")
     callee: Expression = new MemberAccessExpression(receiver, "f", false, 1, 1)
     return new CallExpression(callee, arguments, typeArguments, 1, 1)
@@ -220,7 +230,8 @@ func WalkBindingText(bindings: Dictionary<string, TypeInfo>?, name: string): str
 test "the receiver type is needed only for a generic receiver-style call with room to infer" {
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string"))
+    )
 
     assert AnalyzerSyntheticCallWalk.NeedsReceiverType(generic, WalkMemberCall(WalkArgs1("a")))
 
@@ -232,7 +243,9 @@ test "a non-generic signature never reads the receiver type" {
     plain := WalkSignature(WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String))
     plain.SourceHasReceiverParameter = true
     plain.SourceParameterTypes = WalkReferences2(
-        new SimpleTypeReference("int"), new SimpleTypeReference("string"))
+        new SimpleTypeReference("int"),
+        new SimpleTypeReference("string")
+    )
 
     assert !AnalyzerSyntheticCallWalk.NeedsReceiverType(plain, WalkMemberCall(WalkArgs1("a")))
 }
@@ -240,26 +253,33 @@ test "a non-generic signature never reads the receiver type" {
 test "a call that wrote all of its type arguments is already closed" {
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string"))
+    )
     closed := WalkMemberCallWithTypeArguments(
-        WalkArgs1("a"), WalkReferences1(new SimpleTypeReference("int")))
+        WalkArgs1("a"),
+        WalkReferences1(new SimpleTypeReference("int"))
+    )
 
     assert !AnalyzerSyntheticCallWalk.NeedsReceiverType(generic, closed)
 
     // More type arguments than parameters is a dead call, not a call to infer.
     tooMany := WalkMemberCallWithTypeArguments(
         WalkArgs1("a"),
-        WalkReferences2(new SimpleTypeReference("int"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("int"), new SimpleTypeReference("string"))
+    )
     assert !AnalyzerSyntheticCallWalk.NeedsReceiverType(generic, tooMany)
 }
 
 test "a PARTIALLY closed generic call still reads the receiver" {
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("U")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("U"))
+    )
     generic.TypeParameters = WalkTypeParameters2("T", "U")
     partiallyClosed := WalkMemberCallWithTypeArguments(
-        WalkArgs1("a"), WalkReferences1(new SimpleTypeReference("int")))
+        WalkArgs1("a"),
+        WalkReferences1(new SimpleTypeReference("int"))
+    )
 
     assert AnalyzerSyntheticCallWalk.NeedsReceiverType(generic, partiallyClosed)
 }
@@ -279,19 +299,26 @@ test "the group question ignores candidates the arity tables already rejected" {
     owner := WalkOwner(errors)
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string"))
+    )
 
     oneArgument := new List<TypeInfo>()
     oneArgument.Add(BuiltInTypes.String)
     assert owner.AnyCandidateNeedsReceiverType(
-        WalkCandidates(generic), WalkMemberCall(WalkArgs1("a")), oneArgument)
+        WalkCandidates(generic),
+        WalkMemberCall(WalkArgs1("a")),
+        oneArgument
+    )
 
     // The same candidate called with two arguments does not survive the gate.
     twoArguments := WalkTypes2(BuiltInTypes.String, BuiltInTypes.String)
     arguments := WalkArgs1("a")
     arguments.Add(WalkPositional("b"))
     assert !owner.AnyCandidateNeedsReceiverType(
-        WalkCandidates(generic), WalkMemberCall(arguments), twoArguments)
+        WalkCandidates(generic),
+        WalkMemberCall(arguments),
+        twoArguments
+    )
     assert errors.Count == 0
 }
 
@@ -303,7 +330,11 @@ test "a non-generic signature infers nothing at all" {
     plain := WalkSignature(WalkTypes1(BuiltInTypes.Int))
 
     assert owner.InferGenericBindings(
-        plain, WalkBareCall(WalkArgs1("a")), WalkTypes1(BuiltInTypes.Int), null) == null
+        plain,
+        WalkBareCall(WalkArgs1("a")),
+        WalkTypes1(BuiltInTypes.Int),
+        null
+    ) == null
 }
 
 // THE RECEIVER POSITION IS A BOUND LIKE ANY OTHER — this is why the type has to cross the boundary.
@@ -312,7 +343,8 @@ test "the receiver type binds the type parameter its source position names" {
     owner := WalkOwner(errors)
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string"))
+    )
     call := WalkMemberCall(WalkArgs1("a"))
     argTypes := WalkTypes1(BuiltInTypes.String)
 
@@ -331,13 +363,20 @@ test "explicit type arguments win outright and close the signature" {
     owner := WalkOwner(errors)
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string"))
+    )
     closed := WalkMemberCallWithTypeArguments(
-        WalkArgs1("a"), WalkReferences1(new SimpleTypeReference("int")))
+        WalkArgs1("a"),
+        WalkReferences1(new SimpleTypeReference("int"))
+    )
 
     // The receiver is `double`, but the call WROTE `int`, so `int` it is.
     bindings := owner.InferGenericBindings(
-        generic, closed, WalkTypes1(BuiltInTypes.String), BuiltInTypes.Double)
+        generic,
+        closed,
+        WalkTypes1(BuiltInTypes.String),
+        BuiltInTypes.Double
+    )
     assert WalkBindingText(bindings, "T") == "int"
 }
 
@@ -346,13 +385,19 @@ test "more type arguments than the signature declares infers nothing" {
     owner := WalkOwner(errors)
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string"))
+    )
     tooMany := WalkMemberCallWithTypeArguments(
         WalkArgs1("a"),
-        WalkReferences2(new SimpleTypeReference("int"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("int"), new SimpleTypeReference("string"))
+    )
 
     assert owner.InferGenericBindings(
-        generic, tooMany, WalkTypes1(BuiltInTypes.String), BuiltInTypes.Double) == null
+        generic,
+        tooMany,
+        WalkTypes1(BuiltInTypes.String),
+        BuiltInTypes.Double
+    ) == null
 }
 
 // The receiver and an ARGUMENT can constrain the same parameter, and the answer is their least
@@ -362,11 +407,16 @@ test "several bounds on one type parameter resolve to their least upper bound" {
     owner := WalkOwner(errors)
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.Int),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("T")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("T"))
+    )
     call := WalkMemberCall(WalkArgs1("a"))
 
     bindings := owner.InferGenericBindings(
-        generic, call, WalkTypes1(BuiltInTypes.Double), BuiltInTypes.Int)
+        generic,
+        call,
+        WalkTypes1(BuiltInTypes.Double),
+        BuiltInTypes.Int
+    )
     assert WalkBindingText(bindings, "T") == "double"
 }
 
@@ -379,19 +429,28 @@ test "an inapplicable candidate scores -1 and an applicable one may still score 
     owner := WalkOwner(errors)
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string"))
+    )
 
     // Two arguments for a one-argument signature: out on arity.
     twoArguments := WalkTypes2(BuiltInTypes.String, BuiltInTypes.String)
     arguments := WalkArgs1("a")
     arguments.Add(WalkPositional("b"))
     assert owner.GetCallMatchScore(
-        generic, WalkMemberCall(arguments), twoArguments, BuiltInTypes.Int) == -1
+        generic,
+        WalkMemberCall(arguments),
+        twoArguments,
+        BuiltInTypes.Int
+    ) == -1
 
     // An UNKNOWN argument is skipped rather than rejected, so the candidate applies at score zero.
     unknownOnly := WalkTypes1(BuiltInTypes.Unknown)
     assert owner.GetCallMatchScore(
-        generic, WalkMemberCall(WalkArgs1("a")), unknownOnly, BuiltInTypes.Int) == 0
+        generic,
+        WalkMemberCall(WalkArgs1("a")),
+        unknownOnly,
+        BuiltInTypes.Int
+    ) == 0
     assert errors.Count == 0
 }
 
@@ -400,14 +459,23 @@ test "a position that is not assignable takes the candidate out" {
     owner := WalkOwner(errors)
     generic := WalkReceiverGeneric(
         WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
-        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string")))
+        WalkReferences2(new SimpleTypeReference("T"), new SimpleTypeReference("string"))
+    )
 
     matching := owner.GetCallMatchScore(
-        generic, WalkMemberCall(WalkArgs1("a")), WalkTypes1(BuiltInTypes.String), BuiltInTypes.Int)
+        generic,
+        WalkMemberCall(WalkArgs1("a")),
+        WalkTypes1(BuiltInTypes.String),
+        BuiltInTypes.Int
+    )
     assert matching > 0
 
     mismatched := owner.GetCallMatchScore(
-        generic, WalkMemberCall(WalkArgs1("a")), WalkTypes1(BuiltInTypes.Bool), BuiltInTypes.Int)
+        generic,
+        WalkMemberCall(WalkArgs1("a")),
+        WalkTypes1(BuiltInTypes.Bool),
+        BuiltInTypes.Int
+    )
     assert mismatched == -1
 }
 
@@ -425,7 +493,8 @@ test "the higher score wins and no ambiguity is reported" {
         WalkCandidates2(widening, exact),
         WalkBareCall(WalkArgs1("a")),
         WalkTypes1(BuiltInTypes.String),
-        null)
+        null
+    )
     assert chosen == exact
     assert errors.Count == 0
 }
@@ -444,7 +513,8 @@ test "an unbreakable tie is reported as an ambiguous call" {
         WalkCandidates2(first, second),
         WalkBareCall(WalkArgs1("a")),
         WalkTypes1(BuiltInTypes.String),
-        null)
+        null
+    )
 
     // The FIRST candidate is kept — a later equally specific overload never displaces it.
     assert chosen == first
@@ -467,7 +537,8 @@ test "fewer inferred type parameters beats more at an equal score" {
         WalkCandidates2(inferred, written),
         WalkBareCall(WalkArgs1("a")),
         WalkTypes1(BuiltInTypes.String),
-        null)
+        null
+    )
     assert chosen == written
     assert errors.Count == 0
 }
@@ -480,7 +551,9 @@ test "a violated constraint anchors on the single argument that bound the parame
     owner := WalkOwner(errors)
     signature := WalkSignature(WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String))
     signature.SourceParameterTypes = WalkReferences2(
-        new SimpleTypeReference("int"), new SimpleTypeReference("T"))
+        new SimpleTypeReference("int"),
+        new SimpleTypeReference("T")
+    )
     arguments := WalkArgs()
     arguments.Add(new Argument(null, new IdentifierExpression("first", 3, 5), ArgumentModifier.None))
     arguments.Add(new Argument(null, new IdentifierExpression("second", 3, 12), ArgumentModifier.None))
@@ -497,7 +570,9 @@ test "no offending argument and two offending arguments both fall back to the ca
     owner := WalkOwner(errors)
     none := WalkSignature(WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String))
     none.SourceParameterTypes = WalkReferences2(
-        new SimpleTypeReference("int"), new SimpleTypeReference("string"))
+        new SimpleTypeReference("int"),
+        new SimpleTypeReference("string")
+    )
     arguments := WalkArgs()
     arguments.Add(new Argument(null, new IdentifierExpression("first", 3, 5), ArgumentModifier.None))
     arguments.Add(new Argument(null, new IdentifierExpression("second", 3, 12), ArgumentModifier.None))
@@ -508,7 +583,9 @@ test "no offending argument and two offending arguments both fall back to the ca
 
     both := WalkSignature(WalkTypes2(BuiltInTypes.Int, BuiltInTypes.String))
     both.SourceParameterTypes = WalkReferences2(
-        new SimpleTypeReference("T"), new SimpleTypeReference("T"))
+        new SimpleTypeReference("T"),
+        new SimpleTypeReference("T")
+    )
     twoOffenders := owner.GetGenericConstraintDiagnosticSpan(both, call, "T", "f")
     assert twoOffenders.Column == 1
 }

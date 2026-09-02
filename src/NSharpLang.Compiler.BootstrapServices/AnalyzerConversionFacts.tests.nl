@@ -44,18 +44,42 @@ func ConversionClrTypes(): Type[] {
 // space-delimited target set per source. This is the specification the owner is checked against;
 // it is written out longhand on purpose so a table edit cannot silently agree with itself.
 func ConversionExpectedTargets(source: string): string {
-    if source == "byte" { return " short ushort int uint long ulong float double decimal " }
-    if source == "sbyte" { return " short int long float double decimal " }
-    if source == "short" { return " int long float double decimal " }
-    if source == "ushort" { return " int uint long ulong float double decimal " }
-    if source == "int" { return " long float double decimal " }
-    if source == "uint" { return " long ulong float double decimal " }
-    if source == "long" { return " float double decimal " }
-    if source == "ulong" { return " float double decimal " }
-    if source == "char" { return " ushort int uint long ulong float double decimal " }
-    if source == "float" { return " double " }
-    if source == "double" { return " " }
-    if source == "decimal" { return " " }
+    if source == "byte" {
+        return " short ushort int uint long ulong float double decimal "
+    }
+    if source == "sbyte" {
+        return " short int long float double decimal "
+    }
+    if source == "short" {
+        return " int long float double decimal "
+    }
+    if source == "ushort" {
+        return " int uint long ulong float double decimal "
+    }
+    if source == "int" {
+        return " long float double decimal "
+    }
+    if source == "uint" {
+        return " long ulong float double decimal "
+    }
+    if source == "long" {
+        return " float double decimal "
+    }
+    if source == "ulong" {
+        return " float double decimal "
+    }
+    if source == "char" {
+        return " ushort int uint long ulong float double decimal "
+    }
+    if source == "float" {
+        return " double "
+    }
+    if source == "double" {
+        return " "
+    }
+    if source == "decimal" {
+        return " "
+    }
     throw new InvalidOperationException("Unknown conversion source '" + source + "'.")
 }
 
@@ -63,17 +87,11 @@ func ConversionFailure(
     vocabulary: string,
     source: string,
     target: string,
-    expected: bool): InvalidOperationException {
+    expected: bool
+): InvalidOperationException {
     return new InvalidOperationException(
-        "Implicit numeric conversion "
-            + vocabulary
-            + " '"
-            + source
-            + "' -> '"
-            + target
-            + "' should be "
-            + (expected ? "admitted" : "rejected")
-            + ".")
+        "Implicit numeric conversion " + vocabulary + " '" + source + "' -> '" + target + "' should be " + (expected ? "admitted" : "rejected") + "."
+    )
 }
 
 func ConversionRecordType(isStruct: bool): RecordTypeInfo {
@@ -86,7 +104,8 @@ func ConversionRecordType(isStruct: bool): RecordTypeInfo {
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func ConversionClassType(): ClassTypeInfo {
@@ -101,7 +120,8 @@ func ConversionClassType(): ClassTypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
 }
 
 func ConversionStructType(): StructTypeInfo {
@@ -113,7 +133,8 @@ func ConversionStructType(): StructTypeInfo {
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func ConversionInterfaceType(): InterfaceTypeInfo {
@@ -125,17 +146,20 @@ func ConversionInterfaceType(): InterfaceTypeInfo {
         new TypeReference[](0),
         new TypeParameter[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func ConversionEnumType(): EnumTypeInfo {
     return new EnumTypeInfo(
-        new EnumDeclarationInfo("Color", new List<EnumMemberInfo>(), EnumType.Int))
+        new EnumDeclarationInfo("Color", new List<EnumMemberInfo>(), EnumType.Int)
+    )
 }
 
 func ConversionUnionType(): UnionTypeInfo {
     return new UnionTypeInfo(
-        new UnionDeclarationInfo("Result", null, new List<UnionCase>()))
+        new UnionDeclarationInfo("Result", null, new List<UnionCase>())
+    )
 }
 
 func ConversionAnonymousUnionType(): AnonymousUnionTypeInfo {
@@ -168,10 +192,15 @@ test "the implicit numeric conversion table is exact over every N# source type n
             expected := expectedTargets.Contains(" " + names[targetIndex] + " ")
             actual := AnalyzerConversionFacts.IsImplicitNumericConversion(
                 new SimpleTypeInfo(names[sourceIndex]),
-                new SimpleTypeInfo(names[targetIndex]))
+                new SimpleTypeInfo(names[targetIndex])
+            )
             if actual != expected {
                 throw ConversionFailure(
-                    "of source name", names[sourceIndex], names[targetIndex], expected)
+                    "of source name",
+                    names[sourceIndex],
+                    names[targetIndex],
+                    expected
+                )
             }
 
             targetIndex += 1
@@ -182,7 +211,9 @@ test "the implicit numeric conversion table is exact over every N# source type n
 
     // Identity is not a conversion on the source-name path: the caller answers identity first.
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new SimpleTypeInfo("int"), new SimpleTypeInfo("int"))
+        new SimpleTypeInfo("int"),
+        new SimpleTypeInfo("int")
+    )
 }
 
 test "the implicit numeric conversion table is exact over every reflection type pair" {
@@ -193,14 +224,18 @@ test "the implicit numeric conversion table is exact over every reflection type 
         expectedTargets := ConversionExpectedTargets(names[sourceIndex])
         targetIndex := 0
         while targetIndex < types.Length {
-            expected := sourceIndex == targetIndex
-                || expectedTargets.Contains(" " + names[targetIndex] + " ")
+            expected := sourceIndex == targetIndex || expectedTargets.Contains(" " + names[targetIndex] + " ")
             actual := AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(
                 types[sourceIndex],
-                types[targetIndex])
+                types[targetIndex]
+            )
             if actual != expected {
                 throw ConversionFailure(
-                    "of reflection type", names[sourceIndex], names[targetIndex], expected)
+                    "of reflection type",
+                    names[sourceIndex],
+                    names[targetIndex],
+                    expected
+                )
             }
 
             targetIndex += 1
@@ -213,49 +248,83 @@ test "the implicit numeric conversion table is exact over every reflection type 
 test "reflection numeric conversion reads through Nullable and short-circuits on identity" {
     // Nullable<T> is read through to T on BOTH sides before the table is consulted.
     assert AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(
-        typeof(int?), typeof(long))
+        typeof(int?),
+        typeof(long)
+    )
     assert AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(
-        typeof(int), typeof(long?))
+        typeof(int),
+        typeof(long?)
+    )
     assert AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(
-        typeof(int?), typeof(long?))
+        typeof(int?),
+        typeof(long?)
+    )
     assert !AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(
-        typeof(long?), typeof(int?))
+        typeof(long?),
+        typeof(int?)
+    )
 
     // Identical reflection types short-circuit true even when they are not numeric at all.
     assert AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(
-        typeof(string), typeof(string))
+        typeof(string),
+        typeof(string)
+    )
     assert AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(
-        typeof(DateTime), typeof(DateTime))
+        typeof(DateTime),
+        typeof(DateTime)
+    )
 }
 
 test "non-numeric and cross-vocabulary spellings never convert" {
     // bool, string and object take no part in either direction.
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new SimpleTypeInfo("bool"), new SimpleTypeInfo("int"))
+        new SimpleTypeInfo("bool"),
+        new SimpleTypeInfo("int")
+    )
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new SimpleTypeInfo("int"), new SimpleTypeInfo("bool"))
+        new SimpleTypeInfo("int"),
+        new SimpleTypeInfo("bool")
+    )
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new SimpleTypeInfo("string"), new SimpleTypeInfo("object"))
+        new SimpleTypeInfo("string"),
+        new SimpleTypeInfo("object")
+    )
     assert !AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(
-        typeof(bool), typeof(int))
+        typeof(bool),
+        typeof(int)
+    )
     assert !AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(
-        typeof(string), typeof(object))
+        typeof(string),
+        typeof(object)
+    )
 
     // The two vocabularies are disjoint: a CLR spelling is not a source name and vice versa.
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new SimpleTypeInfo("System.Int32"), new SimpleTypeInfo("System.Int64"))
+        new SimpleTypeInfo("System.Int32"),
+        new SimpleTypeInfo("System.Int64")
+    )
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new SimpleTypeInfo("System.Int32"), new SimpleTypeInfo("long"))
+        new SimpleTypeInfo("System.Int32"),
+        new SimpleTypeInfo("long")
+    )
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new SimpleTypeInfo("int"), new SimpleTypeInfo("System.Int64"))
+        new SimpleTypeInfo("int"),
+        new SimpleTypeInfo("System.Int64")
+    )
 
     // Only SimpleTypeInfo participates on the source-name path.
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new ReflectionTypeInfo(typeof(int)), new SimpleTypeInfo("long"))
+        new ReflectionTypeInfo(typeof(int)),
+        new SimpleTypeInfo("long")
+    )
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new SimpleTypeInfo("int"), new ReflectionTypeInfo(typeof(long)))
+        new SimpleTypeInfo("int"),
+        new ReflectionTypeInfo(typeof(long))
+    )
     assert !AnalyzerConversionFacts.IsImplicitNumericConversion(
-        new NullableTypeInfo(new SimpleTypeInfo("int")), new SimpleTypeInfo("long"))
+        new NullableTypeInfo(new SimpleTypeInfo("int")),
+        new SimpleTypeInfo("long")
+    )
 }
 
 test "reference-type classification covers every built-in simple name" {
@@ -264,7 +333,8 @@ test "reference-type classification covers every built-in simple name" {
     while index < valueNames.Length {
         if AnalyzerConversionFacts.IsReferenceType(new SimpleTypeInfo(valueNames[index])) {
             throw new InvalidOperationException(
-                "'" + valueNames[index] + "' must classify as a value type.")
+                "'" + valueNames[index] + "' must classify as a value type."
+            )
         }
 
         index += 1
@@ -320,23 +390,37 @@ test "reflection assignability accepts identity, base chains and interface lists
 
     // Interfaces the source implements, generic and non-generic.
     assert AnalyzerConversionFacts.IsReflectionAssignableFrom(
-        typeof(IComparable), typeof(string))
+        typeof(IComparable),
+        typeof(string)
+    )
     assert AnalyzerConversionFacts.IsReflectionAssignableFrom(
-        typeof(IEnumerable<int>), typeof(List<int>))
+        typeof(IEnumerable<int>),
+        typeof(List<int>)
+    )
 
     // Base chain of the source, more than one hop up.
     assert AnalyzerConversionFacts.IsReflectionAssignableFrom(
-        typeof(Exception), typeof(ArgumentNullException))
+        typeof(Exception),
+        typeof(ArgumentNullException)
+    )
     assert AnalyzerConversionFacts.IsReflectionAssignableFrom(
-        typeof(object), typeof(ArgumentNullException))
+        typeof(object),
+        typeof(ArgumentNullException)
+    )
 
     // Not assignable in the other direction, and unrelated types stay rejected.
     assert !AnalyzerConversionFacts.IsReflectionAssignableFrom(
-        typeof(string), typeof(object))
+        typeof(string),
+        typeof(object)
+    )
     assert !AnalyzerConversionFacts.IsReflectionAssignableFrom(
-        typeof(ArgumentNullException), typeof(Exception))
+        typeof(ArgumentNullException),
+        typeof(Exception)
+    )
     assert !AnalyzerConversionFacts.IsReflectionAssignableFrom(
-        typeof(int), typeof(string))
+        typeof(int),
+        typeof(string)
+    )
 
     // Reflection assignability is NOT the numeric table: widening is a separate decision.
     assert !AnalyzerConversionFacts.IsReflectionAssignableFrom(typeof(long), typeof(int))

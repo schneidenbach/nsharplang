@@ -21,7 +21,6 @@ import System.Collections.Generic
 // synthesized fallback. Only the four AOT descriptors carry a stored URL, and the deleted file
 // asserted the fallback on a code that is not in the catalog at all — so the arm that RETURNS the
 // stored value was never executed by any test. It is asserted here on all four.
-
 func DctAllDescriptors(): List<DiagnosticDescriptor> {
     descriptors := new List<DiagnosticDescriptor>()
     for descriptorValue in DiagnosticCatalog.Descriptors {

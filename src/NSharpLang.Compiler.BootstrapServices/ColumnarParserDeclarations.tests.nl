@@ -93,7 +93,6 @@ func PdCensus(source: string): string {
     return builder.ToString()
 }
 
-
 // ---- contracts ----
 
 test "020 s17 parser declarations: a class body materializes both of its fields, and the node anchors on the `class` keyword (was ParserTests.TestClassDeclaration)" {

@@ -28,7 +28,6 @@ import System.IO
 // and each condition is separated below.
 
 // ── the deleted row, reproduced whole ─────────────────────────────────────────
-
 func MakeToolsetLayout(rootName: string, withBin: bool, withPackages: bool, libDirectoryName: string): string {
     root := Path.Combine(Path.GetTempPath(), "nsharp-installroot-" + Guid.NewGuid().ToString("N"))
     customRoot := Path.Combine(root, rootName)

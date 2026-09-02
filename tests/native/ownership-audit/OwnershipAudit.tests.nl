@@ -43,7 +43,8 @@ func OwnershipFixtureExistingEntry(path: string, text: string, epochBonus: int):
         observed.AssertionMarkers,
         0,
         0,
-        observed.Fingerprint)
+        observed.Fingerprint
+    )
 }
 
 func OwnershipFixtureRemovedEntry(path: string, epochText: string): OwnershipFixtureEntryValue {
@@ -59,7 +60,8 @@ func OwnershipFixtureRemovedEntry(path: string, epochText: string): OwnershipFix
         0,
         0,
         0,
-        "text-v1:removed")
+        "text-v1:removed"
+    )
 }
 
 func OwnershipFixtureEntry(
@@ -73,7 +75,8 @@ func OwnershipFixtureEntry(
     currentAssertionMarkers: int,
     epochBytes: int,
     currentBytes: int,
-    fingerprint: string): OwnershipFixtureEntryValue {
+    fingerprint: string
+): OwnershipFixtureEntryValue {
     builder := new StringBuilder()
     builder.Append("{\"path\":\"")
     builder.Append(observed.Path)
@@ -129,7 +132,8 @@ func OwnershipFixtureManifest(
     schemaVersion: int,
     phase: string,
     countAdjustment: int,
-    fingerprintOverride: string): string {
+    fingerprintOverride: string
+): string {
     fingerprint := fingerprintOverride
     if fingerprint == "" {
         fingerprint = OwnershipFacts.PathSetFingerprint(paths)
@@ -180,7 +184,8 @@ func OwnershipFixtureObservedList(path: string, text: string): List<OwnershipObs
 func OwnershipFixtureBinaryEntry(
     path: string,
     bytes: byte[],
-    epochByteBonus: int): OwnershipFixtureEntryValue {
+    epochByteBonus: int
+): OwnershipFixtureEntryValue {
     classification := OwnershipPolicy.Classify(path)
     observed := OwnershipFacts.ObserveBinary(path, classification, bytes)
     return OwnershipFixtureEntry(
@@ -194,7 +199,8 @@ func OwnershipFixtureBinaryEntry(
         0,
         bytes.Length + epochByteBonus,
         bytes.Length,
-        observed.Fingerprint)
+        observed.Fingerprint
+    )
 }
 
 func OwnershipFixtureBinaryObservedList(path: string, bytes: byte[]): List<OwnershipObservedFile> {
@@ -204,14 +210,12 @@ func OwnershipFixtureBinaryObservedList(path: string, bytes: byte[]): List<Owner
 }
 
 test "ownership facts normalize text and compute stable fingerprints" {
-    assert OwnershipFacts.Fingerprint("abc")
-        == "text-v1:e71fa2190541574b"
+    assert OwnershipFacts.Fingerprint("abc") == "text-v1:e71fa2190541574b"
     assert OwnershipFacts.Fingerprint("a\r\nb\r") == OwnershipFacts.Fingerprint("a\nb\n")
     assert OwnershipFacts.CountLines("") == 0
     assert OwnershipFacts.CountLines("one") == 1
     assert OwnershipFacts.CountLines("one\ntwo\n") == 2
     assert OwnershipFacts.CountNonBlankLines("one\n  \n two\n") == 2
-
 }
 
 test "binary ownership uses exact bytes and byte ceilings" {
@@ -259,44 +263,51 @@ test "binary ownership uses exact bytes and byte ceilings" {
     unchanged := OwnershipAudit.AuditSnapshot(
         manifest,
         OwnershipFixtureBinaryObservedList(path, original),
-        false)
+        false
+    )
     assert unchanged.Succeeded
 
     byteDrift := OwnershipAudit.AuditSnapshot(
         manifest,
         OwnershipFixtureBinaryObservedList(path, sameDecodedText),
-        false)
+        false
+    )
     assert byteDrift.HasCode("OWN005")
     assert !byteDrift.HasCode("OWN004")
 
     byteGrowth := OwnershipAudit.AuditSnapshot(
         manifest,
         OwnershipFixtureBinaryObservedList(path, grown),
-        false)
+        false
+    )
     assert byteGrowth.HasCode("OWN004")
 
     binaryTextMetrics := manifest.Replace("\"epochLines\":0", "\"epochLines\":1")
     assert OwnershipAudit.AuditSnapshot(
         binaryTextMetrics,
         OwnershipFixtureBinaryObservedList(path, original),
-        false).HasCode("OWN001")
+        false
+    ).HasCode("OWN001")
 
     wrongBinaryPrefix := manifest.Replace("binary-v1:", "text-v1:")
     assert OwnershipAudit.AuditSnapshot(
         wrongBinaryPrefix,
         OwnershipFixtureBinaryObservedList(path, original),
-        false).HasCode("OWN001")
+        false
+    ).HasCode("OWN001")
 }
 
 test "ownership facts count CSharp and TypeScript assertion markers only in tests" {
     csharp := OwnershipFixtureObserved(
         "tests/CompilerTests.cs",
-        "[Fact]\nAssert.True(true);\n[Theory]\nvalue.Should();\n")
+        "[Fact]\nAssert.True(true);\n[Theory]\nvalue.Should();\n"
+    )
     assert csharp.AssertionMarkers == 4
 
     typescript := OwnershipFixtureObserved(
         "editors/vscode/test/suite/hover.test.ts",
-        "test('hover', () => expect(value));\nit('works', () => {});\n")
+        "test('hover', () => expect(value));\nit('works', () => {});\n"
+    )
     assert typescript.AssertionMarkers == 3
 
     product := OwnershipFixtureObserved("src/NSharpLang.Compiler/Parser.cs", "Assert.True(true);\n")
@@ -396,13 +407,15 @@ test "strict schema accepts unchanged files and reviewed reductions" {
     unchanged := OwnershipAudit.AuditSnapshot(
         OwnershipFixtureOne(path, text, 0),
         OwnershipFixtureObservedList(path, text),
-        false)
+        false
+    )
     assert unchanged.Succeeded
 
     reduced := OwnershipAudit.AuditSnapshot(
         OwnershipFixtureOne(path, text, 12),
         OwnershipFixtureObservedList(path, text),
-        false)
+        false
+    )
     assert reduced.Succeeded
 }
 
@@ -419,22 +432,26 @@ test "strict schema rejects malformed unsupported and extensible manifests" {
 
     unknownRoot := OwnershipFixtureOne(path, text, 0).Replace(
         "\"phase\":",
-        "\"unknown\":true,\"phase\":")
+        "\"unknown\":true,\"phase\":"
+    )
     assert OwnershipAudit.AuditSnapshot(unknownRoot, observed, false).HasCode("OWN001")
 
     unknownEntry := OwnershipFixtureOne(path, text, 0).Replace(
         "\"state\":",
-        "\"verdict\":\"approved\",\"state\":")
+        "\"verdict\":\"approved\",\"state\":"
+    )
     assert OwnershipAudit.AuditSnapshot(unknownEntry, observed, false).HasCode("OWN001")
 
     badFingerprint := OwnershipFixtureOne(path, text, 0).Replace(
         OwnershipFacts.Fingerprint(text),
-        "text-v1:ABCDEF0123456789")
+        "text-v1:ABCDEF0123456789"
+    )
     assert OwnershipAudit.AuditSnapshot(badFingerprint, observed, false).HasCode("OWN001")
 
     textByteMetrics := OwnershipFixtureOne(path, text, 0).Replace(
         "\"epochBytes\":0",
-        "\"epochBytes\":1")
+        "\"epochBytes\":1"
+    )
     assert OwnershipAudit.AuditSnapshot(textByteMetrics, observed, false).HasCode("OWN001")
 
     wrongTextPrefix := OwnershipFixtureOne(path, text, 0).Replace("text-v1:", "binary-v1:")
@@ -516,25 +533,29 @@ test "growth ratchet rejects new files metric growth assertion growth and finger
     newFile := OwnershipAudit.AuditSnapshot(
         manifest,
         OwnershipFixtureObservedList(addedPath, "[Fact]\nclass NewTests {}\n"),
-        false)
+        false
+    )
     assert newFile.HasCode("OWN003")
 
     grown := OwnershipAudit.AuditSnapshot(
         manifest,
         OwnershipFixtureObservedList(path, original + "class More {}\n"),
-        false)
+        false
+    )
     assert grown.HasCode("OWN004")
 
     assertionGrowth := OwnershipAudit.AuditSnapshot(
         manifest,
         OwnershipFixtureObservedList(path, "[Fact]\n[Theory]\n"),
-        false)
+        false
+    )
     assert assertionGrowth.HasCode("OWN004")
 
     drift := OwnershipAudit.AuditSnapshot(
         manifest,
         OwnershipFixtureObservedList(path, "[Fact]\nclass Other {}\n"),
-        false)
+        false
+    )
     assert drift.HasCode("OWN005")
 }
 
@@ -544,7 +565,8 @@ test "active debt must become removed and removed paths can never reappear" {
     missing := OwnershipAudit.AuditSnapshot(
         OwnershipFixtureOne(path, text, 0),
         new List<OwnershipObservedFile>(),
-        false)
+        false
+    )
     assert missing.HasCode("OWN006")
 
     entries := new List<OwnershipFixtureEntryValue>()
@@ -558,7 +580,8 @@ test "active debt must become removed and removed paths can never reappear" {
     reappeared := OwnershipAudit.AuditSnapshot(
         removedManifest,
         OwnershipFixtureObservedList(path, text),
-        false)
+        false
+    )
     assert reappeared.HasCode("OWN007")
 }
 
@@ -572,7 +595,8 @@ test "epoch count and path-set fingerprint are immutable facts" {
 
     wrongFingerprint := OwnershipFixtureOne(path, text, 0).Replace(
         "pathset-v1:",
-        "pathset-v1:tampered-")
+        "pathset-v1:tampered-"
+    )
     assert OwnershipAudit.AuditSnapshot(wrongFingerprint, observed, false).HasCode("OWN008")
 
     liveIdentity := OwnershipAudit.AuditSnapshot(OwnershipFixtureOne(path, text, 0), observed, true)
@@ -598,7 +622,8 @@ test "reviewed policy constants prevent manifest-only epoch and head rebaselines
         1,
         expectedPath,
         expectedEpoch,
-        expectedHead)
+        expectedHead
+    )
     assert original.Succeeded
 
     originalObserved := OwnershipFixtureObserved(path, originalText)
@@ -614,12 +639,14 @@ test "reviewed policy constants prevent manifest-only epoch and head rebaselines
         originalObserved.AssertionMarkers,
         0,
         0,
-        originalObserved.Fingerprint))
+        originalObserved.Fingerprint
+    ))
     overCeilingManifest := OwnershipFixtureManifest(overCeilingEntries, paths, 1, "growth-ratchet", 0, "")
     assert OwnershipAudit.AuditSnapshot(
         overCeilingManifest,
         OwnershipFixtureObservedList(path, originalText),
-        false).HasCode("OWN004")
+        false
+    ).HasCode("OWN004")
 
     editedEpochEntries := new List<OwnershipFixtureEntryValue>()
     editedEpochEntries.Add(OwnershipFixtureExistingEntry(path, originalText, 6))
@@ -627,14 +654,16 @@ test "reviewed policy constants prevent manifest-only epoch and head rebaselines
     assert OwnershipAudit.AuditSnapshot(
         editedEpochManifest,
         OwnershipFixtureObservedList(path, originalText),
-        false).Succeeded
+        false
+    ).Succeeded
     editedEpoch := OwnershipAudit.AuditSnapshotAgainstPolicy(
         editedEpochManifest,
         OwnershipFixtureObservedList(path, originalText),
         1,
         expectedPath,
         expectedEpoch,
-        expectedHead)
+        expectedHead
+    )
     assert editedEpoch.HasCode("OWN008")
 
     regrownText := "class Parser {}\nclass More {}\n"
@@ -651,7 +680,8 @@ test "reviewed policy constants prevent manifest-only epoch and head rebaselines
         regrownObserved.AssertionMarkers,
         0,
         0,
-        regrownObserved.Fingerprint)
+        regrownObserved.Fingerprint
+    )
     regrownEntries := new List<OwnershipFixtureEntryValue>()
     regrownEntries.Add(regrownEntry)
     regrownManifest := OwnershipFixtureManifest(regrownEntries, paths, 1, "growth-ratchet", 0, "")
@@ -663,7 +693,8 @@ test "reviewed policy constants prevent manifest-only epoch and head rebaselines
         1,
         expectedPath,
         expectedEpoch,
-        expectedHead)
+        expectedHead
+    )
     assert regrown.HasCode("OWN008")
 
     removedEntries := new List<OwnershipFixtureEntryValue>()
@@ -682,7 +713,8 @@ test "reviewed policy constants prevent manifest-only epoch and head rebaselines
         1,
         expectedPath,
         removedEpoch,
-        removedHead)
+        removedHead
+    )
     assert reintroduced.HasCode("OWN008")
 }
 
@@ -704,10 +736,9 @@ test "multi-error reports are deterministic complete and actionable" {
     result := OwnershipAudit.AuditSnapshot(
         manifest,
         OwnershipFixtureObservedList(secondPath, "class B {}\n"),
-        false)
-    expected := "N# ownership growth audit failed with 2 violation(s):\n"
-        + "  OWN006 [src/NSharpLang.Compiler/A.cs]: active debt entry disappeared; mark it removed in the same deletion commit\n"
-        + "  OWN003 [src/NSharpLang.Compiler/B.cs]: new unclassified non-N# file; implement this behavior in N# or remove the file. Do not add it to the E0 debt epoch\n"
+        false
+    )
+    expected := "N# ownership growth audit failed with 2 violation(s):\n" + "  OWN006 [src/NSharpLang.Compiler/A.cs]: active debt entry disappeared; mark it removed in the same deletion commit\n" + "  OWN003 [src/NSharpLang.Compiler/B.cs]: new unclassified non-N# file; implement this behavior in N# or remove the file. Do not add it to the E0 debt epoch\n"
     assert result.Report() == expected
 }
 

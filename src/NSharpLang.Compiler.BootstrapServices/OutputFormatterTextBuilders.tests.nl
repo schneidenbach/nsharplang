@@ -38,7 +38,6 @@ import System.Collections.Generic
 // `tests/CodeIntelligenceTests.cs` — the unknown-severity invariant fallback, whose negative half
 // is only non-vacuous under a Turkish ambient culture, and `CultureInfo` is unreachable from N# in
 // both directions.
-
 func OftbRule(count: int): string {
     rule := ""
     index := 0
@@ -138,7 +137,8 @@ func OftbResolvedInspect(): InspectResult {
         new TypeResult("stats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1), null),
         new DefinitionResult("Total", "property", "Services/TaskService.nl", 106, 5, 5),
         new InspectReferencesResult(2, 1, references),
-        new CompletionResult(CompletionContext.MemberAccess, "stats", "TaskStats", completions))
+        new CompletionResult(CompletionContext.MemberAccess, "stats", "TaskStats", completions)
+    )
 }
 
 func OftbEmptyInspect(): InspectResult {
@@ -147,9 +147,9 @@ func OftbEmptyInspect(): InspectResult {
         null,
         null,
         new InspectReferencesResult(0, 0, new ReferenceResult[](0)),
-        new CompletionResult(CompletionContext.Unknown, null, null, new Dictionary<string, List<CompletionItem>>()))
+        new CompletionResult(CompletionContext.Unknown, null, null, new Dictionary<string, List<CompletionItem>>())
+    )
 }
-
 
 // ---- DIAGNOSTICS: THE ELM-STYLE REPORT -----------------------------------------------------------
 
@@ -168,7 +168,8 @@ test "a fully populated diagnostic prints every Elm section" {
         "Check your types",
         "int",
         "string",
-        "https://docs.n-sharp.dev/errors/NL202")
+        "https://docs.n-sharp.dev/errors/NL202"
+    )
 
     text := OutputFormatterTextBuilders.DiagnosticsToText(OftbDiagnosticList(diagnostic))
 
@@ -177,8 +178,7 @@ test "a fully populated diagnostic prints every Elm section" {
     assert text.Contains("── [NL202] ERROR " + OftbRule(29) + " Program.nl:5:4 ──")
 
     // And that 29 is not a magic number: it is the 60-column budget minus the two spaced parts.
-    assert OftbHeader("[NL202] ERROR", "Program.nl:5:4")
-        == "── [NL202] ERROR " + OftbRule(29) + " Program.nl:5:4 ──"
+    assert OftbHeader("[NL202] ERROR", "Program.nl:5:4") == "── [NL202] ERROR " + OftbRule(29) + " Program.nl:5:4 ──"
 
     // The header is that text and nothing more: asked as a whole line, so a third leading rule
     // character — which `Contains` cannot see — fails here.
@@ -226,7 +226,6 @@ test "an empty diagnostic list is a sentence, not an empty report" {
     assert OutputFormatterTextBuilders.DiagnosticsToText(new List<DiagnosticResult>()) == "No diagnostics found."
 }
 
-
 // ---- COMPLETIONS ---------------------------------------------------------------------------------
 
 test "completions print the receiver line and one indented block per group" {
@@ -246,7 +245,8 @@ test "completions print the receiver line and one indented block per group" {
         "    GetStats (): TaskStats",
         "  properties (1):",
         "    Total: int",
-        ""])
+        ""
+    ])
 }
 
 test "a completion group of 51 prints 50 items and one overflow line" {
@@ -280,7 +280,6 @@ test "a completion group of 51 prints 50 items and one overflow line" {
     assert text == OftbLines(expected)
 }
 
-
 // ---- SYMBOLS AND OUTLINE -------------------------------------------------------------------------
 
 test "symbols print modifiers, signature parameters and nested members" {
@@ -302,7 +301,8 @@ test "symbols print modifiers, signature parameters and nested members" {
         "  (name: string, count: int = 42)",
         "[pub] Class Person  (Models.nl:5)",
         "  Property Name: string  (Models.nl:6)",
-        ""])
+        ""
+    ])
 }
 
 test "an empty symbol list is a sentence, not an empty report" {
@@ -326,9 +326,9 @@ test "an outline prints the file, its imports and one indented line per entry" {
         "Class Person (lines 5-15)",
         "  Property Name (line 6)",
         "  Function Greet -> string (lines 8-12)",
-        ""])
+        ""
+    ])
 }
-
 
 // ---- REFERENCES ----------------------------------------------------------------------------------
 
@@ -345,14 +345,13 @@ test "references print a count, a definition marker and a trimmed context" {
         "  Models.nl:5:0 [definition]  class Person {",
         "  Program.nl:3:8  p := Person{}",
         "  Generated.nl:9:2",
-        ""])
+        ""
+    ])
 }
 
 test "an empty reference list names the symbol that has none" {
-    assert OutputFormatterTextBuilders.ReferencesToText("Foo", new List<ReferenceResult>())
-        == "No references found for 'Foo'."
+    assert OutputFormatterTextBuilders.ReferencesToText("Foo", new List<ReferenceResult>()) == "No references found for 'Foo'."
 }
-
 
 // ---- TYPE AND DEFINITION -------------------------------------------------------------------------
 
@@ -362,7 +361,8 @@ test "a type prints its nullability and definition site when both are known" {
         "TaskStats",
         "record",
         new LocationResult("Services/TaskService.nl", 105, 1),
-        "non-null")
+        "non-null"
+    )
 
     text := OutputFormatterTextBuilders.TypeToText(result, "Program.nl", 85, 22)
 
@@ -371,7 +371,8 @@ test "a type prints its nullability and definition site when both are known" {
         "  stats: TaskStats (record)",
         "  Nullability: non-null",
         "  Defined at: Services/TaskService.nl:105:1",
-        ""])
+        ""
+    ])
 }
 
 test "a type with neither nullability nor a definition omits both lines" {
@@ -380,14 +381,13 @@ test "a type with neither nullability nor a definition omits both lines" {
     assert text == OftbLines([
         "At Program.nl:3:8:",
         "  count: int (local)",
-        ""])
+        ""
+    ])
 }
 
 test "a definition is a single line with no trailing newline" {
-    assert OutputFormatterTextBuilders.DefinitionToText(new DefinitionResult("Hi", "function", "Program.nl", 2, 6, 2))
-        == "function Hi at Program.nl:2:6"
+    assert OutputFormatterTextBuilders.DefinitionToText(new DefinitionResult("Hi", "function", "Program.nl", 2, 6, 2)) == "function Hi at Program.nl:2:6"
 }
-
 
 // ---- INSPECT -------------------------------------------------------------------------------------
 
@@ -413,7 +413,8 @@ test "inspect bundles the symbol, type, definition, reference and completion sec
         "",
         "  properties (1):",
         "    Total: int",
-        ""])
+        ""
+    ])
 }
 
 test "inspect keeps every section header when nothing resolved" {
@@ -432,9 +433,9 @@ test "inspect keeps every section header when nothing resolved" {
         "",
         "Completions at Program.nl:1:1 (context: unknown)",
         "",
-        ""])
+        ""
+    ])
 }
-
 
 // ---- HOVER ---------------------------------------------------------------------------------------
 
@@ -453,7 +454,8 @@ test "hover prints the signature, kind, defining file and every documentation li
         "Documentation:",
         "  Returns a value.",
         "  Second line.",
-        ""])
+        ""
+    ])
 }
 
 test "hover without documentation or a defining file omits both blocks" {
@@ -464,9 +466,9 @@ test "hover without documentation or a defining file omits both blocks" {
         "",
         "Signature:  name: string",
         "Kind:       variable",
-        ""])
+        ""
+    ])
 }
-
 
 // ---- CALL GRAPH ----------------------------------------------------------------------------------
 
@@ -487,12 +489,14 @@ test "a function call graph prints callers, callees and the truncation notice" {
         "Callees (1):",
         "  Hi  (Program.nl:18)",
         "(results truncated — use --limit to increase)",
-        ""])
+        ""
+    ])
 }
 
 test "a whole-project call graph names no function and prints no truncation notice" {
     text := OutputFormatterTextBuilders.CallGraphToText(
-        new CallGraphResult(null, new List<CallSiteResult>(), new List<CallSiteResult>(), false))
+        new CallGraphResult(null, new List<CallSiteResult>(), new List<CallSiteResult>(), false)
+    )
 
     assert text == OftbLines([
         "Call graph (full project)",
@@ -500,9 +504,9 @@ test "a whole-project call graph names no function and prints no truncation noti
         "Callers (0):",
         "",
         "Callees (0):",
-        ""])
+        ""
+    ])
 }
-
 
 // ---- IMPLEMENTORS --------------------------------------------------------------------------------
 
@@ -518,7 +522,8 @@ test "implementors print their kind and site, and a missing file leaves the colo
         "",
         "  class Circle  (Geometry.nl:19)",
         "  record Square  (:25)",
-        ""])
+        ""
+    ])
 }
 
 test "an interface with no implementors still prints its zero count" {
@@ -527,9 +532,9 @@ test "an interface with no implementors still prints its zero count" {
     assert text == OftbLines([
         "Implementors of IFoo (0):",
         "",
-        ""])
+        ""
+    ])
 }
-
 
 // ---- DOC -----------------------------------------------------------------------------------------
 
@@ -552,7 +557,8 @@ test "doc prints the namespace, summary, base types, parameters, returns and ove
         parameters,
         "bool",
         "true on success",
-        ["Object", "TextWriter"])
+        ["Object", "TextWriter"]
+    )
 
     text := OutputFormatterTextBuilders.DocToText(result)
 
@@ -573,7 +579,8 @@ test "doc prints the namespace, summary, base types, parameters, returns and ove
         "  Overloads:",
         "    method WriteLine (string value): void — Writes a line",
         "    method ReadLine: string",
-        ""])
+        ""
+    ])
 }
 
 test "a member list of 31 prints 30 members and one overflow line" {

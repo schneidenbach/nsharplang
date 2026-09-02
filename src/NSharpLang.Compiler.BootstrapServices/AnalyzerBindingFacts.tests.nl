@@ -42,7 +42,6 @@ import NSharpLang.Compiler.Ast
 // THE CHAIN NEVER PRODUCES. `"typeAlias"` and `"newtype"` are accepted as type kinds even though
 // `TypeInfoToDeclarationKind` answers `"variable"` for both shapes — the two functions are asked by
 // DIFFERENT callers, and the declaration walker supplies those two words itself.
-
 func BindingFactsClass(name: string): ClassTypeInfo {
     return new ClassTypeInfo(
         name,
@@ -55,7 +54,8 @@ func BindingFactsClass(name: string): ClassTypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        false)
+        false
+    )
 }
 
 func BindingFactsStruct(name: string): StructTypeInfo {
@@ -67,7 +67,8 @@ func BindingFactsStruct(name: string): StructTypeInfo {
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func BindingFactsRecord(name: string): RecordTypeInfo {
@@ -80,7 +81,8 @@ func BindingFactsRecord(name: string): RecordTypeInfo {
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func BindingFactsInterface(name: string): InterfaceTypeInfo {
@@ -92,7 +94,8 @@ func BindingFactsInterface(name: string): InterfaceTypeInfo {
         new TypeReference[](0),
         new TypeParameter[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func BindingFactsSoaRecord(name: string): SoaRecordTypeInfo {
