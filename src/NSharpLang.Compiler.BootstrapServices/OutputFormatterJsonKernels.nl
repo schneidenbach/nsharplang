@@ -196,6 +196,10 @@ class OutputFormatterJsonKernels {
             payload["documentation"] = result.Documentation ?? ""
         }
 
+        if result.DeclaringType != null {
+            payload["declaringType"] = result.DeclaringType ?? ""
+        }
+
         if result.DefinedIn != null {
             payload["definedIn"] = OutputFormatterNormalizationKernels.NormalizePath(result.DefinedIn) ?? ""
         }

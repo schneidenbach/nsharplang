@@ -3,6 +3,8 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections
 import System.Collections.Generic
+import System.Reflection
+import System.Text
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
@@ -348,7 +350,243 @@ class CodeIntelligenceTypeResolution {
             return MemberTypeInfoOfType(compilationUnits, obliviousType.InnerType, memberName)
         }
 
+        // THE LAST ARM IS THE ONE THAT WAS MISSING, AND IT IS WHY A BCL RECEIVER HAD NO MEMBERS AT
+        // ALL. Every arm above answers from a SOURCE DECLARATION, so a receiver the project did not
+        // declare fell straight through to null and hover depended entirely on whether the analyzer
+        // happened to have recorded something at that exact position. A receiver metadata explains
+        // is now answered from metadata.
+        return ReflectedMemberTypeInfo(receiverType, memberName)
+    }
+
+    // ── The reflected member ────────────────────────────────────────────
+    // THE MEMBER'S TYPE, WHICH IS NOT THE SAME QUESTION AS THE MEMBER. This answers what a member
+    // access EVALUATES TO, so a property and a field answer with their own type and a method answers
+    // with the method group the analyzer would have built. Hover wants the MEMBER as well — its
+    // parameters, its return type, its declaring type — and asks `ReflectedMemberOfType` for that
+    // directly rather than trying to recover it from a type that no longer carries it.
+    static func ReflectedMemberTypeInfo(receiverType: TypeInfo, memberName: string): TypeInfo? {
+        handle := ReflectedMemberOfType(receiverType, memberName)
+        if handle == null {
+            return null
+        }
+
+        typeOverride := handle.TypeOverride
+
+        property := handle.Property
+        if property != null {
+            return NullabilityMetadataReflection.ConvertPropertyWithOverride(property, typeOverride)
+        }
+
+        field := handle.Field
+        if field != null {
+            return NullabilityMetadataReflection.ConvertFieldWithOverride(field, typeOverride)
+        }
+
+        method := handle.Method
+        if method != null {
+            return new ReflectionMethodInfo(method, method.get_Name() + "(...)")
+        }
+
         return null
+    }
+
+    static func ReflectedMemberOfType(receiverType: TypeInfo, memberName: string): ReflectedMemberHandle? {
+        return ReflectedMemberOfTypeForArity(receiverType, memberName, -1)
+    }
+
+    // A CONSTRUCTED GENERIC IS RESOLVED ON ITS DEFINITION, AND THAT IS THE ONLY WAY TO GET THE RIGHT
+    // ANSWER. `CompletionReflectionFacts` closes a known definition by substituting `object` for any
+    // argument it cannot spell as a CLR type — which is every N# user type, since none of them is
+    // compiled yet — so a member read off the CLOSED type reports `object[] ToArray()` for a
+    // `List<WeatherForecast>`. That is not a missing answer, it is a WRONG one, and a hover that
+    // states a wrong return type is worse than a hover that states nothing. Reading the member off
+    // `List<>` instead leaves every type written as `T`, and the override maps `T` back to the
+    // receiver's real argument on the way out.
+    static func ReflectedMemberOfTypeForArity(receiverType: TypeInfo, memberName: string, preferredArgumentCount: int): ReflectedMemberHandle? {
+        genericType := UnwrapGenericReceiver(receiverType)
+        if genericType != null {
+            definition := CompletionReflectionFacts.KnownReceiverGenericDefinition(genericType.Name)
+            if definition != null && definition.GetGenericArguments().Length == genericType.TypeArguments.Count {
+                return ReflectedMemberOfClrType(definition, memberName, preferredArgumentCount, BuildGenericArgumentOverride(definition, genericType))
+            }
+        }
+
+        clrType := ReflectionReceiverClrType(receiverType)
+        if clrType == null {
+            return null
+        }
+
+        return ReflectedMemberOfClrType(clrType, memberName, preferredArgumentCount, null)
+    }
+
+    static func UnwrapGenericReceiver(receiverType: TypeInfo): GenericTypeInfo? {
+        genericType := receiverType as GenericTypeInfo
+        if genericType != null {
+            return genericType
+        }
+
+        nullableType := receiverType as NullableTypeInfo
+        if nullableType != null {
+            return UnwrapGenericReceiver(nullableType.InnerType)
+        }
+
+        obliviousType := receiverType as ObliviousTypeInfo
+        if obliviousType != null {
+            return UnwrapGenericReceiver(obliviousType.InnerType)
+        }
+
+        return null
+    }
+
+    static func BuildGenericArgumentOverride(definition: Type, genericType: GenericTypeInfo): AnalyzerReflectionTypeOverride {
+        overrides := new Dictionary<Type, TypeInfo>()
+        parameters := definition.GetGenericArguments()
+        index := 0
+        while index < parameters.Length && index < genericType.TypeArguments.Count {
+            overrides[parameters[index]] = genericType.TypeArguments[index]
+            index = index + 1
+        }
+
+        return AnalyzerReflectionTypeOverride.Direct(overrides, null)
+    }
+
+    // THE PROBE ORDER IS PROPERTY, THEN FIELD, THEN METHOD — the same order and the same reason as
+    // `AnalyzerMemberResolution.TryResolveSourceObjectMember`: the property arm answering first is
+    // what keeps `get_Length` from being offered as a method, so the accessor filter is a
+    // consequence of the order rather than a name test.
+    //
+    // EVERY READ IS WRAPPED, AND THAT IS NOT DEFENSIVENESS. These types can come from a
+    // `MetadataLoadContext` (the CLI) or from the live runtime (the language server), and the two
+    // universes fail differently: an ambiguous match throws, and a member read on a poisoned generic
+    // instantiation throws `NotSupportedException`. A hover request that throws is a broken editor,
+    // so every failure here is a DECLINE and the caller falls back to the bare rendering.
+    static func ReflectedMemberOfClrType(clrType: Type, memberName: string, preferredArgumentCount: int, typeOverride: AnalyzerReflectionTypeOverride?): ReflectedMemberHandle? {
+        // The flags are a LOCAL, not an inline `|`: an inline flag expression does not type as
+        // `BindingFlags` at the call site and the instance call declines as unmodeled. That is
+        // `AnalyzerIndexAccess.FindReflectedIndexerProperty`'s note, and it holds here too.
+        flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
+        try {
+            property := clrType.GetProperty(memberName, flags)
+            if property != null {
+                return new ReflectedMemberHandle(property, null, null, property.get_Name(), DeclaringTypeText(property.get_DeclaringType()), typeOverride, 1)
+            }
+
+            field := clrType.GetField(memberName, flags)
+            if field != null {
+                return new ReflectedMemberHandle(null, field, null, field.get_Name(), DeclaringTypeText(field.get_DeclaringType()), typeOverride, 1)
+            }
+
+            matching := new List<MethodInfo>()
+            methods := clrType.GetMethods(flags)
+            index := 0
+            while index < methods.Length {
+                method := methods[index]
+                if method.get_Name() == memberName && !method.get_IsSpecialName() {
+                    matching.Add(method)
+                }
+
+                index = index + 1
+            }
+
+            if matching.Count > 0 {
+                chosen := ChooseReflectedOverload(matching, preferredArgumentCount)
+                return new ReflectedMemberHandle(null, null, chosen, chosen.get_Name(), DeclaringTypeText(chosen.get_DeclaringType()), typeOverride, matching.Count)
+            }
+        } catch {
+            return null
+        }
+
+        return null
+    }
+
+    // THE OVERLOAD THE CALL SITE MEANT, TO THE EXTENT ARITY DECIDES IT. This is NOT overload
+    // resolution — argument TYPES are never looked at — and it does not need to be: where the
+    // analyzer resolved the call it has already recorded the winner and hover reads THAT, so this
+    // runs only where there is no recorded answer at all. Arity is strictly better than "whichever
+    // one metadata listed first", and the overload count travels with it either way.
+    static func ChooseReflectedOverload(matching: List<MethodInfo>, preferredArgumentCount: int): MethodInfo {
+        if preferredArgumentCount >= 0 {
+            index := 0
+            while index < matching.Count {
+                candidate := matching[index]
+                if candidate.GetParameters().Length == preferredArgumentCount {
+                    return candidate
+                }
+
+                index = index + 1
+            }
+        }
+
+        return matching[0]
+    }
+
+    // THE FULL NAME, AND THE SIMPLE NAME ONLY WHEN THERE IS NO FULL ONE. `System.String` is what
+    // makes the answer navigable by hand; a constructed or generic-parameter type can have no full
+    // name at all, and its simple name is better than declining the line over it.
+    static func DeclaringTypeText(declaringType: Type?): string? {
+        if declaringType == null {
+            return null
+        }
+
+        fullName := declaringType.get_FullName()
+        if fullName == null {
+            return declaringType.get_Name()
+        }
+
+        return FormatDeclaringTypeName(declaringType, fullName ?? "")
+    }
+
+    // A GENERIC DEFINITION'S METADATA NAME IS NOT A NAME ANYONE READS. `List`1` is how the CLR spells
+    // it and it is what a member found on a generic DEFINITION reports; the reader wants
+    // `System.Collections.Generic.List<T>`. The arity marker is stripped with the estate's own
+    // `StripClrGenericArity` and the parameter names are put back, so the answer stays a real,
+    // searchable type name.
+    static func FormatDeclaringTypeName(declaringType: Type, fullName: string): string {
+        if !declaringType.get_IsGenericType() {
+            return fullName
+        }
+
+        builder := new StringBuilder()
+        builder.Append(NullabilityMetadataCore.StripClrGenericArity(fullName))
+        builder.Append("<")
+
+        arguments := declaringType.GetGenericArguments()
+        index := 0
+        while index < arguments.Length {
+            if index > 0 {
+                builder.Append(", ")
+            }
+
+            builder.Append(arguments[index].get_Name())
+            index = index + 1
+        }
+
+        builder.Append(">")
+        return builder.ToString()
+    }
+
+    // THE ARRAY ARM LIVES HERE AND NOT IN `CompletionReflectionFacts`, DELIBERATELY. That owner is
+    // shared with `nlc query completions`, and teaching it about arrays would start offering
+    // `System.Array`'s members after a `.` on an array receiver — a second behaviour change riding
+    // on a hover fix. `Length`, `Rank` and `LongLength` are declared on `System.Array`, so the array
+    // question is answered here and the completion answer does not move.
+    static func ReflectionReceiverClrType(receiverType: TypeInfo): Type? {
+        arrayType := receiverType as ArrayTypeInfo
+        if arrayType != null {
+            return typeof(Array)
+        }
+
+        nullableType := receiverType as NullableTypeInfo
+        if nullableType != null {
+            return ReflectionReceiverClrType(nullableType.InnerType)
+        }
+
+        obliviousType := receiverType as ObliviousTypeInfo
+        if obliviousType != null {
+            return ReflectionReceiverClrType(obliviousType.InnerType)
+        }
+
+        return CompletionReflectionFacts.ResolveCompletionReflectionType(receiverType)
     }
 
     // THE FIRST NAME MATCH ENDS THE SEARCH EVEN WHEN IT HAS NO TYPE. A constructor or a nested type

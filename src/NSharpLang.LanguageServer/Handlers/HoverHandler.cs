@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
@@ -16,7 +15,13 @@ using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 namespace NSharpLang.LanguageServer.Handlers;
 
 /// <summary>
-/// Handles hover information (shows type info when hovering over identifiers)
+/// Handles hover information (shows type info when hovering over identifiers).
+///
+/// Every decision about WHAT a hover says is N#-owned: the project answer comes from
+/// <c>CodeIntelligenceQueries.HoverInfo</c> through <c>DocumentManager.FindProjectHover</c> — the
+/// same owner <c>nlc query hover</c> asks — and every line of markdown comes from
+/// <c>EditorHoverFacts</c>. What is left here is the protocol: OmniSharp's <c>Hover</c>,
+/// <c>MarkupContent</c> and <c>Range</c>, which N# cannot name.
 /// </summary>
 public class HoverHandler : HoverHandlerBase
 {
@@ -48,38 +53,32 @@ public class HoverHandler : HoverHandlerBase
 
         var word = EditorUtilities.GetWordAtPosition(doc.Text, line, character);
 
-        var keywordOrPrimitiveHover = TryCreateKeywordOrPrimitiveHover(doc.Text, line, character, word);
-        if (keywordOrPrimitiveHover != null)
+        // A keyword and a primitive answer for themselves and cannot be wrong, so they go first.
+        var keywordMarkdown = EditorHoverFacts.KeywordOrPrimitiveMarkdown(word);
+        if (keywordMarkdown != null)
         {
-            return Task.FromResult<Hover?>(keywordOrPrimitiveHover);
+            return Task.FromResult(CreateHover(keywordMarkdown, doc.Text, line, character, word));
         }
 
+        // The project answer: the same signature, documentation, declaring type and file that
+        // `nlc query hover` prints at this position.
         var projectHover = _documentManager.FindProjectHover(uri, line, character);
         if (projectHover != null)
         {
-            return Task.FromResult<Hover?>(CreateProjectHover(projectHover, doc.Text, line, character, word));
+            return Task.FromResult(CreateHover(EditorHoverFacts.ProjectHoverMarkdown(projectHover), doc.Text, line, character, word));
         }
 
-        // Try AST-based resolution first (most precise)
+        // Loose buffers have no project, so the open document's own model answers for them.
         Expression? expression = null;
         if (doc.CompilationUnit != null && doc.SemanticModel != null)
         {
             expression = AstNodeFinderCore.FindExpressionAtPosition(doc.CompilationUnit, line, character) as Expression;
-            if (expression != null)
+            if (expression is IdentifierExpression identifier)
             {
-                var hover = TryResolveExpression(expression, word, doc);
-                if (hover != null)
+                var identifierMarkdown = ResolveIdentifier(identifier.Name, doc);
+                if (identifierMarkdown != null)
                 {
-                    // Ensure Range is set for consistent behavior
-                    if (hover.Range == null && !string.IsNullOrWhiteSpace(word))
-                    {
-                        hover = new Hover
-                        {
-                            Contents = hover.Contents,
-                            Range = GetWordRange(doc.Text, line, character, word)
-                        };
-                    }
-                    return Task.FromResult<Hover?>(hover);
+                    return Task.FromResult(CreateHover(identifierMarkdown, doc.Text, line, character, word));
                 }
             }
         }
@@ -88,154 +87,45 @@ public class HoverHandler : HoverHandlerBase
             && doc.SemanticModel != null
             && (expression == null || expression is IdentifierExpression))
         {
-            var hover = ResolveIdentifier(word, doc);
-            if (hover != null)
+            var wordMarkdown = ResolveIdentifier(word, doc);
+            if (wordMarkdown != null)
             {
-                if (hover.Range == null)
-                {
-                    hover = new Hover
-                    {
-                        Contents = hover.Contents,
-                        Range = GetWordRange(doc.Text, line, character, word)
-                    };
-                }
-
-                return Task.FromResult<Hover?>(hover);
+                return Task.FromResult(CreateHover(wordMarkdown, doc.Text, line, character, word));
             }
         }
 
-        // Check symbols (type declarations)
         if (!string.IsNullOrWhiteSpace(word) && doc.Symbols != null && doc.Symbols.TryGetValue(word, out var symbolTypeInfo))
         {
-            var markdown = FormatTypeInfo(word, symbolTypeInfo);
-            return Task.FromResult<Hover?>(new Hover
-            {
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = markdown
-                }),
-                Range = GetWordRange(doc.Text, line, character, word)
-            });
+            return Task.FromResult(CreateHover(EditorHoverFacts.TypeDeclarationMarkdown(word, symbolTypeInfo), doc.Text, line, character, word));
         }
 
         return Task.FromResult<Hover?>(null);
     }
 
-    private Hover? TryCreateKeywordOrPrimitiveHover(string text, int line, int character, string word)
+    private string? ResolveIdentifier(string name, DocumentState doc)
     {
-        if (string.IsNullOrWhiteSpace(word))
+        var typeInfo = doc.SemanticModel?.LookupIdentifier(name);
+        if (typeInfo == null)
+        {
             return null;
-
-        var keywords = new[]
-        {
-            "func", "class", "struct", "record", "interface", "enum", "union",
-            "match", "async", "await", "yield", "lock", "using", "import", "let"
-        };
-
-        if (keywords.Contains(word))
-        {
-            return new Hover
-            {
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = $"**{word}** *(keyword)*"
-                }),
-                Range = GetWordRange(text, line, character, word)
-            };
         }
 
-        var primitiveTypes = new[]
-        {
-            "int", "long", "float", "double", "bool", "string", "void", "object"
-        };
-
-        if (primitiveTypes.Contains(word))
-        {
-            return new Hover
-            {
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = $"**{word}** *(primitive type)*"
-                }),
-                Range = GetWordRange(text, line, character, word)
-            };
-        }
-
-        return null;
+        var typeName = typeInfo.ToString() ?? string.Empty;
+        var systemType = _typeResolver.ResolveType(typeName);
+        return EditorHoverFacts.VariableMarkdown(name, typeName, systemType?.Namespace, systemType?.Assembly?.GetName().Name);
     }
 
-    private Hover CreateProjectHover(HoverResult result, string text, int line, int character, string word)
+    private Hover? CreateHover(string markdown, string text, int line, int character, string word)
     {
-        var markdown = new System.Text.StringBuilder();
-        markdown.AppendLine("```nsharp");
-        markdown.AppendLine(result.Signature);
-        markdown.AppendLine("```");
-
-        if (!string.IsNullOrWhiteSpace(result.Documentation))
-        {
-            markdown.AppendLine();
-            markdown.AppendLine(result.Documentation);
-        }
-
-        if (!string.IsNullOrWhiteSpace(result.DefinedIn))
-        {
-            markdown.AppendLine();
-            markdown.AppendLine($"*Defined in:* `{result.DefinedIn}`");
-        }
-
         return new Hover
         {
             Contents = new MarkedStringsOrMarkupContent(new MarkupContent
             {
                 Kind = MarkupKind.Markdown,
-                Value = markdown.ToString().TrimEnd()
+                Value = markdown
             }),
-            Range = !string.IsNullOrWhiteSpace(word)
-                ? GetWordRange(text, line, character, word)
-                : null
+            Range = string.IsNullOrWhiteSpace(word) ? null : GetWordRange(text, line, character, word)
         };
-    }
-
-    private Hover? TryResolveExpression(Expression expression, string word, DocumentState doc)
-    {
-        if (doc?.SemanticModel == null) return null;
-
-        switch (expression)
-        {
-            case IdentifierExpression id:
-                return ResolveIdentifier(id.Name, doc);
-        }
-
-        return null;
-    }
-
-    private Hover? ResolveIdentifier(string name, DocumentState doc)
-    {
-        if (doc?.SemanticModel == null) return null;
-
-        var typeInfo = doc.SemanticModel.LookupIdentifier(name);
-        if (typeInfo != null)
-        {
-            var typeName = typeInfo.ToString();
-            var systemType = _typeResolver.ResolveType(typeName);
-            var markdown = systemType != null
-                ? FormatVariableWithSystemType(name, typeName, systemType)
-                : FormatVariable(name, typeName);
-
-            return new Hover
-            {
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = markdown
-                })
-            };
-        }
-
-        return null;
     }
 
     protected override HoverRegistrationOptions CreateRegistrationOptions(
@@ -253,55 +143,7 @@ public class HoverHandler : HoverHandlerBase
         var lines = text.Split('\n');
         if (line >= lines.Length) return new LspRange(line, character, line, character);
 
-        var lineText = lines[line];
-        var startSearch = Math.Max(0, Math.Min(lineText.Length, character) - word.Length);
-        var startChar = lineText.IndexOf(word, startSearch, StringComparison.Ordinal);
-        if (startChar < 0) startChar = character;
-
+        var startChar = EditorHoverFacts.WordRangeStartColumn(lines[line], character, word);
         return new LspRange(line, startChar, line, startChar + word.Length);
-    }
-
-    private string FormatTypeInfo(string name, Compiler.TypeInfo typeInfo)
-    {
-        var kind = typeInfo switch
-        {
-            ClassTypeInfo => "class",
-            StructTypeInfo => "struct",
-            RecordTypeInfo => "record",
-            InterfaceTypeInfo => "interface",
-            EnumTypeInfo => "enum",
-            UnionTypeInfo => "union",
-            _ => "type"
-        };
-
-        return $"**{name}** *({kind})*\n\n```nsharp\n{kind} {name}\n```";
-    }
-
-    private string FormatVariable(string name, string typeName)
-    {
-        return $"**(variable)** `{name}`\n\n```nsharp\n{name}: {typeName}\n```";
-    }
-
-    private string FormatVariableWithSystemType(string name, string typeName, Type systemType)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"**(variable)** `{name}: {typeName}`");
-        sb.AppendLine();
-        sb.AppendLine("```nsharp");
-        sb.AppendLine($"{name}: {typeName}");
-        sb.AppendLine("```");
-
-        // Add namespace info if available
-        if (!string.IsNullOrEmpty(systemType.Namespace))
-        {
-            sb.AppendLine();
-            sb.AppendLine($"*Namespace:* `{systemType.Namespace}`");
-        }
-
-        // Add assembly info
-        sb.AppendLine();
-        sb.AppendLine($"*Assembly:* `{systemType.Assembly.GetName().Name}`");
-
-        return sb.ToString();
     }
 }

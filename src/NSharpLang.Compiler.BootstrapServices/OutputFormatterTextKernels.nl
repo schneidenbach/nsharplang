@@ -168,6 +168,12 @@ class OutputFormatterTextKernels {
         return "Defined in: " + definedIn
     }
 
+    // TWELVE CHARACTERS OF LABEL, LIKE THE THREE ABOVE IT. The hover block is read as a column, so a
+    // label that does not pad to the same width breaks the alignment of every line under it.
+    static func GetHoverDeclaringTypeLineText(declaringType: string): string {
+        return "Declaring:  " + declaringType
+    }
+
     static func GetHoverDocumentationHeaderText(): string {
         return "Documentation:"
     }

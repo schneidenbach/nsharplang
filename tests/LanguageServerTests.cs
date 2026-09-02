@@ -834,6 +834,7 @@ func main(): void
         var hover = await harness.GetHoverAsync(uri, 0, 2);
 
         Assert.NotNull(hover);
+        Assert.NotNull(hover!.Range);
         var content = hover.Contents.MarkupContent;
         Assert.NotNull(content);
         Assert.Contains("func", content.Value);
@@ -851,6 +852,7 @@ func main(): void
         var hover = await harness.GetHoverAsync(uri, 0, 14);
 
         Assert.NotNull(hover);
+        Assert.NotNull(hover!.Range);
         var content = hover.Contents.MarkupContent;
         Assert.NotNull(content);
         Assert.Contains("int", content.Value);
@@ -2287,6 +2289,40 @@ func main(): void
     }
 
     [Fact]
+    public async Task Hover_MatchesQueryHoverAsync()
+    {
+        // Defect D2: a BCL member hovered to nothing, to the RECEIVER, or to the analyzer's
+        // `ToUpper(...)` placeholder. The two surfaces share one owner, so they are asserted equal.
+        var (root, uri, text) = CreateMemberCompletionProject();
+        try
+        {
+            var harness = new LspTestHarness(_fixture.TypeResolver);
+            harness.OpenDocument(uri, text);
+            var service = new CodeIntel.CodeIntelligenceService();
+            var snapshot = service.LoadProject(root);
+
+            // A BCL property on a string local, then a cross-file user record field.
+            foreach (var at in new[] { (Line: 8, Character: 16), (Line: 7, Character: 20) })
+            {
+                var cli = service.GetHoverInfo(snapshot, "Program.nl", at.Line + 1, at.Character + 1);
+                Assert.NotNull(cli);
+                var lsp = await harness.GetHoverAsync(uri, at.Line, at.Character);
+                var markdown = lsp!.Contents.MarkupContent!.Value;
+                Assert.Contains(cli!.Signature, markdown, StringComparison.Ordinal);
+                Assert.Contains(cli.DeclaringType ?? cli.DefinedIn!, markdown, StringComparison.Ordinal);
+            }
+
+            var bcl = (await harness.GetHoverAsync(uri, 8, 16))!.Contents.MarkupContent!.Value;
+            Assert.Contains("property Length: int { get; }", bcl, StringComparison.Ordinal);
+            Assert.Contains("*Declaring Type:* `System.String`", bcl, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public async Task Completion_ImportContext_OnlySuggestsNamespacesAsync()
     {
         var harness = new LspTestHarness(_fixture.TypeResolver);
@@ -3554,50 +3590,6 @@ func main(): void
         {
             Directory.Delete(tempRoot, recursive: true);
         }
-    }
-
-    #endregion
-
-    #region Hover Range Tests
-
-    [Fact]
-    public async Task Hover_KeywordIncludesRange()
-    {
-        var harness = new LspTestHarness(_fixture.TypeResolver);
-        var uri = "file:///test/hover_kw_range.nl";
-        var source = @"func main() {
-}
-";
-        harness.OpenDocument(uri, source);
-
-        // "func" at line 0, col 0
-        var hover = await harness.GetHoverAsync(uri, 0, 0);
-        Assert.NotNull(hover);
-        Assert.NotNull(hover!.Range);
-        Assert.Contains("keyword", hover.Contents.MarkedStrings == null
-            ? hover.Contents.MarkupContent!.Value
-            : hover.Contents.MarkedStrings.First().Value);
-    }
-
-    [Fact]
-    public async Task Hover_PrimitiveTypeIncludesRange()
-    {
-        var harness = new LspTestHarness(_fixture.TypeResolver);
-        var uri = "file:///test/hover_prim_range.nl";
-        var source = @"func main() {
-    let x: int = 42
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lines = source.Split('\n');
-        var intCol = lines[1].IndexOf("int");
-        var hover = await harness.GetHoverAsync(uri, 1, intCol);
-        Assert.NotNull(hover);
-        Assert.NotNull(hover!.Range);
-        Assert.Contains("primitive type", hover.Contents.MarkedStrings == null
-            ? hover.Contents.MarkupContent!.Value
-            : hover.Contents.MarkedStrings.First().Value);
     }
 
     #endregion

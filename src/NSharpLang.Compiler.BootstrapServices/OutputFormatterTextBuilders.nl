@@ -221,6 +221,11 @@ class OutputFormatterTextBuilders {
         builder.AppendLine(OutputFormatterTextKernels.GetHoverSignatureLineText(result.Signature))
         builder.AppendLine(OutputFormatterTextKernels.GetHoverKindLineText(result.Kind))
 
+        declaringType := result.DeclaringType
+        if declaringType != null {
+            builder.AppendLine(OutputFormatterTextKernels.GetHoverDeclaringTypeLineText(declaringType ?? ""))
+        }
+
         if result.DefinedIn != null {
             definedIn := result.DefinedIn ?? ""
             builder.AppendLine(OutputFormatterTextKernels.GetHoverDefinedInLineText(definedIn))
