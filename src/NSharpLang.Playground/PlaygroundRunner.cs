@@ -12,6 +12,7 @@ internal sealed class PlaygroundRunner
     private readonly List<CompilationUnit> _units;
     private readonly Dictionary<string, FunctionDeclaration> _functions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Declaration> _types = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _typeNamespaces = new(StringComparer.Ordinal);
     private readonly StringBuilder _stdout = new();
     private int _steps;
     private int _outputLines;
@@ -19,19 +20,23 @@ internal sealed class PlaygroundRunner
     public PlaygroundRunner(IEnumerable<CompilationUnit> units)
     {
         _units = units.ToList();
-        foreach (var declaration in _units.SelectMany(unit => unit.Declarations))
+        foreach (var unit in _units)
         {
-            switch (declaration)
+            foreach (var declaration in unit.Declarations)
             {
-                case FunctionDeclaration function:
-                    _functions[function.Name] = function;
-                    break;
-                case ClassDeclaration or StructDeclaration or RecordDeclaration or InterfaceDeclaration or UnionDeclaration or EnumDeclaration:
-                    if (GetDeclarationName(declaration) is { } name)
-                    {
-                        _types[name] = declaration;
-                    }
-                    break;
+                switch (declaration)
+                {
+                    case FunctionDeclaration function:
+                        _functions[function.Name] = function;
+                        break;
+                    case ClassDeclaration or StructDeclaration or RecordDeclaration or InterfaceDeclaration or UnionDeclaration or EnumDeclaration:
+                        if (GetDeclarationName(declaration) is { } name)
+                        {
+                            _types[name] = declaration;
+                            _typeNamespaces[name] = NSharpLang.Compiler.AnalyzerDeclarationFileFacts.GetUnitNamespace(unit);
+                        }
+                        break;
+                }
             }
         }
     }
@@ -307,15 +312,13 @@ internal sealed class PlaygroundRunner
     private static object Divide(object? left, object? right)
     {
         var divisor = ToNumber(right);
-        if (PlaygroundRunFacts.IsZeroDivisor(divisor))
+        var useIntegerDivision = PlaygroundRunFacts.UseIntegerDivision(IsIntegral(left), IsIntegral(right));
+        if (PlaygroundRunFacts.DivisionFaults(useIntegerDivision, divisor))
         {
             throw new PlaygroundThrownException(new RuntimeError(PlaygroundRunFacts.DivisionByZeroMessage()));
         }
 
-        var dividend = ToNumber(left);
-        return PlaygroundRunFacts.UseIntegerDivision(IsIntegral(left), IsIntegral(right))
-            ? ToInt(left) / ToInt(right)
-            : dividend / divisor;
+        return useIntegerDivision ? ToInt(left) / ToInt(right) : ToNumber(left) / divisor;
     }
 
     private object? EvaluateAssignment(AssignmentExpression assignment, RuntimeEnvironment environment, int depth)
@@ -520,7 +523,7 @@ internal sealed class PlaygroundRunner
             throw Unsupported(PlaygroundRunFacts.UnknownConstructedType(typeName));
         }
 
-        var runtimeObject = new RuntimeObject(declaration, new RuntimeEnvironment(null));
+        var runtimeObject = new RuntimeObject(declaration, new RuntimeEnvironment(null), _typeNamespaces.GetValueOrDefault(typeName));
         ApplyPrimaryConstructorArguments(runtimeObject, arguments);
         if (newExpression.Initializer != null)
         {
@@ -532,7 +535,7 @@ internal sealed class PlaygroundRunner
 
     private object EvaluateObjectInitializer(ObjectInitializerExpression initializer, RuntimeEnvironment environment, int depth)
     {
-        var runtimeObject = new RuntimeObject(null, new RuntimeEnvironment(null));
+        var runtimeObject = new RuntimeObject(null, new RuntimeEnvironment(null), null);
         ApplyInitializer(runtimeObject, initializer, environment, depth);
         return runtimeObject;
     }
@@ -696,7 +699,7 @@ internal sealed class PlaygroundRunner
             fields[properties[i].Name] = arguments[i];
         }
 
-        value = new RuntimeUnion(union.Name, unionCase.Name, fields);
+        value = new RuntimeUnion(_typeNamespaces.GetValueOrDefault(unionName), union.Name, unionCase.Name, fields);
         return true;
     }
 
@@ -836,11 +839,6 @@ internal sealed class PlaygroundRunner
     private static PlaygroundRunUnsupportedException Unsupported(PlaygroundRunFault fault)
         => new(fault.Code, fault.Message);
 
-    private static string JoinFields(Dictionary<string, object?> fields)
-        => string.Join(
-            PlaygroundRunFacts.DisplayFieldSeparator(),
-            fields.Select(field => PlaygroundRunFacts.ObjectFieldDisplayText(field.Key, FormatValue(field.Value))));
-
     private sealed class RuntimeEnvironment(RuntimeEnvironment? parent)
     {
         private readonly Dictionary<string, object?> _values = new(StringComparer.Ordinal);
@@ -889,15 +887,16 @@ internal sealed class PlaygroundRunner
 
     private sealed record RuntimeFunction(FunctionDeclaration Declaration, RuntimeObject? Receiver);
 
-    private sealed class RuntimeObject(Declaration? declaration, RuntimeEnvironment environment)
+    private sealed class RuntimeObject(Declaration? declaration, RuntimeEnvironment environment, string? namespaceName)
     {
         public Declaration? Declaration { get; } = declaration;
         public RuntimeEnvironment Environment { get; } = environment;
+        public string? NamespaceName { get; } = namespaceName;
         public Dictionary<string, object?> Fields { get; } = new(StringComparer.Ordinal);
 
         public RuntimeObject Clone()
         {
-            var copy = new RuntimeObject(Declaration, new RuntimeEnvironment(null));
+            var copy = new RuntimeObject(Declaration, new RuntimeEnvironment(null), NamespaceName);
             foreach (var (key, value) in Fields)
             {
                 copy.Fields[key] = value;
@@ -910,14 +909,14 @@ internal sealed class PlaygroundRunner
         public string ToDisplayString()
         {
             var typeName = (Declaration == null ? null : GetDeclarationName(Declaration)) ?? PlaygroundRunFacts.AnonymousObjectDisplayName();
-            return PlaygroundRunFacts.ObjectDisplayText(typeName, JoinFields(Fields));
+            return PlaygroundRunFacts.ObjectDisplayText(NamespaceName, typeName);
         }
     }
 
-    private sealed record RuntimeUnion(string TypeName, string CaseName, Dictionary<string, object?> Fields)
+    private sealed record RuntimeUnion(string? NamespaceName, string TypeName, string CaseName, Dictionary<string, object?> Fields)
     {
         public string ToDisplayString()
-            => PlaygroundRunFacts.UnionDisplayText(TypeName, CaseName, JoinFields(Fields));
+            => PlaygroundRunFacts.UnionDisplayText(NamespaceName, TypeName, CaseName);
     }
 
     private sealed record RuntimeUnionCase(UnionDeclaration Union, string CaseName);

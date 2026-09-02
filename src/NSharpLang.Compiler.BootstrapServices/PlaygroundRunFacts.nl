@@ -25,16 +25,18 @@ namespace NSharpLang.Playground
 // between the playground and a tutorial-scale program, and the last of them is quoted back to the
 // user inside its own sentence.
 //
-// TWO RULES ARE DEFINED RATHER THAN COPIED, and both are recorded as reformulations rather than
-// moves:
-//   * `IsZeroDivisor` reads `divisor == 0.0` where the C# read `Math.Abs(divisor) < double.Epsilon`.
-//     Those agree on EVERY double: `Double.Epsilon` is the smallest positive denormal, so the only
-//     values whose magnitude is below it are `+0.0` and `-0.0`, both of which compare equal to
-//     `0.0`; and `NaN` fails both tests. The rewrite was forced — the columnar backend does not
-//     model `Double.Epsilon`, which is measured, not assumed.
-//   * `NumbersEqual` negates by hand where the C# called `Math.Abs`, for the same reason: the
-//     backend does not model `Math.Abs(double)` either. The two are pointwise identical, `NaN`
-//     included.
+// ONE RULE IS DEFINED RATHER THAN COPIED, and it is recorded as a reformulation rather than a move:
+// `IsZeroDivisor` reads `divisor == 0.0` where the C# read `Math.Abs(divisor) < double.Epsilon`.
+// Those agree on EVERY double: `Double.Epsilon` is the smallest positive denormal, so the only
+// values whose magnitude is below it are `+0.0` and `-0.0`, both of which compare equal to `0.0`;
+// and `NaN` fails both tests. The rewrite was forced — the columnar backend does not model
+// `Double.Epsilon`, which is measured, not assumed.
+//
+// FIVE OF THIS OWNER'S RULES WERE MEASURED AGAINST `nlc run` AND FOUND TO DISAGREE WITH IT, and all
+// five now answer what the compiler answers. `nlc run` IS the language; a playground that teaches a
+// second meaning teaches a fiction. The five, each with the transcript that settled it, are the
+// division-by-zero sentence, the double-division fault, numeric equality, and the two display
+// shapes; every one carries its measurement at its own definition below.
 //
 // WHAT IS DELIBERATELY NOT HERE. The runner's `IsTruthy` has six arms and only one of them can ever
 // run: N#'s five boolean gates — `if`, `while`, `for`, the ternary and a `match` guard — all reject
@@ -159,11 +161,16 @@ class PlaygroundRunFacts {
         return divisor == 0.0
     }
 
-    // The text a division by zero surfaces as. It is NOT the CLR's
-    // `Attempted to divide by zero.` — the playground answers in its own words, and that divergence
-    // is recorded rather than hidden.
+    // The text a division by zero surfaces as. It IS the CLR's own sentence, byte for byte:
+    // `nlc run` on `6 / 0` reports `System.DivideByZeroException: Attempted to divide by zero.`, so
+    // a learner who searches for what the browser told them finds the same answer the local
+    // toolchain gives. The runner answered in invented words — `division by zero` — until both
+    // sides were measured. The FRAME still differs and cannot be closed here: `nlc run` aborts the
+    // process with `Unhandled exception.` and a stack trace and exit 134, and a browser tab has
+    // neither a process to abort nor a stack to walk, so the playground reports the sentence on
+    // `Stderr` with exit 1. The sentence is the part a user reads and searches; it now matches.
     static func DivisionByZeroMessage(): string {
-        return "division by zero"
+        return "Attempted to divide by zero."
     }
 
     // WHEN DIVISION TRUNCATES. Two integral operands divide as integers; anything else divides as
@@ -172,20 +179,22 @@ class PlaygroundRunFacts {
         return leftIsIntegral && rightIsIntegral
     }
 
-    // How close two numbers must be for `==` to answer true in the browser runner. This is a
-    // DIVERGENCE from the language: `0.1 + 0.2 == 0.3` is `False` under `nlc run` and `True` here.
-    static func NumericEqualityTolerance(): double {
-        return 0.0000001
+    // WHEN DIVISION FAILS AT ALL — and it is ONLY integer division. IEEE 754 gives division of a
+    // double by zero a DEFINED value, and `nlc run` agrees: `6.0 / 0.0` exits 0 and prints `∞`,
+    // `-6.0 / 0.0` prints `-∞`, `0.0 / 0.0` prints `NaN`. The runner used to refuse EVERY zero
+    // divisor, which turned three working programs into a failure and is the only one of the
+    // measured divergences that broke a program the compiler runs.
+    static func DivisionFaults(useIntegerDivision: bool, divisor: double): bool {
+        return useIntegerDivision && IsZeroDivisor(divisor)
     }
 
-    // See the header: hand-rolled magnitude, because `Math.Abs(double)` is not modelled.
+    // WHEN TWO NUMBERS ARE EQUAL — exactly, the way the CLR's `==` is. A 1e-7 tolerance used to sit
+    // in this rule, so `0.1 + 0.2 == 0.3` answered `True` in the browser and `False` under
+    // `nlc run`: the playground taught the opposite of how binary floating point works, in the one
+    // surface a learner reaches first. `NaN != NaN` falls out of the CLR's own `==` rather than
+    // being restated.
     static func NumbersEqual(left: double, right: double): bool {
-        delta := left - right
-        if delta < 0.0 {
-            delta = 0.0 - delta
-        }
-
-        return delta < NumericEqualityTolerance()
+        return left == right
     }
 
     // THE ESCAPE DECODER. The AST carries a string literal's RAW text, delimiters and all, so the
@@ -230,22 +239,40 @@ class PlaygroundRunFacts {
         return "object"
     }
 
-    static func DisplayFieldSeparator(): string {
-        return ", "
+    // How `Type.ToString()` joins an owner and a type nested inside it. A union case is such a
+    // type, which is how it reaches the user: `P.Shape+Circle`.
+    static func NestedTypeSeparator(): string {
+        return "+"
     }
 
-    static func ObjectFieldDisplayText(fieldName: string, valueText: string): string {
-        return fieldName + ": " + valueText
+    // The CLR name of a declared type: the namespace it was declared in, then the type. Which
+    // header supplies that namespace — `namespace P` or `package Tutorial` — is NOT decided here:
+    // the runner asks the compiler's own owner, `AnalyzerDeclarationFileFacts.GetUnitNamespace`, so
+    // the precedence has one spelling. A file with neither header declares its types at the root
+    // and `nlc run` prints the bare name, measured on a probe with no header at all.
+    static func QualifiedTypeDisplayText(namespaceName: string?, typeName: string): string {
+        if namespaceName == null || namespaceName.Length == 0 {
+            return typeName
+        }
+
+        return namespaceName + "." + typeName
     }
 
-    // `Point { X: 1, Y: 2 }`. A DIVERGENCE: `nlc run` prints `P.Point`, the CLR default.
-    static func ObjectDisplayText(typeName: string, fieldText: string): string {
-        return typeName + " { " + fieldText + " }"
+    // WHAT `print` SHOWS FOR A RECORD, CLASS OR STRUCT VALUE. `print` lowers to
+    // `Console.WriteLine(value)`, which calls `Object.ToString()`, and N# synthesises no override
+    // for a `record` the way C# does — so `nlc run` prints the CLR TYPE NAME and nothing else:
+    // `P.Point` for `record Point(X: int, Y: int)` in `namespace P`, `Tutorial.Point` under
+    // `package Tutorial`, `A.B.Point` under `namespace A.B`. The runner used to print
+    // `Point { X: 1, Y: 2 }`, a structural shape NO N# program can produce, so the browser was
+    // showing fields that vanish the moment the same source is built locally.
+    static func ObjectDisplayText(namespaceName: string?, typeName: string): string {
+        return QualifiedTypeDisplayText(namespaceName, typeName)
     }
 
-    // `Shape.Circle(Radius: 3)`. A DIVERGENCE: `nlc run` prints `P.Shape+Circle`.
-    static func UnionDisplayText(typeName: string, caseName: string, fieldText: string): string {
-        return typeName + "." + caseName + "(" + fieldText + ")"
+    // WHAT `print` SHOWS FOR A UNION VALUE. A union case is a type NESTED in its union, so
+    // `nlc run` prints `P.Shape+Circle`. The runner used to print `Shape.Circle(Radius: 3)`.
+    static func UnionDisplayText(namespaceName: string?, unionName: string, caseName: string): string {
+        return QualifiedTypeDisplayText(namespaceName, unionName) + NestedTypeSeparator() + caseName
     }
 
     // ---- THE THIRTY-SEVEN FAULTS, PG201 THROUGH PG237 ----

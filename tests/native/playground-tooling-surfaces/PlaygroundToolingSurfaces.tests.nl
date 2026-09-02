@@ -1438,3 +1438,146 @@ test "020 s38 playground tooling surfaces: T3 — Format over a source WITH a co
     assert PgWarning(response, 0) == "Formatting is skipped while the source has compiler errors."
     assert PgWarning(response, 1) == "<no-such-warning>"
 }
+
+
+// ---- CHIP: PLAYGROUND vs `nlc run` DIVERGENCES (021 slice 11 measured seven; five are pinned here) ----
+//
+// 021 slice 11 measured fourteen analysis-clean programs on BOTH sides and found SEVEN that answer
+// differently. They were pinned AS MEASURED, not endorsed. Five of the seven are playground defects
+// and are fixed in `PlaygroundRunFacts`; each block below runs the SAME source the divergence was
+// measured on and asserts the playground now answers what `nlc run` answered. Every expected literal
+// is a TRANSCRIPT, taken from `dotnet Cli.dll run` in a real `project.yml` project against the
+// worktree-built CLI — the command and its output are quoted at each block.
+//
+// THE TWO NOT PINNED HERE, and why:
+//   * `"n=" + 1` — the playground is RIGHT and the COMPILER has the gap. `nlc check` answers
+//     `NL103 ... Declined at emit.print.expression`, an emit DECLINE, not a language rule: the
+//     analyzer accepts the program. `ColumnarPrimitiveBinaryPlanner` plans `+` as `String.Concat`
+//     only when the unified operand type IS `string`, so `string + int`, `int + string`,
+//     `string + double` and `string + bool` all decline while `"a" + "b"` and `$"n={n}"` emit. That
+//     is a columnar-emit coverage slice, not a playground fix, and copying a decline into the
+//     runner would be the second spelling this campaign exists to remove.
+//   * union match with SHORTHAND binding `{ Radius }` — owned by the sibling `playground union
+//     shorthand` chip and deliberately untouched here.
+
+test "chip playground-vs-nlc-run D1: `6 / 0` reports the CLR's OWN sentence, not the playground's invented `division by zero`" {
+    // `nlc run`: exit 134, `Unhandled exception. System.DivideByZeroException: Attempted to divide
+    // by zero.` The FRAME cannot be matched in a browser tab (no process to abort, no stack to
+    // walk), so the playground keeps `Stderr` + exit 1; the SENTENCE — the part a user reads and
+    // searches for — is now identical.
+    source := "namespace P\n\nfunc main() {\n    a := 6\n    b := 0\n    print a / b\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "False"
+    assert PgExitCode(response) == "1"
+    assert PgStdout(response) == ""
+    assert PgStderr(response) == "Attempted to divide by zero."
+    assert PgStderr(response) != "division by zero"
+    assert PgUnsupportedReason(response) == "<null>"
+}
+
+test "chip playground-vs-nlc-run D2: a double divided by zero is a DEFINED IEEE value the playground now PRINTS instead of failing on" {
+    // `nlc run` on the same three divisions: exit 0, three defined values. The playground used to
+    // answer exit 1 / `division by zero` for all three — the only measured divergence that broke a
+    // program the compiler runs.
+    //
+    // THE INFINITY SYMBOL IS A CULTURE EFFECT, NOT A SECOND DIVERGENCE, AND IT WAS MEASURED BOTH
+    // WAYS. `nlc run` prints `∞\n-∞\nNaN\n` under this machine's ICU culture and
+    // `Infinity\n-Infinity\nNaN\n` under `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` — byte-identical
+    // to what the playground answers here. The runner formats under the INVARIANT culture on
+    // purpose (see `NumberFormatSpecifier`, so a `de-DE` browser still sees `0.5`), and that
+    // deliberate policy predates this chip. The value is the same `Double.PositiveInfinity` on
+    // both sides; only the culture that renders it differs.
+    source := "namespace P\n\nfunc main() {\n    a := 6.0\n    b := 0.0\n    c := 0.0 - 6.0\n    print a / b\n    print c / b\n    print b / b\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True"
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "Infinity\n-Infinity\nNaN\n"
+    assert PgStderr(response) == "<null>"
+    assert PgStderr(response) != "Attempted to divide by zero."
+}
+
+test "chip playground-vs-nlc-run D2b: INTEGER division by zero still fails, and a non-zero divisor still divides — the fault narrowed, it did not vanish" {
+    intDivision := PgRunFiles("namespace P\n\nfunc main() {\n    a := 6\n    b := 0\n    print a / b\n}", "Program.nl")
+    assert PgExitCode(intDivision) == "1"
+    assert PgStderr(intDivision) == "Attempted to divide by zero."
+
+    // `nlc run`: `2` for the truncating integer division, `0.3333333333333333` for the double.
+    ordinary := PgRunFiles("namespace P\n\nfunc main() {\n    print 6 / 3\n    print 1.0 / 3.0\n}", "Program.nl")
+    assert PgExitCode(ordinary) == "0"
+    assert PgStdout(ordinary) == "2\n0.3333333333333333\n"
+}
+
+test "chip playground-vs-nlc-run D3: `0.1 + 0.2 == 0.3` answers False, as `nlc run` does — the 1e-7 tolerance is gone" {
+    // `nlc run`: exit 0, stdout `False\n`. The playground answered `True\n`, teaching the opposite
+    // of how binary floating point works in the surface a learner reaches first.
+    source := "namespace P\n\nfunc main() {\n    print 0.1 + 0.2 == 0.3\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True"
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "False\n"
+    assert PgStdout(response) != "True\n"
+}
+
+test "chip playground-vs-nlc-run D3b: exact equality did not break the answers that were already right" {
+    // Controls. `nlc run` prints `True\nFalse\nTrue\n` for these three.
+    source := "namespace P\n\nfunc main() {\n    print 1.0 == 1.0\n    print 1.0 == 1.001\n    print 2 == 2\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "True\nFalse\nTrue\n"
+}
+
+test "chip playground-vs-nlc-run D4: `print` of a record shows the CLR type name `P.Point`, which is what `nlc run` shows" {
+    // `nlc run`: exit 0, stdout `P.Point\n`. `print` lowers to `Console.WriteLine`, which calls
+    // `Object.ToString()`, and N# synthesises no `record` override. The playground used to print
+    // `Point { X: 1, Y: 2 }` — fields that vanish the moment the same source is built locally.
+    source := "namespace P\n\nrecord Point(X: int, Y: int) {\n}\n\nfunc main() {\n    p := new Point(1, 2)\n    print p\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True"
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "P.Point\n"
+    assert PgStdout(response) != "Point { X: 1, Y: 2 }\n"
+}
+
+test "chip playground-vs-nlc-run D5: `print` of a union value shows the NESTED CLR type name `P.Shape+Circle`" {
+    // `nlc run`: exit 0, stdout `P.Shape+Circle\n`. A union case is a type nested in its union, and
+    // `Type.ToString()` joins the two with `+`. The playground used to print `Shape.Circle(Radius: 3)`.
+    source := "namespace P\n\nunion Shape {\n    Circle { Radius: int }\n    Square { Side: int }\n}\n\nfunc main() {\n    s := new Shape.Circle(3)\n    print s\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "True"
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "P.Shape+Circle\n"
+    assert PgStdout(response) != "Shape.Circle(Radius: 3)\n"
+}
+
+test "chip playground-vs-nlc-run D4/D5 control: the namespace comes from the COMPILER'S owner, so `package`, a dotted namespace and no header at all each land where `nlc run` lands" {
+    // Three transcripts, all measured. `package Tutorial` -> `Tutorial.Point\nTutorial.Shape+Circle\n`;
+    // `namespace A.B` -> `A.B.Point\n`; a file with NEITHER header -> the bare `Point\n`. The runner
+    // does not decide which header wins — `AnalyzerDeclarationFileFacts.GetUnitNamespace` does.
+    packaged := PgRunFiles("package Tutorial\n\nrecord Point(X: int, Y: int) {\n}\n\nunion Shape {\n    Circle { Radius: int }\n}\n\nfunc main() {\n    print new Point(1, 2)\n    print new Shape.Circle(3)\n}", "Program.nl")
+    assert PgExitCode(packaged) == "0"
+    assert PgStdout(packaged) == "Tutorial.Point\nTutorial.Shape+Circle\n"
+
+    dotted := PgRunFiles("namespace A.B\n\nrecord Point(X: int, Y: int) {\n}\n\nfunc main() {\n    print new Point(1, 2)\n}", "Program.nl")
+    assert PgExitCode(dotted) == "0"
+    assert PgStdout(dotted) == "A.B.Point\n"
+
+    bare := PgRunFiles("record Point(X: int, Y: int) {\n}\n\nfunc main() {\n    print new Point(1, 2)\n}", "Program.nl")
+    assert PgExitCode(bare) == "0"
+    assert PgStdout(bare) == "Point\n"
+}
+
+test "chip playground-vs-nlc-run: the seventh divergence is NOT fixed here and the playground is the side that is RIGHT — `\"n=\" + 1` still runs in the browser and still declines at `nlc` emit" {
+    // Recorded so the remainder cannot be lost. `nlc check --json` on this exact source answers
+    // `NL103 ... Declined at emit.print.expression`, an EMIT decline; the analyzer reports nothing,
+    // which is why the playground (which runs the analyzer, not the emitter) executes it. Pinning
+    // the playground's answer here states the gap rather than papering over it.
+    concat := PgRunFiles("namespace P\n\nfunc main() {\n    print \"n=\" + 1\n}", "Program.nl")
+    assert PgExitCode(concat) == "0"
+    assert PgStdout(concat) == "n=1\n"
+    assert PgCensus(concat) == ""
+
+    // The shape that DOES emit, on both sides, as the boundary of the gap: `nlc run` prints `ab\n`.
+    strings := PgRunFiles("namespace P\n\nfunc main() {\n    print \"a\" + \"b\"\n}", "Program.nl")
+    assert PgExitCode(strings) == "0"
+    assert PgStdout(strings) == "ab\n"
+}
