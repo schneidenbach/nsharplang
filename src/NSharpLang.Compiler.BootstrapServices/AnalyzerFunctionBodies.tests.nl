@@ -1256,20 +1256,31 @@ test "A TYPE PARAMETER CONSTRAINED TO ITSELF IS A CYCLE AND A CONSTRAINT TO A TY
     assert direct.Errors[0].Code == ErrorCode.GenericConstraintViolation
 
     // `where T: IComparable` names a TYPE, not a sibling parameter, so it is not an edge and cannot
-    // close a cycle.
+    // close a cycle. What it DOES now get is the declared-position resolution every `where` clause
+    // receives: a constraint is a declaration position, and this harness carries no assembly world, so
+    // `IComparable` resolves through NO channel and answers NL201. THE ROW'S CLAIM IS THE CODE, not the
+    // count — the one error is a name report and NOT a cycle report.
     named := BodyDefault()
     BodyRun(named, BodyDeclarationBegin(named, BodyConstrained(BodyTypeParameters(BodyNames("T", "U")), BodyConstraints(BodyConstraint("T", "IComparable"), BodyConstraint("U", "T")))), null)
-    assert named.Errors.Count == 0
+    assert named.Errors.Count == 1
+    assert named.Errors[0].Code == ErrorCode.TypeNotFound
+    assert named.Errors[0].Message == "Type 'IComparable' not found"
 
-    // A constraint naming a parameter this declaration does not have is not this rule's business.
+    // A constraint naming a parameter this declaration does not have is not this rule's business — and
+    // the TARGET `T` IS a declared type parameter, so the declared-position resolution finds it in scope
+    // and stays silent as well.
     foreign := BodyDefault()
     BodyRun(foreign, BodyDeclarationBegin(foreign, BodyConstrained(BodyTypeParameters(BodyNames("T", null)), BodyConstraints(BodyConstraint("V", "T"), null))), null)
     assert foreign.Errors.Count == 0
 
-    // No type parameters at all, or no constraints at all, is silent before anything is built.
+    // With NO type parameters the cycle rule still says nothing — but nothing declares `T` either, so
+    // the declared-position resolution is what speaks. The two rules are independent and this row is
+    // the witness: the code is a name report, never a cycle one.
     none := BodyDefault()
     BodyRun(none, BodyDeclarationBegin(none, BodyConstrained(null, BodyConstraints(BodyConstraint("T", "T"), null))), null)
-    assert none.Errors.Count == 0
+    assert none.Errors.Count == 1
+    assert none.Errors[0].Code == ErrorCode.TypeNotFound
+    assert none.Errors[0].Message == "Type 'T' not found"
 }
 
 test "LEAVING A DECLARATION SETS THE RETURN TYPE TO NULL RATHER THAN RESTORING THE SAVED ONE" {

@@ -111,16 +111,21 @@ class AnalyzerTypeResolver {
         return resolved
     }
 
+    // The two list forms below exist ONLY for declaration positions — the base class, the interface
+    // and base-interface lists, and the `where` constraint types — so they resolve at the DECLARED
+    // position and an unresolvable name is reported as NL201 rather than swallowed. Both doc comments
+    // on their callers already claimed a report; until this was wired to `ResolveDeclaredType` neither
+    // one made one.
     func ResolveTypeIfPresent(typeReference: TypeReference?) {
         if typeReference != null {
-            ResolveType(typeReference)
+            ResolveDeclaredType(typeReference)
         }
     }
 
     func ResolveTypeReferences(typeReferences: List<TypeReference>) {
         index := 0
         while index < typeReferences.Count {
-            ResolveType(typeReferences[index])
+            ResolveDeclaredType(typeReferences[index])
             index = index + 1
         }
     }
