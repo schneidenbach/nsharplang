@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `40e0cc20e` on `systems-language` (PR #190 against `main`, current through this tip).
+**Tip:** `8cf40128a` on `systems-language` (PR #190 against `main`, current through this tip).
 
 ### Queue state (`tasks/README.md`)
 
@@ -46,36 +46,33 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64` (12 slices); **box deliberately unchecked** — the emitter retires via 015 + the AOT metadata writer, the MLC via the AOT type-model task, visual IDE verification undischarged |
 
-### Active slice: `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`)
+### Active slice: `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED, uncommitted
 
-Status: the decode was written and the kind-7 arm drafted at `40e0cc20e`, then the host process was stopped
-for this compression. The work is preserved as verified patches (sha256 in `SHA256SUMS`) under the session
-scratchpad `compress/../b16-partial/` (`planner.patch` = the arm in `ColumnarMethodBodyPlanner.nl`;
-`status.patch` = the decode, to be re-recorded in this file's format). The proofs have not run.
+Decode tip `8cf40128a`; ZERO C#. Four files: `ColumnarMethodBodyPlanner.nl`, `ColumnarTypeOfPlanner.nl`,
+`ColumnarMethodBodyFacts.tests.nl`, `columnar-emit-facts/DeclarationAndLiteralEmitFacts.tests.nl`. Every
+proof in the bar ran green; the numbers are in §4.1 and the coordinator commits.
 
-What the decode found (measured at the tip, not assumed):
-- **The brief's basis for kind 7 is overturned.** Byte identity is NOT against the door's own recursion for
-  most of the shape: `ColumnarRangeIndexPlanner.FacadeRootMayNeedFacts` opens with `UnwrapParentheses`, and
-  ALL EIGHT cascade owners' `MayPlanRoot` unwrap too, so for nine inner kinds the host never reaches `case 7`
-  and the owner claims the OUTER node. `case 7` is reached only by the kinds the facade declines (scalar
-  literals, `bool`, ordinary unary, `nameof`, `checked`/`unchecked`, a nested kind 7).
-- Every owner's `TryAppendRoot` also opens with `UnwrapParentheses`, so `TryAppendRoot(outer)` and
-  `TryAppendRoot(inner)` compute the same candidate and append the same rows — one arm reproduces both host
-  routes. The arm is a child-count guard plus one recursion through the door's own dispatcher.
-- **The brief's hazard is real and measured:** `return -5` is `1f fb 2a` (adopted, pre-negated) while
-  `return (-5)` is `1b 65 2a` (`ldc.i4.5; neg`) — the parenthesis changes the host's own lowering.
-  `TryEmitIntLiteralAsType` reads the node kind UNWRAPPED, so `IsHostAdoptedReturnShape` must NOT unwrap.
-- The child is dispatched, not admitted: `(null)` reaches the kind-5 refusal and declines the body (the host
-  cannot compile `return (null)` at all).
-- The census raises the pin count from four to **seven** existing blocks that must be rewritten as claims.
-
-Remainder for B16: probes on two CLIs, the marked corpus run (predict the seven pins by name), per-class
-IL diffs, control walk, live-tree walk, gate; then kind 55 (`typeof` — unconditional fifth cascade arm,
-`ColumnarTypeOfPlanner.Plan` exists, the `TryAppendRoot` factoring applies a fourth time).
+- **The brief's kind-7 basis is OVERTURNED, and the code says so.** `FacadeRootMayNeedFacts` and ALL EIGHT
+  cascade owners' `MayPlanRoot` open with `UnwrapParentheses` — TEN copies of that helper exist, one per
+  owner — so for nine inner kinds the host never reaches `case 7`: the OWNER claims the OUTER node. Every
+  owner's `TryAppendRoot` unwraps too, so ONE child recursion reproduces BOTH host routes.
+- **CORRECTION 1 — the pin count is EIGHT, not seven.** The source-text census found seven; the eighth was
+  the ledger block's `assert claimed == 13`, a COUNT assertion no textual census can see.
+- **CORRECTION 2 — the estate baseline at this tip is 7,192, not the inherited 7,190.** `577d756ad` (the
+  raw-interpolation removal) landed between B15's `40e0cc20e` and this tip and carries +2.
+- **CORRECTION 3 — the kind-7 arm WIDENS NOTHING; it inherits the child's claim class exactly.** Predicted
+  25 probe movers, measured 24: `return (!flag)` does NOT move, because the door's kind-11 arm claims only
+  a unary over a LITERAL. The door was right and the prediction was wrong.
+- **CORRECTION 4 — the child-count guard is LOAD-BEARING.** Removing it is not an equivalent mutant: it
+  gives UNBOUNDED `TryAppendValue` recursion and a test-host STACK OVERFLOW, isolated to one block.
+- The hazard held in bytes on BOTH CLIs: `return -5` is `1f fb 2a` (adopted, pre-negated) and `return (-5)`
+  is `1b 65 2a`. `IsHostAdoptedReturnShape` must NOT unwrap — control C3 proves it by breaking that pin.
+- `return (null)` fails to compile on BOTH CLIs, identically: the kind-5 refusal stands.
+- Kind 55 is the cascade's FIFTH and ONLY UNCONDITIONAL arm, so a door decline can only narrow the BODY.
 
 ### Next briefs (in order)
 
-1. **B17 candidates:** the composed instance-member receiver (`o.Inner.V`) — it moves the EIGHTH cascade arm,
+1. **B17 — the composed instance-member receiver (`o.Inner.V`).** It moves the EIGHTH cascade arm,
    the one where the cascade sets `nsharpOwned = ClaimsRoot(...)` BEFORE `TryEmit` and a set-but-failed claim
    declines the whole function; type and append sides must move together. The three plain-surface sites in
    `ColumnarDirectCallPlanner` (`:1040`/`:1208` pinned as receivers paired with a written `false`).
@@ -88,12 +85,12 @@ IL diffs, control walk, live-tree walk, gate; then kind 55 (`typeof` — uncondi
    is unreachable from N# at emit). Then re-run 021's closing decision and its box.
 6. The 15 product-defect chips (below) are for parallel sessions; they stay pinned-as-measured in the estate.
 
-### Baselines at `40e0cc20e` (re-measure at your tip; never inherit)
+### Baselines at `8cf40128a` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 596 |
-| BootstrapServices estate (`.tests.nl` blocks) | 7,190 |
+| BootstrapServices estate (`.tests.nl` blocks) | 7,192 (was 7,190 at `40e0cc20e`; `577d756ad` adds 2) |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20,784 lines / 19,768 non-blank |
@@ -101,7 +98,7 @@ IL diffs, control walk, live-tree walk, gate; then kind 55 (`typeof` — uncondi
 | growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:9717a7390756f51c` |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
-| corpus IL harness | 68 projects / 59 built / 3,463 keys / door-marker floor 445 |
+| corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
 | packaged SDK 0.1.0 in both feeds | packed from `b57c661a0` (Sdk nupkg md5 `932ac6ca…`), carries `System.Reflection.Module` + `get_Module` |
 | gate | `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` → 126 steps, `GATE EXIT 0`, ~22 min |
 
@@ -567,6 +564,9 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
   normaliser or rename silently does NOTHING and reports success (015-B5; 017/30, 44, 61, 66; 019/16;
   021/11).
 
+- The CLI project file is `src/NSharpLang.Cli/**Cli.csproj**`, not `NSharpLang.Cli.csproj`; a wrong path fails
+  with a bare `MSB1009` while the stale `bin/` still holds a `Cli.dll`, so it reads as a stale-CLI success (B16).
+
 ### 2.3 `instrument` — comparators, censuses, harnesses, and how each one lied
 
 - **A zero-count run is a NON-VERDICT, never a pass.** Proved at every scale: `nlc test` answering
@@ -602,6 +602,9 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
   22 projects failed `DLL not found` and the harness silently covered 41 instead of 59. It must also not
   copy `bin`/`obj` (the first pass dumped 18,574 rows against a baseline's 8,408 — two different corpora,
   not a diff) (015-B4, B15).
+- The corpus dependency SNAPSHOT must carry `src/NSharpLang.Playground/bin/...` as well as the CLI bin and
+  the BootstrapServices `refint` dir: without it two projects fail `DLL not found` IDENTICALLY on both
+  sides, so the loss is invisible in the diff and silently shortens the corpus (015-B16).
 - **`nlc test`, not `nlc build`, for `.tests.nl` corpus projects** — that one harness fix took the corpus
   41 → 45 built (015-B13, closed at B15's 68/59/3,463).
 - **The live-tree row-for-row `nlc check` walk is load-bearing and catches what nothing else can**: three
@@ -1273,6 +1276,7 @@ emitter to 20,784 / 19,768 non-blank and the BootstrapServices estate 7,030 → 
 
 | slice | commit | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
+| 015-B16 | no commit (decode tip `8cf40128a`) | ZERO C#. `ColumnarTypeOfPlanner.Plan` factored into `TryAppendRoot` (the FOURTH time, and the first that KEEPS the `try`/`catch`, because this owner's `Plan` had one); the door gains a kind-55 arm calling it and a kind-7 arm that is a child-count guard plus ONE recursion through its own dispatcher; kinds 7 and 55 move from the declined set to the claimed set (13 → 15); EIGHT pinned decline blocks rewritten as claims; classes G and Y added | **OVERTURN: the brief's kind-7 basis.** `FacadeRootMayNeedFacts` and ALL EIGHT cascade owners' `MayPlanRoot` open with `UnwrapParentheses`, so for nine inner kinds the host never reaches `case 7` — the OWNER claims the OUTER node; every owner's `TryAppendRoot` unwraps too, so one recursion reproduces BOTH host routes. The parenthesis costs NO row, and the arm widens nothing: it inherits the child's claim class exactly | estate 7,192→7,201 (+9, predicted exactly); emit-facts 38→41; corpus 68/64/3,669 rows/3,590 keys — ctlA-ctlB AND ctlA-slice both IL_DIFFS=0; probes 37 bodies IL_DIFFS=0, +24 claims −0 lost; **live +2, both named by the census BEFORE the run**; marker floor 461→463; live-tree 403/243, identical in order, one pre-existing NL011 shifted 669→702 by the file's own +33 lines; controls C1 5/C2 stack-overflow/C3 2/C4 3/C5 1, all predicted; gate 126/0 `ALL TESTS PASSED`, launched at 1-min load 4.55, 9.61 at exit (nine sibling agents building throughout) |
 | 015-B15 | `40e0cc20e` (landed); decode tip `b460354c2` | ZERO C#. `ColumnarExternalStaticMemberPlanner.Plan` factored into `TryAppendRoot` (no try/catch added — this owner's `Plan` never had one); `ColumnarMethodBodyPlanner.TryAppendMemberAccessRoot` loses its scratch plan and its refusal → **door kind 8 CLOSED**, both cascade arms owned, class X added | The cascade's SEVENTH arm FALLS THROUGH on a decline and sets no `nsharpOwned`, so the door's guard becomes a CLAIM; one open plan is offered to TWO owners, safe only because `ColumnarCodePlan.Rollback` resets `Status = NotOwned` | estate 7,183→7,190 (+7); emit-facts 36→38; corpus IL_DIFFS=0 / 3,463 keys; probes +18 moved, −0 lost; live +5; gate 126/0, 21m50s |
 | 015-B14 | `b460354c2` (landed); decode tip `5af0b2fec` | ZERO C#. `ColumnarInstanceMemberPlanner.Plan` factored into `TryAppendRoot`; door gains a kind-8 arm that asks both cascade owners in cascade order and claims only the second; `015-B8`'s "inert" plan-local mirror comment retired | **OVERTURN: kind 8 has TWO owners** — external-static (arm 7, asked FIRST) then instance-member (arm 8). Arm 8 sets `nsharpOwned = ClaimsRoot(…)` BEFORE `TryEmit`, so a set-then-failed claim declines the WHOLE FUNCTION | estate 7,175→7,183 (+8); emit-facts 34→36; corpus 68/45/1,851, IL_DIFFS=0; live +12; C7 costs exactly 1 body (`a[i+1].X` stops compiling); gate 126/0 |
 | 015-B13 | `5af0b2fec` (landed); decode tip `92af20111` | ZERO C#. Door claims kind 57 `checked(…)` through its OWN recursion (flip `bindings.OverflowCheckingEnabled`, recurse, restore); `ColumnarDirectCallPlanner:611`'s delegate-invoke ARGUMENT reads `ArgumentsAdmitPrimitiveBinary()`; `:1040`/`:1208` receivers PINNED to `:854`'s rule | **OVERTURN: kind 57 has NO N# owner** — the B6/B7 factoring does not apply and byte identity is against the door's own recursion. `:611` was a LIVE type-side/append-side inconsistency: `TryGetArgumentTypes` admits a primitive binary its APPEND side refused | estate 7,166→7,175 (+9); emit-facts 32→34; corpus 68/45/1,839 keys, IL_DIFFS=0; +14 claim rows, 8 live bodies; NL402 64→65; gate 126/0 |
@@ -1291,6 +1295,31 @@ emitter to 20,784 / 19,768 non-blank and the BootstrapServices estate 7,030 → 
 | 015-B1 | `9bd9aa222` | NEW `ColumnarAsyncEntryPointPlanner.nl` (98 lines) owning `__NSharpEntryPoint`'s signature rule and body; `Pop()` = 38 row (method-body-only, explicit −1 delta); emitter 20,984→20,976 (−8) | **OVERTURN: the IR does NOT bind locals as hoisted fields** — `PlanLocalOperand` exists at every layer with five production owners, including the iterator planner itself. PASS 0e was attempted FIRST and abandoned: `Emit(OpCode, short)` does not narrow `Ldarg`, and the fix is repack-gated | estate 7,068→7,073 (+5); corpus 112 assemblies / 4,046 rows IL_DIFFS=0; both `__NSharpEntryPoint` bodies byte-identical; 5 controls; repin `head-v1:fd53ebb53ffa009c` |
 
 **Durable findings (`015-B`).** The door/cascade model itself is in §3.1; these are the rest.
+
+- **A PARENTHESIS COSTS NO ROW, and that is the whole kind-7 claim**: `(x)`, `((x))` and `(((7)))` plan the
+  identical rows at identical indices with no fragment of their own, which is what makes one recursion
+  byte-identical against BOTH host routes — `case 7` and the owner that claims the outer node (B16).
+- **The kind-7 arm WIDENS NOTHING; it inherits the child's claim class exactly.** `(!flag)` stays the
+  host's (the kind-11 arm claims only a unary over a LITERAL), `(null)` reaches the kind-5 refusal and
+  `return (null)` does not compile on either CLI, `(new T())` stays declined. Predicting 25 probe movers
+  and measuring 24 is the door being right and the prediction being wrong (B16).
+- **Kind 55 is the cascade's FIFTH and ONLY UNCONDITIONAL arm** (`nsharpOwned = true` before `TryEmit`, no
+  `ClaimsRoot`, no fall-through), so the host already declines the whole FUNCTION for an unplannable
+  `typeof` root and a door decline can only narrow the BODY — the opposite risk profile from the eighth
+  arm, and the reason kind 55 was separable while `o.Inner.V` is not (B16).
+- **The `TryAppendRoot` factoring runs in BOTH directions.** `ColumnarTypeOfPlanner.Plan` carried a
+  `try`/`catch`, so its factored sequence carries one — where B15's owner, whose `Plan` had none, got none.
+  The rule is "the sequence `Plan` runs, no more and no less" (B16).
+- **A guard the host does not write can still be load-bearing.** Deleting the kind-7 child-count guard is
+  not an equivalent mutant: `Child(node, 0)` on a childless node feeds the arm back to itself, giving
+  unbounded `TryAppendValue` recursion and a TEST-HOST STACK OVERFLOW, isolated to one block (B16).
+- **Byte identity cannot tell a claim from a decline**: `return typeof(int)` on an `object`-returning
+  function has rows IDENTICAL to the claimed `Type`-returning twin and is still the host's, because the
+  claim rule is type EQUALITY. Only the marker separates them. A pin census over source text has the same
+  blind spot: B16's found SEVEN parenthesis pins and the `claimed == N` COUNT assertion was the EIGHTH (B16).
+- **A textual census reads TEXT while the door dispatches on NODE KIND**, at scale: 24 corpus return values
+  start with `(` and exactly TWO are kind-7 ROOTS — the rest are casts, tuples and parenthesised
+  sub-expressions under a binary root. Both were named before the run and both moved (B16).
 
 - NINE owner `ValidateAppendInputs`/inline gates THROW `InvalidOperationException` on a method-body plan
   instead of declining — a HARD CRASH, so they had to be widened together (B5, B6).

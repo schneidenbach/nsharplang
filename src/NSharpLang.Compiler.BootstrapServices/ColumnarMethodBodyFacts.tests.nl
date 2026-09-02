@@ -1044,14 +1044,17 @@ test "the expression door partitions its whole kind ledger with no hole and no o
         i = i + 1
     }
 
-    // THIRTEEN claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites
+    // FIFTEEN claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites
     // 015-B6 took, the direct CALL (015-B7), the primitive BINARY (015-B9), the TERNARY (015-B12), the
-    // CHECKED CONTEXT (015-B13) and the MEMBER-ACCESS root (015-B14). The count is pinned so a widening
-    // cannot arrive without a block that says what it claims — this assertion is the reason none of
-    // `015-B12`'s, `015-B13`'s or `015-B14`'s widenings could land silently, and it has been REWRITTEN
-    // by each of them (10 -> 11 -> 12 -> 13) rather than relaxed. Each slice's first run of this block
-    // FAILED before it was updated, which is the block working.
-    assert claimed == 13
+    // CHECKED CONTEXT (015-B13), the MEMBER-ACCESS root (015-B14) and, in 015-B16, the PARENTHESIS
+    // root and the TYPEOF root. The count is pinned so a widening cannot arrive without a block that
+    // says what it claims — this assertion is the reason none of `015-B12`'s, `015-B13`'s, `015-B14`'s
+    // or `015-B16`'s widenings could land silently, and it has been REWRITTEN by each of them
+    // (10 -> 11 -> 12 -> 13 -> 15) rather than relaxed. Each slice's first run of this block FAILED
+    // before it was updated, which is the block working — `015-B16`'s census of parenthesis pins found
+    // SEVEN and this block found the EIGHTH, which is exactly the hole a census over source text
+    // cannot see.
+    assert claimed == 15
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression())
@@ -1065,19 +1068,28 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression())
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TypeOfExpression())
 
     // The composites that remain declined are declined one by one. Their gates are open now; what
     // holds them back is the emitter's ELEVEN-ARM root cascade, which a claim must enter arm by arm.
     // ⚠ `CallExpression` LEFT THIS LIST in 015-B7, `BinaryExpression` in 015-B9, `TernaryExpression`
-    // in 015-B12, `CheckedContextExpression` in 015-B13 and `MemberAccessExpression` in 015-B14; all
-    // five are asserted CLAIMED above. `ParenthesizedExpression` stays, and after `015-B14` that is the
-    // one that carries the asymmetry: the owner's own `UnwrapParentheses` is reached through its ROOT
-    // FACADE, while this door dispatches on the OUTER kind — so `(p.V)` is the parenthesis owner's
-    // shape even though `(p).V` is the instance-member owner's.
+    // in 015-B12, `CheckedContextExpression` in 015-B13, `MemberAccessExpression` in 015-B14 and
+    // `ParenthesizedExpression` in 015-B16; all six are asserted CLAIMED above.
+    //
+    // ⚠ THE PARENTHESIS SENTENCE THAT STOOD HERE WAS WRONG ABOUT THE HOST. It said the owner's own
+    // `UnwrapParentheses` is reached through its ROOT FACADE while the door dispatches on the OUTER
+    // kind, "so `(p.V)` is the parenthesis owner's shape even though `(p).V` is the instance-member
+    // owner's". `FacadeRootMayNeedFacts` unwraps BEFORE the cascade and every cascade owner's
+    // `MayPlanRoot` unwraps again, so on the HOST side `(p.V)` is the instance-member owner's shape
+    // too — claimed at the OUTER node. The door's kind-7 arm dispatches the CHILD through the same
+    // dispatcher and reaches the same owner's `TryAppendRoot`, which unwraps as well, so the rows
+    // agree by construction rather than by transcription.
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NewExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.IndexAccessExpression())
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CastExpression())
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.TypeOfExpression())
 
     // And a DECLINED kind declines at the door without touching the plan, which is what lets the
     // driver reuse one plan object across a decline.
@@ -2851,8 +2863,20 @@ func MethodBodyFactsCheckedDeclarationThenBinaryBody(keyword: string, localName:
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
 }
 
+// `{ return (<2> + <3>) }` — the parenthesised binary on its own, so a block can show that the
+// `add.ovf` its `checked` twin plans is the FLAG rather than a default (015-B16).
+func MethodBodyFactsParenthesisedBinaryBody(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    operatorStart := builder.AddToken("+")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    parenthesis := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    return MethodBodyFactsWrapValueInBody(builder, parenthesis, 0, "")
+}
+
 // `{ return checked(<child>) }` where the child is supplied by the caller, so a block can put a shape
-// the door refuses under a context the door claims.
+// under a context the door claims.
 func MethodBodyFactsCheckedOverParenthesisBody(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     keywordStart := builder.AddToken("checked")
@@ -3038,22 +3062,41 @@ test "the checked context restores the flag it set, and the inner keyword wins" 
 }
 
 
-// ---- BLOCK 59 — THE TWO SHAPES THE ARM REFUSES BY CONSTRUCTION ----
+// ---- BLOCK 59 — ONE SHAPE THE ARM REFUSES BY CONSTRUCTION, AND ONE THAT STOPPED BEING REFUSED ----
 //
-// Neither refusal is a guard the arm writes; both fall out of what the door already is, and asserting
-// them is how "by construction" stops being a claim a comment makes.
+// The refusal is not a guard the arm writes; it falls out of what the door already is, and asserting
+// it is how "by construction" stops being a claim a comment makes.
 //
-// The PARENTHESIS: the arm does not unwrap, so `checked((2 + 3))`'s child is kind 7 — which
-// `IsDeclinedExpressionKind` refuses exactly as it refuses a bare `return (2 + 3)`.
+// ⚠ THE PARENTHESIS HALF OF THIS BLOCK WAS A DECLINE UNTIL `015-B16` AND IS NOW A CLAIM. `015-B13`
+// wrote that the arm does not unwrap, "so `checked((2 + 3))`'s child is kind 7 — which
+// `IsDeclinedExpressionKind` refuses exactly as it refuses a bare `return (2 + 3)`." The arm still
+// does not unwrap and the sentence is still true in its SHAPE: kind 7 left the declined side, so
+// `checked((2 + 3))` is claimed exactly as `return (2 + 3)` now is. What the block asserts is
+// therefore stronger than a claim — that the FLAG SURVIVES the extra node, which is the thing a
+// parenthesis arm could plausibly lose: the rows must be `add.ovf`, not `add`.
 //
 // The NEGATION: `checked(-x)` over a non-literal is the ONE shape where an active flag changes the
 // host's unary lowering — it declares a local and writes `stloc; ldc.i4.0; ldloc; sub.ovf` instead of
 // `neg` — and the door's kind-11 arm is `ColumnarUnaryLiteralPlanner`, which claims only a unary over
 // a LITERAL. So the shape the door could get wrong is the shape the door cannot reach.
-test "the checked arm refuses a parenthesised operand and a unary over a non-literal" {
+test "the checked arm claims a parenthesised operand without losing the flag and refuses a unary over a non-literal" {
     parenthesised := new ColumnarCodePlan()
-    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsCheckedOverParenthesisBody(), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), parenthesised)
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsCheckedOverParenthesisBody(), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), parenthesised)
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+
+    // FOUR rows, not five: the parenthesis contributes NO row of its own, which is what "the host's
+    // `case 7` is one recursive call" means in the IR.
+    assert parenthesised.OperationCount == 4
+    assert parenthesised.OpCodeValues[2] == ColumnarCodePlanContract.AddOvf()
+    assert parenthesised.OpCodeValues[3] == ColumnarCodePlanContract.Ret()
+
+    // And the same tree WITHOUT the `checked` context is the plain opcode, so the `add.ovf` above is
+    // the flag surviving the extra node rather than a default.
+    plainParen := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsParenthesisedBinaryBody(), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plainParen)
+    assert plainParen.OperationCount == 4
+    assert plainParen.OpCodeValues[2] == ColumnarCodePlanContract.Add()
 
     negated := MethodBodyFactsCheckedNegatedIdentifierBody("x")
     negatedPlan := new ColumnarCodePlan()
@@ -3198,6 +3241,15 @@ test "every fragment a door-claimed plan opens records the kind of its own sourc
     assert MethodBodyFactsPlanCallBody(staticTree, typeof(string), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), staticPlan)
     assert staticPlan.FragmentCount > 0
     assert MethodBodyFactsFragmentKindsAgree(staticTree, staticPlan)
+
+    // 015-B16 — THE TYPEOF OWNER JOINS THE WALK, which is how a new owner is added to this instrument:
+    // extend the list, do not re-census. `ColumnarTypeOfPlanner.TryAppendRoot`'s `BeginFragment` is
+    // another of the NAMED-ledger-constant sites, three lines under the guard proving that same kind.
+    typeOfTree := MethodBodyFactsTypeOfBody("int")
+    typeOfPlan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(typeOfTree, typeof(Type), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), typeOfPlan)
+    assert typeOfPlan.FragmentCount > 0
+    assert MethodBodyFactsFragmentKindsAgree(typeOfTree, typeOfPlan)
 
     // ⚠ NON-VACUITY. The walk must be able to FAIL, or a green line proves nothing about the property
     // it names. One fragment's recorded kind is overwritten in place with a kind its source node
@@ -3368,14 +3420,33 @@ test "a member-access root whose type is not the return type declines the body" 
     assert !MethodBodyFactsPlanMemberBody(tree, typeof(long), "values", 0, typeof(byte[]), plan)
 }
 
-// THE DOOR DISPATCHES ON THE OUTER KIND, WHICH IS THE PARENTHESIS POLICY IT ALREADY HAD. `(values).Length`
-// is kind 7 at its root; the instance-member owner's own `UnwrapParentheses` is reached through its root
-// facade, not through this dispatcher, so the parenthesised form is the parenthesis owner's shape.
-test "a parenthesised member-access root stays on the door's declined side" {
+// ⚠ THIS BLOCK WAS A DECLINE UNTIL `015-B16` AND IS NOW A CLAIM, AND ITS OLD COMMENT WAS WRONG ABOUT
+// THE HOST. It read: *"the door dispatches on the OUTER kind, which is the parenthesis policy it
+// already had. `(values).Length` is kind 7 at its root; the instance-member owner's own
+// `UnwrapParentheses` is reached through its root facade, not through this dispatcher, so the
+// parenthesised form is the parenthesis owner's shape."* The last clause is false of the HOST:
+// `FacadeRootMayNeedFacts` unwraps before the cascade and `ColumnarInstanceMemberPlanner.MayPlanRoot`
+// unwraps again, so the host claims `(values.Length)` at the OUTER node through that same owner. The
+// door's kind-7 arm now dispatches the CHILD into the same owner's `TryAppendRoot`, which unwraps too
+// — so the ROWS are the plain member-access rows, with NO row for the parenthesis, and the body is
+// claimed. (The tree here is `Parenthesized[MemberAccess]`; `(values).Length` is the OTHER shape,
+// `MemberAccess[Parenthesized[Identifier]]`, whose root is kind 8 and which `015-B14` already claimed.)
+test "a parenthesised member-access root is claimed and costs no row of its own" {
     tree := MethodBodyFactsParenthesisedMemberBody("values", "Length")
     plan := new ColumnarCodePlan()
-    assert !MethodBodyFactsPlanMemberBody(tree, typeof(int), "values", 0, typeof(byte[]), plan)
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+    assert MethodBodyFactsPlanMemberBody(tree, typeof(int), "values", 0, typeof(byte[]), plan)
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+
+    // The unparenthesised twin's rows, exactly: `ldarg; ldlen; conv.i4; ret`.
+    assert plan.OperationCount == 4
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldlen()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.ConvI4()
+    assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Ret()
+
+    // And the claim rule is still type EQUALITY through the parenthesis: `long` declines.
+    widened := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanMemberBody(MethodBodyFactsParenthesisedMemberBody("values", "Length"), typeof(long), "values", 0, typeof(byte[]), widened)
 }
 
 
@@ -3572,4 +3643,224 @@ test "a declined external static root leaves one open plan fit for the next owne
     assert plan.OperationCount == 2
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
     assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
+}
+
+
+// ---- BLOCK 66 — THE PARENTHESIS ROOT (class G, 015-B16) ----
+//
+// The door's SECOND claimed kind with no planner of its own. The host's arm is one line
+// (`case 7: return EmitExpression(Child(idx, 0), out type);`) and the door's is a child-count guard
+// plus one recursion through the same dispatcher the enclosing position used.
+//
+// ⚠ THE PROPERTY THAT MATTERS IS THAT THE PARENTHESIS COSTS NO ROW. A kind-7 node contributes no
+// opcode and no fragment of its own: the rows a claimed `( <x> )` plans are the rows `<x>` plans, at
+// the same indices and in the same order. That is what makes the arm byte-identical against BOTH host
+// routes — `case 7`, and the cascade owner that claims the OUTER node because
+// `FacadeRootMayNeedFacts` and every `MayPlanRoot` unwrap first.
+func MethodBodyFactsParenthesise(builder: ColumnarRangePlannerNodeBuilder, inner: int): int {
+    return builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(inner))
+}
+
+// `{ return (<literal>) }` and `{ return ((<literal>)) }` — the nesting the recursion handles.
+func MethodBodyFactsParenthesisedLiteralBody(text: string, depth: int): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    node := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), text)
+    i := 0
+    while i < depth {
+        node = MethodBodyFactsParenthesise(builder, node)
+        i = i + 1
+    }
+    return MethodBodyFactsWrapValueInBody(builder, node, 0, "")
+}
+
+test "the parenthesis root claims its child's rows and contributes none of its own" {
+    bare := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsParenthesisedLiteralBody("5", 0), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), bare)
+
+    single := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsParenthesisedLiteralBody("5", 1), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), single)
+
+    // THE ROWS ARE THE SAME ROWS, not merely the same count.
+    assert single.OperationCount == bare.OperationCount
+    assert single.OpCodeValues[0] == bare.OpCodeValues[0]
+    assert single.OpCodeValues[1] == bare.OpCodeValues[1]
+    assert single.FragmentCount == bare.FragmentCount
+
+    // And the recursion nests: three parentheses are still the same two rows.
+    nested := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsParenthesisedLiteralBody("5", 3), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), nested)
+    assert nested.OperationCount == bare.OperationCount
+    assert nested.OpCodeValues[0] == bare.OpCodeValues[0]
+}
+
+// A kind-7 node with anything other than ONE child is a shape the host's `Child(idx, 0)` would read
+// past; the door DECLINES it. A narrowing, never a divergence — the guard is the arm's own and the
+// host does not write it.
+func MethodBodyFactsEmptyParenthesisBody(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    empty := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, new int[](0))
+    return MethodBodyFactsWrapValueInBody(builder, empty, 0, "")
+}
+
+test "a parenthesis with no child declines the body and leaves the plan untouched" {
+    plan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsEmptyParenthesisBody(), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+    assert plan.OperationCount == 0
+}
+
+// THE CHILD IS DISPATCHED, NOT ADMITTED. Kind 7 becoming claimed widens nothing else: a parenthesised
+// NULL literal reaches the kind-5 refusal through the same dispatcher and declines the body — which is
+// also the only safe answer at a tip where the HOST cannot compile `return (null)` at all (`NL103`,
+// `emit.expression.unhandled-kind`, node kind 5).
+func MethodBodyFactsParenthesisedNullBody(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    literal := builder.AddLeaf(ColumnarExpressionNodeKind.NullLiteralExpression(), "null")
+    return MethodBodyFactsWrapValueInBody(builder, MethodBodyFactsParenthesise(builder, literal), 0, "")
+}
+
+test "a parenthesised declined kind is still declined through the parenthesis" {
+    plan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsParenthesisedNullBody(), typeof(string), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+    assert plan.OperationCount == 0
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NullLiteralExpression())
+}
+
+// THE CLAIM REACHES BOTH DOORS, as every claimed kind before it does. The RETURN door runs
+// `IsHostAdoptedReturnShape` first and the INITIALIZER door does not, and for kind 7 that predicate
+// must NOT unwrap: the host's `TryEmitIntLiteralAsType` reads the node kind unwrapped too, so
+// `return (-5)` is `ldc.i4.5; neg` on BOTH sides while `return -5` is the adopted `ldc.i4.s -5` on
+// both. Refusing `(-5)` here would refuse a shape the host does not adopt.
+func MethodBodyFactsParenthesisedNegativeLiteralBody(text: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    operatorStart := builder.AddToken("-")
+    literal := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), text)
+    unary := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), operatorStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(literal))
+    return MethodBodyFactsWrapValueInBody(builder, MethodBodyFactsParenthesise(builder, unary), 0, "")
+}
+
+test "the parenthesised negative literal is claimed in return position with the ordinary unary rows" {
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsParenthesisedNegativeLiteralBody("5"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    // `ldc.i4 5; neg; ret` — the ORDINARY unary lowering, not the pre-pass's pre-negated one.
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+
+    // And the pre-pass predicate is untouched: it still refuses the BARE shape and it does NOT unwrap.
+    bare := MethodBodyFactsParenthesisedNegativeLiteralBody("5")
+    bareStatement := bare.Nodes.Child(bare.Root, 0)
+    parenthesis := bare.Nodes.Child(bareStatement, 0)
+    assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(bare.Nodes, bare.Source, parenthesis)
+    assert ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(bare.Nodes, bare.Source, bare.Nodes.Child(parenthesis, 0))
+}
+
+
+// ---- BLOCK 67 — THE TYPEOF ROOT (class Y, 015-B16) ----
+//
+// The cascade's FIFTH arm, and the only UNCONDITIONAL one:
+// `nsharpOwned = true; return ColumnarTypeOfPlanner.TryEmit(…)` — no `MayPlanRoot`-then-`ClaimsRoot`
+// pair, no fall-through to a second owner. That is what made kind 55 separable while the composed
+// instance-member receiver (the EIGHTH arm) is not: an unplannable `typeof` root already declines the
+// whole FUNCTION on the host side, so a door decline can only narrow the BODY.
+//
+// The claim is the owner's own root sequence, factored out of `ColumnarTypeOfPlanner.Plan` by the
+// `015-B6`/`015-B7`/`015-B14`/`015-B15` move for the FOURTH time — and unlike `015-B15`'s owner this
+// one KEEPS the `try`/`catch`, because its `Plan` carried one.
+// ⚠ THE TYPE CHILD IS KIND 0, NOT AN IDENTIFIER. `TryBuildTypeCanonical` reads the embedded type
+// SUBTREE as semantic input rather than as an expression, and the owner's own tests spell the simple
+// case as `AddLeaf(0, name)`. A kind-6 child builds no canonical and the root declines — measured, not
+// assumed: the first version of this helper used `IdentifierExpression()` and all four blocks failed.
+func MethodBodyFactsTypeOfBody(typeName: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    builder.AddToken("typeof(")
+    name := builder.AddLeaf(0, typeName)
+    builder.AddToken(")")
+    node := builder.AddNode(ColumnarExpressionNodeKind.TypeOfExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(name))
+    return MethodBodyFactsWrapValueInBody(builder, node, 0, "")
+}
+
+test "the typeof root is claimed and plans the ldtoken pair the cascade plans" {
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsTypeOfBody("int"), typeof(Type), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+
+    // `ldtoken int32; call Type.GetTypeFromHandle; ret` — three rows and no more.
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldtoken()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
+}
+
+// THE FACTORING IS ASSERTED, NOT ASSUMED: the sequence the door enters is the sequence `Plan` runs.
+// `Plan` wraps `TryAppendRoot` in `PrepareV3`/`CompleteV3` and nothing else, so a schema-v3 plan and a
+// method-body plan must carry the SAME rows for the same node.
+test "the typeof root sequence is the same rows through Plan and through the door" {
+    tree := MethodBodyFactsTypeOfBody("int")
+    statement := tree.Nodes.Child(tree.Root, 0)
+    value := tree.Nodes.Child(statement, 0)
+
+    scalar := new ColumnarCodePlan()
+    assert ColumnarTypeOfPlanner.Plan(tree.Nodes, tree.Source, value, MethodBodyFactsEmptyBindings(), scalar) == ColumnarFragmentPlanStatus.Planned
+
+    body := new ColumnarCodePlan()
+    body.PrepareMethodBody()
+    bodyType := typeof(Type)
+    assert ColumnarTypeOfPlanner.TryAppendRoot(tree.Nodes, tree.Source, value, MethodBodyFactsEmptyBindings(), body, out bodyType)
+    assert bodyType == typeof(Type)
+
+    assert body.OperationCount == scalar.OperationCount
+    assert body.OpCodeValues[0] == scalar.OpCodeValues[0]
+    assert body.OpCodeValues[1] == scalar.OpCodeValues[1]
+    assert body.FragmentCount == scalar.FragmentCount
+}
+
+// A ROOT THE OWNER CANNOT RESOLVE DECLINES AND LEAVES THE PLAN PRISTINE — the `Rollback` contract the
+// factored sequence inherits, and the reason a decline here narrows the body rather than corrupting a
+// plan another owner may still be offered.
+test "an unresolvable typeof root declines and rolls the plan back to nothing" {
+    tree := MethodBodyFactsTypeOfBody("NoSuchTypeName")
+    statement := tree.Nodes.Child(tree.Root, 0)
+    value := tree.Nodes.Child(statement, 0)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    resultType := typeof(Type)
+    assert !ColumnarTypeOfPlanner.TryAppendRoot(tree.Nodes, tree.Source, value, MethodBodyFactsEmptyBindings(), plan, out resultType)
+
+    assert plan.OperationCount == 0
+    assert plan.FragmentCount == 0
+    assert plan.OpenFragmentCount == 0
+    assert plan.Status == ColumnarFragmentPlanStatus.NotOwned
+    assert plan.Lifecycle == ColumnarCodePlanLifecycle.Building
+
+    // And the DOOR answers that decline by declining the body, not by crashing.
+    bodyPlan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsTypeOfBody("NoSuchTypeName"), typeof(Type), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), bodyPlan)
+}
+
+// THE CLAIM RULE IS STILL TYPE EQUALITY: `typeof(T)` is `System.Type` and nothing else, so a function
+// declared to return `object` is the HOST's.
+test "a typeof root whose type is not the return type declines the body" {
+    plan := new ColumnarCodePlan()
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsTypeOfBody("int"), typeof(object), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+}
+
+// AND THE TWO 015-B16 KINDS COMPOSE: a parenthesised `typeof` root reaches the typeof owner through
+// the kind-7 arm, and the rows are the same three.
+test "a parenthesised typeof root is claimed through both new arms" {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    builder.AddToken("typeof(")
+    name := builder.AddLeaf(0, "int")
+    builder.AddToken(")")
+    node := builder.AddNode(ColumnarExpressionNodeKind.TypeOfExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(name))
+    wrapped := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(node))
+    tree := MethodBodyFactsWrapValueInBody(builder, wrapped, 0, "")
+
+    plan := new ColumnarCodePlan()
+    assert MethodBodyFactsPlanCallBody(tree, typeof(Type), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldtoken()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
 }

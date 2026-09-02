@@ -60,29 +60,62 @@ class ColumnarTypeOfPlanner {
         return true
     }
 
-    static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
-        ValidateInputs(nodes, source, node, bindings, plan)
-        plan.PrepareV3()
+    // 015-B16 — THE ROOT-APPEND SEQUENCE, FACTORED OUT OF `Plan` SO THE METHOD-BODY DOOR CAN ENTER
+    // THE SEQUENCE `Plan` ITSELF RUNS.
+    //
+    // The `015-B6`/`015-B7`/`015-B14`/`015-B15` factoring for the FOURTH time, and the rule is the same
+    // every time: everything between the kind test and `CompleteFragment` inclusive is the root-append
+    // sequence; `PrepareV3`/`CompleteV3` are the wrapper `Plan` keeps. The door calls this directly, so
+    // a claimed `typeof` root is byte-identical to the cascade's FIFTH arm BY CONSTRUCTION rather than
+    // by a transcription that could drift.
+    //
+    // ⚠ AND IT KEEPS THE `try`/`catch`, WHICH IS WHERE THIS OWNER DIFFERS FROM `015-B15`'s.
+    // `ColumnarExternalStaticMemberPlanner.TryAppendRoot` carries none, because that owner's `Plan`
+    // carried none. This owner's `Plan` DOES (`catch ex { Rollback; throw ex }`), so the factored
+    // sequence carries it too. The rule runs in both directions: the factored sequence is the sequence
+    // `Plan` runs, no more and no less.
+    //
+    // The cascade's fifth arm is UNCONDITIONAL (`nsharpOwned = true; return TryEmit(…)`), so the host
+    // already declines the whole FUNCTION for a `typeof` root this owner cannot plan. A door decline is
+    // therefore a narrowing of the BODY and never of the function — the opposite risk profile from the
+    // cascade's eighth arm, and the reason kind 55 was separable while `o.Inner.V` is not.
+    static func TryAppendRoot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(Type)
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
         candidate := UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.TypeOfExpression() {
-            return plan.Status
+            return false
         }
 
         checkpoint := plan.CreateCheckpoint()
         try {
             fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.TypeOfExpression(), candidate)
-            resultType := typeof(Type)
             if !TryAppendTypeOf(nodes, source, candidate, bindings, plan, out resultType) {
                 plan.Rollback(checkpoint)
-                return plan.Status
+                return false
             }
+
             plan.CompleteFragment(fragment, resultType)
-            plan.CompleteV3(resultType)
-            return plan.Status
+            return true
         } catch ex: Exception {
             plan.Rollback(checkpoint)
             throw ex
         }
+    }
+
+    static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
+        ValidateInputs(nodes, source, node, bindings, plan)
+        plan.PrepareV3()
+        resultType := typeof(Type)
+        if !TryAppendRoot(nodes, source, node, bindings, plan, out resultType) {
+            return plan.Status
+        }
+
+        plan.CompleteV3(resultType)
+        return plan.Status
     }
 
     static func TryAppendTypeOf(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {

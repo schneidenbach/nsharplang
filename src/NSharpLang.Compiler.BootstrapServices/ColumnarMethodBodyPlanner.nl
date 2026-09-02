@@ -164,6 +164,8 @@ class ColumnarMethodBodyPlanner {
     //   K  `{ return checked(<claimed value>) }` — the host's OWN kind-57 arm, no planner  (015-B13)
     //   M  `{ return <instance member> }` — the instance-member owner's root sequence      (015-B14)
     //   X  `{ return <Type>.<static member> }` — the external-static owner's root sequence (015-B15)
+    //   G  `{ return (<claimed value>) }` — the host's OWN kind-7 arm, no planner        (015-B16)
+    //   Y  `{ return typeof(<T>) }` — the typeof owner's own root sequence               (015-B16)
     //
     // Class C ALSO WIDENED IN `015-B9` WITHOUT GAINING A LETTER: a claimed call may now carry a binary
     // ARGUMENT and an ordinary `arr[0]` argument or receiver. Both are the direct-call owner's own
@@ -666,6 +668,75 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             return TryAppendMemberAccessRoot(nodes, source, node, bindings, plan, out resultType)
         }
+        // 55 TypeOf — `typeof(T)` (015-B16), and the SMALLEST remaining CASCADE arm. The owner's own
+        // root sequence again — `ColumnarTypeOfPlanner.TryAppendRoot`, factored out of its `Plan` by the
+        // same `015-B6`/`015-B7`/`015-B14`/`015-B15` move for the fourth time — so the claim is
+        // byte-identical to the cascade's FIFTH arm by construction.
+        //
+        // ⚠ THAT FIFTH ARM IS THE ONLY UNCONDITIONAL ONE IN THE CASCADE:
+        // `nsharpOwned = true; return ColumnarTypeOfPlanner.TryEmit(…)`, with no `ClaimsRoot` and no
+        // fall-through. So the HOST already answers an unplannable `typeof` root by declining the whole
+        // FUNCTION (`EmitExpressionCore`'s `if (nsharpOwned) return false;`), and a decline HERE is
+        // strictly a narrowing of the body. That is the opposite risk profile from the EIGHTH arm, and
+        // it is why kind 55 was separable while the composed instance-member receiver is not.
+        //
+        // The rows are `ldtoken <T>` + `call Type.GetTypeFromHandle`, and neither needed a schema
+        // answer from this slice: `TryAppendTypeOf`'s own gate has admitted `MethodBodySchemaVersion()`
+        // since `015-B6`'s nine-gate widening, and `ColumnarCodePlanExecutor.MethodBodyStackDelta`'s
+        // `TypeOperand` arm already returns 1 for `Ldtoken`.
+        //
+        // ⚠ AND THE APPEND WAS ALREADY REACHABLE FROM THIS DOOR BEFORE THE ARM EXISTED, which is why
+        // the arm is a ROOT claim rather than a new capability: `return typeof(int).Name` is a kind-8
+        // root whose receiver is one of `TryGetComposedReceiverType`'s five arms, and a marked tip CLI
+        // says the door claimed that body already. What kind 55 adds is the root position.
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+            return ColumnarTypeOfPlanner.TryAppendRoot(nodes, source, node, bindings, plan, out resultType)
+        }
+        // 7 Parenthesized — `(<expr>)` (015-B16), and THE SECOND CLAIMED KIND WITH NO PLANNER OF ITS
+        // OWN. Like kind 57 it is the HOST's own arm transcribed, and the host's arm is one line:
+        // `case 7: return EmitExpression(Child(idx, 0), out type);`. So the arm is a child-count guard
+        // and one recursion through THIS dispatcher.
+        //
+        // ⚠ AND BYTE IDENTITY HERE IS NOT ONLY AGAINST THAT ARM, BECAUSE THE HOST DOES NOT REACH
+        // `case 7` FOR MOST OF THE SHAPE. `ColumnarRangeIndexPlanner.FacadeRootMayNeedFacts` OPENS
+        // with `node = UnwrapParentheses(nodes, node)`, and ALL EIGHT cascade owners' `MayPlanRoot`
+        // unwrap too — construction, direct call, primitive binary, conditional, `typeof`, bound
+        // identifier, external static and instance member each open
+        // `candidate := UnwrapParentheses(nodes, node)`. So `(a + b)`, `(f())`, `(p.V)`,
+        // `(Environment.NewLine)`, `(x)`, `(flag ? 1 : 2)`, `(a && b)`, `(typeof(T))` and `(new T())`
+        // reach their OWNER at the OUTER kind-7 node on the host side; `case 7` is reached only by the
+        // kinds the facade declines — the four scalar literals, `bool`, an ordinary unary, `nameof`,
+        // `checked`/`unchecked` and a nested kind 7.
+        //
+        // THAT OVERTURN IS WHAT MAKES ONE RECURSION A PROOF RATHER THAN A HOPE. Every one of those
+        // owners' `TryAppendRoot` — the factored root-append sequence this door already calls for
+        // kinds 8, 9, 12 and 13 — ALSO opens with `UnwrapParentheses`, so `TryAppendRoot(outer)` and
+        // `TryAppendRoot(inner)` compute the same `candidate`, open the same
+        // `BeginFragment(-1, kind, candidate)` and append the same rows. One arm reproduces both host
+        // routes.
+        //
+        // ⚠ THE RETURN-POSITION PRE-PASS NEEDS NO COMPANION HERE, AND THAT WAS MEASURED IN BYTES
+        // BEFORE IT WAS ARGUED. `TryEmitIntLiteralAsType` reads `_nodes.Kind(node)` UNWRAPPED, so a
+        // kind-7 outer node declines it on the host side exactly as `IsHostAdoptedReturnShape`'s own
+        // `Kind(node) != UnaryExpression` declines it here. The consequence is visible: `return -5` is
+        // `ldc.i4.s -5` (adopted, pre-negated) while `return (-5)` is `ldc.i4.5; neg` — the PARENTHESIS
+        // changes the host's own lowering, and this arm reproduces the parenthesised one because it
+        // recurses into the same `ColumnarUnaryLiteralPlanner` the host's `case 7` reaches. Teaching
+        // `IsHostAdoptedReturnShape` to unwrap would be a WRONG narrowing: it would refuse a shape the
+        // host does not adopt. Two of the seven pre-passes DO unwrap
+        // (`TryEmitTargetTypedNewAsType`, `TryEmitCollectionLiteralAsType`/`CanUseArrayLiteralAsType`)
+        // and both gate on kinds 63 and 58, which this door does not claim.
+        //
+        // ⚠ AND THE CHILD IS DISPATCHED, NOT ADMITTED. `(null)` reaches the kind-5 refusal and
+        // declines the body — which is also the only safe answer at a tip where the HOST cannot
+        // compile `return (null)` at all (`NL103`, `emit.expression.unhandled-kind`, node kind 5).
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression() {
+            if nodes.ChildCount(node) != 1 {
+                return false
+            }
+
+            return TryAppendValue(nodes, source, nodes.Child(node, 0), bindings, plan, out resultType)
+        }
         // Unreachable while the claimed set and the arms above agree, and that agreement is exactly
         // what the estate's partition block asserts. A kind added to the claimed set without its own
         // arm lands here and DECLINES rather than silently taking a neighbouring owner's route.
@@ -695,10 +766,13 @@ class ColumnarMethodBodyPlanner {
     // already committed to emitting; a front door that crashes is strictly worse than one that declines,
     // and a decline here is a narrowing rather than a divergence.
     //
-    // ⚠ THE CHILD IS NOT UNWRAPPED, AND THAT IS THE DOOR'S EXISTING PARENTHESIS POLICY RATHER THAN AN
-    // OVERSIGHT. `checked((a + b))`'s child is kind 7, which `IsDeclinedExpressionKind` refuses, so the
-    // body declines exactly as `return (a + b)` already does. Unwrapping HERE and nowhere else would be a
-    // second parenthesis policy, and the one that already exists is the one the emitter's owners apply.
+    // ⚠ THE CHILD IS STILL NOT UNWRAPPED HERE, AND SINCE `015-B16` IT DOES NOT NEED TO BE. `015-B13`
+    // wrote that `checked((a + b))`'s child is kind 7, which `IsDeclinedExpressionKind` refuses, "so the
+    // body declines exactly as `return (a + b)` already does". BOTH HALVES MOVED TOGETHER and the
+    // sentence stays true in its shape: this arm recurses through `TryAppendValue`, whose kind-7 arm now
+    // CLAIMS, so `checked((a + b))` is claimed exactly as `return (a + b)` now is. What has NOT happened
+    // is a second parenthesis policy — this arm still does no unwrapping of its own; it dispatches its
+    // one child and the door's single kind-7 arm answers.
     //
     // ⚠ AND THE ONE SHAPE WHERE `checked` CHANGES A UNARY LOWERING IS UNREACHABLE FROM HERE. The host's
     // `case 11` negation arm, under an active flag, DECLARES A LOCAL and writes
@@ -800,7 +874,7 @@ class ColumnarMethodBodyPlanner {
     // `TryAppendValue`'s arm, where the emitter's own cascade makes it. Duplicating the operator test
     // here would be a second copy of that judgement, and the two copies could disagree.
     static func IsClaimedExpressionKind(kind: int): bool {
-        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.BinaryExpression() || kind == ColumnarExpressionNodeKind.TernaryExpression() || kind == ColumnarExpressionNodeKind.CheckedContextExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression()
+        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.BinaryExpression() || kind == ColumnarExpressionNodeKind.TernaryExpression() || kind == ColumnarExpressionNodeKind.CheckedContextExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.ParenthesizedExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression()
     }
 
     // The kinds the door refuses, named one by one rather than left to a fall-through. The reason is
@@ -808,16 +882,26 @@ class ColumnarMethodBodyPlanner {
     // surface, where the nine un-widened gates throw) or a form whose host lowering is not a plan-row
     // owner at all. None is "not yet supported" — each is a body whose bytes this door cannot promise.
     static func IsDeclinedExpressionKind(kind: int): bool {
-        // 5 NullLiteral (the host's target-typed kind-20 pre-pass owns it), 7 Parenthesized (recurses),
-        // 10 IndexAccess — composites that recurse into the shared value dispatcher, whose routing this
-        // door does not reproduce. 9 Call LEFT THIS LIST in `015-B7` and 8 MEMBER-ACCESS in `015-B14`;
-        // parenthesised forms stay here because the owner's own `UnwrapParentheses` is reached through
-        // its root facade and this door dispatches on the OUTER kind, so `(f())` and `(p).V` are the
-        // parenthesis owner's shape rather than the call or instance-member owner's.
-        if kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.ParenthesizedExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
+        // 5 NullLiteral (the host's target-typed kind-20 pre-pass owns it) and 10 IndexAccess —
+        // composites that recurse into the shared value dispatcher, whose routing this door does not
+        // reproduce. 9 Call LEFT THIS LIST in `015-B7`, 8 MEMBER-ACCESS in `015-B14`, and
+        // 7 PARENTHESIZED in `015-B16`.
+        //
+        // ⚠ THE PARENTHESIS PARAGRAPH THAT STOOD HERE WAS WRONG ABOUT THE HOST, NOT MERELY
+        // CONSERVATIVE. It read: *"parenthesised forms stay here because the owner's own
+        // `UnwrapParentheses` is reached through its root facade and this door dispatches on the OUTER
+        // kind, so `(f())` and `(p).V` are the parenthesis owner's shape rather than the call or
+        // instance-member owner's."* The premise is false: `FacadeRootMayNeedFacts` unwraps BEFORE the
+        // cascade and every cascade owner's `MayPlanRoot` unwraps again, so `(f())` IS the call
+        // owner's shape on the host side. `015-B16`'s kind-7 arm dispatches the CHILD through this
+        // same dispatcher, reaching those owners' `TryAppendRoot` (which unwrap too) and therefore
+        // reproducing the host's outer-node route exactly. And `(p).V` was never this kind at all: it
+        // parses as `MemberAccess[Parenthesized[Identifier]]`, so its ROOT is kind 8 and `015-B14`
+        // claimed it.
+        if kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
             return true
         }
-        // 15 New, 16 Cast, 36 ObjectInitializer, 55 TypeOf, 58 ArrayLiteral, 69 Range — the named
+        // 15 New, 16 Cast, 36 ObjectInitializer, 58 ArrayLiteral, 69 Range — the named
         // composites. Their gates are widened now, but the emitter reaches each of them through
         // `ColumnarRangeIndexPlanner.TryEmitFromFacts`'s eleven-arm ROOT CASCADE, and a claim here must
         // reproduce that arm's exact entry. Each arrives with its own corpus diff. 12 Binary LEFT THIS
@@ -826,7 +910,11 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.CastExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() {
             return true
         }
-        if kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() {
+        // 55 TYPEOF LEFT THIS LIST in `015-B16` through the cascade's FIFTH arm, which is the only
+        // UNCONDITIONAL one: the host sets `nsharpOwned = true` before it asks, so an unplannable
+        // `typeof` root already declines the whole function on the host side and a door decline can
+        // only narrow the body.
+        if kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() {
             return true
         }
         // The kinds the parser produces in value position that have no named accessor on the ledger

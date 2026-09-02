@@ -1300,6 +1300,13 @@ test "the expression door claims the member-access root through every receiver c
 // body exactly as it always did. They are executed for their values because "the door declines" is only
 // half a claim — the other half is that nothing regressed behind it.
 
+// ⚠ `015-B16` TOOK ONE BODY OUT OF THIS SECTION. `DoorMemberParenthesisedRoot` (`return (box.Value)`)
+// stood here with the comment *"the door dispatches on the OUTER kind, so a parenthesised ROOT is the
+// parenthesis owner's shape"*. Kind 7 became a door claim, and the premise was also wrong about the
+// HOST: `FacadeRootMayNeedFacts` and every cascade `MayPlanRoot` unwrap, so the host claimed that body
+// at the OUTER node through the instance-member owner all along. It now lives in the parenthesis
+// section below, as a CLAIM.
+
 // The ROOT's PLAIN surface refuses a BINARY selector, and this is the body that would STOP COMPILING if
 // `TryGetComposedReceiverType` were widened without widening `TryAppend`'s root call in the same move:
 // `ClaimsRoot` would answer yes, the append would answer no, and the cascade sets `nsharpOwned` before
@@ -1316,11 +1323,6 @@ func DoorMemberOfMember(outer: DoorMemberOuter): int {
 // A CALL receiver is not one of them either.
 func DoorMemberOfCallResult(text: string): int {
     return text.Trim().Length
-}
-
-// The door dispatches on the OUTER kind, so a parenthesised ROOT is the parenthesis owner's shape.
-func DoorMemberParenthesisedRoot(box: DoorMemberBox): int {
-    return (box.Value)
 }
 
 // The claim rule is type EQUALITY: the same expression on a `long` function is the host's, because the
@@ -1344,7 +1346,6 @@ test "the member-access roots the door declines are emitted by the host exactly 
     assert DoorMemberBinarySelector(points, 0) == 30
     assert DoorMemberOfMember(new DoorMemberOuter(box)) == 7
     assert DoorMemberOfCallResult("  ab  ") == 2
-    assert DoorMemberParenthesisedRoot(box) == 7
     assert DoorMemberWidenedReturn(box) == 7L
 }
 
@@ -1438,18 +1439,13 @@ test "the expression door claims the external static-member root through all thr
 }
 
 
-// ---- AND THE MEMBER-ACCESS ROOTS THE SEVENTH ARM DOES **NOT** CLAIM (015-B15) ----
+// ---- AND THE MEMBER-ACCESS ROOTS THE SEVENTH ARM DOES **NOT** CLAIM (015-B15 → 015-B16) ----
 //
-// Named precisely rather than loosely, because a MARKED CLI was run over these three bodies and only
-// ONE of them is a door decline at all. The other two are door claims through OTHER arms, and saying
-// "the door declines them" would have been false in bytes.
-
-// THE ONE REAL DECLINE OF THE THREE. The door dispatches on the OUTER kind, so a parenthesised ROOT
-// stays the parenthesis owner's shape — the same policy `015-B14` pinned for the instance-member root,
-// and a marked CLI says this body is on the host path on both sides.
-func DoorStaticParenthesisedRoot(): string {
-    return (Environment.NewLine)
-}
+// Named precisely rather than loosely, because a MARKED CLI was run over these bodies and neither is a
+// door decline at all: both are door claims through OTHER arms, and saying "the door declines them"
+// would have been false in bytes. `015-B15`'s third body here, `DoorStaticParenthesisedRoot`, WAS the
+// one real decline of the three; `015-B16` claimed kind 7 and moved it to the parenthesis section
+// below, so the section that remains is entirely "other arms already own these".
 
 // A COMPOSED root whose RECEIVER is an external static member is the EIGHTH arm's, not the seventh's:
 // the seventh finds no row for owner `DateTime.UnixEpoch`, and `TryGetComposedReceiverType`'s
@@ -1468,7 +1464,224 @@ func DoorStaticShadowedOwner(Environment: string): string {
 }
 
 test "the member-access roots outside the external-static arm keep their existing owners" {
-    assert DoorStaticParenthesisedRoot() == Environment.NewLine
     assert DoorStaticComposedReceiver() == 1970
     assert DoorStaticShadowedOwner("shadow") == "shadow"
+}
+
+
+// ---- THE PARENTHESIS ROOT: DOOR KIND 7 (class G, 015-B16) ----
+//
+// The door's SECOND claimed kind with no planner behind it (kind 57 was the first). The host's arm is
+// literally one line — `case 7: return EmitExpression(Child(idx, 0), out type);` — and the door's is a
+// child-count guard plus one recursion through the same dispatcher.
+//
+// ⚠ AND IT IS NOT ONLY THAT ARM THE CLAIM HAS TO MATCH, WHICH IS THE FINDING THAT SHAPED THIS SLICE.
+// `ColumnarRangeIndexPlanner.FacadeRootMayNeedFacts` opens with `UnwrapParentheses`, and ALL EIGHT
+// cascade owners' `MayPlanRoot` unwrap too — so for a parenthesised call, binary, ternary, identifier,
+// member access, `typeof` or `new`, the HOST never reaches `case 7`: the OWNER claims the OUTER kind-7
+// node. Those owners' `TryAppendRoot` unwrap as well, so the door recursing to the CHILD reaches the
+// same candidate and appends the same rows. One arm, two host routes, one set of bytes.
+//
+// The two bodies at the head of this section carried the OPPOSITE pin until this slice:
+// `DoorMemberParenthesisedRoot` was in "the member-access roots the door does NOT claim" (015-B14) and
+// `DoorStaticParenthesisedRoot` was "the one real decline of the three" (015-B15). Both are claims now.
+
+// `015-B14`'s pin, rewritten. A parenthesised INSTANCE-member root — the cascade's EIGHTH arm.
+func DoorMemberParenthesisedRoot(box: DoorMemberBox): int {
+    return (box.Value)
+}
+
+// `015-B15`'s pin, rewritten. A parenthesised EXTERNAL-STATIC root — the cascade's SEVENTH arm.
+func DoorStaticParenthesisedRoot(): string {
+    return (Environment.NewLine)
+}
+
+// A parenthesised SCALAR literal — one of the kinds that really does reach the host's `case 7`,
+// because `FacadeRootMayNeedFacts` declines a literal.
+func DoorParenScalar(): int {
+    return (5)
+}
+
+// Nesting: the recursion, not a loop, and still no row of its own.
+func DoorParenNested(): int {
+    return ((7))
+}
+
+// ⚠ THE PRE-PASS PAIR. `return -5` is ADOPTED by the host's `TryEmitIntLiteralAsType` and emitted
+// PRE-NEGATED (`ldc.i4.s -5`, no `neg`), which is why `IsHostAdoptedReturnShape` refuses it and the
+// door declines it. `return (-5)` is NOT adopted — the pre-pass reads the node kind UNWRAPPED, so a
+// kind-7 outer node declines it — and the host emits the ordinary `ldc.i4.5; neg`. The two therefore
+// have DIFFERENT bytes at the tip, the door claims only the second, and both still evaluate to -5.
+func DoorParenNegativeLiteral(): int {
+    return (-5)
+}
+
+func DoorParenAdoptedNegativeLiteral(): int {
+    return -5
+}
+
+// The magnitude the pre-pass declines on BOTH sides: `2147483648 > int.MaxValue`, so bare and
+// parenthesised take the same ordinary unary owner and the same bytes.
+func DoorParenMinimumMagnitude(): int {
+    return (-2147483648)
+}
+
+// A parenthesised BINARY — the cascade's THIRD arm at the outer node on the host side.
+func DoorParenBinary(a: int, b: int): int {
+    return (a + b)
+}
+
+// A parenthesised CALL — the SECOND arm.
+func DoorParenCallee(): int {
+    return 41
+}
+
+func DoorParenCall(): int {
+    return (DoorParenCallee())
+}
+
+// A parenthesised TERNARY and a parenthesised SHORT-CIRCUIT — the FOURTH arm, whose rows BRANCH.
+func DoorParenTernary(flag: bool): int {
+    return (flag ? 1 : 2)
+}
+
+func DoorParenShortCircuit(a: int, b: int): bool {
+    return (a > 0 && b > 0)
+}
+
+// A parenthesised IDENTIFIER — the SIXTH arm.
+func DoorParenIdentifier(n: int): int {
+    return (n)
+}
+
+// `checked` OVER a parenthesis, and a parenthesis over `checked`: the flag must survive the extra node
+// in both directions. `015-B13` pinned the first of these as a DECLINE; it is a claim now.
+func DoorParenCheckedOutside(a: int, b: int): int {
+    return checked((a + b))
+}
+
+func DoorParenCheckedInside(a: int, b: int): int {
+    return (checked(a + b))
+}
+
+// The `:=` position, which runs no host pre-pass at all.
+func DoorParenDeclaration(a: int, b: int): int {
+    total := (a + b)
+    return total
+}
+
+// THE CLAIM RULE IS STILL TYPE EQUALITY THROUGH THE PARENTHESIS. `(5)` is `int` and nothing else, so a
+// `long` function is the HOST's — its `conv.i8` is not a row this door promises. The body is here to
+// be run, not to be claimed.
+func DoorParenWidenedReturn(): long {
+    return (5)
+}
+
+test "the expression door claims the parenthesis root and the parenthesis costs no row" {
+    box := new DoorMemberBox(7, "label")
+
+    assert DoorMemberParenthesisedRoot(box) == 7
+    assert DoorStaticParenthesisedRoot() == Environment.NewLine
+    assert DoorParenScalar() == 5
+    assert DoorParenNested() == 7
+    assert DoorParenNegativeLiteral() == -5
+    assert DoorParenAdoptedNegativeLiteral() == -5
+    assert DoorParenMinimumMagnitude() == -2147483648
+    assert DoorParenBinary(20, 22) == 42
+    assert DoorParenCall() == 41
+    assert DoorParenTernary(true) == 1
+    assert DoorParenTernary(false) == 2
+    assert DoorParenShortCircuit(1, 1)
+    assert !DoorParenShortCircuit(1, 0)
+    assert DoorParenIdentifier(9) == 9
+    assert DoorParenDeclaration(3, 4) == 7
+    assert DoorParenWidenedReturn() == 5L
+}
+
+test "the parenthesis does not lose the overflow flag in either nesting direction" {
+    assert DoorParenCheckedOutside(2, 3) == 5
+    assert DoorParenCheckedInside(2, 3) == 5
+
+    outside := false
+    try {
+        DoorParenCheckedOutside(2147483647, 1)
+    } catch ex: OverflowException {
+        outside = true
+    }
+    assert outside
+
+    inside := false
+    try {
+        DoorParenCheckedInside(2147483647, 1)
+    } catch ex: OverflowException {
+        inside = true
+    }
+    assert inside
+}
+
+
+// ---- THE TYPEOF ROOT: DOOR KIND 55 (class Y, 015-B16) ----
+//
+// The cascade's FIFTH arm and the only UNCONDITIONAL one — `nsharpOwned = true` before `TryEmit`, no
+// `ClaimsRoot`, no fall-through — so an unplannable `typeof` root already declines the whole FUNCTION
+// on the host side and a door decline can only narrow the BODY. That risk profile is why kind 55 was
+// separable while the composed instance-member receiver (the EIGHTH arm) is not.
+//
+// The claim is `ColumnarTypeOfPlanner`'s own root sequence, factored out of its `Plan` by the
+// `015-B6`/`015-B7`/`015-B14`/`015-B15` move for the fourth time. Rows: `ldtoken` + `call
+// Type.GetTypeFromHandle`.
+
+func DoorTypeOfPrimitive(): Type {
+    return typeof(int)
+}
+
+func DoorTypeOfReference(): Type {
+    return typeof(string)
+}
+
+// A SOURCE type — a `TypeBuilder` at emit time, not a runtime handle.
+func DoorTypeOfSourceType(): Type {
+    return typeof(DoorMemberBox)
+}
+
+// An ARRAY type, whose canonical is built rather than looked up.
+func DoorTypeOfArray(): Type {
+    return typeof(int[])
+}
+
+// The `:=` position, which runs no host pre-pass.
+func DoorTypeOfDeclaration(): Type {
+    t := typeof(int)
+    return t
+}
+
+// AND THE TWO 015-B16 ARMS COMPOSE: a parenthesised `typeof` needs kind 7 to reach kind 55.
+func DoorTypeOfParenthesised(): Type {
+    return (typeof(int))
+}
+
+// `typeof(T).Name` was ALREADY door-claimed before this slice — a kind-8 root whose receiver is one of
+// `TryGetComposedReceiverType`'s five arms. It is here as the control that says what kind 55 actually
+// added: the ROOT position, not the append.
+func DoorTypeOfComposedReceiver(): string {
+    return typeof(int).Name
+}
+
+test "the expression door claims the typeof root in every type family it resolves" {
+    assert DoorTypeOfPrimitive() == typeof(int)
+    assert DoorTypeOfReference() == typeof(string)
+
+    // ⚠ TWO STANDING WALLS SHAPE THESE ASSERTS AND BOTH WERE MEASURED HERE RATHER THAN RECALLED. A
+    // member read off a CALL RESULT declines emission, so the results go through LOCALS; and
+    // `Type.IsArray` is DECLARABLE but not BINDABLE (no row in the `System.Type` instance-call table),
+    // so `assert arrayType.IsArray` declined the whole file. `Name` has a row and is used instead.
+    sourceType := DoorTypeOfSourceType()
+    assert sourceType.Name == "DoorMemberBox"
+
+    arrayType := DoorTypeOfArray()
+    assert arrayType.Name == "Int32[]"
+
+    assert DoorTypeOfDeclaration() == typeof(int)
+    assert DoorTypeOfParenthesised() == typeof(int)
+    assert DoorTypeOfComposedReceiver() == "Int32"
 }
