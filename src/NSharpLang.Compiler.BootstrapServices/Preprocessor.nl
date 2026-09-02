@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Text
 
 class Preprocessor {
     static func ProcessSource(source: string, definedSymbols: IReadOnlySet<string>, fileName: string?, errors: List<CompilerError>): string {

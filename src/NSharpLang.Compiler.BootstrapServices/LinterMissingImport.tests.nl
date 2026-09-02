@@ -106,6 +106,32 @@ func LmiSimple(name: string): TypeReference {
     return new SimpleTypeReference(name, 1, 1)
 }
 
+func LmiSimpleAt(name: string, line: int, column: int): TypeReference {
+    return new SimpleTypeReference(name, line, column)
+}
+
+func LmiGenericAt(name: string, argument: TypeReference, line: int, column: int): TypeReference {
+    arguments := new List<TypeReference>()
+    arguments.Add(argument)
+    return new GenericTypeReference(name, arguments, line, column)
+}
+
+// The named references a written type yields, IN ORDER, each with the span it answers for itself.
+// The order is the contract's subject as much as the membership is: the base name comes first.
+func LmiNamedSpans(typeReference: TypeReference): string {
+    references := LinterTypeReferenceName.NamedReferences(typeReference)
+    rendered := ""
+    index := 0
+    while index < references.Count {
+        span := LinterTypeReferenceName.BaseNameSpan(references[index])
+        name := LinterTypeReferenceName.Base(references[index]) ?? "<nameless>"
+        rendered = rendered + name + "@" + span.StartLine.ToString() + ":" + span.StartColumn.ToString() + "+" + span.Length.ToString() + ";"
+        index = index + 1
+    }
+
+    return rendered
+}
+
 func LmiGeneric(name: string): TypeReference {
     arguments := new List<TypeReference>()
     arguments.Add(LmiSimple("int"))
@@ -208,6 +234,86 @@ test "the nameless kinds answer NOTHING, and that silence is the contract" {
     // `(int, int)[]` and NL010 must not record one as a used identifier.
     assert LinterTypeReferenceName.Base(new ArrayTypeReference(new TupleTypeReference(new List<TupleTypeElement>()))) == null
     assert LinterTypeReferenceName.Base(new NullableTypeReference(new TupleTypeReference(new List<TupleTypeElement>()))) == null
+}
+
+// ── WHERE each name a type reference writes is WRITTEN ───────────────────────────────────────
+//
+// `BaseNameSpan` and `NamedReferences` are the third and fourth questions about the same subject,
+// and they exist because a per-name DIAGNOSTIC needs both halves: every name, and each name's own
+// columns. They are asked here beside `Base` and `MentionedNames` for the reason this file's header
+// gives — a walk that drifts from its siblings reports one arm's name at another arm's position.
+
+test "the base name's span is the span of the reference Base took the name from" {
+    assert LmiNamedSpans(LmiSimpleAt("Widget", 4, 9)) == "Widget@4:9+6;"
+
+    // A generic spans its NAME and not its type arguments: `List<int>` underlines four columns.
+    listOfWidget := LmiGenericAt("List", LmiSimpleAt("Widget", 4, 14), 4, 9)
+    assert LmiNamedSpans(listOfWidget) == "List@4:9+4;Widget@4:14+6;"
+}
+
+test "the wrappers are transparent to the span exactly as they are to the name" {
+    inner := LmiSimpleAt("Widget", 7, 20)
+    assert LmiNamedSpans(new ArrayTypeReference(inner)) == "Widget@7:20+6;"
+    assert LmiNamedSpans(new NullableTypeReference(inner)) == "Widget@7:20+6;"
+    assert LmiNamedSpans(new ByRefTypeReference(inner)) == "Widget@7:20+6;"
+
+    // `List<int>?[]` — the shape the rule actually meets. The base name is still the generic's.
+    nested := new ArrayTypeReference(new NullableTypeReference(LmiGenericAt("List", LmiSimpleAt("int", 7, 25), 7, 20)))
+    assert LmiNamedSpans(nested) == "List@7:20+4;int@7:25+3;"
+}
+
+test "THE BASE NAME COMES FIRST, which is what lets a caller give it a fallback and nothing else" {
+    // A union's first NAMED arm leads, not its first arm — the same rule `Base` follows, and it is
+    // asked of `Base` rather than re-decided, so the two cannot disagree.
+    tuple := new TupleTypeReference(new List<TupleTypeElement>())
+    skipped := LmiUnion(LmiArms(tuple, LmiGenericAt("List", LmiSimpleAt("int", 2, 12), 2, 7)))
+    assert LinterTypeReferenceName.Base(skipped) == "List"
+    assert LmiNamedSpans(skipped) == "List@2:7+4;int@2:12+3;"
+
+    // And with a named arm on BOTH sides the LATER arm still follows the earlier one.
+    both := LmiUnion(LmiArms(LmiSimpleAt("Alpha", 2, 1), LmiSimpleAt("Beta", 2, 9)))
+    assert LmiNamedSpans(both) == "Alpha@2:1+5;Beta@2:9+4;"
+}
+
+test "the kinds that are CALLED nothing still yield the names they contain" {
+    // A tuple has no base name, so its first entry is just its first named part — which is exactly
+    // why the caller asks `Base` before handing out a position of its own.
+    elements := new List<TupleTypeElement>()
+    elements.Add(new TupleTypeElement(LmiSimpleAt("Widget", 3, 5), null))
+    elements.Add(new TupleTypeElement(LmiSimpleAt("Gadget", 3, 13), null))
+    tuple := new TupleTypeReference(elements)
+    assert LinterTypeReferenceName.Base(tuple) == null
+    assert LmiNamedSpans(tuple) == "Widget@3:5+6;Gadget@3:13+6;"
+
+    // A function type yields its RETURN type first, then its parameters, and is called nothing.
+    parameterTypes := new List<TypeReference>()
+    parameterTypes.Add(LmiSimpleAt("Widget", 3, 5))
+    functionType := new FunctionTypeReference(parameterTypes, LmiSimpleAt("Gadget", 3, 17))
+    assert LinterTypeReferenceName.Base(functionType) == null
+    assert LmiNamedSpans(functionType) == "Gadget@3:17+6;Widget@3:5+6;"
+}
+
+test "an unstamped reference answers NO span, and that is how a hand-built tree is recognised" {
+    // `NameSpan` folds a zero line or column to `SourceSpan.None`, and a zero-length span renders
+    // as 0:0+0 here. The reporting rule turns that into silence rather than a diagnostic at 0:0.
+    assert LmiNamedSpans(new SimpleTypeReference("Widget", 0, 0)) == "Widget@0:0+0;"
+    assert !LinterTypeReferenceName.BaseNameSpan(new SimpleTypeReference("Widget", 0, 0)).IsValid
+    assert LinterTypeReferenceName.BaseNameSpan(LmiSimpleAt("Widget", 4, 9)).IsValid
+}
+
+test "every reference NamedReferences yields is one MentionedNames names, and vice versa" {
+    // The anti-drift claim, stated as an equality rather than trusted. The two walks visit the same
+    // subject for two different rules; if one grows an arm the other lacks, this fails.
+    deep := new ArrayTypeReference(LmiGenericAt("Dictionary", new NullableTypeReference(LmiGenericAt("List", LmiSimpleAt("Widget", 1, 30), 1, 20)), 1, 5))
+    mentioned := LinterTypeReferenceName.MentionedNames(deep)
+    yielded := LinterTypeReferenceName.NamedReferences(deep)
+    assert yielded.Count == mentioned.Count
+    index := 0
+    while index < yielded.Count {
+        name := LinterTypeReferenceName.Base(yielded[index]) ?? "<nameless>"
+        assert mentioned.Contains(name)
+        index = index + 1
+    }
 }
 
 // ── what a type reference MENTIONS (task 019 slice 9) ────────────────────────────────────────
@@ -690,4 +796,50 @@ test "the import silences NL002, and REMOVING IT BRINGS THE SAME DIAGNOSTIC BACK
     // And the same for System.Text, which the deleted file only ever asked in the reporting
     // direction.
     assert LmieCensus("\nimport System.Text\n\nfunc main() {\n    sb := new StringBuilder()\n    x := sb\n}") == "NL001@6:5+1;"
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// NL002 AT EVERY POSITION A TYPE CAN BE WRITTEN
+//
+// The rule used to be asked at exactly two places: a bare identifier, and the type of a `new`
+// expression. Every other written type — a parameter, a return, a field, a property, a local's
+// annotation, a base class, an interface, a positional record parameter, and every type argument
+// inside any of them — was silent. `CheckMissingImportForType`'s own comment claimed otherwise
+// ("a generic argument or an array element is reached by the walk in its own right"), and it was
+// never true: the walk descends EXPRESSIONS, and a type argument is a `TypeReference`.
+//
+// MEASURED BEFORE THE CHANGE, because "silent" is a claim about the whole toolchain and not just
+// about this rule: with `System.Text` unimported, `func takes(sb: StringBuilder) { sb.Append("x") }`
+// produced no diagnostic from `nlc check` AND BUILT AND RAN. A genuinely unknown name in the same
+// position is caught — `NotARealTypeAtAll` is NL201 "Type not found", anchored on the name — so the
+// silence was never a resolution hole. NL002 is import HYGIENE, which the `new` position proves
+// from the other side: with NL002 suppressed, `new StringBuilder()` without the import compiles and
+// prints. The defect was that the hygiene rule inspected one syntactic position out of many.
+
+test "NL002 covers a PARAMETER type, and lands on the type name" {
+    assert LmieCensus("\nfunc takes(sb: StringBuilder): int {\n    return sb.Length\n}") == "NL002@2:16+13;"
+}
+
+test "NL002 covers a RETURN type" {
+    assert LmieCensus("\nfunc make(): StringBuilder {\n    return null\n}") == "NL002@2:14+13;"
+}
+
+test "NL002 covers a FIELD type" {
+    assert LmieCensus("\nclass Holder {\n    Buffer: StringBuilder\n}") == "NL002@3:13+13;"
+}
+
+test "NL002 covers a GENERIC ARGUMENT, which is the case the old comment claimed and never did" {
+    // The enclosing generic is imported, so the only finding is the ARGUMENT — and it is anchored
+    // on the argument, not on `List` and not on `new`.
+    assert LmieCensus("\nimport System.Collections.Generic\n\nfunc make(): List<StringBuilder> {\n    return null\n}") == "NL002@4:19+13;"
+
+    // Neither imported: two findings, base name first, each on its own columns.
+    assert LmieCensus("\nfunc make(): List<StringBuilder> {\n    return null\n}") == "NL002@2:14+4;NL002@2:19+13;"
+}
+
+test "the import silences the newly covered positions too, which is the whole point of the rule" {
+    // Non-vacuity for every one of them at once: the same four positions with both imports present
+    // report nothing at all.
+    covered := "\nimport System.Collections.Generic\nimport System.Text\n\nfunc takes(sb: StringBuilder): int {\n    return sb.Length\n}\n\nfunc make(): List<StringBuilder> {\n    return null\n}\n\nclass Holder {\n    Buffer: StringBuilder\n}"
+    assert LmieCensus(covered) == ""
 }

@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Diagnostics
+import System.IO
 
 class ColumnarRuntimeTypeFacts {
     static func IsSupportedDirectCallInteropType(clrType: Type): bool {

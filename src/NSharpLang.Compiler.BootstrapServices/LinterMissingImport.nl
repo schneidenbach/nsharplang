@@ -222,6 +222,129 @@ class LinterTypeReferenceName {
         CollectMentionedNames(typeReference, result)
         return result
     }
+
+    // THE THIRD QUESTION, AND IT IS THE ONE A DIAGNOSTIC NEEDS. `Base` answers one name and where it
+    // is written; `CollectMentionedNames` answers every name and no position at all. A rule that
+    // reports per name — which NL002 now is — needs every name AND each one's own position, so it
+    // needs the REFERENCES, not their names: `Dictionary<string, StringBuilder>` is two findings at
+    // two different columns, and neither `Base` nor `MentionedNames` can express that.
+    //
+    // THE ORDER IS PART OF THE CONTRACT: the reference `Base` would have named comes FIRST. That is
+    // what lets a caller give its own fallback position to the base name and to nothing else — the
+    // enclosing syntax (`new`, a parameter list) is a sensible place to put a diagnostic about the
+    // type as a whole and a nonsensical place to put one about its third type argument. It holds
+    // arm for arm: a wrapper yields its inner list, a generic yields itself then its arguments, and
+    // a union yields its first NAMED arm's list before the rest. A tuple and a function type have no
+    // base name at all — `Base` says so — so their first entry is just their first named part, and
+    // the caller checks `Base` before handing out a fallback.
+    //
+    // Nameless kinds contribute nothing of their own and are not skipped: a tuple is not a type
+    // name, but `(int, Widget)` still mentions `Widget` somewhere a user can point at.
+    static func CollectNamedReferences(typeReference: TypeReference?, into: List<TypeReference>) {
+        if typeReference == null {
+            return
+        }
+
+        simple := typeReference as SimpleTypeReference
+        if simple != null {
+            into.Add(simple)
+            return
+        }
+
+        generic := typeReference as GenericTypeReference
+        if generic != null {
+            into.Add(generic)
+            arguments := generic.TypeArguments
+            index := 0
+            while index < arguments.Count {
+                CollectNamedReferences(arguments[index], into)
+                index = index + 1
+            }
+
+            return
+        }
+
+        nullable := typeReference as NullableTypeReference
+        if nullable != null {
+            CollectNamedReferences(nullable.InnerType, into)
+            return
+        }
+
+        array := typeReference as ArrayTypeReference
+        if array != null {
+            CollectNamedReferences(array.ElementType, into)
+            return
+        }
+
+        byRefReference := typeReference as ByRefTypeReference
+        if byRefReference != null {
+            CollectNamedReferences(byRefReference.InnerType, into)
+            return
+        }
+
+        unionReference := typeReference as UnionTypeReference
+        if unionReference != null {
+            arms := unionReference.Arms
+            // The first NAMED arm goes first, because that is the one `Base` answers with. The scan
+            // asks `Base` rather than re-deciding what "named" means, so the two cannot disagree.
+            named := -1
+            armIndex := 0
+            while armIndex < arms.Count {
+                if named < 0 {
+                    if Base(arms[armIndex]) != null {
+                        named = armIndex
+                    }
+                }
+
+                armIndex = armIndex + 1
+            }
+
+            if named >= 0 {
+                CollectNamedReferences(arms[named], into)
+            }
+
+            restIndex := 0
+            while restIndex < arms.Count {
+                if restIndex != named {
+                    CollectNamedReferences(arms[restIndex], into)
+                }
+
+                restIndex = restIndex + 1
+            }
+
+            return
+        }
+
+        tuple := typeReference as TupleTypeReference
+        if tuple != null {
+            elements := tuple.Elements
+            elementIndex := 0
+            while elementIndex < elements.Count {
+                CollectNamedReferences(elements[elementIndex].Type, into)
+                elementIndex = elementIndex + 1
+            }
+
+            return
+        }
+
+        functionReference := typeReference as FunctionTypeReference
+        if functionReference != null {
+            CollectNamedReferences(functionReference.ReturnType, into)
+            parameterTypes := functionReference.ParameterTypes
+            parameterIndex := 0
+            while parameterIndex < parameterTypes.Count {
+                CollectNamedReferences(parameterTypes[parameterIndex], into)
+                parameterIndex = parameterIndex + 1
+            }
+        }
+    }
+
+    // The same walk with its own list, for callers that want the answer rather than an accumulator.
+    static func NamedReferences(typeReference: TypeReference?): List<TypeReference> {
+        result := new List<TypeReference>()
+        CollectNamedReferences(typeReference, result)
+        return result
+    }
 }
 
 // NL002 — "I can't find this name, and it looks like a missing import."

@@ -269,17 +269,49 @@ class LinterWalkState {
         AddDiagnostic("NL002", LinterMissingImport.Message(ident.Name), ident.Line, ident.Column, config.GetSeverity("NL002"), LinterMissingImport.Suggestion(requiredNamespace), 0)
     }
 
-    // NL002 for a written type reference. Only the BASE name is asked about: a generic argument or an
-    // array element is reached by the walk in its own right.
+    // NL002 for a written type reference, with an enclosing position to fall back to.
     //
-    // THE SQUIGGLE GOES ON THE NAME THE MESSAGE NAMES. `LinterTypeReferenceName.BaseNameSpan` answers
-    // where the base name is written, and the diagnostic is reported there with that exact length —
+    // EVERY NAME THE TYPE WRITES IS ASKED, not only the one it is CALLED. The comment this rule
+    // carried for two tasks said "a generic argument or an array element is reached by the walk in
+    // its own right", and that was never true: the walk descends EXPRESSIONS, and a type argument is
+    // a `TypeReference`, so `new Dictionary<string, StringBuilder>()` asked about `Dictionary` and
+    // stopped. It asks about both now, and reports each at its own columns.
+    //
+    // THE SQUIGGLE GOES ON THE NAME THE MESSAGE NAMES. Each reference answers its own `NameSpan` —
     // `List` in `new List<int>()`, not the `new` keyword the caller's position points at, and not
-    // `List<int>` either. The caller's `line`/`column` are the FALLBACK for a reference the parser
-    // never stamped (a hand-built tree), which is the only case that still reaches
-    // `DiagnosticSpanResolver`'s token inference.
+    // `List<int>` either. The caller's `line`/`column` are the FALLBACK, and they are offered to the
+    // BASE name only: the enclosing syntax is a reasonable place to put a diagnostic about the type
+    // as a whole and a nonsensical place to put one about its second type argument. A nested name
+    // the parser never stamped is therefore skipped rather than piled onto the keyword.
     func CheckMissingImportForType(typeReference: TypeReference, line: int, column: int) {
-        typeName := LinterTypeReferenceName.Base(typeReference)
+        hasBaseName := LinterTypeReferenceName.Base(typeReference) != null
+        CheckMissingImportsAcross(typeReference, hasBaseName, line, column)
+    }
+
+    // The same rule at a written type with no enclosing syntax worth naming — a declared field,
+    // parameter, return or annotation type. Every position is the reference's own.
+    func CheckMissingImportsInType(typeReference: TypeReference?) {
+        if typeReference == null {
+            return
+        }
+
+        CheckMissingImportsAcross(typeReference, false, 0, 0)
+    }
+
+    // `CollectNamedReferences` yields the base name first, which is what makes "the fallback belongs
+    // to the base name and to nothing else" expressible as an index test rather than a second walk.
+    func CheckMissingImportsAcross(typeReference: TypeReference, baseTakesFallback: bool, fallbackLine: int, fallbackColumn: int) {
+        references := LinterTypeReferenceName.NamedReferences(typeReference)
+        index := 0
+        while index < references.Count {
+            takesFallback := baseTakesFallback && index == 0
+            ReportMissingImportForReference(references[index], takesFallback, fallbackLine, fallbackColumn)
+            index = index + 1
+        }
+    }
+
+    func ReportMissingImportForReference(reference: TypeReference, takesFallback: bool, fallbackLine: int, fallbackColumn: int) {
+        typeName := LinterTypeReferenceName.Base(reference)
         if typeName == null {
             return
         }
@@ -289,14 +321,23 @@ class LinterWalkState {
             return
         }
 
-        nameSpan := LinterTypeReferenceName.BaseNameSpan(typeReference)
-        reportLine := line
-        reportColumn := column
+        reportLine := 0
+        reportColumn := 0
         reportLength := 0
+        nameSpan := LinterTypeReferenceName.BaseNameSpan(reference)
         if nameSpan.IsValid {
             reportLine = nameSpan.StartLine
             reportColumn = nameSpan.StartColumn
             reportLength = nameSpan.Length
+        } else if takesFallback {
+            reportLine = fallbackLine
+            reportColumn = fallbackColumn
+        }
+
+        // No position, no diagnostic. A report at 0:0 is not a finding a user can act on, and the
+        // editor would draw it on the first character of the file.
+        if reportLine <= 0 || reportColumn <= 0 {
+            return
         }
 
         AddDiagnostic("NL002", LinterMissingImport.Message(typeName), reportLine, reportColumn, config.GetSeverity("NL002"), LinterMissingImport.Suggestion(requiredNamespace), reportLength)
@@ -304,10 +345,14 @@ class LinterWalkState {
 
     // ---- the file's identifier ledgers ----------------------------------------------------------
 
-    // NL010: every type name a written type reference mentions counts as a use of whatever import
-    // supplies it.
+    // A WRITTEN TYPE, AND BOTH IMPORT RULES ASK ABOUT IT. NL010: every name it mentions counts as a
+    // use of whatever import supplies it. NL002: every name it mentions needs an import to supply it.
+    // They are the two directions of one question and they are asked at one place, because the way
+    // NL002 came to cover a single syntactic position — a `new` expression, and nothing else a type
+    // can be written in — was by being asked somewhere NL010 was not.
     func TrackTypeReference(typeReference: TypeReference?) {
         LinterTypeReferenceName.CollectMentionedNames(typeReference, allCodeIdentifiers)
+        CheckMissingImportsInType(typeReference)
     }
 
     func NoteCodeIdentifier(name: string) {
