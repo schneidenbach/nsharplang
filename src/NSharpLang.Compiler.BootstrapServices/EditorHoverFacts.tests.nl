@@ -6,7 +6,6 @@ import NSharpLang.Compiler
 
 // CONTRACTS FOR THE EDITOR'S HALF OF A HOVER ANSWER. These strings are what the VS Code suite reads
 // back out of a hover, so they are a CONTRACT with the editor and not a style choice.
-
 test "a keyword and a primitive answer for themselves, and nothing else does" {
     assert EditorHoverFacts.KeywordOrPrimitiveMarkdown("func") == "**func** *(keyword)*"
     assert EditorHoverFacts.KeywordOrPrimitiveMarkdown("match") == "**match** *(keyword)*"

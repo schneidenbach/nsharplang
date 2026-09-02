@@ -17,7 +17,6 @@ import NSharpLang.Compiler
 //
 // The bar these assert is the one the May 2026 headless report recorded and the June deletion took
 // away: the C# signature with parameter and return types, plus the declaring type.
-
 func SkHandle(receiver: TypeInfo, memberName: string): ReflectedMemberHandle? {
     return CodeIntelligenceTypeResolution.ReflectedMemberOfType(receiver, memberName)
 }
