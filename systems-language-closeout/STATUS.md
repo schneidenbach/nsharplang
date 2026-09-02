@@ -2365,8 +2365,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 - §7's AOT argument for option (a) ("Reflection.Emit cannot ship in a native image") is superseded by
   §3.8's correction: `PersistedAssemblyBuilder` runs under NativeAOT; the AOT path is task 022.
 
-### 4.10 Wave 3 — the gate-speed slice and the IDE defect remediation
-### 4.10 Wave 3
+### 4.10 Wave 3 — the gate-speed slice, the IDE defect remediation and the formatter rule
 
 | slice | commit | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
