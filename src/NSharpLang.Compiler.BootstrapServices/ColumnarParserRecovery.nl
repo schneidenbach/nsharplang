@@ -7147,10 +7147,12 @@ class ColumnarParserRecovery {
         if Check(TokenType.IntLiteral) || Check(TokenType.FloatLiteral) {
             token := Advance()
             literalResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
+            // The spelling rides along so the formatter can write `2_147_483_647` back; it is null for
+            // every numeral without separators, which is almost all of them.
             if token.Type == TokenType.FloatLiteral {
-                literalResult.Node = new FloatLiteralExpression(token.Value, line, column)
+                literalResult.Node = new FloatLiteralExpression(token.Value, line, column, token.Spelling)
             } else {
-                literalResult.Node = new IntLiteralExpression(token.Value, line, column)
+                literalResult.Node = new IntLiteralExpression(token.Value, line, column, token.Spelling)
             }
             return literalResult
         }

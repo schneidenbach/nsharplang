@@ -27,19 +27,26 @@ class Expression: AstNode {
 }
 
 // Literals
+// The two numeric literals. `Value` is the numeral every consumer parses; `Spelling` is what the
+// author wrote, carried only when digit separators make the two differ, and read only by the
+// formatter. Both default to the value-is-the-spelling case, so a hand-built tree is unaffected.
 class IntLiteralExpression: Expression {
     Value: string
+    Spelling: string?
 
-    constructor(Value: string, Line: int, Column: int): base(Line, Column) {
+    constructor(Value: string, Line: int, Column: int, Spelling: string? = null): base(Line, Column) {
         this.Value = Value
+        this.Spelling = Spelling
     }
 }
 
 class FloatLiteralExpression: Expression {
     Value: string
+    Spelling: string?
 
-    constructor(Value: string, Line: int, Column: int): base(Line, Column) {
+    constructor(Value: string, Line: int, Column: int, Spelling: string? = null): base(Line, Column) {
         this.Value = Value
+        this.Spelling = Spelling
     }
 }
 

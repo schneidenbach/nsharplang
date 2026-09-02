@@ -288,17 +288,25 @@ test "a list value becomes a list of rendered items and keeps their order" {
     assert items[1].GetType() == typeof(int)
 }
 
+// THE MEMBER LIST IS THE AST-JSON SURFACE, so a field added to a node is a field added to
+// `nlc query ast --json`. That is additive rather than breaking — a reader keys on names — but it is
+// not invisible, and this contract is where it becomes visible. `Spelling` is the fifth member here:
+// a numeric literal's source text, non-null only when digit separators make it differ from `Value`.
 test "the member collection of a node reports base members before its own, already sorted" {
     node: object = new IntLiteralExpression("42", 3, 5)
 
     members := OutputFormatterAstJsonKernels.CollectMembers(node.GetType(), node)
 
-    assert members.Count == 4
+    assert members.Count == 5
     assert members[0].Name == "Line"
     assert members[1].Name == "Column"
     assert members[2].Name == "EndLine"
     assert members[3].Name == "Value"
+    assert members[4].Name == "Spelling"
     assert members[0].Token < members[3].Token
+
+    // An unseparated numeral carries no spelling, so the added member is null on almost every node.
+    assert members[4].Value == null
 }
 
 test "the collected member values are the node's own values, read through reflection" {

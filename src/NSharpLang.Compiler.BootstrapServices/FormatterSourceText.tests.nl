@@ -1059,3 +1059,38 @@ test "let is preserved where the author wrote it and supplied where the parser n
     assert FstIdempotent(bare)
     assert FstIdempotent(tuple)
 }
+
+test "a numeric literal comes back spelled the way the author wrote it, separators included" {
+    // THE SAME DEFECT CLASS AS THE RAW STRING, WITH A QUIETER SYMPTOM. `Lexer.ReadNumber` drops every
+    // `_` so the value it hands on is a numeral `Parse` accepts; the formatter wrote that value back,
+    // so `2_147_483_647` came out as `2147483647`. The program is identical and the author's source is
+    // gone — and because it re-parses and is idempotent, no gate ever objected. It surfaced only when
+    // `tests/native/scalar-code-plan/ScalarCodePlan.tests.nl` stopped declining on its raw string and
+    // became formattable for the first time; that file holds the estate's only bare separated
+    // numerals, one of them in a function named `ReturnSeparatedMinimumIntLiteral`.
+    decimalLiteral := "func Test(): int {\n    return 2_147_483_647\n}"
+    assert FstFormat(decimalLiteral) == "func Test(): int {|    return 2_147_483_647|}", FstFormat(decimalLiteral)
+
+    hex := "func Test(): int {\n    return 0x7fff_ffff\n}"
+    assert FstFormat(hex) == "func Test(): int {|    return 0x7fff_ffff|}", FstFormat(hex)
+
+    binary := "func Test(): int {\n    return 0b1010_0101\n}"
+    assert FstFormat(binary) == "func Test(): int {|    return 0b1010_0101|}", FstFormat(binary)
+
+    floating := "func Test(): double {\n    return 1_2.5_0e1D\n}"
+    assert FstFormat(floating) == "func Test(): double {|    return 1_2.5_0e1D|}", FstFormat(floating)
+
+    // A separated literal in an index-from-end, which reaches the same node through a different arm.
+    indexed := "func Test(values: int[]): int {\n    return values[^1_0]\n}"
+    assert FstFormat(indexed) == "func Test(values: int[]): int {|    return values[^1_0]|}", FstFormat(indexed)
+
+    // AND AN UNSEPARATED NUMERAL IS UNTOUCHED — the spelling is null and the value is written, which
+    // is the arm every other file in the estate takes.
+    plain := "func Test(): int {\n    return 2147483647\n}"
+    assert FstFormat(plain) == "func Test(): int {|    return 2147483647|}", FstFormat(plain)
+
+    assert FstIdempotent(decimalLiteral)
+    assert FstIdempotent(floating)
+    assert FstSafeSuccess(decimalLiteral)
+    assert FstSafeSuccess(floating)
+}

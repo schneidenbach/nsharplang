@@ -1288,15 +1288,33 @@ class FormatterWalk {
     // it away: the formatter's output has to re-parse to the same tree, and precedence recovered by
     // re-deriving brackets would not be the source the author wrote.
     func FormatExpression(expression: Expression, builder: StringBuilder) {
+        // A NUMERIC LITERAL IS WRITTEN AS THE AUTHOR SPELLED IT. `Lexer.ReadNumber` drops digit
+        // separators so that `Parse` sees a numeral it accepts, so `Value` alone cannot spell
+        // `2_147_483_647`, `0x7fff_ffff` or `1_2.5_0e1D` back — the formatter rewrote all three, which
+        // is the same defect class as writing a raw string's content without its delimiters: the file
+        // still compiles to the same program and the author's source is gone. `Spelling` is null for
+        // every numeral that has no separators, so the common arm is unchanged.
         intLiteral := expression as IntLiteralExpression
         if intLiteral != null {
-            builder.Append(intLiteral.Value)
+            intSpelling := intLiteral.Spelling
+            if intSpelling != null {
+                builder.Append(intSpelling)
+            } else {
+                builder.Append(intLiteral.Value)
+            }
+
             return
         }
 
         floatLiteral := expression as FloatLiteralExpression
         if floatLiteral != null {
-            builder.Append(floatLiteral.Value)
+            floatSpelling := floatLiteral.Spelling
+            if floatSpelling != null {
+                builder.Append(floatSpelling)
+            } else {
+                builder.Append(floatLiteral.Value)
+            }
+
             return
         }
 
