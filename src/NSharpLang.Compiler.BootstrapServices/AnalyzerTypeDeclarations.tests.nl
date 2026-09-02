@@ -1088,6 +1088,10 @@ test "WITH SOURCE TEXT THE SAME MISMATCH IS THE RICH TYPE-MISMATCH SHAPE AT THE 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
     assert harness.Errors[0].Column == 30
+
+    // The CODE differs between the two shapes and the ANCHOR differs; the SENTENCE does not. The
+    // rich route used to say only the bare words `Type mismatch`.
+    assert harness.Errors[0].Message == "Field 'count' is typed as 'int', but the initializer gives 'string'"
 }
 
 test "A DECLARED FIELD WHOSE INITIALIZER FITS IS SILENT, AND ONE WITH NO INITIALIZER TAKES NO STEP" {
@@ -1157,4 +1161,146 @@ test "THE FIELD'S NAME IS DECLARED AFTER EVERY RULE, SO A REFUSED INITIALIZER ST
     // The report is already in the sink when the declare step is handed out.
     assert steps[declareIndex].ErrorCount == 1
     assert steps[declareIndex].Name == "count"
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE OVERRIDE-TARGET RULE
+//
+// `override` was accepted with NO check at all before this: a member declared `override` over a
+// plain base method, or over a base member that does not exist, produced not one diagnostic (020/34
+// measured it with two independent probes and filed it). The rule has three verdicts and a fourth
+// that is SILENCE, and every one of them is pinned here — because the dangerous failure mode of a
+// new declaration rule is not the fault it misses, it is the correct program it rejects.
+// ---------------------------------------------------------------------------------------------
+
+func TypeDeclMemberInfo(name: string, modifierBits: int): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(
+        name, "Owner", DeclaredMemberKind.Function, "function", null, false, false, false, true,
+        0, new string[](0), new TypeReference[](0), new ParameterModifier[](0), 0, false, false,
+        null, 0, new TypeParameter[](0), new GenericConstraint[](0),
+        0, false, false, false, false, "", false, false, 1, 1, modifierBits)
+}
+
+func TypeDeclMemberInfos(first: DeclaredMemberInfo): DeclaredMemberInfo[] {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = first
+    return members
+}
+
+func TypeDeclSourceOwner(name: string, members: DeclaredMemberInfo[]): TypeInfo {
+    owner: TypeInfo = new ClassTypeInfo(name, 1, 1, false, null, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), members, new NestedTypeInfo[](0), true)
+    return owner
+}
+
+func TypeDeclVirtualBits(): int {
+    return Convert.ToInt32(Modifiers.Virtual)
+}
+
+func TypeDeclOverrideBits(): int {
+    return Convert.ToInt32(Modifiers.Override)
+}
+
+func TypeDeclSealedOverrideBits(): int {
+    return Convert.ToInt32(Modifiers.Override) + Convert.ToInt32(Modifiers.Sealed)
+}
+
+test "A MEMBER IS OVERRIDABLE WHEN IT OPENS A SLOT, AND A SEALED OVERRIDE CLOSES ONE" {
+    assert !TypeDeclMemberInfo("Speak", 0).IsOverridable
+    assert TypeDeclMemberInfo("Speak", TypeDeclVirtualBits()).IsOverridable
+    assert TypeDeclMemberInfo("Speak", Convert.ToInt32(Modifiers.Abstract)).IsOverridable
+    assert TypeDeclMemberInfo("Speak", TypeDeclOverrideBits()).IsOverridable
+    assert !TypeDeclMemberInfo("Speak", TypeDeclSealedOverrideBits()).IsOverridable
+
+    // The whole modifier word survives the factory, which is what makes the question askable at all.
+    assert TypeDeclMemberInfo("Speak", TypeDeclSealedOverrideBits()).DeclaredModifiers == 65664
+}
+
+test "THE SOURCE ARM READS THE BASE MEMBER'S OWN MODIFIERS, AND ONLY A FUNCTION ANSWERS" {
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverrideTarget(
+        TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", TypeDeclVirtualBits())), "Speak") == 1
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverrideTarget(
+        TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", 0)), "Speak") == 2
+
+    // A member of another name is not this one's slot, and the walk must keep going rather than
+    // answer — 0 is "not found HERE", which is what sends the walk to the base above.
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverrideTarget(
+        TypeDeclMemberInfos(TypeDeclMemberInfo("Bark", TypeDeclVirtualBits())), "Speak") == 0
+}
+
+test "METADATA ANSWERS FOR AN EXTERNAL BASE, AND `object` IS THE IMPLICIT ROOT" {
+    // `ToString` is virtual on every CLR type; `GetType` is not, and never was — which is why
+    // `override func GetType()` is a real fault rather than a tolerated one.
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverrideTarget(typeof(Exception), "ToString") == 1
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverrideTarget(typeof(Exception), "GetType") == 2
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverrideTarget(typeof(Exception), "Speak") == 3
+
+    assert AnalyzerTypeDeclarations.ClassifyObjectOverrideTarget("ToString") == 1
+    assert AnalyzerTypeDeclarations.ClassifyObjectOverrideTarget("GetHashCode") == 1
+    assert AnalyzerTypeDeclarations.ClassifyObjectOverrideTarget("GetType") == 2
+    assert AnalyzerTypeDeclarations.ClassifyObjectOverrideTarget("Speak") == 3
+}
+
+test "THE WALK ENDS AT `object` WHEN A SOURCE CHAIN NAMES NO FURTHER BASE" {
+    harness := TypeDeclDefault()
+
+    virtualBase := TypeDeclSourceOwner("Animal", TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", TypeDeclVirtualBits())))
+    assert harness.Declarations.ClassifyOverrideTarget(virtualBase, "Speak", 0) == 1
+
+    plainBase := TypeDeclSourceOwner("Animal", TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", 0)))
+    assert harness.Declarations.ClassifyOverrideTarget(plainBase, "Speak", 0) == 2
+
+    // Not on the source shape, so the walk falls through to `object`: `ToString` is open there and
+    // `Speak` is nowhere at all.
+    assert harness.Declarations.ClassifyOverrideTarget(plainBase, "ToString", 0) == 1
+    assert harness.Declarations.ClassifyOverrideTarget(plainBase, "Speak2", 0) == 3
+
+    // SILENCE IS THE DEFAULT. A base that resolved to nothing, and a depth past the cycle brake,
+    // both answer "cannot tell" — the two ways this rule refuses to guess.
+    assert harness.Declarations.ClassifyOverrideTarget(BuiltInTypes.Unknown, "Speak", 0) == 0
+    assert harness.Declarations.ClassifyOverrideTarget(plainBase, "Speak", 25) == 0
+}
+
+test "AN `override` WITH NO SLOT TO TAKE IS `NL311`, AND THE REPORT NAMES WHICH HALF FAILED" {
+    missingHarness := TypeDeclDefault()
+    missingMembers := new List<Declaration>()
+    missingMembers.Add(TypeDeclFunction("Speak", Modifiers.Override))
+    TypeDeclRun(missingHarness, missingHarness.Declarations.BeginClass(TypeDeclClass("Dog", missingMembers, null, null, Modifiers.None), missingHarness.Assignability), null)
+
+    assert missingHarness.Errors.Count == 1
+    assert missingHarness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert missingHarness.Errors[0].Message == "'Speak' is declared 'override', but it has no base member of that name"
+    assert missingHarness.Errors[0].Length == 5
+
+    sealedHarness := TypeDeclDefault()
+    sealedMembers := new List<Declaration>()
+    sealedMembers.Add(TypeDeclFunction("GetType", Modifiers.Override))
+    TypeDeclRun(sealedHarness, sealedHarness.Declarations.BeginClass(TypeDeclClass("Dog", sealedMembers, null, null, Modifiers.None), sealedHarness.Assignability), null)
+
+    assert sealedHarness.Errors.Count == 1
+    assert sealedHarness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert sealedHarness.Errors[0].Message == "'GetType' is declared 'override', but it is not marked 'virtual', 'abstract' or 'override'"
+}
+
+test "THE RULE STAYS SILENT FOR EVERY CORRECT SPELLING IT CAN SEE" {
+    // `override func ToString()` on a class with no `:` clause is the estate's own commonest shape —
+    // it overrides `object.ToString`, and a rule that reported it would fail hundreds of live files.
+    objectHarness := TypeDeclDefault()
+    objectMembers := new List<Declaration>()
+    objectMembers.Add(TypeDeclFunction("ToString", Modifiers.Override))
+    TypeDeclRun(objectHarness, objectHarness.Declarations.BeginClass(TypeDeclClass("Shape", objectMembers, null, null, Modifiers.None), objectHarness.Assignability), null)
+    assert objectHarness.Errors.Count == 0
+
+    // A member WITHOUT the modifier is never asked the question, whatever its name.
+    plainHarness := TypeDeclDefault()
+    plainMembers := new List<Declaration>()
+    plainMembers.Add(TypeDeclFunction("Speak", Modifiers.None))
+    TypeDeclRun(plainHarness, plainHarness.Declarations.BeginClass(TypeDeclClass("Dog", plainMembers, null, null, Modifiers.None), plainHarness.Assignability), null)
+    assert plainHarness.Errors.Count == 0
+
+    // A STRUCT and a RECORD override `object`'s members through `ValueType` and are equally silent.
+    structHarness := TypeDeclDefault()
+    structMembers := new List<Declaration>()
+    structMembers.Add(TypeDeclFunction("GetHashCode", Modifiers.Override))
+    TypeDeclRun(structHarness, structHarness.Declarations.BeginStruct(TypeDeclStruct("Point", structMembers, null, null, Modifiers.None), structHarness.Assignability), null)
+    assert structHarness.Errors.Count == 0
 }

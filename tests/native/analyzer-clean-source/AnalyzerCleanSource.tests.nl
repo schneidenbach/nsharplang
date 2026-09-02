@@ -2686,9 +2686,14 @@ test "020 s28 analyzer clean source: a zero-parameter lambda matches `Func<int>`
 //     underlines the whole thing (`null`, `"red"`, `42`). `NL506` is `is` two columns plain and
 //     `is string` nine columns rich. `NL208` on a circular constraint is the `f` of `func` plain and
 //     `func` rich.
-//   * 15 of them get a DIFFERENT MESSAGE, and the rich one is SHORTER. `Variable 'c' is typed as
-//     'Color', but the value is 'string'` becomes the bare `Type mismatch`, and its suggestion
-//     (`Ensure types are compatible or add explicit cast`) is DROPPED to null.
+//   * 15 of them USED TO get a DIFFERENT MESSAGE, and the rich one was SHORTER: `Variable 'c' is
+//     typed as 'Color', but the value is 'string'` became the bare `Type mismatch`. THAT WAS THE
+//     DEFECT, and it is fixed — `ErrorMessageBuilder.TypeMismatch` now takes the reporting site's
+//     own sentence instead of writing a headline of its own, so the MESSAGE column is identical on
+//     both routes and the rich shape only ADDS. The generic `Suggestion`
+//     (`Ensure types are compatible or add explicit cast`) is still null on the rich route, because
+//     the rich route carries a specific `ContextualHint` in its place — that substitution is a
+//     trade UP and is left alone.
 //   * `ContextualHint` is non-null on 15 fixtures through the production route and on ZERO through
 //     the plain one. That is why slice 28 pinned `AcHint` as `<null>` twenty-four times: the field is
 //     a property of the ENTRY POINT, not of the fixture.
@@ -3192,7 +3197,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+5;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'Color', but the value is 'string'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                c: Color = \"red\""
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3217,7 +3222,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'Color', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                c: Color = 0"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3280,7 +3285,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+5;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'Color', but the value is 'string'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                c: Color = \"red\""
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3589,7 +3594,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@3:27+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'x' is typed as 'bool', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                x: bool = null"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3614,7 +3619,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@3:29+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'x' is typed as 'double', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                x: double = null"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3696,7 +3701,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@5:27+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'int?', but the value is 'long?'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                y: int? = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3721,7 +3726,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'p' is typed as 'Point', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                p: Point = null"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3765,7 +3770,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'p' is typed as 'Point', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                p: Point = null"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4052,7 +4057,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@5:26+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'int', but the value is 'long'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'long' to 'int'. Use an explicit cast: (int)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSnippet(rich, 0) == "                y: int = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4077,7 +4082,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@4:28+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'float', but the value is 'double'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'double' to 'float'. Use an explicit cast: (float)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSnippet(rich, 0) == "                y: float = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4152,7 +4157,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@4:27+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'byte', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'int' to 'byte'. Use an explicit cast: (byte)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSnippet(rich, 0) == "                y: byte = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4196,7 +4201,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@4:26+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
     assert AcSnippet(rich, 0) == "                y: int = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4221,7 +4226,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@5:28+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'short', but the value is 'long'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'long' to 'short'. Use an explicit cast: (short)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSnippet(rich, 0) == "                y: short = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4551,10 +4556,13 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
 //       Slice 29 measured this over its own corpus; this tranche measures it over a disjoint one
 //       and the direction is the same. The census differs on 16 fixtures, the code row on 28 and
 //       the code anchor on 13; the error COUNT never differs. On the 28, production DROPS the
-//       suggestion 15 times and GAINS one ZERO times. **THREE DELETED ASSERTIONS ARE TRUE ONLY OF
-//       THE ENTRY POINT NOTHING SHIPS**: the `'Items' is typed as 'List<Pt>', but the value is
-//       'List<Rs>'` sentence and its two siblings become the bare `Type mismatch` on the route
-//       `nlc check`, `nlc build` and the IDE take. Both routes are pinned on every fixture.
+//       generic suggestion 15 times and GAINS one ZERO times — it carries a specific
+//       `ContextualHint` instead, which is a trade up. THE THREE ASSERTIONS THAT WERE TRUE ONLY OF
+//       THE ENTRY POINT NOTHING SHIPS ARE NOW TRUE OF BOTH: the `'Items' is typed as 'List<Pt>',
+//       but the value is 'List<Rs>'` sentence and its two siblings USED TO become the bare
+//       `Type mismatch` on the route `nlc check`, `nlc build` and the IDE take, and that collapse
+//       is the defect the builder fix removed. Both routes are pinned on every fixture, and the
+//       MESSAGE column is now the one thing they always agree on.
 //
 //   (g) THE PLURAL `Suggestions` LIST IS A PRODUCTION-ONLY FIELD. It is null on all 82 plain rows
 //       and non-null on 5 rich ones, so the `?? string.Join(", ", error.Suggestions ?? …)` fallback
@@ -6457,7 +6465,7 @@ test "020 s30 analyzer error codes: `MemberWriteThroughValueCopy`: the analysis 
     assert AcCodeAnchor(rich, "MemberWriteThroughValueCopy") == "<no-such-code>"
 }
 
-test "020 s30 analyzer error codes: ONE OF THE THREE DELETED CLAIMS THAT ARE TRUE ONLY OF THE ENTRY POINT NOTHING SHIPS — the deleted body matched `'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'`, which the plain route says and the four-argument route production actually calls collapses to the bare `Type mismatch`; both routes are pinned here (was AnalyzerTests.ObjectInitializer_GenericCollectionElementMismatch_Error)" {
+test "020 s30 analyzer error codes: ONE OF THE THREE DELETED CLAIMS THAT WERE TRUE ONLY OF THE ENTRY POINT NOTHING SHIPS AND ARE NOW TRUE OF BOTH — the deleted body matched `'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'`, which the four-argument route production actually calls used to collapse to the bare `Type mismatch` and now says in full; both routes are pinned here (was AnalyzerTests.ObjectInitializer_GenericCollectionElementMismatch_Error)" {
     source := "\nrecord Pt {\n    X: int\n}\n\nrecord Rs {\n    S: string\n}\n\nrecord H {\n    Items: List<Pt>\n}\n\nfunc f(): int {\n    l := new List<Rs>()\n    l.Add(new Rs { S: \"abc\" })\n    h := new H { Items: l }\n    return h.Items[0].X\n}"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
@@ -6473,7 +6481,7 @@ test "020 s30 analyzer error codes: ONE OF THE THREE DELETED CLAIMS THAT ARE TRU
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@17:25+1;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@17:25+1"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6495,7 +6503,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@16:25+1;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Items' is typed as 'List<Pt>', but the value is 'List<Qt>'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@16:25+1"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6517,7 +6525,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@16:23+1;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Map' is typed as 'Dictionary<string, Pt>', but the value is 'Dictionary<string, Rs>'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@16:23+1"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6539,7 +6547,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@7:22+5;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'X' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@7:22+5"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
@@ -6561,7 +6569,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@19:23+1;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'B' is typed as 'Box<Pt>', but the value is 'Box<Rs>'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@19:23+1"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6583,7 +6591,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@15:32+3;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Item' is typed as 'Pt', but the value is 'Rs'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@15:32+3"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6605,7 +6613,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@15:27+3;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Items' is typed as 'Pt[]', but the value is 'Rs[]'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@15:27+3"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6627,7 +6635,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@8:45+5;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'value' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@8:45+5"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
@@ -6801,7 +6809,7 @@ test "020 s30 analyzer error codes: `TypeMismatch` / `UndefinedMember`: the whol
     assert AcCodeAnchor(analysis1, "UndefinedMember") == "<no-such-code>"
     rich1 := AcAnalyzeWithSource(source1)
     assert AcCensus(rich1) == "NL202:TypeMismatch@10:29+5;"
-    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|'X' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich1, "TypeMismatch") == "NL202@10:29+5"
     assert AcSuggestions(rich1, 0) == "<null>"
     assert AcHint(rich1, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
@@ -6851,7 +6859,7 @@ test "020 s30 analyzer error codes: `TypeMismatch` / `UndefinedMember`: the whol
     assert AcCodeAnchor(analysis1, "UndefinedMember") == "<no-such-code>"
     rich1 := AcAnalyzeWithSource(source1)
     assert AcCensus(rich1) == "NL202:TypeMismatch@5:42+5;"
-    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|'Capacity' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich1, "TypeMismatch") == "NL202@5:42+5"
     assert AcSuggestions(rich1, 0) == "<null>"
     assert AcHint(rich1, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
@@ -9778,7 +9786,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:33+2; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@3:33+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'x' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let x: string = 42"
@@ -9787,7 +9795,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:33+2; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'x' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:33+2"
 }
 
@@ -10030,7 +10038,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:20+2; the t
     assert AcCensus(rich) == "NL202:TypeMismatch@3:20+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                if 42 {"
@@ -10039,7 +10047,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:20+2; the t
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:20+2"
 }
 
@@ -10246,7 +10254,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+1; and i
     assert AcCensus(rich) == "NL202:TypeMismatch@5:34+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'byte', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'int' to 'byte'. Use an explicit cast: (byte)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                c: byte = getA() + getB()"
@@ -10255,7 +10263,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+1; and i
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'c' is typed as 'byte', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:34+1"
 }
 
@@ -10282,7 +10290,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+1; and i
     assert AcCensus(rich) == "NL202:TypeMismatch@5:35+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'short', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'int' to 'short'. Use an explicit cast: (short)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                c: short = getA() + getB()"
@@ -10291,7 +10299,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+1; and i
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'c' is typed as 'short', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:35+1"
 }
 
@@ -10622,7 +10630,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcSnippet(rich, 0) == "                r := new Result.Success { value: 42 }"
     assert AcTypes(rich, 0) == "<null>|<null>"
     assert AcExplanation(rich, 0) == "<null>"
-    assert AcRow(rich, 1) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 1) == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 1) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 1) == "<null>"
     assert AcSnippet(rich, 1) == "                r := new Result.Success { value: 42 }"
@@ -10635,7 +10643,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@8:26+14"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@8:50+2"
 }
 
@@ -10678,7 +10686,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcSnippet(rich, 0) == "                r := new Result.Success<int, string> { value: 42 }"
     assert AcTypes(rich, 0) == "<null>|<null>"
     assert AcExplanation(rich, 0) == "<null>"
-    assert AcRow(rich, 1) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 1) == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 1) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 1) == "<null>"
     assert AcSnippet(rich, 1) == "                r := new Result.Success<int, string> { value: 42 }"
@@ -10691,7 +10699,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@8:26+14"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@8:63+2"
 }
 
@@ -11862,7 +11870,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 12:29+4; the 
     assert AcCensus(rich) == "NL202:TypeMismatch@12:29+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'value' is typed as 'double', but the value is 'Fraction'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "        let value: double = frac  // Should error - explicit conversion required"
@@ -11871,7 +11879,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 12:29+4; the 
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'value' is typed as 'double', but the value is 'Fraction'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@12:29+4"
 }
 
@@ -12386,7 +12394,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@4:35+6;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let s: string = 5.Double()"
@@ -12395,7 +12403,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:35+6"
 }
 
@@ -12422,7 +12430,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+6; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@5:35+6;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let s: string = x.Double()"
@@ -12431,7 +12439,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+6; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:35+6"
 }
 
@@ -12458,7 +12466,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@4:35+6;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'bool'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let n: int = true.Toggle()"
@@ -12467,7 +12475,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'bool'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:35+6"
 }
 
@@ -12494,7 +12502,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:38+5; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@4:38+5;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let n: int = \"hello\".Upper()"
@@ -12503,7 +12511,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:38+5; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:38+5"
 }
 
@@ -13046,7 +13054,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:26+4; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@3:26+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'x' is typed as 'int', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                x: int = null"
@@ -13055,7 +13063,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:26+4; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'x' is typed as 'int', but the value is 'null'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:26+4"
 }
 
@@ -13082,7 +13090,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+2; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@5:34+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'id' is typed as 'UserId', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let id: UserId = 42"
@@ -13091,7 +13099,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+2; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'id' is typed as 'UserId', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:34+2"
 }
 
@@ -13118,7 +13126,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 6:32+2; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@6:32+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'raw' is typed as 'int', but the value is 'UserId'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let raw: int = id"
@@ -13127,7 +13135,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 6:32+2; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'raw' is typed as 'int', but the value is 'UserId'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@6:32+2"
 }
 
@@ -13190,7 +13198,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 7:40+6; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@7:40+6;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'orderId' is typed as 'OrderId', but the value is 'UserId'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let orderId: OrderId = userId"
@@ -13199,7 +13207,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 7:40+6; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'orderId' is typed as 'OrderId', but the value is 'UserId'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@7:40+6"
 }
 
@@ -17723,17 +17731,27 @@ test "020 s34 analyzer clean source: S-CONTROL, THE NON-WEB SDK: `Sdk = Microsof
 // it also pins a production quirk no boolean could see: ONE undefined `out` argument is reported
 // THREE times at one column, so a single missing declaration yields FOUR rows.
 //
-// ONE THING THIS TRANCHE LOOKED FOR AND DID NOT FIND, RECORDED BECAUSE IT IS A REAL GAP: the
-// analyzer never reports an UNDEFINED TYPE NAME in a declaration position. A V-control candidate for
-// `RecursiveTypeDefinition` — replacing the self-referential `Next: Node?` with `Next: Missing?` —
-// is a NON-MOVER, and four further out-of-repo probes give the shape of it: an unknown type is
-// silent in a nullable field, in a non-nullable field, in an array-element position, in a generic
-// argument and in a PARAMETER. It surfaces only INDIRECTLY, as an `NL202` when a value is assigned
-// to a local or returned from a function so annotated — and the sentence then names the phantom type
-// as though it existed (`Variable 'x' is typed as 'Missing', but the value is 'int'`). The control
-// that ships for that subject is the mutual-recursion return type instead. The gap is filed as
-// follow-up work in the ledger rather than papered over, and it is NOT pinned as a contract, because
-// a contract that pinned it would be pinning a defect.
+// ONE THING THIS TRANCHE RECORDED AS A REAL GAP WAS NOT ONE, AND THE CORRECTION IS PINNED BELOW.
+// Slice 35 wrote: "the analyzer never reports an UNDEFINED TYPE NAME in a declaration position",
+// resting on a V-control candidate for `RecursiveTypeDefinition` — replacing the self-referential
+// `Next: Node?` with `Next: Missing?` — that did not move, plus four further out-of-repo probes in a
+// nullable field, a non-nullable field, an array element, a generic argument and a parameter, all
+// silent. THE PROBE NAME WAS THE BUG. `Missing` IS `System.Reflection.Missing`, a real BCL type the
+// simple-name external probe resolves without an import, so every one of the five probes was a
+// resolvable type and NOT ONE of them tested the claim. Spelled with a name that resolves through no
+// channel, the SAME five positions report FIVE `NL201` rows on BOTH routes. Slice 35's own corroborating
+// sentence collapses the same way: `Variable 'x' is typed as 'Missing', but the value is 'int'` is an
+// ORDINARY `NL202` against a real type, never a phantom naming — with a truly undefined name the
+// `NL201` arrives IN FRONT of it. The follow-up filed on that finding is therefore WITHDRAWN and must
+// not be re-filed; the correcting contracts are the `undefined type names at declaration sites` family
+// at the end of this file, which pins the reporting positions, the legitimate late-resolution
+// negatives, and the artifact itself so the same probe can never be mistaken twice.
+//
+// The re-measurement DID find two real holes, and they are FIXED rather than pinned as measured: the
+// `where` constraint types and the base-class/interface lists were wired to the lenient `ResolveType`
+// even though both owners' doc comments already claimed they reported. Both now resolve at the declared
+// position; the negatives (special `class`/`struct`/`new()` constraints, a constraint naming another type
+// parameter, and forward-declared bases and constraints) are pinned alongside.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 
 test "020 s35 analyzer clean source: `Lambda_NSharpFunction_InfersParameterType_FuncIntInt` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.Lambda_NSharpFunction_InfersParameterType_FuncIntInt)" {
@@ -20809,7 +20827,7 @@ test "020 s36 analyzer clean source V-CONTROL V1b: the diagnostic mover that rep
     assert AcCensus(rich) == "NL202:TypeMismatch@3:29+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'total' is typed as 'bool', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "        total: bool = count + text.Length"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -20838,7 +20856,7 @@ test "020 s36 analyzer clean source V-CONTROL V2: `ReadOnlySpan<int>` -> `ReadOn
     assert AcCensus(rich) == "NL202:TypeMismatch@6:18+5;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch in assignment — expected 'int' but got 'string'|<null>|Error"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
     assert AcSnippet(rich, 0) == "        total += value"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -20863,7 +20881,7 @@ test "020 s36 analyzer clean source V-CONTROL V3: `fahrenheit: Fahrenheit` -> `f
     assert AcCensus(rich) == "NL202:TypeMismatch@15:27+7;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'fahrenheit' is typed as 'int', but the value is 'Celsius'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "        fahrenheit: int = celsius"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -21168,3 +21186,829 @@ test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P5: the same name in UPP
     assert AcRow(analysis, 2) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
     assert AcRow(analysis, 3) == "<no-such-error>"
 }
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// THE `undefined type names at declaration sites` FAMILY — the correction of 020 s35's one recorded
+// gap, and the first thing in either estate to pin what an unresolvable type name does at a
+// declaration position.
+//
+// WHY THE FAMILY EXISTS. Slice 35 filed "the analyzer never reports an UNDEFINED TYPE NAME in a
+// declaration position" and deliberately wrote NO contract for it, on the ground that a contract would
+// be pinning a defect. Re-measured against the same two entry points, the finding does not hold: its
+// five probes all spelled the name `Missing`, which is `System.Reflection.Missing` — a real BCL type
+// the simple-name external probe resolves with no import — so all five measured a RESOLVING type. The
+// same five positions with a name that resolves through no channel report five `NL201` rows on both
+// routes. Because the finding was wrong AND unpinned, the correct behaviour has been carried by
+// nothing at all; that is what these blocks fix.
+//
+// WHAT IS PINNED. Twenty-two reporting positions — nullable / non-nullable / array-element /
+// generic-argument / static field, parameter (plain, `out`, `ref`, constructor, method), return type,
+// local annotation, struct field, interface member, catch clause, union-case payload, type alias,
+// property, `new`, base class, interface list, base-interface list, and the `where` constraint on both
+// a top-level and a LOCAL function — and eighteen silences that must stay silent: forward references
+// within the file, generic type parameters, imported and unimported BCL names, aliases, dotted
+// externals, nested types, a union used as a type, the built-ins, the special `class`/`struct`/`new()`
+// constraints, a constraint naming another type parameter, and forward-declared bases and constraints.
+//
+// TWO DELIBERATE LENIENCIES ARE PINNED AS LENIENCIES, not as reports. A DOTTED name that resolves
+// through no channel stays silent, because namespace-qualified externals and `new Union.Case`
+// references reach other channels; and `Missing` itself stays silent because it really does resolve.
+// The artifact block is kept so the same probe name can never be mistaken for a gap twice.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+test "undefined type names at declaration sites: NL201 fires on a NULLABLE FIELD — the shape 020 s35 tried as the `RecursiveTypeDefinition` V-control, with a name that is really undefined" {
+    source := "\n            class Node {\n                Value: int\n                Next: Zqxwvut?\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Node;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@4:23+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@4:23+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a NON-NULLABLE FIELD" {
+    source := "\n            class Node {\n                Value: int\n                Next: Zqxwvut\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Node;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@4:23+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@4:23+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on an ARRAY-ELEMENT field type, anchored on the ELEMENT name and not on the brackets" {
+    source := "\n            class Node {\n                Value: int\n                Next: Zqxwvut[]\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Node;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@4:23+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@4:23+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a GENERIC ARGUMENT, anchored inside the angle brackets while the resolvable head stays silent" {
+    source := "\n            class Node {\n                Value: int\n                Next: List<Zqxwvut>\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Node;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@4:28+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@4:28+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a PARAMETER type" {
+    source := "\n            func Handle(item: Zqxwvut) {\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:31+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:31+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a RETURN type" {
+    source := "\n            func Handle(): Zqxwvut? {\n                return null\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:28+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:28+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a LOCAL annotation, and the NL202 that 020 s35 saw INDIRECTLY now arrives BEHIND it rather than instead of it" {
+    source := "\n            func Handle(): object? {\n                item: Zqxwvut? = null\n                return item\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@3:23+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@3:23+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a STRUCT field" {
+    source := "\n            struct Point {\n                Value: Zqxwvut\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;StructDeclaration:Point;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@3:24+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@3:24+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on an INTERFACE member's parameter AND its return type — two rows, two anchors" {
+    source := "\n            interface IStore {\n                func Fetch(key: Zqxwvut): Yplkjhg\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:IStore;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@3:33+7;NL201:TypeNotFound@3:43+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "TypeNotFound|Type 'Yplkjhg' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Yplkjhg'.|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@3:33+7;NL201:TypeNotFound@3:43+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "TypeNotFound|Type 'Yplkjhg' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Yplkjhg'.|Error"
+    assert AcHint(rich, 1) == "<null>"
+    assert AcRow(rich, 2) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a CATCH clause's exception type" {
+    source := "\n            func Handle(): int {\n                try {\n                    return 1\n                } catch (error: Zqxwvut) {\n                    return 0\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@5:33+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@5:33+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a UNION CASE payload type" {
+    source := "\n            union Shape {\n                Circle { radius: Zqxwvut }\n                Square { side: int }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;UnionDeclaration:Shape;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@3:34+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@3:34+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a TYPE ALIAS target" {
+    source := "\n            type Alias = Zqxwvut\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;TypeAliasDeclaration:Alias;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:26+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:26+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a GENERIC CONSTRAINT in a `where` clause" {
+    source := "\n            func Largest<T>(a: T, b: T): T where T : Zqxwvut {\n                return a\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Largest;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:54+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:54+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a PROPERTY type" {
+    source := "\n            class Store {\n                Value: Zqxwvut {\n                    get {\n                        return null\n                    }\n                }\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Store;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@3:24+7;NL202:TypeMismatch@5:25+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "TypeMismatch|Function 'this function' should return 'Zqxwvut', but this return statement gives back 'null'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@3:24+7;NL202:TypeMismatch@5:32+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "TypeMismatch|Function 'this function' should return Zqxwvut but returns null|<null>|Error"
+    assert AcHint(rich, 1) == "`this function` is declared to return `Zqxwvut`, so every returned value must be assignable to `Zqxwvut`."
+    assert AcRow(rich, 2) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a `new` expression's constructed type" {
+    source := "\n            func Handle(): object {\n                return new Zqxwvut()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@3:28+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@3:28+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: THE CORRECTED PROBE SET — 020 s35's five positions in ONE unit report FIVE rows, one per position, on both routes" {
+    source := "\n            class Node {\n                A: Zqxwvut?\n                B: Zqxwvut\n                C: Zqxwvut[]\n                D: List<Zqxwvut>\n            }\n\n            func Handle(item: Zqxwvut) {\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Node;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@3:20+7;NL201:TypeNotFound@4:20+7;NL201:TypeNotFound@5:20+7;NL201:TypeNotFound@6:25+7;NL201:TypeNotFound@9:31+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 5
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 2) == "<null>"
+    assert AcRow(analysis, 3) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 3) == "<null>"
+    assert AcRow(analysis, 4) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 4) == "<null>"
+    assert AcRow(analysis, 5) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@3:20+7;NL201:TypeNotFound@4:20+7;NL201:TypeNotFound@5:20+7;NL201:TypeNotFound@6:25+7;NL201:TypeNotFound@9:31+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 5
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 1) == "<null>"
+    assert AcRow(rich, 2) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 2) == "<null>"
+    assert AcRow(rich, 3) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 3) == "<null>"
+    assert AcRow(rich, 4) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 4) == "<null>"
+    assert AcRow(rich, 5) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: THE ARTIFACT ITSELF — 020 s35's five positions spelled with its own probe name `Missing` are SILENT because `System.Reflection.Missing` IS A REAL BCL TYPE the simple-name probe resolves; the non-mover was the NAME, never the analyzer" {
+    source := "\n            class Node {\n                A: Missing?\n                B: Missing\n                C: Missing[]\n                D: List<Missing>\n            }\n\n            func Handle(item: Missing) {\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Node;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: THE ARTIFACT'S SECOND HALF — `Missing` resolves well enough to read `Missing.Value` off it, which is what a phantom type could never do" {
+    source := "\n            func Handle(): object {\n                return Missing.Value\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: THE ARTIFACT'S THIRD HALF — 020 s35 read `Variable 'x' is typed as 'Missing', but the value is 'int'` as a phantom naming; it is an ORDINARY NL202 against a real type, and it arrives ALONE with no NL201 in front of it" {
+    source := "\n            func Handle(): object? {\n                item: Missing = 5\n                return item\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@3:17+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Variable 'item' is typed as 'Missing', but the value is 'int'|Ensure types are compatible or add explicit cast|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@3:33+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a FORWARD REFERENCE to a type declared later in the same file stays silent" {
+    source := "\n            class Head {\n                Tail: Later\n            }\n\n            class Later {\n                Value: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Head;ClassDeclaration:Later;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — GENERIC TYPE PARAMETERS on a class and on a function stay silent in every position they reach" {
+    source := "\n            class Box<T> {\n                Item: T\n            }\n\n            func Identity<U>(value: U): U {\n                return value\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Box;FunctionDeclaration:Identity;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — an IMPORTED BCL type stays silent" {
+    source := "\n            import System.Text\n\n            class Buffer {\n                Builder: StringBuilder\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;ClassDeclaration:Buffer;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a BCL type reached by SIMPLE NAME with no import stays silent; this is the resolution channel that swallowed 020 s35's probe" {
+    source := "\n            class Buffer {\n                Builder: StringBuilder\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Buffer;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a TYPE ALIAS onto an imported BCL type stays silent at both the alias and its use" {
+    source := "\n            import System.Text\n\n            type Builder = StringBuilder\n\n            class Buffer {\n                Value: Builder\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=1;TypeAliasDeclaration:Builder;ClassDeclaration:Buffer;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a DOTTED namespace-qualified external type stays silent" {
+    source := "\n            class Buffer {\n                Builder: System.Text.StringBuilder\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Buffer;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a NESTED type named through its owner stays silent" {
+    source := "\n            class Outer {\n                class Inner {\n                    Value: int\n                }\n            }\n\n            func Handle(item: Outer.Inner): int {\n                return 1\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Outer;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a UNION declared in the file and used as a declared type stays silent" {
+    source := "\n            union Shape {\n                Circle { radius: int }\n                Square { side: int }\n            }\n\n            func Handle(shape: Shape): int {\n                return 1\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;UnionDeclaration:Shape;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — BUILT-IN type names stay silent in every declaration position" {
+    source := "\n            class Row {\n                A: int\n                B: string?\n                C: double[]\n                D: bool\n            }\n\n            func Handle(value: long): char {\n                return 'x'\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Row;FunctionDeclaration:Handle;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a DOTTED name that resolves through NO channel is STILL LENIENT, and that leniency is deliberate: namespace-qualified externals and `new Union.Case` references reach other channels, so only UNDOTTED names are reported" {
+    source := "\n            class Buffer {\n                Value: Zqx.Wvu.Tsr\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Buffer;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a BASE CLASS" {
+    source := "\n            class Derived : Zqxwvut {\n                Value: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Derived;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:29+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:29+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on each INTERFACE in an implements list, in the order the declaration writes them" {
+    source := "\n            class Derived : Zqxwvut, Yplkjhg {\n                Value: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Derived;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:29+7;NL201:TypeNotFound@2:38+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "TypeNotFound|Type 'Yplkjhg' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Yplkjhg'.|Error"
+    assert AcHint(analysis, 1) == "<null>"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:29+7;NL201:TypeNotFound@2:38+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "TypeNotFound|Type 'Yplkjhg' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Yplkjhg'.|Error"
+    assert AcHint(rich, 1) == "<null>"
+    assert AcRow(rich, 2) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a STRUCT's interface list" {
+    source := "\n            struct Point : Zqxwvut {\n                Value: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;StructDeclaration:Point;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:28+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:28+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on an INTERFACE's base-interface list" {
+    source := "\n            interface IStore : Zqxwvut {\n                func Get(): int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;InterfaceDeclaration:IStore;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@2:32+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@2:32+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NL201 fires on a LOCAL FUNCTION's `where` constraint — the constraint was already ENFORCED at the call site, so before this the NL208 named a type nothing had reported as missing" {
+    source := "\n            func Outer(): int {\n                func Inner<T>(a: T): T where T : Zqxwvut {\n                    return a\n                }\n\n                return 1\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Outer;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL201:TypeNotFound@3:50+7;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(analysis, 0) == "<null>"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL201:TypeNotFound@3:50+7;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "TypeNotFound|Type 'Zqxwvut' not found|Check the spelling, add the missing 'import', or add the package/project reference that provides 'Zqxwvut'.|Error"
+    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 1) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a BASE CLASS declared LATER in the same file stays silent" {
+    source := "\n            class Derived : Later {\n                Value: int\n            }\n\n            class Later {\n                Value: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Derived;ClassDeclaration:Later;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — an INTERFACE declared later in the same file, implemented above it, stays silent" {
+    source := "\n            class Derived : ILater {\n                func Go(): int {\n                    return 1\n                }\n            }\n\n            interface ILater {\n                func Go(): int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Derived;InterfaceDeclaration:ILater;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a BCL base class reached by simple name stays silent" {
+    source := "\n            class Failure : Exception {\n                Value: int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;ClassDeclaration:Failure;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a `where` constraint naming ANOTHER TYPE PARAMETER stays silent" {
+    source := "\n            func Pick<T, U>(a: T, b: U): T where T : U {\n                return a\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Pick;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — the SPECIAL constraints `class`, `struct` and `new()` carry no type reference and stay silent" {
+    source := "\n            func A<T>(v: T): T where T : class {\n                return v\n            }\n\n            func B<T>(v: T): T where T : struct {\n                return v\n            }\n\n            func C<T>(v: T): T where T : new() {\n                return v\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:A;FunctionDeclaration:B;FunctionDeclaration:C;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "undefined type names at declaration sites: NEGATIVE — a `where` constraint naming an interface declared LATER in the same file stays silent" {
+    source := "\n            func Pick<T>(a: T): T where T : ILater {\n                return a\n            }\n\n            interface ILater {\n                func Go(): int\n            }\n        "
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Pick;InterfaceDeclaration:ILater;"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+

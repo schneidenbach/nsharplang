@@ -407,7 +407,7 @@ public sealed class SystemsAnalyzer
                     WalkExpression(usingStatement.Declaration.Initializer, context);
                 if (usingStatement.Expression != null)
                 {
-                    _callPolicy.MarkResourceDisposedIfRecognized(usingStatement.Expression, context.Summary.PoolRents, context.Summary.ResourceLocals);
+                    _callPolicy.MarkResourceDisposedIfRecognized(usingStatement.Expression, context.Summary.PoolRents, context.Summary.ResourceLocals, null);
                     WalkExpression(usingStatement.Expression, context);
                 }
                 if (usingStatement.Body != null)
@@ -854,8 +854,8 @@ public sealed class SystemsAnalyzer
         if (TryResolveDeclaredCallee(call, context, out var calleeEntry))
         {
             context.Summary.Calls.Add(calleeEntry.QualifiedName);
-            context.Summary.CallSites.Add(new CallSite(
-                calleeEntry, call.Line, call.Column, Math.Max(1, calleeEntry.Function.Name.Length)));
+            context.Summary.CallSites.Add(new CallSite(calleeEntry, call.Line, call.Column, Math.Max(1, calleeEntry.Function.Name.Length)));
+            _callPolicy.MarkDeclaredCalleeDischarges(call, context.Summary.PoolRents, context.Summary.ResourceLocals);
             WalkExpression(call.Callee, context);
             return;
         }
@@ -876,7 +876,7 @@ public sealed class SystemsAnalyzer
         if (_callPolicy.IsResultFactoryTarget(target))
             return;
 
-        if (_callPolicy.MarkResourceDisposedIfRecognized(call.Callee, context.Summary.PoolRents, context.Summary.ResourceLocals))
+        if (_callPolicy.MarkResourceDisposedIfRecognized(call.Callee, context.Summary.PoolRents, context.Summary.ResourceLocals, _semanticModels.TryGetValue(context.Summary.File, out var disposalModel) ? disposalModel : null))
             return;
 
         if (_callPolicy.IsKnownConcurrencyPrimitive(target))
@@ -902,7 +902,7 @@ public sealed class SystemsAnalyzer
         if (_callPolicy.IsPoolCall(target))
         {
             context.Summary.Pool = true;
-            _callPolicy.MarkPoolReturnIfRecognized(call, context.Summary.PoolRents);
+            _callPolicy.MarkPoolReturnIfRecognized(call, context.Summary.PoolRents, _semanticModels.TryGetValue(context.Summary.File, out var poolReturnModel) ? poolReturnModel : null);
             var isPoolRent = _callPolicy.IsPoolRentTarget(target);
             _calleePolicy.ReportHotPoolRent(isPoolRent, context.Allows, call.Line, call.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary);
             if (isPoolRent && _config.Language.Systems.Warmup.Count == 0)

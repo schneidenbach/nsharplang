@@ -436,6 +436,10 @@ test "AN EXPRESSION BODY THAT DOES NOT FIT IS REPORTED AT THE EXPRESSION WITH TH
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
     assert harness.Errors[0].Line == 7
     assert harness.Errors[0].Column == 30
+
+    // The CODE and the ANCHOR differ between the two shapes; the SENTENCE does not. The rich route
+    // used to say only the bare words `Type mismatch`.
+    assert harness.Errors[0].Message == "Property 'Total' is typed as 'int', but the expression body returns 'string'"
 }
 
 test "WITHOUT SOURCE TEXT THE SAME MISMATCH IS INVALID-SYNTAX AT THE DECLARATION, NOT TYPE-MISMATCH" {

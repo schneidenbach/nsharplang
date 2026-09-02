@@ -112,9 +112,16 @@ class LinterWalk {
 
     // ---- the statement arm ------------------------------------------------------------------------
 
-    // Every statement shape the walk understands. A shape with no arm here is walked no further, which
-    // is deliberate: a statement that carries no binding, no expression and no nested body has nothing
-    // the linter needs to see.
+    // Every statement shape the walk understands. A shape with no arm here is walked no further —
+    // correct for `break`, `continue` and the empty statement, which carry no binding, no expression
+    // and no nested body.
+    //
+    // THAT RULE IS FAIL-OPEN, UNLIKE THE EXPRESSION WALK'S, and it has already cost one shipped
+    // feature: `OffStatement` carries a handle expression and had no arm, so a subscription read only
+    // by its `off` was reported NL001. `AstChildrenCore.Of` throws for an expression node it does not
+    // know; nothing here throws for a statement it does not know. `AllocBlockStatement`,
+    // `AllowStatement` and `UnsafeBlockStatement` each carry a `BlockStatement` body and still have no
+    // arm — measured, and left for the slice that owns those forms.
     func VisitStatement(statement: Statement) {
         variableDeclaration := statement as VariableDeclarationStatement
         if variableDeclaration != null {
@@ -219,6 +226,16 @@ class LinterWalk {
         printStatement := statement as PrintStatement
         if printStatement != null {
             VisitExpression(printStatement.Value)
+            return
+        }
+
+        // `off <handle>` detaches an event subscription. Its handle is an expression in statement
+        // position exactly as a `throw` operand and a `print` value are, so it is a READ — and it had
+        // no arm here at all, which made the canonical shape the feature documents
+        // (`sub := on obj.Event handler` … `off sub`) report a false NL001 against `sub`.
+        offStatement := statement as OffStatement
+        if offStatement != null {
+            VisitExpression(offStatement.Handle)
             return
         }
 
@@ -412,15 +429,112 @@ class LinterWalk {
     }
 
     // Every case owns its own scope: two cases may bind the same name without shadowing each other.
+    // The case's PATTERN is walked inside that scope, because a pattern's own bindings belong to the
+    // case rather than to the switch; `default` carries a null pattern and walks nothing.
     func VisitSwitch(statement: SwitchStatement) {
         VisitExpression(statement.Value)
         for switchCase in statement.Cases {
             state.PushScope()
+            VisitPattern(switchCase.Pattern)
             for caseStatement in switchCase.Statements {
                 VisitStatement(caseStatement)
             }
 
             state.PopScope()
+        }
+    }
+
+    // ---- the pattern arm --------------------------------------------------------------------------
+
+    // A PATTERN'S EMBEDDED EXPRESSIONS ARE READS, AND THAT IS THE SAME RULE THE `off` ARM ABOVE STATES:
+    // every expression an operand slot carries is a read. A `Pattern` is not an `Expression`, so it
+    // never reaches the expression arm — `VisitSwitch` walked a case's STATEMENTS and
+    // `AstChildrenCore.Of` hands a match case its `Guard` and its arm `Expression` — and the two
+    // expression slots a pattern owns were therefore invisible to every rule. A relational pattern's
+    // compared value is a PRIMARY expression, so `case > limit =>` is a read of `limit`, and a
+    // variable read only there was reported NL001 by both the statement form and the expression form.
+    //
+    // WHAT A PATTERN *BINDS* IS DELIBERATELY NOT WALKED. `case bound =>`, a type pattern's binding, a
+    // property pattern's binding and a slice pattern's binding all INTRODUCE a name; crediting one as
+    // a read would silence a genuine NL001 against a different variable of that name, because
+    // `LinterWalkState`'s used-name set is file-wide and deliberately coarser than the scope.
+    func VisitPattern(pattern: Pattern?) {
+        if pattern == null {
+            return
+        }
+
+        literalPattern := pattern as LiteralPattern
+        if literalPattern != null {
+            VisitExpression(literalPattern.Literal)
+            return
+        }
+
+        relationalPattern := pattern as RelationalPattern
+        if relationalPattern != null {
+            VisitExpression(relationalPattern.Value)
+            return
+        }
+
+        andPattern := pattern as AndPattern
+        if andPattern != null {
+            VisitPattern(andPattern.Left)
+            VisitPattern(andPattern.Right)
+            return
+        }
+
+        orPattern := pattern as OrPattern
+        if orPattern != null {
+            VisitPattern(orPattern.Left)
+            VisitPattern(orPattern.Right)
+            return
+        }
+
+        notPattern := pattern as NotPattern
+        if notPattern != null {
+            VisitPattern(notPattern.Pattern)
+            return
+        }
+
+        positionalPattern := pattern as PositionalPattern
+        if positionalPattern != null {
+            for element in positionalPattern.Patterns {
+                VisitPattern(element)
+            }
+
+            return
+        }
+
+        listPattern := pattern as ListPattern
+        if listPattern != null {
+            for element in listPattern.Elements {
+                VisitPattern(element)
+            }
+
+            return
+        }
+
+        objectPattern := pattern as ObjectPattern
+        if objectPattern != null {
+            VisitPropertyPatterns(objectPattern.Properties)
+            return
+        }
+
+        unionCasePattern := pattern as UnionCasePattern
+        if unionCasePattern != null {
+            VisitPropertyPatterns(unionCasePattern.Properties)
+        }
+    }
+
+    // A property pattern's own sub-pattern. Its `Name` is the PROPERTY being matched and its
+    // `BindingName` is a binding, so neither is a read; only the nested pattern is walked. The list is
+    // optional on a union-case pattern, which is what the null check is for.
+    func VisitPropertyPatterns(properties: List<PropertyPattern>?) {
+        if properties == null {
+            return
+        }
+
+        for propertyPattern in properties {
+            VisitPattern(propertyPattern.Pattern)
         }
     }
 
@@ -532,6 +646,20 @@ class LinterWalk {
             // NL010: `typeof`'s operand is a TypeReference, not an expression child, so the structural
             // walk never reaches it — track it explicitly.
             state.TrackTypeReference(typeOfExpression.Type)
+            return
+        }
+
+        matchExpression := expression as MatchExpression
+        if matchExpression != null {
+            // The patterns are the ONLY part `AstChildrenCore.Of` cannot hand over — it enumerates the
+            // scrutinee, each guard and each arm expression, and a `Pattern` is not an `Expression`.
+            // The structural walk still runs, so this arm ADDS the pattern reads rather than replacing
+            // anything.
+            for matchCase in matchExpression.Cases {
+                VisitPattern(matchCase.Pattern)
+            }
+
+            VisitChildExpressions(matchExpression)
             return
         }
 

@@ -169,14 +169,18 @@ join). Rows may only be removed (`0/0/0,text-v1:removed`) or exact-shrunk; the e
 Audit reads 17/18 before the repin (record it) and 18/18 after. `audit --verbose` prints the values to paste.
 OWN003 = a gate log inside the byte-copy; OWN009 = leftover `TestResults/.trx`.
 
-### Product-defect chips filed for parallel sessions (15, pinned-as-measured)
+### Product-defect chips filed for parallel sessions (14, pinned-as-measured)
 
 raw-interpolation `:` swallow · four-arg `Analyze` degraded diagnostics · NL309 coverage · dead `match`
-wildcard arm + missing override-virtual check · undefined type names silent at declaration sites ·
-`LibraryImport` span marshalling crash · systems policy accepting unresolved members · `nlc tidy` bare-prefix
-deletion · false NL001 on `off` reads · parse failure after bare member access · locale-sensitive estate
-blocks · documented `skip` form failing to emit · playground union shorthand · playground vs `nlc run`
-divergences · format non-idempotence + the `.tests.nl` gate gap.
+wildcard arm + missing override-virtual check ·
+`LibraryImport` span marshalling crash · systems policy accepting unresolved members (FIXED — see §5) ·
+`nlc tidy` bare-prefix deletion (FIXED — see §5) · false NL001 on `off` reads ·
+parse failure after bare member access ·
+locale-sensitive estate blocks · documented `skip` form failing to emit · playground union shorthand ·
+playground vs `nlc run` divergences · format non-idempotence + the `.tests.nl` gate gap.
+
+CLOSED: **undefined type names silent at declaration sites** — the filed finding was a probe artifact and is
+WITHDRAWN, two smaller real holes it hid are fixed, and the family is pinned. See §5.
 
 ## 2. Walls and gotchas
 
@@ -575,6 +579,12 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
   DIFFERENT 0` because `timeout` does not exist; an oracle reporting `ORACLE_DIFFS = 0` with
   `NO_RESULTS = 71`. A harness must REFUSE a verdict unless the run reports a non-zero `Total:`
   (015-A3+A4; 017/44, 64; 020/21, 25, 36–38, 41; 021/2, 6, 11).
+- **A "nothing is reported" probe must prove its own INPUT first, and a placeholder NAME is an input.**
+  020/35 filed a whole analyzer gap on five probes that all spelled the undefined type `Missing` —
+  `System.Reflection.Missing` is a real BCL type the simple-name external probe resolves with no import,
+  so every probe measured a RESOLVING type and none tested the claim. Any absence probe over the name
+  resolver must first show the SAME source with a name that resolves through no channel (`Zqxwvut`) and
+  watch it move; drawing a placeholder from ordinary English is how you hit a BCL type (§5).
 - **A control that cannot fail is not a control.** Every census, comparator and probe carries a declared
   non-vacuity control that has actually failed at least once: a SPEAKING CONTROL (a deliberately failing
   assert) in every probe project; a one-character perturbation of a single dump row for the IL comparator;
@@ -1619,9 +1629,10 @@ and the runner surface is N#-owned. The arc opened at `dc2c4ae20` (slice 1) and 
   past the end of its own 65,536-character line (slices 37, 38).
 - Three measured analyzer gaps were filed rather than papered over: the analyzer never reports an undefined
   TYPE NAME in a declaration position (five probes all silent; it surfaces only as an `NL202` naming the
-  phantom type); one undefined `out` argument is reported FOUR times over two positions; and the two
-  sentence-builders disagree on plural agreement for `NL402` and on whether an over-defaulted call states
-  its argument RANGE (slices 34, 35, 36).
+  phantom type) — **WITHDRAWN, see §5: all five probes spelled `Missing`, which IS `System.Reflection.Missing`,
+  so none of them tested the claim**; one undefined `out` argument is reported FOUR times over two positions;
+  and the two sentence-builders disagree on plural agreement for `NL402` and on whether an over-defaulted call
+  states its argument RANGE (slices 34, 35, 36).
 - Two facts about the language the migration surfaced and pinned: `var x = 5` IS C# AND NOT N# (the parser
   reads `var` as an `IdentifierExpression` statement and `x = 5` as a separate assignment, so nearly every
   fixture has twice the statements its author intended), and a BODILESS positional record is a PARSE
@@ -2204,15 +2215,88 @@ follow-ups; the first three 017 slices as the ledger recorded them; the 016 arc'
 
 ## 5. Remediations, corrections, do-not-relitigate verdicts
 
-Two ratchet remediations and one mid-arc reconciliation, recorded as rows:
+Two ratchet remediations, one mid-arc reconciliation and the wave-one product-defect chip fixes, recorded as rows:
 
 | record | commit hash(es) | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
+| CHIP FIX: `nlc tidy` bare-prefix deletion (020 slice 43's data-loss finding, pinned-as-measured) | `stream/chip-tidy-bare-prefix` off `8cf40128a` | `TidyCommandKernels.RemovalLineStartsWithPackage` compared `packageName.Length` characters and checked NOTHING after them; it now also requires the name to END on the line — the next character may not continue a package id (letter, digit, `.`, `-`, `_`, `+`) — and an empty doomed name matches nothing. The pinned BARE-PREFIX block is CONVERTED to pin the correct behaviour; 4 estate blocks and 1 native block are added (positive, negative, idempotence, empty name, and the end-to-end `--fix` rewrite) | THE CHIP'S TITLE IS WRONG AND THE ARCHIVE IS RIGHT: `nlc tidy` NEVER deletes an `import` — it rewrites `project.yml` DEPENDENCY LINES, so NL010's owner (`LinterNamespaceImportUsage`, a namespace→known-type-name table) answers a different question and cannot be consulted. The CLASSIFIER side was already delimiter-correct (`NamespaceMatchesPrefix` requires `.` after the first segment); only the REMOVAL side was not. The blast radius reached lines tidy never classified: `TidyCommand.RemoveDependencies` hands the filter EVERY line of the file | Zero C# delta (the `tidy` CLI surface is one dispatch arm, `Program.cs:52`); `+194/−20` over 3 `.nl` files. Estate `Passed: 7196, Failed: 0`; native cli-command-contracts `Passed: 84` (83 + 1). Mutation panel (revert the kernel, keep the tests): **5 predicted red, 5 measured red, 0 unpredicted**, the three negative controls green. Before/after `tidy` + `tidy --fix` sweep over 19 `project.yml` (examples/ + BootstrapServices): **0 report divergences, 0 rewrites** |
 | RATCHET REMEDIATION of the two chip commits (2026-08-02) | `6658e8304` (nlc-check `NotImplementedException` on receiver-style generics), `c78ea1f22` (formatter safety-check failures) — amended mid-remediation to `c8b9964e1`; idiom precedent `1142885be`; head `head-v1:65015a9692586d08` → `head-v1:8265394c9ce3a302` | Both fixes STAY; both landed WITHOUT ratchet accounting, so the audit failed with **10 violations across five tracked files**. `tests/CheckCommandTests.cs` 721/618/112 → 674/573/101 (exactly at its 674-line ceiling); `tests/ColumnarDeclineDiagnosticsTests.cs` 245/218/32 → 212/184/27 (exactly at its 212-line AND 27-marker ceilings); three fingerprint-only repins (`ColumnarIlEmitter.cs`, `Formatter.cs`, `tests/FormatterTests.cs` 2,134 → 2,132 under the approved-shrink rule) | Paid with LOSSLESS comment compression plus SUBSUMPTION-PROVEN assertion consolidations only — no test, no assertion subject and no program fixture deleted. `Assert.False(result.Success)` was deliberately KEPT at all four sites because `MultiFileCompilationResult.Success` is an INDEPENDENT constructor-supplied bool, NOT derived from `Errors`, so `Assert.Single(NL103 errors)` does NOT subsume it — the tempting fifth consolidation was REJECTED on that proof. | audit 18/18 (all 10 OWN004/OWN005 cleared); manifest still EXACTLY 391 lines; `epochPathFingerprint`/`epochFactFingerprint` BIT-IDENTICAL; 381-row sweep 0 drifted rows; unit 3,194/3,194; contracts 2,046/2,046 |
 | RATCHET + PARITY REMEDIATION of `170244a5f` (2026-07-29) | `170244a5f` "Fix infinite loop in ParseTestDeclaration table-case recovery"; head `head-v1:1be7f7cb4c07e417` → `head-v1:682bbdb2c76e50c8` in BOTH the manifest and the mirrored `OwnershipPolicy.ReviewedHeadFingerprint` constant | A CORRECT fix by a separate session that (a) exceeded the IMMUTABLE E0 epoch ceilings on both files and (b) skipped the N# parity mirror — audit failed with 6 violations (OWN004+OWN005 each) and broke the integration gate. Paid: `Parser.cs` 7,128/6,192 → 7,116/6,180 and `ParserErrorTests.cs` 1,944/1,609/568 → 1,923/1,588/563; `ColumnarParserRecovery.nl`'s `ParseTestDeclaration` table-case loops gained the same no-progress guards + 4 parity contracts | The owner's `ConsumeToken` does NOT advance on mismatch either, so the N# mirror REPRODUCED THE HANG FAITHFULLY — a parity mirror inherits the defect unless it carries the same guard. Zero-functional-change was proven by stripping every whole-line comment and blank from HEAD and from the compressed file and showing the remaining 5,872 code lines BYTE-IDENTICAL. | audit 18/18; contracts 1,442/1,442 (1,438 + 4); NET non-N# change −33 lines across two C# files; all new code is N#; no VS Code gate owed (no production/LSP wiring change) |
 | 020 reconciliation (slice 43) | slice cut at `e929453e0`; reconciled over chip commits `2d2ddb39d`, `0a66db6ec`, `1e426e07d`, `65c02f471`, `fa6ed3214` | No C#→N# movement: a coordinator reconciliation onto a tip four concurrent chip commits had moved. `tests/TestSdkFeed.cs` losslessly compressed back under its epoch ceiling (326/287 → 324/284, markers unchanged at 3); `NSharpLang.Sdk.csproj` and `test-all-core.sh` repinned as reviewed drift | `LanguageServer.csproj`'s drift was a PHANTOM: the file carries a UTF-8 BOM, the audit reads utf-8-sig, and a plain-utf-8 reader hashes the BOM into a false drift. RULE: ratchet tooling must read utf-8-sig, and the manifest's header keys are colon-space formatted while rows are compact — REGEX the stored head, never string-match it. | contracts 2,897/2,897 (chip baseline 2,865 + slice 32); head `f66e4eda5ec3d44a` → `b283a83ef600d146`, mirrored; audit 18/18; manifest 391 lines, no BOM |
+| CHIP FIX: false `NL001` on `off` reads (2026-09-01) | branch `stream/chip-nl001-off-reads` from `8cf40128a` | `LinterWalk.nl` gains an `OffStatement` arm, a `MatchExpression` arm and `VisitPattern`/`VisitPropertyPatterns`; `VisitSwitch` now walks each case's `Pattern`. `LinterWalk.tests.nl` gains 6 contracts. `Analyzer.cs` is UNTOUCHED — the linter is already wholly N#-owned (`Linter.nl` -> `LinterWalk` -> `LinterWalkState`), so no C# delta was needed or taken | THE CHIP'S PREMISE WAS WRONG AND THE DEFECT IS WIDER THAN FILED. `off` is NOT a switch form: `e929453e0`'s own message says "off is NOT switch's other half but an EVENT statement", and `OffStatement` (`Statements.nl:285`) carries ONE slot, `Handle: Expression`, for which `VisitStatement` simply had NO ARM. The SAME class of miss sits in the pattern family, MEASURED not assumed: `VisitSwitch` walked a case's STATEMENTS but not its `Pattern`, and `AstChildrenCore.AddMatchCaseValues` hands a match case its `Guard` and arm `Expression` but not its `Pattern` — and a `RelationalPattern`'s compared value is a PRIMARY expression, so `case > limit =>` is a read of `limit` that BOTH forms lost. ONE rule closes all three: every expression an operand slot carries is a read. | 3 false NL001s deleted, 0 added. Probes: `off sub`, `switch case > limit` and `match > limit` each go NL001 -> gone; controls `print(sub)` and `if value > limit` were and stay clean; a `dead` local beside an `off` is STILL NL001. Corpora row-for-row IDENTICAL before/after — BootstrapServices `check` 403 files, `lint` 45 rows (NL012 20 / NL011 17 / NL010 7 / NL002 1); examples 79 files, 0 rows; `tests/native` 0 rows |
+| CHIP DECODE + FIX — "undefined type names silent at declaration sites" (2026-09-01) | filed by 020 slice 35 (`06fdb2fd4`), listed in §1 at `40e0cc20e`; closed on `stream/chip-undefined-type-names` off `8cf40128a` | THE FILED DEFECT IS WITHDRAWN. Re-measured on BOTH analyzer entry points, twenty-two declaration positions already reported `NL201` — nullable/non-nullable/array-element/generic-argument/static field, parameter (plain, `out`, `ref`, constructor, method), return type, local annotation, struct field, interface member, catch clause, union-case payload, type alias, property, `new`. Two SMALLER holes the wrong finding hid are FIXED in N#, zero C# lines touched: `AnalyzerTypeResolver`'s `ResolveTypeIfPresent`/`ResolveTypeReferences` — the base class, the interface and base-interface lists, and the `where` constraint types — were wired to the lenient `ResolveType` even though BOTH owners' doc comments already claimed they reported, and a LOCAL function never resolved its constraint types at all (`AnalyzerFunctionBodies` phase 2 now does; the cycle check stays top-level-only). The estate's "REAL GAP" paragraph is rewritten and a 40-block `undefined type names at declaration sites` family added — the first thing in either estate to pin this subject at all | **THE PROBE NAME WAS THE BUG, AND IT IS THE WHOLE FINDING.** All five of 020/35's probes spelled the undefined type `Missing`; `System.Reflection.Missing` is a REAL BCL type the simple-name external probe resolves with no import, so every probe measured a RESOLVING type and not one tested the claim (`Missing.Value` reads cleanly off it). The corroborating sentence collapses identically: `Variable 'x' is typed as 'Missing', but the value is 'int'` is an ORDINARY `NL202` against a real type, never a phantom naming — with a name that resolves nowhere the `NL201` arrives IN FRONT of it. Do not re-file. Second finding: A DOC COMMENT CLAIMING A DIAGNOSTIC IS NOT EVIDENCE ONE FIRES — both fixed holes were guarded by comments that already described the report they did not make. Third: the base-class fix MOVES a diagnostic from the emitter's late `could not be resolved` decline to a front-door `NL201` with name, caret and help line, which `tests/native/external-base-interface` had pinned on the emitter side | 40 new contract blocks (22 reporting positions / 18 silences incl. the artifact) + 2 existing contracts repinned onto the corrected behaviour; `tests/native/analyzer-clean-source` 928 → 968 cases; estate `dotnet test` **7,192/7,192** after a full `-p:NSharpExcludeTests=false --force-evaluate` restore; `dev.sh --since` selected the FULL unit suite and passed **596/596**; all 40 native projects **1,793/1,793**; `nlc check --json` on the worktree CLI after the fix: `BootstrapServices` 403 files / 243 rows / **ZERO NL201**, `examples/` 18 projects / 39 files / **ZERO rows**, `tests/native`+`templates`+`benchmarks` 46 projects / **ZERO NL201** — no new true or false positive on any real project; 2 `.nl` owners changed, 0 C# lines |
+| CHIP DECODE + FIX: "parse failure after a bare member access" (2026-09-01) | filed by 021 slice 2, listed in §1 at `40e0cc20e`; closed on `stream/chip-parse-bare-member-access` off `50bebbd6b` | `ColumnarParserRecovery.IsCastExpression` and the `ColumnarParserKernels` cast arm (`ParsePrimaryExpressionNode`, kind 127) now BOTH require the cast operand to begin on the CLOSING PAREN'S OWN LINE. The recovery test is spelled INLINE because that class is at the per-class member ceiling (§2.1); the kernel gets one new free function, `ParserSourceHasLineBreakBetween`, which answers false when `st.Source` is empty so the six expression-only entry points that build a source-less `ParserState` keep their prior reading. 8 contracts into `ColumnarParserStatements.tests.nl`. ZERO C# lines | **THE CHIP'S TITLE NAMES THE SYMPTOM; THE TRIGGER IS THE CAST DISAMBIGUATION, AND THE MEMBER ACCESS IS INCIDENTAL.** N# has no statement terminator, and the C#-inherited `(Name)operand` rule read straight through the newline: `nlc query ast` on `print(x)` + `sum := 0` showed a `PrintStatement` whose value is a `CastExpression` with `targetType` `SimpleTypeReference "x"` on line 3 and `expression` `IdentifierExpression "sum"` at **line 4 column 5** — the next statement's first token, inside the previous statement's tree. So `print(x)`, `y := (x)` and `v := (c.Count)` all broke identically; the shape is any PARENTHESIZED expression that scans as a type name at end of line. The archive's two controls decode mechanically: a member CALL leaves the paren unclosed as a type (`ScanCurrentType() != RightParen`), and `print(sum)` puts a KEYWORD after the `)` which `IsCastOperandStart` refuses. A real argument list `g(a.B)` was NEVER affected — its `(` is a postfix call, not an expression-primary paren. **A BARE MEMBER ACCESS AS A STATEMENT WAS ALREADY CORRECT**: `c.Count` alone parses and reports `NL313 This expression statement has no effect`, which is the diagnostic the grammar owes; nothing about it needed changing. **THE ONE-LINE FORM THE ARCHIVE WROTE THE PROBE IN IS STILL A CAST AND THAT IS THE RULED ANSWER** — N# does allow several statements on one line (`x := 1  y := 2  print(x + y)` is clean), so on one line the grammar is genuinely ambiguous and the cast reading is the C#-parity answer; the canonical formatter puts ONE STATEMENT PER LINE, so no formatted program can reach it. **ADJACENT GAP, MEASURED NOT ASSUMED**: `ParseExpressionStatement`'s tuple-deconstruction scan crosses lines the same way (`a, b` then `c := 3` binds `c` as the `:=` token), but it can only fire on already-invalid source — a valid statement never starts `Identifier ,` unless it IS a deconstruction — so it is recorded, not fixed | `+17/−4` recovery, `+31/−1` kernels, `+125/−0` contracts; 0 C# lines, no ratchet repin owed (the manifest carries zero `.nl` rows). Estate `dotnet test` **7,230/7,230 Failed: 0** after a full `-p:NSharpExcludeTests=false --force-evaluate` restore, against a MEASURED `50bebbd6b` baseline of 7,222 — exactly the 8 new blocks, so no inherited block moved. `dev.sh --since` classified all three paths UNMAPPED and fail-safed to the FULL unit suite: **596/596, Failed: 0** (19 m 57 s), which is where the 2,021 rerouted C# parser assertions run. Probes: p1/p5/p6/p8 five errors (`NL001`+2×`NL301`+`NL101`+`NL313`) → **0**, and `nlc run` prints the right values; controls p2 (member CALL), p3 (declare first), p7 (real call), p9, p10 (`(int)x`) clean BEFORE and AFTER; p4's `NL313` unmoved. Non-vacuity measured against the baseline CLI on the contract sources themselves: `print(a.B)`+`g()` was ONE statement whose cast operand was the whole next-line call, now two. `nlc check --json` before/after with the two CLIs: **44 projects BYTE-IDENTICAL** — BootstrapServices 404 files / 243 rows row-for-row, examples+templates 48 files / 3 pre-existing `NL402` rows, `tests/native` 0 (check never sees `.tests.nl`). 38 native projects green incl. `parser-literal-facts` 22/22; the two reds (`analyzer-clean-source` 967/968, `ownership-audit` 17/18 `OWN008`) REPRODUCE on the pristine `50bebbd6b` tree with the baseline CLI and are inherited |
+
+### Chip decode + fix — the systems policy accepts unresolved members (chip 6 of the 14 filed at §1)
+
+| record | commit hash(es) | what moved | durable finding | headline numbers |
+|---|---|---|---|---|
+| CHIP DECODE + FIX — "systems policy accepting unresolved members" (2026-09-01) | filed by 020 slice 41 (`7584d5334`) as the estate's own headline; closed on `stream/chip-systems-unresolved-members` off `50bebbd6b` | `SystemsCallPolicy.nl` gains **`MemberIsPositivelyRejected`** — the analyzer's own recorded UNKNOWN at the callee's position and NOTHING weaker — and **`MarkDeclaredCalleeDischarges`**, the door the RESOLVED half of the walk uses; both ledger-discharge members take a `SemanticModel?`. **`SystemsAnalyzer.cs` is NET ZERO LINES** (1,156 / 1,061 before and after): one two-line `CallSites.Add` reflowed to one line pays for the one routed discharge, and the other three edits are in place, so the ratchet is a FINGERPRINT-ONLY repin — `text-v1:fa452c617450b471` → `text-v1:e7ac66c49f2493b9`, head `58190ee65270a462` → `a903462163326da5` in BOTH keys, with the stored head reproduced exactly from the unmodified manifest first. Estate: the pinned block CONVERTED plus 3 new census blocks (resolved dispose, resolved return, `allow` waiver) and 4 new + 8 repinned `SystemsCallPolicy` contracts | **THE CHIP IS REAL AND IT INVERTS: the only `Dispose()` the resource rule accepted was one that DOES NOT EXIST.** Measured on the shipped CLI, outside the repo. `stream.Dispose()` on a project class with no members closed the ledger AND suppressed NSYS050 (`findings=0`) while `NL303: Member 'Dispose' not found` was reported; the SAME source with `func Dispose()` really declared reported `NSYS090 … is not disposed` and NOTHING else — a false negative on broken source and a false POSITIVE on correct, compiling source, from one rule, and the pool ledger has the identical pair (`pool.Return(buffer)` resolved → NSYS130; `Zqxwvut.Return(buffer)` unresolved → silent). **The mechanism is ORDER, not the table**: `WalkCall` records a resolved project call and RETURNS, so the discharge — which sits after that return — was reachable only on the UNRESOLVED path. **The answer is (b) and (a) together and it needed no new code**: refusing to classify restores the walk's own NSYS050 fall-through, so the systems policy reports the call in the sentence it already owns while NL303/NL301 keep reporting the member. **The rejection test is deliberately the narrowest one that works** — a recorded UNKNOWN only; a resolved member and a position with nothing recorded are both permissive — which is what keeps `File.OpenRead(path)` + `stream.Dispose()` discharging and keeps two machines classifying alike, the determinism the owner's own header demands | 9 out-of-repo probes, base CLI vs fixed CLI: `Dispose` absent `findings=0` → NSYS090+NSYS050; `Dispose` declared NSYS090 → **clean, exit 0**; `.Return` resolved NSYS130 → **clean**; `Zqxwvut.Return` silent → NSYS130; and 5 controls unmoved (`Zqxwvut()` member, undisposed, unreturned, BCL `File.OpenRead` dispose + its undisposed twin). Waiver proved narrow: `unknownExternalCalls: allow` drops the restored NSYS050 and keeps the NSYS090. Corpora row-for-row on the SAME tree, base CLI vs fixed CLI: BootstrapServices `check --json` 404 files / **243 rows, 0 diff**; `examples/` 15 projects **0 diff**; **all 21 `docs/design/systems-samples/proofs` systems reports byte-identical** (33/34/35 are the ones that dispose and return for real). Estate `dotnet test` after a full `-p:NSharpExcludeTests=false --force-evaluate` restore: **7,226 / 7,226**, the 4 new contracts confirmed by name; native `systems-analysis-census` **66/66** (63 + 3), `systems-gauntlet-facts` **13/13**, `systems-proof-corpus` **44/44**, `ownership-audit` **18/18** |
+
+### Product-defect chip DECODED AND FIXED: the four-argument `Analyze` degrades diagnostics
+
+| record | commit | what moved | durable finding | headline numbers |
+|---|---|---|---|---|
+| chip `four-arg Analyze degraded diagnostics` | `stream/chip-analyze-four-arg`, cut at `8cf40128a` | `ErrorMessageBuilder.TypeMismatch` gains a `message` parameter; its SIX callers (`AnalyzerVariableDeclaration`, `AnalyzerConstruction`, `AnalyzerAssignment`, `AnalyzerTypeDeclarations`, `AnalyzerAccessorBodies`, `AnalyzerBooleanConditions`) hoist their sentence above the rich/plain branch. Estate repinned to the CORRECT shape, not the measured one | **The degradation was never in `Analyze` — it was in the BUILDER.** The four-arg route is the RICHER walk everywhere except the headline: it alone reaches `ReportBuilt(ErrorMessageBuilder.TypeMismatch(...))`, and that builder wrote its own `Message` because the two disagreeing NAMES are not among its arguments. So the only route that ships traded its sentence for a snippet. Fixed by passing the sentence, not by touching either entry point | 1 owner + 6 call sites; 60 estate rows repinned (56 `analyzer-clean-source`, 2 `analyzer-semantic-model`, 6 playground rows, 2 in-project) + 5 new contracts; 3 C# LSP assertions moved with the product; 9/9 probe NL202s now name what disagrees with what |
+
+- **The two entry points are NOT the defect and must not be "unified".** `Analyze(unit)` delegates to
+  `Analyze(unit, null, null, null)`; the whole difference is that the four-arg form feeds
+  `_diagnostics.BeginAnalysis(path, source)`. Anchors, `SourceSnippet` and `ContextualHint` are all
+  BETTER on the four-arg route and stay that way — the plain route is handed no text and cannot
+  measure a token, which is why its anchor length is 1. Only the MESSAGE was a regression.
+- **`Analyzer.cs` needed no change.** Both entry points are mechanical; the policy lives in the six N#
+  owners. Zero lines of C# compiler code moved.
+- **The generic `Suggestion` staying null on the rich route is NOT part of the defect.** `Report` fills
+  `Ensure types are compatible or add explicit cast` from the CODE; `ReportBuilt` carries a specific
+  `ContextualHint` instead. That substitution is a trade UP and is deliberately left alone.
+- **Two of the four codes stay asymmetric ON PURPOSE.** `AnalyzerTypeDeclarations` and
+  `AnalyzerAccessorBodies` report `InvalidSyntax` without source and `TypeMismatch` with it. That
+  asymmetry is a separately recorded decision; only the sentence was unified.
+- **The estate held the answer already.** Every rich row's corrected message was DERIVABLE from the
+  plain row in the same block, because both routes now compute one string — 56 of 60 rows were repinned
+  mechanically. The 2 rows GUESSED instead of derived were WRONG (`'T'` where the analyzer substitutes
+  `'int'`) and were caught by running the fixture through the built CLI. Derive, never guess.
+- **The ratchet moved because a C# TEST asserted the defect.** `tests/LanguageServerDiagnosticsTests.cs`
+  pinned `Message == "Type mismatch"` at three LSP sites; metrics are unchanged (3182/2542/520) and only
+  the fingerprint moved, `text-v1:7a4653509d2cea75` → `text-v1:d8abab82baac7f8a`, reviewed head
+  `head-v1:9717a7390756f51c` → `head-v1:58190ee65270a462` in BOTH keys.
 
 Corrections and standing verdicts, one line each:
+- **The owner that walks reads for NL001** is `LinterWalk`
+  (`src/NSharpLang.Compiler.BootstrapServices/LinterWalk.nl`): a read lands in
+  `LinterWalkState.MarkVariableUsed` and NL001 is reported by `LinterWalkState.CheckUnusedVariables` when a
+  scope pops. There is no C# read-walk left to change — the chip is a pure N# fix.
+- **The canonical repro is the shape the feature documents**, not a synthetic one:
+  `sub := on AppDomain.CurrentDomain.ProcessExit (sender, args) => { … }` followed by `off sub` reported
+  `NL001 Variable 'sub' is declared but never read`, and NL001 is an ERROR, so `nlc build` refused the file.
+- **A pattern's BINDINGS are deliberately NOT credited as reads.** `LinterWalkState`'s used-name set is
+  file-wide, so crediting `case bound =>` would silence a genuine NL001 against an unrelated local named
+  `bound`. A contract pins that, and it is why only expression slots are walked.
+- **Adjacent gaps measured and left as separate chips.** `VisitStatement`'s "a shape with no arm is walked no
+  further" is FAIL-OPEN where the expression walk's `AstChildrenCore.Of` THROWS: `AllocBlockStatement`,
+  `AllowStatement` and `UnsafeBlockStatement` each carry a `BlockStatement` body and still have no arm. And a
+  `TypePattern`'s `TypeReference` is still untracked, so an import used only by a type pattern is a false
+  NL010 — the same probe shows a false NL010 on `import System` for an `on` target.
+
+- **The tidy bare-prefix REPRODUCTION, so nobody rediscovers it.** A project whose `dependencies:` names an
+  unused `Serilog.Sinks` and whose `testDependencies:` names `Serilog.SinksExtra` and
+  `Serilog.Sinks.Console`: the table reports ONE possibly-unused dependency, the command prints
+  `Removed 1 possibly-unused dependency.`, and the file loses THREE lines — the message and the damage
+  disagree, which is what makes the end-to-end row able to fail at all. A repro CANNOT be built inside a
+  single `dependencies:` list: the classifier keys on the FIRST SEGMENT only, so a package with a doomed
+  name as a bare prefix always shares that name's first segment and therefore its status. The collateral
+  only reaches lines tidy never classified (`testDependencies:`, `exclude:`).
+- **A SECOND tidy finding is pinned as measured and deliberately NOT fixed:** the removal filter is not
+  scoped to a dependency section — it is handed every line of `project.yml` and tests only for `- ` after
+  the indent — so a `testDependencies:` entry naming EXACTLY a doomed package still goes. The whole-name
+  rule bounds the blast radius to an exact match; section scoping is a separate product decision.
+- **A THIRD tidy finding, measured while probing the fix and NOT fixed — `nlc tidy --fix` CORRUPTS the
+  mapping form of a dependency.** A dependency written as `  - nuget: X` / `    version: 1.2.3` loses only
+  the `- nuget:` line, because the filter's structural test is `- ` after the indent; the `version:` line
+  survives as a stray mapping directly under `dependencies:`. Measured end to end: a two-dependency
+  `project.yml` came back with `dependencies:` followed by a bare `    version: 1.0.0`. It predates this
+  fix (the old and new matchers both remove exactly that one line) and is orthogonal to the prefix rule —
+  fixing it means DELETING MORE, which is a separate product decision and a separate chip.
 
 - **The Min/Max correction (`86f4c251b`).** Sub-slice 5's Min/Max deletion was PARTIALLY WRONG: "provably
   dead" held only for plannable receivers, while `Select(v => …).Min()/.Max()` whole-subtree-exits to the
@@ -2255,3 +2339,42 @@ Corrections and standing verdicts, one line each:
   (133 genuine declines) survives; the exhibit is corrected, and the decode also names a THIRD sentence
   class the closing record never had: 4 `OpCodes.Ldstr` literals baked into the USER's own IL, which retire
   with the lowering that emits them, not with an emitter-policy migration.
+
+### Chip decode — the `LibraryImport` span-marshalling crash (chip 6 of the 15 filed at §1)
+
+| record | commit hash(es) | what moved | durable finding | headline numbers |
+|---|---|---|---|---|
+| CHIP FIX of the `LibraryImport` span crash (pinned as measured at 020/40) | branch `stream/chip-libraryimport-span` off `8cf40128a` | **The chip's wording is CORRECTED BY MEASUREMENT: the compiler does not crash.** It accepts in SILENCE — `nlc check --json` answers `ok: true` with zero rows and `nlc build` succeeds — and the EMITTED PROGRAM aborts. New N# owner `NativeImportSignatureFacts.nl` plus `AnalyzerAttributeValidator.ValidateNativeImportSignature` refuse a generic or a tuple in a `[LibraryImport]`/`DllImport` signature with `NL405`, naming the parameter and the repair; `27-c-library-cli` is respelled `byte[]`; **zero C# lines changed** | **Working span marshalling is not reachable without GROWING C#**: it needs a synthesized pointer-taking stub plus a pinning managed forwarder — new IL emission in `ColumnarIlEmitter.cs` (the retiring host) and new plan-row kinds in its executor. The docs never promised it: `website/docs/systems.md` scopes interop to "native interop via `LibraryImport`" with `fixed` and function pointers explicitly out. So the precise diagnostic is the in-scope answer, and it is now documented rather than merely enforced. `.ptr` inside a `[trusted]` block is NOT a substitute — it does not pin | throwaway repro OUTSIDE the repo through the worktree CLI: the span shape → exit 134, `MarshalDirectiveException: Cannot marshal 'parameter #1': Non-blittable generic types cannot be marshaled.` at `Repro.SpanImport.NativeHash.Hash64`; the byte-identical `byte[]` shape → exit 134 `DllNotFoundException` naming `fast_hash` from the same method, so the ARRAY marshals and only the library is absent |
+
+- **The owner that throws is the CLR, not the compiler.** `ColumnarIlEmitter.cs:4457–4482` defines the stub
+  with `DefinePInvokeMethod` and never asks whether the parameter types are marshalable; the first CALL is
+  where the answer arrives. Every future question of this family — "can the runtime accept this shape?" —
+  belongs in the analyzer, which can name the parameter, not in the emitter, which cannot.
+- **A generic is refused for BEING generic.** `Span<byte>` and `Span<int>` fail identically, so a rule
+  phrased around BLITTABILITY would be wrong; a tuple is the same refusal in other syntax (`ValueTuple<…>`
+  in metadata). Nullability is deliberately not judged: the written type reference cannot tell `int?`
+  (`Nullable<int>`, refused by the runtime) from `string?` (`string`, fine), and a guess would refuse
+  marshalable code.
+- **The `27` run block got STRONGER, not weaker.** It now pins `DllNotFoundException` raised from
+  `NativeHash.Hash64` — only a GENUINE interop stub reaches `dlopen`, which is exactly what the deleted
+  `AssertNativeImportHasNoManagedBody` was trying to say and what the marshaller failure never proved. A
+  refused shape cannot also be a shipped sample, so the negative is a written-out probe project checked by
+  the real CLI, beside a byte-identical positive that differs only in the parameter's spelling.
+
+### Chip fix: the dead `match` wildcard arm and the missing override-virtual check
+
+| record | commit hash(es) | what moved | durable finding | headline numbers |
+|---|---|---|---|---|
+| CHIP FIX of 020/34's two filed follow-ups (2026-09-01) | pinned at `714aa6d9c` (020 slice 34: M7 `0/755` + `0/6316`, M7b `4/755` + `1/6316`, and the override finding's two silent probes); fixed on `stream/chip-match-wildcard-override` from `8cf40128a` | BOTH halves fixed in N#, ZERO C# lines touched, so no ratchet repin is owed. (a) The dead `_` arm is DELETED — and the identical dead arm in `CheckEnum` was found beside the filed one in `CheckUnion`, so TWO went. (b) `override` is now checked: `AnalyzerTypeDeclarations.ValidateOverrideTargets` runs in the type-header phase and reports `NL311` when an `override` member has no base member of that name, or one that is not `virtual`/`abstract`/non-`sealed` `override`. `DeclaredMemberInfo` gained `DeclaredModifiers` (the whole modifier word, default `0`, so no call site moved) because the source member model could not answer "is this virtual" at all | **DELETE, not make-reachable, and measurement decides it**: `_` carries no dot, so the undotted branch that treats `other =>` as a catch-all already answered for it — M7's true 0/0 is the proof the arm decided nothing, and M7b's 4/1 is the proof the surviving branch decides everything. `NL311 InvalidModifier` was the right code and was ALREADY catalogued with no producer anywhere in the tree; the fault is the modifier, not the name, so `NL303` would have been wrong. The new rule's real risk is the correct program it rejects, not the fault it misses: a base that resolves to nothing, a `:` clause that did not resolve, and a shape the context cannot open all answer "cannot tell" and report nothing | 7 files, all `.nl` + 1 doc; +422/−18; estate contracts +6 (2 exhaustiveness, 4 override); probe: `NL311` on both faults, silent on `override` of a `virtual` base member and on `override func ToString()`; estate-wide census unchanged, 0 `NL311` |
+
+- **The estate cannot trip the new rule, and that was measured before it was written**: a scan of every
+  `.nl` under `src`, `examples`, `templates` and `tests` finds exactly THREE overridden names —
+  `ToString` 34, `Equals` 10, `GetHashCode` 10 — and all three are `object` virtuals reached through the
+  implicit-root arm. A rule that walked only DECLARED bases would have reported all 54.
+- **The source member model had no virtual bit at all.** `DeclaredMemberInfo` decoded `static`,
+  `readonly`, `async` and `generator` as separate bools and threw the rest of the word away, so no
+  inheritance question could be asked of a source base. `DeclaredModifiers` carries the whole word now;
+  a defaulted trailing constructor parameter keeps all ten existing call sites spelled as they were.
+- **A written-but-unresolved base is NOT a base of `object`.** Falling through to the implicit root when
+  a `:` clause failed to resolve would search a surface the class does not inherit and report a member
+  that is virtual one link further up — the check's one genuine false-positive shape, guarded explicitly.

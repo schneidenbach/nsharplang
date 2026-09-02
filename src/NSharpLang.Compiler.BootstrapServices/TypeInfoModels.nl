@@ -53,6 +53,7 @@ class DeclaredMemberInfo {
     isImplicitConversionValue: bool
     lineValue: int
     columnValue: int
+    declaredModifiersValue: int
 
     Name: string => nameValue
     ContainingType: string => containingTypeValue
@@ -85,7 +86,22 @@ class DeclaredMemberInfo {
     Line: int => lineValue
     Column: int => columnValue
 
-    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int) {
+    // THE MEMBER'S RAW MODIFIER BITS, exactly as the declaration spelled them. `IsStatic`,
+    // `IsReadonly`, `IsAsync` and `IsGenerator` above are single bits this factory already decoded;
+    // this field carries the WHOLE word so a question nobody has asked yet — is this member
+    // `virtual`, `abstract`, `sealed`? — does not need another constructor parameter. It defaults to
+    // zero (`Modifiers.None`) so every existing caller keeps its 30-argument spelling; only the
+    // production factory that reads a real declaration supplies it.
+    DeclaredModifiers: int => declaredModifiersValue
+
+    // WHETHER A DERIVED MEMBER MAY OVERRIDE THIS ONE. `virtual` and `abstract` introduce a slot;
+    // `override` re-implements one and stays overridable unless it is also `sealed`. Anything else —
+    // a plain method — has no slot to take. The bits are `Modifiers.Virtual` (32),
+    // `Modifiers.Abstract` (64), `Modifiers.Sealed` (128) and `Modifiers.Override` (65536), read
+    // arithmetically for the same reason the factory above reads 16, 512, 2048 and 4096 that way.
+    IsOverridable: bool => (declaredModifiersValue & 32) == 32 || (declaredModifiersValue & 64) == 64 || ((declaredModifiersValue & 65536) == 65536 && (declaredModifiersValue & 128) != 128)
+
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0) {
         nameValue = name
         containingTypeValue = containingType
         kindValue = kind
@@ -116,6 +132,7 @@ class DeclaredMemberInfo {
         isImplicitConversionValue = isImplicitConversion
         lineValue = line
         columnValue = column
+        declaredModifiersValue = declaredModifiers
     }
 }
 

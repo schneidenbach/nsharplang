@@ -488,6 +488,10 @@ test "the RICH rendering is used when a source snippet and a file path both exis
     assert harness.Errors[0].SourceSnippet != null
     assert harness.Errors[0].ActualType == "string"
     assert harness.Errors[0].ExpectedType == "int"
+
+    // AND THE SENTENCE IS NOT PART OF THE DIFFERENCE. The route production actually calls used to
+    // trade this sentence away for the snippet; it now carries both.
+    assert harness.Errors[0].Message == "Type mismatch in assignment — expected 'int' but got 'string'"
 }
 
 // ---- the compound form -----------------------------------------------------------------------------------

@@ -298,7 +298,9 @@ test "THE `if` CONDITION REPORTS THROUGH THE RICH BUILDER WHEN IT HAS A SNIPPET 
     assert harness.Errors.Count == 1
     error := harness.Errors[0]
     assert error.Code == ErrorCode.TypeMismatch
-    assert error.Message == "Type mismatch"
+    // The route that ships says what the plain route says — the rich shape adds to the sentence, it
+    // does not replace it with the bare words `Type mismatch`.
+    assert error.Message == "The condition in an 'if' must be a boolean, but I found 'int'"
     assert error.ActualType == "int"
     assert error.ExpectedType == "bool"
     assert error.SourceSnippet == "    if count { }"

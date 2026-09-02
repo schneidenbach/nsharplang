@@ -183,9 +183,11 @@ fixtures the two entry points
 agree on every CODE and disagree otherwise: **22 of the 33 reporting fixtures get a different COLUMN
 or LENGTH** (the plain route anchors `NL202` on the declared NAME one column wide, the production route
 on the VALUE and underlines all of it; `NL506` is `is` two columns plain and `is string` nine rich);
-**15 get a different MESSAGE, and the production one is WORSE** — `Variable 'c' is typed as 'Color',
-but the value is 'string'` collapses to the bare `Type mismatch` and its suggestion is DROPPED to
-null, with a `ContextualHint` added in its place. `ContextualHint` is non-null on 15 fixtures rich and
+**15 USED TO get a different MESSAGE, and the production one was WORSE** — `Variable 'c' is typed as
+'Color', but the value is 'string'` collapsed to the bare `Type mismatch`. THAT WAS A DEFECT AND IT IS
+FIXED: `ErrorMessageBuilder.TypeMismatch` takes the reporting site's sentence rather than writing its
+own headline, so the MESSAGE column now agrees on both routes. The generic suggestion is still dropped
+on the rich route, with a specific `ContextualHint` added in its place — a trade up, left alone. `ContextualHint` is non-null on 15 fixtures rich and
 ZERO plain, which is why slice 28 saw `<null>` twenty-four times: the field is a property of the ENTRY
 POINT, not of the fixture. `SourceSnippet` is non-null on all 33 reporting fixtures rich and ZERO
 plain. Every tranche-1b contract states BOTH routes.
@@ -242,9 +244,10 @@ unreachable on the route the deleted code used.
 **The two-entry-point divergence reproduces on a disjoint corpus and in the same direction**: census
 differs on 16 fixtures, code row on 28, code anchor on 13, error COUNT on none; production DROPS the
 suggestion 15 times and gains one zero times; 37 of 82 rich rows carry a `ContextualHint` the plain
-route leaves null. **Three deleted assertions are true ONLY of the entry point nothing ships** — the
-`'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'` sentence and its two siblings collapse
-to the bare `Type mismatch` on the production route.
+route leaves null. **Three deleted assertions were true ONLY of the entry point nothing ships and are
+now true of both** — the `'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'` sentence and its
+two siblings used to collapse to the bare `Type mismatch` on the production route; that collapse was
+the four-argument-`Analyze` defect and it is fixed.
 
 **THE FIRST `[Theory]` LEFT THE FILE, AND THE PER-ROW PIN IMMEDIATELY FOUND A DEFECT.**
 `GenericTypes_StaticMembers_ReportBeforeEmission` is a table here rather than three declarations
@@ -475,12 +478,18 @@ PROCESSES, which is route (a) of the AOT question in
 `GetMethodBody()` bought exactly the reflection-loading debt the single-binary end state forbids.
 
 **Two findings from that slice are product facts, not test facts.** (1) **`docs/design/systems-samples/proofs/27-c-library-cli`
-cannot execute**: its `[LibraryImport]` over a `ReadOnlySpan<byte>` parameter is not marshalable on
-this emit path, so the CLR's interop marshaller raises `MarshalDirectiveException` at
-`SystemsProofs.CLibraryCli.NativeHash.Hash64` and the process aborts. The sample compiles clean under
-`systems:strict` and the deleted C# never ran it — it only read metadata — so this was invisible for
-the file's whole life. It is now PINNED as the successor to the deleted no-managed-body claim, because
-only a genuine interop stub can provoke a marshalling failure. (2) **`nlc check --systems-report`
+could not execute**: its `[LibraryImport]` over a `ReadOnlySpan<byte>` parameter is not marshalable on
+this emit path, so the CLR's interop marshaller raised `MarshalDirectiveException` at
+`SystemsProofs.CLibraryCli.NativeHash.Hash64` and the process aborted at exit 134. The sample compiled
+clean under `systems:strict` and the deleted C# never ran it — it only read metadata — so this was
+invisible for the file's whole life. **FIXED (chip `stream/chip-libraryimport-span`)**: a generic type
+can never appear in a P/Invoke signature and N# emits the P/Invoke directly (C# survives spans under
+`[LibraryImport]` only via a SOURCE GENERATOR that writes a pinning wrapper), so the analyzer now
+refuses a generic or tuple in a native-import signature with `NL405` naming the parameter and the
+repair (`NativeImportSignatureFacts` + `AnalyzerAttributeValidator.ValidateNativeImportSignature`), and
+the sample is spelled `byte[]`. Its run block now pins the STRONGER claim — the call reaches the native
+LOADER (`DllNotFoundException` naming `fast_hash`), which only a genuine interop stub can do.
+(2) **`nlc check --systems-report`
 cannot write to stderr**: every `Console.Error` path in `CheckCommand.Execute` is gated on text mode,
 which a JSON output mode never enters, so the deleted `Assert.True(string.IsNullOrWhiteSpace(stderr))`
 was STRUCTURALLY VACUOUS. It is replaced by a runtime diagnostic census read out of the envelope.

@@ -565,7 +565,7 @@ func main(): int {
         var localInitializer = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
                           diagnostic.Line == 9 &&
-                          diagnostic.Message == "Type mismatch");
+                          diagnostic.Message == "Variable 'declared' is typed as 'int', but the value is 'string'");
         AssertDiagnosticSpan(localInitializer, line: 9, column: 21, length: "\"hi\"".Length);
         AssertLspRange(localInitializer, line0: 8, startCharacter: 20, endCharacter: 24);
 
@@ -578,7 +578,7 @@ func main(): int {
         var ifCondition = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
                           diagnostic.Line == 11 &&
-                          diagnostic.Message == "Type mismatch");
+                          diagnostic.Message == "The condition in an 'if' must be a boolean, but I found 'string'");
         AssertDiagnosticSpan(ifCondition, line: 11, column: 8, length: "\"yes\"".Length);
         AssertLspRange(ifCondition, line0: 10, startCharacter: 7, endCharacter: 12);
 
@@ -1286,7 +1286,7 @@ func main() {
         var assignmentValue = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
                           diagnostic.Line == 3 &&
-                          diagnostic.Message == "Type mismatch");
+                          diagnostic.Message == "Type mismatch in assignment — expected 'int' but got 'string'");
         AssertDiagnosticSpan(assignmentValue, line: 3, column: 9, length: "\"text\"".Length);
         AssertLspRange(assignmentValue, line0: 2, startCharacter: 8, endCharacter: 14);
 

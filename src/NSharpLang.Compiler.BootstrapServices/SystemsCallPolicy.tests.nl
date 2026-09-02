@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Performance
 
 import System.Collections.Generic
+import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 // Native contracts for WHAT A CALL TARGET IS, AND WHAT A LOCAL STILL OWES.
@@ -26,6 +27,14 @@ import NSharpLang.Compiler.Ast
 // (3) A LEDGER DISCHARGE IS NOT A CLASSIFICATION. `MarkResourceDisposedIfRecognized` answers TRUE
 // only when the name it derived was actually on a ledger, and that `true` is what stops the call
 // walk. An unknown `x.Dispose()` must answer false so the call carries on to the rest of the chain.
+// AND IT IS NOT DECIDED BY THE MEMBER NAME ALONE. Decided by the name alone it INVERTED, measured on
+// the shipped CLI: `stream.Dispose()` on a project class with no `Dispose` closed the ledger (and
+// suppressed NSYS050) while the analyzer reported `NL303: Member 'Dispose' not found`, and the same
+// source with `func Dispose()` really declared reported NSYS090 "is not disposed" — the only
+// disposal the rule accepted was one that does not exist. Two doors answer that now and both are
+// pinned below: `MemberIsPositivelyRejected` (the analyzer's recorded UNKNOWN, and NOTHING weaker)
+// and `MarkDeclaredCalleeDischarges` (the resolved half of the walk, which reached no discharge at
+// all before).
 //
 // (4) THE POOL RETURN MARKS BY ARGUMENT, THE DISPOSAL BY RECEIVER. They are different shapes of the
 // same obligation and neither can be written in terms of the other.
@@ -347,11 +356,11 @@ test "A DISCHARGE MARKS BOTH LEDGERS AND ANSWERS WHETHER THE NAME WAS ON EITHER"
     assert !pool["buffer"].Returned
     assert !resources["handle"].Disposed
 
-    assert policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("buffer", "Dispose")), pool, resources)
+    assert policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("buffer", "Dispose")), pool, resources, null)
     assert pool["buffer"].Returned
     assert !resources["handle"].Disposed
 
-    assert policy.MarkResourceDisposedIfRecognized(ScpIdentifier("handle"), pool, resources)
+    assert policy.MarkResourceDisposedIfRecognized(ScpIdentifier("handle"), pool, resources, null)
     assert resources["handle"].Disposed
 }
 
@@ -360,7 +369,7 @@ test "ONE NAME ON BOTH LEDGERS DISCHARGES BOTH" {
     pool := ScpPoolLedger(ScpNames("shared"))
     resources := ScpResourceLedger(ScpNames("shared"))
 
-    assert policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("shared", "DisposeAsync")), pool, resources)
+    assert policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("shared", "DisposeAsync")), pool, resources, null)
     assert pool["shared"].Returned
     assert resources["shared"].Disposed
 }
@@ -372,12 +381,96 @@ test "AN UNRECOGNISED DISPOSE ANSWERS FALSE, AND THAT FALSE IS WHAT KEEPS THE CA
 
     // A name on no ledger: the call is still classified by every later arm, and may still be
     // reported as an unknown external call.
-    assert !policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("other", "Dispose")), pool, resources)
+    assert !policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("other", "Dispose")), pool, resources, null)
     // A shape that is not a disposal at all.
-    assert !policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("buffer", "Close")), pool, resources)
+    assert !policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("buffer", "Close")), pool, resources, null)
     assert !pool["buffer"].Returned
     assert !resources["handle"].Disposed
 }
+
+// ------------------------------------------------------------------ the analyzer's own verdict
+
+// `ScpDotted` builds its member access at 4:9, which is the position the walk looks the verdict up
+// at, so a model that records something THERE is a verdict about this callee and a model that
+// records it anywhere else is not.
+func ScpModelWith(line: int, column: int, recorded: TypeInfo): SemanticModel {
+    model := new SemanticModel()
+    model.RecordExpressionType(line, column, recorded)
+    return model
+}
+
+func ScpUnknown(): TypeInfo {
+    return new UnknownTypeInfo(UnknownKind.ErrorRecovery)
+}
+
+test "ONLY A RECORDED UNKNOWN IS A REJECTION; A RESOLVED MEMBER, A SILENT POSITION AND NO MODEL ARE NOT" {
+    policy := new SystemsCallPolicy()
+    callee := ScpDotted("handle", "Dispose")
+
+    assert policy.MemberIsPositivelyRejected(ScpModelWith(4, 9, ScpUnknown()), callee)
+
+    // A member the analyzer RESOLVED — in source or through metadata — is not rejected. This arm is
+    // what keeps `File.OpenRead(path)` followed by `stream.Dispose()` discharging.
+    assert !policy.MemberIsPositivelyRejected(ScpModelWith(4, 9, BuiltInTypes.Int), callee)
+
+    // A position the analyzer recorded NOTHING at is not rejected: the absence of a verdict is not a
+    // verdict, and an unresolved owner is deliberately permissive everywhere else in the analyzer.
+    assert !policy.MemberIsPositivelyRejected(ScpModelWith(7, 3, ScpUnknown()), callee)
+
+    // An analyzer driven without a model has no verdict to give.
+    assert !policy.MemberIsPositivelyRejected(null, callee)
+}
+
+test "A POSITIVELY REJECTED DISPOSE CLOSES NOTHING AND DOES NOT STOP THE CALL WALK" {
+    policy := new SystemsCallPolicy()
+    pool := ScpPoolLedger(ScpNames("buffer"))
+    resources := ScpResourceLedger(ScpNames("handle"))
+
+    // The measured defect, stated from the owner's side: the ledger stays OPEN (so the balance rule
+    // still reports NSYS090 where the resource was created) and the answer is FALSE (so the call
+    // walk carries on and reports the unknown external call it is).
+    assert !policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("handle", "Dispose")), pool, resources, ScpModelWith(4, 9, ScpUnknown()))
+    assert !resources["handle"].Disposed
+    assert !pool["buffer"].Returned
+
+    // The same written form with a resolved member still discharges.
+    assert policy.MarkResourceDisposedIfRecognized(ScpCall(ScpDotted("handle", "Dispose")), pool, resources, ScpModelWith(4, 9, BuiltInTypes.Int))
+    assert resources["handle"].Disposed
+}
+
+test "A POSITIVELY REJECTED RETURN CLOSES NO RENTAL" {
+    policy := new SystemsCallPolicy()
+    pool := ScpPoolLedger(ScpNames("buffer"))
+    arguments := ScpArgs()
+    arguments.Add(ScpPositional(ScpIdentifier("buffer")))
+
+    // `Zqxwvut.Return(buffer)` over a receiver the analyzer reports as `NL301: Variable not found`.
+    policy.MarkPoolReturnIfRecognized(ScpCallWith(ScpDotted("pool", "Return"), arguments), pool, ScpModelWith(4, 9, ScpUnknown()))
+    assert !pool["buffer"].Returned
+
+    policy.MarkPoolReturnIfRecognized(ScpCallWith(ScpDotted("pool", "Return"), arguments), pool, null)
+    assert pool["buffer"].Returned
+}
+
+test "A RESOLVED CALL DISCHARGES BOTH LEDGERS, AND IT NEEDS NO VERDICT BECAUSE IT RESOLVED" {
+    policy := new SystemsCallPolicy()
+    pool := ScpPoolLedger(ScpNames("buffer"))
+    resources := ScpResourceLedger(ScpNames("handle"))
+    arguments := ScpArgs()
+    arguments.Add(ScpPositional(ScpIdentifier("buffer")))
+
+    // Before this door the resolved half of the walk recorded the call and returned, so a project
+    // type that spells `func Dispose()` and is disposed correctly was reported as leaked.
+    policy.MarkDeclaredCalleeDischarges(ScpCall(ScpDotted("handle", "Dispose")), pool, resources)
+    assert resources["handle"].Disposed
+    // A disposal marks by RECEIVER, so the rental is untouched by it.
+    assert !pool["buffer"].Returned
+
+    policy.MarkDeclaredCalleeDischarges(ScpCallWith(ScpDotted("pool", "Return"), arguments), pool, resources)
+    assert pool["buffer"].Returned
+}
+
+// ------------------------------------------------------------------ the pool ledger
 
 test "A POOL RETURN MARKS EVERY IDENTIFIER ARGUMENT, NOT ITS RECEIVER" {
     policy := new SystemsCallPolicy()
@@ -391,7 +484,7 @@ test "A POOL RETURN MARKS EVERY IDENTIFIER ARGUMENT, NOT ITS RECEIVER" {
     arguments.Add(ScpPositional(ScpIdentifier("unknown")))
     arguments.Add(ScpPositional(new IntLiteralExpression("0", 1, 1)))
 
-    policy.MarkPoolReturnIfRecognized(ScpCallWith(ScpDotted("pool", "Return"), arguments), pool)
+    policy.MarkPoolReturnIfRecognized(ScpCallWith(ScpDotted("pool", "Return"), arguments), pool, null)
 
     assert pool["first"].Returned
     assert pool["second"].Returned
@@ -405,14 +498,14 @@ test "ONLY THE RETURN HALF DISCHARGES, AND ONLY WHEN THE CALLEE IS NAMED" {
     arguments := ScpArgs()
     arguments.Add(ScpPositional(ScpIdentifier("buffer")))
 
-    policy.MarkPoolReturnIfRecognized(ScpCallWith(ScpDotted("pool", "Rent"), arguments), pool)
+    policy.MarkPoolReturnIfRecognized(ScpCallWith(ScpDotted("pool", "Rent"), arguments), pool, null)
     assert !pool["buffer"].Returned
 
     unnamed: Expression = new IndexAccessExpression(ScpIdentifier("pools"), new IntLiteralExpression("0", 1, 1), false, 1, 1)
-    policy.MarkPoolReturnIfRecognized(ScpCallWith(unnamed, arguments), pool)
+    policy.MarkPoolReturnIfRecognized(ScpCallWith(unnamed, arguments), pool, null)
     assert !pool["buffer"].Returned
 
-    policy.MarkPoolReturnIfRecognized(ScpCallWith(ScpDotted("pool", "Return"), arguments), pool)
+    policy.MarkPoolReturnIfRecognized(ScpCallWith(ScpDotted("pool", "Return"), arguments), pool, null)
     assert pool["buffer"].Returned
 }
 

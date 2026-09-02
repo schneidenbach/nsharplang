@@ -641,6 +641,122 @@ test "a statement shape with no arm is walked no further" {
 }
 
 
+// ── the operand slots a read-walk must see (the `off` / pattern family) ──────────────────────────
+//
+// One rule, three sites: EVERY EXPRESSION AN OPERAND SLOT CARRIES IS A READ. `off`'s handle had no
+// statement arm at all; a switch case's pattern and a match case's pattern are not `Expression`s, so
+// neither `VisitSwitch` nor `AstChildrenCore.Of` ever reached the expressions they hold. All three
+// reported a false NL001 against a variable the code plainly reads, and NL001 is an ERROR — it blocks
+// `nlc build`. The negatives below are what keep the rule from over-silencing: a name a pattern BINDS
+// is not credited as a read, because the used-name set is file-wide.
+
+test "an OFF statement's handle is a READ — a subscription consumed only by `off` is not NL001" {
+    state := LwkState()
+    walk := new LinterWalk(state)
+    statements := LwkStatements()
+    statements.Add(LwkVar("sub", null, 4, 5))
+    statements.Add(new OffStatement(LwkId("sub", 5, 9), 5, 5))
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+    assert state.Diagnostics.Count == 0
+}
+
+test "a variable NOTHING reads is still NL001 beside an `off`" {
+    state := LwkState()
+    walk := new LinterWalk(state)
+    statements := LwkStatements()
+    statements.Add(LwkVar("sub", null, 4, 5))
+    statements.Add(LwkVar("dead", null, 5, 5))
+    statements.Add(new OffStatement(LwkId("sub", 6, 9), 6, 5))
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+    assert LwkCodes(state) == "NL001@5:5;"
+}
+
+test "a SWITCH case pattern's compared value is a READ" {
+    state := LwkState()
+    walk := new LinterWalk(state)
+    statements := LwkStatements()
+    statements.Add(LwkVar("limit", null, 4, 5))
+    cases := new List<SwitchCase>()
+    cases.Add(new SwitchCase(new RelationalPattern(">", LwkId("limit", 6, 16), 6, 14), LwkStatements(), 6, 9))
+    // `default` carries a NULL pattern, which walks nothing rather than throwing.
+    cases.Add(new SwitchCase(null, LwkStatements(), 7, 9))
+    switchStatement: Statement = new SwitchStatement(LwkId("value", 5, 12), cases, 5, 5)
+    statements.Add(switchStatement)
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+    assert state.Diagnostics.Count == 0
+}
+
+test "a MATCH case pattern's compared value is a READ, and the structural walk still runs" {
+    state := LwkState()
+    walk := new LinterWalk(state)
+    statements := LwkStatements()
+    statements.Add(LwkVar("limit", null, 4, 5))
+    cases := new List<MatchCase>()
+    cases.Add(new MatchCase(new RelationalPattern(">", LwkId("limit", 6, 11), 6, 9), null, LwkId("big", 6, 20)))
+    matchExpression: Expression = new MatchExpression(LwkId("value", 5, 14), cases, 5, 5)
+    statements.Add(new ExpressionStatement(matchExpression, 5, 5))
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+    assert state.Diagnostics.Count == 0
+
+    // Non-vacuity: the arm still routes through the child walk, so a guard and an arm expression are
+    // read exactly as they were before the pattern arm existed.
+    guarded := LwkState()
+    guardedWalk := new LinterWalk(guarded)
+    guardedCases := new List<MatchCase>()
+    guardedCases.Add(new MatchCase(new IdentifierPattern("bound", 6, 9), LwkId("StringBuilder", 6, 20), LwkId("StringBuilder", 6, 40)))
+    guardedMatch: Expression = new MatchExpression(LwkId("value", 5, 14), guardedCases, 5, 5)
+    guardedWalk.VisitExpression(guardedMatch)
+    assert LwkCodes(guarded) == "NL002@6:20;NL002@6:40;"
+}
+
+test "a pattern's BINDING name is NOT credited as a read" {
+    // The used-name set is file-wide, so crediting `case bound =>` would silence the NL001 that the
+    // unread LOCAL named `bound` has earned.
+    state := LwkState()
+    walk := new LinterWalk(state)
+    statements := LwkStatements()
+    statements.Add(LwkVar("bound", null, 4, 5))
+    cases := new List<SwitchCase>()
+    cases.Add(new SwitchCase(new IdentifierPattern("bound", 6, 14), LwkStatements(), 6, 9))
+    switchStatement: Statement = new SwitchStatement(LwkId("value", 5, 12), cases, 5, 5)
+    statements.Add(switchStatement)
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+    assert LwkCodes(state) == "NL001@4:5;"
+}
+
+test "a NESTED pattern's compared value is reached through every composite shape" {
+    // and / or / not / positional / list / object / union-case each recurse; a slice pattern and a
+    // type pattern carry no expression at all and walk nothing.
+    state := LwkState()
+    walk := new LinterWalk(state)
+    statements := LwkStatements()
+    statements.Add(LwkVar("low", null, 4, 5))
+    statements.Add(LwkVar("high", null, 5, 5))
+    statements.Add(LwkVar("edge", null, 6, 5))
+    statements.Add(LwkVar("tail", null, 7, 5))
+
+    properties := new List<PropertyPattern>()
+    properties.Add(new PropertyPattern("Radius", new RelationalPattern(">", LwkId("low", 9, 30), 9, 28), null, 9, 20))
+    positionalElements := new List<Pattern>()
+    positionalElements.Add(new NotPattern(new RelationalPattern("<", LwkId("high", 9, 50), 9, 48), 9, 44))
+    listElements := new List<Pattern>()
+    listElements.Add(new SlicePattern("rest", 9, 60))
+    listElements.Add(new RelationalPattern(">=", LwkId("tail", 9, 70), 9, 67))
+
+    combined: Pattern = new AndPattern(new UnionCasePattern("Shape.Circle", properties, 9, 14), new OrPattern(new PositionalPattern(positionalElements, 9, 44), new ListPattern(listElements, 9, 58), 9, 44), 9, 14)
+    objectProperties := new List<PropertyPattern>()
+    objectProperties.Add(new PropertyPattern("Count", new RelationalPattern("==", LwkId("edge", 10, 30), 10, 28), null, 10, 20))
+
+    cases := new List<SwitchCase>()
+    cases.Add(new SwitchCase(combined, LwkStatements(), 9, 9))
+    cases.Add(new SwitchCase(new ObjectPattern(objectProperties, 10, 14), LwkStatements(), 10, 9))
+    switchStatement: Statement = new SwitchStatement(LwkId("value", 8, 12), cases, 8, 5)
+    statements.Add(switchStatement)
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+    assert state.Diagnostics.Count == 0
+}
+
+
 // ── the function arm ─────────────────────────────────────────────────────────────────────────
 
 test "a function's signature type references are mentioned names" {

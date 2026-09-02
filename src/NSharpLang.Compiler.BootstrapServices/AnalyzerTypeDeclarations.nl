@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
@@ -417,6 +418,7 @@ class AnalyzerTypeDeclarations {
         DeclareTypeParameters(state)
         ValidateNoStaticMembersOnGenericType(state)
         ResolveDeclaredBases(state)
+        ValidateOverrideTargets(state)
         state.OwnerType = OwnerTypeFor(state)
         DeclareNestedTypesInCurrentScope(state.OwnerType)
         if state.Form == 3 {
@@ -949,16 +951,19 @@ class AnalyzerTypeDeclarations {
     // points at the DECLARATION and carries INVALID SYNTAX, because the three-argument `Error` overload
     // it replaces defaulted to that code. The asymmetry is the shipped behaviour — the detail-only
     // shape is exactly what an unsaved editor buffer produces — and is preserved rather than tidied.
+    // THE MESSAGE IS NOT PART OF THAT ASYMMETRY: both shapes name the field, its type and what the
+    // initializer gave, because a reader with a snippet needs the sentence just as much as one without.
     func ReportFieldTypeMismatch(state: TypeDeclarationState, field: FieldDeclaration, initializer: Expression, initializerType: TypeInfo) {
         span := spansValue.GetExpressionDiagnosticSpan(initializer)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
+        message := "Field '" + field.Name + "' is typed as '" + TypeText(state.FieldType) + "', but the initializer gives '" + TypeText(initializerType) + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(initializerType), TypeText(state.FieldType)))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(initializerType), TypeText(state.FieldType), message))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Field '" + field.Name + "' is typed as '" + TypeText(state.FieldType) + "', but the initializer gives '" + TypeText(initializerType) + "'", field.Line, field.Column, null, 0)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, message, field.Line, field.Column, null, 0)
     }
 
     // PHASE 43 — THE FIELD'S NAME, DECLARED INTO WHATEVER SCOPE ENCLOSES IT: the type's own scope for
@@ -1070,6 +1075,195 @@ class AnalyzerTypeDeclarations {
         }
 
         return rendered
+    }
+
+    // AN `override` MUST HAVE A SLOT TO TAKE, AND THE SLOT MUST BE OPEN.
+    //
+    // `override` is a promise about a BASE member: that one exists with this name, and that it was
+    // declared `virtual`, `abstract` or `override` so a derived type may replace it. Neither half was
+    // checked before, so `override func Speak()` over a plain base method reported nothing at all and
+    // the mistake surfaced — if at all — as an emission decline with no sentence naming the cause.
+    //
+    // THE WALK IS DELIBERATELY CONSERVATIVE, and silence is its default. It reports only when it can
+    // NAME the base surface it searched: a source shape it can read, a CLR type it can reflect over,
+    // or the implicit `object` at the end of a source chain. A base that resolves to nothing, to a
+    // bare external NAME, or to a generic instantiation whose shape this owner cannot open answers
+    // "cannot tell", and a check that cannot tell says nothing — a false `override` error would be
+    // far worse than the missing one it replaces.
+    //
+    // The two faults get two sentences because they are two different mistakes: a member that is not
+    // there at all is usually a typo or a signature drift, and a member that is there but sealed shut
+    // is a missing `virtual` on the BASE. Both are `NL311` — the fault is in the modifier, not in the
+    // name, which is why this is not an undefined-member report.
+    func ValidateOverrideTargets(state: TypeDeclarationState) {
+        members := TypeMembers(state)
+        if members == null {
+            return
+        }
+
+        for member in members {
+            function := member as FunctionDeclaration
+            if function == null {
+                continue
+            }
+
+            if !HasOverrideModifier(function.Modifiers) {
+                continue
+            }
+
+            verdict := ClassifyOverrideTarget(DeclaredBaseTypeFor(state), function.Name, 0)
+            if verdict == 2 {
+                ReportOverrideTargetFault(function, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base member 'virtual', or drop 'override' from this declaration.")
+                continue
+            }
+
+            if verdict == 3 {
+                ReportOverrideTargetFault(function, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new member.")
+            }
+        }
+    }
+
+    // THE SQUIGGLE GOES ON THE MEMBER NAME, not on the `override` keyword and not on `func`. The name
+    // is the thing the developer either misspelled or must stop calling an override, and it is the
+    // span every other declaration-name report in the analyzer already uses.
+    func ReportOverrideTargetFault(function: FunctionDeclaration, reason: string, suggestion: string) {
+        span := spansValue.GetFunctionNameDiagnosticSpan(function)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + function.Name + "' is declared 'override', but it " + reason, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // THE BASE THIS DECLARATION WRITES, or `null` for every form that writes none. A class with no
+    // `:` clause, a struct and a record all still INHERIT — from `object` or `ValueType` — and `null`
+    // here means exactly that: walk to the implicit root rather than give up.
+    func DeclaredBaseTypeFor(state: TypeDeclarationState): TypeInfo? {
+        if state.Form != 0 {
+            return null
+        }
+
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration == null {
+            return null
+        }
+
+        declaredBase := classDeclaration.BaseClass
+        if declaredBase == null {
+            return null
+        }
+
+        return typeResolverValue.ResolveType(declaredBase)
+    }
+
+    // 0 cannot tell · 1 an overridable base member · 2 a base member that is sealed shut · 3 no base
+    // member of that name. The depth guard is the cycle brake: a base chain that closes on itself is
+    // a separate diagnostic's problem, and this walk must not hang on it.
+    func ClassifyOverrideTarget(candidate: TypeInfo?, name: string, depth: int): int {
+        if depth > 24 {
+            return 0
+        }
+
+        if candidate == null {
+            return ClassifyObjectOverrideTarget(name)
+        }
+
+        if BuiltInTypes.IsUnknown(candidate) {
+            return 0
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            return ClassifyReflectionOverrideTarget(reflectionType.Type, name)
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return 0
+        }
+
+        declaredVerdict := ClassifyDeclaredOverrideTarget(shape.DeclaredMembers, name)
+        if declaredVerdict != 0 {
+            return declaredVerdict
+        }
+
+        // A SHAPE THAT WROTE A BASE THE CONTEXT COULD NOT RESOLVE IS NOT A SHAPE THAT ENDS AT
+        // `object`. Walking on to the implicit root would search a surface this class does not
+        // actually inherit and report a member that is virtual one link further up, so an unresolved
+        // `:` clause answers "cannot tell" instead.
+        if shape.BaseType == null && WritesUnresolvedBase(candidate) {
+            return 0
+        }
+
+        return ClassifyOverrideTarget(shape.BaseType, name, depth + 1)
+    }
+
+    // WHETHER A DECLARED SHAPE NAMES A BASE THAT WAS NOT RESOLVED. Only a class can write one, and
+    // the shape reports the RESOLVED base — so a written-but-null pair is exactly a resolution
+    // failure rather than an absent clause.
+    static func WritesUnresolvedBase(candidate: TypeInfo): bool {
+        classType := candidate as ClassTypeInfo
+        if classType == null {
+            return false
+        }
+
+        return classType.BaseClass != null
+    }
+
+    // A SOURCE SHAPE'S OWN FUNCTION MEMBERS. Only functions answer: a field or a property of the same
+    // name is not a method slot, and letting one answer would turn a real fault into silence. The
+    // FIRST function of the name decides, because overloads of one name share one virtual-ness in
+    // every shape this walk can read.
+    static func ClassifyDeclaredOverrideTarget(declaredMembers: DeclaredMemberInfo[], name: string): int {
+        index := 0
+        while index < declaredMembers.Length {
+            declared := declaredMembers[index]
+            if declared.Kind == DeclaredMemberKind.Function && declared.Name == name {
+                if declared.IsOverridable {
+                    return 1
+                }
+
+                return 2
+            }
+
+            index = index + 1
+        }
+
+        return 0
+    }
+
+    // METADATA'S ANSWER. `GetMethods` already walks the CLR chain, so one call settles the whole
+    // remaining base surface. `NonPublic` is in the flags because `protected virtual` is the shape
+    // most worth catching; a method that is virtual but FINAL (a sealed override) is closed, not open.
+    static func ClassifyReflectionOverrideTarget(clrType: Type, name: string): int {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        methods := clrType.GetMethods(flags)
+        found := false
+        index := 0
+        while index < methods.Length {
+            method := methods[index]
+            if method.get_Name() == name && !method.get_IsSpecialName() {
+                found = true
+                if method.get_IsVirtual() && !method.get_IsFinal() {
+                    return 1
+                }
+            }
+
+            index = index + 1
+        }
+
+        if found {
+            return 2
+        }
+
+        return 3
+    }
+
+    // THE IMPLICIT ROOT. A source chain that names no further base ends at `object`, whose only open
+    // slots are `ToString`, `Equals` and `GetHashCode` — `GetType` is not virtual, which is why
+    // `override func GetType()` is a real fault rather than a tolerated one.
+    static func ClassifyObjectOverrideTarget(name: string): int {
+        return ClassifyReflectionOverrideTarget(typeof(object), name)
+    }
+
+    static func HasOverrideModifier(modifiers: Modifiers): bool {
+        return (Convert.ToInt32(modifiers) & Convert.ToInt32(Modifiers.Override)) != 0
     }
 
     // THE NESTED TYPES OF THIS DECLARATION, DECLARED INTO THE SCOPE THAT IS NOW OPEN. A declaration
