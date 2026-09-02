@@ -479,7 +479,7 @@ public class DocumentManager
         return publications;
     }
 
-    private bool TryGetSynchronizedProjectSnapshot(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
+    public bool TryGetSynchronizedProjectSnapshot(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
     {
         filePath = UriToFilePath(uri);
         projectRoot = ResolveSemanticProjectRoot(filePath);

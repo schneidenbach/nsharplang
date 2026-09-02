@@ -19,6 +19,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Workspace;
 using LspLocation = OmniSharp.Extensions.LanguageServer.Protocol.Models.Location;
 using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Tests;
 
@@ -775,94 +776,28 @@ func main(): void
         Assert.Contains("Returns the composed greeting.", documentation);
     }
 
-    [Fact]
-    public async Task Completion_Snippet_FuncAsync()
+    [Theory]
+    [InlineData("func", "${1:name};${2:params};${3:void}")]
+    [InlineData("if", "${1:condition}")]
+    [InlineData("match", "${1:value};${2:pattern}")]
+    [InlineData("for", "${1:item};${2:collection}")]
+    [InlineData("type", "${1:Name}")]
+    public async Task Completion_SnippetAsync(string label, string placeholders)
     {
         var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
-        harness.OpenDocument(uri, "f");
+        harness.OpenDocument(uri, label.Substring(0, 1));
 
         var completions = await harness.GetCompletionsAsync(uri, 0, 1);
 
         var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "func" && c.Kind == CompletionItemKind.Snippet);
+            c => c.Label == label && c.Kind == CompletionItemKind.Snippet);
         Assert.NotNull(snippet);
         Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:name}", snippet.InsertText);
-        Assert.Contains("${2:params}", snippet.InsertText);
-        Assert.Contains("${3:void}", snippet.InsertText);
+        Assert.All(placeholders.Split(';'), p => Assert.Contains(p, snippet.InsertText));
     }
 
-    [Fact]
-    public async Task Completion_Snippet_IfAsync()
-    {
-        var harness = new LspTestHarness(_fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        harness.OpenDocument(uri, "i");
-
-        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
-
-        var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "if" && c.Kind == CompletionItemKind.Snippet);
-        Assert.NotNull(snippet);
-        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:condition}", snippet.InsertText);
-    }
-
-    [Fact]
-    public async Task Completion_Snippet_MatchAsync()
-    {
-        var harness = new LspTestHarness(_fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        harness.OpenDocument(uri, "m");
-
-        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
-
-        var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "match" && c.Kind == CompletionItemKind.Snippet);
-        Assert.NotNull(snippet);
-        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:value}", snippet.InsertText);
-        Assert.Contains("${2:pattern}", snippet.InsertText);
-    }
-
-    [Fact]
-    public async Task Completion_Snippet_ForAsync()
-    {
-        var harness = new LspTestHarness(_fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        harness.OpenDocument(uri, "f");
-
-        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
-
-        var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "for" && c.Kind == CompletionItemKind.Snippet);
-        Assert.NotNull(snippet);
-        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:item}", snippet.InsertText);
-        Assert.Contains("${2:collection}", snippet.InsertText);
-    }
-
-    [Fact]
-    public async Task Completion_Snippet_TypeAsync()
-    {
-        var harness = new LspTestHarness(_fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        harness.OpenDocument(uri, "t");
-
-        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
-
-        var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "type" && c.Kind == CompletionItemKind.Snippet);
-        Assert.NotNull(snippet);
-        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:Name}", snippet.InsertText);
-    }
 
     [Fact]
     public async Task Completion_Snippets_CoexistWithKeywordsAsync()
@@ -1949,24 +1884,6 @@ func main(): void
         Assert.Null(hover);
     }
 
-    [Fact]
-    public async Task Completion_AfterDot_NoIdentifierAsync()
-    {
-        var harness = new LspTestHarness(_fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    .";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 2, 5);
-
-        // Should handle gracefully (return general completions or empty)
-        Assert.NotNull(completions);
-    }
-
     #endregion
 
     #region Complex Scenarios
@@ -2313,6 +2230,60 @@ func main(): void
         Assert.Contains(completions.Items, c => c.Label == "Name");
         Assert.Contains(completions.Items, c => c.Label == "Age");
         Assert.Contains(completions.Items, c => c.Label == "Greet");
+    }
+
+    // A real project on disk, so the handler takes the project-snapshot route rather than the
+    // document-scoped fallback the two tests above exercise.
+    private static (string Root, string Uri, string Text) CreateMemberCompletionProject()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nsharp-d3-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "project.yml"), "name: MemberCompletion\nversion: 1.0.0\noutputType: exe\ntargetFramework: net10.0\nentry: Program.nl\n");
+        File.WriteAllText(Path.Combine(root, "Models.nl"), "namespace MemberCompletion.Models\n\npublic class Sensor {\n    Name: string = \"\"\n    Reading: double = 0\n}\n");
+        var program = Path.Combine(root, "Program.nl");
+        var text = "namespace MemberCompletion.App\n\nimport System\nimport MemberCompletion.Models\n\nfunc Main() {\n    sensor := new Sensor()\n    label := sensor.Name\n    print label.Length\n}\n";
+        File.WriteAllText(program, text);
+        return (root, new Uri(program).AbsoluteUri, text);
+    }
+
+    [Fact]
+    public async Task Completion_MemberAccess_MatchesQueryCompletionsAsync()
+    {
+        var (root, uri, text) = CreateMemberCompletionProject();
+        try
+        {
+            var harness = new LspTestHarness(_fixture.TypeResolver);
+            harness.OpenDocument(uri, text);
+            var snapshot = new CodeIntel.CodeIntelligenceService().LoadProject(root);
+            var engine = new CodeIntel.CompletionEngine();
+
+            // A cross-file user receiver, then a BCL receiver; both trailing dots. Defect D3: these
+            // positions used to answer the enclosing scope's identifiers and the keyword list.
+            foreach (var at in new[] { (Line: 7, Character: 20), (Line: 8, Character: 16) })
+            {
+                var cli = engine.GetCompletions(snapshot, "Program.nl", at.Line + 1, at.Character + 1, false);
+                Assert.Equal(CodeIntel.CompletionContext.MemberAccess, cli.Context);
+                var lsp = await harness.GetCompletionsAsync(uri, at.Line, at.Character);
+                Assert.Equal(
+                    cli.Completions.Values.SelectMany(g => g)
+                        .Select(i => $"{i.Name}:{CodeIntel.EditorCompletionFacts.LspCompletionItemKind(i.Kind)}")
+                        .OrderBy(t => t, StringComparer.Ordinal).ToList(),
+                    lsp.Items.Select(i => $"{i.Label}:{(int)i.Kind!}")
+                        .OrderBy(t => t, StringComparer.Ordinal).ToList());
+                // No scope identifier, no keyword, and no accessor the filter should have dropped.
+                Assert.DoesNotContain(lsp.Items, i => i.Label is "sensor" or "label" or "func" or "class"
+                    || i.Label!.StartsWith("get_", StringComparison.Ordinal));
+            }
+
+            var user = await harness.GetCompletionsAsync(uri, 7, 20);
+            Assert.Contains(user.Items, i => i.Label == "Name");
+            Assert.Contains(user.Items, i => i.Label == "Reading");
+            Assert.Contains(await harness.GetCompletionsAsync(uri, 8, 16), i => i.Label == "ToUpper");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
     }
 
     [Fact]

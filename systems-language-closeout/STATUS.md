@@ -58,10 +58,13 @@ fix, in the editor); the parser cast-lookahead fix (`print(x)` then `sum := 0` �
 as a local int); hover on user functions and record members; go-to-definition and find-references across files;
 the NL002 auto-import quick fix offered and applied; NSYS010/NSYS050/NL001 identical to `nlc check --systems-report`.
 **BLOCKED (tier)**: rename — the widget opens with the right placeholder but cannot be typed into or confirmed.
-**FAIL — four IDE defects, each with a VS Code-free repro in the README, filed as wave-3 chips:**
-- **D3 (highest impact): member completion after a trailing `.` lists scope identifiers + keywords** for both user and
-  BCL receivers; `nlc query completions` returns the right members at the same positions, so the broken owner is the
-  LSP `CompletionHandler` (AST-only path, no BCL member source).
+**FAIL — four IDE defects, each with a VS Code-free repro in the README, filed as wave-3 chips. D3 is FIXED (§4.10);
+D1, D2 and D4 remain open:**
+- **D3 — FIXED on `stream/ide-d3-member-completion`.** Member completion after a trailing `.` listed scope identifiers +
+  keywords for both user and BCL receivers because `CompletionHandler` was the only handler with no project route — the
+  missing fifth `FindProject*` sibling. It now routes to the same N# owners `nlc query completions` uses, and an
+  in-process comparator asserts the two answers are equal at the same positions. Needs the VS Code-enabled gate and a
+  visual re-verification before the box moves.
 - **D2: hover on BCL members is empty** (`DateTime.Now`, `.AddDays`, `Random.Shared.Next`, `list.ToArray()`,
   `arr.Length`) or a bare `method ToUpper: ToUpper(...)`; `nlc query hover` reproduces — a regression against the May
   headless report, which had the full C# signature and declaring type.
@@ -2362,11 +2365,13 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 - §7's AOT argument for option (a) ("Reflection.Emit cannot ship in a native image") is superseded by
   §3.8's correction: `PersistedAssemblyBuilder` runs under NativeAOT; the AOT path is task 022.
 
-### 4.10 Wave 3 — the gate-speed slice
+### 4.10 Wave 3 — the gate-speed slice and the IDE defect remediation
 
 | slice | commit | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
 | GATE-SPEED (landed) | this commit; measured at `d26460045` | `Sdk.targets` gains a stamp-keyed incremental skip for `EmitNSharpIlAssembly`: `Inputs` = sources + `project.yml` + `@(ReferencePath)` + the SDK's three tool assemblies, `Outputs` = a stamp + `@(IntermediateAssembly)`, and a `BeforeTargets` predecessor deletes the stamp when its CONTENT (a Sha256 `StableStringHash` of the resolved source set, tests in/out, configuration) no longer matches. **19 insertions / 19 deletions — 206 lines / 177 non-blank, exactly the epoch ceiling**, paid for by compressing two multi-line comments and deleting ten labels that restated the element beneath them | **OVERTURN: the gate was never test-bound.** The 596 unit tests run in **5 m 42 s** on a quiet box, not the 16 m 28 s of `b16/gate.log` (a 2.78x loaded outlier). What the gate actually spent was **8 full BootstrapServices emits per run** — static analysis said 6-7, the instrument said 8. **Second overturn: an `Sdk.targets` fix cannot take effect in the run that packs it** — `BootstrapServices` resolves the SDK from the NuGet package cache, and the wrapper counts `.targets` as a dependency input, so the edit changes the DepKey and seeds a FRESH dep dir from the OLD package. Two gate runs measured "no change" before this was found (§2.2) | **BEFORE 28m44s / 8 emits (5 Debug, 3 Release), GREEN. AFTER 14m29s / 4 emits — 49.6% off the wall, half the emits.** Per step, before -> after: Step 2 8m34s -> **2m22s**; Step 3 8m06s -> **2m51s**; Step 3a 7m17s -> 6m22s; Step 4 4m21s -> **2m27s**. On the real 403-file / 172,653-line project the no-op rebuild goes **132.84 s -> 0.58 s (229x)**, against the 2026-09-01 baseline's own number; the cold emit reproduces it at 133.07 s. Correctness matrix 8/8 on a toy and 6/6 on BootstrapServices itself, including the reverse flip. Audit 17/18 before the repin (OWN005 fingerprint drift only, no OWN004), **18/18** after |
+
+| IDE D3 — member completion after a trailing `.` (landed) | this commit; branched from `27f4a1b6b` | `CompletionHandler.cs` 700 → 642 / 611 → 562 non-blank: `GetMemberCompletionItems`, `GetMemberCompletionViaAst` and `GetNSharpTypeMembers` DELETED and replaced by a route to the same N# owners `nlc query completions` uses — the project snapshot first (`CompletionEngine.GetCompletions`), the open documents' own models second (`CompletionReceiverFacts.GetMemberAccessCompletions`); `IsMemberCompletion` rerouted to `CompletionEngineKernels.IsCompletionMemberAccessContext`. `DocumentManager.cs` holds at 1449/1246 LINE FOR LINE — one word, `private` → `public` on `TryGetSynchronizedProjectSnapshot`, a fingerprint-only row. NEW `EditorCompletionFacts.nl` (106) + `.tests.nl` (11 blocks) owns the three editor-presentation decisions; `CompletionReflectionFacts.nl` gains `IsOfferableMethod` (+4 estate blocks, +1 native block). | **THE LSP HAD NO PROJECT ROUTE AT ALL, AND THAT — NOT THE TYPE UNIVERSE — WAS D3.** Hover has called `DocumentManager.FindProjectHover` before its AST fallback since forever; completion was the missing FIFTH `FindProject*` sibling, so its only member source was `doc.SymbolsInfo` (one file, source-declared types only) over a SINGLE-FILE `SemanticModel`. A BCL receiver missed by construction and a cross-file receiver missed for want of a project. Task 022 slice 4 was NOT a prerequisite: the LSP `TypeResolver`'s three assemblies are never consulted for member completion, and routing through the snapshot hands the editor the analyzer's universe as a side effect. | unit 596/0; estate 7,264 → 7,279 (+15), 0 failed; native `completion-engine` 13/13, `query-completions` 1/1; ownership audit 17/18 before the repin → 18/18 after; `LanguageServerTests.cs` 4,200 → 4,171 / 3,411 → 3,398 / markers 602 → 589; `editors/vscode/test/suite/completion.test.ts` 162 → 161 / 131 → 129 / `test(` 7 held; four ratchet rows repinned, all at or under their immutable epoch ceilings |
 
 **Durable findings (GATE-SPEED).**
 
@@ -2381,6 +2386,39 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 - Ratchet headroom is the real constraint on script-level fixes: `tests/scripts/test-all-core.sh` 916/917 (**1 line**), `tests/scripts/test-all.sh` 567/567 and `Sdk.targets` 206/206 (**0 lines**), `.github/workflows/build.yml` 81/81 (**0**). `EmitIlAssembly.cs` has 38 lines of headroom but growing C# is against the ownership direction — the fix belongs in MSBuild XML. OWN003 forbids a new `.slnf`, a new workflow file, or a new shell script, and trips on evidence left inside the byte-copy.
 - The naive incrementality key is a **correctness trap**: `NSharpExcludeTests` toggles `.tests.nl` into the *same* `IntermediateOutputPath`, and those files are older than a just-built product-only assembly, so a plain timestamp `Inputs`/`Outputs` would silently skip Step 3a's tests-included emit. The key must be a stamp file named by a hash of the resolved source set + `project.yml` + references + SDK tool version.
 - Recommended order: (0) make the SDK's N# emit incremental — ~532 s, no gate-script line pressure, and it fixes every developer's inner loop too; (1) share ONE packed feed between `TestSdkFeed` and Step 4 — ~150 s; (2) lane concurrency in `test-all-core.sh` behind a flag with disjoint obj dirs — ~180–240 s but 1 line of headroom, so it must pay for itself in deletions; (3) give CI the cheap deterministic steps it lacks (format contract, native estate, example chain) rather than the whole gate — ubuntu-latest cannot host 3c or the compile-time gate, and its `machine` baseline pins "Apple M4"; (4) commit-mode artifact reuse is subsumed by (0) and is not worth weakening "fresh isolated" for.
+
+**Durable findings (IDE D3).**
+
+- **THE PARITY COMPARATOR IS THE SLICE'S REAL PRODUCT.** `Completion_MemberAccess_MatchesQueryCompletionsAsync` builds a real
+  project on disk, asks `CompletionEngine.GetCompletions` and the LSP `CompletionHandler` the SAME two positions, and asserts the
+  sorted `label:lspKind` lists are EQUAL. It runs in-process because `Tests` already references `Compiler`; a `tests/native/*`
+  comparator was measured and REFUSED — no native project reaches `LanguageServer.dll`, the gate's Step 2 never builds it
+  (`Cli.csproj` and the playground only), and a `dll:` dependency that is absent on a clean run is a contract that passes
+  vacuously. Buying it would have cost `test-all-core.sh`'s LAST line (916/917).
+- **THE `get_`/`set_` LEAK WAS A CLI DEFECT TOO, so "LSP == CLI" was only worth asserting once both were right.**
+  `BuildReflectionMemberItems` read `GetMethods` with no filter, so `nlc query completions` on a `string` receiver offered
+  `get_Length` and `get_Chars` beside `Length`. The predicate is `IsSpecialName` and NOT a `get_`/`set_` prefix test — the
+  contract proves the difference with `op_Equality`, which a prefix test would keep and the flag drops. Recorded as a CHANGED CLI
+  OUTPUT, pinned in `tests/native/completion-engine`.
+- **THE ESTATE CAUGHT A FALSE CLAIM IN THIS SLICE'S OWN COMMENT, which is what the contracts are for.** `MemberSortText` padded
+  ranks to FOUR digits and the comment asserted "a rank past the pad still sorts after every padded one". It does not: an LSP
+  `sortText` is compared as TEXT, so `"10000"` sorts BEFORE `"9999"` and the tail of any list past ten thousand items reverses.
+  The pad is now TEN digits — `int.MaxValue`'s own width — so the failure has no representable input.
+- **THE FALLBACK TIER IS LOAD-BEARING AND THE TWO OLDEST MEMBER TESTS PROVE IT.** `Completion_MemberAccess_NSharpClassAsync` and
+  the CLR-collision variant open `file:///test/...`, which has no `project.yml` and no workspace root, so the snapshot lookup
+  answers false. They pass unchanged, which is the evidence that a loose buffer still completes.
+- **NOTHING IN THE C# SUITE ASSERTED THE BROKEN BEHAVIOUR, which is why 133 `LanguageServerTests` let D3 ship.** The one test at
+  the defect's own position, `Completion_AfterDot_NoIdentifierAsync`, asserted only `Assert.NotNull(completions)` — it could not
+  have failed. It was deleted as genuinely weaker; the five `Completion_Snippet_*Async` tests were collapsed into one `[Theory]`
+  over the same five (label, placeholder) pairs as REDUNDANCY removal, not weakness, and every placeholder they asserted is
+  still asserted.
+- **`editors/vscode/test/suite/completion.test.ts` carried an EMPTY `MEMBER COMPLETIONS (DOT ACCESS)` banner** and every row of
+  that suite sits at its ceiling, so the repro was paid for by dropping `no duplicate labels in completion list` — a 10 %
+  tolerance that pins nothing — for a trailing-dot test on the fixture's own project path that asserts exact members and kinds,
+  no scope identifiers, no keywords, ZERO duplicates and no accessors.
+- **THE RATCHET'S ONE-LINE HEADROOM SHAPED THE DESIGN, not the other way round.** A `FindProjectCompletions` sibling in
+  `DocumentManager.cs` is ~9 lines against 1 line of IMMUTABLE epoch headroom, and OWN004's epoch clause cannot be repinned away.
+  The visibility flip moves no metric, so only that row's fingerprint changes and the reviewed head does not move on its account.
 
 ## 5. Remediations, corrections, do-not-relitigate verdicts
 

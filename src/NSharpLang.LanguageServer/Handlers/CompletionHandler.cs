@@ -11,6 +11,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -22,6 +23,7 @@ public class CompletionHandler : CompletionHandlerBase
     private readonly DocumentManager _documentManager;
     private readonly TypeResolver _typeResolver;
     private readonly ILogger<CompletionHandler> _logger;
+    private readonly CodeIntel.CompletionEngine _completionEngine = new();
 
     // N# Keywords for completion
     private static readonly string[] Keywords = {
@@ -90,7 +92,7 @@ public class CompletionHandler : CompletionHandlerBase
 
         if (isMemberAccess && doc?.Text != null)
         {
-            var memberItems = GetMemberCompletionItems(doc, request.Position.Line, request.Position.Character);
+            var memberItems = GetMemberCompletionItems(uri, doc, request.Position.Line, request.Position.Character);
             if (memberItems.Any())
             {
                 _logger.LogDebug("Providing {Count} member completion items for {Uri}", memberItems.Count, uri);
@@ -143,154 +145,94 @@ public class CompletionHandler : CompletionHandlerBase
     }
 
     /// <summary>
-    /// Check if the completion is triggered after a dot (member access)
+    /// Whether the caret sits in a member-access position. The N# owner answers it, so a trailing
+    /// dot and a partial member name after one are the same question here as in `nlc query
+    /// completions`.
     /// </summary>
-    private bool IsMemberCompletion(string text, int line, int character)
+    private static bool IsMemberCompletion(string text, int line, int character)
     {
         var lines = text.Split('\n');
-        if (line >= lines.Length) return false;
+        if (line < 0 || line >= lines.Length)
+        {
+            return false;
+        }
 
         var lineText = lines[line];
-        if (character == 0) return false;
-
-        // Check if there's a dot before the cursor
         var beforeCursor = lineText.Substring(0, Math.Min(character, lineText.Length));
-        return beforeCursor.TrimEnd().EndsWith(".");
+        return CodeIntel.CompletionEngineKernels.IsCompletionMemberAccessContext(beforeCursor);
     }
 
     /// <summary>
-    /// Get member completion items for the expression before the dot.
-    /// Uses AST-based expression type resolution (like HoverHandler) as the primary path,
+    /// Member completions for the receiver before the dot, from the same N# owner that answers
+    /// `nlc query completions`.
     /// </summary>
-    private List<CompletionItem> GetMemberCompletionItems(Models.DocumentState doc, int line, int character)
+    private List<CompletionItem> GetMemberCompletionItems(string uri, Models.DocumentState doc, int line, int character)
     {
-        var items = new List<CompletionItem>();
-
         try
         {
-            // === PRIMARY PATH: AST-based resolution ===
-            if (doc.CompilationUnit != null && doc.SemanticModel != null)
+            var result = ResolveMemberCompletions(uri, doc, line, character);
+            if (result == null || result.Context != CodeIntel.CompletionContext.MemberAccess)
             {
-                items = GetMemberCompletionViaAst(doc, line, character);
-                if (items.Count > 0)
-                {
-                    _logger.LogDebug("AST-based completion returned {Count} items", items.Count);
-                    return items;
-                }
+                return new List<CompletionItem>();
             }
+
+            return BuildMemberCompletionItems(result);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting member completion items");
-        }
-
-        return items;
-    }
-
-    /// <summary>
-    /// AST-based member completion: find the MemberAccessExpression at cursor,
-    /// resolve the Object expression's type, and return its members.
-    /// </summary>
-    private List<CompletionItem> GetMemberCompletionViaAst(Models.DocumentState doc, int line, int character)
-    {
-        // AstNodeFinderCore expects 0-based LSP coordinates as the target, converts 1-based node
-        // positions to 0-based, and answers object?; `as` narrows any other node kind to null.
-        var expression = AstNodeFinderCore.FindExpressionAtPosition(
-            doc.CompilationUnit!, line, character) as Expression;
-
-        if (expression is not MemberAccessExpression memberAccess)
-        {
-            _logger.LogDebug("No MemberAccessExpression found at ({Line}, {Col})", line, character);
             return new List<CompletionItem>();
         }
-
-        _logger.LogDebug("Found MemberAccessExpression, resolving Object type for: {MemberName}",
-            memberAccess.MemberName);
-
-        if (memberAccess.Object is IdentifierExpression sourceId)
-        {
-            var sourceTypeInfo = doc.SemanticModel!.LookupIdentifier(sourceId.Name);
-            if (sourceTypeInfo != null)
-            {
-                var nsharpMembers = GetNSharpTypeMembers(sourceTypeInfo, doc);
-                if (nsharpMembers.Count > 0)
-                {
-                    _logger.LogDebug("Resolved '{Name}' as source N# type with {Count} members", sourceId.Name, nsharpMembers.Count);
-                    return nsharpMembers;
-                }
-            }
-        }
-
-        var objectTypeInfo = doc.SemanticModel!.LookupTypeAtPosition(memberAccess.Object.Line, memberAccess.Object.Column);
-        if (objectTypeInfo != null && !BuiltInTypes.IsUnknown(objectTypeInfo))
-        {
-            var nsharpMembers = GetNSharpTypeMembers(objectTypeInfo, doc);
-            if (nsharpMembers.Count > 0)
-            {
-                _logger.LogDebug("Resolved chained receiver as N# type '{Type}' with {Count} members",
-                    objectTypeInfo, nsharpMembers.Count);
-                return nsharpMembers;
-            }
-
-        }
-
-        _logger.LogDebug("Could not resolve type for member access");
-        return new List<CompletionItem>();
     }
 
     /// <summary>
-    /// Get members from a user-defined N# type (class, struct, record).
-    /// Uses SemanticModel for resolved field/property types, SymbolsInfo for methods.
+    /// The project snapshot answers when the buffer is backed by one — the same snapshot, and so
+    /// the same analyzer type universe, that definition, references and hover already use. A loose
+    /// buffer outside any project falls back to the open documents' own models, which is the tier
+    /// that types a receiver declared in the file being edited.
     /// </summary>
-    private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, Models.DocumentState doc)
+    private CodeIntel.CompletionResult? ResolveMemberCompletions(string uri, Models.DocumentState doc, int line, int character)
     {
-        var items = new List<CompletionItem>();
-
-        // Get the type name from the TypeInfo — handle all TypeInfo variants
-        string? typeName = typeInfo switch
+        if (_documentManager.TryGetSynchronizedProjectSnapshot(uri, out _, out var filePath, out var snapshot))
         {
-            ClassTypeInfo c => c.Name,
-            StructTypeInfo s => s.Name,
-            RecordTypeInfo r => r.Name,
-            InterfaceTypeInfo i => i.Name,
-            UnionTypeInfo u => u.Declaration.Name,
-            _ => typeInfo.ToString() // SimpleTypeInfo, etc. — ToString() returns the type name
-        };
-
-        // Build a lookup of resolved types from SemanticModel
-        Dictionary<string, TypeInfo>? resolvedTypes = null;
-        if (typeName != null && doc.SemanticModel != null)
-        {
-            resolvedTypes = doc.SemanticModel.GetTypeMembers(typeName);
+            return _completionEngine.GetCompletions(snapshot, filePath, line + 1, character + 1, includeKeywords: false);
         }
 
-        // Use SymbolsInfo as the primary member list (has correct kinds for fields/properties/methods),
-        // but enhance field/property details with resolved types from SemanticModel
-        if (doc.SymbolsInfo != null && typeName != null &&
-            doc.SymbolsInfo.TryGetValue(typeName, out var symbolInfo))
+        if (doc.CompilationUnit == null)
         {
-            foreach (var member in symbolInfo.Members)
+            return null;
+        }
+
+        var semanticModels = _documentManager.GetAllDocuments()
+            .Select(state => state.SemanticModel)
+            .OfType<SemanticModel>()
+            .ToList();
+
+        return CodeIntel.CompletionReceiverFacts.GetMemberAccessCompletions(
+            doc.CompilationUnit, doc.SemanticModel, null, line + 1, character + 1, semanticModels);
+    }
+
+    /// <summary>
+    /// The owner's grouped answer as LSP items, in the owner's own order.
+    /// </summary>
+    private static List<CompletionItem> BuildMemberCompletionItems(CodeIntel.CompletionResult result)
+    {
+        var items = new List<CompletionItem>();
+        foreach (var group in result.Completions.Values)
+        {
+            foreach (var member in group)
             {
-                var detail = GetSymbolDetail(member);
-
-                // Use resolved type from SemanticModel when available
-                if (resolvedTypes != null && resolvedTypes.TryGetValue(member.Name, out var resolvedType))
-                {
-                    detail = resolvedType.ToString();
-                }
-
                 items.Add(new CompletionItem
                 {
                     Label = member.Name,
-                    Kind = GetCompletionItemKindFromSymbol(member.Kind),
-                    Detail = detail,
+                    Kind = (CompletionItemKind)CodeIntel.EditorCompletionFacts.LspCompletionItemKind(member.Kind),
+                    Detail = CodeIntel.EditorCompletionFacts.MemberDetailText(member),
                     InsertText = member.Name,
-                    Documentation = !string.IsNullOrEmpty(member.Documentation)
-                        ? new MarkupContent { Kind = MarkupKind.Markdown, Value = member.Documentation }
-                        : null
+                    SortText = CodeIntel.EditorCompletionFacts.MemberSortText(items.Count)
                 });
             }
         }
+
         return items;
     }
 
