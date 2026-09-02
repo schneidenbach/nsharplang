@@ -768,16 +768,31 @@ class FormatterWalk {
         variableDeclaration := statement as VariableDeclarationStatement
         if variableDeclaration != null {
             state.Indent(builder)
+            // THE TYPE IS FORMATTED BEFORE THE KEYWORD BECAUSE THE KEYWORD DEPENDS ON IT. `let` is
+            // not recoverable from `Kind` — `let x: T = v` and `x: T = v` are the same kind — so the
+            // arm asks two questions: did the author write it, and would the shorter spelling read
+            // back? The second is a question about the type's own text.
+            declaredTypeText: string? = null
+            if variableDeclaration.Type != null {
+                declaredTypeText = FormatterSyntaxText.FormatTypeReference(variableDeclaration.Type)
+            }
+
             if variableDeclaration.Kind == VariableKind.Const {
                 builder.Append("const ")
             } else if variableDeclaration.Kind == VariableKind.Readonly {
                 builder.Append("readonly ")
+            } else if variableDeclaration.HasLetKeyword || (declaredTypeText != null && FormatterSyntaxText.TypedDeclarationNeedsLet(declaredTypeText, variableDeclaration.Initializer != null)) {
+                // The first clause is PRESERVATION and the second is SOUNDNESS; either alone leaves a
+                // hole. Without the first, `let n: int = 3` silently loses its keyword. Without the
+                // second, a tree built by hand — or by any path that does not stamp the flag — writes
+                // a tuple-typed local in a spelling the parser then refuses.
+                builder.Append("let ")
             }
 
             builder.Append(variableDeclaration.Name)
-            if variableDeclaration.Type != null {
+            if declaredTypeText != null {
                 builder.Append(": ")
-                builder.Append(FormatterSyntaxText.FormatTypeReference(variableDeclaration.Type))
+                builder.Append(declaredTypeText)
             }
 
             if variableDeclaration.Initializer != null {
@@ -1293,7 +1308,26 @@ class FormatterWalk {
 
         stringLiteral := expression as StringLiteralExpression
         if stringLiteral != null {
-            builder.Append(stringLiteral.Value)
+            // AN ORDINARY LITERAL'S `Value` CARRIES ITS OWN QUOTES AND A RAW LITERAL'S DOES NOT, so
+            // the raw arm writes the delimiters back and the ordinary arm must not. Writing the raw
+            // content bare is not a formatting infelicity — it emits an IDENTIFIER where the author
+            // wrote a string, and wherever that identifier is itself a legal expression BOTH of
+            // `FormatSafe`'s gates pass and the file is rewritten. `v := """abc"""` became
+            // `v := abc` on disk, and through `DocumentFormattingHandler` on format-on-save.
+            //
+            // THE RE-EMISSION IS EXACT, WHICH IS WHY NOTHING IS RE-SYNTHESISED. N# raw strings do
+            // not strip a common indent (the content is everything between the delimiters, leading
+            // newline included), and `Lexer.ReadTripleQuoteString` TERMINATES AT THE FIRST `"""`, so
+            // a token's content provably contains no `"""` and provably does not end in a quote.
+            // `"""` + content + `"""` is therefore the author's own bytes, character for character.
+            if stringLiteral.IsRaw {
+                builder.Append("\"\"\"")
+                builder.Append(stringLiteral.Value)
+                builder.Append("\"\"\"")
+            } else {
+                builder.Append(stringLiteral.Value)
+            }
+
             return
         }
 

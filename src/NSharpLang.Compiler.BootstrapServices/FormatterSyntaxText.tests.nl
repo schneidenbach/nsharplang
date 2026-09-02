@@ -253,3 +253,35 @@ test "an allow with no effects and no reason is the empty argument list" {
 test "an owner survives a blank reason without leaving a stray separator" {
     assert FormatterSyntaxText.FormatAllowArguments(FstAllow(FstEffects("alloc"), " ", "who")) == "alloc, owner: \"who\""
 }
+
+// `TypedDeclarationNeedsLet` IS THE SOUNDNESS HALF OF THE `let` RULE, AND IT IS A QUESTION ABOUT
+// TEXT. The parser's bare-declaration lookahead needs the type to open on an identifier token and to
+// be followed by `=`; everything else has to be written with the keyword. Asking the emitted
+// SPELLING rather than the type's kind is what keeps a type form added later from reopening the
+// hole silently.
+test "a typed declaration needs let exactly when the bare spelling would not read back" {
+    // The identifier-leading types — every one the estate actually writes — stay bare.
+    assert !FormatterSyntaxText.TypedDeclarationNeedsLet("int", true)
+    assert !FormatterSyntaxText.TypedDeclarationNeedsLet("string", true)
+    assert !FormatterSyntaxText.TypedDeclarationNeedsLet("byte", true)
+    assert !FormatterSyntaxText.TypedDeclarationNeedsLet("Func<int, int>", true)
+    assert !FormatterSyntaxText.TypedDeclarationNeedsLet("int[]", true)
+    assert !FormatterSyntaxText.TypedDeclarationNeedsLet("string?", true)
+    assert !FormatterSyntaxText.TypedDeclarationNeedsLet("_private", true)
+
+    // A tuple opens on `(` and a by-ref on `&`; a union takes whichever its first arm opens on.
+    assert FormatterSyntaxText.TypedDeclarationNeedsLet("(x: int, y: int)", true)
+    assert FormatterSyntaxText.TypedDeclarationNeedsLet("(int, int)", true)
+    assert FormatterSyntaxText.TypedDeclarationNeedsLet("&int", true)
+    assert FormatterSyntaxText.TypedDeclarationNeedsLet("(int, int) | string", true)
+    assert !FormatterSyntaxText.TypedDeclarationNeedsLet("string | (int, int)", true)
+
+    // No initializer is the second unwritable case, whatever the type is.
+    assert FormatterSyntaxText.TypedDeclarationNeedsLet("int", false)
+    assert FormatterSyntaxText.TypedDeclarationNeedsLet("(int, int)", false)
+
+    // A missing or empty spelling is answered rather than thrown on: there is nothing for the
+    // lookahead to read, so the keyword is required.
+    assert FormatterSyntaxText.TypedDeclarationNeedsLet(null, true)
+    assert FormatterSyntaxText.TypedDeclarationNeedsLet("", true)
+}

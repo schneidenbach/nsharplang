@@ -51,11 +51,27 @@ class CharLiteralExpression: Expression {
     }
 }
 
+// A string literal, held as its SOURCE SPELLING rather than as its decoded text — and the two
+// spellings do not agree about their own delimiters, which is why `IsRaw` has to exist.
+//
+// `Lexer.ReadString` APPENDS the quotes it consumes, so an ordinary literal's `Value` is `"…"` (or
+// `$"…"`), escapes and all. `Lexer.ReadTripleQuoteString` ADVANCES PAST both `"""` delimiters
+// without appending either, so a raw literal's `Value` is the bare content — its leading newline,
+// every interior line's indentation and the indentation before the closing delimiter, and nothing
+// else. Nothing in the value distinguishes the two, and the difference is not cosmetic: a consumer
+// that writes a raw literal's `Value` back out writes an IDENTIFIER where the author wrote a
+// string, which is silent data loss rather than a diagnostic.
+//
+// It defaults to false so that every hand-built tree — the analyzer's, the linter's and the
+// formatter's contracts alike — keeps the meaning it had, exactly as `InterpolatedStringExpression`
+// carries the same flag for the same reason.
 class StringLiteralExpression: Expression {
     Value: string
+    IsRaw: bool
 
-    constructor(Value: string, Line: int, Column: int): base(Line, Column) {
+    constructor(Value: string, Line: int, Column: int, IsRaw: bool = false): base(Line, Column) {
         this.Value = Value
+        this.IsRaw = IsRaw
     }
 }
 

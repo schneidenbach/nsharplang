@@ -19,17 +19,27 @@ class ExpressionStatement: Statement {
 }
 
 // Variable declaration
+// A local declaration. `HasLetKeyword` records the SPELLING the author chose, which `Kind` cannot.
+//
+// N# accepts a typed local two ways — `let x: T = v` and the bare `x: T = v` — and both materialize
+// `VariableKind.Let`, so a consumer that has to write the declaration back has nothing to go on. The
+// formatter is author-preserving, so it needs to know; and the two spellings are NOT
+// interchangeable, because the bare form is parsed by a lookahead that requires the type to open on
+// an identifier token and to be followed by `=`. The flag defaults to false, which is the bare
+// spelling and therefore the shape every hand-built tree already meant.
 class VariableDeclarationStatement: Statement {
     Name: string
     Type: TypeReference?
     Initializer: Expression?
     Kind: VariableKind
+    HasLetKeyword: bool
 
-    constructor(Name: string, Type: TypeReference?, Initializer: Expression?, Kind: VariableKind, Line: int, Column: int): base(Line, Column) {
+    constructor(Name: string, Type: TypeReference?, Initializer: Expression?, Kind: VariableKind, Line: int, Column: int, HasLetKeyword: bool = false): base(Line, Column) {
         this.Name = Name
         this.Type = Type
         this.Initializer = Initializer
         this.Kind = Kind
+        this.HasLetKeyword = HasLetKeyword
     }
 }
 

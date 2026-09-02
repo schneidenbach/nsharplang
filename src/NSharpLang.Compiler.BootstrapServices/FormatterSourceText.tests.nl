@@ -933,3 +933,129 @@ test "a named attribute argument keeps the colon the parser reads, and an equals
     assigned := "class C {\n    [Name(a, b = c)]\n    static func Run(): int {\n        return 1\n    }\n}"
     assert FstFormatRaw(assigned) == assigned, FstFormatRaw(assigned)
 }
+
+// ---- RAW STRING LITERALS: THE SPELLING IS THE VALUE ----------------------------------------------
+//
+// THE DEFECT THESE STATE WAS SILENT DATA LOSS, NOT A DECLINE, AND IT REACHED USERS THROUGH
+// FORMAT-ON-SAVE. `Lexer.ReadTripleQuoteString` consumes both `"""` delimiters and appends neither,
+// so a raw literal's `StringLiteralExpression.Value` is the bare content — and the formatter wrote
+// that content back. Wherever the content is itself a legal expression, BOTH of `FormatSafe`'s gates
+// pass and the file is rewritten: `v := """abc"""` became `v := abc` on disk, and
+// `DocumentFormattingHandler` calls the same `FormatSafe`, so an editor save did it too. Only where
+// the bare content failed to re-read did the reparse gate catch it, which is why the whole visible
+// symptom was eight declining files rather than a corpus of quietly broken strings.
+//
+// EVERY ASSERTION BELOW IS AN EXACT ROUND TRIP. That is the contract worth having: a raw literal's
+// content is significant to the byte, so "the formatter did not change it" is the only correct
+// answer, and `IsRaw` + verbatim re-emission is what produces it.
+
+test "a single-line raw string literal keeps its delimiters in every position it can stand in" {
+    // The four shapes that were REWRITTEN rather than declined. Each is its own position in the
+    // expression walk, and each one emitted a bare identifier before.
+    declaration := "func Test() {\n    v := \"\"\"abc\"\"\"\n}"
+    assert FstFormat(declaration) == "func Test() {|    v := \"\"\"abc\"\"\"|}", FstFormat(declaration)
+
+    argument := "func Test() {\n    Use(\"\"\"abc\"\"\")\n}"
+    assert FstFormat(argument) == "func Test() {|    Use(\"\"\"abc\"\"\")|}", FstFormat(argument)
+
+    returned := "func Test(): string {\n    return \"\"\"abc\"\"\"\n}"
+    assert FstFormat(returned) == "func Test(): string {|    return \"\"\"abc\"\"\"|}", FstFormat(returned)
+
+    operand := "func Test(): string {\n    return \"a\" + \"\"\"b\"\"\"\n}"
+    assert FstFormat(operand) == "func Test(): string {|    return \"a\" + \"\"\"b\"\"\"|}", FstFormat(operand)
+
+    // Both of `FormatSafe`'s gates, and the format-twice property the corpus sweep assumes.
+    assert FstSafeSuccess(declaration)
+    assert FstSafeSuccess(argument)
+    assert FstSafeSuccess(returned)
+    assert FstSafeSuccess(operand)
+    assert FstIdempotent(declaration)
+    assert FstIdempotent(returned)
+}
+
+test "a multi-line raw string literal keeps its newlines and its indentation, and the statement after it keeps its own spacing" {
+    // N# raw strings do NOT strip a common indent — the content is everything between the
+    // delimiters — so the interior lines come back at column 0 and the indented one keeps its two
+    // spaces. Re-synthesising the literal from a decoded value could not produce this.
+    source := "func Test(): string {\n    v := \"\"\"\nline one\n  indented\n\"\"\"\n    return v\n}"
+    assert FstFormat(source) == "func Test(): string {|    v := \"\"\"|line one|  indented|\"\"\"|    return v|}", FstFormat(source)
+    assert FstSafeSuccess(source)
+    assert FstIdempotent(source)
+
+    // AND NO BLANK LINE APPEARS ABOVE `return v`. The literal is one token spanning four lines, so a
+    // statement `EndLine` stamped from the token's START line made the next statement look like it
+    // stood across a gap; the formatter then wrote a blank the author never had, on every format.
+    // `TokenEndLine` is what makes this an exact round trip rather than a growing file.
+    interpolated := "func Test(x: int): string {\n    v := $\"\"\"\nline {x}\n\"\"\"\n    return v\n}"
+    assert FstFormat(interpolated) == "func Test(x: int): string {|    v := $\"\"\"|line {x}|\"\"\"|    return v|}", FstFormat(interpolated)
+    assert FstIdempotent(interpolated)
+}
+
+test "the lexer ends a raw literal at the FIRST triple quote, and the formatter writes exactly that back" {
+    // THERE IS NO FOUR-OR-MORE-DELIMITER FORM IN N#, and this is the contract to write instead of
+    // one. `ReadTripleQuoteString` returns at the first `"""` it sees, so a literal's content
+    // provably contains no `"""` and provably does not END in a quote — which is exactly what makes
+    // `"""` + content + `"""` an exact reconstruction rather than a re-spelling.
+    one := "func Test(): string {\n    return \"\"\"he said \"hi\" ok\"\"\"\n}"
+    assert FstFormat(one) == "func Test(): string {|    return \"\"\"he said \"hi\" ok\"\"\"|}", FstFormat(one)
+
+    // AND THE CONTENT CANNOT END IN A QUOTE, which is the same fact seen from the other side: the
+    // fourth quote of `"""he said "hi""""` closes the literal and the last one is left over, so the
+    // file does not lex. That is the guarantee the re-emission rests on — there is no content the
+    // formatter can be handed for which `"""` + content + `"""` is ambiguous.
+    unterminated := "func Test(): string {\n    return \"\"\"he said \"hi\"\"\"\"\n}"
+    assert FstReparseErrors(unterminated) > 0
+
+    two := "func Test(): string {\n    return \"\"\"a \"\"b\"\"\"\n}"
+    assert FstFormat(two) == "func Test(): string {|    return \"\"\"a \"\"b\"\"\"|}", FstFormat(two)
+
+    // A fourth opening quote is not a longer delimiter: three open the literal and the fourth is the
+    // first character of its content.
+    four := "func Test(): string {\n    return \"\"\"\"abc\"\"\"\n}"
+    assert FstFormat(four) == "func Test(): string {|    return \"\"\"\"abc\"\"\"|}", FstFormat(four)
+
+    assert FstSafeSuccess(one)
+    assert FstSafeSuccess(two)
+    assert FstSafeSuccess(four)
+}
+
+test "a multi-line raw literal inside a wrapped argument list survives the wrap verbatim" {
+    // The shape of all seven raw-string decliners: a fixture source handed to a compile helper. The
+    // wrapping rule reshapes the CALL because its `)` is below its `(`; the literal's own lines are
+    // inside one token and the walk does not touch them.
+    source := "func Test() {\n    Compile(\n        \"\"\"\nclass C {\n    func Go(): int {\n        return 1\n    }\n}\n\"\"\"\n    )\n}"
+    assert FstSafeSuccess(source)
+    assert FstIdempotent(source)
+    assert FstReparseErrorsAfterFormat(source) == 0
+    assert FstFormatRaw(source).Contains("\"\"\"\nclass C {\n    func Go(): int {\n        return 1\n    }\n}\n\"\"\"")
+}
+
+test "let is preserved where the author wrote it and supplied where the parser needs it" {
+    // PRESERVATION. `let x: T = v` and the bare `x: T = v` are the same `VariableKind.Let`, so
+    // without `HasLetKeyword` the keyword was simply deleted from every file that used it.
+    written := "func Test(): int {\n    let n: int = 3\n    return n\n}"
+    assert FstFormat(written) == "func Test(): int {|    let n: int = 3|    return n|}", FstFormat(written)
+
+    // AND THE BARE SPELLING STAYS BARE. `let` is not canonicalisation: the estate is written without
+    // it and must not churn.
+    bare := "func Test(): int {\n    n: int = 3\n    return n\n}"
+    assert FstFormat(bare) == "func Test(): int {|    n: int = 3|    return n|}", FstFormat(bare)
+
+    // SOUNDNESS. `ParseExpressionStatement`'s no-`let` arm needs the type to open on an IDENTIFIER
+    // token, so a tuple type — which opens on `(` — cannot be written without the keyword. Dropping
+    // it produced `Unexpected token ':' in expression` and the whole file stopped being formatted.
+    tuple := "func Test(): int {\n    let pair: (x: int, y: int) = (1, 2)\n    return pair.x\n}"
+    assert FstFormat(tuple) == "func Test(): int {|    let pair: (x: int, y: int) = (1, 2)|    return pair.x|}", FstFormat(tuple)
+    assert FstSafeSuccess(tuple)
+    assert FstReparseErrorsAfterFormat(tuple) == 0
+
+    // The same arm requires an `=` after the type, so a typed declaration with NO initializer is the
+    // second member of that family and equally unwritable without `let`.
+    uninitialized := "func Test(): int {\n    let n: int\n    n = 3\n    return n\n}"
+    assert FstFormat(uninitialized) == "func Test(): int {|    let n: int|    n = 3|    return n|}", FstFormat(uninitialized)
+    assert FstReparseErrorsAfterFormat(uninitialized) == 0
+
+    assert FstIdempotent(written)
+    assert FstIdempotent(bare)
+    assert FstIdempotent(tuple)
+}

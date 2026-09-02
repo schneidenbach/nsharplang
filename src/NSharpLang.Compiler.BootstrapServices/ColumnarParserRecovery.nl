@@ -4369,6 +4369,11 @@ class ColumnarParserRecovery {
     // VariableDeclarationWasTuple for the using-statement caller.
     func ParseVariableDeclaration(): Statement? {
         kind := VariableKindFor(Current().Type)
+        // The keyword the author actually wrote. `const` and `readonly` are recoverable from `kind`,
+        // but `let` is not — the bare `x: T = v` form parsed in `ParseExpressionStatement` produces
+        // the same `VariableKind.Let` — so the spelling is recorded here, where the token is still in
+        // hand, for the formatter to preserve.
+        wroteLetKeyword := Current().Type == TokenType.Let
         Advance()
         // consume let / const / readonly
         VariableDeclarationWasTuple = false
@@ -4406,7 +4411,7 @@ class ColumnarParserRecovery {
         if typeDeclined || initializerDeclined {
             return null
         }
-        return new VariableDeclarationStatement(name, declaredType, initializer, kind, line, column)
+        return new VariableDeclarationStatement(name, declaredType, initializer, kind, line, column, wroteLetKeyword)
     }
 
     // Parser.cs :2248-2252: the let / const / readonly dispatch passes the matching VariableKind.
@@ -7175,8 +7180,14 @@ class ColumnarParserRecovery {
             }
             // Tranche 7: a plain StringLiteral (not `$"`) or a TripleQuoteStringLiteral materializes
             // `new StringLiteralExpression(token.Value, line, column)` (Parser.cs :4669).
+            //
+            // THE RAW FLAG IS CARRIED BECAUSE THE TOKEN'S VALUE CANNOT CARRY ITSELF. A
+            // `TripleQuoteStringLiteral` token's value is the bare content — the lexer consumed both
+            // `"""` delimiters and appended neither — so a reader handed only the value cannot write
+            // the literal back, and writing it bare emits an identifier. The flag is the whole
+            // difference, and the formatter is the consumer that needs it.
             stringResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
-            stringResult.Node = new StringLiteralExpression(token.Value, line, column)
+            stringResult.Node = new StringLiteralExpression(token.Value, line, column, token.Type == TokenType.TripleQuoteStringLiteral)
             return stringResult
         }
 

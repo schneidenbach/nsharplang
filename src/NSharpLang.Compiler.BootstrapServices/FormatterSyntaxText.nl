@@ -155,6 +155,40 @@ class FormatterSyntaxText {
         }
     }
 
+    // WHETHER A TYPED LOCAL HAS TO BE WRITTEN WITH `let`, ASKED OF THE TYPE'S SPELLING RATHER THAN
+    // OF THE TYPE'S KIND.
+    //
+    // `ParseExpressionStatement`'s no-`let` arm is guarded by `Check(Identifier) && LookAhead(1) ==
+    // Colon && LookAhead(2).Type == TokenType.Identifier`, and only then requires the `=`. So the
+    // bare form is unreadable in exactly two cases — the type's first token is not an identifier (a
+    // tuple opens on `(`, a by-ref on `&`, a union on whichever of those its first arm is), or there
+    // is no initializer for the `=` to be.
+    //
+    // TESTING THE EMITTED TEXT IS THE POINT, not a shortcut past enumerating the type kinds: a type
+    // form added to `FormatTypeReference` later cannot silently reopen the hole, because whatever it
+    // spells is what this reads. `int`, `string`, `byte`, `Func<…>`, `T[]` and `T?` all begin with an
+    // identifier character and none of them is a keyword token — the lexer's keyword table holds no
+    // primitive names — so none of them grows a `let` it did not have.
+    //
+    // THIS IS THE SOUNDNESS HALF ONLY. Preservation is `VariableDeclarationStatement.HasLetKeyword`,
+    // which the formatter checks first; between them, `let` is written when the author wrote it and
+    // when the parser needs it, and never as canonicalisation of someone else's spelling.
+    static func TypedDeclarationNeedsLet(typeText: string?, hasInitializer: bool): bool {
+        if !hasInitializer {
+            return true
+        }
+
+        if typeText == null {
+            return true
+        }
+
+        if typeText.Length == 0 {
+            return true
+        }
+
+        return !IdentifierText.IsStart(typeText[0])
+    }
+
     // ---- the modifiers ---------------------------------------------------------------------------
 
     // The modifier keywords that survive a format, in their canonical order.
