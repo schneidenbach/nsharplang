@@ -923,10 +923,45 @@ print $"Next year: {age + 1}"
 print $"Pi: {3.14159:F2}"             // Pi: 3.14
 ```
 
+### Escape Sequences
+
+Inside a `"..."` or `$"..."` literal (and inside a character literal), a backslash begins an escape.
+N# admits exactly these, and nothing else:
+
+| Escape | Character | Notes |
+|---|---|---|
+| `\'` | `'` (U+0027) | |
+| `\"` | `"` (U+0022) | |
+| `\\` | `\` (U+005C) | |
+| `\0` | null (U+0000) | |
+| `\a` | alert (U+0007) | |
+| `\b` | backspace (U+0008) | |
+| `\t` | tab (U+0009) | |
+| `\n` | line feed (U+000A) | |
+| `\v` | vertical tab (U+000B) | |
+| `\f` | form feed (U+000C) | |
+| `\r` | carriage return (U+000D) | |
+| `\e` | escape (U+001B) | the ANSI/VT escape character |
+| `\x` *H* to *HHHH* | that code unit | **one to four** hex digits, read greedily |
+| `\u` *HHHH* | that code unit | **exactly four** hex digits |
+| `\U` *HHHHHHHH* | that code point | **exactly eight** hex digits; above U+FFFF it becomes a surrogate pair |
+
+Hex digits are ASCII only (`0`-`9`, `a`-`f`, `A`-`F`).
+
+```n#
+red := "\x1b[1;31m"        // ESC [ 1 ; 3 1 m  — seven characters
+same := "\e[1;31m"         // the same seven
+unit := "\u001b"           // and the same again
+grin := "\U0001F600"       // one code point, two UTF-16 code units
+```
+
+A backslash followed by anything else is not an escape, so a Windows path or a regular expression must
+double its backslashes — `"C:\\temp"`, `"\\d+"` — or use a raw string, which has no escapes at all.
+
 ### Raw String Literals
 
-Triple-quoted raw strings (`"""..."""`) span multiple lines and don't need escaping —
-quotes and special characters are taken literally. Prefix with `$` to interpolate.
+Triple-quoted raw strings (`"""..."""`) span multiple lines and have no escapes at all —
+quotes, backslashes and every sequence in the table above are taken literally. Prefix with `$` to interpolate.
 
 ```n#
 name := "Ada"

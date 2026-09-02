@@ -265,6 +265,10 @@ message := $"Hello, {name}! You are {age} years old."
 Console.WriteLine(message)
 ```
 
+Backslash escapes (`\n`, `\t`, `\e`, `\x1b`, `\u0041`, ...) are listed in the
+[language tour](./language-tour.md#escape-sequences). A backslash that starts no escape is not one,
+so double it or use a raw `"""..."""` string.
+
 ## Imports and Packages
 
 ### Import Statements
