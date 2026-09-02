@@ -1479,6 +1479,24 @@ class ColumnarParserRecovery {
         }
     }
 
+    // The line a DELIMITED LIST's closing delimiter sits on, stamped onto the list node.
+    //
+    // The formatter's wrapping rule is author-preserving: a list the author spread over more than one
+    // source line is canonicalised to one element per line, and a list written on one line stays on one
+    // line however long. "More than one source line" is a question about the two DELIMITERS — a list
+    // whose `)` is below its `(` is wrapped even if every element fits on the opening line — so each
+    // list node carries the closer's line as well as the opener's.
+    //
+    // `EndLine` is the field that already answers "what line does this node end on" (the declaration and
+    // statement stamps above and in `ParseStatements`), and it DEFAULTS TO `Line`. That default is what
+    // makes this safe to add: a node from a path that never stamps it, and every node in a hand-built
+    // AST, reads as single-line — which is exactly the behaviour those trees have today.
+    //
+    // Call it IMMEDIATELY after the closer is consumed, so `Previous()` is the closer itself.
+    func StampListEnd(node: Expression) {
+        node.EndLine = Previous().Line
+    }
+
     // Stage N+1c tranche 3 (members): ParseTypeBody now RETURNS the member list it parsed, so each type
     // name parser can hang a POPULATED Members list on its declaration node. A fresh list is pushed as the
     // active member target for the duration of the body (so members + nested types append to it) and popped
@@ -6644,7 +6662,11 @@ class ColumnarParserRecovery {
                                 // parenToken.Line, parenToken.Column)` (Parser.cs :4492) when the callee, the
                                 // type-argument list, and every argument materialized (else declines — no-stub).
                                 if genericCallee != null && typeArguments != null && genericArgs != null {
-                                    genericResult.Node = new CallExpression(genericCallee, genericArgs, typeArguments, genericParenToken.Line, genericParenToken.Column)
+                                    genericCall := new CallExpression(genericCallee, genericArgs, typeArguments, genericParenToken.Line, genericParenToken.Column)
+                                    // `ParseArgumentList` has consumed the `)`, so `Previous()` IS the closing
+                                    // delimiter — see `StampListEnd`'s note at the plain-call site below.
+                                    StampListEnd(genericCall)
+                                    genericResult.Node = genericCall
                                 }
                                 result = genericResult
                             }
@@ -6660,7 +6682,9 @@ class ColumnarParserRecovery {
                                 // parenToken.Column)` (Parser.cs :4499) — a non-generic call carries a NULL
                                 // TypeArguments list (not an empty one).
                                 if plainCallee != null && plainArgs != null {
-                                    plainResult.Node = new CallExpression(plainCallee, plainArgs, NoTypeArguments(), plainParenToken.Line, plainParenToken.Column)
+                                    plainCall := new CallExpression(plainCallee, plainArgs, NoTypeArguments(), plainParenToken.Line, plainParenToken.Column)
+                                    StampListEnd(plainCall)
+                                    plainResult.Node = plainCall
                                 }
                                 result = plainResult
                             } else {
@@ -7843,11 +7867,18 @@ class ColumnarParserRecovery {
         constructorArguments := new List<Argument>()
         argumentsDeclined := false
         arrayLength: Expression? = null
+        // The NewExpression's own `EndLine` is the CONSTRUCTOR ARGUMENT LIST's closer, not the whole
+        // expression's last token, because those are two different lists: `new Foo(a) { X: 1 }` has a
+        // single-line argument list and a wrapped initializer, and the formatter must be able to tell
+        // them apart. The initializer carries its own `{`/`}` span. With no parens at all the two stay
+        // equal, which reads as "single line" — correct for `new Foo` and `new Foo { … }` alike.
+        constructorArgumentsEndLine := line
 
         if Check(TokenType.LeftParen) {
             // Target-typed new: `new(args)` (Parser.cs :5220).
             Advance()
             targetTypedArguments := ParseArgumentList()
+            constructorArgumentsEndLine = Previous().Line
             if targetTypedArguments == null {
                 argumentsDeclined = true
             } else {
@@ -7877,6 +7908,7 @@ class ColumnarParserRecovery {
                     // constructor args (Parser.cs :5248)
                     Advance()
                     typedArguments := ParseArgumentList()
+                    constructorArgumentsEndLine = Previous().Line
                     if typedArguments == null {
                         argumentsDeclined = true
                     } else {
@@ -7889,8 +7921,17 @@ class ColumnarParserRecovery {
                     sizedElements := new List<PropertyInitializer>()
                     hasSizedInitializer := false
                     sizedDeclined := false
+                    // An initializer is anchored on ITS OWN `{`, never on the `new` keyword. The two differ
+                    // whenever the constructor arguments or the array length wrapped, and the formatter asks
+                    // the initializer's span whether the initializer wrapped.
+                    sizedBraceLine := line
+                    sizedBraceColumn := column
+                    sizedBraceEndLine := line
                     if Check(TokenType.LeftBrace) {
                         hasSizedInitializer = true
+                        sizedBraceToken := Current()
+                        sizedBraceLine = sizedBraceToken.Line
+                        sizedBraceColumn = sizedBraceToken.Column
                         Advance()
                         while !Check(TokenType.RightBrace) && !IsAtEnd() {
                             startPosition := Position
@@ -7914,15 +7955,22 @@ class ColumnarParserRecovery {
                         // Parser.cs :5268-5269
 
                         ConsumeToken(TokenType.RightBrace, "Expected '}'", "}")
+                        sizedBraceEndLine = Previous().Line
                     }
                     sizedResult := new ExprResult(new RecoverySpan(line, column, 3), false)
                     // `new NewExpression(type, args, sizedArrayInitializer, line, column, arrayLengthExpression)`
                     // (Parser.cs :5286); the initializer is null when no `{ … }` followed.
                     if !typeDeclined && !argumentsDeclined && !sizedDeclined && arrayLength != null {
                         if hasSizedInitializer {
-                            sizedResult.Node = new NewExpression(newType, constructorArguments, new ObjectInitializerExpression(sizedElements, line, column), line, column, arrayLength)
+                            sizedInitializer := new ObjectInitializerExpression(sizedElements, sizedBraceLine, sizedBraceColumn)
+                            sizedInitializer.EndLine = sizedBraceEndLine
+                            sizedNew := new NewExpression(newType, constructorArguments, sizedInitializer, line, column, arrayLength)
+                            sizedNew.EndLine = constructorArgumentsEndLine
+                            sizedResult.Node = sizedNew
                         } else {
-                            sizedResult.Node = new NewExpression(newType, constructorArguments, null, line, column, arrayLength)
+                            sizedNewBare := new NewExpression(newType, constructorArguments, null, line, column, arrayLength)
+                            sizedNewBare.EndLine = constructorArgumentsEndLine
+                            sizedResult.Node = sizedNewBare
                         }
                     }
                     return sizedResult
@@ -7934,9 +7982,17 @@ class ColumnarParserRecovery {
         initializerProperties := new List<PropertyInitializer>()
         hasInitializer := false
         initializerDeclined := false
+        initializerBraceLine := line
+        initializerBraceColumn := column
+        initializerBraceEndLine := line
         if Check(TokenType.LeftBrace) {
             hasInitializer = true
+            // Anchored on the `{`, not on `new` — see the sized-array note above.
+            initializerBraceToken := Current()
+            initializerBraceLine = initializerBraceToken.Line
+            initializerBraceColumn = initializerBraceToken.Column
             parsedProperties := ParseObjectInitializer(newType)
+            initializerBraceEndLine = Previous().Line
             if parsedProperties == null {
                 initializerDeclined = true
             } else {
@@ -7948,9 +8004,15 @@ class ColumnarParserRecovery {
         // defaults to null on this path.
         if !typeDeclined && !argumentsDeclined && !initializerDeclined {
             if hasInitializer {
-                newResult.Node = new NewExpression(newType, constructorArguments, new ObjectInitializerExpression(initializerProperties, line, column), line, column, null)
+                initializer := new ObjectInitializerExpression(initializerProperties, initializerBraceLine, initializerBraceColumn)
+                initializer.EndLine = initializerBraceEndLine
+                initializedNew := new NewExpression(newType, constructorArguments, initializer, line, column, null)
+                initializedNew.EndLine = constructorArgumentsEndLine
+                newResult.Node = initializedNew
             } else {
-                newResult.Node = new NewExpression(newType, constructorArguments, null, line, column, null)
+                bareNew := new NewExpression(newType, constructorArguments, null, line, column, null)
+                bareNew.EndLine = constructorArgumentsEndLine
+                newResult.Node = bareNew
             }
         }
         return newResult
@@ -8130,7 +8192,9 @@ class ColumnarParserRecovery {
         // :5436), anchored on the `[` — the `immutable` keyword arm advances past the keyword FIRST, so the
         // anchor is the bracket in both forms.
         if !elementsDeclined {
-            arrayResult.Node = new ArrayLiteralExpression(elements, isImmutable, line, column)
+            arrayLiteral := new ArrayLiteralExpression(elements, isImmutable, line, column)
+            StampListEnd(arrayLiteral)
+            arrayResult.Node = arrayLiteral
         }
         return arrayResult
     }

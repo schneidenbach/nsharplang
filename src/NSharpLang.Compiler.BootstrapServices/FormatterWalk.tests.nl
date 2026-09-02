@@ -183,73 +183,6 @@ test "an empty statement emits nothing at all, not even an indent" {
     assert FwkShow(builder) == ""
 }
 
-// ---- (c) the column measurement -----------------------------------------------------------------
-
-test "the column of an empty builder is zero" {
-    assert FormatterWalk.GetCurrentColumn(new StringBuilder()) == 0
-}
-
-test "the column with no newline is the whole length" {
-    builder := new StringBuilder()
-    builder.Append("abc")
-    assert FormatterWalk.GetCurrentColumn(builder) == 3
-}
-
-test "the column is counted from the LAST newline and not the first" {
-    builder := new StringBuilder()
-    builder.Append("a\nbb\nccc")
-    assert FormatterWalk.GetCurrentColumn(builder) == 3
-}
-
-test "a buffer ending in a newline is at column zero" {
-    builder := new StringBuilder()
-    builder.Append("line\n")
-    assert FormatterWalk.GetCurrentColumn(builder) == 0
-}
-
-test "the column is exact on either side of the first tail chunk" {
-    // The scan reads 64 characters, then 128, then 256 … so 63, 64 and 65 are the boundary and each
-    // is asserted rather than argued.
-    shorter := new StringBuilder()
-    shorter.Append(FwkRepeat("x", 63))
-    assert FormatterWalk.GetCurrentColumn(shorter) == 63
-
-    exact := new StringBuilder()
-    exact.Append(FwkRepeat("x", 64))
-    assert FormatterWalk.GetCurrentColumn(exact) == 64
-
-    longer := new StringBuilder()
-    longer.Append(FwkRepeat("x", 65))
-    assert FormatterWalk.GetCurrentColumn(longer) == 65
-}
-
-test "a newline far outside the first chunk is still found" {
-    builder := new StringBuilder()
-    builder.Append(FwkRepeat("x", 1000))
-    builder.Append("\nxy")
-    assert FormatterWalk.GetCurrentColumn(builder) == 2
-}
-
-test "a line 1000 characters long reports 1000 and not the chunk size" {
-    // This is the case a naive "look at the last 64 characters" scan gets wrong, silently, by
-    // reporting 64 — which would break every object-initializer line-length decision on a long line.
-    builder := new StringBuilder()
-    builder.Append("\n")
-    builder.Append(FwkRepeat("x", 1000))
-    assert FormatterWalk.GetCurrentColumn(builder) == 1000
-}
-
-func FwkRepeat(unit: string, count: int): string {
-    builder := new StringBuilder()
-    index := 0
-    while index < count {
-        builder.Append(unit)
-        index = index + 1
-    }
-
-    return builder.ToString()
-}
-
 // ---- (d) the `for x in xs` disguise --------------------------------------------------------------
 
 test "a three-null for wrapping a foreach prints as for x in xs" {
@@ -450,54 +383,83 @@ test "every nesting statement leaves the depth exactly where it found it" {
 
 // ---- the object initializer's two forms -----------------------------------------------------------
 
-test "an object initializer that fits stays on one line" {
-    properties := new List<PropertyInitializer>()
-    properties.Add(new PropertyInitializer("A", null, FwkInt("1"), 0, 0))
-    properties.Add(new PropertyInitializer("B", null, FwkInt("2"), 0, 0))
+// ---- the parameter list's delimiters and its wrap ------------------------------------------------
+
+// THE INDEXER IS STATED HERE AND NOT AGAINST SOURCE, because the formatter writes an indexer as
+// `this[…]` while the grammar reads it as `func this[…]` — a PRE-EXISTING round-trip defect, the
+// "pinned INDEXER case" the estate's format gate already records, and not this rule's to fix. The
+// emitter is reachable directly, so the delimiters and the wrap are contracted on it.
+
+test "a parameter list writes the delimiters it is given, round or square" {
+    parameters := FwkEmptyParameters()
+    parameters.Add(FwkParameter("i", "int"))
+    parameters.Add(FwkParameter("j", "int"))
     state := FwkState()
     walk := FwkWalk(state)
-    builder := new StringBuilder()
-    walk.FormatObjectInitializer(new ObjectInitializerExpression(properties, 0, 0), builder)
-    assert FwkShow(builder) == " { A: 1, B: 2 }"
+
+    round := new StringBuilder()
+    walk.AppendParameterList(parameters, 0, "(", ")", round)
+    assert FwkShow(round) == "(i: int, j: int)", FwkShow(round)
+
+    square := new StringBuilder()
+    walk.AppendParameterList(parameters, 0, "[", "]", square)
+    assert FwkShow(square) == "[i: int, j: int]", FwkShow(square)
 }
 
-test "an object initializer that does not fit breaks one property per line" {
+test "a parameter list wraps on its ELEMENT lines, and keeps its square brackets when it does" {
+    // A parameter below the declaration's own line is a wrapped list. The closer plays no part: a
+    // declaration's `(` and `)` belong to the declaration, and the parser stamps neither.
+    parameters := FwkEmptyParameters()
+    parameters.Add(FwkParameterAt("i", "int", 2))
+    parameters.Add(FwkParameterAt("j", "int", 3))
+    state := FwkState()
+    walk := FwkWalk(state)
+
+    builder := new StringBuilder()
+    walk.AppendParameterList(parameters, 1, "[", "]", builder)
+    assert FwkShow(builder) == "[|    i: int,|    j: int|]", FwkShow(builder)
+
+    // The same parameters all on the declaration's own line stay on one line.
+    flatParameters := FwkEmptyParameters()
+    flatParameters.Add(FwkParameterAt("i", "int", 1))
+    flatParameters.Add(FwkParameterAt("j", "int", 1))
+    flat := new StringBuilder()
+    FwkWalk(FwkState()).AppendParameterList(flatParameters, 1, "(", ")", flat)
+    assert FwkShow(flat) == "(i: int, j: int)", FwkShow(flat)
+}
+
+func FwkParameterAt(name: string, typeName: string, line: int): Parameter {
+    return new Parameter(name, FwkType(typeName), null, false, ParameterModifier.None, null, line, 0, false, null)
+}
+
+test "an initializer with no source positions is written inline, however many properties it has" {
+    // A hand-built tree carries no `Line`/`EndLine`, and the wrapping rule reads a tree with no source
+    // positions as single-line. That is the whole reason this file's contracts are untouched by the
+    // rule: it decides from the SOURCE, and these trees have none. The width rule this replaces would
+    // have broken this initializer apart at `MaxLineLength`; there is no width limit any more.
     properties := new List<PropertyInitializer>()
     properties.Add(new PropertyInitializer("Alpha", null, FwkInt("1"), 0, 0))
     properties.Add(new PropertyInitializer("Beta", null, FwkInt("2"), 0, 0))
-    state := new FormatterWalkState(FwkConfig(4, true, 12))
-    walk := FwkWalk(state)
-    builder := new StringBuilder()
-    walk.FormatObjectInitializer(new ObjectInitializerExpression(properties, 0, 0), builder)
-    assert FwkShow(builder) == " {|    Alpha: 1,|    Beta: 2|}"
-}
-
-test "a SINGLE property stays inline even when it does not fit" {
-    properties := new List<PropertyInitializer>()
-    properties.Add(new PropertyInitializer("AVeryLongPropertyName", null, FwkInt("1"), 0, 0))
+    properties.Add(new PropertyInitializer("Gamma", null, FwkInt("3"), 0, 0))
     state := new FormatterWalkState(FwkConfig(4, true, 4))
     walk := FwkWalk(state)
     builder := new StringBuilder()
     walk.FormatObjectInitializer(new ObjectInitializerExpression(properties, 0, 0), builder)
-    assert FwkShow(builder) == " { AVeryLongPropertyName: 1 }"
+    assert FwkShow(builder) == " { Alpha: 1, Beta: 2, Gamma: 3 }"
 }
 
-test "the column already written decides whether the initializer fits" {
-    // Same initializer, same limit, two starting columns: this is what `GetCurrentColumn` is for.
+test "an initializer whose braces span source lines is written one property per line" {
+    // The same tree with the two brace lines stamped, which is what the parser does.
     properties := new List<PropertyInitializer>()
-    properties.Add(new PropertyInitializer("A", null, FwkInt("1"), 0, 0))
-    properties.Add(new PropertyInitializer("B", null, FwkInt("2"), 0, 0))
-
-    early := new FormatterWalkState(FwkConfig(4, true, 20))
-    earlyBuilder := new StringBuilder()
-    FwkWalk(early).FormatObjectInitializer(new ObjectInitializerExpression(properties, 0, 0), earlyBuilder)
-    assert FwkShow(earlyBuilder) == " { A: 1, B: 2 }"
-
-    late := new FormatterWalkState(FwkConfig(4, true, 20))
-    lateBuilder := new StringBuilder()
-    lateBuilder.Append(FwkRepeat("p", 15))
-    FwkWalk(late).FormatObjectInitializer(new ObjectInitializerExpression(properties, 0, 0), lateBuilder)
-    assert FwkShow(lateBuilder) == "ppppppppppppppp {|    A: 1,|    B: 2|}"
+    properties.Add(new PropertyInitializer("Alpha", null, FwkInt("1"), 1, 1))
+    properties.Add(new PropertyInitializer("Beta", null, FwkInt("2"), 2, 1))
+    state := new FormatterWalkState(FwkConfig(4, true, 4000))
+    walk := FwkWalk(state)
+    builder := new StringBuilder()
+    initializer := new ObjectInitializerExpression(properties, 1, 1)
+    initializer.EndLine = 3
+    walk.FormatObjectInitializer(initializer, builder)
+    assert FwkShow(builder) == " {|    Alpha: 1,|    Beta: 2|}"
 }
 
 test "an indexer initializer writes its bracketed index and an equals sign" {
@@ -508,27 +470,6 @@ test "an indexer initializer writes its bracketed index and an equals sign" {
     builder := new StringBuilder()
     walk.FormatObjectInitializer(new ObjectInitializerExpression(properties, 0, 0), builder)
     assert FwkShow(builder) == " { [0] = 9 }"
-}
-
-// ---- the measurement pass -------------------------------------------------------------------------
-
-test "measuring an expression restores the comment cursor and leaves the depth alone" {
-    comments := new List<CommentTrivia>()
-    comments.Add(new CommentTrivia(1, 1, "// c", false))
-    state := FwkState()
-    state.BeginFile(comments)
-    state.Push()
-    state.LastEmittedSourceLine = 44
-    walk := FwkWalk(state)
-
-    parameters := FwkEmptyParameters()
-    parameters.Add(FwkParameter("x", "var"))
-    measured := walk.FormatExpressionToString(new LambdaExpression(parameters, null, FwkOneStatementBlock(), 0, 0))
-
-    assert state.CommentIndex == 0
-    assert state.LastEmittedSourceLine == 44
-    assert state.IndentDepth == 1
-    assert measured.Length > 0
 }
 
 // ---- the statement arms that are one line each ------------------------------------------------------

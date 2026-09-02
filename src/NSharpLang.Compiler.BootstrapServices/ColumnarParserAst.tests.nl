@@ -3907,12 +3907,12 @@ test "016 N+1c tranche 9b: a typed new T(1, 2) materializes both constructor arg
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 9b: a typed object initializer materializes ObjectInitializerExpression on 'new' (Parser.cs :5350)" {
+test "016 N+1c tranche 9b: a typed object initializer materializes an ObjectInitializerExpression anchored on its OWN brace, not on `new` (Parser.cs :5350)" {
     actual := RunAst("enum E {\n    A = new T { X: 1 }\n}\n")
     props := new List<PropertyInitializer>()
     Golden.AddProp(props, "X", null, Golden.IntLit("1", 2, 20), 2, 17)
     members := new List<EnumMember>()
-    Golden.AddEMemV(members, "A", Golden.NewE(Golden.SimpleT("T", 2, 13, 14), Golden.NoArgs(), Golden.ObjInit(props, 2, 9), null, 2, 9), 2, 5)
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.SimpleT("T", 2, 13, 14), Golden.NoArgs(), Golden.ObjInit(props, 2, 15), null, 2, 9), 2, 5)
     decls := new List<Declaration>()
     Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
@@ -3924,7 +3924,7 @@ test "016 N+1c tranche 9b: a target-typed object initializer (new { X: 1 }) keep
     props := new List<PropertyInitializer>()
     Golden.AddProp(props, "X", null, Golden.IntLit("1", 2, 18), 2, 15)
     members := new List<EnumMember>()
-    Golden.AddEMemV(members, "A", Golden.NewE(null, Golden.NoArgs(), Golden.ObjInit(props, 2, 9), null, 2, 9), 2, 5)
+    Golden.AddEMemV(members, "A", Golden.NewE(null, Golden.NoArgs(), Golden.ObjInit(props, 2, 13), null, 2, 9), 2, 5)
     decls := new List<Declaration>()
     Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
@@ -3936,7 +3936,7 @@ test "016 N+1c tranche 9b: an indexer initializer (new T { [0] = 1 }) materializ
     props := new List<PropertyInitializer>()
     Golden.AddProp(props, null, Golden.IntLit("0", 2, 18), Golden.IntLit("1", 2, 23), 0, 0)
     members := new List<EnumMember>()
-    Golden.AddEMemV(members, "A", Golden.NewE(Golden.SimpleT("T", 2, 13, 14), Golden.NoArgs(), Golden.ObjInit(props, 2, 9), null, 2, 9), 2, 5)
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.SimpleT("T", 2, 13, 14), Golden.NoArgs(), Golden.ObjInit(props, 2, 15), null, 2, 9), 2, 5)
     decls := new List<Declaration>()
     Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
@@ -3961,7 +3961,7 @@ test "016 N+1c tranche 9b: a sized-array initializer (new T[2] { a, b }) materia
     Golden.AddProp(props, null, null, Golden.Ident("a", 2, 20), 0, 0)
     Golden.AddProp(props, null, null, Golden.Ident("b", 2, 23), 0, 0)
     members := new List<EnumMember>()
-    Golden.AddEMemV(members, "A", Golden.NewE(Golden.ArrayT(Golden.SimpleT("T", 2, 13, 14), 2, 13, 14), Golden.NoArgs(), Golden.ObjInit(props, 2, 9), Golden.IntLit("2", 2, 15), 2, 9), 2, 5)
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.ArrayT(Golden.SimpleT("T", 2, 13, 14), 2, 13, 14), Golden.NoArgs(), Golden.ObjInit(props, 2, 18), Golden.IntLit("2", 2, 15), 2, 9), 2, 5)
     decls := new List<Declaration>()
     Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
@@ -3978,7 +3978,7 @@ test "016 N+1c tranche 9b: an array-typed collection initializer (new T[] { a, b
     Golden.AddProp(props, null, null, Golden.Ident("a", 2, 19), 0, 0)
     Golden.AddProp(props, null, null, Golden.Ident("b", 2, 22), 0, 0)
     members := new List<EnumMember>()
-    Golden.AddEMemV(members, "A", Golden.NewE(Golden.ArrayT(Golden.SimpleT("T", 2, 13, 14), 2, 13, 16), Golden.NoArgs(), Golden.ObjInit(props, 2, 9), null, 2, 9), 2, 5)
+    Golden.AddEMemV(members, "A", Golden.NewE(Golden.ArrayT(Golden.SimpleT("T", 2, 13, 14), 2, 13, 16), Golden.NoArgs(), Golden.ObjInit(props, 2, 17), null, 2, 9), 2, 5)
     decls := new List<Declaration>()
     Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
@@ -4179,7 +4179,7 @@ test "016 N+1c tranche 9b: WHOLE-FILE enum mixing call, new-object-initializer, 
     Golden.AddExpr(arrayElements, Golden.IntLit("2", 4, 13))
     members := new List<EnumMember>()
     Golden.AddEMemV(members, "A", Golden.Call(Golden.Ident("F", 2, 9), callArgs, Golden.NoTypeArgs(), 2, 10), 2, 5)
-    Golden.AddEMemV(members, "B", Golden.NewE(Golden.SimpleT("T", 3, 13, 14), Golden.NoArgs(), Golden.ObjInit(initProps, 3, 9), null, 3, 9), 3, 5)
+    Golden.AddEMemV(members, "B", Golden.NewE(Golden.SimpleT("T", 3, 13, 14), Golden.NoArgs(), Golden.ObjInit(initProps, 3, 15), null, 3, 9), 3, 5)
     Golden.AddEMemV(members, "C", Golden.ArrayLit(arrayElements, false, 4, 9), 4, 5)
     decls := new List<Declaration>()
     Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
@@ -5574,7 +5574,7 @@ test "016 N+1c tranche 11: a missing object-initializer `:` materializes the `<e
     props := Golden.NoProps()
     Golden.AddProp(props, "A", null, Golden.Ident("<error>", 1, 26), 1, 25)
     Golden.AddProp(props, "<error>", null, Golden.Ident("<error>", 1, 28), 1, 27)
-    initializer := Golden.NewE(Golden.SimpleT("T", 1, 21, 22), Golden.NoArgs(), Golden.ObjInit(props, 1, 17), null, 1, 17)
+    initializer := Golden.NewE(Golden.SimpleT("T", 1, 21, 22), Golden.NoArgs(), Golden.ObjInit(props, 1, 23), null, 1, 17)
     expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
@@ -5718,7 +5718,7 @@ test "016 N+1c tranche 11: a value-less object-initializer member materializes `
     actual := RunFn("x := new T { A: }")
     props := Golden.NoProps()
     Golden.AddProp(props, "A", null, Golden.Ident("<error>", 1, 27), 1, 25)
-    initializer := Golden.NewE(Golden.SimpleT("T", 1, 21, 22), Golden.NoArgs(), Golden.ObjInit(props, 1, 17), null, 1, 17)
+    initializer := Golden.NewE(Golden.SimpleT("T", 1, 21, 22), Golden.NoArgs(), Golden.ObjInit(props, 1, 23), null, 1, 17)
     expected := FnUnit1(Golden.VarDecl("x", null, initializer, VariableKind.Let, 1, 12))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }

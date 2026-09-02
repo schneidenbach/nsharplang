@@ -6,10 +6,18 @@ import System.Text
 
 // THE TWO POSITION CURSORS AS THE CALLER HOLDS THEM, FOR THE LENGTH OF ONE MEASUREMENT PASS.
 //
-// `Formatter.FormatExpressionToString` formats an expression into a throwaway builder purely to
-// measure it, and must leave the comment stream where it found it. The C# did that by copying two
+// `Formatter.FormatExpressionToString` formatted an expression into a throwaway builder purely to
+// measure it, and had to leave the comment stream where it found it. The C# did that by copying two
 // fields into LOCALS and writing them back ON THE STRAIGHT LINE — no `try`/`finally`, so a throw
 // inside the measured expression abandons the restore and the walk carries on with a moved cursor.
+//
+// THAT MEASUREMENT IS GONE. The formatter has no width limit, so nothing measures an expression any
+// more, and `FormatExpressionToString` is deleted. The snapshot pair below has NO PRODUCT CALLER as
+// of this slice and is kept for one slice only so that this file — which a sibling slice is editing —
+// takes one edit and not two; the follow-up that lands the estate reformat deletes it. Do not give it
+// a new caller: a snapshot around anything that can emit a comment rolls the cursor back and emits
+// that comment a second time, which is exactly why the inline object-initializer path no longer uses
+// one.
 //
 // That is why this is a snapshot the CALLER holds rather than a stack the state owns. An owned
 // push/pop pair would unwind in a `finally` and so would quietly make a non-exception-safe idiom

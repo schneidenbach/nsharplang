@@ -18,16 +18,19 @@ import NSharpLang.Compiler.Ast
 //     into `FormatterSyntaxText`, because those are total functions from a node to a string;
 //   * this owner takes the WALK ITSELF, which is what was left once both were gone.
 //
-// MEASURED, IT IS ONE CLOSED CUT AND NOT A CHOICE. `nl93-scc.py` reports a fourteen-member cycle
+// MEASURED, IT WAS ONE CLOSED CUT AND NOT A CHOICE. `nl93-scc.py` reported a fourteen-member cycle
 // (`FormatStatement` ↔ `FormatExpression` ↔ `FormatPattern` ↔ `FormatFunction` ↔ …, 1,283 lines)
-// whose only escape is `GetCurrentColumn`; adding that one nineteen-line measurement closes the set
-// to NOTHING. Fifteen members, 1,302 lines, entered from the fifteen leaf declaration formatters
-// that stay in C# — `FormatClass`, `FormatField`, `FormatTest` and the rest — through the five
-// public entry points below. Nothing here calls back out.
+// whose only escape was `GetCurrentColumn`; adding that one measurement closed the set to NOTHING.
+// `GetCurrentColumn` is now DELETED along with the width rule that was its only caller — the
+// formatter has no width limit — and the cycle is closed without it.
 //
-// THE FIVE ENTRY POINTS ARE `FormatAttributes`, `FormatBlock`, `FormatParameter`,
-// `FormatExpression` AND `FormatFunction`. Everything else is reachable only from inside this walk;
-// the C# side names none of them.
+// THE SIX ENTRY POINTS ARE `FormatAttributes`, `FormatBlock`, `FormatParameter`,
+// `AppendParameterList`, `FormatExpression` AND `FormatFunction`. Everything else is reachable only
+// from inside this walk; the declaration formatters in `Formatter` name none of the rest.
+//
+// THE WRAPPING RULE IS THE FIRST THING BELOW, because it is the one decision every delimited list in
+// the language routes through, and because before it existed this walk could only write a list on
+// one line.
 //
 // THE STATE IS BORROWED, NOT OWNED. This walk and the `Formatter` that constructs it share one
 // `FormatterWalkState` object, because a declaration formatter in C# and a statement arm here are
@@ -38,6 +41,378 @@ class FormatterWalk {
 
     constructor(sharedState: FormatterWalkState) {
         state = sharedState
+    }
+
+    // ---- the wrapping rule -----------------------------------------------------------------------
+
+    // WHETHER A DELIMITED LIST IS WRITTEN ON ONE LINE OR ONE ELEMENT PER LINE. THE AUTHOR DECIDES.
+    //
+    // This is gofmt's model, and it replaces having no model at all: before this rule every list arm
+    // in this file wrote `", "` between elements and one line was the only shape it could produce, so
+    // the formatter JOINED every hand-wrapped call in the estate onto a single line. The rule now is:
+    //
+    //   * a list the author wrote on ONE source line stays on one line, however long it is — there is
+    //     NO width limit in the formatter, and the one that used to exist (the object initializer's
+    //     `MaxLineLength` measurement) is deleted. A ceiling, if the language ever wants one, is a lint;
+    //   * a list that SPANS MORE THAN ONE SOURCE LINE is canonicalised to one element per line, block
+    //     indented one level, with the closing delimiter alone on its own line at the opening line's
+    //     indent. No trailing comma — N# rejects one (NL101 in an argument list or array literal, NL102
+    //     in a parameter list), so the last element is bare;
+    //   * the formatter NEVER joins an author's line break.
+    //
+    // "SPANS MORE THAN ONE SOURCE LINE" IS A QUESTION ABOUT THE TWO DELIMITERS, not about the elements:
+    // `f(a, b\n)` is wrapped even though every element fits on the opening line. The parser stamps each
+    // list node's `EndLine` with its closer (`ColumnarParserRecovery.StampListEnd`), and `EndLine`
+    // defaults to `Line`, so a hand-built AST — every tree in `Formatter.tests.nl` and in this file's
+    // own contracts — reads as single-line and keeps the behaviour it has always had.
+    //
+    // NESTING COMPOSES OUTWARD FOR FREE. A wrapped inner list pushes the outer list's closer onto a
+    // later line, so the outer is wrapped by this same test with no extra machinery.
+    //
+    // THE ONE EXEMPTION IS THE HUG, and it is why `maxElementLine` is a parameter. When every element
+    // STARTS on the opening line and the LAST element is one that will be WRITTEN ACROSS LINES, the
+    // outer stays flat and the inner does the wrapping: `Task.Run(() => { … })`, `add(new Foo { … })`,
+    // `xs.Select(x => match x { … })`. That is what every gofmt-family formatter does, and without it
+    // every callback in the estate is torn into five lines. Elements cannot begin before the opener,
+    // so "every element starts on the opening line" is exactly `maxElementLine == openLine` — one
+    // integer, no allocation. See `ExpressionSpansLines` for what counts as written across lines.
+    //
+    // THERE IS DELIBERATELY NO "A COMMENT FORCES THE WRAP" CLAUSE, and the first version of this rule
+    // had one. It was both unnecessary and wrong. Unnecessary because a `//` comment runs to the end of
+    // its line, so a list written entirely on ONE line cannot contain one — the flat shape is never at
+    // risk. Wrong because the only cheap test for "a comment inside this list" is "a comment between
+    // the two delimiter lines", and that also catches every comment inside a nested BLOCK: it fired on
+    // the comment inside the lambda in `examples/17-issue-tracker/backend/Endpoints.nl` and tore a
+    // hugged callback apart. A comment inside an element's own body is emitted by that element's own
+    // walk, on its own lines, and was never this rule's business. What remains is that a WRAPPED list
+    // emits the comments standing between its elements, which is stated below and contracted.
+    //
+    // IT IS IDEMPOTENT BY CONSTRUCTION, WHICH IS THE PROPERTY THAT MATTERS. Wrapped output puts every
+    // element strictly below the opener and the closer strictly below them, so a reparse re-derives
+    // "wrapped"; flat output puts opener, elements and closer on one line, so a reparse re-derives
+    // "flat"; and a hugged list reparses with its elements still on the opening line and its last
+    // element still wrapped, so it hugs again. `Formatter.FormatSafe` re-formats its own output and
+    // returns the ORIGINAL source if the two differ, so a rule that were not idempotent would show up
+    // as "the formatter did nothing", not as churn.
+    static func ShouldWrapList(openLine: int, closeLine: int, elementCount: int, maxElementLine: int, lastElementSpansLines: bool): bool {
+        // An empty list has nothing to put on a line of its own; `()` and `[]` stay as written.
+        if elementCount == 0 {
+            return false
+        }
+
+        // A tree with no source positions — hand-built, or from a path that never stamped one — is
+        // single-line by definition. This is what keeps every AST-built contract unchanged.
+        if openLine <= 0 {
+            return false
+        }
+
+        if closeLine <= openLine {
+            return false
+        }
+
+        if maxElementLine == openLine && lastElementSpansLines {
+            return false
+        }
+
+        return true
+    }
+
+    // The same question for a list whose CLOSER the parser does not stamp: a declaration's parameter
+    // list, whose `(` and `)` belong to the declaration node rather than to a list node of their own.
+    //
+    // Here the test is the ELEMENTS: a parameter that starts below the declaration's own line is a
+    // wrapped list. The two tests differ only for a closer left dangling under a complete first line
+    // (`func f(a: int\n)`), which the element test reads as flat — a shape that appears NOWHERE in the
+    // estate, where all 188 wrapped parameter lists put a parameter on a later line. The hug cannot
+    // arise here for the same reason: with no parameter below the opener there is nothing to wrap.
+    static func ShouldWrapByElementLines(openLine: int, elementCount: int, maxElementLine: int): bool {
+        return elementCount > 0 && openLine > 0 && maxElementLine > openLine
+    }
+
+    // WILL THIS EXPRESSION BE WRITTEN ACROSS LINES? Asked of a list's LAST element, to decide the hug.
+    //
+    // IT IS NOT ENOUGH TO ASK "IS IT A WRAPPED LIST", and getting that wrong tore `Task.Run(() => {
+    // … })` into five lines in `examples/11-advanced-features/LockStatement`. A lambda with a BLOCK
+    // BODY is not a list, but it is written across lines every time, and hugging it is the whole point
+    // of the exemption — `f(x => { … })` and `Task.Run(() => { … })` are the shapes the rule exists to
+    // protect. So the question is about the OUTPUT, and the answer is the complete set of expression
+    // arms in this walk that emit a newline: a wrapped list, a lambda with a block body, and a `match`.
+    //
+    // A `new` carries two independent lists — its constructor arguments (its own span) and its
+    // initializer (the initializer's own braces) — and either one wrapping is enough to hug.
+    //
+    // THE TEST IS DELIBERATELY SHALLOW: it asks about the element itself, not about anything nested
+    // inside a larger expression. `f(a + g(\n x))` therefore wraps rather than hugs. That is the
+    // conservative direction — it preserves the author's break by spelling it out — and it keeps the
+    // rule predictable and idempotent, which recursing would not obviously do.
+    static func ExpressionSpansLines(expression: Expression): bool {
+        call := expression as CallExpression
+        if call != null {
+            return call.EndLine > call.Line
+        }
+
+        arrayLiteral := expression as ArrayLiteralExpression
+        if arrayLiteral != null {
+            return arrayLiteral.EndLine > arrayLiteral.Line
+        }
+
+        newExpression := expression as NewExpression
+        if newExpression != null {
+            if newExpression.EndLine > newExpression.Line {
+                return true
+            }
+
+            initializer := newExpression.Initializer
+            if initializer != null {
+                return initializer.EndLine > initializer.Line
+            }
+
+            return false
+        }
+
+        objectInitializer := expression as ObjectInitializerExpression
+        if objectInitializer != null {
+            return objectInitializer.EndLine > objectInitializer.Line
+        }
+
+        // A block-bodied lambda always writes `=> {`, a newline, its statements and a closing brace. An
+        // EXPRESSION-bodied one is as wide as its expression, so it spans lines exactly when that
+        // expression does — `() => new { … }` over a wrapped initializer is the shape in
+        // `examples/14-minimal-api`, and the lambda is the only wrapper this test looks through.
+        lambda := expression as LambdaExpression
+        if lambda != null {
+            if lambda.BlockBody != null {
+                return true
+            }
+
+            lambdaBody := lambda.ExpressionBody
+            if lambdaBody != null {
+                return ExpressionSpansLines(lambdaBody)
+            }
+
+            return false
+        }
+
+        // `on target.Event (a, b) => { … }` is a lambda behind a keyword.
+        onSubscription := expression as OnSubscriptionExpression
+        if onSubscription != null {
+            return ExpressionSpansLines(onSubscription.Handler)
+        }
+
+        // A `match` is one line per case, always.
+        matchExpression := expression as MatchExpression
+        if matchExpression != null {
+            return true
+        }
+
+        return false
+    }
+
+    // ---- the delimited lists ---------------------------------------------------------------------
+
+    // AN ARGUMENT LIST — a call's or a constructor's, which are the same list of the same element type
+    // and now the same code. Flat or one per line, decided by `ShouldWrapList` above.
+    //
+    // The comma is the whole difference between the two shapes: `", "` between elements on one line,
+    // a bare `","` at the end of each wrapped line, and NEVER after the last element. When wrapped,
+    // any comment the author left between two elements is emitted on its own line above the element
+    // that follows it, and any comment between the last element and the closer above the closer —
+    // which is where the leading-comment model puts every other comment in the file.
+    func FormatArgumentList(arguments: List<Argument>, openLine: int, closeLine: int, builder: StringBuilder) {
+        wrapped := ShouldWrapList(openLine, closeLine, arguments.Count, MaxArgumentLine(arguments), LastArgumentSpansLines(arguments)) && ArgumentsCanBeginLines(arguments)
+
+        // The gap tracker is written through a LOCAL, because the columnar backend declines a property
+        // assignment whose receiver is a field (NL103, node kind 23). Every other write of it in the
+        // formatter is spelled the same way, for the same reason.
+        tracker := state
+
+        builder.Append("(")
+        if wrapped {
+            state.Push()
+            // The gap the comment stream measures is now measured from INSIDE the list: the opening
+            // line is the baseline, and each element becomes the next one. Without this the tracker
+            // still holds the line before the statement, and every interior comment reads as though a
+            // blank line stood above it.
+            tracker.LastEmittedSourceLine = openLine
+        }
+
+        index := 0
+        while index < arguments.Count {
+            argument := arguments[index]
+            if wrapped {
+                builder.AppendLine()
+                state.EmitCommentsBefore(argument.Value.Line, builder)
+                state.Indent(builder)
+                tracker.LastEmittedSourceLine = argument.Value.Line
+            }
+
+            AppendArgument(argument, builder)
+            if index < arguments.Count - 1 {
+                if wrapped {
+                    builder.Append(",")
+                } else {
+                    builder.Append(", ")
+                }
+            }
+
+            index = index + 1
+        }
+
+        if wrapped {
+            builder.AppendLine()
+            state.EmitCommentsBefore(closeLine, builder)
+            state.Pop()
+            state.Indent(builder)
+        }
+
+        builder.Append(")")
+    }
+
+    // One argument: the optional `name:` prefix, the optional `ref`/`out` modifier, the value.
+    func AppendArgument(argument: Argument, builder: StringBuilder) {
+        argumentName := argument.Name
+        if argumentName != null {
+            builder.Append(argumentName)
+            builder.Append(": ")
+        }
+
+        if argument.Modifier == ArgumentModifier.Ref {
+            builder.Append("ref ")
+        } else if argument.Modifier == ArgumentModifier.Out {
+            builder.Append("out ")
+        }
+
+        FormatExpression(argument.Value, builder)
+    }
+
+    // The lowest line every argument starts at or above. `Argument` carries no position of its own —
+    // its `name:` prefix and its `ref`/`out` modifier stand on the value's line — so the VALUE's line
+    // is the argument's line.
+    static func MaxArgumentLine(arguments: List<Argument>): int {
+        highest := 0
+        index := 0
+        while index < arguments.Count {
+            argumentLine := arguments[index].Value.Line
+            if argumentLine > highest {
+                highest = argumentLine
+            }
+
+            index = index + 1
+        }
+
+        return highest
+    }
+
+    // CAN EVERY ARGUMENT BEGIN A LINE OF ITS OWN? A wrapped list that answers no would not re-parse.
+    //
+    // The parser ends an argument list at a continuation token that starts a statement, a declaration
+    // or a modifier (`IsContinuationRecoveryBoundary`), and `ref` is a DECLARATION keyword. So
+    // `f(a, ref b\n)` — a list the delimiter test calls wrapped — would be rewritten with `ref b` at
+    // the head of a line, and the parser would stop the list before it. `FormatSafe`'s reparse gate
+    // would then catch that and return the ORIGINAL source, so the file would silently stop being
+    // formatted at all; refusing the wrap and leaving the list on one line is the better answer, and
+    // it is still author-preserving in the direction that matters — nothing the author wrote is lost.
+    //
+    // `out` is not in any of the three sets and needs no guard; `ref` is the one modifier that is.
+    static func ArgumentsCanBeginLines(arguments: List<Argument>): bool {
+        index := 0
+        while index < arguments.Count {
+            if arguments[index].Modifier == ArgumentModifier.Ref {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    static func LastArgumentSpansLines(arguments: List<Argument>): bool {
+        if arguments.Count == 0 {
+            return false
+        }
+
+        return ExpressionSpansLines(arguments[arguments.Count - 1].Value)
+    }
+
+    // A list of bare expressions — an array or collection literal's elements.
+    static func MaxExpressionLine(expressions: List<Expression>): int {
+        highest := 0
+        index := 0
+        while index < expressions.Count {
+            expressionLine := expressions[index].Line
+            if expressionLine > highest {
+                highest = expressionLine
+            }
+
+            index = index + 1
+        }
+
+        return highest
+    }
+
+    static func LastExpressionSpansLines(expressions: List<Expression>): bool {
+        if expressions.Count == 0 {
+            return false
+        }
+
+        return ExpressionSpansLines(expressions[expressions.Count - 1])
+    }
+
+    // A PARAMETER LIST, wherever one is written: a function, a constructor, a record's primary
+    // constructor, or an indexer — whose brackets are SQUARE, which is why the two delimiters are
+    // arguments rather than literals. `openLine` is the declaration's own line; see
+    // `ShouldWrapByElementLines` for why the closer plays no part here.
+    func AppendParameterList(parameters: List<Parameter>, openLine: int, openText: string, closeText: string, builder: StringBuilder) {
+        wrapped := ShouldWrapByElementLines(openLine, parameters.Count, MaxParameterLine(parameters))
+
+        builder.Append(openText)
+        if wrapped {
+            state.Push()
+        }
+
+        index := 0
+        while index < parameters.Count {
+            if wrapped {
+                builder.AppendLine()
+                state.EmitCommentsBefore(parameters[index].Line, builder)
+                state.Indent(builder)
+            }
+
+            FormatParameter(parameters[index], builder)
+            if index < parameters.Count - 1 {
+                if wrapped {
+                    builder.Append(",")
+                } else {
+                    builder.Append(", ")
+                }
+            }
+
+            index = index + 1
+        }
+
+        if wrapped {
+            builder.AppendLine()
+            state.Pop()
+            state.Indent(builder)
+        }
+
+        builder.Append(closeText)
+    }
+
+    static func MaxParameterLine(parameters: List<Parameter>): int {
+        highest := 0
+        index := 0
+        while index < parameters.Count {
+            parameterLine := parameters[index].Line
+            if parameterLine > highest {
+                highest = parameterLine
+            }
+
+            index = index + 1
+        }
+
+        return highest
     }
 
     // ---- attributes ------------------------------------------------------------------------------
@@ -192,18 +567,7 @@ class FormatterWalk {
             AppendTypeParameters(declaration.TypeParameters, builder)
         }
 
-        builder.Append("(")
-        index := 0
-        while index < declaration.Parameters.Count {
-            FormatParameter(declaration.Parameters[index], builder)
-            if index < declaration.Parameters.Count - 1 {
-                builder.Append(", ")
-            }
-
-            index = index + 1
-        }
-
-        builder.Append(")")
+        AppendParameterList(declaration.Parameters, declaration.Line, "(", ")", builder)
 
         if !declaration.IsConversionOperator && declaration.ReturnType != null {
             builder.Append(": ")
@@ -1055,31 +1419,9 @@ class FormatterWalk {
                 builder.Append(">")
             }
 
-            builder.Append("(")
-            argumentIndex := 0
-            while argumentIndex < call.Arguments.Count {
-                argument := call.Arguments[argumentIndex]
-                argumentName := argument.Name
-                if argumentName != null {
-                    builder.Append(argumentName)
-                    builder.Append(": ")
-                }
-
-                if argument.Modifier == ArgumentModifier.Ref {
-                    builder.Append("ref ")
-                } else if argument.Modifier == ArgumentModifier.Out {
-                    builder.Append("out ")
-                }
-
-                FormatExpression(argument.Value, builder)
-                if argumentIndex < call.Arguments.Count - 1 {
-                    builder.Append(", ")
-                }
-
-                argumentIndex = argumentIndex + 1
-            }
-
-            builder.Append(")")
+            // The call's own span IS its argument list's span: the node is anchored on the `(` and
+            // stamped with the `)`.
+            FormatArgumentList(call.Arguments, call.Line, call.EndLine, builder)
             return
         }
 
@@ -1185,14 +1527,40 @@ class FormatterWalk {
                 builder.Append("[")
             }
 
+            elementsWrapped := ShouldWrapList(arrayLiteral.Line, arrayLiteral.EndLine, arrayLiteral.Elements.Count, MaxExpressionLine(arrayLiteral.Elements), LastExpressionSpansLines(arrayLiteral.Elements))
+            elementTracker := state
+            if elementsWrapped {
+                state.Push()
+                elementTracker.LastEmittedSourceLine = arrayLiteral.Line
+            }
+
             elementIndex := 0
             while elementIndex < arrayLiteral.Elements.Count {
-                FormatExpression(arrayLiteral.Elements[elementIndex], builder)
+                element := arrayLiteral.Elements[elementIndex]
+                if elementsWrapped {
+                    builder.AppendLine()
+                    state.EmitCommentsBefore(element.Line, builder)
+                    state.Indent(builder)
+                    elementTracker.LastEmittedSourceLine = element.Line
+                }
+
+                FormatExpression(element, builder)
                 if elementIndex < arrayLiteral.Elements.Count - 1 {
-                    builder.Append(", ")
+                    if elementsWrapped {
+                        builder.Append(",")
+                    } else {
+                        builder.Append(", ")
+                    }
                 }
 
                 elementIndex = elementIndex + 1
+            }
+
+            if elementsWrapped {
+                builder.AppendLine()
+                state.EmitCommentsBefore(arrayLiteral.EndLine, builder)
+                state.Pop()
+                state.Indent(builder)
             }
 
             builder.Append("]")
@@ -1246,25 +1614,11 @@ class FormatterWalk {
             } else if newExpression.ConstructorArguments.Count > 0 || newExpression.Initializer == null {
                 // An empty argument list is written unless an object initializer follows, because
                 // `new Foo { … }` and `new Foo() { … }` are both valid and the first is canonical.
-                builder.Append("(")
-                constructorIndex := 0
-                while constructorIndex < newExpression.ConstructorArguments.Count {
-                    constructorArgument := newExpression.ConstructorArguments[constructorIndex]
-                    constructorArgumentName := constructorArgument.Name
-                    if constructorArgumentName != null {
-                        builder.Append(constructorArgumentName)
-                        builder.Append(": ")
-                    }
-
-                    FormatExpression(constructorArgument.Value, builder)
-                    if constructorIndex < newExpression.ConstructorArguments.Count - 1 {
-                        builder.Append(", ")
-                    }
-
-                    constructorIndex = constructorIndex + 1
-                }
-
-                builder.Append(")")
+                //
+                // A `new`'s own span is its CONSTRUCTOR ARGUMENT LIST's span and not the whole
+                // expression's: `new Foo(a) { X: 1 }` has a flat argument list and a wrapped
+                // initializer, and the initializer carries its own braces.
+                FormatArgumentList(newExpression.ConstructorArguments, newExpression.Line, newExpression.EndLine, builder)
             }
 
             if newExpression.Initializer != null {
@@ -1643,140 +1997,119 @@ class FormatterWalk {
 
     // ---- object initializers ---------------------------------------------------------------------
 
-    // `{ Prop: value, … }` inline if it fits on the line, one property per line if it does not.
+    // `{ Prop: value, … }` on one line, or one property per line. THE AUTHOR DECIDES, not the width.
     //
-    // THE DECISION IS MADE BY FORMATTING THE INLINE FORM FIRST AND MEASURING IT — there is no
-    // estimate. The measurement pass runs through `FormatExpressionToString`, which restores the
-    // comment cursor afterwards so that measuring an expression never consumes a comment.
+    // THIS ARM USED TO HOLD THE FORMATTER'S ONLY WIDTH RULE — it formatted the inline form into a
+    // throwaway builder, measured it against `MaxLineLength` from the column already written, and
+    // broke if it did not fit. That rule is deleted with the measurement that served it: the owner's
+    // rule is that there is no width limit in the formatter. `max_line_length` is still read out of
+    // `.editorconfig` and still round-trips through `RebuildConfig`, so no user configuration breaks;
+    // the walk simply no longer consults it.
     //
-    // A SINGLE PROPERTY IS ALWAYS INLINE EVEN WHEN IT DOES NOT FIT, because breaking it would add a
-    // line without shortening anything.
+    // The initializer is anchored on its OWN braces (`ColumnarParserRecovery` stamps the `{` and the
+    // `}`), which is what lets `new Foo(\n a) { X: 1 }` keep a flat initializer under a wrapped
+    // argument list. A single property is no longer a special case: written on one line it stays on
+    // one line however long, and written across lines it is wrapped like any other list.
     func FormatObjectInitializer(initializer: ObjectInitializerExpression, builder: StringBuilder) {
-        inlineBuilder := new StringBuilder()
-        inlineBuilder.Append(" { ")
-        index := 0
-        while index < initializer.Properties.Count {
-            inlineProperty := initializer.Properties[index]
-            inlinePropertyName := inlineProperty.Name
-            if inlinePropertyName != null {
-                inlineBuilder.Append(inlinePropertyName)
-                inlineBuilder.Append(": ")
+        properties := initializer.Properties
+        wrapped := ShouldWrapList(initializer.Line, initializer.EndLine, properties.Count, MaxPropertyLine(properties), LastPropertySpansLines(properties))
+
+        if !wrapped {
+            builder.Append(" { ")
+            index := 0
+            while index < properties.Count {
+                AppendPropertyInitializer(properties[index], builder)
+                if index < properties.Count - 1 {
+                    builder.Append(", ")
+                }
+
+                index = index + 1
             }
 
-            // `IsIndexerInitializer` IS `IndexExpression != null`, so the C# spelled the guard as
-            // the property and then wrote `!` at the use. The null test is written directly here
-            // instead: it is the same condition, and the checker can see it. (The `!` shape reports
-            // NL202 on the live tree — caught by the live-tree check, not by the build.)
-            inlineIndexExpression := inlineProperty.IndexExpression
-            if inlineIndexExpression != null {
-                inlineBuilder.Append("[")
-                inlineBuilder.Append(FormatExpressionToString(inlineIndexExpression))
-                inlineBuilder.Append("] = ")
-            }
-
-            inlineBuilder.Append(FormatExpressionToString(inlineProperty.Value))
-            if index < initializer.Properties.Count - 1 {
-                inlineBuilder.Append(", ")
-            }
-
-            index = index + 1
-        }
-
-        inlineBuilder.Append(" }")
-
-        inlineText := inlineBuilder.ToString()
-        currentColumn := GetCurrentColumn(builder)
-        fitsOnLine := currentColumn + inlineText.Length <= state.MaxLineLength
-
-        if fitsOnLine || initializer.Properties.Count <= 1 {
-            builder.Append(inlineText)
+            builder.Append(" }")
             return
         }
 
+        tracker := state
         builder.Append(" {")
         state.Push()
+        tracker.LastEmittedSourceLine = initializer.Line
         multiIndex := 0
-        while multiIndex < initializer.Properties.Count {
+        while multiIndex < properties.Count {
+            multiProperty := properties[multiIndex]
             builder.AppendLine()
+            state.EmitCommentsBefore(PropertyInitializerLine(multiProperty), builder)
             state.Indent(builder)
-            multiProperty := initializer.Properties[multiIndex]
-            multiPropertyName := multiProperty.Name
-            if multiPropertyName != null {
-                builder.Append(multiPropertyName)
-                builder.Append(": ")
-            }
-
-            multiIndexExpression := multiProperty.IndexExpression
-            if multiIndexExpression != null {
-                builder.Append("[")
-                FormatExpression(multiIndexExpression, builder)
-                builder.Append("] = ")
-            }
-
-            FormatExpression(multiProperty.Value, builder)
-            if multiIndex < initializer.Properties.Count - 1 {
+            tracker.LastEmittedSourceLine = PropertyInitializerLine(multiProperty)
+            AppendPropertyInitializer(multiProperty, builder)
+            if multiIndex < properties.Count - 1 {
                 builder.Append(",")
             }
 
             multiIndex = multiIndex + 1
         }
 
-        state.Pop()
         builder.AppendLine()
+        state.EmitCommentsBefore(initializer.EndLine, builder)
+        state.Pop()
         state.Indent(builder)
         builder.Append("}")
     }
 
-    // The column the next character would land in: the characters written since the last newline,
-    // or the whole length if nothing has been written since one.
+    // One member: `Name: value`, `[index] = value`, or a bare element in a collection initializer.
     //
-    // THE C# READ THE BUILDER CHARACTER BY CHARACTER THROUGH ITS INDEXER, WHICH IS THE ONE PIECE OF
-    // SURFACE THE PINNED TOOLSET DOES NOT CARRY — and slice 17 left the member in C# for that
-    // reason. It did not need to. `StringBuilder.ToString(start, length)` IS in the catalog, and a
-    // BACKWARD SCAN IN DOUBLING TAIL CHUNKS costs the same as the C# loop: O(distance back to the
-    // last newline), not O(buffer). The chunk starts at 64 characters — a line's worth — and
-    // doubles, so a long line is found in a handful of copies and the common case is one.
-    //
-    // A newline can never straddle two chunks, because the chunks are contiguous and disjoint, so
-    // the scan needs no overlap. `LastIndexOf` takes the STRING "\n" rather than the character
-    // because the char overload declines against the pinned toolset (finding 93.4); for a
-    // one-character ordinal search the two agree.
-    static func GetCurrentColumn(builder: StringBuilder): int {
-        total := builder.Length
-        scanned := 0
-        chunk := 64
-
-        while scanned < total {
-            take := chunk
-            if take > total - scanned {
-                take = total - scanned
-            }
-
-            start := total - scanned - take
-            piece := builder.ToString(start, take)
-            newlineIndex := piece.LastIndexOf("\n", StringComparison.Ordinal)
-            if newlineIndex >= 0 {
-                return total - (start + newlineIndex + 1)
-            }
-
-            scanned = scanned + take
-            chunk = chunk * 2
+    // `IsIndexerInitializer` IS `IndexExpression != null`, so the C# spelled the guard as the property
+    // and then wrote `!` at the use. The null test is written directly here instead: it is the same
+    // condition, and the checker can see it. (The `!` shape reports NL202 on the live tree — caught by
+    // the live-tree check, not by the build.)
+    func AppendPropertyInitializer(property: PropertyInitializer, builder: StringBuilder) {
+        propertyName := property.Name
+        if propertyName != null {
+            builder.Append(propertyName)
+            builder.Append(": ")
         }
 
-        return total
+        indexExpression := property.IndexExpression
+        if indexExpression != null {
+            builder.Append("[")
+            FormatExpression(indexExpression, builder)
+            builder.Append("] = ")
+        }
+
+        FormatExpression(property.Value, builder)
     }
 
-    // An expression formatted into a throwaway builder, purely to measure how wide it is.
-    //
-    // The snapshot is held in this member's own local rather than on a stack inside the state, so a
-    // throw inside the measured expression abandons the restore exactly as the C#'s two saved
-    // locals did. See `FormatterPositionSnapshot` for why that asymmetry is preserved.
-    func FormatExpressionToString(expression: Expression): string {
-        saved := state.Snapshot()
-        temporary := new StringBuilder()
-        FormatExpression(expression, temporary)
-        state.Restore(saved)
-        return temporary.ToString()
+    // A member's line. `NameLine` is the name's own anchor and is 0 for a bare collection element or
+    // an indexer member, so the VALUE's line is the fallback — the two agree wherever both exist.
+    static func PropertyInitializerLine(property: PropertyInitializer): int {
+        if property.NameLine > 0 {
+            return property.NameLine
+        }
+
+        return property.Value.Line
+    }
+
+    static func MaxPropertyLine(properties: List<PropertyInitializer>): int {
+        highest := 0
+        index := 0
+        while index < properties.Count {
+            propertyLine := PropertyInitializerLine(properties[index])
+            if propertyLine > highest {
+                highest = propertyLine
+            }
+
+            index = index + 1
+        }
+
+        return highest
+    }
+
+    static func LastPropertySpansLines(properties: List<PropertyInitializer>): bool {
+        if properties.Count == 0 {
+            return false
+        }
+
+        return ExpressionSpansLines(properties[properties.Count - 1].Value)
     }
 
     // The formatter's contract when it meets a node it cannot spell: fail loudly.

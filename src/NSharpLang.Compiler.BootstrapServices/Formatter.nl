@@ -421,7 +421,7 @@ class Formatter {
     // A primary constructor's parameter list, or nothing. AN EMPTY LIST WRITES NO PARENTHESES:
     // `class Foo {` and `class Foo() {` are different source, and a record with no positional
     // parameters is spelled without them.
-    func AppendPrimaryConstructorParameters(parameters: List<Parameter>?, builder: StringBuilder) {
+    func AppendPrimaryConstructorParameters(parameters: List<Parameter>?, openLine: int, builder: StringBuilder) {
         if parameters == null {
             return
         }
@@ -430,18 +430,7 @@ class Formatter {
             return
         }
 
-        builder.Append("(")
-        index := 0
-        while index < parameters.Count {
-            walk.FormatParameter(parameters[index], builder)
-            if index < parameters.Count - 1 {
-                builder.Append(", ")
-            }
-
-            index = index + 1
-        }
-
-        builder.Append(")")
+        walk.AppendParameterList(parameters, openLine, "(", ")", builder)
     }
 
     // A `: A, B` base list, or nothing.
@@ -478,7 +467,7 @@ class Formatter {
         builder.Append("class ")
         builder.Append(classDeclaration.Name)
         walk.AppendTypeParameters(classDeclaration.TypeParameters, builder)
-        AppendPrimaryConstructorParameters(classDeclaration.PrimaryConstructorParameters, builder)
+        AppendPrimaryConstructorParameters(classDeclaration.PrimaryConstructorParameters, classDeclaration.Line, builder)
 
         bases := new List<TypeReference>()
         baseClass := classDeclaration.BaseClass
@@ -505,7 +494,7 @@ class Formatter {
         builder.Append(structDeclaration.IsRefStruct ? "ref struct " : "struct ")
         builder.Append(structDeclaration.Name)
         walk.AppendTypeParameters(structDeclaration.TypeParameters, builder)
-        AppendPrimaryConstructorParameters(structDeclaration.PrimaryConstructorParameters, builder)
+        AppendPrimaryConstructorParameters(structDeclaration.PrimaryConstructorParameters, structDeclaration.Line, builder)
         AppendBaseList(structDeclaration.Interfaces, builder)
         AppendMemberBody(structDeclaration.Members, builder)
     }
@@ -526,7 +515,7 @@ class Formatter {
 
         builder.Append(recordDeclaration.Name)
         walk.AppendTypeParameters(recordDeclaration.TypeParameters, builder)
-        AppendPrimaryConstructorParameters(recordDeclaration.PrimaryConstructorParameters, builder)
+        AppendPrimaryConstructorParameters(recordDeclaration.PrimaryConstructorParameters, recordDeclaration.Line, builder)
         AppendBaseList(recordDeclaration.Interfaces, builder)
         AppendMemberBody(recordDeclaration.Members, builder)
     }
@@ -754,9 +743,8 @@ class Formatter {
         state.Indent(builder)
         AppendModifiers(constructorDeclaration.Modifiers, null, builder)
 
-        builder.Append("constructor(")
-        AppendParameterList(constructorDeclaration.Parameters, builder)
-        builder.Append(")")
+        builder.Append("constructor")
+        walk.AppendParameterList(constructorDeclaration.Parameters, constructorDeclaration.Line, "(", ")", builder)
 
         initializer := constructorDeclaration.Initializer
         if initializer != null {
@@ -772,20 +760,6 @@ class Formatter {
         builder.AppendLine("}")
     }
 
-    // A comma-separated parameter list with no brackets of its own; the caller writes those,
-    // because a constructor's are round and an indexer's are square.
-    func AppendParameterList(parameters: List<Parameter>, builder: StringBuilder) {
-        index := 0
-        while index < parameters.Count {
-            walk.FormatParameter(parameters[index], builder)
-            if index < parameters.Count - 1 {
-                builder.Append(", ")
-            }
-
-            index = index + 1
-        }
-    }
-
     // An indexer: `this[i: int]: T { get { … } set { … } }`.
     //
     // ITS BRACED BODY IS UNCONDITIONAL where a property's is not — an indexer with neither accessor
@@ -795,9 +769,9 @@ class Formatter {
         state.Indent(builder)
         AppendModifiers(indexerDeclaration.Modifiers, null, builder)
 
-        builder.Append("this[")
-        AppendParameterList(indexerDeclaration.Parameters, builder)
-        builder.Append("]: ")
+        builder.Append("this")
+        walk.AppendParameterList(indexerDeclaration.Parameters, indexerDeclaration.Line, "[", "]", builder)
+        builder.Append(": ")
         builder.Append(FormatterSyntaxText.FormatTypeReference(indexerDeclaration.Type))
         builder.AppendLine(" {")
 
@@ -864,8 +838,9 @@ class Formatter {
                     }
 
                     // A THROWAWAY BUILDER PER EXPRESSION, exactly as the C# wrote it. The state is
-                    // NOT snapshotted around it — `FormatExpressionToString` would, and the
-                    // difference is observable whenever an expression touches the comment cursor.
+                    // NOT snapshotted around it, so a comment the expression reaches is consumed once
+                    // and appended with the text it was written into — which is what a snapshot would
+                    // have broken by rolling the cursor back and emitting the comment twice.
                     temporary := new StringBuilder()
                     walk.FormatExpression(expressions[expressionIndex], temporary)
                     builder.Append(temporary.ToString())
