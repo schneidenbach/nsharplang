@@ -93,6 +93,32 @@ class ExternalAssemblyScan {
         return loaded.ToArray()
     }
 
+    // The same snapshot `Loaded` returns, keyed by assembly full name in load order so an exact
+    // identity is one hash lookup instead of a walk of every loaded assembly per reference path.
+    // FIRST WINS, exactly as the walk's first match did; an assembly whose name cannot be read is
+    // skipped, exactly as the walk's per-assembly catch skipped it.
+    static func LoadedByIdentity(): Dictionary<string, Assembly> {
+        byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
+        assemblies := Loaded()
+        index := 0
+        while index < assemblies.Length {
+            assembly := assemblies[index]
+            try {
+                identity := assembly.GetName().get_FullName()
+                if !byIdentity.ContainsKey(identity) {
+                    byIdentity[identity] = assembly
+                }
+            } catch {
+            }
+
+            // A hostile loaded assembly is not semantic evidence; keep indexing.
+
+            index = index + 1
+        }
+
+        return byIdentity
+    }
+
     static func OpenWithReferences(referenceAssemblyPaths: IReadOnlyList<string>?): ExternalAssemblyScanResult {
         entries := new List<ExternalAssemblyCatalogEntry>()
         commonNames := CommonAssemblyNames()
@@ -112,7 +138,7 @@ class ExternalAssemblyScan {
             commonIndex = commonIndex + 1
         }
 
-        runtimeAssemblies := Loaded()
+        runtimeAssemblies := LoadedByIdentity()
         if referenceAssemblyPaths != null {
             pathIndex := 0
             while pathIndex < referenceAssemblyPaths.Count {
@@ -532,21 +558,9 @@ class ExternalAssemblyScan {
         return -1
     }
 
-    static func TryLoadExactRuntimeAssembly(runtimeAssemblies: Assembly[], path: string, identity: string): Assembly? {
-        index := 0
-        while index < runtimeAssemblies.Length {
-            assembly := runtimeAssemblies[index]
-            try {
-                assemblyName := assembly.GetName()
-                if assemblyName.get_FullName() == identity {
-                    return assembly
-                }
-            } catch {
-            }
-
-            // A hostile loaded assembly is not semantic evidence; keep searching.
-
-            index = index + 1
+    static func TryLoadExactRuntimeAssembly(runtimeAssemblies: Dictionary<string, Assembly>, path: string, identity: string): Assembly? {
+        if runtimeAssemblies.ContainsKey(identity) {
+            return runtimeAssemblies[identity]
         }
 
         try {
