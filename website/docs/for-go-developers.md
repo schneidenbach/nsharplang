@@ -387,7 +387,7 @@ assert throws DivideByZeroException {
 }
 ```
 
-### Setup & Skip
+### Setup
 
 ```n#
 setup {
@@ -398,11 +398,12 @@ setup {
 test "should add task" {
     assert service.AddTask("Test", Priority.High, tags, "") != null
 }
-
-test "needs network" skip "CI has no network" {
-    // skipped
-}
 ```
+
+There is **no equivalent of `t.Skip()`**. N# parses a `skip "reason"` clause for forward
+compatibility, but no backend emits it and `nlc test` reports `NL323` on a file that spells one.
+Comment the declaration out, or select tests with `nlc test --filter`. See
+[Skipping a Test](language-tour.md#skipping-a-test).
 
 ## Formatting
 

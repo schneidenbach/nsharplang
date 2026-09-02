@@ -1997,3 +1997,151 @@ test "nlc format --stdin without --diff writes the formatted source and never na
 
     Directory.Delete(directory, true)
 }
+
+
+// ═══ THE DOCUMENTED TEST-DSL SURFACE IS EXACTLY WHAT THE RUNNER ACCEPTS ═══════════════════════
+//
+// PRODUCT DEFECT, PINNED AND FIXED HERE: "the documented `skip` form fails to emit".
+// `website/docs` published `test "desc" skip "reason" { }` — the `cli-reference` comparison table
+// even scored it 5 — and the form could not be built. `nlc test` answered with one sentence,
+// `This product path requires successful N# columnar emission after analysis passes.`: NO code, NO
+// line, NO column, NO reason. The whole FILE declined, so every PASSING test beside it was lost too.
+//
+// The skip CAPABILITY stays declined — 020 slice 2 measured it (zero consumers across 2,818
+// attributed test methods) and nothing below builds, emits or reports a skipped test. What these
+// rows pin is the other half: the refusal now reaches the developer as `NL323` with a position and
+// a suggestion, and the DOCS no longer promise a form the runner refuses. Both halves must hold:
+// a precise diagnostic with lying docs is still a defect, and honest docs with a bare decline is
+// still one.
+
+func WriteSkipFormTestProject(directory: string) {
+    File.WriteAllText(Path.Combine(directory, "project.yml"),
+        "name: SkipForm.Tests\n"
+        + "version: 1.0.0\n"
+        + "backend: il\n"
+        + "outputType: library\n"
+        + "targetFramework: net10.0\n")
+
+    // Line 3 is the passing test and line 7 is the documented skip form, EXACTLY as
+    // `website/docs/for-go-developers.md` used to publish it.
+    File.WriteAllText(Path.Combine(directory, "Probe.tests.nl"),
+        "namespace SkipForm\n"
+        + "\n"
+        + "test \"plain baseline\" {\n"
+        + "    assert 1 + 1 == 2\n"
+        + "}\n"
+        + "\n"
+        + "test \"needs network\" skip \"CI has no network\" {\n"
+        + "    // skipped\n"
+        + "}\n")
+}
+
+test "the documented skip form is refused as NL323 at its own line, not as a bare emit decline" {
+    directory := NewTempDirectory("nlc-test-skip-form")
+    try {
+        WriteSkipFormTestProject(directory)
+
+        run := Nlc("test --project \"" + directory + "\" --no-cache")
+
+        assert run.ExitCode == 1
+
+        // THE CODE, THE POSITION AND THE REASON — the three things the old decline had none of.
+        assert run.Stderr.Contains("NL323")
+        assert run.Stderr.Contains("test 'needs network' declares 'skip', which is parsed for forward compatibility but is not compiled by 'nlc test'")
+        // The file, the LINE and the COLUMN. The name is matched without its directory because
+        // `Path.GetTempPath()` and the path the CLI prints differ by the `/private` symlink on macOS.
+        assert run.Stderr.Contains("Probe.tests.nl:7:1")
+        assert run.Stderr.Contains("Delete the skip clause and its reason")
+
+        // AND NOT the sentence the defect was filed for.
+        assert !run.Stderr.Contains("This product path requires successful N# columnar emission after analysis passes.")
+        assert !run.Stdout.Contains("This product path requires successful N# columnar emission after analysis passes.")
+        assert !run.Stderr.Contains("parse.declaration-scan")
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "deleting ONLY the skip clause makes the same file build and run — the refusal is the clause's" {
+    // The control. Without it the row above would pass just as well against a runner that refused
+    // every test file, and the claim "the clause is what is refused" would be untested.
+    directory := NewTempDirectory("nlc-test-skip-form-control")
+    try {
+        WriteSkipFormTestProject(directory)
+        File.WriteAllText(Path.Combine(directory, "Probe.tests.nl"),
+            "namespace SkipForm\n"
+            + "\n"
+            + "test \"plain baseline\" {\n"
+            + "    assert 1 + 1 == 2\n"
+            + "}\n"
+            + "\n"
+            + "test \"needs network\" {\n"
+            + "    // skipped\n"
+            + "}\n")
+
+        run := Nlc("test --project \"" + directory + "\" --no-cache --json")
+
+        assert run.ExitCode == 0
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("summary").GetProperty("total").GetInt32() == 2
+        assert root.GetProperty("summary").GetProperty("passed").GetInt32() == 2
+        assert root.GetProperty("summary").GetProperty("skipped").GetInt32() == 0
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+func TestDslDocPages(): string[] {
+    return ["language-tour.md", "for-go-developers.md", "cli-reference.md"]
+}
+
+func DocPageText(fileName: string): string {
+    return File.ReadAllText(Path.Combine(Path.Combine(Path.Combine(CliRepositoryRoot(), "website"), "docs"), fileName))
+}
+
+test "no published N# example spells a skip clause the runner refuses" {
+    // THE DOCS-SIDE HALF OF THE CONTRACT. A `skip` clause inside an ```n# block is an example a
+    // reader copies and a build the reader cannot make; prose about the refusal is not. The scan is
+    // deliberately over-broad — any line that opens a `test "…"` declaration and also carries the
+    // word `skip` — so a re-introduced example fails here whatever its wording. Both fence spellings
+    // in use (```n# and ```nsharp) open a scanned block.
+    pages := TestDslDocPages()
+    pageIndex := 0
+    while pageIndex < pages.Length {
+        lines := DocPageText(pages[pageIndex]).Split('\n')
+        inNSharpBlock := false
+        lineIndex := 0
+        while lineIndex < lines.Length {
+            line := lines[lineIndex].Trim()
+            if line == "```n#" || line == "```nsharp" {
+                inNSharpBlock = true
+            } else if line == "```" {
+                inNSharpBlock = false
+            } else if inNSharpBlock && line.StartsWith("test \"") {
+                assert !line.Contains(" skip ")
+            }
+
+            lineIndex = lineIndex + 1
+        }
+
+        pageIndex = pageIndex + 1
+    }
+}
+
+test "the docs say what the runner does, and the cli-reference no longer scores skip as shipped" {
+    tour := DocPageText("language-tour.md")
+    reference := DocPageText("cli-reference.md")
+    goGuide := DocPageText("for-go-developers.md")
+
+    // The tour explains the refusal and quotes the code the runner actually reports.
+    assert tour.Contains("There is no runnable skip.")
+    assert tour.Contains("NL323")
+
+    // The Go/Rust comparison row is the one that scored the form `5`.
+    assert reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | None |")
+    assert !reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | `5` |")
+
+    assert goGuide.Contains("no equivalent of `t.Skip()`")
+}

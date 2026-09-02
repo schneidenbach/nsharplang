@@ -1148,8 +1148,11 @@ name, `adds (1, 2, 3)`. Row values must be literals (`NL310` otherwise), and a r
 must match the parameter count (`NL202` otherwise).
 
 `skip`, `setup` and `teardown` parse and are understood by the editor tooling, but `nlc test` still
-refuses a file containing one — `skip` at emit (`parse.declaration-scan`), `setup` earlier still, in
-the analyser (see the table below). Do not rely on them yet.
+refuses a file containing one. **`skip` is a REFUSAL, not a gap**: the capability was measured and
+declined, so `AnalyzerDeclarationWalkers.ReportUnsupportedSkipClause` reports `NL323` at the test
+declaration and the docs promise nothing — it no longer reaches the emit scan, and the whole-file
+`parse.declaration-scan` decline it used to produce is unreachable from a `skip` clause. `setup`
+fails earlier still, in the analyser (see the table below). Do not rely on `setup`/`teardown` yet.
 
 **Which runner capability comes next is decided by MEASURED demand, not by the task file's order.**
 The close-out contract forbids shipping runner infrastructure with no consumer, so before building
@@ -1159,7 +1162,7 @@ one, sweep the C# test estate for tests that actually need it. The sweep taken a
 | capability | C# tests that need it | measured runner state (probed against a freshly built tip CLI) |
 |---|---|---|
 | table-driven cases | shipped, consumed twice | live |
-| **skip** | **0** — no `[Fact(Skip=…)]`, no `SkipException`, no `[ConditionalFact]`, no trait filters anywhere. The only `Skip=` in the repo is `DockerFactAttribute`, in the Testcontainers `IntegrationTests` project the gate never runs. The 6 `if (!Directory.Exists(…)) return;` guards that used to live in `ExampleLintTests.cs` — the original finding here — **are gone: that file is deleted and its successor `ExampleProjectCorpus.tests.nl` REQUIRES all nineteen example directories, so an absent corpus now fails instead of silently passing** | declines the WHOLE FILE at `parse.declaration-scan`; an **emit-only** gap — parser, analyser, formatter, LSP, runner and JSON envelope all already carry it. **No consumer remains: the last runtime skip emulation in the estate was migrated away rather than expressed** |
+| **skip** | **0** — no `[Fact(Skip=…)]`, no `SkipException`, no `[ConditionalFact]`, no trait filters anywhere. The only `Skip=` in the repo is `DockerFactAttribute`, in the Testcontainers `IntegrationTests` project the gate never runs. The 6 `if (!Directory.Exists(…)) return;` guards that used to live in `ExampleLintTests.cs` — the original finding here — **are gone: that file is deleted and its successor `ExampleProjectCorpus.tests.nl` REQUIRES all nineteen example directories, so an absent corpus now fails instead of silently passing** | **REFUSED BY NAME at the declaration**: `NL323` from `AnalyzerDeclarationWalkers.ReportUnsupportedSkipClause`, with the file, line, column and a suggestion. It used to decline the WHOLE FILE at `parse.declaration-scan` with no code, no line and no reason, taking every passing test in the file with it. **No consumer remains: the last runtime skip emulation in the estate was migrated away rather than expressed** |
 | setup/teardown | 3 classes with a real ctor+`IDisposable` pair, all LSP or Docker fixtures | fails EARLIER than skip, in the **analyser**: a `setup { seed := 7 }` binding is not visible to the test body, so `NL001 Variable 'seed' is declared but never read` |
 | **async `Task`** | **134** | **ALREADY SERVED.** A plain `test` body may `await`; an assertion that fails after an await FAILS, and an exception thrown inside awaited work is REPORTED with its message (probe: 3 declarations → 1 passed / 2 failed, each named). Only the `async test "…"` DECLARATION form is missing (`NL101`), and no C# test needs it |
 | async `ValueTask` | 0 | same path |
