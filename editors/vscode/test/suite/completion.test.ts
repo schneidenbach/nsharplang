@@ -8,22 +8,14 @@ import {
     closeAllEditors,
     completionLabel,
     assertCompletionContains,
+    assertCompletionExcludes,
     createTempNlFile,
     getDiagnostics
 } from './helpers';
 
 /**
- * Completion tests with kind and content validation.
- *
- * The CompletionHandler is fully implemented with:
- * - Keywords (Kind.Keyword): func, class, struct, enum, if, for, match, etc.
- * - Snippets (Kind.Snippet): func, if, match, for templates
- * - Variables (Kind.Variable): local variables in scope
- * - Functions (Kind.Function): top-level functions
- * - Members (Kind.Method/Property/Field): after dot
- * - Primitive types: int, string, bool, double
- *
- * Every test hard-asserts specific items AND their kinds.
+ * Keywords, primitive types and in-scope variables and functions at an identifier position; the
+ * receiver's members after a dot. Every test hard-asserts specific items AND their kinds.
  */
 suite('Completions', () => {
     suiteSetup(async function () {
@@ -35,9 +27,7 @@ suite('Completions', () => {
         await closeAllEditors();
     });
 
-    // ================================================================
-    // KEYWORD COMPLETIONS
-    // ================================================================
+    // --- KEYWORDS AND PRIMITIVE TYPES ---
 
     test('keywords available at top level', async function () {
         this.timeout(60_000);
@@ -65,9 +55,7 @@ suite('Completions', () => {
         assertCompletionContains(completions, 'bool', vscode.CompletionItemKind.Keyword);
     });
 
-    // ================================================================
-    // FUNCTION COMPLETIONS
-    // ================================================================
+    // --- FUNCTIONS ---
 
     test('function names available inside function body', async function () {
         this.timeout(60_000);
@@ -85,13 +73,41 @@ suite('Completions', () => {
         assertCompletionContains(completions, 'add', vscode.CompletionItemKind.Function);
     });
 
-    // ================================================================
-    // MEMBER COMPLETIONS (DOT ACCESS)
-    // ================================================================
+    // --- MEMBER COMPLETIONS (DOT ACCESS) ---
 
-    // ================================================================
-    // VARIABLE COMPLETIONS
-    // ================================================================
+    test('trailing dot offers the receiver members, not scope identifiers', async function () {
+        this.timeout(30_000);
+        // Vehicle is declared in ClassesAndRecords.nl: a CROSS-FILE receiver with a trailing dot,
+        // the shape defect D3 answered with the scope and the keyword list.
+        const { doc, cleanup } = await createTempNlFile(`
+namespace SimpleTest
+func CompMemberTest() {
+    vehicle := new Vehicle("Ford", "Focus", 2020)
+    tc := vehicle.
+}
+`, '_comp_member.nl');
+
+        try {
+            await getDiagnostics(doc);
+            const completions = await getCompletions(doc, positionOf(doc, 'tc := vehicle.', { at: 'end' }));
+
+            assertCompletionContains(completions, 'Make', vscode.CompletionItemKind.Property);
+            assertCompletionContains(completions, 'GetDescription', vscode.CompletionItemKind.Method);
+            assertCompletionExcludes(completions, 'vehicle');
+            assertCompletionExcludes(completions, 'func');
+
+            const labels = completions.items.map(i => completionLabel(i));
+            assert.strictEqual(labels.length, new Set(labels).size,
+                `Duplicate member labels: ${labels.join(', ')}`);
+            assert.ok(!labels.some(l => l.startsWith('get_') || l.startsWith('set_')),
+                `Property accessors leaked into the member list: ${labels.join(', ')}`);
+        } finally {
+            await closeAllEditors();
+            cleanup();
+        }
+    });
+
+    // --- VARIABLES ---
 
     test('local variables appear in completions', async function () {
         this.timeout(30_000);
@@ -118,9 +134,7 @@ func Main() {
         }
     });
 
-    // ================================================================
-    // COMPLETION QUALITY
-    // ================================================================
+    // --- COMPLETION QUALITY ---
 
     test('completion items all have a kind set', async function () {
         this.timeout(60_000);
@@ -131,21 +145,6 @@ func Main() {
 
         assert.ok(withoutKind.length === 0,
             `${withoutKind.length} completion items have no kind set: ${withoutKind.map(i => completionLabel(i)).join(', ')}`);
-    });
-
-    test('no duplicate labels in completion list', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('Program.nl');
-
-        const completions = await getCompletions(doc, new vscode.Position(0, 0));
-        const labels = completions.items.map(i => completionLabel(i));
-        const uniqueLabels = new Set(labels);
-
-        // Allow some duplicates (overloads can have same label but different kinds)
-        // but flag if there are excessive duplicates
-        const duplicateCount = labels.length - uniqueLabels.size;
-        assert.ok(duplicateCount < labels.length * 0.1,
-            `Too many duplicate labels: ${duplicateCount} duplicates out of ${labels.length} items`);
     });
 
     test('completion count is reasonable', async function () {

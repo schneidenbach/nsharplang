@@ -366,10 +366,12 @@ class CompletionReflectionFacts {
         // EVERY REFLECTED MEMBER IS READ THROUGH THE LOOP'S OWN BINDING, never through an index.
         methods := clrType.GetMethods(flags)
         for method in methods {
-            names.Add(method.get_Name())
-            kinds.Add("method")
-            typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(method.get_ReturnType()))
-            isStaticValues.Add(method.get_IsStatic())
+            if IsOfferableMethod(method) {
+                names.Add(method.get_Name())
+                kinds.Add("method")
+                typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(method.get_ReturnType()))
+                isStaticValues.Add(method.get_IsStatic())
+            }
         }
 
         properties := clrType.GetProperties(flags)
@@ -393,6 +395,21 @@ class CompletionReflectionFacts {
         }
 
         return CompletionEngineKernels.BuildMemberItemsFromRows(names.ToArray(), kinds.ToArray(), typeTexts.ToArray(), isStaticValues.ToArray())
+    }
+
+    // A METHOD A CALLER COULD ACTUALLY WRITE. The CLR compiles a property into a pair of ordinary
+    // methods and an operator into another, and `GetMethods` hands all of them back — so a `string`
+    // receiver reflected raw offers `get_Length` beside `Length` and `op_Equality` beside nothing a
+    // reader would recognise. `IsSpecialName` is the platform's own flag for exactly that class of
+    // member: the compiler sets it on every accessor, operator and event hook it synthesises, and on
+    // nothing a person declared by that name. Reading the flag rather than matching a `get_`/`set_`
+    // PREFIX is the whole point — a user is entitled to declare a method called `get_Total`, and a
+    // prefix test would hide it.
+    //
+    // The property or field itself is unaffected: it is read from `GetProperties`/`GetFields` below
+    // and keeps its own name, so this removes the duplicate spelling and never the member.
+    static func IsOfferableMethod(method: MethodInfo): bool {
+        return !method.get_IsSpecialName()
     }
 
     // A FULL-NAME compare and not a `Type` identity one, so it holds for a type read through a

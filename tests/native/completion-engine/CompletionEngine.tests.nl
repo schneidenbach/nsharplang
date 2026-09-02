@@ -490,6 +490,32 @@ test "a member access on a call result resolves through the callee's return type
 }
 
 
+test "a BCL receiver offers its members and NOT the accessors the CLR synthesises" {
+    source := "func main() {\n    summary := \"warm\"\n    summary.\n}"
+    fixtureRoot := WriteCompletionFixture(source)
+    answer := AskCompletions(
+        LoadCompletionSnapshot(fixtureRoot),
+        CompletionFixtureFile(fixtureRoot),
+        3,
+        CompletionLineLength(source, 3),
+        false)
+
+    assert CompletionText(answer, "Context") == "MemberAccess"
+    assert CompletionText(answer, "Receiver") == "summary"
+
+    allNames := CompletionAllNames(answer)
+    assert CompletionNamesContain(allNames, "ToUpper")
+    assert CompletionNamesContain(allNames, "Length")
+
+    // THE CORRECTED CLI OUTPUT. `nlc query completions` on a string receiver used to offer
+    // `get_Length` and `get_Chars` beside `Length`, because `GetMethods` hands back the accessor
+    // pair the CLR synthesises for every property. The property survives; its accessors do not.
+    assert !CompletionNamesContain(allNames, "get_Length")
+    assert !CompletionNamesContain(allNames, "get_Chars")
+
+    Directory.Delete(fixtureRoot, true)
+}
+
 // ── The three refusals ──────────────────────────────────────────────────────────────────────────
 
 test "a file the snapshot does not hold answers an unknown context and no groups" {

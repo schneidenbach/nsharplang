@@ -693,6 +693,57 @@ class CrfDerived: CrfBase {
 // NOTE: this fixture carries NO backing field, deliberately. A camelCase N# field is file-private
 // BY CONVENTION but is emitted as a PUBLIC IL field, so it would show up in this very completion
 // list and make the counts below say something other than what they mean.
+// ── accessors and other synthesised names ──────────────────────────────────────
+
+test "a property is offered and its ACCESSOR is not" {
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(CrfShape), CrfInstanceFlags())
+
+    // ABSENCE and SURVIVAL are one contract: the duplicate spelling goes, the member stays.
+    label := CrfFind(items, "Label")
+    assert label != null
+    assert label.Kind == "property"
+    assert CrfFind(items, "get_Label") == null
+}
+
+test "the static half drops its accessors too and keeps the property" {
+    staticFlags := CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.StaticOnly)
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(CrfShape), staticFlags)
+
+    origin := CrfFind(items, "Origin")
+    assert origin != null
+    assert origin.Kind == "property"
+    assert CrfFind(items, "get_Origin") == null
+}
+
+test "no offered member of a string receiver is a compiler-synthesised name" {
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(string), CrfInstanceFlags())
+
+    // `System.String` is the receiver the editor defect was reported on. Raw reflection offers
+    // `get_Length` and `get_Chars` beside `Length`, and `op_Equality` beside nothing a reader would
+    // ever type.
+    assert CrfFind(items, "get_Length") == null
+    assert CrfFind(items, "get_Chars") == null
+
+    // AN OPERATOR PROVES THE PREDICATE IS THE FLAG AND NOT A PREFIX: `op_Equality` carries no
+    // `get_`/`set_` prefix, so a prefix test would keep it and `IsSpecialName` does not.
+    assert CrfFind(items, "op_Equality") == null
+
+    // The members behind those accessors survive under their own names, and an ordinary method is
+    // untouched.
+    length := CrfFind(items, "Length")
+    assert length != null
+    assert length.Kind == "property"
+    assert CrfFind(items, "ToUpper") != null
+}
+
+test "GetType still survives the filter, so the System.Object rule is unchanged" {
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(string), CrfInstanceFlags())
+
+    getType := CrfFind(items, "GetType")
+    assert getType != null
+    assert getType.Kind == "method"
+}
+
 class CrfShape {
     Count: int
     static Total: int
