@@ -71,13 +71,31 @@ test "021 s11 playground run facts: an output line always ends with a bare newli
     assert PlaygroundRunFacts.OutputLineTerminator() == "\n"
 }
 
-test "021 s11 playground run facts: only zero divides by zero, and the message is the playground's own words rather than the CLR's" {
+test "021 s11 playground run facts: only zero divides by zero, and the message is now the CLR's OWN sentence rather than the playground's invented words (chip: playground vs nlc run)" {
     assert PlaygroundRunFacts.IsZeroDivisor(0.0)
     assert PlaygroundRunFacts.IsZeroDivisor(0.0 - 0.0)
     assert !PlaygroundRunFacts.IsZeroDivisor(1.0)
     assert !PlaygroundRunFacts.IsZeroDivisor(0.0 - 1.0)
     assert !PlaygroundRunFacts.IsZeroDivisor(0.000000000001)
-    assert PlaygroundRunFacts.DivisionByZeroMessage() == "division by zero"
+    // `nlc run` on `6 / 0`: `Unhandled exception. System.DivideByZeroException: Attempted to divide
+    // by zero.` The sentence after the type name is what the playground now reports, byte for byte.
+    assert PlaygroundRunFacts.DivisionByZeroMessage() == "Attempted to divide by zero."
+    assert PlaygroundRunFacts.DivisionByZeroMessage() != "division by zero"
+}
+
+test "021 s11 playground run facts: ONLY integer division faults — a double divided by zero is a DEFINED IEEE value and nlc run prints it (chip: playground vs nlc run)" {
+    // `6 / 0` (both integral) is the only shape that fails.
+    assert PlaygroundRunFacts.DivisionFaults(true, 0.0)
+    assert PlaygroundRunFacts.DivisionFaults(true, 0.0 - 0.0)
+    // `6.0 / 0.0`, `6 / 0.0` and `6.0 / 0` all run: `nlc run` exits 0 and prints `∞`.
+    assert !PlaygroundRunFacts.DivisionFaults(false, 0.0)
+    assert !PlaygroundRunFacts.DivisionFaults(false, 0.0 - 0.0)
+    // A non-zero divisor never faults on either side.
+    assert !PlaygroundRunFacts.DivisionFaults(true, 1.0)
+    assert !PlaygroundRunFacts.DivisionFaults(false, 1.0)
+    // The fault rule is DEFINED in terms of the two rules above, so it cannot drift from them.
+    assert PlaygroundRunFacts.DivisionFaults(PlaygroundRunFacts.UseIntegerDivision(true, true), 0.0)
+    assert !PlaygroundRunFacts.DivisionFaults(PlaygroundRunFacts.UseIntegerDivision(false, true), 0.0)
 }
 
 test "021 s11 playground run facts: division truncates only when BOTH operands are integral" {
@@ -87,12 +105,18 @@ test "021 s11 playground run facts: division truncates only when BOTH operands a
     assert !PlaygroundRunFacts.UseIntegerDivision(false, false)
 }
 
-test "021 s11 playground run facts: the 1e-7 equality tolerance is a DIVERGENCE — 0.1 + 0.2 == 0.3 answers true here and false under nlc run" {
-    assert PlaygroundRunFacts.NumericEqualityTolerance() == 0.0000001
-    assert PlaygroundRunFacts.NumbersEqual(0.1 + 0.2, 0.3)
+test "021 s11 playground run facts: numeric equality is EXACT — the 1e-7 tolerance that made 0.1 + 0.2 == 0.3 answer true is gone (chip: playground vs nlc run)" {
+    // The headline. `nlc run` on `print 0.1 + 0.2 == 0.3` prints `False`; so does the runner now,
+    // and the rule agrees with the language's own `==` on the same two doubles.
+    assert !PlaygroundRunFacts.NumbersEqual(0.1 + 0.2, 0.3)
     assert 0.1 + 0.2 != 0.3
+    assert PlaygroundRunFacts.NumbersEqual(0.1 + 0.2, 0.1 + 0.2)
+    // Everything inside the old tolerance band now separates, which is the whole point.
+    assert !PlaygroundRunFacts.NumbersEqual(1.0, 1.00000001)
+    assert !PlaygroundRunFacts.NumbersEqual(1.0, 1.0 + 0.0000001)
+    // The unambiguous answers are unchanged.
     assert PlaygroundRunFacts.NumbersEqual(1.0, 1.0)
-    assert PlaygroundRunFacts.NumbersEqual(1.0, 1.00000001)
+    assert PlaygroundRunFacts.NumbersEqual(0.0, 0.0 - 0.0)
     assert !PlaygroundRunFacts.NumbersEqual(1.0, 1.001)
     assert !PlaygroundRunFacts.NumbersEqual(1.0, 0.0 - 1.0)
 }
@@ -117,13 +141,31 @@ test "021 s11 playground run facts: the rendering words — null, True/False, an
     assert PlaygroundRunFacts.BooleanDisplayText(false) == "False"
     assert PlaygroundRunFacts.NumberFormatSpecifier() == "G"
     assert PlaygroundRunFacts.AnonymousObjectDisplayName() == "object"
-    assert PlaygroundRunFacts.DisplayFieldSeparator() == ", "
 }
 
-test "021 s11 playground run facts: the two display shapes are DIVERGENCES — nlc run prints P.Point and P.Shape+Circle for the same two values" {
-    assert PlaygroundRunFacts.ObjectFieldDisplayText("X", "1") == "X: 1"
-    assert PlaygroundRunFacts.ObjectDisplayText("Point", "X: 1, Y: 2") == "Point { X: 1, Y: 2 }"
-    assert PlaygroundRunFacts.UnionDisplayText("Shape", "Circle", "Radius: 3") == "Shape.Circle(Radius: 3)"
+test "021 s11 playground run facts: the two display shapes ARE the CLR type names nlc run prints — P.Point and P.Shape+Circle (chip: playground vs nlc run)" {
+    // Measured, not assumed. `namespace P` + `record Point(X: int, Y: int)` + `print p` under
+    // `nlc run` prints `P.Point`; the union case prints `P.Shape+Circle`. `print` lowers to
+    // `Console.WriteLine`, which calls `Object.ToString()`, and N# synthesises no override.
+    assert PlaygroundRunFacts.ObjectDisplayText("P", "Point") == "P.Point"
+    assert PlaygroundRunFacts.UnionDisplayText("P", "Shape", "Circle") == "P.Shape+Circle"
+    // `package Tutorial` reaches the same rule: measured `Tutorial.Point` / `Tutorial.Shape+Circle`.
+    assert PlaygroundRunFacts.ObjectDisplayText("Tutorial", "Point") == "Tutorial.Point"
+    assert PlaygroundRunFacts.UnionDisplayText("Tutorial", "Shape", "Circle") == "Tutorial.Shape+Circle"
+    // A dotted namespace is carried whole: measured `A.B.Point`.
+    assert PlaygroundRunFacts.ObjectDisplayText("A.B", "Point") == "A.B.Point"
+    // No header at all: `nlc run` prints the bare name, and a null and an empty namespace agree.
+    assert PlaygroundRunFacts.ObjectDisplayText(null, "Point") == "Point"
+    assert PlaygroundRunFacts.ObjectDisplayText("", "Point") == "Point"
+    assert PlaygroundRunFacts.UnionDisplayText(null, "Shape", "Circle") == "Shape+Circle"
+    // The structural shapes the runner used to print are gone.
+    assert PlaygroundRunFacts.ObjectDisplayText("P", "Point") != "Point { X: 1, Y: 2 }"
+    assert PlaygroundRunFacts.UnionDisplayText("P", "Shape", "Circle") != "Shape.Circle(Radius: 3)"
+    // Both display rules are DEFINED in terms of the qualifier and the nested-type separator, so
+    // neither can drift from the other.
+    assert PlaygroundRunFacts.QualifiedTypeDisplayText("P", "Point") == "P.Point"
+    assert PlaygroundRunFacts.QualifiedTypeDisplayText(null, "Point") == "Point"
+    assert PlaygroundRunFacts.NestedTypeSeparator() == "+"
 }
 
 test "021 s11 playground run facts: the sixteen faults an analysis-clean program can actually reach" {
