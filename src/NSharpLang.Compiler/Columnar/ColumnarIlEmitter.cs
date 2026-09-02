@@ -4114,7 +4114,7 @@ internal sealed class ColumnarIlEmitter
                 var byRefLikeCtor = typeof(System.Runtime.CompilerServices.IsByRefLikeAttribute).GetConstructor(Type.EmptyTypes);
                 if (byRefLikeCtor == null)
                     return false;
-                tb.SetCustomAttribute(new CustomAttributeBuilder(byRefLikeCtor, Array.Empty<object>()));
+                tb.SetCustomAttribute(byRefLikeCtor, ColumnarAttributeBlobs.NoArgument());
             }
 
             // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
@@ -4957,7 +4957,7 @@ internal sealed class ColumnarIlEmitter
                     return DeclineStatic("emit.union.predeclare", "value-struct union base was not predeclared for '" + un.Name + "'", un.Name);
                 var readOnlyCtor = typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute).GetConstructor(Type.EmptyTypes);
                 if (readOnlyCtor != null)
-                    structTb.SetCustomAttribute(new CustomAttributeBuilder(readOnlyCtor, Array.Empty<object>()));
+                    structTb.SetCustomAttribute(readOnlyCtor, ColumnarAttributeBlobs.NoArgument());
 
                 var tagField = structTb.DefineField("_tag", typeof(int), FieldAttributes.Private | FieldAttributes.InitOnly);
                 var tagCtor = structTb.DefineConstructor(
@@ -5879,8 +5879,8 @@ internal sealed class ColumnarIlEmitter
                 }
 
                 var testMethod = testType.DefineMethod(methodName, MethodAttributes.Public | MethodAttributes.HideBySig, typeof(void), Type.EmptyTypes);
-                testMethod.SetCustomAttribute(new CustomAttributeBuilder(traitCtor, new object[] { "NSharpDescription", testInput.Description }));
-                testMethod.SetCustomAttribute(new CustomAttributeBuilder(factCtor, Array.Empty<object>()));
+                testMethod.SetCustomAttribute(traitCtor, ColumnarAttributeBlobs.TwoStrings("NSharpDescription", testInput.Description));
+                testMethod.SetCustomAttribute(factCtor, ColumnarAttributeBlobs.NoArgument());
 
                 var testBody = testInput.Body;
                 var testIl = testMethod.GetILGenerator();
