@@ -603,6 +603,8 @@ class FormatterWalk {
             builder.Append(returnLifetime)
         }
 
+        AppendGenericConstraints(declaration.Constraints, builder)
+
         if declaration.ExpressionBody != null {
             builder.Append(" => ")
             FormatExpression(declaration.ExpressionBody, builder)
@@ -616,6 +618,72 @@ class FormatterWalk {
             builder.AppendLine("}")
         } else {
             builder.AppendLine()
+        }
+    }
+
+    // `where T: class, IFoo, new()`, ONE CLAUSE PER CONSTRAINED TYPE PARAMETER, or nothing.
+    //
+    // THERE WAS NO ARM AT ALL, so every constraint the formatter was handed was DELETED — and
+    // deleting a constraint changes the PROGRAM, not its spelling. It reached exactly one file,
+    // `docs/design/systems-samples/proofs/38-unmanaged-sort-comparer/Program.nl`, which holds the
+    // estate's only real `where` clause and had never been formatted because it declined on
+    // `AllocExpression`; every other `where` in the tree is inside a contract STRING literal, which no
+    // formatter touches. That is the same shape as the digit separators and the raw literals: a defect
+    // that existed for as long as the arm was missing and could not surface until the file in front of
+    // it stopped declining.
+    //
+    // THE SPECIAL CONSTRAINTS ARE A FLAG SET AND THE TYPE CONSTRAINTS ARE A LIST, so the source order
+    // BETWEEN the two groups is not recoverable from the tree and a canonical order has to be chosen.
+    // It is C#'s — `class`/`struct` first, `new()` last — and `ParseGenericConstraints` accepts the
+    // three in any order, so whatever the author wrote reads back.
+    func AppendGenericConstraints(constraints: List<GenericConstraint>?, builder: StringBuilder) {
+        if constraints == null {
+            return
+        }
+
+        index := 0
+        while index < constraints.Count {
+            constraint := constraints[index]
+            builder.Append(" where ")
+            builder.Append(constraint.TypeParameter)
+            builder.Append(": ")
+
+            special := Convert.ToInt32(constraint.SpecialConstraints)
+            written := 0
+            if FormatterSyntaxText.HasModifier(special, 1) {
+                builder.Append("class")
+                written = written + 1
+            }
+
+            if FormatterSyntaxText.HasModifier(special, 2) {
+                if written > 0 {
+                    builder.Append(", ")
+                }
+
+                builder.Append("struct")
+                written = written + 1
+            }
+
+            typeIndex := 0
+            while typeIndex < constraint.Constraints.Count {
+                if written > 0 {
+                    builder.Append(", ")
+                }
+
+                builder.Append(FormatterSyntaxText.FormatTypeReference(constraint.Constraints[typeIndex]))
+                written = written + 1
+                typeIndex = typeIndex + 1
+            }
+
+            if FormatterSyntaxText.HasModifier(special, 4) {
+                if written > 0 {
+                    builder.Append(", ")
+                }
+
+                builder.Append("new()")
+            }
+
+            index = index + 1
         }
     }
 

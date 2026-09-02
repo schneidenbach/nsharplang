@@ -1128,3 +1128,34 @@ test "the two allocation expressions are written back, and neither one wraps" {
     assert FstReparseErrorsAfterFormat(allocated) == 0
     assert FstReparseErrorsAfterFormat(stack) == 0
 }
+
+test "a generic constraint clause survives a format, and deleting one would change the program" {
+    // THERE WAS NO ARM FOR `Constraints` AT ALL, so the clause was dropped outright — the one defect
+    // in this batch that changes what the code MEANS rather than how it reads. It reached exactly one
+    // file, the estate's only real `where` clause, and only after the `alloc` arm made that file
+    // formattable; every other `where` in the tree sits inside a contract string literal.
+    special := "func Sort<T>(items: T[]): int where T: struct, Sortable<T> {\n    return 0\n}"
+    assert FstFormat(special) == "func Sort<T>(items: T[]): int where T: struct, Sortable<T> {|    return 0|}", FstFormat(special)
+
+    // Each of the three special constraints, and the canonical order: `class`/`struct` first and
+    // `new()` last, with the type constraints between them. `ParseGenericConstraints` accepts the
+    // three in any order, which is why choosing one is safe.
+    classOnly := "func F<T>(v: T): T where T: class {\n    return v\n}"
+    assert FstFormat(classOnly) == "func F<T>(v: T): T where T: class {|    return v|}", FstFormat(classOnly)
+
+    newLast := "func F<T>(): int where T: IFoo, new() {\n    return 0\n}"
+    assert FstFormat(newLast) == "func F<T>(): int where T: IFoo, new() {|    return 0|}", FstFormat(newLast)
+
+    // ONE CLAUSE PER CONSTRAINED PARAMETER, not one clause with two names.
+    two := "func F<K, V>(): int where K: IKey where V: IValue {\n    return 0\n}"
+    assert FstFormat(two) == "func F<K, V>(): int where K: IKey where V: IValue {|    return 0|}", FstFormat(two)
+
+    // An unconstrained generic grows nothing.
+    none := "func F<T>(v: T): T {\n    return v\n}"
+    assert FstFormat(none) == "func F<T>(v: T): T {|    return v|}", FstFormat(none)
+
+    assert FstSafeSuccess(special)
+    assert FstIdempotent(special)
+    assert FstIdempotent(two)
+    assert FstReparseErrorsAfterFormat(special) == 0
+}
