@@ -197,15 +197,29 @@ class PlaygroundRunFacts {
         return left == right
     }
 
-    // THE ESCAPE DECODER. The AST carries a string literal's RAW text, delimiters and all, so the
-    // runner has to undo the lexer's work to get the value. A raw string keeps its body verbatim; a
-    // regular string loses its quotes and then decodes the five escapes the runner recognises.
-    static func DecodeStringLiteralText(value: string): string {
-        text := value
-        if text.StartsWith("\"\"\"", StringComparison.Ordinal) && text.EndsWith("\"\"\"", StringComparison.Ordinal) && text.Length >= 6 {
-            return text.Substring(3, text.Length - 6)
+    // THE ESCAPE DECODER, TOLD WHICH FORM IT HAS RATHER THAN GUESSING FROM THE TEXT.
+    //
+    // THE HEADER THAT USED TO STAND HERE WAS FALSE AND THE CODE BELIEVED IT. It said "the AST carries
+    // a string literal's RAW text, delimiters and all", which is true of the ORDINARY form and false
+    // of the raw one: `Lexer.ReadTripleQuoteString` consumes both `"""` delimiters and appends
+    // neither, so a raw literal's `StringLiteralExpression.Value` is its BARE BODY. The old first
+    // guard therefore never fired on anything `PlaygroundRunner` passes it, the second guard did not
+    // fire either, and every raw string fell through to the escape chain — so the Playground
+    // EVALUATED `"""slash\n"""` to `slash` followed by a real newline. A wrong value, silently, with
+    // no diagnostic anywhere.
+    //
+    // `isRaw` IS THE SIGNAL AND IT ALREADY EXISTS. `StringLiteralExpression.IsRaw` is stamped by the
+    // parser from the token type; both call sites pass it. Sniffing the text cannot work here in
+    // principle — a raw body is arbitrary text, so no prefix test can distinguish one from an
+    // ordinary literal's contents.
+    //
+    // A raw body is verbatim: no delimiters to strip, and no escapes, because a raw string has none.
+    static func DecodeStringLiteralText(value: string, isRaw: bool = false): string {
+        if isRaw {
+            return value
         }
 
+        text := value
         if text.StartsWith("\"", StringComparison.Ordinal) && text.EndsWith("\"", StringComparison.Ordinal) && text.Length >= 2 {
             text = text.Substring(1, text.Length - 2)
         }

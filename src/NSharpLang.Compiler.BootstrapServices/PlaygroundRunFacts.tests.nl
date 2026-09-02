@@ -122,17 +122,40 @@ test "021 s11 playground run facts: numeric equality is EXACT — the 1e-7 toler
 }
 
 test "021 s11 playground run facts: the escape decoder strips the delimiters and undoes the five escapes the runner recognises" {
-    assert PlaygroundRunFacts.DecodeStringLiteralText("\"hi\"") == "hi"
-    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\nb\"") == "a\nb"
-    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\rb\"") == "a\rb"
-    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\tb\"") == "a\tb"
-    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\\"b\"") == "a\"b"
-    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\\\b\"") == "a\\b"
+    assert PlaygroundRunFacts.DecodeStringLiteralText("\"hi\"", false) == "hi"
+    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\nb\"", false) == "a\nb"
+    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\rb\"", false) == "a\rb"
+    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\tb\"", false) == "a\tb"
+    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\\"b\"", false) == "a\"b"
+    assert PlaygroundRunFacts.DecodeStringLiteralText("\"a\\\\b\"", false) == "a\\b"
 }
 
-test "021 s11 playground run facts: a raw string keeps its body verbatim, escapes and all" {
-    assert PlaygroundRunFacts.DecodeStringLiteralText("\"\"\"a\\nb\"\"\"") == "a\\nb"
-    assert PlaygroundRunFacts.DecodeStringLiteralText("\"\"\"\"\"\"") == ""
+// THIS CONTRACT USED TO PASS `"""a\nb"""` — WITH ITS DELIMITERS — AND THAT IS THE ONE INPUT THE TWO
+// PRODUCTION CALL SITES CAN NEVER SUPPLY. `PlaygroundRunner` passes `StringLiteralExpression.Value`,
+// and `Lexer.ReadTripleQuoteString` appends neither `"""`, so a raw literal's value is its BARE BODY.
+// The contract therefore exercised a branch nothing reached while the branch that ran — the escape
+// chain — turned every raw string's `\n` into a real newline in the Playground's evaluated value.
+//
+// It is the third contract in two batches to pin a shape its caller cannot produce (after
+// `[A(n = 1)]` and `!CanStartExpression(TripleQuoteStringLiteral)`), so the replacement states the
+// CALLER'S shape explicitly: the value as the parser stores it, plus the flag the parser stamps.
+test "021 s11 playground run facts: a raw string's body is returned verbatim, because the caller says it is raw" {
+    // The values below are what `StringLiteralExpression.Value` actually holds for each form — the
+    // ordinary literal keeps its quotes, the raw one does not.
+    assert PlaygroundRunFacts.DecodeStringLiteralText("a\\nb", true) == "a\\nb"
+    assert PlaygroundRunFacts.DecodeStringLiteralText("", true) == ""
+
+    // THE MEASURED DEFECT, STATED AS A CONTRACT: the same body without the flag is escape-decoded,
+    // which is what the Playground did to every raw string it evaluated.
+    wrong := PlaygroundRunFacts.DecodeStringLiteralText("a\\nb", false)
+    assert wrong == "a\nb"
+    assert wrong.Length == 3
+
+    // A raw body that would be mangled by each of the other four escapes, and by the quote-stripping
+    // guard: none of them may run.
+    assert PlaygroundRunFacts.DecodeStringLiteralText("a\\tb\\rc\\\\d", true) == "a\\tb\\rc\\\\d"
+    assert PlaygroundRunFacts.DecodeStringLiteralText("\"quoted\"", true) == "\"quoted\""
+    assert PlaygroundRunFacts.DecodeStringLiteralText("line one\nline two\n", true) == "line one\nline two\n"
 }
 
 test "021 s11 playground run facts: the rendering words — null, True/False, and the invariant G that keeps a de-DE browser honest" {

@@ -3,7 +3,21 @@ namespace NSharpLang.Compiler
 import System.Text
 
 class StringLiteralDecoder {
-    static func Decode(tokenText: string): string {
+
+    // `isRawBody` SAYS THE TEXT IS A RAW LITERAL'S BODY, ALREADY WITHOUT ITS DELIMITERS — which is
+    // what an AST `StringLiteralExpression.Value` holds and what no source slice ever holds.
+    //
+    // Every one of this owner's thirteen call sites hands it a SOURCE SLICE (`TryGetNodeText`,
+    // `source.Substring(...)`, the emitter's argument texts), delimiters included, so
+    // `IsTripleQuoteStringLiteral` succeeds and the raw arm is correct — the emit path was never
+    // wrong. The parameter exists for the OTHER input, the one the playground's own copy of this
+    // logic was handed, so that the three string forms can be stated as one family here instead of
+    // being re-derived per owner. It defaults to false, so all thirteen sites are unchanged.
+    static func Decode(tokenText: string, isRawBody: bool = false): string {
+        if isRawBody {
+            return tokenText
+        }
+
         if IsInterpolatedRawStringLiteral(tokenText) {
             return tokenText.Substring(4, tokenText.Length - 7)
         }

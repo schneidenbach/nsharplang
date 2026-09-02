@@ -125,22 +125,22 @@ func SldAgree(body: string): bool {
 
 test "a raw string literal keeps its backslashes and an ordinary one decodes them" {
     // The deleted file's three `Decode` rows.
-    assert StringLiteralDecoder.Decode("\"slash\\n\"") == "slash\n"
-    assert StringLiteralDecoder.Decode("\"slash\\n\"").Length == 6
-    assert StringLiteralDecoder.Decode("\"\"\"slash\\n\"\"\"") == "slash\\n"
-    assert StringLiteralDecoder.Decode("$\"\"\"slash\\n\"\"\"") == "slash\\n"
+    assert StringLiteralDecoder.Decode("\"slash\\n\"", false) == "slash\n"
+    assert StringLiteralDecoder.Decode("\"slash\\n\"", false).Length == 6
+    assert StringLiteralDecoder.Decode("\"\"\"slash\\n\"\"\"", false) == "slash\\n"
+    assert StringLiteralDecoder.Decode("$\"\"\"slash\\n\"\"\"", false) == "slash\\n"
 }
 
 test "the front door strips whatever delimiters it finds and tolerates having none" {
-    assert StringLiteralDecoder.Decode("\"plain\"") == "plain"
-    assert StringLiteralDecoder.Decode("\"\"") == ""
+    assert StringLiteralDecoder.Decode("\"plain\"", false) == "plain"
+    assert StringLiteralDecoder.Decode("\"\"", false) == ""
 
     // No delimiters at all: the body is decoded where it stands, which is what the lexer's
     // already-trimmed token text needs.
-    assert StringLiteralDecoder.Decode("plain") == "plain"
+    assert StringLiteralDecoder.Decode("plain", false) == "plain"
 
     // A leading quote without a trailing one strips only the leading one.
-    assert StringLiteralDecoder.Decode("\"open") == "open"
+    assert StringLiteralDecoder.Decode("\"open", false) == "open"
 }
 
 test "the interpolated text decoder is chosen by the literal that contains it, not by the text" {
@@ -177,4 +177,61 @@ test "the two literal-form classifiers state their own length floors and are dis
     assert !StringLiteralDecoder.IsTripleQuoteStringLiteral("\"x\"")
     assert !StringLiteralDecoder.IsInterpolatedRawStringLiteral("")
     assert !StringLiteralDecoder.IsTripleQuoteStringLiteral("")
+}
+
+// THE THREE STRING FORMS AGAINST THE TWO INPUTS ANYONE EVER HANDS THIS OWNER, STATED AS ONE FAMILY.
+//
+// The two inputs are not interchangeable and that is the whole reason the family needs stating:
+//
+//   * A SOURCE SLICE carries its delimiters for all three forms — `"…"`, `"""…"""`, `$"""…"""` — and
+//     is what all thirteen production call sites pass. The classifiers work, and always did.
+//   * AN AST `Value` carries them for the ORDINARY form ONLY, because `Lexer.ReadString` appends its
+//     quotes and `Lexer.ReadTripleQuoteString` appends neither of its `"""`. No prefix test can
+//     recover the difference — a raw body is arbitrary text — so a caller holding a `Value` has to
+//     say which form it has.
+//
+// Deriving that per owner is what produced two implementations and one live defect;
+// `PlaygroundRunFacts` sniffed the text and got every raw string wrong.
+test "the decoder answers the three string forms from a source slice, and takes the raw body on trust" {
+    // Source slices: the delimiters are present and each form is classified by them.
+    assert StringLiteralDecoder.Decode("\"a\\nb\"", false).Length == 3
+    assert StringLiteralDecoder.Decode("\"\"\"a\\nb\"\"\"", false) == "a\\nb"
+    assert StringLiteralDecoder.Decode("$\"\"\"a\\nb\"\"\"", false) == "a\\nb"
+
+    // The ordinary form decodes its escapes; the two raw forms do not. That is the one difference
+    // between them, and it is why the raw arms exist at all.
+    ordinary := StringLiteralDecoder.Decode("\"a\\nb\"", false)
+    assert ordinary == "a\nb"
+    assert (int)ordinary[1] == 10
+
+    // AN AST VALUE, WHICH IS THE INPUT THE CLASSIFIERS CANNOT HELP WITH. The ordinary form still
+    // carries its quotes, so it needs no flag; the raw form does not, so it does.
+    assert StringLiteralDecoder.Decode("\"a\\nb\"", false) == "a\nb"
+    assert StringLiteralDecoder.Decode("a\\nb", true) == "a\\nb"
+
+    // Without the flag the same body is escape-decoded — the shape of the Playground defect, stated
+    // here so the owner carries the evidence rather than only the fix.
+    assert StringLiteralDecoder.Decode("a\\nb", false).Length == 3
+
+    // The flag is verbatim all the way: no quote stripping, no escape, no length floor.
+    assert StringLiteralDecoder.Decode("", true) == ""
+    assert StringLiteralDecoder.Decode("\"looks quoted\"", true) == "\"looks quoted\""
+    assert StringLiteralDecoder.Decode("\n  indented\n", true) == "\n  indented\n"
+}
+
+// THE `$"""`-ONLY ARM IN `DecodeInterpolatedText` IS AN ASYMMETRY, AND IT IS CONTRACTED RATHER THAN
+// CHANGED. A plain `"""…"""` literal reaching it would have its TEXT escape-decoded, because the
+// verbatim arm keys on the interpolated prefix specifically. That is unreachable today — both entry
+// points (`ColumnarScalarLiteralPlanner.TryAppendString` and the emitter's interpolation path) gate
+// on `text[0] == '$'` before any part is split — so changing it would be a behaviour change with no
+// caller to justify it. Stated here so the next reader finds the reasoning instead of the surprise.
+test "the interpolated-text decoder keys its verbatim arm on the interpolated raw prefix alone" {
+    assert StringLiteralDecoder.DecodeInterpolatedText("$\"\"\"x\"\"\"", "\\n") == "\\n"
+
+    plain := StringLiteralDecoder.DecodeInterpolatedText("\"\"\"x\"\"\"", "\\n")
+    assert plain.Length == 1
+    assert (int)plain[0] == 10
+
+    ordinary := StringLiteralDecoder.DecodeInterpolatedText("$\"x\"", "\\n")
+    assert ordinary.Length == 1
 }

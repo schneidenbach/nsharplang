@@ -698,3 +698,25 @@ test "THE UNSAFE-BLOCK ARM IS A POLICY FINDING WHILE THE TRUSTED ARMS ARE NOT" {
     policyUnwaived.ValidateTrustedFunction(null, null, null, false, function, "attr.nl", "Owner.Copy", false, false)
     assert SatCount(unwaived) == 2
 }
+
+// A RAW LITERAL REACHES `Unquote` TOO, AND THE BOTH-ENDS GUARD IS WHAT SAVES IT.
+//
+// `[trusted(reason: """…""")]` is legal, and a raw literal's `StringLiteralExpression.Value` is its
+// BARE BODY — the lexer appends neither `"""`. So the value arriving here is already the text, and
+// the only reason it survives is that `Unquote` refuses to strip a value that is not quoted on BOTH
+// ends. A version written as "drop the first and last character" would answer `b` for `abc`. The
+// owner's comment used to say "the parser keeps a string literal's quotes" without qualification;
+// that is true of the ordinary form only, and this contract is what keeps the guard from being
+// "simplified" away.
+test "a raw literal's reason arrives unquoted and is returned untouched" {
+    assert SystemsAttributeSet.Unquote("abc") == "abc"
+    assert SystemsAttributeSet.Unquote("native handle is never exposed") == "native handle is never exposed"
+
+    // A raw body that ends in a quote but does not begin with one, and the reverse: neither is
+    // quoted on both ends, so neither is stripped.
+    assert SystemsAttributeSet.Unquote("says \"hi\"") == "says \"hi\""
+    assert SystemsAttributeSet.Unquote("\"leading only") == "\"leading only"
+
+    // The ordinary form is still stripped, which is the case the guard exists for.
+    assert SystemsAttributeSet.Unquote("\"quoted\"") == "quoted"
+}
