@@ -1471,7 +1471,7 @@ class ColumnarParserRecovery {
         // Every declaration is routed here AFTER its full extent (including any type/function body) has
         // been consumed, so Previous() is its last token — stamp EndLine for the formatter's
         // end-anchored blank-line gap measurement.
-        node.EndLine = Previous().Line
+        node.EndLine = TokenEndLine(Previous())
         if TypeMemberStack.Count > 0 {
             TypeMemberStack[TypeMemberStack.Count - 1].Add(node)
         } else {
@@ -1495,6 +1495,33 @@ class ColumnarParserRecovery {
     // Call it IMMEDIATELY after the closer is consumed, so `Previous()` is the closer itself.
     func StampListEnd(node: Expression) {
         node.EndLine = Previous().Line
+    }
+
+    // THE LAST SOURCE LINE A TOKEN COVERS, WHICH IS NOT ALWAYS THE LINE IT STARTS ON.
+    //
+    // Almost every token is one line wide, so `Line` is its end as well — which is why the three
+    // `EndLine` stamps below could read `Previous().Line` and be right. The exceptions are the two
+    // RAW string literals: `"""…"""` and `$"""…"""` carry their own newlines INSIDE a single token,
+    // so a statement or declaration that ends in one covers more lines than its last token reports.
+    //
+    // The formatter is the consumer that notices, because it measures blank-line gaps from
+    // construct ENDS. An under-reported end makes the line after a multi-line literal look like it
+    // stood across a gap, and a blank line the author never wrote is inserted above it — on every
+    // format, for `$"""` as much as for `"""`. Counting the token's own line breaks is the whole
+    // correction, and it is the identity on every single-line token.
+    func TokenEndLine(token: Token): int {
+        line := token.Line
+        text := token.Value
+        index := 0
+        while index < text.Length {
+            if text[index] == '\n' {
+                line = line + 1
+            }
+
+            index = index + 1
+        }
+
+        return line
     }
 
     // Stage N+1c tranche 3 (members): ParseTypeBody now RETURNS the member list it parsed, so each type
@@ -4056,7 +4083,7 @@ class ColumnarParserRecovery {
             } else {
                 // Stamp the statement's last covered source line (its final consumed token) so the
                 // formatter can measure blank-line gaps from statement ENDS instead of starts.
-                statement.EndLine = Previous().Line
+                statement.EndLine = TokenEndLine(Previous())
                 statements.Add(statement)
             }
 
@@ -5188,7 +5215,7 @@ class ColumnarParserRecovery {
                     if caseStatement == null {
                         declined = true
                     } else {
-                        caseStatement.EndLine = Previous().Line
+                        caseStatement.EndLine = TokenEndLine(Previous())
                         caseStatements.Add(caseStatement)
                     }
                 }

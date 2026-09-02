@@ -17,6 +17,16 @@ class ParserTokenFacts {
         if tokenType == TokenType.StringLiteral {
             return true
         }
+        // A PLAIN RAW LITERAL STARTS AN EXPRESSION EXACTLY AS THE OTHER TWO STRING FORMS DO, and its
+        // absence here was a LANGUAGE defect, not a formatting one. `ParseReturnStatement` asks this
+        // predicate whether the `return` carries a value at all, so `return """abc"""` parsed as a
+        // BARE `return` followed by a stray expression statement and `nlc check` reported NL305 +
+        // NL312 + NL006 on correct source. `ParseAdditive`'s missing-operand boundary asks it too, so
+        // `"a" + """b"""` was refused the same way. `IsExpressionStart` — the CAST operand table —
+        // had the row all along; this table did not.
+        if tokenType == TokenType.TripleQuoteStringLiteral {
+            return true
+        }
         if tokenType == TokenType.InterpolatedRawStringLiteral {
             return true
         }

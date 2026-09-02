@@ -5634,6 +5634,125 @@ test "017: statements and declarations carry EndLine from their final consumed t
     assert verified
 }
 
+func RawParseErrors(source: string): int {
+    parsed := ColumnarParserRecovery.ParseFileAst(source, "a.nl")
+    count := 0
+    for error in parsed.Errors {
+        if error.Severity == ErrorSeverity.Error {
+            count = count + 1
+        }
+    }
+
+    return count
+}
+
+test "a `return` whose value is a raw string literal KEEPS the value, and the concatenation keeps its operand" {
+    // `ParseReturnStatement` decides whether the `return` carries a value by asking
+    // `ParserTokenFacts.CanStartExpression`, which did not list `TripleQuoteStringLiteral`. The
+    // `return` therefore materialized with a NULL value and the literal became a stray expression
+    // statement after it — a shape the analyzer reported as NL305 (not all paths return) plus NL312
+    // and NL006 (unreachable code) on source that is correct. One missing table row, three
+    // diagnostics, and no parser contract said the literal was an operand at all.
+    assert RawParseErrors("func f(): string {\n    return \"\"\"abc\"\"\"\n}\n") == 0
+    unit := RunAst("func f(): string {\n    return \"\"\"abc\"\"\"\n}\n")
+    fn := unit.Declarations[0] as FunctionDeclaration
+    verified := false
+    if fn != null {
+        body := fn.Body
+        if body != null {
+            assert body.Statements.Count == 1
+            returnStatement := body.Statements[0] as ReturnStatement
+            if returnStatement != null {
+                literal := returnStatement.Value as StringLiteralExpression
+                if literal != null {
+                    assert literal.Value == "abc"
+                    verified = true
+                }
+            }
+        }
+    }
+    assert verified
+
+    // The same predicate guards `ParseAdditive`'s missing-operand boundary, so a raw literal on the
+    // right of a `+` was refused as a missing operand.
+    assert RawParseErrors("func f(): string {\n    return \"a\" + \"\"\"b\"\"\"\n}\n") == 0
+    binaryUnit := RunAst("func f(): string {\n    return \"a\" + \"\"\"b\"\"\"\n}\n")
+    binaryFn := binaryUnit.Declarations[0] as FunctionDeclaration
+    binaryVerified := false
+    if binaryFn != null {
+        binaryBody := binaryFn.Body
+        if binaryBody != null {
+            assert binaryBody.Statements.Count == 1
+            binaryReturn := binaryBody.Statements[0] as ReturnStatement
+            if binaryReturn != null {
+                binary := binaryReturn.Value as BinaryExpression
+                if binary != null {
+                    right := binary.Right as StringLiteralExpression
+                    if right != null {
+                        assert right.Value == "b"
+                        binaryVerified = true
+                    }
+                }
+            }
+        }
+    }
+    assert binaryVerified
+}
+
+test "a statement that ends in a multi-line raw literal reports the literal's LAST line as its EndLine" {
+    // A raw string literal is ONE token that spans lines, and both `EndLine` stamps read
+    // `Previous().Line` — the line the literal OPENED on. The formatter measures blank-line gaps from
+    // statement ENDS, so it saw a phantom gap above the next statement and wrote a blank line the
+    // author never had, on every format and for `$"""` exactly as for `"""`. `TokenEndLine` counts the
+    // token's own line breaks; it is the identity for every single-line token.
+    unit := RunAst("func f() {\n    v := \"\"\"\nline one\nline two\n\"\"\"\n    w := 1\n}\n")
+    decl := unit.Declarations[0]
+    assert decl.EndLine == 7
+    fn := decl as FunctionDeclaration
+    verified := false
+    if fn != null {
+        body := fn.Body
+        if body != null {
+            literalStatement := body.Statements[0]
+            assert literalStatement.Line == 2
+            assert literalStatement.EndLine == 5
+            tailStatement := body.Statements[1]
+            assert tailStatement.Line == 6
+            assert tailStatement.EndLine == 6
+            verified = true
+        }
+    }
+    assert verified
+
+    // The interpolated form carries its delimiters INSIDE the token value and the plain form does
+    // not, so the two count different strings and must still land on the same line.
+    interpolated := RunAst("func f(x: int) {\n    v := $\"\"\"\nline {x}\nline two\n\"\"\"\n    w := 1\n}\n")
+    interpolatedFn := interpolated.Declarations[0] as FunctionDeclaration
+    interpolatedVerified := false
+    if interpolatedFn != null {
+        interpolatedBody := interpolatedFn.Body
+        if interpolatedBody != null {
+            assert interpolatedBody.Statements[0].EndLine == 5
+            assert interpolatedBody.Statements[1].Line == 6
+            interpolatedVerified = true
+        }
+    }
+    assert interpolatedVerified
+
+    // A single-line token is unchanged: the stamp still reports the line it sits on.
+    single := RunAst("func f() {\n    v := \"\"\"abc\"\"\"\n    w := 1\n}\n")
+    singleFn := single.Declarations[0] as FunctionDeclaration
+    singleVerified := false
+    if singleFn != null {
+        singleBody := singleFn.Body
+        if singleBody != null {
+            assert singleBody.Statements[0].EndLine == 2
+            singleVerified = true
+        }
+    }
+    assert singleVerified
+}
+
 test "017: an `is` pattern variable stops at the line boundary — the next line stays its own statement" {
     actual := RunAst("func f() {\n    x := a is B\n    y := 1\n}\n")
     // Parser.cs :4157 had no line gate, so `x := a is B` swallowed the NEXT LINE's `y` as the pattern

@@ -131,6 +131,21 @@ slash\n
     return value
 }
 
+// A RAW LITERAL IS AN EXPRESSION IN EVERY POSITION, NOT ONLY AN INITIALIZER, AND THESE TWO
+// FUNCTIONS ARE THE CHECK-CLEAN CONTRACT FOR IT. `ParserTokenFacts.CanStartExpression` did not list
+// `TripleQuoteStringLiteral`, so `return """…"""` parsed as a bare `return` plus a stray expression
+// statement (NL305 + NL312 + NL006) and `"a" + """b"""` was refused at the missing-operand boundary.
+// The existing contract above reaches the literal through a LOCAL, which is exactly why it never
+// caught either. This project is compiled by the product build, so it fails to BUILD if the row is
+// ever dropped again — a stronger statement than any assertion about the value.
+func ReturnTripleStringLiteralDirect(): string {
+    return """direct"""
+}
+
+func ConcatTripleStringLiteral(): string {
+    return "a" + """b"""
+}
+
 func ReadTenFromEnd(values: int[]): int {
     return values[^1_0]
 }
@@ -168,6 +183,8 @@ test "scalar code plans supply exact function return values" {
     assert ReturnCharacterLiteral() == '\n'
     assert ReturnOrdinaryStringLiteral() == "line\nquote\"slash\\"
     assert ReturnTripleStringLiteral() == "\nslash\\n\n"
+    assert ReturnTripleStringLiteralDirect() == "direct"
+    assert ConcatTripleStringLiteral() == "ab"
 }
 
 test "range code plans recursively consume the shared underscored scalar owner" {
