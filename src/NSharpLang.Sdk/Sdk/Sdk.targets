@@ -3,11 +3,8 @@
   <!-- Import base SDK targets (dynamic based on project.yml sdk field, set in Sdk.props) -->
   <Import Project="Sdk.targets" Sdk="$(_NSharpBaseSdk)" />
 
-  <!-- Disable native executable generation in Debug to avoid NETSDK1177 signing
-       errors when rebuilding while the app is still running. In Debug, apps are
-       launched via 'dotnet run' which doesn't need the apphost. Release builds
-       still produce a native executable for deployment.
-       Placed after base SDK import so $(Configuration) has its resolved value. -->
+  <!-- No apphost in Debug: rebuilding while the app runs trips NETSDK1177, and `dotnet run` does not need one.
+       Release still produces a native executable. After the base SDK import so $(Configuration) is resolved. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <UseAppHost Condition="'$(UseAppHost)' == ''">false</UseAppHost>
   </PropertyGroup>
@@ -15,9 +12,9 @@
   <PropertyGroup>
     <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == '' And '$(MSBuildProjectName)' == 'NSharpLang.Compiler.BootstrapServices'">false</NSharpEmitValidateWithLegacyAnalysis>
     <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == ''">true</NSharpEmitValidateWithLegacyAnalysis>
+    <_NSharpEmitStamp>$(IntermediateOutputPath)nsharp.emit.stamp</_NSharpEmitStamp>
   </PropertyGroup>
 
-  <!-- Reference the NSharp build tasks -->
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectReferences"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectConfig"
@@ -25,10 +22,8 @@
   <UsingTask TaskName="NSharpLang.Build.Tasks.EmitIlAssembly"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
 
-  <!-- Apply project.yml settings during the current MSBuild invocation as well
-       as through obj/project.g.props. This keeps direct dotnet builds and
-       ProjectReference consumers working even before nlc restore has generated
-       the compatibility props file. -->
+  <!-- Apply project.yml in THIS invocation as well as through obj/project.g.props, so direct dotnet builds and
+       ProjectReference consumers work even before nlc restore has generated the compatibility props file. -->
   <Target Name="_ApplyNSharpProjectConfigForCurrentBuild"
           BeforeTargets="_GetRestoreProjectStyle;_GetRestoreTargetFrameworksOutput;_GenerateRestoreProjectSpec;GetTargetPath;GetTargetPathWithTargetPlatformMoniker;PrepareForBuild;CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;CoreCompile"
           Condition="Exists('$(NSharpProjectFile)')">
@@ -76,12 +71,10 @@
     </PropertyGroup>
   </Target>
 
-  <!-- Auto-discover all .nl files (excluding tests) -->
   <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
     <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
   </ItemGroup>
 
-  <!-- Auto-discover all .tests.nl files (unless excluded for production builds) -->
   <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' != 'true'">
     <NSharpTestFiles Include="**/*.tests.nl" Exclude="**/obj/**;**/bin/**" />
   </ItemGroup>
@@ -93,7 +86,6 @@
       <NSharpTestFramework Condition="'$(NSharpTestFramework)' == ''">xunit</NSharpTestFramework>
     </PropertyGroup>
 
-    <!-- xUnit dependencies -->
     <ItemGroup Condition="'$(_NSharpTestFiles)' != '' And '$(NSharpTestFramework)' == 'xunit'">
       <PackageReference Include="xunit" Version="2.9.2" />
       <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
@@ -107,7 +99,6 @@
       </PackageReference>
     </ItemGroup>
 
-    <!-- NUnit dependencies -->
     <ItemGroup Condition="'$(_NSharpTestFiles)' != '' And '$(NSharpTestFramework)' == 'nunit'">
       <PackageReference Include="NUnit" Version="4.3.2" />
       <PackageReference Include="NUnit3TestAdapter" Version="4.6.0">
@@ -124,7 +115,6 @@
     <PropertyGroup Condition="'$(_NSharpTestFiles)' != ''">
       <HasNSharpTestFiles>true</HasNSharpTestFiles>
 
-      <!-- Default coverage settings -->
       <CoverletOutputFormat Condition="'$(CoverletOutputFormat)' == ''">opencover</CoverletOutputFormat>
       <CoverletOutput Condition="'$(CoverletOutput)' == ''">$(MSBuildProjectDirectory)/coverage.</CoverletOutput>
       <!-- Only enable by default if explicitly requested -->
@@ -132,7 +122,6 @@
     </PropertyGroup>
   </Target>
 
-  <!-- Load dependencies from project.yml and add them to MSBuild items -->
   <Target Name="LoadNSharpReferences"
           BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences"
           Condition="Exists('$(NSharpProjectFile)')">
@@ -147,9 +136,22 @@
     <Message Importance="High" Text="Skipping CoreCompile for N# project; emitting direct IL assembly." />
   </Target>
 
+  <!-- The emit is skipped only when the sources, project.yml, the resolved references, the SDK's own tool assemblies AND the source-set identity are all unchanged. The stamp's CONTENT is that identity (which files, tests in or out, configuration), so a tests-included build can never be satisfied by the product-only assembly sitting at the same obj path, and the product build after it cannot inherit the tests-included one. -->
+  <Target Name="_NSharpEmitStampIdentity" BeforeTargets="EmitNSharpIlAssembly" Condition="'$(EnableNSharpCompilation)' == 'true'">
+    <PropertyGroup>
+      <_NSharpEmitKey>@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);$(Configuration);$(DefineConstants);$(NSharpEmitValidateWithLegacyAnalysis)</_NSharpEmitKey>
+      <_NSharpEmitId>$([MSBuild]::StableStringHash($(_NSharpEmitKey), 'Sha256'))</_NSharpEmitId>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(_NSharpEmitStamp)" Condition="Exists('$(_NSharpEmitStamp)')">
+      <Output TaskParameter="Lines" ItemName="_NSharpEmitPrevId" />
+    </ReadLinesFromFile>
+    <Delete Files="$(_NSharpEmitStamp)" Condition="Exists('$(_NSharpEmitStamp)') And '@(_NSharpEmitPrevId)' != '$(_NSharpEmitId)'" />
+  </Target>
   <Target Name="EmitNSharpIlAssembly"
           AfterTargets="CoreCompile"
           BeforeTargets="CopyFilesToOutputDirectory"
+          Inputs="@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);@(ReferencePath);$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll;$(MSBuildThisFileDirectory)../tools/Compiler.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.BootstrapServices.dll"
+          Outputs="$(_NSharpEmitStamp);@(IntermediateAssembly)"
           Condition="'$(EnableNSharpCompilation)' == 'true' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')">
     <ItemGroup>
       <_NSharpIlSources Include="@(NSharpCompile)" />
@@ -169,9 +171,9 @@
       TargetAssemblyPath="@(IntermediateAssembly)"
       TargetReferenceAssemblyPath="@(IntermediateRefAssembly)"
       ValidateWithLegacyAnalysis="$(NSharpEmitValidateWithLegacyAnalysis)" />
+    <WriteLinesToFile File="$(_NSharpEmitStamp)" Lines="$(_NSharpEmitId)" Overwrite="true" />
   </Target>
 
-  <!-- Format N# files -->
   <Target Name="FormatNSharp" Condition="'$(EnableNSharpCompilation)' == 'true'">
     <PropertyGroup>
       <NSharpCliPath Condition="'$(NSharpCliPath)' == ''">nlc</NSharpCliPath>
@@ -185,7 +187,6 @@
           IgnoreExitCode="false" />
   </Target>
 
-  <!-- Generate HTML coverage report -->
   <Target Name="GenerateCoverageReport"
           Condition="'$(HasNSharpTestFiles)' == 'true' And '$(GenerateCoverageReport)' == 'true'">
     <PropertyGroup>
@@ -195,7 +196,6 @@
 
     <Message Importance="High" Text="Generating HTML coverage report..." />
 
-    <!-- Generate the report when reportgenerator is available on PATH. -->
     <Exec Command="reportgenerator -reports:&quot;$(CoverageFiles)&quot; -targetdir:&quot;$(CoverageReportDir)&quot; -reporttypes:Html"
           WorkingDirectory="$(MSBuildProjectDirectory)"
           IgnoreExitCode="true" />
