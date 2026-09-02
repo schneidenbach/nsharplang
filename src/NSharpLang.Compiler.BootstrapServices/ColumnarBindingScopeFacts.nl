@@ -88,6 +88,11 @@ class ColumnarExternalTypeCatalog {
     referenceAssemblyPaths: string[]
     extensionIndex: ColumnarExtensionMethodIndex?
     extensionIndexBuilt: bool
+    // The canonical scan is IMMUTABLE for the life of a prepared catalog: its entries are decided
+    // by the reference path list alone, and `Prepare` already performs every `Assembly.LoadFrom`
+    // side effect a later scan could observe. Retaining it is what keeps a per-file owner lookup
+    // from rebuilding a whole MetadataLoadContext over every referenced assembly.
+    preparedScan: ExternalAssemblyScanResult?
     IsPrepared: bool
 
     constructor() {
@@ -96,6 +101,7 @@ class ColumnarExternalTypeCatalog {
         referenceAssemblyPaths = new string[](0)
         extensionIndex = null
         extensionIndexBuilt = false
+        preparedScan = null
         IsPrepared = false
     }
 
@@ -109,12 +115,10 @@ class ColumnarExternalTypeCatalog {
             return false
         }
         if !extensionIndexBuilt {
-            scan := ExternalAssemblyScan.OpenWithReferences(referenceAssemblyPaths)
-            try {
-                extensionIndex = ColumnarExtensionMethodResolver.BuildIndex(scan)
-            } finally {
-                scan.Dispose()
+            if preparedScan == null {
+                return false
             }
+            extensionIndex = ColumnarExtensionMethodResolver.BuildIndex(preparedScan)
             extensionIndexBuilt = true
         }
         if extensionIndex == null {
@@ -140,9 +144,13 @@ class ColumnarExternalTypeCatalog {
 
         // Signature emission resolves runtime Type handles before any expression planner asks
         // this catalog for an owner. Open the canonical scan once here so every exact runtime
-        // implementation is admitted up front; owner lookup itself remains lazy and cached.
-        preload := ExternalAssemblyScan.OpenWithReferences(this.referenceAssemblyPaths)
-        preload.Dispose()
+        // implementation is admitted up front, and KEEP it: owner lookup stays lazy and cached,
+        // but it now reads this scan instead of rebuilding an identical one per cache miss.
+        previousScan := preparedScan
+        preparedScan = ExternalAssemblyScan.OpenWithReferences(this.referenceAssemblyPaths)
+        if previousScan != null {
+            previousScan.Dispose()
+        }
         IsPrepared = true
     }
 
@@ -160,13 +168,11 @@ class ColumnarExternalTypeCatalog {
             return false
         }
 
-        scan := ExternalAssemblyScan.OpenWithReferences(referenceAssemblyPaths)
-        try {
-            resolution = ResolveOwner(scan, facts, ownerName)
-            resolvedOwners[key] = resolution
-        } finally {
-            scan.Dispose()
+        if preparedScan == null {
+            return false
         }
+        resolution = ResolveOwner(preparedScan, facts, ownerName)
+        resolvedOwners[key] = resolution
         return true
     }
 
