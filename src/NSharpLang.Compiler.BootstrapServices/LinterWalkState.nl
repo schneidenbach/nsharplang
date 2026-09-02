@@ -260,13 +260,21 @@ class LinterWalkState {
 
     // NL002 for a bare identifier. The whole decision — which namespace the name needs, and whether
     // anything already supplies it — belongs to `LinterMissingImport`; what is here is the report.
+    //
+    // THE SPAN IS THE IDENTIFIER'S OWN LENGTH, NOT AN INFERRED TOKEN. Passing 0 asks
+    // `DiagnosticSpanResolver` to work the extent out from the source line, and it deliberately runs
+    // a dotted chain together — `foo.bar.baz` is one span, which is right for a diagnostic ABOUT the
+    // chain and wrong for this one. `StringBuilder.ToString()` gave NL002 a 22-column span reading
+    // `StringBuilder.ToString` while the message names `StringBuilder`, so the fix was offered on
+    // `.ToString` as well. The resolver is not changed — its chain rule has other callers and its own
+    // contracts — it is simply not asked, because this rule already knows the answer.
     func CheckMissingImport(ident: IdentifierExpression) {
         requiredNamespace := LinterMissingImport.MissingNamespaceForIdentifier(ident.Name, typeMemberNameScopes, importedFileSymbols, importedNamespaces)
         if requiredNamespace == null {
             return
         }
 
-        AddDiagnostic("NL002", LinterMissingImport.Message(ident.Name), ident.Line, ident.Column, config.GetSeverity("NL002"), LinterMissingImport.Suggestion(requiredNamespace), 0)
+        AddDiagnostic("NL002", LinterMissingImport.Message(ident.Name), ident.Line, ident.Column, config.GetSeverity("NL002"), LinterMissingImport.Suggestion(requiredNamespace), ident.Name.Length)
     }
 
     // NL002 for a written type reference, with an enclosing position to fall back to.

@@ -843,3 +843,23 @@ test "the import silences the newly covered positions too, which is the whole po
     covered := "\nimport System.Collections.Generic\nimport System.Text\n\nfunc takes(sb: StringBuilder): int {\n    return sb.Length\n}\n\nfunc make(): List<StringBuilder> {\n    return null\n}\n\nclass Holder {\n    Buffer: StringBuilder\n}"
     assert LmieCensus(covered) == ""
 }
+
+test "NL002's bare-identifier span STOPS AT THE IDENTIFIER, and does not run the member chain in" {
+    // `DiagnosticSpanResolver` covers a whole dotted chain when it is asked to infer an extent, and
+    // that is correct for a diagnostic about the chain — `foo.bar.baz` is one span, and the resolver
+    // has its own contract saying so. It is wrong here: the message names `StringBuilder`, so the
+    // squiggle covered `StringBuilder.ToString` (22 columns) and the import fix was offered on
+    // `.ToString` too. The rule now states the identifier's own length rather than asking.
+    dotted := "\nfunc main() {\n    print(StringBuilder.ToString())\n}"
+    assert LmieCensus(dotted) == "NL002@3:11+13;"
+    assert LmieMessages(dotted) == "NL002|I can't find 'StringBuilder' — it looks like a missing import;"
+
+    // CONTROL, and it is the one that says the resolver was not broken to get here: an identifier
+    // with nothing after it was always right, and is unchanged at the same thirteen columns.
+    bare := "\nfunc main() {\n    let sb = StringBuilder\n    print(sb)\n}"
+    assert LmieCensus(bare) == "NL002@3:14+13;"
+
+    // And the RESOLVER'S own rule still runs a chain together for the callers that want it, which is
+    // why it was left alone: this is the same source line, asked of the resolver directly.
+    assert DiagnosticSpanContractCovers("StringBuilder.ToString()", 1, "StringBuilder.ToString")
+}
