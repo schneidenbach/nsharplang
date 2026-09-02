@@ -592,6 +592,35 @@ func PgUnsupportedReason(response: object): string {
 }
 
 
+// EVERY shipped example that DECLARES an `ExpectedOutput`, run through the Run button, rendered as
+// `id=MATCH;` or `id=MISMATCH;` in corpus order. An example that declares no output is not in the
+// census — the catalog's own text is the only oracle this contract has, and an example without one
+// cannot be judged by it.
+func PgExpectedOutputCensus(): string {
+    entries := PgExamples()
+    census := ""
+    index := 0
+    while index < entries.Count {
+        entry := entries[index]
+        if entry != null {
+            expected := PgText(entry, "ExpectedOutput")
+            if expected != "<null>" {
+                verdict := "MISMATCH"
+                if PgStdout(PgRunFiles(PgExampleCode(index), "Program.nl")) == expected {
+                    verdict = "MATCH"
+                }
+
+                census = census + PgText(entry, "Id") + "=" + verdict + ";"
+            }
+        }
+
+        index = index + 1
+    }
+
+    return census
+}
+
+
 // ---- the FORMAT surface ----
 
 func PgFormat(source: string): object {
@@ -1466,6 +1495,67 @@ test "chip playground-vs-nlc-run D1: `6 / 0` reports the CLR's OWN sentence, not
     // walk), so the playground keeps `Stderr` + exit 1; the SENTENCE — the part a user reads and
     // searches for — is now identical.
     source := "namespace P\n\nfunc main() {\n    a := 6\n    b := 0\n    print a / b\n}"
+// ---- the union-case SHORTHAND property pattern: the playground must accept what the compiler accepts ----
+//
+// 021 slice 11 measured `04-unions-patterns` — a SHIPPED tutorial example carrying a declared
+// `ExpectedOutput` — failing `PG208 — could not resolve 'name'` behind a Run button, while `nlc run`
+// printed the declared transcript. The cause was a THIRD spelling of one language rule:
+// `PatternMatches` declared a binding only when a `PropertyPattern`'s `BindingName` was non-null,
+// and NO parser production ever sets it, so the shorthand `Found { name, score }` bound NOTHING
+// while `Found { name: n, score: s }` bound correctly — a one-character difference between a
+// program that ran and a program that did not. The runner now asks
+// `AnalyzerPropertyPatternBinding.BoundName`, the compiler's own owner of that decision, so there is
+// one rule and the interpreter cannot disagree with the emitter about it.
+//
+// EVERY EXPECTED OUTPUT BELOW WAS MEASURED AGAINST `nlc run` ON THE SAME SOURCE, not asserted from
+// the runner alone. `nlc run` on the shipped example prints `Ada: 99\nMissing player #404\n` and
+// exits 0; on the minimal pair it prints `circle 3\n` for BOTH spellings; and on the two invalid
+// spellings it reports the SAME `NL503` sentence at the SAME span the playground reports, because
+// both consult the analyzer before either executes anything.
+
+test "chip playground union shorthand: the SHIPPED 04-unions-patterns example RUNS, and its stdout is its own declared ExpectedOutput — the transcript `nlc run` prints for the same source" {
+    index := PgIndexOfExample("04-unions-patterns")
+    assert index == 3
+    assert PgText(PgExample(index), "ExpectedOutput") == "Ada: 99\nMissing player #404\n"
+    response := PgRunFiles(PgExampleCode(index), "Program.nl")
+    assert PgOk(response) == "True"
+    assert PgSchemaVersion(response) == "2"
+    assert PgFileName(response) == "Program.nl"
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "Ada: 99\nMissing player #404\n"
+    assert PgStdout(response) == PgText(PgExample(index), "ExpectedOutput")
+    assert PgStderr(response) == "<null>"
+    assert PgUnsupportedReason(response) == "<null>"
+    assert PgSummary(response) == "0/0/0"
+    assert PgCount(response) == 0
+    assert PgCensus(response) == ""
+    assert PgRow(response, 0) == "<no-such-diagnostic>"
+}
+
+test "chip playground union shorthand: the ONE-CHARACTER probe pair that isolated the defect now answers identically — `Shape.Circle { Radius }` and `Shape.Circle { Radius: r }` both print what `nlc run` prints" {
+    shorthandSource := "package Tutorial\n\nunion Shape {\n    Circle { Radius: int }\n}\n\nfunc Describe(shape: Shape): string {\n    return match shape {\n        Shape.Circle { Radius } => $\"circle {Radius}\"\n    }\n}\n\nfunc main() {\n    print Describe(new Shape.Circle(3))\n}"
+    explicitSource := "package Tutorial\n\nunion Shape {\n    Circle { Radius: int }\n}\n\nfunc Describe(shape: Shape): string {\n    return match shape {\n        Shape.Circle { Radius: r } => $\"circle {r}\"\n    }\n}\n\nfunc main() {\n    print Describe(new Shape.Circle(3))\n}"
+    shorthandResponse := PgRunFiles(shorthandSource, "Program.nl")
+    explicitResponse := PgRunFiles(explicitSource, "Program.nl")
+    assert PgOk(shorthandResponse) == "True"
+    assert PgExitCode(shorthandResponse) == "0"
+    assert PgStdout(shorthandResponse) == "circle 3\n"
+    assert PgStderr(shorthandResponse) == "<null>"
+    assert PgUnsupportedReason(shorthandResponse) == "<null>"
+    assert PgCensus(shorthandResponse) == ""
+    // The two spellings are the SAME program to the compiler, so they must be the same program here.
+    assert PgStdout(explicitResponse) == PgStdout(shorthandResponse)
+    assert PgExitCode(explicitResponse) == PgExitCode(shorthandResponse)
+    assert PgOk(explicitResponse) == PgOk(shorthandResponse)
+    assert PgCensus(explicitResponse) == PgCensus(shorthandResponse)
+}
+
+test "chip playground union shorthand: EVERY shipped example that declares an ExpectedOutput now PRODUCES it — 8 of the 10, named, in corpus order" {
+    assert PgExpectedOutputCensus() == "01-hello-world=MATCH;02-values-functions=MATCH;03-types-visibility=MATCH;04-unions-patterns=MATCH;05-duck-typing=MATCH;06-collections-linq=MATCH;09-testing=MATCH;10-tooling-loop=MATCH;"
+}
+
+test "chip playground union shorthand NEGATIVE: a shorthand naming a property the case does not carry is REFUSED with the compiler's own NL503, at the compiler's own span — `nlc run` reports the identical sentence at 10:30+4 and exits 1" {
+    source := "package Tutorial\n\nunion LookupResult {\n    Found { name: string, score: int }\n    Missing { id: int }\n}\n\nfunc Describe(result: LookupResult): string {\n    return match result {\n        LookupResult.Found { nope } => \"found\",\n        LookupResult.Missing { id } => $\"Missing player #{id}\"\n    }\n}\n\nfunc main() {\n    print Describe(new LookupResult.Missing(404))\n}"
     response := PgRunFiles(source, "Program.nl")
     assert PgOk(response) == "False"
     assert PgExitCode(response) == "1"
@@ -1580,4 +1670,26 @@ test "chip playground-vs-nlc-run: the seventh divergence is NOT fixed here and t
     strings := PgRunFiles("namespace P\n\nfunc main() {\n    print \"a\" + \"b\"\n}", "Program.nl")
     assert PgExitCode(strings) == "0"
     assert PgStdout(strings) == "ab\n"
+    // NOT a `PG2xx` — the runner never starts, so the user reads the compiler's diagnostic.
+    assert PgStderr(response) == "Run skipped because the program has compiler errors."
+    assert PgUnsupportedReason(response) == "<null>"
+    assert PgSummary(response) == "1/0/0"
+    assert PgCount(response) == 1
+    assert PgCensus(response) == "NL503@10:30+4;"
+    assert PgRow(response, 0) == "NL503|error|Union case 'Found' doesn't have a property named 'nope' — check the case definition for available properties|Program.nl|10|30|4"
+    assert PgRow(response, 1) == "<no-such-diagnostic>"
+}
+
+test "chip playground union shorthand NEGATIVE: a shorthand under a case the union does not declare is REFUSED with the compiler's own NL503 — `nlc run` reports the identical sentence at 10:9+17 and exits 1" {
+    source := "package Tutorial\n\nunion LookupResult {\n    Found { name: string, score: int }\n    Missing { id: int }\n}\n\nfunc Describe(result: LookupResult): string {\n    return match result {\n        LookupResult.Nope { id } => \"nope\",\n        LookupResult.Found { name, score } => $\"{name}: {score}\",\n        LookupResult.Missing { id } => $\"Missing player #{id}\"\n    }\n}\n\nfunc main() {\n    print Describe(new LookupResult.Missing(404))\n}"
+    response := PgRunFiles(source, "Program.nl")
+    assert PgOk(response) == "False"
+    assert PgExitCode(response) == "1"
+    assert PgStdout(response) == ""
+    assert PgStderr(response) == "Run skipped because the program has compiler errors."
+    assert PgUnsupportedReason(response) == "<null>"
+    assert PgCount(response) == 1
+    assert PgCensus(response) == "NL503@10:9+17;"
+    assert PgRow(response, 0) == "NL503|error|'LookupResult.Nope' is not a case of union 'LookupResult' — check the union definition for available cases|Program.nl|10|9|17"
+    assert PgRow(response, 1) == "<no-such-diagnostic>"
 }

@@ -917,3 +917,49 @@ test "the diagnostic is NL503 with no suggestion line" {
     assert harness.Errors[0].Code == ErrorCode.InvalidPattern
     assert harness.Errors[0].Suggestion == null
 }
+
+
+// ---- `BoundName`, the ONE answer to what a property pattern binds (playground union-shorthand chip) ----
+//
+// The rule had three spellings before this chip: this walk's, the union arm's in
+// `AnalyzerPatternAnalysis`, and the browser runner's — and the runner's was WRONG. It bound only
+// when `BindingName` was non-null, which no parser production sets, so `Found { name, score }` bound
+// nothing and a SHIPPED tutorial example answered `PG208` where `nlc run` printed its own declared
+// `ExpectedOutput`. There is one spelling now and it is pinned here, directly, rather than only
+// through the two walks that call it.
+
+test "BoundName: the implicit `{ value }` form binds the PROPERTY's own name — the production form, and the one the browser runner used to drop" {
+    assert AnalyzerPropertyPatternBinding.BoundName(new PropertyPattern("Radius", null, null, 7, 11)) == "Radius"
+    assert AnalyzerPropertyPatternBinding.BoundName(new PropertyPattern("name", null, null, 10, 30)) == "name"
+    assert AnalyzerPropertyPatternBinding.BoundName(new PropertyPattern("score", null, null, 10, 36)) == "score"
+}
+
+test "BoundName: an EXPLICIT binding name wins — the arm no parser production reaches, pinned by construction" {
+    assert AnalyzerPropertyPatternBinding.BoundName(new PropertyPattern("Age", null, "renamed", 7, 11)) == "renamed"
+    // An empty explicit name is a NAME, not an absence: only null takes the fallback.
+    assert AnalyzerPropertyPatternBinding.BoundName(new PropertyPattern("Age", null, "", 7, 11)) == ""
+}
+
+test "BoundName: a property carrying a NESTED pattern still answers by the same order of preference — the nested form is decided by the CALLER, not by this rule" {
+    nested: Pattern = new IdentifierPattern("r", 7, 20)
+    assert AnalyzerPropertyPatternBinding.BoundName(new PropertyPattern("Radius", nested, null, 7, 11)) == "Radius"
+    assert AnalyzerPropertyPatternBinding.BoundName(new PropertyPattern("Radius", nested, "renamed", 7, 11)) == "renamed"
+}
+
+test "BoundName is what the object-pattern walk itself uses — the walk's step name and the rule agree on the same property" {
+    harness := PropertyPatternDefault()
+    dog: TypeInfo = PropertyPatternPlainClass(
+        harness,
+        "Dog",
+        PropertyPatternOneMember(PropertyPatternProperty("Age", "int")))
+    property := PropertyPatternAt("Age", 7, 11)
+    properties := PropertyPatternList()
+    properties.Add(property)
+
+    state := harness.Binding.Begin(properties, dog, 7, 5)
+    step := harness.Binding.NextStep(state)
+
+    assert step != null
+    assert step.Name == AnalyzerPropertyPatternBinding.BoundName(property)
+    assert step.Name == "Age"
+}

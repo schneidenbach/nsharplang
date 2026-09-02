@@ -510,14 +510,8 @@ class AnalyzerPatternAnalysis {
                     return PatternRequest(nested, propertyType)
                 }
 
-                bindingName: string = property.Name
-                explicitBindingName := property.BindingName
-                if explicitBindingName != null {
-                    bindingName = explicitBindingName
-                }
-
                 span := spansValue.GetPropertyPatternNameDiagnosticSpan(property, patternNode.Line, patternNode.Column)
-                return DeclareRequest(bindingName, propertyType, span.Line, span.Column)
+                return DeclareRequest(AnalyzerPropertyPatternBinding.BoundName(property), propertyType, span.Line, span.Column)
             }
 
             ReportUnknownCaseProperty(state, property, patternNode)
