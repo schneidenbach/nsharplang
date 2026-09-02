@@ -221,20 +221,16 @@ wildcard arm + missing override-virtual check (now NL311) · `LibraryImport` spa
 systems policy accepting unresolved members · `nlc tidy` bare-prefix deletion · false NL001 on `off` reads ·
 parse failure after bare member access (the trigger was the CAST lookahead crossing a line) · documented `skip`
 form failing to emit (two defects: the runner's unlocated one-sentence refusal is now NL323 at the declaration; the docs
-no longer promise the form at parity). Fixed earlier:
+no longer promise the form at parity) · NL309 coverage (the filed defect did not exist — the estate had no contract for the
+arm; three real holes fixed: struct/record bare-name writes to their own `readonly` fields were silent, the constructor
+exemption leaked into nested bodies, and a shadowing local was accused of the field's write). Fixed earlier:
 raw-interpolation `:` swallow (`e6aa8c88b`). WITHDRAWN with proof: undefined type names silent at declaration
 sites (every probe spelled `Missing`, a real BCL type; two smaller real holes it hid are fixed).
-raw-interpolation `:` swallow · four-arg `Analyze` degraded diagnostics · NL309 coverage (FIXED — see §5) · dead `match`
-wildcard arm + missing override-virtual check ·
-`LibraryImport` span marshalling crash · systems policy accepting unresolved members · `nlc tidy` bare-prefix
-deletion (FIXED — see §5) · false NL001 on `off` reads · parse failure after bare member access ·
-locale-sensitive estate blocks · documented `skip` form failing to emit · playground union shorthand ·
-playground vs `nlc run` divergences · format non-idempotence + the `.tests.nl` gate gap.
 
 Held: format non-idempotence + the `.tests.nl` gate gap — fixed on `stream/chip-format-idempotence`; its
 233-file estate reformat waits on a decision about an argument-list WRAPPING policy (the canonical join puts
-6,224 lines over 120 chars). In flight (paused during a peer benchmark hold): NL309 coverage · locale-sensitive
-estate blocks · playground union shorthand · playground vs `nlc run` divergences.
+6,224 lines over 120 chars). In flight: locale-sensitive estate blocks · playground union shorthand · playground vs `nlc run`
+divergences.
 
 **Wave 3, first slice (owner-approved 2026-09-02): the gate-speed slice.** The commit gate is 22 min without VS Code
 tests (35–40 with); 16 m 28 s of it is the 596-test C# unit suite (dominated by tests that spawn `dotnet build`/
