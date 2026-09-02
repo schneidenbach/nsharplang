@@ -46,6 +46,29 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64` (12 slices); **box deliberately unchecked** — the emitter retires via 015 + the AOT metadata writer, the MLC via the AOT type-model task, visual IDE verification undischarged |
 
+### Visual IDE verification — DISCHARGED 2026-09-02 (with four IDE defects open)
+
+Verified against `d26460045` with VSIX 0.6.0 (sha256 `853abbfc…8568`, LanguageServer.dll 10:58) in VS Code 1.134 on
+`examples/12-multi-file-projects/WeatherDemo` and a systems probe; record, 21 screenshots, the `nlc --systems-report`
+comparison and the language-server log are at `artifacts/ide-verification/2026-09/README.md` (branch
+`verify/ide-2026-09`, commit `94884528f`, merged). Computer-use was user-approved on 2026-09-02; VS Code is click-tier
+(no typing), so nothing was verified by keystroke workaround. **PASS**: syntax highlighting; live NL202 with the
+full-sentence headline and Elm body, squiggle exactly on the offending token, cleared on revert (the four-arg Analyze
+fix, in the editor); the parser cast-lookahead fix (`print(x)` then `sum := 0` — no false NL101/NL301/NL001, `sum` hovers
+as a local int); hover on user functions and record members; go-to-definition and find-references across files;
+the NL002 auto-import quick fix offered and applied; NSYS010/NSYS050/NL001 identical to `nlc check --systems-report`.
+**BLOCKED (tier)**: rename — the widget opens with the right placeholder but cannot be typed into or confirmed.
+**FAIL — four IDE defects, each with a VS Code-free repro in the README, filed as wave-3 chips:**
+- **D3 (highest impact): member completion after a trailing `.` lists scope identifiers + keywords** for both user and
+  BCL receivers; `nlc query completions` returns the right members at the same positions, so the broken owner is the
+  LSP `CompletionHandler` (AST-only path, no BCL member source).
+- **D2: hover on BCL members is empty** (`DateTime.Now`, `.AddDays`, `Random.Shared.Next`, `list.ToArray()`,
+  `arr.Length`) or a bare `method ToUpper: ToUpper(...)`; `nlc query hover` reproduces — a regression against the May
+  headless report, which had the full C# signature and declaring type.
+- **D1: hover inside `$"…{x.Member}"` holes reports `string` for every member** (`nlc query hover` reproduces: shared
+  code-intelligence owner).
+- **D4: NL002 is anchored on `new`**, so the import quick fix is offered only with the cursor on `new`, not on the type.
+
 ### Active slice: `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED, uncommitted
 
 Decode tip `8cf40128a`; ZERO C#. Four files: `ColumnarMethodBodyPlanner.nl`, `ColumnarTypeOfPlanner.nl`,
@@ -216,7 +239,8 @@ repin; (3) make CI (`.github/workflows/build.yml`, already running `dotnet test`
 full gate so no local session waits on another's gate; (4) VS Code smoke stays IDE-batches-only. Target ~22 → ~8 min
 locally, zero waiting once CI carries it.
 
-Wave-3 candidates found by the chips: `unsafe`/`alloc`/`allow` block bodies unwalked by the linter (NL001
+Wave-3 candidates: the four IDE defects above (D3 member completion first, then D2 BCL hover, D1 interpolation-hole hover,
+D4 NL002 anchor); then those found by the chips: `unsafe`/`alloc`/`allow` block bodies unwalked by the linter (NL001
 fail-open) · `TypePattern` type references untracked (false NL010) · `nlc tidy --fix` corrupts the mapping
 dependency form · tidy's removal filter not scoped to a dependency section (decision) · `where` clauses on
 TYPE declarations do not parse · `override` PROPERTIES unchecked · tuple-deconstruction scan crossing lines
