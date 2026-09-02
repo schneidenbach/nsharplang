@@ -237,11 +237,12 @@ class FormatCommandKernels {
         return !string.Equals(source, formatted, StringComparison.Ordinal)
     }
 
+    // A `.tests.nl` FILE IS N# SOURCE AND IS DISCOVERED LIKE ANY OTHER. Discovery used to refuse
+    // the suffix outright, which made `nlc format --project X` and `nlc format <file>` answer
+    // DIFFERENT questions about the same file and put the whole contract estate — 294 files under
+    // the paths the product gate walks — outside canonical formatting with nothing saying so. The
+    // fixtures rule below still stands: `tests/fixtures/**` holds deliberately malformed sources.
     static func ShouldFormatDiscoveredPath(relativePath: string): bool {
-        if PathEndsWithTestsNl(relativePath) {
-            return false
-        }
-
         previousWasTestRoot := false
         segmentStart := 0
         i := 0
@@ -332,19 +333,6 @@ class FormatCommandKernels {
         }
 
         return false
-    }
-
-    static func PathEndsWithTestsNl(text: string): bool {
-        return PathEndsWithAsciiIgnoreCase(text, ".tests.nl")
-    }
-
-    static func PathEndsWithAsciiIgnoreCase(text: string, suffix: string): bool {
-        if text.Length < suffix.Length {
-            return false
-        }
-
-        start := text.Length - suffix.Length
-        return PathSubstringEqualsAsciiIgnoreCase(text, start, text.Length, suffix)
     }
 
     static func FormatPathSegmentEquals(text: string, start: int, end: int, value: string): bool {

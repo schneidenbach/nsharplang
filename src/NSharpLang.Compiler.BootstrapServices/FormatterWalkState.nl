@@ -3,41 +3,6 @@ namespace NSharpLang.Compiler
 import System.Collections.Generic
 import System.Text
 
-
-// THE TWO POSITION CURSORS AS THE CALLER HOLDS THEM, FOR THE LENGTH OF ONE MEASUREMENT PASS.
-//
-// `Formatter.FormatExpressionToString` formatted an expression into a throwaway builder purely to
-// measure it, and had to leave the comment stream where it found it. The C# did that by copying two
-// fields into LOCALS and writing them back ON THE STRAIGHT LINE — no `try`/`finally`, so a throw
-// inside the measured expression abandons the restore and the walk carries on with a moved cursor.
-//
-// THAT MEASUREMENT IS GONE. The formatter has no width limit, so nothing measures an expression any
-// more, and `FormatExpressionToString` is deleted. The snapshot pair below has NO PRODUCT CALLER as
-// of this slice and is kept for one slice only so that this file — which a sibling slice is editing —
-// takes one edit and not two; the follow-up that lands the estate reformat deletes it. Do not give it
-// a new caller: a snapshot around anything that can emit a comment rolls the cursor back and emits
-// that comment a second time, which is exactly why the inline object-initializer path no longer uses
-// one.
-//
-// That is why this is a snapshot the CALLER holds rather than a stack the state owns. An owned
-// push/pop pair would unwind in a `finally` and so would quietly make a non-exception-safe idiom
-// safe, which is a behaviour change wearing a refactor's clothes. A frame in the caller's own local
-// is abandoned by a throw exactly as the two C# locals were. Same decision, same reason, as
-// `LinterFunctionFrame` (slice 10) and `AmbientContextFrame` (017).
-//
-// THE INDENT DEPTH IS DELIBERATELY NOT IN HERE. The C# saved two fields, not three, so a throw
-// inside a measurement also leaves the depth wherever the abandoned walk left it. The asymmetry is
-// reproduced rather than tidied.
-class FormatterPositionSnapshot {
-    CommentIndex: int
-    LastEmittedSourceLine: int
-
-    constructor(commentIndex: int, lastEmittedSourceLine: int) {
-        CommentIndex = commentIndex
-        LastEmittedSourceLine = lastEmittedSourceLine
-    }
-}
-
 // THE FORMATTER'S WHOLE STATE: THREE CURSORS, ONE STREAM AND TWO CONFIGURED CONSTANTS.
 //
 // `Formatter` carried six private fields and mutated them from forty-three members. That is what
@@ -237,18 +202,5 @@ class FormatterWalkState {
             lastEmittedSourceLine = comment.Line
             commentIndex = commentIndex + 1
         }
-    }
-
-    // ---- the measurement pass ----------------------------------------------------------------------
-
-    // Hand the caller the two cursors to hold, and take them back. See `FormatterPositionSnapshot`
-    // for why the frame is the caller's and not a stack of this owner's.
-    func Snapshot(): FormatterPositionSnapshot {
-        return new FormatterPositionSnapshot(commentIndex, lastEmittedSourceLine)
-    }
-
-    func Restore(saved: FormatterPositionSnapshot) {
-        commentIndex = saved.CommentIndex
-        lastEmittedSourceLine = saved.LastEmittedSourceLine
     }
 }

@@ -65,13 +65,13 @@ public class CliParityAuditTests
         try
         {
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func Main() {\n    print \"ok\"\n}\n");
-            File.WriteAllText(Path.Combine(tempDir, "Program.tests.nl"), "func Broken(x y) {");
+            File.WriteAllText(Path.Combine(tempDir, "Program.tests.nl"), "test \"discovered\" {\n    assert true\n}\n");
             Directory.CreateDirectory(Path.Combine(tempDir, ".worktrees", "old"));
             File.WriteAllText(Path.Combine(tempDir, ".worktrees", "old", "Bad.nl"), "func Broken(x y) {");
             Directory.CreateDirectory(Path.Combine(tempDir, "tests", "fixtures", "generated", "Models"));
             File.WriteAllText(Path.Combine(tempDir, "tests", "fixtures", "generated", "Models", "Customer.nl"), "record Order(id: string)\n");
             Directory.CreateDirectory(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors"));
-            File.WriteAllText(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors", "MultipleSyntaxErrors.nl"), "func Broken(x y) {");
+            File.WriteAllText(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors", "MultipleSyntaxErrors.tests.nl"), "func Broken(x y) {");
 
             var (exitCode, stdout, stderr) = CaptureConsole(() =>
                 ExecuteProgram("format", "--project", tempDir, "--check"));
