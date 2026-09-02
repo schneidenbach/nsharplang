@@ -118,6 +118,16 @@ class PropertyPatternBindingState {
 // `{ value }` form alike — so `BindingName ?? Name` always takes the fallback in production. The
 // explicit arm is live code a later parser change can reach; it is pinned by construction in the
 // contracts, exactly as slice 27 pinned its two unreachable walk arms.
+//
+// THAT ONE-LINE RULE IS `BoundName`, AND IT IS NOW THE ONLY COPY OF IT. It answers "what name does
+// this property pattern bind" for every consumer in the product: this walk (object patterns), the
+// union arm's property walk in `AnalyzerPatternAnalysis`, and — since the playground
+// union-shorthand chip — the browser runner's `PatternMatches`, which had spelled the rule a THIRD
+// time and spelled it WRONG. It declared a binding only when `BindingName` was non-null, so the
+// implicit form bound nothing and the shipped `04-unions-patterns` tutorial example answered
+// `PG208 — could not resolve 'name'` where `nlc run` printed the example's own declared
+// `ExpectedOutput`. A rule with three spellings is a rule that can disagree with itself; the
+// interpreter now asks the compiler for it rather than keeping an opinion.
 class AnalyzerPropertyPatternBinding {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
@@ -168,14 +178,9 @@ class AnalyzerPropertyPatternBinding {
                 return request
             }
 
-            bindingName := property.BindingName
-            if bindingName == null {
-                bindingName = property.Name
-            }
-
             span := spansValue.GetPropertyPatternNameDiagnosticSpan(property, state.Line, state.Column)
             request := new PropertyPatternBindingRequest(2, resolved)
-            request.Name = bindingName
+            request.Name = BoundName(property)
             request.Line = span.Line
             request.Column = span.Column
             return request
@@ -204,6 +209,18 @@ class AnalyzerPropertyPatternBinding {
         }
 
         return null
+    }
+
+    // WHAT NAME A PROPERTY PATTERN BINDS, for every walk that binds one. `{ value }` binds the
+    // property's own name; `{ Value: v }` carries a nested pattern and never reaches here; an
+    // explicit `BindingName`, which no parser production builds today, wins when it is present.
+    static func BoundName(property: PropertyPattern): string {
+        bindingName := property.BindingName
+        if bindingName == null {
+            return property.Name
+        }
+
+        return bindingName
     }
 
     // NL503 over the property NAME, anchored on the enclosing pattern when the property carries no

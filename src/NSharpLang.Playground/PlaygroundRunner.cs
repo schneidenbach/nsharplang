@@ -652,11 +652,11 @@ internal sealed class PlaygroundRunner
                         return false;
                     }
 
-                    if (property.BindingName != null)
+                    if (property.Pattern == null)
                     {
-                        environment.Declare(property.BindingName, propertyValue);
+                        environment.Declare(NSharpLang.Compiler.AnalyzerPropertyPatternBinding.BoundName(property), propertyValue);
                     }
-                    else if (property.Pattern != null && !PatternMatches(property.Pattern, propertyValue, environment))
+                    else if (!PatternMatches(property.Pattern, propertyValue, environment))
                     {
                         return false;
                     }
