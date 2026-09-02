@@ -207,6 +207,15 @@ Held: format non-idempotence + the `.tests.nl` gate gap — fixed on `stream/chi
 6,224 lines over 120 chars). In flight (paused during a peer benchmark hold): NL309 coverage · locale-sensitive
 estate blocks · playground union shorthand · playground vs `nlc run` divergences.
 
+**Wave 3, first slice (owner-approved 2026-09-02): the gate-speed slice.** The commit gate is 22 min without VS Code
+tests (35–40 with); 16 m 28 s of it is the 596-test C# unit suite (dominated by tests that spawn `dotnet build`/
+`dotnet test`), while the 7,201-block N# estate takes 9 s. Plan: (1) profile the unit suite by TRX duration and split
+it — fast tests stay, slow subprocess tests move to a parallel step or to native `.tests.nl`; (2) run independent gate
+steps in parallel (unit ‖ native estates ‖ example builds) — the gate scripts are ratchet line-pinned, so a measured
+repin; (3) make CI (`.github/workflows/build.yml`, already running `dotnet test` + ilverify on every push/PR) run the
+full gate so no local session waits on another's gate; (4) VS Code smoke stays IDE-batches-only. Target ~22 → ~8 min
+locally, zero waiting once CI carries it.
+
 Wave-3 candidates found by the chips: `unsafe`/`alloc`/`allow` block bodies unwalked by the linter (NL001
 fail-open) · `TypePattern` type references untracked (false NL010) · `nlc tidy --fix` corrupts the mapping
 dependency form · tidy's removal filter not scoped to a dependency section (decision) · `where` clauses on
