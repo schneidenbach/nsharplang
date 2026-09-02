@@ -34,6 +34,70 @@ test "the exclusions match a WHOLE segment, never a prefix of one" {
     assert FormatCommandKernels.ShouldFormatDiscoveredPath("src/Contest.nl")
 }
 
+// ── the hidden-directory rule ─────────────────────────────────────────────────
+//
+// A LIST OF EXACT NAMES CANNOT KEEP THE WALK OUT OF OTHER TOOLS' DIRECTORIES, and the list used to
+// contain `.worktrees` while the layout that exists is `.claude/worktrees` — so the root walk
+// descended into three other sessions' checkouts and `--check` reported 2,712 foreign sources. The
+// rule is gofmt's dot half: any segment beginning with `.` is skipped.
+test "a segment beginning with a dot is skipped, whatever it is called" {
+    // The named entries this replaces, and the two that defeated the list.
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath(".git/objects/x.nl")
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath(".nlc/cache/File.nl")
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath(".hermes/x.nl")
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath(".claude/worktrees/other/src/Program.nl")
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath("some/.worktrees/other/src/Program.nl")
+
+    // A tool directory nobody has thought of yet is covered by the same line.
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath(".idea/scratch/File.nl")
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath("src/.hidden/File.nl")
+
+    // A hidden FILE is hidden too — the predicate walks every segment, the last one included.
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath("src/.generated.nl")
+
+    assert FormatCommandKernels.ShouldSkipDiscoveredDirectoryName(".claude")
+    assert FormatCommandKernels.ShouldSkipDiscoveredDirectoryName(".anything-at-all")
+    assert !FormatCommandKernels.ShouldSkipDiscoveredDirectoryName("")
+}
+
+// THE UNDERSCORE HALF OF GOFMT'S RULE IS REFUSED, ON EVIDENCE RATHER THAN TASTE.
+// `editors/vscode/test/fixtures/simple/_rename_var.nl` and two siblings are real N# sources; gofmt
+// skips `_` because the Go toolchain ignores those directories, and N# has no such convention.
+// `testdata` is refused for the same reason — a Go convention, where N#'s `tests/**/fixtures` rule
+// already covers the equivalent.
+test "an underscore-prefixed segment is NOT hidden, and neither is testdata" {
+    assert FormatCommandKernels.ShouldFormatDiscoveredPath("editors/vscode/test/simple/_rename_var.nl")
+    assert FormatCommandKernels.ShouldFormatDiscoveredPath("src/_internal/File.nl")
+    assert FormatCommandKernels.ShouldFormatDiscoveredPath("src/testdata/File.nl")
+    assert !FormatCommandKernels.ShouldSkipDiscoveredDirectoryName("_internal")
+    assert !FormatCommandKernels.ShouldSkipDiscoveredDirectoryName("testdata")
+}
+
+// THE THREE NAMED EXCLUSIONS THAT SURVIVE ARE THE THREE THAT ARE NOT HIDDEN. Nothing else would
+// catch them, and the dot rule does not.
+test "bin, obj and node_modules stay named because they are not hidden" {
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath("bin/Debug/Generated.nl")
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath("obj/generated/Temporary.nl")
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath("web/node_modules/pkg/File.nl")
+    assert FormatCommandKernels.ShouldSkipDiscoveredDirectoryName("bin")
+    assert FormatCommandKernels.ShouldSkipDiscoveredDirectoryName("OBJ")
+    assert FormatCommandKernels.ShouldSkipDiscoveredDirectoryName("node_modules")
+}
+
+// AN EXPLICIT HIDDEN ROOT IS HONOURED, and this is a contract about the STRUCTURE rather than about
+// a new branch: `EnumerateFormatFiles` pushes the project root without testing it and filters only
+// the children it discovers, and every path reaching the predicate is RELATIVE to that root. So a
+// user who points `--project` at a hidden directory gets it formatted, while the same directory
+// discovered from an ancestor is skipped.
+test "a hidden directory named explicitly as the project root is still formatted" {
+    // What the predicate sees when the root IS the hidden directory: no dot segment at all.
+    assert FormatCommandKernels.ShouldFormatDiscoveredPath("src/Program.nl")
+    assert FormatCommandKernels.ShouldFormatDiscoveredPath("Program.nl")
+
+    // And what it sees for the same file discovered from the repository root.
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath(".claude/worktrees/other/src/Program.nl")
+}
+
 // A `.tests.nl` FILE IS DISCOVERED LIKE ANY OTHER N# SOURCE, AND THIS ROW IS THE REVERSAL OF AN
 // EARLIER ONE. Discovery used to refuse the suffix, so `nlc format --project X` and
 // `nlc format <file>` answered different questions about the same file and the whole contract

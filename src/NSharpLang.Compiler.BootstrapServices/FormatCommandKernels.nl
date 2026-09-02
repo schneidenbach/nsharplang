@@ -303,38 +303,51 @@ class FormatCommandKernels {
         return path.Replace('\\', '/')
     }
 
+    // A HIDDEN SEGMENT IS SKIPPED, AND THE NAMED EXCLUSIONS ARE THE THREE THAT ARE NOT HIDDEN.
+    //
+    // THIS USED TO BE A LIST OF EXACT NAMES, AND `.worktrees` IS THE PROOF THAT A LIST IS THE WRONG
+    // SHAPE: it was added to keep the walk out of nested checkouts, and the layout that actually
+    // exists is `.claude/worktrees` — `.claude` was not in the list and `worktrees` carries no dot,
+    // so neither segment matched. At the repository root the walk descended into three other
+    // sessions' full checkouts and `nlc format --check --project .` reported 2,712 foreign sources.
+    // A name list has to predict every tool's directory in advance; this one predicted a layout
+    // nobody uses.
+    //
+    // THE RULE IS GOFMT'S DOT HALF, AND ONLY THE DOT HALF. gofmt skips a directory whose name begins
+    // with `.` or `_`, plus `testdata`. The dot half is adopted: it covers `.git`, `.svn`, `.hg`,
+    // `.nlc`, `.hermes`, `.claude`, `.vs`, `.idea` and every future tool directory in one line, and
+    // it is measured to cost nothing here — the files under `.claude/` are the ONLY `.nl` files under
+    // any dot-directory in the checkout. The underscore half is REFUSED on evidence:
+    // `editors/vscode/test/fixtures/simple/_rename_var.nl` and two siblings are legitimate
+    // `_`-prefixed N# sources, and gofmt skips `_` only because the GO TOOLCHAIN ignores those
+    // directories — a rule N# does not have. `testdata` is refused for the same reason: it is a Go
+    // convention, and N#'s equivalent (`tests/**/fixtures`) already has its own two-segment rule.
+    //
+    // `bin`, `obj` and `node_modules` STAY NAMED because they are not hidden and nothing else would
+    // catch them. The six dot-named entries that used to be listed here are gone: every one of them
+    // is covered by the rule above, and keeping both would leave two places to update.
+    //
+    // AN EXPLICIT HIDDEN ROOT IS STILL HONOURED, and that falls out of the structure rather than
+    // needing a case here: `EnumerateFormatFiles` pushes the project root WITHOUT testing it and
+    // filters only the child directories it discovers, and the paths reaching this predicate are
+    // RELATIVE to that root — so `nlc format --project .claude/worktrees/x` sees `src/Program.nl`
+    // and formats it.
     static func FormatPathSegmentIsExcluded(text: string, start: int, end: int): bool {
         length := end - start
-        if length == 3 {
-            if FormatPathSegmentEquals(text, start, end, ".hg") {
-                return true
-            }
+        if length == 0 {
+            return false
+        }
 
+        if text[start] == '.' {
+            return true
+        }
+
+        if length == 3 {
             if FormatPathSegmentEquals(text, start, end, "bin") {
                 return true
             }
 
             return FormatPathSegmentEquals(text, start, end, "obj")
-        }
-
-        if length == 4 {
-            if FormatPathSegmentEquals(text, start, end, ".git") {
-                return true
-            }
-
-            if FormatPathSegmentEquals(text, start, end, ".svn") {
-                return true
-            }
-
-            return FormatPathSegmentEquals(text, start, end, ".nlc")
-        }
-
-        if length == 7 {
-            return FormatPathSegmentEquals(text, start, end, ".hermes")
-        }
-
-        if length == 10 {
-            return FormatPathSegmentEquals(text, start, end, ".worktrees")
         }
 
         if length == 12 {
