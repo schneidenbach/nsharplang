@@ -509,12 +509,17 @@ test "constructor parentheses STAY when the constructor has arguments" {
     assert FstFormat("func Test() {\n    x := new Foo(1) { A: 1 }\n}") == "func Test() {|    x := new Foo(1) { A: 1 }|}"
 }
 
-test "a long initializer wraps one property per line, and a wrapped one stays wrapped" {
-    source := "func Test() {\n    options := new JsonSerializerOptions() { PropertyNameCaseInsensitive: true, PropertyNamingPolicy: someLongValue }\n}"
+test "a long initializer the author wrote on ONE line stays on one line, and a wrapped one stays wrapped" {
+    // THIS CONTRACT USED TO SAY THE OPPOSITE, and it is the width rule's obituary. The formatter used
+    // to measure the inline form against `MaxLineLength` and break this initializer apart because it
+    // did not fit. It no longer measures anything: the author's line decides.
+    onOneLine := "func Test() {\n    options := new JsonSerializerOptions() { PropertyNameCaseInsensitive: true, PropertyNamingPolicy: someLongValue }\n}"
+    wrapped := "func Test() {\n    options := new JsonSerializerOptions() {\n        PropertyNameCaseInsensitive: true,\n        PropertyNamingPolicy: someLongValue\n    }\n}"
 
-    assert FstFormat(source) == "func Test() {|    options := new JsonSerializerOptions {|        PropertyNameCaseInsensitive: true,|        PropertyNamingPolicy: someLongValue|    }|}"
-    assert FstFormat("func Test() {\n    options := new JsonSerializerOptions() {\n        PropertyNameCaseInsensitive: true,\n        PropertyNamingPolicy: someLongValue\n    }\n}") == "func Test() {|    options := new JsonSerializerOptions {|        PropertyNameCaseInsensitive: true,|        PropertyNamingPolicy: someLongValue|    }|}"
-    assert FstIdempotent(source)
+    assert FstFormat(onOneLine) == "func Test() {|    options := new JsonSerializerOptions { PropertyNameCaseInsensitive: true, PropertyNamingPolicy: someLongValue }|}", FstFormat(onOneLine)
+    assert FstFormat(wrapped) == "func Test() {|    options := new JsonSerializerOptions {|        PropertyNameCaseInsensitive: true,|        PropertyNamingPolicy: someLongValue|    }|}", FstFormat(wrapped)
+    assert FstIdempotent(onOneLine)
+    assert FstIdempotent(wrapped)
 }
 
 // ---- IDEMPOTENCE: FORMATTING TWICE IS FORMATTING ONCE --------------------------------------------
@@ -659,4 +664,198 @@ test "a format given NO comment stream drops the comments, which is why the lexe
 test "an attribute with several arguments separates them with a comma and one space" {
     assert FstFormat("class Person {\n[Column(\"Last Name\",19,true)]\nIdNumber: string\n}") == "class Person {|    [Column(\"Last Name\", 19, true)]|    IdNumber: string|}"
     assert FstFormat("class UsersController {\nfunc Create([FromRoute(\"id\",1)] id: int): IActionResult {\nreturn null\n}\n}") == "class UsersController {|    func Create([FromRoute(\"id\", 1)] id: int): IActionResult {|        return null|    }|}"
+}
+
+// ---- THE ARGUMENT-LIST WRAPPING RULE --------------------------------------------------------------
+//
+// gofmt's model, author-preserving: a list written on ONE source line stays on one line however long
+// (there is no width limit in the formatter); a list that SPANS more than one source line is
+// canonicalised to one element per line, block indented one level, closer alone at the opening line's
+// indent, and no trailing comma because N# rejects one. These contracts are stated HERE and not in
+// `FormatterWalk.tests.nl` because the rule reads the SOURCE, and a hand-built tree has none.
+//
+// EVERY SOURCE BELOW IS INDENTED, AND THAT IS LOAD-BEARING RATHER THAN COSMETIC. The parser ends an
+// argument list at a continuation token sitting at or left of the statement's recovery boundary column
+// (`IsContinuationRecoveryBoundary`), so a wrapped element must be strictly right of the line that
+// opened the list. The canonical shape always is — it indents one level past the opening line — which
+// is why the formatter can never emit a wrap the parser then refuses to read back.
+
+test "a call argument list written on one line stays on one line, however long" {
+    long := "func Test() {\n    x := Compute(alpha, beta, gamma, delta, epsilon, zeta, eta, theta, iota, kappa, lambda, mu)\n}"
+    assert FstFormat(long) == "func Test() {|    x := Compute(alpha, beta, gamma, delta, epsilon, zeta, eta, theta, iota, kappa, lambda, mu)|}", FstFormat(long)
+    assert FstIdempotent(long)
+}
+
+test "a call argument list the author wrapped becomes one argument per line with the closer alone" {
+    source := "func Test() {\n    x := Foo(\n        a,\n        b\n    )\n}"
+    assert FstFormat(source) == "func Test() {|    x := Foo(|        a,|        b|    )|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "arguments that shared a line inside a wrapped list are given a line each" {
+    source := "func Test() {\n    x := Foo(a, b,\n        c)\n}"
+    assert FstFormat(source) == "func Test() {|    x := Foo(|        a,|        b,|        c|    )|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "a closing parenthesis left on its own line is an author line break and is preserved as a wrap" {
+    // The rule is delimiter-to-delimiter, not element-to-element: this list spans two source lines
+    // even though both arguments fit on the opening one.
+    source := "func Test() {\n    x := Foo(a, b\n    )\n}"
+    assert FstFormat(source) == "func Test() {|    x := Foo(|        a,|        b|    )|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "an empty argument list stays empty on one line" {
+    source := "func Test() {\n    x := Foo(\n    )\n}"
+    assert FstFormat(source) == "func Test() {|    x := Foo()|}", FstFormat(source)
+}
+
+test "the named and out spellings survive a wrap" {
+    source := "func Test(a: int) {\n    Foo(\n        name: 1,\n        out a,\n        b\n    )\n}"
+    assert FstFormat(source) == "func Test(a: int) {|    Foo(|        name: 1,|        out a,|        b|    )|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "a REF argument keeps its list on one line, because `ref` cannot begin a continuation line" {
+    // `ref` is a DECLARATION keyword, and the parser ends an argument list at a continuation token
+    // that starts a declaration. Wrapping this list would put `ref b` at the head of a line and the
+    // output would not re-parse — at which point `FormatSafe` returns the original source and the
+    // file silently stops being formatted at all. The wrap is refused instead; nothing is lost.
+    source := "func Test(a: int, b: int) {\n    Foo(a, ref b\n    )\n}"
+    assert FstFormat(source) == "func Test(a: int, b: int) {|    Foo(a, ref b)|}", FstFormat(source)
+    assert FstIdempotent(source)
+    assert FstReparseErrorsAfterFormat(source) == 0
+}
+
+// NESTING. A wrapped inner list pushes the outer closer onto a later line, so the outer wraps too —
+// EXCEPT for the hug, where every outer element starts on the opening line and the last one is the
+// wrapped list. Both shapes are idempotent, which is the property the whole rule turns on.
+
+test "a wrapped call hugs when it is the last argument and every argument starts on the opening line" {
+    source := "func Test() {\n    x := Foo(a, Bar(\n        b\n    ))\n}"
+    assert FstFormat(source) == "func Test() {|    x := Foo(a, Bar(|        b|    ))|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "a wrapped call that is NOT the last argument makes the outer list wrap too" {
+    source := "func Test() {\n    x := Foo(Bar(\n        b\n    ), c)\n}"
+    assert FstFormat(source) == "func Test() {|    x := Foo(|        Bar(|            b|        ),|        c|    )|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "a block-bodied lambda hugs the call that holds it — the callback shape" {
+    // THIS IS THE CASE THAT CAUGHT THE FIRST VERSION OF THE RULE. `Task.Run(() => { … })` spans lines
+    // because the lambda's BODY does, not because anything is a wrapped list, and an exemption that
+    // only knew about lists tore every callback in the estate into five lines.
+    source := "func Test() {\n    t := Task.Run(() => {\n        Work()\n    })\n}"
+    assert FstFormat(source) == "func Test() {|    t := Task.Run(() => {|        Work()|    })|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "a lambda hugs even with arguments before it, and does not when the author broke the list" {
+    hugged := "func Test() {\n    Run(items, x => {\n        Work(x)\n    })\n}"
+    assert FstFormat(hugged) == "func Test() {|    Run(items, x => {|        Work(x)|    })|}", FstFormat(hugged)
+    assert FstIdempotent(hugged)
+
+    // The author put the first argument on its own line, so the list is wrapped and the lambda goes
+    // with it. The hug only ever protects a list the author kept on the opening line.
+    broken := "func Test() {\n    Run(\n        items,\n        x => {\n            Work(x)\n        }\n    )\n}"
+    assert FstFormat(broken) == "func Test() {|    Run(|        items,|        x => {|            Work(x)|        }|    )|}", FstFormat(broken)
+    assert FstIdempotent(broken)
+}
+
+test "a match expression hugs the call that holds it" {
+    source := "func Test(x: int) {\n    Show(match x {\n        0 => \"zero\",\n        _ => \"other\"\n    })\n}"
+    assert FstFormat(source) == "func Test(x: int) {|    Show(match x {|        0 => \"zero\",|        _ => \"other\"|    })|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "an object initializer hugs the call that holds it" {
+    source := "func Test() {\n    x := Add(new Foo {\n        A: 1\n    })\n}"
+    assert FstFormat(source) == "func Test() {|    x := Add(new Foo {|        A: 1|    })|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+// THE TWO LISTS A `new` CARRIES ARE INDEPENDENT. The initializer is anchored on its OWN braces, so a
+// wrapped constructor argument list does not drag a one-line initializer apart, and the reverse.
+
+test "a wrapped constructor argument list leaves a one-line initializer on one line" {
+    source := "func Test() {\n    x := new Foo(\n        a\n    ) { X: 1 }\n}"
+    assert FstFormat(source) == "func Test() {|    x := new Foo(|        a|    ) { X: 1 }|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "a wrapped initializer leaves a one-line constructor argument list on one line" {
+    source := "func Test() {\n    x := new Foo(a) {\n        X: 1\n    }\n}"
+    assert FstFormat(source) == "func Test() {|    x := new Foo(a) {|        X: 1|    }|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "an object initializer written on one line stays on one line, however long" {
+    long := "func Test() {\n    x := new Foo { Alpha: 1, Beta: 2, Gamma: 3, Delta: 4, Epsilon: 5, Zeta: 6, Eta: 7, Theta: 8 }\n}"
+    assert FstFormat(long) == "func Test() {|    x := new Foo { Alpha: 1, Beta: 2, Gamma: 3, Delta: 4, Epsilon: 5, Zeta: 6, Eta: 7, Theta: 8 }|}", FstFormat(long)
+    assert FstIdempotent(long)
+}
+
+test "an array literal follows the same rule in both directions" {
+    flat := "func Test() {\n    xs := [1, 2, 3]\n}"
+    wrapped := "func Test() {\n    xs := [\n        1,\n        2\n    ]\n}"
+    assert FstFormat(flat) == "func Test() {|    xs := [1, 2, 3]|}", FstFormat(flat)
+    assert FstFormat(wrapped) == "func Test() {|    xs := [|        1,|        2|    ]|}", FstFormat(wrapped)
+    assert FstIdempotent(wrapped)
+}
+
+// PARAMETER LISTS. A declaration's `(` and `)` belong to the declaration and are not stamped, so the
+// test here is the ELEMENTS: a parameter below the declaration's own line is a wrapped list.
+
+test "a parameter list the author wrapped becomes one parameter per line" {
+    source := "func Test(\n    a: int,\n    b: string\n) {\n}"
+    assert FstFormat(source) == "func Test(|    a: int,|    b: string|) {|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+test "a parameter list on one line stays on one line, however long" {
+    long := "func Test(alpha: int, beta: int, gamma: int, delta: int, epsilon: int, zeta: int, eta: int) {\n}"
+    assert FstFormat(long) == "func Test(alpha: int, beta: int, gamma: int, delta: int, epsilon: int, zeta: int, eta: int) {|}", FstFormat(long)
+}
+
+test "a constructor's parameter list wraps by the same rule" {
+    source := "class Box {\n    constructor(\n        a: int,\n        b: int\n    ) {\n    }\n}"
+    assert FstFormat(source) == "class Box {|    constructor(|        a: int,|        b: int|    ) {|    }|}", FstFormat(source)
+    assert FstIdempotent(source)
+}
+
+// COMMENTS. A comment inside a list cannot be written on one line, so it FORCES the wrap and is
+// emitted on a line of its own above the element that follows it — which is where the formatter's
+// leading-comment model puts every other comment in the file.
+
+test "a comment between two arguments is kept, on its own line, above the argument it preceded" {
+    source := "func Test() {\n    x := Foo(\n        // why\n        a,\n        b\n    )\n}"
+    assert FstFormatComments(source) == "func Test() {|    x := Foo(|        // why|        a,|        b|    )|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
+}
+
+test "a comment after the last argument is kept above the closing delimiter" {
+    source := "func Test() {\n    x := Foo(\n        a\n        // trailing\n    )\n}"
+    assert FstFormatComments(source) == "func Test() {|    x := Foo(|        a|        // trailing|    )|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
+}
+
+test "a comment inside a HUGGED inner list is kept, and the hug still holds" {
+    // THE FIRST VERSION OF THIS CONTRACT ASSERTED THE OPPOSITE — that a comment anywhere between the
+    // two delimiters forced the outer list to wrap. That clause was wrong: it could not tell a comment
+    // standing between two ARGUMENTS from one inside a nested block, and it tore a hugged callback
+    // apart in `examples/17-issue-tracker`. The comment belongs to the inner list and the inner list
+    // emits it; nothing about the outer list changes.
+    source := "func Test() {\n    x := Foo(a, Bar( // why\n        b\n    ))\n}"
+    assert FstFormatComments(source) == "func Test() {|    x := Foo(a, Bar(|        // why|        b|    ))|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
+}
+
+test "a comment inside a hugged lambda body stays put, and the callback keeps hugging" {
+    // The exact shape that caught the clause: a comment inside the block body of a hugged lambda.
+    source := "func Test() {\n    Run(items, x => {\n        // why\n        Work(x)\n    })\n}"
+    assert FstFormatComments(source) == "func Test() {|    Run(items, x => {|        // why|        Work(x)|    })|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
 }

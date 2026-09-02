@@ -400,7 +400,7 @@ test "020 s21 parser range: `arr[..]` leaves BOTH Start and End null — a Range
 // indexer pair at zero and zero. What the deleted tests could see was only the COMPUTED
 // `IsIndexerInitializer` (`IndexExpression != null`, `Expressions.nl` :314) and the null-ness of `Name`.
 
-test "020 s21 parser new: `new Person(x) { Age: 30 }` carries one constructor argument AND an initializer, and the ObjectInitializerExpression takes the NewExpression own anchor rather than the open brace (was ParserTests.TestNewExpression)" {
+test "020 s21 parser new: `new Person(x) { Age: 30 }` carries one constructor argument AND an initializer, and the ObjectInitializerExpression takes the OPEN BRACE as its anchor rather than the NewExpression's own — the two lists are independent, which is what lets a wrapped argument list sit under a one-line initializer (was ParserTests.TestNewExpression)" {
     source := "\n            func Test() {\n                p := new Person(\"John\") { Age: 30 }\n            }\n        "
     assert PsCensus(source) == ""
     actual := PsAst(source)
@@ -410,7 +410,7 @@ test "020 s21 parser new: `new Person(x) { Age: 30 }` carries one constructor ar
     argument3.Add(Golden.ArgF(null, Golden.StrLit("\"John\"", 3, 33), ArgumentModifier.None))
     propertyinitializer4 := new List<PropertyInitializer>()
     propertyinitializer4.Add(Golden.PropInit("Age", null, Golden.IntLit("30", 3, 48), 3, 43))
-    statement2.Add(Golden.VarDecl("p", null, Golden.NewE(Golden.SimpleT("Person", 3, 26, 32), argument3, Golden.ObjInit(propertyinitializer4, 3, 22), null, 3, 22), VariableKind.Let, 3, 17))
+    statement2.Add(Golden.VarDecl("p", null, Golden.NewE(Golden.SimpleT("Person", 3, 26, 32), argument3, Golden.ObjInit(propertyinitializer4, 3, 41), null, 3, 22), VariableKind.Let, 3, 17))
     declaration1.Add(Golden.Func("Test", Golden.NoParams(), null, Golden.Block(statement2, 2, 25), null, null, null, Modifiers.None, 2, 13))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, declaration1, 2, 13)
     assert AstEq.Diff(expected, actual, "unit") == ""
@@ -437,7 +437,7 @@ test "020 s21 parser new: `new Person { Name: x, Age: 30 }` with no parens leave
     propertyinitializer3 := new List<PropertyInitializer>()
     propertyinitializer3.Add(Golden.PropInit("Name", null, Golden.StrLit("\"Alice\"", 3, 41), 3, 35))
     propertyinitializer3.Add(Golden.PropInit("Age", null, Golden.IntLit("30", 3, 55), 3, 50))
-    statement2.Add(Golden.VarDecl("p", null, Golden.NewE(Golden.SimpleT("Person", 3, 26, 32), Golden.NoArgs(), Golden.ObjInit(propertyinitializer3, 3, 22), null, 3, 22), VariableKind.Let, 3, 17))
+    statement2.Add(Golden.VarDecl("p", null, Golden.NewE(Golden.SimpleT("Person", 3, 26, 32), Golden.NoArgs(), Golden.ObjInit(propertyinitializer3, 3, 33), null, 3, 22), VariableKind.Let, 3, 17))
     declaration1.Add(Golden.Func("Test", Golden.NoParams(), null, Golden.Block(statement2, 2, 25), null, null, null, Modifiers.None, 2, 13))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, declaration1, 2, 13)
     assert AstEq.Diff(expected, actual, "unit") == ""
@@ -470,7 +470,7 @@ test "020 s21 parser new: target-typed `new(x, 30)` keeps a null Type and two PO
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "020 s21 parser new: target-typed `new { Name: x, Age: 30 }` keeps a null Type and an ObjectInitializerExpression that anchors on the `new` keyword, not on the brace (was ParserTests.TestTargetTypedNewWithInitializer)" {
+test "020 s21 parser new: target-typed `new { Name: x, Age: 30 }` keeps a null Type and an ObjectInitializerExpression anchored on its OWN BRACE (it anchored on `new` until the formatter's wrapping rule needed the two lists apart) (was ParserTests.TestTargetTypedNewWithInitializer)" {
     source := "\n            func Test() {\n                let p: Person = new { Name: \"Alice\", Age: 30 }\n            }\n        "
     assert PsCensus(source) == ""
     actual := PsAst(source)
@@ -479,7 +479,7 @@ test "020 s21 parser new: target-typed `new { Name: x, Age: 30 }` keeps a null T
     propertyinitializer3 := new List<PropertyInitializer>()
     propertyinitializer3.Add(Golden.PropInit("Name", null, Golden.StrLit("\"Alice\"", 3, 45), 3, 39))
     propertyinitializer3.Add(Golden.PropInit("Age", null, Golden.IntLit("30", 3, 59), 3, 54))
-    statement2.Add(Golden.VarDecl("p", Golden.SimpleT("Person", 3, 24, 30), Golden.NewE(null, Golden.NoArgs(), Golden.ObjInit(propertyinitializer3, 3, 33), null, 3, 33), VariableKind.Let, 3, 21))
+    statement2.Add(Golden.VarDecl("p", Golden.SimpleT("Person", 3, 24, 30), Golden.NewE(null, Golden.NoArgs(), Golden.ObjInit(propertyinitializer3, 3, 37), null, 3, 33), VariableKind.Let, 3, 21))
     declaration1.Add(Golden.Func("Test", Golden.NoParams(), null, Golden.Block(statement2, 2, 25), null, null, null, Modifiers.None, 2, 13))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, declaration1, 2, 13)
     assert AstEq.Diff(expected, actual, "unit") == ""
@@ -498,7 +498,7 @@ test "020 s21 parser new: three INDEXER initializers materialize PropertyInitial
     propertyinitializer4.Add(Golden.PropInit(null, Golden.StrLit("\"one\"", 4, 22), Golden.IntLit("1", 4, 31), 0, 0))
     propertyinitializer4.Add(Golden.PropInit(null, Golden.StrLit("\"two\"", 5, 22), Golden.IntLit("2", 5, 31), 0, 0))
     propertyinitializer4.Add(Golden.PropInit(null, Golden.StrLit("\"three\"", 6, 22), Golden.IntLit("3", 6, 33), 0, 0))
-    statement2.Add(Golden.VarDecl("dict", null, Golden.NewE(Golden.GenericT("Dictionary", typereference3, 3, 29, 52), Golden.NoArgs(), Golden.ObjInit(propertyinitializer4, 3, 25), null, 3, 25), VariableKind.Let, 3, 17))
+    statement2.Add(Golden.VarDecl("dict", null, Golden.NewE(Golden.GenericT("Dictionary", typereference3, 3, 29, 52), Golden.NoArgs(), Golden.ObjInit(propertyinitializer4, 3, 53), null, 3, 25), VariableKind.Let, 3, 17))
     declaration1.Add(Golden.Func("Test", Golden.NoParams(), null, Golden.Block(statement2, 2, 25), null, null, null, Modifiers.None, 2, 13))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, declaration1, 2, 13)
     assert AstEq.Diff(expected, actual, "unit") == ""
@@ -515,7 +515,7 @@ test "020 s21 parser new: named and indexer initializers INTERLEAVE in source or
     propertyinitializer3.Add(Golden.PropInit(null, Golden.StrLit("\"key1\"", 5, 22), Golden.IntLit("1", 5, 32), 0, 0))
     propertyinitializer3.Add(Golden.PropInit("Age", null, Golden.IntLit("30", 6, 26), 6, 21))
     propertyinitializer3.Add(Golden.PropInit(null, Golden.StrLit("\"key2\"", 7, 22), Golden.IntLit("2", 7, 32), 0, 0))
-    statement2.Add(Golden.VarDecl("obj", null, Golden.NewE(Golden.SimpleT("MyType", 3, 28, 34), Golden.NoArgs(), Golden.ObjInit(propertyinitializer3, 3, 24), null, 3, 24), VariableKind.Let, 3, 17))
+    statement2.Add(Golden.VarDecl("obj", null, Golden.NewE(Golden.SimpleT("MyType", 3, 28, 34), Golden.NoArgs(), Golden.ObjInit(propertyinitializer3, 3, 35), null, 3, 24), VariableKind.Let, 3, 17))
     declaration1.Add(Golden.Func("Test", Golden.NoParams(), null, Golden.Block(statement2, 2, 25), null, null, null, Modifiers.None, 2, 13))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, declaration1, 2, 13)
     assert AstEq.Diff(expected, actual, "unit") == ""

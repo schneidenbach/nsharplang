@@ -357,7 +357,7 @@ test "020 s22 parser primary: `must input` is a MustExpression anchored on the k
 //
 // A THIRD THING IS NEW ABOUT THE FIXTURES RATHER THAN THE PARSER: `Lambda_MultipleParams_RequiresParens`
 // carries an ANONYMOUS OBJECT — `new { Item: item, Index: index }` — which materializes as a
-// NewExpression with a NULL Type and an ObjectInitializerExpression sharing the `new` anchor. The
+// NewExpression with a NULL Type and an ObjectInitializerExpression anchored on its own brace. The
 // deleted test asserted only that the declaration had a non-null Initializer.
 
 test "020 s22 parser lambda: `x => x * 2` anchors on its PARAMETER NAME while `(x, y) => x + y` anchors on its OPEN PAREN, and every implicit parameter of both gets the same synthetic var-named type reference at line 0 column 0 (was ParserTests.TestLambdaExpression)" {
@@ -428,7 +428,7 @@ test "020 s22 parser lambda: `(x) => …` and `x => …` build the identical sin
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "020 s22 parser lambda: `(item, index) => new { Item: item, Index: index }` gives a two-parameter lambda whose body is a TARGET-TYPED NewExpression — a NULL Type with an ObjectInitializerExpression sharing the `new` anchor — which is how an anonymous object parses (was ParserTests.Lambda_MultipleParams_RequiresParens)" {
+test "020 s22 parser lambda: `(item, index) => new { Item: item, Index: index }` gives a two-parameter lambda whose body is a TARGET-TYPED NewExpression — a NULL Type with an ObjectInitializerExpression anchored on its own brace — which is how an anonymous object parses (was ParserTests.Lambda_MultipleParams_RequiresParens)" {
     source := "\n            func Test() {\n                items := [1, 2, 3]\n                indexed := items.Select((item, index) => new { Item: item, Index: index })\n            }\n        "
     assert PsCensus(source) == ""
     actual := PsAst(source)
@@ -446,7 +446,7 @@ test "020 s22 parser lambda: `(item, index) => new { Item: item, Index: index }`
     propertyinitializer6 := new List<PropertyInitializer>()
     propertyinitializer6.Add(Golden.PropInit("Item", null, Golden.Ident("item", 4, 70), 4, 64))
     propertyinitializer6.Add(Golden.PropInit("Index", null, Golden.Ident("index", 4, 83), 4, 76))
-    argument4.Add(Golden.ArgF(null, Golden.Lambda(parameter5, Golden.NewE(null, Golden.NoArgs(), Golden.ObjInit(propertyinitializer6, 4, 58), null, 4, 58), 4, 41), ArgumentModifier.None))
+    argument4.Add(Golden.ArgF(null, Golden.Lambda(parameter5, Golden.NewE(null, Golden.NoArgs(), Golden.ObjInit(propertyinitializer6, 4, 62), null, 4, 58), 4, 41), ArgumentModifier.None))
     statement2.Add(Golden.VarDecl("indexed", null, Golden.Call(Golden.Member(Golden.Ident("items", 4, 28), "Select", false, 4, 33), argument4, Golden.NoTypeArgs(), 4, 40), VariableKind.Let, 4, 17))
     declaration1.Add(Golden.Func("Test", Golden.NoParams(), null, Golden.Block(statement2, 2, 25), null, null, null, Modifiers.None, 2, 13))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, declaration1, 2, 13)
