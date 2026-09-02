@@ -2686,9 +2686,14 @@ test "020 s28 analyzer clean source: a zero-parameter lambda matches `Func<int>`
 //     underlines the whole thing (`null`, `"red"`, `42`). `NL506` is `is` two columns plain and
 //     `is string` nine columns rich. `NL208` on a circular constraint is the `f` of `func` plain and
 //     `func` rich.
-//   * 15 of them get a DIFFERENT MESSAGE, and the rich one is SHORTER. `Variable 'c' is typed as
-//     'Color', but the value is 'string'` becomes the bare `Type mismatch`, and its suggestion
-//     (`Ensure types are compatible or add explicit cast`) is DROPPED to null.
+//   * 15 of them USED TO get a DIFFERENT MESSAGE, and the rich one was SHORTER: `Variable 'c' is
+//     typed as 'Color', but the value is 'string'` became the bare `Type mismatch`. THAT WAS THE
+//     DEFECT, and it is fixed — `ErrorMessageBuilder.TypeMismatch` now takes the reporting site's
+//     own sentence instead of writing a headline of its own, so the MESSAGE column is identical on
+//     both routes and the rich shape only ADDS. The generic `Suggestion`
+//     (`Ensure types are compatible or add explicit cast`) is still null on the rich route, because
+//     the rich route carries a specific `ContextualHint` in its place — that substitution is a
+//     trade UP and is left alone.
 //   * `ContextualHint` is non-null on 15 fixtures through the production route and on ZERO through
 //     the plain one. That is why slice 28 pinned `AcHint` as `<null>` twenty-four times: the field is
 //     a property of the ENTRY POINT, not of the fixture.
@@ -3192,7 +3197,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+5;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'Color', but the value is 'string'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                c: Color = \"red\""
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3217,7 +3222,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'Color', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                c: Color = 0"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3280,7 +3285,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+5;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'Color', but the value is 'string'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                c: Color = \"red\""
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3589,7 +3594,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@3:27+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'x' is typed as 'bool', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                x: bool = null"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3614,7 +3619,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@3:29+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'x' is typed as 'double', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                x: double = null"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3696,7 +3701,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@5:27+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'int?', but the value is 'long?'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                y: int? = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3721,7 +3726,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'p' is typed as 'Point', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                p: Point = null"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -3765,7 +3770,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@7:28+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'p' is typed as 'Point', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "                p: Point = null"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4052,7 +4057,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@5:26+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'int', but the value is 'long'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'long' to 'int'. Use an explicit cast: (int)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSnippet(rich, 0) == "                y: int = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4077,7 +4082,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@4:28+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'float', but the value is 'double'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'double' to 'float'. Use an explicit cast: (float)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSnippet(rich, 0) == "                y: float = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4152,7 +4157,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@4:27+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'byte', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'int' to 'byte'. Use an explicit cast: (byte)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSnippet(rich, 0) == "                y: byte = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4196,7 +4201,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@4:26+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
     assert AcSnippet(rich, 0) == "                y: int = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4221,7 +4226,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
     assert AcCensus(rich) == "NL202:TypeMismatch@5:28+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'y' is typed as 'short', but the value is 'long'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'long' to 'short'. Use an explicit cast: (short)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSnippet(rich, 0) == "                y: short = x"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -4551,10 +4556,13 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
 //       Slice 29 measured this over its own corpus; this tranche measures it over a disjoint one
 //       and the direction is the same. The census differs on 16 fixtures, the code row on 28 and
 //       the code anchor on 13; the error COUNT never differs. On the 28, production DROPS the
-//       suggestion 15 times and GAINS one ZERO times. **THREE DELETED ASSERTIONS ARE TRUE ONLY OF
-//       THE ENTRY POINT NOTHING SHIPS**: the `'Items' is typed as 'List<Pt>', but the value is
-//       'List<Rs>'` sentence and its two siblings become the bare `Type mismatch` on the route
-//       `nlc check`, `nlc build` and the IDE take. Both routes are pinned on every fixture.
+//       generic suggestion 15 times and GAINS one ZERO times — it carries a specific
+//       `ContextualHint` instead, which is a trade up. THE THREE ASSERTIONS THAT WERE TRUE ONLY OF
+//       THE ENTRY POINT NOTHING SHIPS ARE NOW TRUE OF BOTH: the `'Items' is typed as 'List<Pt>',
+//       but the value is 'List<Rs>'` sentence and its two siblings USED TO become the bare
+//       `Type mismatch` on the route `nlc check`, `nlc build` and the IDE take, and that collapse
+//       is the defect the builder fix removed. Both routes are pinned on every fixture, and the
+//       MESSAGE column is now the one thing they always agree on.
 //
 //   (g) THE PLURAL `Suggestions` LIST IS A PRODUCTION-ONLY FIELD. It is null on all 82 plain rows
 //       and non-null on 5 rich ones, so the `?? string.Join(", ", error.Suggestions ?? …)` fallback
@@ -6457,7 +6465,7 @@ test "020 s30 analyzer error codes: `MemberWriteThroughValueCopy`: the analysis 
     assert AcCodeAnchor(rich, "MemberWriteThroughValueCopy") == "<no-such-code>"
 }
 
-test "020 s30 analyzer error codes: ONE OF THE THREE DELETED CLAIMS THAT ARE TRUE ONLY OF THE ENTRY POINT NOTHING SHIPS — the deleted body matched `'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'`, which the plain route says and the four-argument route production actually calls collapses to the bare `Type mismatch`; both routes are pinned here (was AnalyzerTests.ObjectInitializer_GenericCollectionElementMismatch_Error)" {
+test "020 s30 analyzer error codes: ONE OF THE THREE DELETED CLAIMS THAT WERE TRUE ONLY OF THE ENTRY POINT NOTHING SHIPS AND ARE NOW TRUE OF BOTH — the deleted body matched `'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'`, which the four-argument route production actually calls used to collapse to the bare `Type mismatch` and now says in full; both routes are pinned here (was AnalyzerTests.ObjectInitializer_GenericCollectionElementMismatch_Error)" {
     source := "\nrecord Pt {\n    X: int\n}\n\nrecord Rs {\n    S: string\n}\n\nrecord H {\n    Items: List<Pt>\n}\n\nfunc f(): int {\n    l := new List<Rs>()\n    l.Add(new Rs { S: \"abc\" })\n    h := new H { Items: l }\n    return h.Items[0].X\n}"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
@@ -6473,7 +6481,7 @@ test "020 s30 analyzer error codes: ONE OF THE THREE DELETED CLAIMS THAT ARE TRU
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@17:25+1;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@17:25+1"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6495,7 +6503,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@16:25+1;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Items' is typed as 'List<Pt>', but the value is 'List<Qt>'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@16:25+1"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6517,7 +6525,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@16:23+1;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Map' is typed as 'Dictionary<string, Pt>', but the value is 'Dictionary<string, Rs>'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@16:23+1"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6539,7 +6547,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@7:22+5;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'X' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@7:22+5"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
@@ -6561,7 +6569,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@19:23+1;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'B' is typed as 'Box<Pt>', but the value is 'Box<Rs>'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@19:23+1"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6583,7 +6591,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@15:32+3;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Item' is typed as 'Pt', but the value is 'Rs'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@15:32+3"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6605,7 +6613,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@15:27+3;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Items' is typed as 'Pt[]', but the value is 'Rs[]'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@15:27+3"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
@@ -6627,7 +6635,7 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@8:45+5;"
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'value' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@8:45+5"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
@@ -6801,7 +6809,7 @@ test "020 s30 analyzer error codes: `TypeMismatch` / `UndefinedMember`: the whol
     assert AcCodeAnchor(analysis1, "UndefinedMember") == "<no-such-code>"
     rich1 := AcAnalyzeWithSource(source1)
     assert AcCensus(rich1) == "NL202:TypeMismatch@10:29+5;"
-    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|'X' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich1, "TypeMismatch") == "NL202@10:29+5"
     assert AcSuggestions(rich1, 0) == "<null>"
     assert AcHint(rich1, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
@@ -6851,7 +6859,7 @@ test "020 s30 analyzer error codes: `TypeMismatch` / `UndefinedMember`: the whol
     assert AcCodeAnchor(analysis1, "UndefinedMember") == "<no-such-code>"
     rich1 := AcAnalyzeWithSource(source1)
     assert AcCensus(rich1) == "NL202:TypeMismatch@5:42+5;"
-    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich1, "TypeMismatch") == "TypeMismatch|'Capacity' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich1, "TypeMismatch") == "NL202@5:42+5"
     assert AcSuggestions(rich1, 0) == "<null>"
     assert AcHint(rich1, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
@@ -9778,7 +9786,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:33+2; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@3:33+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'x' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let x: string = 42"
@@ -9787,7 +9795,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:33+2; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'x' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:33+2"
 }
 
@@ -10030,7 +10038,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:20+2; the t
     assert AcCensus(rich) == "NL202:TypeMismatch@3:20+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                if 42 {"
@@ -10039,7 +10047,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:20+2; the t
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:20+2"
 }
 
@@ -10246,7 +10254,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+1; and i
     assert AcCensus(rich) == "NL202:TypeMismatch@5:34+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'byte', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'int' to 'byte'. Use an explicit cast: (byte)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                c: byte = getA() + getB()"
@@ -10255,7 +10263,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+1; and i
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'c' is typed as 'byte', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:34+1"
 }
 
@@ -10282,7 +10290,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+1; and i
     assert AcCensus(rich) == "NL202:TypeMismatch@5:35+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'c' is typed as 'short', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "Cannot implicitly convert 'int' to 'short'. Use an explicit cast: (short)value\nWarning: This conversion may lose data if the value exceeds the target type's range."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                c: short = getA() + getB()"
@@ -10291,7 +10299,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+1; and i
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'c' is typed as 'short', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:35+1"
 }
 
@@ -10622,7 +10630,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcSnippet(rich, 0) == "                r := new Result.Success { value: 42 }"
     assert AcTypes(rich, 0) == "<null>|<null>"
     assert AcExplanation(rich, 0) == "<null>"
-    assert AcRow(rich, 1) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 1) == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 1) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 1) == "<null>"
     assert AcSnippet(rich, 1) == "                r := new Result.Success { value: 42 }"
@@ -10635,7 +10643,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@8:26+14"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@8:50+2"
 }
 
@@ -10678,7 +10686,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcSnippet(rich, 0) == "                r := new Result.Success<int, string> { value: 42 }"
     assert AcTypes(rich, 0) == "<null>|<null>"
     assert AcExplanation(rich, 0) == "<null>"
-    assert AcRow(rich, 1) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 1) == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 1) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 1) == "<null>"
     assert AcSnippet(rich, 1) == "                r := new Result.Success<int, string> { value: 42 }"
@@ -10691,7 +10699,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@8:26+14"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'value' is typed as 'T', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@8:63+2"
 }
 
@@ -11862,7 +11870,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 12:29+4; the 
     assert AcCensus(rich) == "NL202:TypeMismatch@12:29+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'value' is typed as 'double', but the value is 'Fraction'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "        let value: double = frac  // Should error - explicit conversion required"
@@ -11871,7 +11879,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 12:29+4; the 
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'value' is typed as 'double', but the value is 'Fraction'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@12:29+4"
 }
 
@@ -12386,7 +12394,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@4:35+6;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let s: string = 5.Double()"
@@ -12395,7 +12403,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:35+6"
 }
 
@@ -12422,7 +12430,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+6; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@5:35+6;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "You can convert an integer to a string using .ToString() or string\ninterpolation: $\"{yourNumber}\""
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let s: string = x.Double()"
@@ -12431,7 +12439,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:35+6; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 's' is typed as 'string', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:35+6"
 }
 
@@ -12458,7 +12466,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@4:35+6;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'bool'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let n: int = true.Toggle()"
@@ -12467,7 +12475,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:35+6; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'bool'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:35+6"
 }
 
@@ -12494,7 +12502,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:38+5; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@4:38+5;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let n: int = \"hello\".Upper()"
@@ -12503,7 +12511,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:38+5; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'n' is typed as 'int', but the value is 'string'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:38+5"
 }
 
@@ -13046,7 +13054,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:26+4; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@3:26+4;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'x' is typed as 'int', but the value is 'null'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                x: int = null"
@@ -13055,7 +13063,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 3:26+4; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'x' is typed as 'int', but the value is 'null'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:26+4"
 }
 
@@ -13082,7 +13090,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+2; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@5:34+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'id' is typed as 'UserId', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let id: UserId = 42"
@@ -13091,7 +13099,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:34+2; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'id' is typed as 'UserId', but the value is 'int'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:34+2"
 }
 
@@ -13118,7 +13126,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 6:32+2; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@6:32+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'raw' is typed as 'int', but the value is 'UserId'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let raw: int = id"
@@ -13127,7 +13135,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 6:32+2; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'raw' is typed as 'int', but the value is 'UserId'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@6:32+2"
 }
 
@@ -13190,7 +13198,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 7:40+6; the p
     assert AcCensus(rich) == "NL202:TypeMismatch@7:40+6;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'orderId' is typed as 'OrderId', but the value is 'UserId'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                let orderId: OrderId = userId"
@@ -13199,7 +13207,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 7:40+6; the p
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Variable 'orderId' is typed as 'OrderId', but the value is 'UserId'|<null>|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@7:40+6"
 }
 
@@ -20809,7 +20817,7 @@ test "020 s36 analyzer clean source V-CONTROL V1b: the diagnostic mover that rep
     assert AcCensus(rich) == "NL202:TypeMismatch@3:29+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'total' is typed as 'bool', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "        total: bool = count + text.Length"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -20838,7 +20846,7 @@ test "020 s36 analyzer clean source V-CONTROL V2: `ReadOnlySpan<int>` -> `ReadOn
     assert AcCensus(rich) == "NL202:TypeMismatch@6:18+5;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch in assignment — expected 'int' but got 'string'|<null>|Error"
     assert AcHint(rich, 0) == "Strings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result)."
     assert AcSnippet(rich, 0) == "        total += value"
     assert AcRow(rich, 1) == "<no-such-error>"
@@ -20863,7 +20871,7 @@ test "020 s36 analyzer clean source V-CONTROL V3: `fahrenheit: Fahrenheit` -> `f
     assert AcCensus(rich) == "NL202:TypeMismatch@15:27+7;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'fahrenheit' is typed as 'int', but the value is 'Celsius'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcSnippet(rich, 0) == "        fahrenheit: int = celsius"
     assert AcRow(rich, 1) == "<no-such-error>"

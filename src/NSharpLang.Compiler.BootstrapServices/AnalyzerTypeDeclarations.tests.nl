@@ -1088,6 +1088,10 @@ test "WITH SOURCE TEXT THE SAME MISMATCH IS THE RICH TYPE-MISMATCH SHAPE AT THE 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
     assert harness.Errors[0].Column == 30
+
+    // The CODE differs between the two shapes and the ANCHOR differs; the SENTENCE does not. The
+    // rich route used to say only the bare words `Type mismatch`.
+    assert harness.Errors[0].Message == "Field 'count' is typed as 'int', but the initializer gives 'string'"
 }
 
 test "A DECLARED FIELD WHOSE INITIALIZER FITS IS SILENT, AND ONE WITH NO INITIALIZER TAKES NO STEP" {

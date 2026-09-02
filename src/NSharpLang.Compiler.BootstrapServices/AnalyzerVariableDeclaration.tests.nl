@@ -536,15 +536,38 @@ test "the detail-only shape anchors on the DECLARATION, not on the initializer" 
     assert harness.Errors[0].Line == 7
     assert harness.Errors[0].Column == 5
 }
-test "with source text the report takes the RICH shape, which is a different message and a docs link" {
+// THE ROUTE THAT SHIPS SAYS THE SAME SENTENCE. `Analyze(unit, path, root, source)` — the only entry
+// point `nlc check`, `nlc build` and the language server call — used to collapse this report to the
+// bare words `Type mismatch` while the one-argument route nothing ships kept the naming sentence.
+// The rich shape now ADDS to that sentence rather than replacing it.
+test "with source text the report takes the RICH shape, which is the SAME message plus a docs link" {
     harness := VdHarness("package demo\n\nfunc main() {\n\n\n\n    total: int = 42\n}\n")
 
     VdRun(harness, VdLet("total", VdTypeRef("int"), VdInt()), BuiltInTypes.String)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
-    assert harness.Errors[0].Message == "Type mismatch"
+    assert harness.Errors[0].Message == "Variable 'total' is typed as 'int', but the value is 'string'"
     assert harness.Errors[0].DocsUrl == "https://docs.n-sharp.dev/errors/NL202"
+}
+test "the two routes disagree about the ANCHOR and about what is ADDED, never about the SENTENCE" {
+    plain := VdDefault()
+    VdRun(plain, VdLet("total", VdTypeRef("int"), VdInt()), BuiltInTypes.String)
+
+    rich := VdHarness("package demo\n\nfunc main() {\n\n\n\n    total: int = 42\n}\n")
+    VdRun(rich, VdLet("total", VdTypeRef("int"), VdInt()), BuiltInTypes.String)
+
+    // The sentence a developer reads is route-independent.
+    assert plain.Errors[0].Message == rich.Errors[0].Message
+
+    // The route with source text still underlines the initializer rather than the declaration, and
+    // still carries the snippet, the hint and the docs link the other one cannot measure.
+    assert plain.Errors[0].Column == 5
+    assert rich.Errors[0].Column == 20
+    assert plain.Errors[0].SourceSnippet == null
+    assert rich.Errors[0].SourceSnippet != null
+    assert plain.Errors[0].ContextualHint == null
+    assert rich.Errors[0].ContextualHint != null
 }
 test "the RICH shape carries the actual and expected types the way round the builder names them" {
     harness := VdHarness("package demo\n\nfunc main() {\n\n\n\n    total: int = 42\n}\n")

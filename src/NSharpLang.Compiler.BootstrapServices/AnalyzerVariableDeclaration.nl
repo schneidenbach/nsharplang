@@ -786,8 +786,9 @@ class AnalyzerVariableDeclaration {
 
     // NL202 — THE ANNOTATION AND THE VALUE DISAGREE. The rich shape needs BOTH a file path and a
     // snippet for that line; a diagnostic with either missing falls back to the detail-only shape,
-    // which names the variable rather than underlining the expression. Both are the same report in
-    // the same position.
+    // which anchors the declaration rather than underlining the expression. THE SENTENCE IS THE SAME
+    // ON BOTH ROUTES: it is computed once, above the branch, so the route production actually calls
+    // cannot be the one that says less. Both are the same report in the same position.
     func ReportIfNotAssignable(declaration: VariableDeclarationStatement, declaredType: TypeInfo, inferredType: TypeInfo, initializer: Expression) {
         if assignabilityValue.IsAssignable(declaredType, inferredType) {
             return
@@ -798,12 +799,13 @@ class AnalyzerVariableDeclaration {
         currentFilePath := diagnosticsValue.CurrentFilePath
         declaredText := TypeText(declaredType)
         inferredText := TypeText(inferredType)
+        message := "Variable '" + declaration.Name + "' is typed as '" + declaredText + "', but the value is '" + inferredText + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, inferredText, declaredText))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, inferredText, declaredText, message))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, "Variable '" + declaration.Name + "' is typed as '" + declaredText + "', but the value is '" + inferredText + "'", declaration.Line, declaration.Column, null, 0)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, declaration.Line, declaration.Column, null, 0)
     }
 
     // NL103 — a `const` is a compile-time value, so a `const` without one has nothing to be.

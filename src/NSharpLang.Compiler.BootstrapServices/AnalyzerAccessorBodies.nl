@@ -470,17 +470,19 @@ class AnalyzerAccessorBodies {
     // the DECLARATION and reports INVALID SYNTAX, because the three-argument `Error` overload it
     // replaces defaulted to that code. The asymmetry is preserved rather than tidied: a file with no
     // readable source text is exactly the case an editor buffer produces, and changing the code there
-    // would change which squiggle a developer sees.
+    // would change which squiggle a developer sees. THE MESSAGE IS NOT PART OF THAT ASYMMETRY: both
+    // shapes name the property, its type and what the expression body returned.
     func ReportExpressionBodyTypeMismatch(property: PropertyDeclaration, expressionBody: Expression, memberType: TypeInfo, expressionType: TypeInfo) {
         span := spansValue.GetExpressionDiagnosticSpan(expressionBody)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
+        message := "Property '" + property.Name + "' is typed as '" + TypeText(memberType) + "', but the expression body returns '" + TypeText(expressionType) + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(expressionType), TypeText(memberType)))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(expressionType), TypeText(memberType), message))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Property '" + property.Name + "' is typed as '" + TypeText(memberType) + "', but the expression body returns '" + TypeText(expressionType) + "'", property.Line, property.Column, null, 0)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, message, property.Line, property.Column, null, 0)
     }
 
     // PHASE 10 — AN INDEXER'S WHOLE ENTRY: THE TYPE, THEN THE PARAMETER-LIST RULES. The order is the
