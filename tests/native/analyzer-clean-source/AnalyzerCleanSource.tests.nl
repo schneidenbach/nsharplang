@@ -22012,3 +22012,537 @@ test "undefined type names at declaration sites: NEGATIVE — a `where` constrai
     assert AcRow(rich, 0) == "<no-such-error>"
 }
 
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// NL309 COVERAGE — THE READONLY-WRITE RULE OVER EVERY TYPE FORM AND EVERY NESTED BODY.
+//
+// THE CHIP AS FILED WAS ABOUT THE OBJECT-INITIALIZER ARM, AND THAT ARM WAS NEVER BROKEN. 020 slice
+// 33 found that mutating `AnalyzerConstruction`'s copy of the sentence broke 0 native and 0 estate
+// tests and filed it as "NL309 coverage"; re-measured through the worktree CLI, `new Counter {
+// value: 2 }` over a `readonly` field reports `NL309` and always did. What nothing pinned was the
+// SENTENCE, and the four object-initializer contracts below are the first thing in either suite to
+// pin it — over a class, an INHERITED field, a struct and a record.
+//
+// PROBING FOR THE REST OF THE SPECIFIED SURFACE FOUND THREE REAL HOLES, ALL FIXED HERE, ALL
+// CONFIRMED AGAINST ROSLYN (`CS0191`) BEFORE A LINE WAS CHANGED:
+//
+//   1. THE BARE-NAME CHANNEL WAS CLASS-ONLY. `AnalyzerWriteTargets` looked the name up in
+//      `ambient.CurrentClass.Members`, and that slot is typed `ClassDeclaration` — so a STRUCT or a
+//      RECORD writing its own `readonly` field through a bare name or `this.` was silent for all
+//      three reports (assignment, `++`/`--`, `ref`/`out`). `record Counter { readonly value: int
+//      func Mutate() { value = 2 } }` compiled CLEAN. The walk now moves a member-list slot every
+//      type form fills, paired with the type NAME every form already moved.
+//   2. THE CONSTRUCTOR EXEMPTION LEAKED INTO NESTED BODIES. `InConstructor` was a sticky bool, so a
+//      local function or a block lambda declared inside a constructor inherited the exemption a
+//      constructor gets — and a nested body compiles to a method of its own, where the store is not
+//      the constructor's. `EnterNestedBody` now clears the flag and `ExitNestedBody` restores it.
+//   3. A LOCAL OR A PARAMETER SHADOWING THE FIELD ACCUSED THE FIELD. The member-list channel knows
+//      nothing about locals, so `value = 2` under a local `value` reported the readonly FIELD for a
+//      write the LOCAL received — a FALSE POSITIVE that predates this chip for classes and that
+//      widening the channel would have spread to structs and records. The bare-name channel now asks
+//      `BindsToLocalOrParameter` first; `this.`-qualified writes are never asked, because `this.x`
+//      is never a local.
+//
+// ONE SHAPE REMAINS MEASURED RATHER THAN FIXED and is pinned as such at the end of this family: an
+// EXPRESSION-bodied lambda inside a constructor. Its body is the only nested body the driver does
+// not bracket with `EnterNestedBody`, so hole 2's seam does not reach it, and closing it needs
+// `AnalyzerLambdaAnalysis` to hold the ambient context — a constructor argument only `Analyzer.cs`
+// can pass. That is C# GROWTH and a ratchet repin, so it is reported rather than taken.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+test "NL309 coverage: a STRUCT writing its own `readonly` field through a bare name is `NL309` — the enclosing-type channel is not class-only" {
+    source := "    struct Counter {\n        readonly value: int\n\n        func Mutate() {\n            value = 2\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@5:13+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@5:13+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@5:13+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@5:13+5"
+}
+
+test "NL309 coverage: a STRUCT's `this.`-qualified readonly write is `NL309`, anchored on the field name" {
+    source := "    struct Counter {\n        readonly value: int\n\n        func Mutate() {\n            this.value = 2\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@5:18+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@5:18+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@5:18+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@5:18+5"
+}
+
+test "NL309 coverage: incrementing a STRUCT's own `readonly` field is `NL309` with the `changed with '++'` verb" {
+    source := "    struct Counter {\n        readonly value: int\n\n        func Mutate() {\n            value++\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@5:13+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can't be changed with '++'|Move this mutation into a constructor assignment, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can't be changed with '++'|Move this mutation into a constructor assignment, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@5:13+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@5:13+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can't be changed with '++'|Move this mutation into a constructor assignment, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@5:13+5"
+}
+
+test "NL309 coverage: a STRUCT's own `readonly` field as a `ref` argument is `NL309` with the argument sentence" {
+    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    struct Counter {\n        readonly value: int\n\n        func Mutate() {\n            bump(ref value)\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@9:22+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can't be used as a ref argument|Assign readonly fields inside a constructor, or remove `readonly` if this field must be passed by reference.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can't be used as a ref argument|Assign readonly fields inside a constructor, or remove `readonly` if this field must be passed by reference.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@9:22+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@9:22+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can't be used as a ref argument|Assign readonly fields inside a constructor, or remove `readonly` if this field must be passed by reference.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@9:22+5"
+}
+
+test "NL309 coverage: a RECORD writing its own `readonly` field through a bare name is `NL309` — this source compiled CLEAN before the fix" {
+    source := "    record Counter {\n        readonly value: int\n\n        func Mutate() {\n            value = 2\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@5:13+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@5:13+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@5:13+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@5:13+5"
+}
+
+test "NL309 coverage: a RECORD's `this.`-qualified readonly write is `NL309`" {
+    source := "    record Counter {\n        readonly value: int\n\n        func Mutate() {\n            this.value = 2\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@5:18+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@5:18+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@5:18+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@5:18+5"
+}
+
+test "NL309 coverage: a STRUCT's own STATIC `readonly` field keeps the static sentence, which names the declaration as the only legal place" {
+    source := "    struct Counter {\n        static readonly Value: int\n\n        func Mutate() {\n            Value = 2\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@5:13+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'Value' is static readonly — it can only be initialized at its declaration|Move this value into the field initializer, or remove `readonly` if the static field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'Value' is static readonly — it can only be initialized at its declaration|Move this value into the field initializer, or remove `readonly` if the static field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@5:13+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@5:13+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'Value' is static readonly — it can only be initialized at its declaration|Move this value into the field initializer, or remove `readonly` if the static field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@5:13+5"
+}
+
+test "NL309 coverage: a BLOCK LAMBDA declared inside a constructor does not inherit the constructor's exemption — the store is the lambda's method, not the constructor's" {
+    source := "import System\n\nclass Counter {\n    readonly value: int\n\n    constructor() {\n        value = 1\n        act: Action = () => {\n            value = 2\n        }\n        act()\n    }\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@9:13+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@9:13+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@9:13+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@9:13+5"
+}
+
+test "NL309 coverage: a LOCAL FUNCTION declared inside a constructor does not inherit the constructor's exemption either" {
+    source := "class Counter {\n    readonly value: int\n\n    constructor() {\n        value = 1\n        func inner() {\n            value = 2\n        }\n        inner()\n    }\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@7:13+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@7:13+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@7:13+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@7:13+5"
+}
+
+test "NL309 coverage: the nested-body rule holds for a STRUCT too: a block lambda in a struct constructor is `NL309` while the constructor's own store beside it is silent" {
+    source := "import System\n\nstruct Counter {\n    readonly value: int\n\n    constructor(seed: int) {\n        value = seed\n        act: Action = () => {\n            value = 2\n        }\n        act()\n    }\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@9:13+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@9:13+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@9:13+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@9:13+5"
+}
+
+test "NL309 coverage: CONTROL — a block lambda inside an ORDINARY METHOD was already `NL309` and still is, so the nested-body change moved only the constructor case" {
+    source := "import System\n\nclass Counter {\n    readonly value: int\n\n    constructor() {\n        value = 1\n    }\n\n    func Mutate() {\n        act: Action = () => {\n            value = 2\n        }\n        act()\n    }\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@12:13+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@12:13+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@12:13+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@12:13+5"
+}
+
+test "NL309 coverage: THE FILED SUBJECT — an object initializer writing a `readonly` field is `NL309`, and this is the first contract in either suite to pin that arm's sentence" {
+    source := "    class Counter {\n        readonly value: int\n        label: string\n    }\n\n    func Make(): Counter {\n        return new Counter { value: 2, label: \"x\" }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@7:30+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@7:30+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@7:30+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@7:30+5"
+}
+
+test "NL309 coverage: an object initializer writing an INHERITED `readonly` field is `NL309`" {
+    source := "    class Base {\n        readonly value: int\n    }\n\n    class Derived: Base {\n        label: string\n    }\n\n    func Make(): Derived {\n        return new Derived { value: 2, label: \"x\" }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@10:30+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@10:30+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@10:30+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@10:30+5"
+}
+
+test "NL309 coverage: an object initializer over a STRUCT reports the same sentence, anchored on the field name whatever its length" {
+    source := "    struct Point {\n        readonly x: int\n        y: int\n    }\n\n    func Make(): Point {\n        return new Point { x: 2, y: 3 }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@7:28+1;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'x' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'x' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@7:28+1"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@7:28+1;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'x' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@7:28+1"
+}
+
+test "NL309 coverage: an object initializer over a RECORD reports the same sentence" {
+    source := "    record Counter {\n        readonly value: int\n        label: string\n    }\n\n    func Make(): Counter {\n        return new Counter { value: 2, label: \"x\" }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@7:30+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeErrorCount(analysis, "ReadonlyAssignment") == 1
+    assert AcCodeRow(analysis, "ReadonlyAssignment") == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@7:30+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@7:30+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(rich, 1) == "<no-such-error>"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@7:30+5"
+}
+
+test "NL309 coverage: NEGATIVE — a STRUCT's own constructor may assign its `readonly` field, and widening the channel did not take that away" {
+    source := "    struct Counter {\n        readonly value: int\n\n        constructor(seed: int) {\n            value = seed\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "NL309 coverage: NEGATIVE — a RECORD's own constructor may assign its `readonly` field" {
+    source := "    record Counter {\n        readonly value: int\n\n        constructor(seed: int) {\n            value = seed\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "NL309 coverage: NEGATIVE — a LOCAL shadowing a `readonly` field takes the write, and the field is not accused (this reported NL309 before the fix)" {
+    source := "    class Counter {\n        readonly value: int\n\n        func Mutate() {\n            value: int = 0\n            value = 2\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "NL309 coverage: NEGATIVE — a PARAMETER shadowing a `readonly` field takes the write too, in a struct as in a class" {
+    source := "    struct Counter {\n        readonly value: int\n\n        func Mutate(value: int) {\n            value = 2\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "NL309 coverage: NEGATIVE — a struct's MUTABLE field is not a readonly write" {
+    source := "    struct Counter {\n        value: int\n\n        func Mutate() {\n            value = 2\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "NL309 coverage: NEGATIVE — a record's MUTABLE field is not a readonly write" {
+    source := "    record Counter {\n        value: int\n\n        func Mutate() {\n            value = 2\n        }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+test "NL309 coverage: NEGATIVE — an object initializer writing MUTABLE fields is silent, which is what makes the four positives above about `readonly` and not about initializers" {
+    source := "    class Counter {\n        value: int\n        label: string\n    }\n\n    func Make(): Counter {\n        return new Counter { value: 2, label: \"x\" }\n    }"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+}
+
+// PINNED AS MEASURED, NOT AS ENDORSED — THE ONE NL309 SHAPE THIS CHIP DID NOT CLOSE.
+//
+// The two lambdas below are the SAME EXPRESSION written twice: one inside the constructor (line 7),
+// one inside an ordinary method (line 11). Roslyn refuses BOTH with `CS0191`. Only the method's is
+// reported, and the reason is precise rather than mysterious: an EXPRESSION-bodied lambda is the
+// only nested body the analyzer walks WITHOUT `EnterNestedBody` around it — the driver brackets a
+// lambda's BLOCK body (`DriveLambda` step kind 5) and hands an expression body straight to the
+// expression walk — so the constructor-flag clear that closes every other nested body cannot reach
+// it. Closing it means `AnalyzerLambdaAnalysis` must hold the ambient context, and that owner is
+// built in `Analyzer.cs::CreateLambdaAnalysis`: one more argument, which is C# GROWTH plus a
+// two-key ratchet repin, so it is reported rather than taken. This contract pins TODAY'S answer so
+// the day it changes is a failing test rather than a silent drift.
+//
+// THE DOUBLED ROW IS ALSO MEASURED AND IS NOT AN NL309 FACT. `ForEach`'s argument lambda is walked
+// TWICE by the analyzer entry point this family drives, so the ONE illegal write at 11:27 arrives as
+// two identical rows at one anchor. The CLI's `check` route collapses them; this route does not. It
+// is pinned here so the count is not mistaken for two distinct writes — and, more to the point, so
+// that the missing SEVENTH-LINE row stays visible as the thing this block is about.
+test "NL309 coverage: MEASURED, NOT ENDORSED — an EXPRESSION-bodied lambda inside a constructor is still silent while the identical lambda in a method reports" {
+    source := "import System.Collections.Generic\n\nclass Counter {\n    readonly value: int = 0\n\n    constructor(nums: List<int>) {\n        nums.ForEach(n => value = n)\n    }\n\n    func Mutate(nums: List<int>) {\n        nums.ForEach(n => value = n)\n    }\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    // Line 7's write — the constructor's lambda — is the one that is MISSING. Every anchor here is
+    // line 11, the method's.
+    assert AcCensus(analysis) == "NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 2
+    assert AcRow(analysis, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 1) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcRow(analysis, 2) == "<no-such-error>"
+    assert AcCodeCount(analysis, "ReadonlyAssignment") == 2
+    assert AcCodeAnchor(analysis, "ReadonlyAssignment") == "NL309@11:27+5"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL309:ReadonlyAssignment@11:27+5;NL309:ReadonlyAssignment@11:27+5;"
+    assert AcErrorCount(rich) == 2
+    assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
+    assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@11:27+5"
+}

@@ -376,11 +376,12 @@ test "A NESTED BODY ZEROES THE WHOLE CONTROL-FLOW FAMILY" {
     assert harness.Context.ReturnWouldLeaveFinally == false
 }
 
-test "A NESTED BODY RESTORES ALL EIGHT VALUES" {
+test "A NESTED BODY RESTORES ALL NINE VALUES" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("outer", AmbientIntType(), Modifiers.Async), BuiltInTypes.Int)
     harness.Context.EnterFinally()
     harness.Context.EnterLoop()
+    harness.Context.EnterConstructor()
     before := AmbientState(harness.Context)
 
     frame := harness.Context.EnterNestedBody(AmbientFunction("local", null, Modifiers.None), BuiltInTypes.Void)
@@ -390,6 +391,42 @@ test "A NESTED BODY RESTORES ALL EIGHT VALUES" {
 
     assert AmbientState(harness.Context) == before
     assert before == "int|outer|0|1|1|1|1|1"
+    // The ninth value is not in `AmbientState`'s line, so it is pinned on its own: the constructor
+    // flag came back from the frame rather than staying where the nested body left it.
+    assert harness.Context.InConstructor == true
+}
+
+// NL309's constructor exemption is the ONLY reader of this flag, and a local function or a lambda
+// declared inside a constructor is not the constructor: it compiles to a method of its own, so a
+// store into an `initonly` field made from inside one is `CS0191` in Roslyn. The flag used to be a
+// plain sticky bool that a nested body inherited, which handed the exemption to code the constructor
+// does not contain.
+test "A NESTED BODY LEAVES THE CONSTRUCTOR BEHIND, AND THE EXIT PUTS IT BACK" {
+    harness := AmbientDefault()
+    harness.Context.EnterConstructor()
+    assert harness.Context.InConstructor == true
+
+    frame := harness.Context.EnterNestedBody(AmbientFunction("local", null, Modifiers.None), BuiltInTypes.Void)
+    assert harness.Context.InConstructor == false
+
+    inner := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown)
+    assert harness.Context.InConstructor == false
+    harness.Context.ExitNestedBody(inner)
+    assert harness.Context.InConstructor == false
+
+    harness.Context.ExitNestedBody(frame)
+    assert harness.Context.InConstructor == true
+}
+
+test "A NESTED BODY OUTSIDE A CONSTRUCTOR NEITHER SETS THE FLAG NOR RESTORES ONE" {
+    harness := AmbientDefault()
+    assert harness.Context.InConstructor == false
+
+    frame := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown)
+    assert harness.Context.InConstructor == false
+    harness.Context.ExitNestedBody(frame)
+
+    assert harness.Context.InConstructor == false
 }
 
 test "A LAMBDA HAS NO DECLARATION TO NAME AND IS NEVER async OR OMITTED" {
@@ -1294,12 +1331,13 @@ test "THE TYPE-CONTEXT SLOTS HAND THE PREVIOUS VALUE BACK TO THE CALLER AND NEST
     assert harness.Context.CurrentClass == null
 }
 
-test "THE TWO TYPE-CONTEXT SLOTS ARE INDEPENDENT, WHICH IS WHAT A NESTED STRUCT DEPENDS ON" {
+test "THE TYPE-CONTEXT SLOTS ARE INDEPENDENT, WHICH IS WHAT A NESTED STRUCT DEPENDS ON" {
     harness := AmbientDefault()
     savedClass := harness.Context.EnterClassDeclaration(AmbientClass("Outer"))
     savedName := harness.Context.EnterTypeName("Outer")
 
-    // A struct declared inside that class moves ONLY the name.
+    // A struct declared inside that class leaves the CLASS slot alone — it could not fill it, the
+    // slot is typed `ClassDeclaration` — and moves the name and the member list.
     savedStructName := harness.Context.EnterTypeName("Point")
     assert harness.Context.CurrentTypeName == "Point"
     assert harness.Context.CurrentClass != null
@@ -1309,6 +1347,32 @@ test "THE TWO TYPE-CONTEXT SLOTS ARE INDEPENDENT, WHICH IS WHAT A NESTED STRUCT 
 
     harness.Context.ExitTypeName(savedName)
     harness.Context.ExitClassDeclaration(savedClass)
+}
+
+// THE MEMBER-LIST SLOT IS WHY NL309 IS NOT CLASS-ONLY. The class slot cannot carry a struct or a
+// record declaration — it is typed `ClassDeclaration` — so the readonly-write rule's bare-name
+// channel, which reads the ENCLOSING TYPE'S MEMBERS, saw nothing at all inside either form.
+test "THE MEMBER-LIST SLOT HANDS THE PREVIOUS LIST BACK AND NESTS, WHATEVER THE TYPE FORM IS" {
+    harness := AmbientDefault()
+    assert harness.Context.CurrentTypeMembers == null
+
+    outerMembers := new List<Declaration>()
+    savedOuter := harness.Context.EnterTypeMembers(outerMembers)
+    assert savedOuter == null
+    assert harness.Context.CurrentTypeMembers != null
+    assert harness.Context.CurrentTypeMembers.Count == 0
+
+    innerMembers := new List<Declaration>()
+    innerMembers.Add(AmbientClass("Nested"))
+    savedInner := harness.Context.EnterTypeMembers(innerMembers)
+    assert savedInner != null
+    assert harness.Context.CurrentTypeMembers.Count == 1
+
+    harness.Context.ExitTypeMembers(savedInner)
+    assert harness.Context.CurrentTypeMembers.Count == 0
+
+    harness.Context.ExitTypeMembers(savedOuter)
+    assert harness.Context.CurrentTypeMembers == null
 }
 
 test "NEITHER TYPE-CONTEXT SLOT IS RESET BY BeginAnalysis, WHICH IS THE SHELL'S OWN ASYMMETRY" {

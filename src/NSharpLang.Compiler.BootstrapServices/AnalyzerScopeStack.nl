@@ -575,6 +575,42 @@ class AnalyzerScopeStack {
         return false
     }
 
+    // Whether a BARE name is bound by a LOCAL or a PARAMETER rather than by a member of the enclosing
+    // type. The walk runs innermost-outward and stops DEAD at the first scope that is not a function
+    // or a block: a field, a property or a global of the same name is not a shadow, it is the very
+    // thing a bare name means when no local claims it. A TYPE binding, a local function and a method
+    // group of the same name are not value bindings and so are not shadows either.
+    //
+    // `value` IS DELIBERATELY NOT EXCLUDED HERE, and that is the one place this predicate parts
+    // company with `AnalyzerBindingFacts.IsValueBinding`, which excludes it by NAME. A property
+    // setter's implicit `value` IS a parameter, and a write to it inside the setter is a write to
+    // the parameter — the very shadow this answers. `this` needs no exclusion: it is declared in the
+    // TYPE scope, which ends the walk before it is ever read.
+    //
+    // THE READONLY-WRITE RULE IS WHAT ASKS. Its bare-name channel looks the name up in the enclosing
+    // type's MEMBER LIST, which knows nothing about locals — so `size = 4` written after a local
+    // `size` was declared accused the FIELD of a write the local received.
+    func BindsToLocalOrParameter(name: string): bool {
+        index := scopes.Count - 1
+        while index >= 0 {
+            scope := scopes[index]
+            if !IsLocalScopeKind(scope.Kind) {
+                return false
+            }
+
+            boundType := new TypeInfo()
+            if scope.Symbols.TryGetValue(name, out boundType) && !scope.Types.ContainsKey(name) {
+                if boundType as FunctionTypeInfo == null && boundType as NSharpMethodGroupInfo == null {
+                    return true
+                }
+            }
+
+            index = index - 1
+        }
+
+        return false
+    }
+
     // ---- suggestion inputs ---------------------------------------------------------------------
 
     // Every type name in scope, innermost first. The order is the suggestion policy's tie-breaker, so
