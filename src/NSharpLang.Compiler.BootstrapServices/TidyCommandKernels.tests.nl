@@ -183,10 +183,11 @@ test "each status carries the reason sentence the user reads beside it" {
 
 // ── the removal filter ────────────────────────────────────────────────────────
 
-test "the removal filter drops a dependency line whose package part starts with a doomed name" {
+test "the removal filter drops a dependency line whose package part IS a doomed name" {
     filteredLines := TidyCommandKernels.FilterRemovalLines(
         [
             "dependencies:",
+            "  - Serilog@3.1.1",
             "  - Serilog.Sinks.Console@5.0.1",
             "  - nuget: Newtonsoft.Json",
             "  - NUGET: unused.package",
@@ -201,28 +202,123 @@ test "the removal filter drops a dependency line whose package part starts with 
     // Non-list lines and lines that are not `- `-prefixed are always kept. The `nuget:` marker is
     // honoured anywhere on the line and case-insensitively, so `NUGET: unused.package` matches the
     // doomed `Unused.Package`. `framework:` and `project:` lines never match a package name.
-    assert filteredLines.Length == 5
+    //
+    // AND THE MATCH IS THE WHOLE NAME, NOT A PREFIX OF IT: the doomed `Serilog` takes
+    // `  - Serilog@3.1.1` — `@` ends a package name — and leaves BOTH `Serilog.Sinks.Console`
+    // and `SerilogExtra`, which are different packages that merely begin with those seven letters.
+    assert filteredLines.Length == 7
     assert filteredLines[0] == "dependencies:"
-    assert filteredLines[1] == "  - framework: Microsoft.AspNetCore.App"
-    assert filteredLines[2] == "  - project: ../Shared/Shared.csproj"
-    assert filteredLines[3] == "  - Other.Package"
-    assert filteredLines[4] == "name: Demo"
+    assert filteredLines[1] == "  - Serilog.Sinks.Console@5.0.1"
+    assert filteredLines[2] == "  - framework: Microsoft.AspNetCore.App"
+    assert filteredLines[3] == "  - project: ../Shared/Shared.csproj"
+    assert filteredLines[4] == "  - Other.Package"
+    assert filteredLines[5] == "  - SerilogExtra"
+    assert filteredLines[6] == "name: Demo"
 }
 
-test "the removal match is a BARE PREFIX, so removing Serilog also removes SerilogExtra" {
-    // THIS IS THE MECHANISM, ISOLATED. The deleted body fed `  - SerilogExtra` into a nine-element
-    // array comparison and its disappearance was invisible among the other eight rows. It is
-    // pinned here on its own, because `nlc tidy --fix` REWRITES the user's `project.yml` from this
-    // answer: `RemovalLineStartsWithPackage` compares `packageName.Length` characters and checks
-    // NOTHING after them, so a package that merely begins with a doomed name is deleted with it.
-    // `TidyCommand.RemoveDependencies` passes exactly the possibly-unused names, so a user with
-    // both `Serilog` (unused) and `SerilogExtra` (used) loses the second line too.
+test "a doomed name that is a BARE PREFIX of another package leaves that package alone" {
+    // THIS IS THE MECHANISM, ISOLATED — AND IT WAS A DATA-LOSS DEFECT UNTIL THE RULE BELOW.
+    // `nlc tidy --fix` REWRITES the user's `project.yml` from this answer, and
+    // `RemovalLineStartsWithPackage` used to compare `packageName.Length` characters and check
+    // NOTHING after them, so every package merely BEGINNING with a doomed name went with it. A
+    // project carrying `Serilog` (unused) alongside `SerilogExtra`, `Serilogic.Core` and
+    // `Serilog.Sinks.Console` lost all four lines while the command reported removing one.
+    //
+    // THE RULE NOW: the doomed name must fit, compare equal, and END where it ends on the line —
+    // the next character may not be one a package id continues with (letter, digit, `.`, `-`,
+    // `_`, `+`). Only the line that IS `Serilog` goes.
     collateral := TidyCommandKernels.FilterRemovalLines(
-        ["  - Serilog", "  - SerilogExtra", "  - Serilogic.Core", "  - Seri"],
+        ["  - Serilog", "  - SerilogExtra", "  - Serilogic.Core", "  - Serilog.Sinks.Console@5.0.1", "  - Serilog_Extra", "  - Serilog-Extra", "  - Seri"],
         ["Serilog"])
 
-    assert collateral.Length == 1
-    assert collateral[0] == "  - Seri"
+    assert collateral.Length == 6
+    assert collateral[0] == "  - SerilogExtra"
+    assert collateral[1] == "  - Serilogic.Core"
+    assert collateral[2] == "  - Serilog.Sinks.Console@5.0.1"
+    assert collateral[3] == "  - Serilog_Extra"
+    assert collateral[4] == "  - Serilog-Extra"
+    assert collateral[5] == "  - Seri"
+}
+
+test "the whole-name rule does not stop a doomed package being removed in any spelling" {
+    // THE OTHER DIRECTION OF THE SAME CHANGE, so the fix cannot have been a blanket refusal to
+    // remove anything. Every terminator a `project.yml` package name can actually END with is
+    // asked for: end of line, the `@` before a version, the space before a YAML comment, and the
+    // `nuget:` mapping key — case-insensitively, and for a doomed name that itself carries dots.
+    removed := TidyCommandKernels.FilterRemovalLines(
+        [
+            "  - Serilog.Sinks",
+            "  - Serilog.Sinks@1.2.3",
+            "  - Serilog.Sinks # legacy sink, drop it",
+            "  - nuget: serilog.sinks",
+            "  - NUGET: Serilog.Sinks@1.2.3",
+            "  - Keep.Me"
+        ],
+        ["Serilog.Sinks"])
+
+    assert removed.Length == 1
+    assert removed[0] == "  - Keep.Me"
+}
+
+test "filtering an already-filtered file changes nothing — tidy twice is tidy once" {
+    // IDEMPOTENCE, WHICH IS WHAT MAKES `nlc tidy --fix` SAFE TO RERUN. The second pass sees the
+    // survivors of the first and must keep every one of them, including the three that survive
+    // only because the doomed name is a bare prefix of them.
+    original := [
+        "dependencies:",
+        "  - Serilog@3.1.1",
+        "  - SerilogExtra@1.0.0",
+        "  - Serilog.Sinks.Console@5.0.1",
+        "  - Newtonsoft.Json@13.0.3"
+    ]
+
+    once := TidyCommandKernels.FilterRemovalLines(original, ["Serilog"])
+    twice := TidyCommandKernels.FilterRemovalLines(once, ["Serilog"])
+
+    assert once.Length == 4
+    assert twice.Length == 4
+    index := 0
+    while index < once.Length {
+        assert twice[index] == once[index]
+        index = index + 1
+    }
+}
+
+test "an empty doomed name matches no line at all" {
+    // A doomed name of length zero would once have matched at every package start and emptied the
+    // list. It cannot reach the filter through `TidyCommand` — a classified dependency always has
+    // a name — but the kernel is public and answers for itself.
+    kept := TidyCommandKernels.FilterRemovalLines(
+        ["  - Serilog", "  - Newtonsoft.Json", "name: Demo"],
+        [""])
+
+    assert kept.Length == 3
+    assert kept[0] == "  - Serilog"
+    assert kept[1] == "  - Newtonsoft.Json"
+    assert kept[2] == "name: Demo"
+}
+
+test "the removal filter is NOT scoped to the dependencies section — measured, not endorsed" {
+    // A SECOND, SEPARATE FINDING, PINNED AS MEASURED. `TidyCommand.RemoveDependencies` hands the
+    // filter EVERY line of `project.yml`, and the filter's only structural test is `- ` after the
+    // indent. So a `testDependencies:` entry naming exactly a doomed package is removed as well,
+    // even though `TidyCommand` classified only `config.Dependencies` and the report never named
+    // that line. The whole-name rule above bounds the blast radius to an EXACT name match; the
+    // section scoping is a distinct decision and is not made here.
+    filteredLines := TidyCommandKernels.FilterRemovalLines(
+        [
+            "dependencies:",
+            "  - Serilog.Sinks@1.0.0",
+            "testDependencies:",
+            "  - Serilog.Sinks@1.0.0",
+            "  - Serilog.SinksExtra@2.0.0"
+        ],
+        ["Serilog.Sinks"])
+
+    assert filteredLines.Length == 3
+    assert filteredLines[0] == "dependencies:"
+    assert filteredLines[1] == "testDependencies:"
+    assert filteredLines[2] == "  - Serilog.SinksExtra@2.0.0"
 }
 
 test "a doomed name LONGER than the line's package still does not match" {
