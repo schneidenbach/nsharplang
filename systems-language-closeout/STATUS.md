@@ -229,8 +229,11 @@ sites (every probe spelled `Missing`, a real BCL type; two smaller real holes it
 
 Held: format non-idempotence + the `.tests.nl` gate gap — fixed on `stream/chip-format-idempotence`; its
 233-file estate reformat waits on a decision about an argument-list WRAPPING policy (the canonical join puts
-6,224 lines over 120 chars). In flight: locale-sensitive estate blocks · playground union shorthand · playground vs `nlc run`
-divergences.
+6,224 lines over 120 chars). All fifteen filed chips are closed: locale-sensitive estate blocks (7 defects, 4 of them product: the lint-config severity fold,
+two suggestion folds, the CLI's unknown-command echo, and the emitter writing a Turkish İ into CLR method names — the estate
+is identical under en-US/de-DE/tr-TR) · playground union shorthand (the runner was a third spelling of `BindingName ?? Name`,
+the only wrong one — routed to `AnalyzerPropertyPatternBinding.BoundName`) · playground vs `nlc run` divergences (5 fixed;
+`"n=" + 1` is a compiler gap in the primitive-binary `+` arm, filed).
 
 **Wave 3, first slice (owner-approved 2026-09-02): the gate-speed slice.** The commit gate is 22 min without VS Code
 tests (35–40 with); 16 m 28 s of it is the 596-test C# unit suite (dominated by tests that spawn `dotnet build`/
