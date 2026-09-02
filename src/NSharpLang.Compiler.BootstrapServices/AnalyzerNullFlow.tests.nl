@@ -22,7 +22,6 @@ import NSharpLang.Compiler.Ast
 //
 // THE DEDUP LOG KEYS ON FOUR THINGS and the tests pin all four: the same line, column, path and
 // operation reports once, and changing ANY of them reports again.
-
 class NullFlowHarness {
     Owner: AnalyzerNullFlow
     Errors: List<CompilerError>
@@ -33,7 +32,8 @@ class NullFlowHarness {
         owner: AnalyzerNullFlow,
         errors: List<CompilerError>,
         scopes: AnalyzerScopeStack,
-        context: AnalyzerDeclarationContext) {
+        context: AnalyzerDeclarationContext
+    ) {
         Owner = owner
         Errors = errors
         Scopes = scopes
@@ -57,7 +57,8 @@ func NullFlowDefault(): NullFlowHarness {
         new AnalyzerNullFlow(diagnostics, spans, scopes, context),
         errors,
         scopes,
-        context)
+        context
+    )
 }
 
 func NfName(name: string): IdentifierExpression {
@@ -119,20 +120,16 @@ test "every literal kind, typeof and nameof are NOT-NULL" {
     harness := NullFlowDefault()
     nullableString: TypeInfo = NfNullable(BuiltInTypes.String)
 
-    assert harness.Owner.GetExpressionNullState(new StringLiteralExpression("a", 4, 7), nullableString)
-        == NullState.NotNull
-    assert harness.Owner.GetExpressionNullState(new IntLiteralExpression("1", 4, 7), nullableString)
-        == NullState.NotNull
-    assert harness.Owner.GetExpressionNullState(new FloatLiteralExpression("1.0", 4, 7), nullableString)
-        == NullState.NotNull
-    assert harness.Owner.GetExpressionNullState(new CharLiteralExpression("a", 4, 7), nullableString)
-        == NullState.NotNull
-    assert harness.Owner.GetExpressionNullState(new BoolLiteralExpression(true, 4, 7), nullableString)
-        == NullState.NotNull
+    assert harness.Owner.GetExpressionNullState(new StringLiteralExpression("a", 4, 7), nullableString) == NullState.NotNull
+    assert harness.Owner.GetExpressionNullState(new IntLiteralExpression("1", 4, 7), nullableString) == NullState.NotNull
+    assert harness.Owner.GetExpressionNullState(new FloatLiteralExpression("1.0", 4, 7), nullableString) == NullState.NotNull
+    assert harness.Owner.GetExpressionNullState(new CharLiteralExpression("a", 4, 7), nullableString) == NullState.NotNull
+    assert harness.Owner.GetExpressionNullState(new BoolLiteralExpression(true, 4, 7), nullableString) == NullState.NotNull
     assert harness.Owner.GetExpressionNullState(
-        new TypeOfExpression(new SimpleTypeReference("int", 0, 0), 4, 7), nullableString) == NullState.NotNull
-    assert harness.Owner.GetExpressionNullState(new NameofExpression(NfName("x"), 4, 7), nullableString)
-        == NullState.NotNull
+        new TypeOfExpression(new SimpleTypeReference("int", 0, 0), 4, 7),
+        nullableString
+    ) == NullState.NotNull
+    assert harness.Owner.GetExpressionNullState(new NameofExpression(NfName("x"), 4, 7), nullableString) == NullState.NotNull
 }
 test "a parenthesized expression answers whatever its inner expression answers" {
     harness := NullFlowDefault()
@@ -143,8 +140,7 @@ test "a parenthesized expression answers whatever its inner expression answers" 
 test "a NULL-CONDITIONAL member access is MAYBE-NULL whatever its receiver says" {
     harness := NullFlowDefault()
 
-    assert harness.Owner.GetExpressionNullState(NfMember("box", "Value", true), BuiltInTypes.String)
-        == NullState.MaybeNull
+    assert harness.Owner.GetExpressionNullState(NfMember("box", "Value", true), BuiltInTypes.String) == NullState.MaybeNull
 }
 test "a NULL-CONDITIONAL index access is MAYBE-NULL" {
     harness := NullFlowDefault()
@@ -155,8 +151,7 @@ test "a NULL-CONDITIONAL index access is MAYBE-NULL" {
 test "a PLAIN member access is not maybe-null by construction" {
     harness := NullFlowDefault()
 
-    assert harness.Owner.GetExpressionNullState(NfMember("box", "Value", false), BuiltInTypes.String)
-        == NullState.NotNull
+    assert harness.Owner.GetExpressionNullState(NfMember("box", "Value", false), BuiltInTypes.String) == NullState.NotNull
 }
 test "a RECORDED fact for the stable path wins over the type's default" {
     harness := NullFlowDefault()
@@ -168,8 +163,7 @@ test "with no recorded fact the TYPE's default answers" {
     harness := NullFlowDefault()
 
     assert harness.Owner.GetExpressionNullState(NfName("x"), BuiltInTypes.String) == NullState.NotNull
-    assert harness.Owner.GetExpressionNullState(NfName("x"), NfNullable(BuiltInTypes.String))
-        == NullState.MaybeNull
+    assert harness.Owner.GetExpressionNullState(NfName("x"), NfNullable(BuiltInTypes.String)) == NullState.MaybeNull
 }
 test "THE SYNTACTIC ARMS RUN FIRST: a recorded fact for a path does not change a literal's answer" {
     harness := NullFlowDefault()
@@ -184,8 +178,7 @@ test "a MEMBER PATH carries its own recorded fact" {
     harness := NullFlowDefault()
     harness.Scopes.SetNullStateInCurrentScope("box.Value", NullState.Null)
 
-    assert harness.Owner.GetExpressionNullState(NfMember("box", "Value", false), BuiltInTypes.String)
-        == NullState.Null
+    assert harness.Owner.GetExpressionNullState(NfMember("box", "Value", false), BuiltInTypes.String) == NullState.Null
 }
 
 // ── the default a type implies ────────────────────────────────────────────
@@ -325,7 +318,8 @@ test "a MAYBE-NULL nullable keeps its nullability, and a non-nullable is never r
     assert harness.Owner.ApplyNullabilityFlowType(nullable, NullState.MaybeNull) == nullable
     assert BuiltInTypes.Is(
         harness.Owner.ApplyNullabilityFlowType(BuiltInTypes.String, NullState.NotNull),
-        BuiltInTypes.String)
+        BuiltInTypes.String
+    )
 }
 test "UNDER SUPPRESSION nothing collapses, and the flag restores" {
     harness := NullFlowDefault()
@@ -376,8 +370,7 @@ test "a MAYBE-NULL dereference reports NL905 with its message and its suggestion
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.PossibleNullAccess
     assert harness.Errors[0].Message == "Possible null dereference: `x` is maybe-null"
-    assert harness.Errors[0].Suggestion
-        == "Use '?.', add a '??' fallback, guard with 'if x == null { return }', or explicitly assert after proving 'x' is not null."
+    assert harness.Errors[0].Suggestion == "Use '?.', add a '??' fallback, guard with 'if x == null { return }', or explicitly assert after proving 'x' is not null."
 }
 test "an INDEX operation carries its own wording" {
     harness := NullFlowDefault()
@@ -386,8 +379,7 @@ test "an INDEX operation carries its own wording" {
     harness.Owner.ReportPossibleNullAccess(NfName("x"), BuiltInTypes.String, 4, 7, "index", false)
 
     assert harness.Errors[0].Message == "Possible null index: `x` is null"
-    assert harness.Errors[0].Suggestion
-        == "Use '?[', add a '??' fallback, guard with 'if x == null { return }', or explicitly assert after proving 'x' is not null."
+    assert harness.Errors[0].Suggestion == "Use '?[', add a '??' fallback, guard with 'if x == null { return }', or explicitly assert after proving 'x' is not null."
 }
 test "a CALL operation is the one whose message is not built from the operation word" {
     harness := NullFlowDefault()
@@ -396,8 +388,7 @@ test "a CALL operation is the one whose message is not built from the operation 
     harness.Owner.ReportPossibleNullAccess(NfName("x"), BuiltInTypes.String, 4, 7, "call", false)
 
     assert harness.Errors[0].Message == "Possible null call: `x` is maybe-null"
-    assert harness.Errors[0].Suggestion
-        == "Guard with 'if x == null { return }', use '?.' when calling through a member, or explicitly assert after proving 'x' is not null."
+    assert harness.Errors[0].Suggestion == "Guard with 'if x == null { return }', use '?.' when calling through a member, or explicitly assert after proving 'x' is not null."
 }
 test "an UNRECOGNISED operation takes the fallback suggestion and the operation-word message" {
     harness := NullFlowDefault()
@@ -406,8 +397,7 @@ test "an UNRECOGNISED operation takes the fallback suggestion and the operation-
     harness.Owner.ReportPossibleNullAccess(NfName("x"), BuiltInTypes.String, 4, 7, "await", false)
 
     assert harness.Errors[0].Message == "Possible null await: `x` is maybe-null"
-    assert harness.Errors[0].Suggestion
-        == "Guard with 'if x == null { return }' or add a fallback before using 'x'."
+    assert harness.Errors[0].Suggestion == "Guard with 'if x == null { return }' or add a fallback before using 'x'."
 }
 test "a receiver with NO stable path renders as `this value`" {
     harness := NullFlowDefault()
@@ -462,7 +452,13 @@ test "the report is graded on the RECEIVER's state, which may come from its type
     harness := NullFlowDefault()
 
     harness.Owner.ReportPossibleNullAccess(
-        NfName("x"), NfNullable(BuiltInTypes.String), 4, 7, "dereference", false)
+        NfName("x"),
+        NfNullable(BuiltInTypes.String),
+        4,
+        7,
+        "dereference",
+        false
+    )
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "Possible null dereference: `x` is maybe-null"
@@ -482,7 +478,11 @@ test "assigning null records NULL for the target's path" {
     harness := NullFlowDefault()
 
     harness.Owner.UpdateNullStateAfterAssignment(
-        NfName("x"), NfNull(), NfNullable(BuiltInTypes.String), BuiltInTypes.Null)
+        NfName("x"),
+        NfNull(),
+        NfNullable(BuiltInTypes.String),
+        BuiltInTypes.Null
+    )
 
     assert harness.Scopes.NullStateOrUnknown("x") == NullState.Null
 }
@@ -491,7 +491,11 @@ test "assigning a NEW records NOT-NULL even into a nullable target" {
     newExpr := new NewExpression(null, new List<Argument>(), null, 4, 7)
 
     harness.Owner.UpdateNullStateAfterAssignment(
-        NfName("x"), newExpr, NfNullable(BuiltInTypes.String), BuiltInTypes.String)
+        NfName("x"),
+        newExpr,
+        NfNullable(BuiltInTypes.String),
+        BuiltInTypes.String
+    )
 
     assert harness.Scopes.NullStateOrUnknown("x") == NullState.NotNull
 }
@@ -499,7 +503,11 @@ test "an UNKNOWN value state falls back to the TARGET type's default, not the va
     harness := NullFlowDefault()
 
     harness.Owner.UpdateNullStateAfterAssignment(
-        NfName("x"), NfName("src"), NfNullable(BuiltInTypes.String), BuiltInTypes.Unknown)
+        NfName("x"),
+        NfName("src"),
+        NfNullable(BuiltInTypes.String),
+        BuiltInTypes.Unknown
+    )
 
     assert harness.Scopes.NullStateOrUnknown("x") == NullState.MaybeNull
 }
@@ -508,7 +516,11 @@ test "a recorded fact for the VALUE's path flows to the target" {
     harness.Scopes.SetNullStateInCurrentScope("src", NullState.MaybeNull)
 
     harness.Owner.UpdateNullStateAfterAssignment(
-        NfName("x"), NfName("src"), BuiltInTypes.String, BuiltInTypes.String)
+        NfName("x"),
+        NfName("src"),
+        BuiltInTypes.String,
+        BuiltInTypes.String
+    )
 
     assert harness.Scopes.NullStateOrUnknown("x") == NullState.MaybeNull
 }
@@ -518,7 +530,11 @@ test "an assignment INVALIDATES the facts derived from the target's path" {
     harness.Scopes.SetNullStateInCurrentScope("box.Value", NullState.NotNull)
 
     harness.Owner.UpdateNullStateAfterAssignment(
-        NfName("box"), NfNull(), NfNullable(BuiltInTypes.String), BuiltInTypes.Null)
+        NfName("box"),
+        NfNull(),
+        NfNullable(BuiltInTypes.String),
+        BuiltInTypes.Null
+    )
 
     assert harness.Scopes.NullStateOrUnknown("box") == NullState.Null
     assert !harness.Scopes.HasNullState("box.Value")

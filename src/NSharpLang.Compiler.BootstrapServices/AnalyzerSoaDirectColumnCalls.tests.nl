@@ -36,7 +36,6 @@ import NSharpLang.Compiler.Ast
 //
 // (7) A `ref`/`out` ARGUMENT IS SKIPPED BY THE ESCAPE GATE, because a column IS addressable and the
 // write-target family has already ruled on it.
-
 class SoaCallHarness {
     Rule: AnalyzerSoaDirectColumnCalls
     Escape: AnalyzerSoaEscape
@@ -66,8 +65,8 @@ func SoaCallHarnessOf(): SoaCallHarness {
     sink.BeginAnalysis(Path.GetFullPath("soa-direct-column-call-contract.nl"), null)
     spans := new AnalyzerDiagnosticSpans(sink)
     usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
-    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal)
-    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
     namespaces := new List<string>()
     discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)
     probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)
@@ -313,12 +312,14 @@ test "Array.Copy's array positions are 0 and 1 at arity three and 0 and 2 at ari
 
     // arity 3: (source, destination, length) — the column is the destination, which is an array slot
     assert !harness.Rule.ReportUnsupportedStaticArrayCallIfNeeded(
-        SoaCallArrayCall("Copy", SoaCallValues3(SoaCallName("other"), SoaCallColumn(), SoaCallInt("3"))))
+        SoaCallArrayCall("Copy", SoaCallValues3(SoaCallName("other"), SoaCallColumn(), SoaCallInt("3")))
+    )
 
     // arity 5: (source, sourceIndex, destination, destinationIndex, length) — position 1 is an INDEX,
     // so a column there is not a handled array parameter and IS refused
     assert harness.Rule.ReportUnsupportedStaticArrayCallIfNeeded(
-        SoaCallArrayCall("Copy", SoaCallValues5(SoaCallName("other"), SoaCallColumn(), SoaCallName("dest"), SoaCallInt("0"), SoaCallInt("3"))))
+        SoaCallArrayCall("Copy", SoaCallValues5(SoaCallName("other"), SoaCallColumn(), SoaCallName("dest"), SoaCallInt("0"), SoaCallInt("3")))
+    )
     assert SoaCallMessages(harness) == "SoA table member 'x' cannot be passed to Array method 'Copy' directly"
 }
 

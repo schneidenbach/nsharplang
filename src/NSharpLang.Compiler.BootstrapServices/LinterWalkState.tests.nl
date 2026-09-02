@@ -26,7 +26,6 @@ import NSharpLang.Compiler.Ast
 //   (d) `PopScope` on an empty stack reports NOTHING, where a pop that restores also reports. The
 //       asymmetry is deliberate and is asserted, because it is what stops an unbalanced walk from
 //       double-reporting NL001.
-
 func LwsConfig(): LinterConfig {
     return LinterConfig.Default()
 }
@@ -120,7 +119,6 @@ func LwsOpenFunction(state: LinterWalkState, names: string[]): LinterFunctionFra
     state.RecordParameterScope()
     return frame
 }
-
 
 // ── the lexical scopes ───────────────────────────────────────────────────────────────────────
 
@@ -223,7 +221,6 @@ test "NL020 does NOT fire for a redeclaration in the SAME scope" {
     state.DeclareVariable("value", 4, 9)
     assert state.Diagnostics.Count == 0
 }
-
 
 // ── the parameter frames ─────────────────────────────────────────────────────────────────────
 
@@ -333,7 +330,6 @@ test "NL012 is silent unless its code is in the severity table" {
     assert state.Diagnostics.Count == 0
 }
 
-
 // ── NL004, and the guard that could not decide anything ──────────────────────────────────────
 
 func LwsFunction(name: string, isAsync: bool, hasBlockBody: bool): FunctionDeclaration {
@@ -412,7 +408,6 @@ test "an async function's implicit Task usage is recorded as a code identifier" 
     idle.CheckUnusedImports()
     assert idle.Diagnostics.Count == 1
 }
-
 
 // ── the import and identifier ledgers ────────────────────────────────────────────────────────
 
@@ -540,7 +535,6 @@ test "a type reference with no base name reports nothing" {
     assert state.Diagnostics.Count == 0
 }
 
-
 // ── the reporting spine ──────────────────────────────────────────────────────────────────────
 
 test "a disabled rule is silent" {
@@ -642,7 +636,6 @@ test "FindTokenColumn is ORDINAL and falls back when the line does not carry the
     assert state.FindTokenColumn(1, "   ", 99) == 99
     assert state.FindTokenColumn(9, "compute", 99) == 99
 }
-
 
 // ── the rules that read one node ─────────────────────────────────────────────────────────────
 

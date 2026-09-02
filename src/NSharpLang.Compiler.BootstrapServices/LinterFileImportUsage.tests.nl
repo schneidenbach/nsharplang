@@ -18,7 +18,6 @@ import System.IO
 // AND THE SPANS ARE STATED. The deleted file asked only whether some NL010 exists; a file import's
 // squiggle covers the QUOTED PATH, quotes included, which is a different length rule from the
 // namespace arm's bare name and was written down nowhere.
-
 func LfiTempDirectory(tag: string): string {
     directory := Path.Combine(Path.GetTempPath(), "nsharp-file-import-" + tag + "-" + Guid.NewGuid().ToString())
     Directory.CreateDirectory(directory)

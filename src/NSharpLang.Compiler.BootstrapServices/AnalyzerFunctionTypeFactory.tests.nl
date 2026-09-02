@@ -70,13 +70,15 @@ func FactoryScopes(): AnalyzerScopeStack {
 
 func FactoryResolver(
     scopes: AnalyzerScopeStack,
-    context: AnalyzerDeclarationContext): AnalyzerTypeResolver {
+    context: AnalyzerDeclarationContext
+): AnalyzerTypeResolver {
     provider := new AnalyzerProjectSourceProvider()
     discovery := new AnalyzerProjectTypeDiscovery(
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     return new AnalyzerTypeResolver(
         scopes,
@@ -85,10 +87,11 @@ func FactoryResolver(
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
 }
 
 func FactoryUnderTest(): AnalyzerFunctionTypeFactory {
@@ -108,15 +111,30 @@ func FactoryDeclaration(
     name: string,
     parameters: List<Parameter>,
     returnTypeName: string?,
-    modifiers: Modifiers): FunctionDeclaration {
+    modifiers: Modifiers
+): FunctionDeclaration {
     returnType: TypeReference? = null
     if returnTypeName != null {
         returnType = new SimpleTypeReference(returnTypeName)
     }
 
     return new FunctionDeclaration(
-        name, parameters, returnType, null, null, null, null, modifiers,
-        new List<AttributeNode>(), false, null, false, false, 1, 1)
+        name,
+        parameters,
+        returnType,
+        null,
+        null,
+        null,
+        null,
+        modifiers,
+        new List<AttributeNode>(),
+        false,
+        null,
+        false,
+        false,
+        1,
+        1
+    )
 }
 
 // `RequiredParameterCount` is a NULLABLE int; comparing one against a literal is off the columnar
@@ -217,7 +235,9 @@ test "a delegate outside the arity tables is read through Invoke" {
 test "an expression tree unwraps to its delegate, including through a by-ref shell" {
     funcIntInt := FactoryClosed2("System.Func`2, System.Private.CoreLib", typeof(int), typeof(int))
     expressionType := FactoryClosed1(
-        "System.Linq.Expressions.Expression`1, System.Linq.Expressions", funcIntInt)
+        "System.Linq.Expressions.Expression`1, System.Linq.Expressions",
+        funcIntInt
+    )
     unwrapped: Type = typeof(object)
     assert AnalyzerFunctionTypeFactory.TryGetExpressionTreeDelegateType(expressionType, out unwrapped)
     assert Object.Equals(unwrapped, funcIntInt)
@@ -347,7 +367,8 @@ test "a defaulted parameter lowers the required count and a params parameter is 
     defaultedType: TypeReference = new SimpleTypeReference("string")
     defaultValue: Expression = new StringLiteralExpression("x", 1, 1)
     parameters.Add(
-        new Parameter("second", defaultedType, defaultValue, false, ParameterModifier.None, null, 1, 1, false, null))
+        new Parameter("second", defaultedType, defaultValue, false, ParameterModifier.None, null, 1, 1, false, null)
+    )
     declaration := FactoryDeclaration("Defaulted", parameters, "bool", Modifiers.None)
     signature := factory.CreateFromDeclaration(declaration, null)
     assert FactoryRequiredCount(signature) == "1"
@@ -358,7 +379,8 @@ test "a defaulted parameter lowers the required count and a params parameter is 
     spreadParameters := new List<Parameter>()
     spreadParameters.Add(FactoryParameter("first", "int"))
     spreadParameters.Add(
-        new Parameter("rest", paramsType, null, false, ParameterModifier.Params, null, 1, 1, false, null))
+        new Parameter("rest", paramsType, null, false, ParameterModifier.Params, null, 1, 1, false, null)
+    )
     spread := FactoryDeclaration("Spread", spreadParameters, "bool", Modifiers.None)
     spreadSignature := factory.CreateFromDeclaration(spread, null)
     assert spreadSignature.HasParamsParameter
@@ -372,8 +394,22 @@ test "a function's own type parameters shadow the names its references use" {
     typeParameters := new List<TypeParameter>()
     typeParameters.Add(new TypeParameter("T"))
     declaration := new FunctionDeclaration(
-        "Identity", parameters, new SimpleTypeReference("T"), null, null, typeParameters, null,
-        Modifiers.None, new List<AttributeNode>(), false, null, false, false, 1, 1)
+        "Identity",
+        parameters,
+        new SimpleTypeReference("T"),
+        null,
+        null,
+        typeParameters,
+        null,
+        Modifiers.None,
+        new List<AttributeNode>(),
+        false,
+        null,
+        false,
+        false,
+        1,
+        1
+    )
 
     signature := factory.CreateFromDeclaration(declaration, null)
     types := signature.ParameterTypes
@@ -430,10 +466,37 @@ test "a declared member's signature reads its arrays and its required count off 
     noTypeParameters := new TypeParameter[](0)
     noConstraints := new GenericConstraint[](0)
     member := new DeclaredMemberInfo(
-        "Combine", "Owner", DeclaredMemberKind.Function, "function", null, false, false, false, true,
-        2, parameterNames, parameterTypes, parameterModifiers, 2, false, false,
-        boolReference, 0, noTypeParameters, noConstraints,
-        0, false, false, false, false, "", false, false, 7, 3)
+        "Combine",
+        "Owner",
+        DeclaredMemberKind.Function,
+        "function",
+        null,
+        false,
+        false,
+        false,
+        true,
+        2,
+        parameterNames,
+        parameterTypes,
+        parameterModifiers,
+        2,
+        false,
+        false,
+        boolReference,
+        0,
+        noTypeParameters,
+        noConstraints,
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        7,
+        3
+    )
 
     signature := factory.CreateFromDeclaredMember(member, null, null)
     assert signature.SourceName == "Combine"
@@ -497,28 +560,44 @@ test "the N# spelling answers through the declared alias and the conversion" {
     // A REFLECTED expected type is answered directly, without a conversion round trip.
     treeTypeInfo: TypeInfo = new ReflectionTypeInfo(treeOverFunc)
     assert AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
-        treeTypeInfo, context, conversion)
+        treeTypeInfo,
+        context,
+        conversion
+    )
 
     delegateTypeInfo: TypeInfo = new ReflectionTypeInfo(FactoryFuncOfIntInt())
     assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
-        delegateTypeInfo, context, conversion)
+        delegateTypeInfo,
+        context,
+        conversion
+    )
 
     // NO expected type is not a tree target, which is the guard the one call site depends on.
     assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(null, context, conversion)
 
     // A source type that converts to nothing CLR-shaped answers false rather than throwing.
     assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
-        BuiltInTypes.Int, context, conversion)
+        BuiltInTypes.Int,
+        context,
+        conversion
+    )
     assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
-        BuiltInTypes.Unknown, context, conversion)
+        BuiltInTypes.Unknown,
+        context,
+        conversion
+    )
     unknownName: TypeInfo = new SimpleTypeInfo("NotAType")
     assert !AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTargetTypeInfo(
-        unknownName, context, conversion)
+        unknownName,
+        context,
+        conversion
+    )
 }
 
 func FactoryExpressionDefinition(): Type {
     resolved := Type.GetType(
-        "System.Linq.Expressions.Expression`1, System.Linq.Expressions")
+        "System.Linq.Expressions.Expression`1, System.Linq.Expressions"
+    )
     if resolved == null {
         throw new InvalidOperationException("Expression`1 was unavailable.")
     }
@@ -571,7 +650,11 @@ test "the metadata twins of the unit task family are unit task-like and stay as 
 
         // The call-return rule leaves the declared type EXACTLY as written — no ValueTask wrap.
         resolvedTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f", true, false, metadataUnitTask)
+            "f",
+            true,
+            false,
+            metadataUnitTask
+        )
         assert Object.ReferenceEquals(resolvedTask, metadataUnitTask)
 
         metadataValueTask := core.GetType("System.Threading.Tasks.ValueTask")
@@ -579,7 +662,11 @@ test "the metadata twins of the unit task family are unit task-like and stay as 
         metadataUnitValueTask: TypeInfo = new ReflectionTypeInfo(metadataValueTask)
         assert AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(metadataUnitValueTask)
         resolvedValueTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f", true, false, metadataUnitValueTask)
+            "f",
+            true,
+            false,
+            metadataUnitValueTask
+        )
         assert Object.ReferenceEquals(resolvedValueTask, metadataUnitValueTask)
     } finally {
         scan.Dispose()
@@ -598,21 +685,29 @@ test "the metadata generic task family answers its awaited result and stays as w
         metadataTaskDefinition := core.GetType("System.Threading.Tasks.Task`1")
         assert metadataTaskDefinition != null
         metadataTaskOfInt: TypeInfo = new ReflectionTypeInfo(
-            FactoryClose(metadataTaskDefinition, metadataInt))
+            FactoryClose(metadataTaskDefinition, metadataInt)
+        )
         taskResult: TypeInfo = BuiltInTypes.Unknown
         assert AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(metadataTaskOfInt, out taskResult)
         assert FactoryTypeName(taskResult) == "int"
         resolvedTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f", true, false, metadataTaskOfInt)
+            "f",
+            true,
+            false,
+            metadataTaskOfInt
+        )
         assert Object.ReferenceEquals(resolvedTask, metadataTaskOfInt)
 
         metadataValueTaskDefinition := core.GetType("System.Threading.Tasks.ValueTask`1")
         assert metadataValueTaskDefinition != null
         metadataValueTaskOfInt: TypeInfo = new ReflectionTypeInfo(
-            FactoryClose(metadataValueTaskDefinition, metadataInt))
+            FactoryClose(metadataValueTaskDefinition, metadataInt)
+        )
         valueTaskResult: TypeInfo = BuiltInTypes.Unknown
         assert AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(
-            metadataValueTaskOfInt, out valueTaskResult)
+            metadataValueTaskOfInt,
+            out valueTaskResult
+        )
         assert FactoryTypeName(valueTaskResult) == "int"
     } finally {
         scan.Dispose()
@@ -661,7 +756,8 @@ test "a metadata generic non-task answers no task result" {
         metadataInt := core.GetType("System.Int32")
         assert metadataInt != null
         metadataSequenceOfInt: TypeInfo = new ReflectionTypeInfo(
-            FactoryClose(metadataSequenceDefinition, metadataInt))
+            FactoryClose(metadataSequenceDefinition, metadataInt)
+        )
         sequenceResult: TypeInfo = BuiltInTypes.Unknown
         assert !AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(metadataSequenceOfInt, out sequenceResult)
     } finally {
@@ -681,7 +777,11 @@ test "an async metadata non-task return still wraps into the ValueTask family" {
         assert metadataString != null
         metadataStringInfo: TypeInfo = new ReflectionTypeInfo(metadataString)
         wrapped := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f", true, false, metadataStringInfo)
+            "f",
+            true,
+            false,
+            metadataStringInfo
+        )
         wrappedGeneric := wrapped as GenericTypeInfo
         assert wrappedGeneric != null
         assert wrappedGeneric.Name == "ValueTask"
@@ -701,7 +801,11 @@ test "the ValueTask wrap carries the declared metadata type exactly as written" 
         assert metadataString != null
         metadataStringInfo: TypeInfo = new ReflectionTypeInfo(metadataString)
         wrapped := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f", true, false, metadataStringInfo)
+            "f",
+            true,
+            false,
+            metadataStringInfo
+        )
         wrappedGeneric := wrapped as GenericTypeInfo
         assert wrappedGeneric != null
         wrappedArgument: TypeInfo = wrappedGeneric.TypeArguments[0]

@@ -36,14 +36,11 @@ import System.IO
 // unvisited slots are constructed and walked below.
 
 // ── locating the two sources ──────────────────────────────────────────────────
-
 func AstGuardRepositoryRoot(): string {
     current: string? = AppContext.BaseDirectory
     while current != null {
         directory := current ?? ""
-        if File.Exists(Path.Combine(directory, "NSharpLang.sln"))
-            && Directory.Exists(Path.Combine(directory, "src"))
-            && Directory.Exists(Path.Combine(directory, "tests")) {
+        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) && Directory.Exists(Path.Combine(directory, "tests")) {
             return directory
         }
 
@@ -103,12 +100,7 @@ func IsExpressionCarryingType(declaredType: string): bool {
     // expression at all. A substring rule would make it a slot and this guard would demand an arm
     // for it.
     core := CoreTypeName(declaredType)
-    return core.EndsWith("Expression")
-        || core == "Argument"
-        || core == "TupleElement"
-        || core == "PropertyInitializer"
-        || core == "MatchCase"
-        || core == "InterpolatedStringPart"
+    return core.EndsWith("Expression") || core == "Argument" || core == "TupleElement" || core == "PropertyInitializer" || core == "MatchCase" || core == "InterpolatedStringPart"
 }
 
 func ReadExpressionCensus(): ExpressionNodeCensus {

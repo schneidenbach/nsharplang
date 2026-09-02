@@ -1,9 +1,9 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Globalization
 import System.Reflection
 import System.Reflection.Emit
-import System.Globalization
 
 class ColumnarConversionProbeMethods {
     static func AcceptObject(_value: object): string {
@@ -106,7 +106,9 @@ func ConversionCastclassPlan(targetType: Type): ColumnarCodePlan {
     targetIndex := plan.AddType(targetType)
     plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), text)
     plan.AppendTypeInstruction(
-        ColumnarCodePlanContract.Castclass(), targetIndex)
+        ColumnarCodePlanContract.Castclass(),
+        targetIndex
+    )
     plan.CompleteFragment(root, targetType)
     plan.CompleteV3(targetType)
     return plan
@@ -160,7 +162,9 @@ test "schema v3 conversion and box opcodes pin exact CLR identities and catalog 
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Box").IsSupported
 
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "OpCodes", "Castclass").IsSupported
+        "OpCodes",
+        "Castclass"
+    ).IsSupported
 }
 
 test "schema v3 admits conversion and box rows without widening v1 or v2" {
@@ -201,7 +205,9 @@ test "schema v3 admits conversion and box rows without widening v1 or v2" {
     }
     assert throws InvalidOperationException {
         v2.AppendTypeInstruction(
-            ColumnarCodePlanContract.Castclass(), typeIndex)
+            ColumnarCodePlanContract.Castclass(),
+            typeIndex
+        )
     }
 }
 
@@ -221,35 +227,47 @@ func ConversionFromArgumentPlan(sourceType: Type, opCodeValue: short, resultType
 test "schema v3 admits the explicit-cast conversion opcodes over castable scalars" {
     // Narrowing/reinterpreting conversions from an Int32-slot literal.
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromI4Plan(ColumnarCodePlanContract.ConvI1(), typeof(sbyte)))
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvI1(), typeof(sbyte))
+    )
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromI4Plan(ColumnarCodePlanContract.ConvI2(), typeof(short)))
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvI2(), typeof(short))
+    )
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU1(), typeof(byte)))
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU1(), typeof(byte))
+    )
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU2(), typeof(char)))
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU2(), typeof(char))
+    )
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU4(), typeof(uint)))
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU4(), typeof(uint))
+    )
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU8(), typeof(ulong)))
+        ConversionFromI4Plan(ColumnarCodePlanContract.ConvU8(), typeof(ulong))
+    )
 
     // The shared widening arms now admit the full castable-scalar source set explicit casts need:
     // UInt32 -> Int64, Int64 -> Int32, and Double -> Single all validate.
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromArgumentPlan(typeof(uint), ColumnarCodePlanContract.ConvI8(), typeof(long)))
+        ConversionFromArgumentPlan(typeof(uint), ColumnarCodePlanContract.ConvI8(), typeof(long))
+    )
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromArgumentPlan(typeof(long), ColumnarCodePlanContract.ConvI4(), typeof(int)))
+        ConversionFromArgumentPlan(typeof(long), ColumnarCodePlanContract.ConvI4(), typeof(int))
+    )
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromArgumentPlan(typeof(long), ColumnarCodePlanContract.ConvU4(), typeof(uint)))
+        ConversionFromArgumentPlan(typeof(long), ColumnarCodePlanContract.ConvU4(), typeof(uint))
+    )
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromArgumentPlan(typeof(uint), ColumnarCodePlanContract.ConvU8(), typeof(ulong)))
+        ConversionFromArgumentPlan(typeof(uint), ColumnarCodePlanContract.ConvU8(), typeof(ulong))
+    )
     ColumnarCodePlanExecutor.Validate(
-        ConversionFromArgumentPlan(typeof(double), ColumnarCodePlanContract.ConvR4(), typeof(float)))
+        ConversionFromArgumentPlan(typeof(double), ColumnarCodePlanContract.ConvR4(), typeof(float))
+    )
 
     // A managed reference is still outside every conversion arm's admitted set.
     assert throws InvalidOperationException {
         ColumnarCodePlanExecutor.Validate(
-            ConversionFromArgumentPlan(typeof(string), ColumnarCodePlanContract.ConvU2(), typeof(char)))
+            ConversionFromArgumentPlan(typeof(string), ColumnarCodePlanContract.ConvU2(), typeof(char))
+        )
     }
 }
 
@@ -300,7 +318,9 @@ test "schema v3 castclass plans validate and execute exact reference targets" {
     intType := badTarget.AddType(typeof(int))
     badTarget.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), text)
     badTarget.AppendTypeInstruction(
-        ColumnarCodePlanContract.Castclass(), intType)
+        ColumnarCodePlanContract.Castclass(),
+        intType
+    )
     badTarget.CompleteFragment(badTargetRoot, typeof(int))
     badTarget.CompleteV3(typeof(int))
     assert throws InvalidOperationException {
@@ -312,9 +332,12 @@ test "schema v3 castclass plans validate and execute exact reference targets" {
     badSourceRoot := badSource.BeginFragment(-1, 1214, 0)
     comparableIndex := badSource.AddType(comparableType)
     badSource.AppendInstructionWithoutOperand(
-        ColumnarCodePlanContract.LdcI4_1())
+        ColumnarCodePlanContract.LdcI4_1()
+    )
     badSource.AppendTypeInstruction(
-        ColumnarCodePlanContract.Castclass(), comparableIndex)
+        ColumnarCodePlanContract.Castclass(),
+        comparableIndex
+    )
     badSource.CompleteFragment(badSourceRoot, comparableType)
     badSource.CompleteV3(comparableType)
     assert throws InvalidOperationException {
@@ -329,9 +352,13 @@ test "schema v3 castclass plans validate and execute exact reference targets" {
     pointerArgument := pointerSource.AddArgument(0, pointerTypeIndex)
     comparablePointerIndex := pointerSource.AddType(comparableType)
     pointerSource.AppendArgumentInstruction(
-        ColumnarCodePlanContract.Ldarg(), pointerArgument)
+        ColumnarCodePlanContract.Ldarg(),
+        pointerArgument
+    )
     pointerSource.AppendTypeInstruction(
-        ColumnarCodePlanContract.Castclass(), comparablePointerIndex)
+        ColumnarCodePlanContract.Castclass(),
+        comparablePointerIndex
+    )
     pointerSource.CompleteFragment(pointerSourceRoot, comparableType)
     pointerSource.CompleteV3(comparableType)
     assert throws InvalidOperationException {

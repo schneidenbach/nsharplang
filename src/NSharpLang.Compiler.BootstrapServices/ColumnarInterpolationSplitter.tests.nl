@@ -6,7 +6,6 @@ import System.Collections.Generic
 // identifier-chain callee with TWO OR MORE balanced comma-separated arguments splits into a hole
 // for the parsed-expression hole plan; malformed argument lists stay rejected at the split so the
 // literal declines before any hole-plan work.
-
 test "the splitter accepts a two argument call hole between literal text segments" {
     parts := new List<ColumnarInterpolationPart>()
     assert ColumnarInterpolationSplitter.TrySplit("$\"  Input: [{String.Join(separator, numbers)}]\"", parts)

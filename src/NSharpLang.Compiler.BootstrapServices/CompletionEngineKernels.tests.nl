@@ -10,7 +10,6 @@ import NSharpLang.Compiler.Ast
 // group ORDER a caller sees, the rule that an empty group is omitted rather than emitted empty, the
 // rule that a name recorded as both a variable and a function is offered once as a function, and
 // the LLM-first default that keywords, primitive types and modifiers are off unless asked for.
-
 func CekUnit(declarations: List<Declaration>): CompilationUnit {
     return new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
 }

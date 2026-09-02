@@ -19,7 +19,6 @@ import NSharpLang.Compiler.Columnar
 //   * the THREE-WAY outcome of the type channel, whose ORDER is the semantics: the inaccessible case
 //     is decided BETWEEN the namespace sweep and the unique-exported fallback, and suppresses it;
 //   * export visibility, which is what makes a cross-namespace reference resolve or not.
-
 func ProjectSourceOf(namespaceName: string?, body: string): string {
     if namespaceName == null {
         return body
@@ -43,7 +42,8 @@ func ProjectProviderOf(paths: string[], sources: string[]): AnalyzerProjectSourc
 
 func ProjectDiscoveryOf(
     provider: AnalyzerProjectSourceProvider,
-    imports: string[]): AnalyzerProjectTypeDiscovery {
+    imports: string[]
+): AnalyzerProjectTypeDiscovery {
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
     provider.AddProjectUnitsTo(context)
@@ -58,7 +58,8 @@ func ProjectDiscoveryOf(
         provider,
         context,
         usingNamespaces,
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
 }
 
 func ProjectPathList(values: List<string>): string {
@@ -276,14 +277,21 @@ test "the disk fallback is used only when there is no snapshot, and skips nothin
 test "a type declared by another file in the SAME namespace resolves, exported or not" {
     provider := ProjectProviderOf(
         ["/p/other.nl"],
-        [ProjectSourceOf("Same", "public class Exported {\n}\n\nclass notExported {\n}\n")])
+        [ProjectSourceOf("Same", "public class Exported {\n}\n\nclass notExported {\n}\n")]
+    )
     discovery := ProjectDiscoveryOf(provider, [])
 
     resolved := BuiltInTypes.Unknown as TypeInfo
     declaration: SymbolDeclaration? = null
     inaccessible: string? = null
     assert discovery.ResolveVisibleProjectType(
-        "Exported", "Same", true, out resolved, out declaration, out inaccessible)
+        "Exported",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert inaccessible == null
     assert declaration != null
     assert declaration.Name == "Exported"
@@ -292,14 +300,21 @@ test "a type declared by another file in the SAME namespace resolves, exported o
     // Inside its OWN namespace a non-exported declaration is still visible, and finding it there is
     // not an accessibility failure.
     assert discovery.ResolveVisibleProjectType(
-        "notExported", "Same", true, out resolved, out declaration, out inaccessible)
+        "notExported",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert inaccessible == null
 }
 
 test "across namespaces only an EXPORTED declaration resolves, and the rest is the inaccessible case" {
     provider := ProjectProviderOf(
         ["/p/other.nl"],
-        [ProjectSourceOf("Other", "public class Exported {\n}\n\nclass notExported {\n}\n")])
+        [ProjectSourceOf("Other", "public class Exported {\n}\n\nclass notExported {\n}\n")]
+    )
     discovery := ProjectDiscoveryOf(provider, ["Other"])
 
     resolved := BuiltInTypes.Unknown as TypeInfo
@@ -307,13 +322,25 @@ test "across namespaces only an EXPORTED declaration resolves, and the rest is t
     inaccessible: string? = null
 
     assert discovery.ResolveVisibleProjectType(
-        "Exported", "Mine", true, out resolved, out declaration, out inaccessible)
+        "Exported",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert inaccessible == null
 
     // The non-exported one is not resolved AND is reported as inaccessible, with the file that
     // declares it — which is what the diagnostic names.
     assert !discovery.ResolveVisibleProjectType(
-        "notExported", "Mine", true, out resolved, out declaration, out inaccessible)
+        "notExported",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert inaccessible != null
     assert Path.GetFileName(inaccessible) == "other.nl"
     assert declaration == null
@@ -325,7 +352,8 @@ test "the inaccessible probe is skipped without a source position, and it SUPPRE
     // unique-exported fallback, which would otherwise have nothing to offer either, is not reached.
     provider := ProjectProviderOf(
         ["/p/other.nl"],
-        [ProjectSourceOf("Other", "class hidden {\n}\n")])
+        [ProjectSourceOf("Other", "class hidden {\n}\n")]
+    )
     discovery := ProjectDiscoveryOf(provider, ["Other"])
 
     resolved := BuiltInTypes.Unknown as TypeInfo
@@ -333,13 +361,25 @@ test "the inaccessible probe is skipped without a source position, and it SUPPRE
     inaccessible: string? = null
 
     assert !discovery.ResolveVisibleProjectType(
-        "hidden", "Mine", true, out resolved, out declaration, out inaccessible)
+        "hidden",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert inaccessible != null
 
     // Without a position there is nothing to report, so the probe is not even run: the SAME inputs
     // answer "no such type" rather than "inaccessible".
     assert !discovery.ResolveVisibleProjectType(
-        "hidden", "Mine", false, out resolved, out declaration, out inaccessible)
+        "hidden",
+        "Mine",
+        false,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert inaccessible == null
 }
 
@@ -348,21 +388,34 @@ test "the unique-exported fallback resolves a type no visible namespace offers" 
     // namespace sweep misses it and the project-wide unique-exported fallback catches it.
     provider := ProjectProviderOf(
         ["/p/far.nl"],
-        [ProjectSourceOf("Far", "public class Far {\n}\n")])
+        [ProjectSourceOf("Far", "public class Far {\n}\n")]
+    )
     discovery := ProjectDiscoveryOf(provider, [])
 
     resolved := BuiltInTypes.Unknown as TypeInfo
     declaration: SymbolDeclaration? = null
     inaccessible: string? = null
     assert discovery.ResolveVisibleProjectType(
-        "Far", "Mine", true, out resolved, out declaration, out inaccessible)
+        "Far",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert inaccessible == null
     assert declaration != null
     assert Path.GetFileName(declaration.File) == "far.nl"
 
     // A name nothing declares is simply absent — not inaccessible.
     assert !discovery.ResolveVisibleProjectType(
-        "Missing", "Mine", true, out resolved, out declaration, out inaccessible)
+        "Missing",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert inaccessible == null
     assert declaration == null
 }
@@ -373,12 +426,18 @@ test "the enumeration order IS the answer: the first file declaring a function n
     // root project. So the order the files are enumerated in decides the answer.
     forward := ProjectProviderOf(
         ["/p/aaa.nl", "/p/zzz.nl"],
-        [ProjectSourceOf("Same", "public func Twice() {\n}\n"),
-         ProjectSourceOf("Same", "public func Twice() {\n}\n")])
+        [
+            ProjectSourceOf("Same", "public func Twice() {\n}\n"),
+            ProjectSourceOf("Same", "public func Twice() {\n}\n")
+        ]
+    )
     reversed := ProjectProviderOf(
         ["/p/zzz.nl", "/p/aaa.nl"],
-        [ProjectSourceOf("Same", "public func Twice() {\n}\n"),
-         ProjectSourceOf("Same", "public func Twice() {\n}\n")])
+        [
+            ProjectSourceOf("Same", "public func Twice() {\n}\n"),
+            ProjectSourceOf("Same", "public func Twice() {\n}\n")
+        ]
+    )
 
     declarationFile: string? = null
     functionDeclaration: FunctionDeclaration? = null
@@ -386,34 +445,56 @@ test "the enumeration order IS the answer: the first file declaring a function n
 
     forwardDiscovery := ProjectDiscoveryOf(forward, [])
     assert forwardDiscovery.TryResolveVisibleProjectFunction(
-        "Twice", "Same", out declarationFile, out functionDeclaration, out declaration)
+        "Twice",
+        "Same",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
     assert Path.GetFileName(declarationFile) == "aaa.nl"
 
     // The SAME two files in the opposite order give a DIFFERENT answer. Insertion order, not any
     // sort of the paths.
     reversedDiscovery := ProjectDiscoveryOf(reversed, [])
     assert reversedDiscovery.TryResolveVisibleProjectFunction(
-        "Twice", "Same", out declarationFile, out functionDeclaration, out declaration)
+        "Twice",
+        "Same",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
     assert Path.GetFileName(declarationFile) == "zzz.nl"
 }
 
 test "the inaccessible probe names the FIRST file that hides the name" {
     forward := ProjectProviderOf(
         ["/p/aaa.nl", "/p/zzz.nl"],
-        [ProjectSourceOf("Other", "func hidden() {\n}\n"),
-         ProjectSourceOf("Other", "func hidden() {\n}\n")])
+        [
+            ProjectSourceOf("Other", "func hidden() {\n}\n"),
+            ProjectSourceOf("Other", "func hidden() {\n}\n")
+        ]
+    )
     reversed := ProjectProviderOf(
         ["/p/zzz.nl", "/p/aaa.nl"],
-        [ProjectSourceOf("Other", "func hidden() {\n}\n"),
-         ProjectSourceOf("Other", "func hidden() {\n}\n")])
+        [
+            ProjectSourceOf("Other", "func hidden() {\n}\n"),
+            ProjectSourceOf("Other", "func hidden() {\n}\n")
+        ]
+    )
 
     inaccessible: string? = null
     // The file this names goes into the diagnostic, so the order is user-visible.
     assert ProjectDiscoveryOf(forward, ["Other"]).TryFindInaccessibleVisibleFunction(
-        "hidden", "Mine", out inaccessible)
+        "hidden",
+        "Mine",
+        out inaccessible
+    )
     assert Path.GetFileName(inaccessible) == "aaa.nl"
     assert ProjectDiscoveryOf(reversed, ["Other"]).TryFindInaccessibleVisibleFunction(
-        "hidden", "Mine", out inaccessible)
+        "hidden",
+        "Mine",
+        out inaccessible
+    )
     assert Path.GetFileName(inaccessible) == "zzz.nl"
 }
 
@@ -423,32 +504,51 @@ test "two files declaring the SAME type name in one namespace is ambiguous, not 
     // makes the enumeration order irrelevant for THIS channel and decisive for the other two.
     provider := ProjectProviderOf(
         ["/p/aaa.nl", "/p/zzz.nl"],
-        [ProjectSourceOf("Same", "public class Twice {\n}\n"),
-         ProjectSourceOf("Same", "public class Twice {\n}\n")])
+        [
+            ProjectSourceOf("Same", "public class Twice {\n}\n"),
+            ProjectSourceOf("Same", "public class Twice {\n}\n")
+        ]
+    )
     discovery := ProjectDiscoveryOf(provider, [])
 
     resolved := BuiltInTypes.Unknown as TypeInfo
     declaration: SymbolDeclaration? = null
     inaccessible: string? = null
     assert !discovery.ResolveVisibleProjectType(
-        "Twice", "Same", true, out resolved, out declaration, out inaccessible)
+        "Twice",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert declaration == null
     assert inaccessible == null
 
     // One declaration of the name resolves; the duplicate is what refuses.
     single := ProjectProviderOf(
         ["/p/aaa.nl"],
-        [ProjectSourceOf("Same", "public class Twice {\n}\n")])
+        [ProjectSourceOf("Same", "public class Twice {\n}\n")]
+    )
     assert ProjectDiscoveryOf(single, []).ResolveVisibleProjectType(
-        "Twice", "Same", true, out resolved, out declaration, out inaccessible)
+        "Twice",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert Path.GetFileName(declaration.File) == "aaa.nl"
 }
 
 test "the visible-namespace order decides between two namespaces that both declare the name" {
     provider := ProjectProviderOf(
         ["/p/mine.nl", "/p/imported.nl"],
-        [ProjectSourceOf("Mine", "public class Both {\n}\n"),
-         ProjectSourceOf("Imported", "public class Both {\n}\n")])
+        [
+            ProjectSourceOf("Mine", "public class Both {\n}\n"),
+            ProjectSourceOf("Imported", "public class Both {\n}\n")
+        ]
+    )
     discovery := ProjectDiscoveryOf(provider, ["Imported"])
 
     resolved := BuiltInTypes.Unknown as TypeInfo
@@ -457,19 +557,32 @@ test "the visible-namespace order decides between two namespaces that both decla
 
     // The file's OWN namespace is the first candidate, ahead of every import.
     assert discovery.ResolveVisibleProjectType(
-        "Both", "Mine", true, out resolved, out declaration, out inaccessible)
+        "Both",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert Path.GetFileName(declaration.File) == "mine.nl"
 
     // From a namespace that declares nothing, the import answers.
     assert discovery.ResolveVisibleProjectType(
-        "Both", "Elsewhere", true, out resolved, out declaration, out inaccessible)
+        "Both",
+        "Elsewhere",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert Path.GetFileName(declaration.File) == "imported.nl"
 }
 
 test "one namespace at a time: the current namespace does not require export and others do" {
     provider := ProjectProviderOf(
         ["/p/other.nl"],
-        [ProjectSourceOf("Other", "public class Exported {\n}\n\nclass notExported {\n}\n")])
+        [ProjectSourceOf("Other", "public class Exported {\n}\n\nclass notExported {\n}\n")]
+    )
     discovery := ProjectDiscoveryOf(provider, [])
 
     resolved := BuiltInTypes.Unknown as TypeInfo
@@ -477,18 +590,43 @@ test "one namespace at a time: the current namespace does not require export and
 
     // Asked AS the declaring namespace, export is not required.
     assert discovery.TryResolveProjectTypeInNamespace(
-        "notExported", "Other", "Other", out resolved, out declaration)
+        "notExported",
+        "Other",
+        "Other",
+        out resolved,
+        out declaration
+    )
     // Asked from anywhere else, it is.
     assert !discovery.TryResolveProjectTypeInNamespace(
-        "notExported", "Other", "Mine", out resolved, out declaration)
+        "notExported",
+        "Other",
+        "Mine",
+        out resolved,
+        out declaration
+    )
     assert discovery.TryResolveProjectTypeInNamespace(
-        "Exported", "Other", "Mine", out resolved, out declaration)
+        "Exported",
+        "Other",
+        "Mine",
+        out resolved,
+        out declaration
+    )
     // A namespace no file declares offers nothing, and the global namespace is a real candidate
     // rather than an absence.
     assert !discovery.TryResolveProjectTypeInNamespace(
-        "Exported", "Nowhere", "Mine", out resolved, out declaration)
+        "Exported",
+        "Nowhere",
+        "Mine",
+        out resolved,
+        out declaration
+    )
     assert !discovery.TryResolveProjectTypeInNamespace(
-        "Exported", null, "Mine", out resolved, out declaration)
+        "Exported",
+        null,
+        "Mine",
+        out resolved,
+        out declaration
+    )
 }
 
 test "a resolved declaration points at the NAME's column, not the declaration's own column" {
@@ -496,14 +634,21 @@ test "a resolved declaration points at the NAME's column, not the declaration's 
     // go-to-definition span has to land on the identifier.
     provider := ProjectProviderOf(
         ["/p/other.nl"],
-        [ProjectSourceOf("Same", "public class Located {\n}\n")])
+        [ProjectSourceOf("Same", "public class Located {\n}\n")]
+    )
     discovery := ProjectDiscoveryOf(provider, [])
 
     resolved := BuiltInTypes.Unknown as TypeInfo
     declaration: SymbolDeclaration? = null
     inaccessible: string? = null
     assert discovery.ResolveVisibleProjectType(
-        "Located", "Same", true, out resolved, out declaration, out inaccessible)
+        "Located",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert declaration.Line == 3
     assert declaration.Column == 14
 }
@@ -559,7 +704,8 @@ test "every declared family is a top-level TYPE declaration and a function is no
 test "an exported top-level function is visible project-wide and a camelCase one is not" {
     provider := ProjectProviderOf(
         ["/p/funcs.nl"],
-        [ProjectSourceOf("Other", "public func Exported() {\n}\n\nfunc notExported() {\n}\n")])
+        [ProjectSourceOf("Other", "public func Exported() {\n}\n\nfunc notExported() {\n}\n")]
+    )
     discovery := ProjectDiscoveryOf(provider, ["Other"])
 
     declarationFile: string? = null
@@ -567,7 +713,12 @@ test "an exported top-level function is visible project-wide and a camelCase one
     declaration: SymbolDeclaration? = null
 
     assert discovery.TryResolveVisibleProjectFunction(
-        "Exported", "Mine", out declarationFile, out functionDeclaration, out declaration)
+        "Exported",
+        "Mine",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
     assert Path.GetFileName(declarationFile) == "funcs.nl"
     assert functionDeclaration != null
     assert functionDeclaration.Name == "Exported"
@@ -577,7 +728,12 @@ test "an exported top-level function is visible project-wide and a camelCase one
     // Non-exported stays file-private across namespaces, and instead shows up as the inaccessible
     // case for the identifier path.
     assert !discovery.TryResolveVisibleProjectFunction(
-        "notExported", "Mine", out declarationFile, out functionDeclaration, out declaration)
+        "notExported",
+        "Mine",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
     assert declarationFile == null
     assert functionDeclaration == null
 
@@ -595,7 +751,8 @@ test "an exported top-level function is visible project-wide and a camelCase one
 test "the inaccessible probe does not confuse a type with a function of the same name" {
     provider := ProjectProviderOf(
         ["/p/mixed.nl"],
-        [ProjectSourceOf("Other", "class shared {\n}\n\nfunc alsoShared() {\n}\n")])
+        [ProjectSourceOf("Other", "class shared {\n}\n\nfunc alsoShared() {\n}\n")]
+    )
     discovery := ProjectDiscoveryOf(provider, ["Other"])
 
     inaccessible: string? = null
@@ -610,18 +767,33 @@ test "the inaccessible probe does not confuse a type with a function of the same
     declaration: SymbolDeclaration? = null
     typeInaccessible: string? = null
     assert !discovery.ResolveVisibleProjectType(
-        "shared", "Mine", true, out resolved, out declaration, out typeInaccessible)
+        "shared",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out typeInaccessible
+    )
     assert typeInaccessible != null
     assert !discovery.ResolveVisibleProjectType(
-        "alsoShared", "Mine", true, out resolved, out declaration, out typeInaccessible)
+        "alsoShared",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out typeInaccessible
+    )
     assert typeInaccessible == null
 }
 
 test "a file that does not parse is skipped by every walk rather than failing it" {
     provider := ProjectProviderOf(
         ["/p/broken.nl", "/p/good.nl"],
-        ["namespace Same\n\npublic class ((( {\n",
-         ProjectSourceOf("Same", "public class Good {\n}\n")])
+        [
+            "namespace Same\n\npublic class ((( {\n",
+            ProjectSourceOf("Same", "public class Good {\n}\n")
+        ]
+    )
     discovery := ProjectDiscoveryOf(provider, [])
 
     resolved := BuiltInTypes.Unknown as TypeInfo
@@ -631,21 +803,34 @@ test "a file that does not parse is skipped by every walk rather than failing it
     // The broken file is enumerated first and contributes nothing; the good one still answers.
     assert provider.SourceFilePaths().Count == 2
     assert discovery.ResolveVisibleProjectType(
-        "Good", "Same", true, out resolved, out declaration, out inaccessible)
+        "Good",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert Path.GetFileName(declaration.File) == "good.nl"
 }
 
 test "the declaring file of every resolved type is recorded for the project index" {
     provider := ProjectProviderOf(
         ["/p/one.nl", "/p/two.nl"],
-        [ProjectSourceOf("Same", "public class First {\n}\n"),
-         ProjectSourceOf("Far", "public class Second {\n}\n")])
+        [
+            ProjectSourceOf("Same", "public class First {\n}\n"),
+            ProjectSourceOf("Far", "public class Second {\n}\n")
+        ]
+    )
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
     provider.AddProjectUnitsTo(context)
     declarationFiles := new Dictionary<string, string>(StringComparer.Ordinal)
     discovery := new AnalyzerProjectTypeDiscovery(
-        provider, context, new List<string>(), declarationFiles)
+        provider,
+        context,
+        new List<string>(),
+        declarationFiles
+    )
 
     resolved := BuiltInTypes.Unknown as TypeInfo
     declaration: SymbolDeclaration? = null
@@ -653,10 +838,22 @@ test "the declaring file of every resolved type is recorded for the project inde
 
     // The namespace-sweep hit records...
     assert discovery.ResolveVisibleProjectType(
-        "First", "Same", true, out resolved, out declaration, out inaccessible)
+        "First",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     // ...and so does the unique-exported fallback.
     assert discovery.ResolveVisibleProjectType(
-        "Second", "Same", true, out resolved, out declaration, out inaccessible)
+        "Second",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
 
     assert declarationFiles.Count == 2
     assert Path.GetFileName(declarationFiles["First"]) == "one.nl"
@@ -664,15 +861,24 @@ test "the declaring file of every resolved type is recorded for the project inde
 
     // A miss records nothing.
     assert !discovery.ResolveVisibleProjectType(
-        "Absent", "Same", true, out resolved, out declaration, out inaccessible)
+        "Absent",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
     assert declarationFiles.Count == 2
 }
 
 test "the declaration context receives the project units in enumeration order" {
     provider := ProjectProviderOf(
         ["/p/second.nl", "/p/first.nl"],
-        [ProjectSourceOf("Same", "public class FromSecond {\n}\n"),
-         ProjectSourceOf("Same", "public class FromFirst {\n}\n")])
+        [
+            ProjectSourceOf("Same", "public class FromSecond {\n}\n"),
+            ProjectSourceOf("Same", "public class FromFirst {\n}\n")
+        ]
+    )
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
     provider.AddProjectUnitsTo(context)

@@ -52,7 +52,6 @@ import NSharpLang.Compiler.Ast
 //
 // THREE THINGS THE SWEEP MEASURED THAT THE DELETED ASSERTIONS COULD NOT SEE ARE RECORDED PER
 // CONTRACT BELOW, AND ONE OF THEM CONTRADICTS A DELETED TEST'S OWN NAME.
-
 func AnfDescribe(node: object?): string {
     if node != null {
         return AnfDescribeNode(node)
@@ -134,7 +133,6 @@ func AnfSweep(source: string, line: int, lastColumn: int): string {
     AnfAppendRun(builder, runStart, lastColumn, runValue)
     return builder.ToString()
 }
-
 
 // ---- contracts ----
 

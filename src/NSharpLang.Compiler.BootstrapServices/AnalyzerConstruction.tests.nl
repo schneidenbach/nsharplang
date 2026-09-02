@@ -25,7 +25,6 @@ import NSharpLang.Compiler.Ast
 //     BEFORE its member is looked up and GATES that lookup.
 //   * THE STAGE/PHASE SPLIT, pinned by the case that motivated it: a sized array reports its
 //     argument conflict exactly ONCE.
-
 class ConstructionHarness {
     Arm: AnalyzerConstruction
     Errors: List<CompilerError>
@@ -40,7 +39,8 @@ class ConstructionHarness {
         ambient: AnalyzerAmbientContext,
         scopes: AnalyzerScopeStack,
         context: AnalyzerDeclarationContext,
-        sink: AnalyzerDiagnosticSink) {
+        sink: AnalyzerDiagnosticSink
+    ) {
         Arm = arm
         Errors = errors
         Ambient = ambient
@@ -62,8 +62,8 @@ func ConstructionArm(): ConstructionHarness {
     sink := new AnalyzerDiagnosticSink(errors, provider)
     spans := new AnalyzerDiagnosticSpans(sink)
     usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
-    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal)
-    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
     namespaces := new List<string>()
     assemblies := new List<Assembly>()
     discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)
@@ -311,7 +311,8 @@ func ConstructionFieldMember(owner: string, name: string, fieldType: TypeReferen
         false,
         false,
         1,
-        1)
+        1
+    )
 }
 
 func ConstructionPlainClass(name: string): ClassTypeInfo {
@@ -912,4 +913,3 @@ test "the SAME shape refusal under `with` names `with` rather than the object in
 
     assert harness.Errors[0].Message == "SoA tables cannot use `with` collection initializer entries"
 }
-

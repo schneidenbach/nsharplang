@@ -14,7 +14,6 @@ import NSharpLang.Compiler
 // rows are in `tests/native/cli-command-contracts` against the spawned binary.
 
 // ── the file arguments ────────────────────────────────────────────────────────
-
 test "the file selector answers nothing for an empty command line" {
     assert LintCommandKernels.GetFileArgs(new string[](0)).Length == 0
 }
@@ -115,7 +114,6 @@ test "the lint command's sentences singularise on one file and pluralise on more
     assert LintCommandKernels.GetFailedMessage("backend exploded") == "Lint failed: backend exploded"
 }
 
-
 // ══ 021/6: THE DIAGNOSTIC SOURCE TOKENS, THE SEVERITY WORD AND THE COMMAND NAME ════════════════
 //
 // `LintCommand.cs` built three `DiagnosticResult`s by hand with a literal CODE and a literal
@@ -146,7 +144,6 @@ test "the lint command names itself in its JSON error envelope" {
 
 test "parse error messages join with a comma and a space" {
     assert LintCommandKernels.JoinParseErrorMessages(["expected expression"]) == "expected expression"
-    assert LintCommandKernels.JoinParseErrorMessages(["expected expression", "unexpected }"])
-        == "expected expression, unexpected }"
+    assert LintCommandKernels.JoinParseErrorMessages(["expected expression", "unexpected }"]) == "expected expression, unexpected }"
     assert LintCommandKernels.JoinParseErrorMessages(new string[](0)) == ""
 }

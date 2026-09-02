@@ -43,7 +43,6 @@ import NSharpLang.Compiler.Ast
 // (9) A FIELD FINDING IS A TYPE FINDING: it names the TYPE as its function and its call path, has no
 // `[hot]` label arm, and takes no preferred severity — so it is an error in a default-profile project
 // where a function finding would have been downgraded.
-
 func SspConfig(profile: string, mode: string): ProjectConfig {
     config := ProjectFileParser.CreateDefault("surface-policy-contract")
     language := config.Language

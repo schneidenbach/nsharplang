@@ -21,7 +21,6 @@ import System.IO
 // naming a file that is not there, a `dll:` that is not there and a `project:` that is not there
 // are four different `FileNotFoundException`s carrying four different sentences — the ones a
 // developer sees when a project is half-checked-out — and no C# assertion ever produced one.
-
 func PfpTempDirectory(tag: string): string {
     directory := Path.Combine(Path.GetTempPath(), "nsharp-project-file-" + tag + "-" + Guid.NewGuid().ToString())
     Directory.CreateDirectory(directory)

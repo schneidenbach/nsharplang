@@ -27,8 +27,6 @@ import System.Text
 // it was told to compile. A project that fails to compile is NOT a harness failure: its row is
 // recorded with `ok=false` and its timing kept, because the time the CLI took to reject a project
 // is still compile time.
-
-
 class BenchOptions {
     Runs: int
     OutputDirectory: string
@@ -50,29 +48,7 @@ class BenchOptions {
 }
 
 func BenchHelpText(): string {
-    return "N# compile-time benchmark\n"
-        + "\n"
-        + "Usage: NSharpLang.CompileTimeBench [options]\n"
-        + "\n"
-        + "Measures how long `nlc build` and `nlc check` take over the example, test and template\n"
-        + "corpus and over the large-project case, src/NSharpLang.Compiler.BootstrapServices.\n"
-        + "\n"
-        + "Options:\n"
-        + "  --runs <n>              Measured runs per project per command (default 5)\n"
-        + "  --out <dir>             Output directory (default artifacts/compile-time/<local date>)\n"
-        + "  --cli <path>            Cli.dll under test (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n"
-        + "  --scope <scope>         corpus, bootstrap or all (default all)\n"
-        + "  --only <substring>      Only projects whose repository-relative path contains <substring>\n"
-        + "  --help, -h              Show this help text\n"
-        + "\n"
-        + "Outputs, written to the output directory:\n"
-        + "  runs.csv                One row per individual run\n"
-        + "  compile-time.csv        One row per project and command, with the median\n"
-        + "  compile-time.md         The readable report, aggregate table included\n"
-        + "\n"
-        + "Exit codes:\n"
-        + "  0  The sweep completed and the outputs were written\n"
-        + "  1  A harness failure (missing CLI, unwritable output, or a build that modified the tree)"
+    return "N# compile-time benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench [options]\n" + "\n" + "Measures how long `nlc build` and `nlc check` take over the example, test and template\n" + "corpus and over the large-project case, src/NSharpLang.Compiler.BootstrapServices.\n" + "\n" + "Options:\n" + "  --runs <n>              Measured runs per project per command (default 5)\n" + "  --out <dir>             Output directory (default artifacts/compile-time/<local date>)\n" + "  --cli <path>            Cli.dll under test (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --scope <scope>         corpus, bootstrap or all (default all)\n" + "  --only <substring>      Only projects whose repository-relative path contains <substring>\n" + "  --help, -h              Show this help text\n" + "\n" + "Outputs, written to the output directory:\n" + "  runs.csv                One row per individual run\n" + "  compile-time.csv        One row per project and command, with the median\n" + "  compile-time.md         The readable report, aggregate table included\n" + "\n" + "Exit codes:\n" + "  0  The sweep completed and the outputs were written\n" + "  1  A harness failure (missing CLI, unwritable output, or a build that modified the tree)"
 }
 
 // Local date as `YYYY-MM-DD`, assembled from the parts rather than a format string so the report
@@ -93,7 +69,8 @@ func BenchPad2(value: int): string {
 func BenchDefaultOutputDirectory(repositoryRoot: string): string {
     return Path.Combine(
         Path.Combine(Path.Combine(repositoryRoot, "artifacts"), "compile-time"),
-        BenchLocalDateStamp())
+        BenchLocalDateStamp()
+    )
 }
 
 func BenchParseOptions(args: string[], repositoryRoot: string): BenchOptions {
@@ -102,7 +79,8 @@ func BenchParseOptions(args: string[], repositoryRoot: string): BenchOptions {
         BenchDefaultOutputDirectory(repositoryRoot),
         BenchDefaultCliDll(repositoryRoot),
         "all",
-        "")
+        ""
+    )
 
     i := 1
     while i < args.Length {
@@ -219,8 +197,9 @@ func main(): void {
     }
 
     if !File.Exists(options.CliDll) {
-        BenchFailHarness("The CLI under test was not found at " + options.CliDll
-            + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug")
+        BenchFailHarness(
+            "The CLI under test was not found at " + options.CliDll + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug"
+        )
     }
 
     try {
@@ -242,8 +221,7 @@ func main(): void {
     results := new List<BenchProjectResult>()
     treeViolations := new List<string>()
 
-    print "compile-time benchmark: " + BenchIntText(projects.Count) + " project(s) x 2 commands x "
-        + BenchIntText(options.Runs) + " run(s), writing to " + options.OutputDirectory
+    print "compile-time benchmark: " + BenchIntText(projects.Count) + " project(s) x 2 commands x " + BenchIntText(options.Runs) + " run(s), writing to " + options.OutputDirectory
 
     i := 0
     while i < projects.Count {
@@ -258,8 +236,7 @@ func main(): void {
         results.Add(checkResult)
         BenchRecordTreeViolation(checkResult, treeViolations)
 
-        print "      " + BenchProgressText("build", buildResult) + ", " + BenchProgressText("check", checkResult)
-            + ", files=" + BenchIntText(buildResult.Files) + ", lines=" + BenchLongText(buildResult.Lines)
+        print "      " + BenchProgressText("build", buildResult) + ", " + BenchProgressText("check", checkResult) + ", files=" + BenchIntText(buildResult.Files) + ", lines=" + BenchLongText(buildResult.Lines)
 
         i = i + 1
     }
@@ -280,8 +257,9 @@ func main(): void {
             j = j + 1
         }
 
-        BenchFailHarness("The outputs were still written to " + options.OutputDirectory
-            + "; the tree violation is recorded in compile-time.md.")
+        BenchFailHarness(
+            "The outputs were still written to " + options.OutputDirectory + "; the tree violation is recorded in compile-time.md."
+        )
     }
 
     print "compile-time benchmark: wrote runs.csv, compile-time.csv and compile-time.md to " + options.OutputDirectory
@@ -359,7 +337,8 @@ func BenchRenderMarkdown(
     options: BenchOptions,
     environment: BenchEnvironmentFacts,
     results: List<BenchProjectResult>,
-    treeViolations: List<string>): string {
+    treeViolations: List<string>
+): string {
     corpusProjects := BenchCollectCorpusProjects(repositoryRoot)
     corpus := BenchCorpusResults(results)
     bootstrap := BenchBootstrapResults(results)
@@ -381,9 +360,10 @@ func BenchRenderMarkdown(
     BenchAppendLine(builder, "| median rule | the middle value of the sorted runs; for an EVEN run count, the LOWER middle value |")
     BenchAppendLine(builder, "| scope | " + options.Scope + " |")
     BenchAppendLine(builder, "| only | " + BenchOnlyText(options.Only) + " |")
-    BenchAppendLine(builder, "| corpus size | " + BenchIntText(corpusProjects.Count)
-        + " projects with a `project.yml` under `examples/`, `tests/` and `templates/`, of which "
-        + BenchIntText(BenchProjectsWithSources(repositoryRoot, corpusProjects)) + " have non-test sources |")
+    BenchAppendLine(
+        builder,
+        "| corpus size | " + BenchIntText(corpusProjects.Count) + " projects with a `project.yml` under `examples/`, `tests/` and `templates/`, of which " + BenchIntText(BenchProjectsWithSources(repositoryRoot, corpusProjects)) + " have non-test sources |"
+    )
     BenchAppendLine(builder, "")
 
     BenchAppendLine(builder, "## How these numbers are produced")
@@ -516,7 +496,8 @@ func BenchRenderProjectTable(builder: StringBuilder, results: List<BenchProjectR
             builder,
             projects[i],
             BenchFindResult(results, projects[i], "build"),
-            BenchFindResult(results, projects[i], "check"))
+            BenchFindResult(results, projects[i], "check")
+        )
         i = i + 1
     }
 }
@@ -580,8 +561,10 @@ func BenchRenderFailureSection(builder: StringBuilder, results: List<BenchProjec
             BenchAppendLine(builder, "**`" + result.Project + "`** (`" + result.Command + "`) — " + result.FailureDetail)
             BenchAppendLine(builder, "")
             if result.DiagnosticCensus != "" {
-                BenchAppendLine(builder, "Diagnostic census from the `nlc check --json` envelope: "
-                    + result.DiagnosticCensus)
+                BenchAppendLine(
+                    builder,
+                    "Diagnostic census from the `nlc check --json` envelope: " + result.DiagnosticCensus
+                )
                 BenchAppendLine(builder, "")
             }
 
@@ -610,9 +593,10 @@ func BenchRenderFileCountSection(builder: StringBuilder, results: List<BenchProj
     while i < results.Count {
         result := results[i]
         if result.Command == "check" && result.CheckedFiles >= 0 && result.CheckedFiles != result.Files {
-            BenchAppendLine(builder, "- `" + result.Project + "`: this harness selected "
-                + BenchIntText(result.Files) + " file(s), `nlc check --json` reported `checkedFiles` "
-                + BenchIntText(result.CheckedFiles) + ".")
+            BenchAppendLine(
+                builder,
+                "- `" + result.Project + "`: this harness selected " + BenchIntText(result.Files) + " file(s), `nlc check --json` reported `checkedFiles` " + BenchIntText(result.CheckedFiles) + "."
+            )
             count = count + 1
         }
 

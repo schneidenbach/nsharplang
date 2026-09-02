@@ -19,7 +19,6 @@ import NSharpLang.Compiler.Ast
 // against the RUNTIME `System.Exception`, so a type loaded into the analyzer's own load context
 // answers NO and falls through to the arms that do not depend on runtime identity. That is what
 // `Analyzer.cs` did, character for character.
-
 class ThrowHarness {
     Owner: AnalyzerThrowability
     Scopes: AnalyzerScopeStack
@@ -28,7 +27,8 @@ class ThrowHarness {
     constructor(
         owner: AnalyzerThrowability,
         scopes: AnalyzerScopeStack,
-        clr: AnalyzerClrTypeConversion) {
+        clr: AnalyzerClrTypeConversion
+    ) {
         Owner = owner
         Scopes = scopes
         Clr = clr
@@ -48,7 +48,8 @@ func ThrowHarnessNew(): ThrowHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -59,15 +60,17 @@ func ThrowHarnessNew(): ThrowHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         model,
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     return new ThrowHarness(
         new AnalyzerThrowability(scopes, context, substitution),
         scopes,
-        new AnalyzerClrTypeConversion(context, null))
+        new AnalyzerClrTypeConversion(context, null)
+    )
 }
 
 func ThrowAsk(harness: ThrowHarness, candidate: TypeInfo): bool {
@@ -86,7 +89,8 @@ func ThrowClass(name: string, baseClass: TypeReference?): TypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     return declared
 }
 
@@ -229,7 +233,8 @@ func ThrowStruct(): TypeInfo {
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     return declared
 }
 

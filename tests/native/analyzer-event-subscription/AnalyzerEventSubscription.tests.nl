@@ -45,7 +45,6 @@ import System.Collections
 //       `off sub` analyses CLEANLY, so `NL318` is about the operand and not about the keyword.
 //   (e) THAT `+=` IS NOT REJECTED WHOLESALE. `x := 5` followed by `x += 1` analyses cleanly, so
 //       `NL317` is about the .NET event and not about the operator.
-
 func SetEventObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -241,7 +240,6 @@ func EventMessage(analysis: object, codeName: string): string {
 func EventSuggestion(analysis: object, codeName: string): string {
     return EventRowMember(analysis, codeName, "Suggestion")
 }
-
 
 // ---- contracts ----
 

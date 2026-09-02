@@ -36,10 +36,7 @@ class Accumulator {
     func InspectThisCapturePlacement(): string {
         adder: Func<int, int> = v => Increment(v)
         method := adder.get_Method()
-        return method.get_IsPrivate().ToString() + "|"
-            + method.get_IsStatic().ToString() + "|"
-            + method.get_DeclaringType().get_Name() + "|"
-            + adder(5).ToString()
+        return method.get_IsPrivate().ToString() + "|" + method.get_IsStatic().ToString() + "|" + method.get_DeclaringType().get_Name() + "|" + adder(5).ToString()
     }
 
     // Two lambdas in one body: each gets a distinct generated identity and both run.

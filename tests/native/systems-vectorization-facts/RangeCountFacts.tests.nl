@@ -81,8 +81,8 @@ namespace NSharpLang.SystemsVectorizationFacts.Tests
 //   CountInRangeHelperEdgeCaseTests.CountInRangeInt32_SimdPath_MatchesScalar[(150,100),(105,105),(-50,50),
 //                                   (MinValue,0),(0,MaxValue),(MinValue,MaxValue)]
 //       -> "the six helper edge ranges count identically through the vectorized kernel"
-
 class RangeCountShapes {
+
     // while, temp subject, literal inclusive bounds, `count = count + 1` — the count-ascii kernel.
     static func WhileTempLiteral(a: int[], n: int): int {
         count := 0
@@ -178,6 +178,7 @@ class RangeCountShapes {
 }
 
 class RangeCountNearMisses {
+
     // An else branch: the `if` node must have exactly two children.
     static func ForElseBranch(a: int[], n: int, lo: int, hi: int): int {
         count := 0

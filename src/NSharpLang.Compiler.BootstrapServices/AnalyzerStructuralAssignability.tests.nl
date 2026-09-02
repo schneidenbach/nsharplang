@@ -22,7 +22,6 @@ import NSharpLang.Compiler.Ast
 //   * the resolution ORDER — a name or arity mismatch resolves NOTHING, so a rejected candidate
 //     writes no semantic-model record;
 //   * the ActionResult arm's four refusals, and that it needs the probe to actually find the type.
-
 func StructuralScopes(): AnalyzerScopeStack {
     scopes := new AnalyzerScopeStack()
     scopes.Push(new SemanticModel(), new Scope(ScopeKind.Global), 1, 1)
@@ -37,7 +36,8 @@ func StructuralResolver(scopes: AnalyzerScopeStack, model: SemanticModel): Analy
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     return new AnalyzerTypeResolver(
         scopes,
@@ -46,10 +46,11 @@ func StructuralResolver(scopes: AnalyzerScopeStack, model: SemanticModel): Analy
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         model,
-        new BindingMap())
+        new BindingMap()
+    )
 }
 
 func StructuralOwnerWith(probe: AnalyzerExternalTypeProbe, model: SemanticModel): AnalyzerStructuralAssignability {
@@ -66,7 +67,8 @@ func StructuralMember(
     kind: DeclaredMemberKind,
     name: string,
     parameterTypes: TypeReference[],
-    returnType: TypeReference?): DeclaredMemberInfo {
+    returnType: TypeReference?
+): DeclaredMemberInfo {
     return new DeclaredMemberInfo(
         name,
         "Owner",
@@ -97,7 +99,8 @@ func StructuralMember(
         false,
         false,
         1,
-        1)
+        1
+    )
 }
 
 func StructuralNoParameters(): TypeReference[] {
@@ -127,7 +130,8 @@ func StructuralClass(name: string, members: DeclaredMemberInfo[]): ClassTypeInfo
         new ParameterDeclarationInfo[](0),
         members,
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
 }
 
 func StructuralStruct(name: string, members: DeclaredMemberInfo[]): StructTypeInfo {
@@ -139,7 +143,8 @@ func StructuralStruct(name: string, members: DeclaredMemberInfo[]): StructTypeIn
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         members,
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func StructuralRecord(name: string, members: DeclaredMemberInfo[]): RecordTypeInfo {
@@ -152,7 +157,8 @@ func StructuralRecord(name: string, members: DeclaredMemberInfo[]): RecordTypeIn
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         members,
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func StructuralInterface(name: string, isDuck: bool, members: DeclaredMemberInfo[]): InterfaceTypeInfo {
@@ -164,7 +170,8 @@ func StructuralInterface(name: string, isDuck: bool, members: DeclaredMemberInfo
         new TypeReference[](0),
         new TypeParameter[](0),
         members,
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 // `func Area(): int` — the shape most of these contracts demand and satisfy.
@@ -173,7 +180,8 @@ func StructuralAreaMember(): DeclaredMemberInfo {
         DeclaredMemberKind.Function,
         "Area",
         StructuralNoParameters(),
-        new SimpleTypeReference("int", 0, 0))
+        new SimpleTypeReference("int", 0, 0)
+    )
 }
 
 func StructuralOneMember(member: DeclaredMemberInfo): DeclaredMemberInfo[] {
@@ -223,11 +231,23 @@ test "a missing function, a wrong return type and a wrong arity each refuse" {
     source := StructuralClass("Square", StructuralOneMember(StructuralAreaMember()))
 
     missing := StructuralInterface("IMissing", true, StructuralOneMember(StructuralMember(
-        DeclaredMemberKind.Function, "Perimeter", StructuralNoParameters(), new SimpleTypeReference("int", 0, 0))))
+        DeclaredMemberKind.Function,
+        "Perimeter",
+        StructuralNoParameters(),
+        new SimpleTypeReference("int", 0, 0)
+    )))
     wrongReturn := StructuralInterface("IWrong", true, StructuralOneMember(StructuralMember(
-        DeclaredMemberKind.Function, "Area", StructuralNoParameters(), new SimpleTypeReference("string", 0, 0))))
+        DeclaredMemberKind.Function,
+        "Area",
+        StructuralNoParameters(),
+        new SimpleTypeReference("string", 0, 0)
+    )))
     wrongArity := StructuralInterface("IArity", true, StructuralOneMember(StructuralMember(
-        DeclaredMemberKind.Function, "Area", StructuralOneParameter("int"), new SimpleTypeReference("int", 0, 0))))
+        DeclaredMemberKind.Function,
+        "Area",
+        StructuralOneParameter("int"),
+        new SimpleTypeReference("int", 0, 0)
+    )))
 
     assert !owner.ImplementsDuckInterface(source, missing)
     assert !owner.ImplementsDuckInterface(source, wrongReturn)
@@ -237,13 +257,22 @@ test "a missing function, a wrong return type and a wrong arity each refuse" {
 test "NON-function members impose nothing and satisfy nothing, in both directions" {
     owner := StructuralOwner(new SemanticModel())
     property := StructuralMember(
-        DeclaredMemberKind.Property, "Area", StructuralNoParameters(), new SimpleTypeReference("int", 0, 0))
+        DeclaredMemberKind.Property,
+        "Area",
+        StructuralNoParameters(),
+        new SimpleTypeReference("int", 0, 0)
+    )
 
     // A property on the INTERFACE is not a demand: a class with only the matching method still wins.
     demandsProperty := StructuralInterface(
-        "IValued", true, StructuralTwoMembers(property, StructuralAreaMember()))
+        "IValued",
+        true,
+        StructuralTwoMembers(property, StructuralAreaMember())
+    )
     assert owner.ImplementsDuckInterface(
-        StructuralClass("Square", StructuralOneMember(StructuralAreaMember())), demandsProperty)
+        StructuralClass("Square", StructuralOneMember(StructuralAreaMember())),
+        demandsProperty
+    )
 
     // A property on the SOURCE cannot satisfy a demanded function.
     demandsArea := StructuralInterface("IShape", true, StructuralOneMember(StructuralAreaMember()))
@@ -256,18 +285,42 @@ test "signature equality is by name, arity, parameter types and return type" {
 
     assert owner.MethodSignaturesMatch(area, StructuralAreaMember())
     assert !owner.MethodSignaturesMatch(area, StructuralMember(
-        DeclaredMemberKind.Function, "Other", StructuralNoParameters(), new SimpleTypeReference("int", 0, 0)))
+        DeclaredMemberKind.Function,
+        "Other",
+        StructuralNoParameters(),
+        new SimpleTypeReference("int", 0, 0)
+    ))
     assert !owner.MethodSignaturesMatch(area, StructuralMember(
-        DeclaredMemberKind.Function, "Area", StructuralOneParameter("int"), new SimpleTypeReference("int", 0, 0)))
+        DeclaredMemberKind.Function,
+        "Area",
+        StructuralOneParameter("int"),
+        new SimpleTypeReference("int", 0, 0)
+    ))
     assert !owner.MethodSignaturesMatch(area, StructuralMember(
-        DeclaredMemberKind.Function, "Area", StructuralNoParameters(), new SimpleTypeReference("string", 0, 0)))
+        DeclaredMemberKind.Function,
+        "Area",
+        StructuralNoParameters(),
+        new SimpleTypeReference("string", 0, 0)
+    ))
 
     matchingParameters := StructuralMember(
-        DeclaredMemberKind.Function, "Scale", StructuralOneParameter("int"), null)
+        DeclaredMemberKind.Function,
+        "Scale",
+        StructuralOneParameter("int"),
+        null
+    )
     assert owner.MethodSignaturesMatch(matchingParameters, StructuralMember(
-        DeclaredMemberKind.Function, "Scale", StructuralOneParameter("int"), null))
+        DeclaredMemberKind.Function,
+        "Scale",
+        StructuralOneParameter("int"),
+        null
+    ))
     assert !owner.MethodSignaturesMatch(matchingParameters, StructuralMember(
-        DeclaredMemberKind.Function, "Scale", StructuralOneParameter("string"), null))
+        DeclaredMemberKind.Function,
+        "Scale",
+        StructuralOneParameter("string"),
+        null
+    ))
 }
 
 test "an ABSENT return type is `void`, not unknown — so it matches a declared `void` and nothing else" {
@@ -275,11 +328,23 @@ test "an ABSENT return type is `void`, not unknown — so it matches a declared 
     absent := StructuralMember(DeclaredMemberKind.Function, "Scale", StructuralNoParameters(), null)
 
     assert owner.MethodSignaturesMatch(absent, StructuralMember(
-        DeclaredMemberKind.Function, "Scale", StructuralNoParameters(), null))
+        DeclaredMemberKind.Function,
+        "Scale",
+        StructuralNoParameters(),
+        null
+    ))
     assert owner.MethodSignaturesMatch(absent, StructuralMember(
-        DeclaredMemberKind.Function, "Scale", StructuralNoParameters(), new SimpleTypeReference("void", 0, 0)))
+        DeclaredMemberKind.Function,
+        "Scale",
+        StructuralNoParameters(),
+        new SimpleTypeReference("void", 0, 0)
+    ))
     assert !owner.MethodSignaturesMatch(absent, StructuralMember(
-        DeclaredMemberKind.Function, "Scale", StructuralNoParameters(), new SimpleTypeReference("int", 0, 0)))
+        DeclaredMemberKind.Function,
+        "Scale",
+        StructuralNoParameters(),
+        new SimpleTypeReference("int", 0, 0)
+    ))
 }
 
 test "a name or arity mismatch resolves NOTHING — a rejected candidate writes no record" {
@@ -290,19 +355,25 @@ test "a name or arity mismatch resolves NOTHING — a rejected candidate writes 
         DeclaredMemberKind.Function,
         "Area",
         StructuralNoParameters(),
-        new SimpleTypeReference("int", 21, 4))
+        new SimpleTypeReference("int", 21, 4)
+    )
     otherName := StructuralMember(
         DeclaredMemberKind.Function,
         "Perimeter",
         StructuralNoParameters(),
-        new SimpleTypeReference("int", 22, 4))
+        new SimpleTypeReference("int", 22, 4)
+    )
 
     assert !owner.MethodSignaturesMatch(positioned, otherName)
     assert model.TypeReferenceTypes.Count == 0
 
     // The same two members WITH matching names do resolve both return types.
     assert owner.MethodSignaturesMatch(positioned, StructuralMember(
-        DeclaredMemberKind.Function, "Area", StructuralNoParameters(), new SimpleTypeReference("int", 22, 4)))
+        DeclaredMemberKind.Function,
+        "Area",
+        StructuralNoParameters(),
+        new SimpleTypeReference("int", 22, 4)
+    ))
     assert model.TypeReferenceTypes.Count == 2
 }
 
@@ -318,15 +389,25 @@ test "the ActionResult arm refuses everything that is not a one-argument ActionR
 
     assert !owner.IsAspNetActionResultGenericAssignable(BuiltInTypes.Int, source)
     assert !owner.IsAspNetActionResultGenericAssignable(
-        new GenericTypeInfo("ActionResult", twoArguments, null), source)
+        new GenericTypeInfo("ActionResult", twoArguments, null),
+        source
+    )
     assert !owner.IsAspNetActionResultGenericAssignable(
-        new GenericTypeInfo("SomethingElse", arguments, null), source)
+        new GenericTypeInfo("SomethingElse", arguments, null),
+        source
+    )
     // Both accepted spellings still refuse while the probe cannot find the type.
     assert !owner.IsAspNetActionResultGenericAssignable(
-        new GenericTypeInfo("ActionResult", arguments, null), source)
+        new GenericTypeInfo("ActionResult", arguments, null),
+        source
+    )
     assert !owner.IsAspNetActionResultGenericAssignable(
-        new GenericTypeInfo("Microsoft.AspNetCore.Mvc.ActionResult", arguments, null), source)
+        new GenericTypeInfo("Microsoft.AspNetCore.Mvc.ActionResult", arguments, null),
+        source
+    )
     // A source that is not a CLR type refuses before the probe is consulted at all.
     assert !owner.IsAspNetActionResultGenericAssignable(
-        new GenericTypeInfo("ActionResult", arguments, null), BuiltInTypes.Int)
+        new GenericTypeInfo("ActionResult", arguments, null),
+        BuiltInTypes.Int
+    )
 }

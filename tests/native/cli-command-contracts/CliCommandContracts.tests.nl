@@ -34,9 +34,7 @@ import System.Text.Json
 // therefore paired with a NEIGHBOUR on the same command that DOES write to stderr — the
 // missing-directory runs — so the pair proves the stream is reachable and the silence is a fact.
 
-
 // ─── THE SPAWN KERNEL ─────────────────────────────────────────────────────────────────────────
-
 class CliRun {
     ExitCode: int
     Stdout: string
@@ -69,16 +67,13 @@ func RunProcess(fileName: string, arguments: string, workingDirectory: string): 
     return new CliRun(exitCode, stdout, stderr)
 }
 
-
 // ─── FINDING THE BUILT CLI ────────────────────────────────────────────────────────────────────
 
 func CliRepositoryRoot(): string {
     current: string? = AppContext.BaseDirectory
     while current != null {
         directory := current ?? ""
-        if File.Exists(Path.Combine(directory, "NSharpLang.sln"))
-            && Directory.Exists(Path.Combine(directory, "src"))
-            && Directory.Exists(Path.Combine(directory, "tests")) {
+        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) && Directory.Exists(Path.Combine(directory, "tests")) {
             return directory
         }
 
@@ -108,7 +103,6 @@ func Nlc(arguments: string): CliRun {
     return RunProcess("dotnet", "\"" + CliDll() + "\" " + arguments, Path.GetTempPath())
 }
 
-
 // ─── A TEMPORARY PROJECT ON DISK ──────────────────────────────────────────────────────────────
 
 func NewTempDirectory(prefix: string): string {
@@ -120,7 +114,6 @@ func NewTempDirectory(prefix: string): string {
 func MissingDirectoryPath(prefix: string): string {
     return Path.Combine(Path.GetTempPath(), prefix + "-" + Guid.NewGuid().ToString("N"))
 }
-
 
 // ─── READING A JSON ARRAY ─────────────────────────────────────────────────────────────────────
 //
@@ -151,7 +144,6 @@ func TextOf(element: JsonElement): string {
 func NormalizedFullPath(path: string): string {
     return Path.GetFullPath(path).Replace("\\", "/")
 }
-
 
 // ═══ THE HELP CONTRACT, ONE ROW PER COMMAND ═══════════════════════════════════════════════════
 //
@@ -215,7 +207,6 @@ test "nlc daemon --help exits 0, writes its usage to stdout, and says nothing on
     assert run.Stdout.Contains("N# Analysis Daemon")
 }
 
-
 // ═══ THE `nlc tree` ENVELOPE ══════════════════════════════════════════════════════════════════
 //
 // Three deleted bodies —`TreeCommand_ProjectYmlOnly_EmitsStableJsonEnvelope`,
@@ -223,23 +214,15 @@ test "nlc daemon --help exits 0, writes its usage to stdout, and says nothing on
 // directory and read the answer back. They are reproduced whole here, against the real binary.
 
 func WriteTreeProject(directory: string, name: string, dependencies: string) {
-    File.WriteAllText(Path.Combine(directory, "project.yml"),
-        "name: " + name + "\n"
-        + "entry: Program.nl\n"
-        + "outputType: exe\n"
-        + "targetFramework: net10.0\n"
-        + "\n"
-        + dependencies)
+    File.WriteAllText(
+        Path.Combine(directory, "project.yml"),
+        "name: " + name + "\n" + "entry: Program.nl\n" + "outputType: exe\n" + "targetFramework: net10.0\n" + "\n" + dependencies
+    )
     File.WriteAllText(Path.Combine(directory, "Program.nl"), "func Main() {\n    print \"ok\"\n}\n")
 }
 
 func TreeDependenciesBlock(): string {
-    return "dependencies:\n"
-        + "  - framework: Microsoft.AspNetCore.App\n"
-        + "  - nuget: Serilog\n"
-        + "    version: 3.1.1\n"
-        + "  - nuget: serilog\n"
-        + "    version: 9.9.9\n"
+    return "dependencies:\n" + "  - framework: Microsoft.AspNetCore.App\n" + "  - nuget: Serilog\n" + "    version: 3.1.1\n" + "  - nuget: serilog\n" + "    version: 9.9.9\n"
 }
 
 test "nlc tree --json over a project.yml emits the versioned envelope and deduplicates dependencies" {
@@ -334,7 +317,6 @@ test "nlc tree --json over a missing directory uses the global error envelope an
     document.Dispose()
 }
 
-
 // ═══ THE `nlc env` ENVELOPE ═══════════════════════════════════════════════════════════════════
 
 test "nlc env renders text by default and names both versions it reports" {
@@ -372,7 +354,6 @@ test "nlc env --json emits the versioned envelope with all eight reported facts 
     assert root.GetProperty("nsharpPackageCachePath").ValueKind == JsonValueKind.String
     document.Dispose()
 }
-
 
 // ═══ THE STDERR ROUTES, WHICH ARE ALSO THE ANTI-VACUITY CONTROLS ══════════════════════════════
 //
@@ -428,7 +409,6 @@ test "nlc clean over an artifact-free directory reports so on STDOUT and exits 0
     }
 }
 
-
 // ═══ THE TOP-LEVEL DISPATCH ═══════════════════════════════════════════════════════════════════
 //
 // The tail of `ProgramCommandKernels_SummarizesTopLevelCommands`. The deleted body reached
@@ -476,8 +456,7 @@ test "an unknown command exits 1 and writes one Error: line to STDERR, lowercase
 
     assert run.ExitCode == 1
     assert run.Stdout.Trim().Length == 0
-    assert run.Stderr.Trim()
-        == "Error: Unknown command: frobnicate. Run 'nlc help' to see available commands."
+    assert run.Stderr.Trim() == "Error: Unknown command: frobnicate. Run 'nlc help' to see available commands."
 }
 
 test "nlc query help exits 0, and an unknown query subcommand exits 1 through stderr" {
@@ -489,10 +468,8 @@ test "nlc query help exits 0, and an unknown query subcommand exits 1 through st
     unknownRun := Nlc("query wat")
     assert unknownRun.ExitCode == 1
     assert unknownRun.Stdout.Trim().Length == 0
-    assert unknownRun.Stderr.Trim()
-        == "Error: Unknown query subcommand: wat. Run 'nlc query help' for usage."
+    assert unknownRun.Stderr.Trim() == "Error: Unknown query subcommand: wat. Run 'nlc query help' for usage."
 }
-
 
 // ═══ SLICE 43: SEVEN MORE COMMANDS' HELP CONTRACTS ════════════════════════════════════════════
 //
@@ -568,7 +545,6 @@ test "nlc doc --help exits 0, writes its usage to stdout, and says nothing on st
     assert run.Stdout.Contains("N# API Documentation")
 }
 
-
 // ═══ SLICE 43: THE MISSING-DIRECTORY ROUTES ═══════════════════════════════════════════════════
 //
 // These are the anti-vacuity controls for the seven silences above: each of these five commands
@@ -629,7 +605,6 @@ test "nlc watch over a missing project writes Project directory not found to STD
     assert run.Stderr.Contains("Project directory not found: " + missingDirectory)
 }
 
-
 // ═══ SLICE 43: THE ARGUMENT-REFUSAL ROUTES ════════════════════════════════════════════════════
 //
 // Three refusals that never reach a project at all. Each proves that the kernel sentence the
@@ -662,7 +637,6 @@ test "nlc format refuses --stdin beside a file argument through stderr and exits
     assert run.Stdout.Trim().Length == 0
     assert run.Stderr.Contains("Cannot combine --stdin with file arguments.")
 }
-
 
 // ═══ SLICE 43: THE `nlc test` TIMEOUT REFUSAL, ON BOTH OUTPUT ROUTES ═══════════════════════════
 //
@@ -698,7 +672,6 @@ test "nlc test --json puts the same refusal in the envelope and says nothing on 
     assert root.GetProperty("schemaVersion").GetInt32() == 1
     document.Dispose()
 }
-
 
 // ═══ SLICE 44: THE `nlc query batch` ENVELOPE ═════════════════════════════════════════════════
 //
@@ -740,13 +713,10 @@ func NlcBatch(requestsPath: string): CliRun {
 test "nlc query batch answers one result per request, in order, and exits 1 when any item failed" {
     directory := NewTempDirectory("nsharp-batch")
     try {
-        requestsPath := WriteRequests(directory,
-            "[\n"
-            + "  { \"command\": \"inspect\", \"file\": \"Service.nl\", \"pos\": \"11:5\", \"compact\": true },\n"
-            + "  { \"command\": \"diagnostics\", \"clusters\": true },\n"
-            + "  { \"command\": \"doc\", \"query\": \"Console.WriteLine\" },\n"
-            + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \"1:1\" }\n"
-            + "]\n")
+        requestsPath := WriteRequests(
+            directory,
+            "[\n" + "  { \"command\": \"inspect\", \"file\": \"Service.nl\", \"pos\": \"11:5\", \"compact\": true },\n" + "  { \"command\": \"diagnostics\", \"clusters\": true },\n" + "  { \"command\": \"doc\", \"query\": \"Console.WriteLine\" },\n" + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \"1:1\" }\n" + "]\n"
+        )
 
         run := NlcBatch(requestsPath)
         assert run.ExitCode == 1
@@ -801,11 +771,10 @@ test "every per-item response carries its OWN versioned envelope, not just the o
     // a runner that inlined bare payloads would have passed every row they wrote.
     directory := NewTempDirectory("nsharp-batch-envelopes")
     try {
-        requestsPath := WriteRequests(directory,
-            "[\n"
-            + "  { \"command\": \"doc\", \"query\": \"Console.WriteLine\" },\n"
-            + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \"1:1\" }\n"
-            + "]\n")
+        requestsPath := WriteRequests(
+            directory,
+            "[\n" + "  { \"command\": \"doc\", \"query\": \"Console.WriteLine\" },\n" + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \"1:1\" }\n" + "]\n"
+        )
 
         run := NlcBatch(requestsPath)
         document := JsonDocument.Parse(run.Stdout)
@@ -830,8 +799,10 @@ test "every per-item response carries its OWN versioned envelope, not just the o
 test "a documentation miss is a per-item failure whose sentence names the query" {
     directory := NewTempDirectory("nsharp-batch-doc-miss")
     try {
-        requestsPath := WriteRequests(directory,
-            "[\n  { \"command\": \"doc\", \"query\": \"__DefinitelyMissingBatchDocType__\" }\n]\n")
+        requestsPath := WriteRequests(
+            directory,
+            "[\n  { \"command\": \"doc\", \"query\": \"__DefinitelyMissingBatchDocType__\" }\n]\n"
+        )
 
         run := NlcBatch(requestsPath)
         assert run.ExitCode == 1
@@ -857,14 +828,10 @@ test "a documentation miss is a per-item failure whose sentence names the query"
 test "every per-request validation refusal reaches the envelope with its own code and sentence" {
     directory := NewTempDirectory("nsharp-batch-invalid")
     try {
-        requestsPath := WriteRequests(directory,
-            "[\n"
-            + "  { \"command\": \"outline\" },\n"
-            + "  { \"command\": \"doc\" },\n"
-            + "  { \"command\": \"type\", \"file\": \"Program.nl\" },\n"
-            + "  { \"command\": \"definition\", \"file\": \"Program.nl\", \"pos\": \"bad\" },\n"
-            + "  { \"command\": \"unknown\" }\n"
-            + "]\n")
+        requestsPath := WriteRequests(
+            directory,
+            "[\n" + "  { \"command\": \"outline\" },\n" + "  { \"command\": \"doc\" },\n" + "  { \"command\": \"type\", \"file\": \"Program.nl\" },\n" + "  { \"command\": \"definition\", \"file\": \"Program.nl\", \"pos\": \"bad\" },\n" + "  { \"command\": \"unknown\" }\n" + "]\n"
+        )
 
         run := NlcBatch(requestsPath)
         assert run.ExitCode == 1
@@ -900,12 +867,10 @@ test "a position batch requests parses is answered, and two it refuses are refus
     // overflows and `1_000:2` uses a digit separator, and both are refused as malformed.
     directory := NewTempDirectory("nsharp-batch-position")
     try {
-        requestsPath := WriteRequests(directory,
-            "[\n"
-            + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \" +1 : +1 \" },\n"
-            + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \"2147483648:1\" },\n"
-            + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \"1_000:2\" }\n"
-            + "]\n")
+        requestsPath := WriteRequests(
+            directory,
+            "[\n" + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \" +1 : +1 \" },\n" + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \"2147483648:1\" },\n" + "  { \"command\": \"type\", \"file\": \"Program.nl\", \"pos\": \"1_000:2\" }\n" + "]\n"
+        )
 
         run := NlcBatch(requestsPath)
         assert run.ExitCode == 1
@@ -942,15 +907,10 @@ test "duplicate request ids abort the WHOLE run with a top-level invalidRequests
     // start. The ids are reported ordinal-sorted, which is what makes the sentence stable.
     directory := NewTempDirectory("nsharp-batch-duplicates")
     try {
-        requestsPath := WriteRequests(directory,
-            "[\n"
-            + "  { \"id\": \"zeta\", \"command\": \"doc\", \"query\": \"Console.WriteLine\" },\n"
-            + "  { \"id\": \"alpha\", \"command\": \"doc\", \"query\": \"String\" },\n"
-            + "  { \"id\": \" \", \"command\": \"doc\", \"query\": \"Int32\" },\n"
-            + "  { \"id\": \"zeta\", \"command\": \"diagnostics\" },\n"
-            + "  { \"id\": \"Alpha\", \"command\": \"doc\", \"query\": \"Console\" },\n"
-            + "  { \"id\": \"alpha\", \"command\": \"symbols\" }\n"
-            + "]\n")
+        requestsPath := WriteRequests(
+            directory,
+            "[\n" + "  { \"id\": \"zeta\", \"command\": \"doc\", \"query\": \"Console.WriteLine\" },\n" + "  { \"id\": \"alpha\", \"command\": \"doc\", \"query\": \"String\" },\n" + "  { \"id\": \" \", \"command\": \"doc\", \"query\": \"Int32\" },\n" + "  { \"id\": \"zeta\", \"command\": \"diagnostics\" },\n" + "  { \"id\": \"Alpha\", \"command\": \"doc\", \"query\": \"Console\" },\n" + "  { \"id\": \"alpha\", \"command\": \"symbols\" }\n" + "]\n"
+        )
 
         run := NlcBatch(requestsPath)
         assert run.ExitCode == 1
@@ -1012,7 +972,6 @@ test "all THREE remaining requests-file failures use the same envelope and name 
     }
 }
 
-
 // ═══ SLICE 44: THE `nlc completion` CONTRACT ══════════════════════════════════════════════════
 //
 // The console rows of `CompletionCommandKernels_SummarizesOptions`; its kernel rows are in
@@ -1050,7 +1009,6 @@ test "nlc completion lowercases the shell name it reports, which the estate row 
     assert run.Stderr.Contains("Unknown shell 'powershell'.")
 }
 
-
 // ═══ SLICE 44: THE COMMAND REGISTRY STAYS IN SYNC ═════════════════════════════════════════════
 //
 // The console-and-docs half of `CliCommandRegistry_StaysInSyncWithHelpCompletionsAndDocs`. The
@@ -1065,17 +1023,57 @@ test "nlc completion lowercases the shell name it reports, which the estate row 
 
 func TopLevelCommandNames(): string[] {
     return [
-        "build", "run", "new", "init", "test", "format", "lint", "clean", "watch", "doc",
-        "completion", "check", "fix", "query", "daemon", "add", "tidy", "remove", "update",
-        "publish", "tree", "audit", "env", "doctor", "restore", "pack", "help"
+        "build",
+        "run",
+        "new",
+        "init",
+        "test",
+        "format",
+        "lint",
+        "clean",
+        "watch",
+        "doc",
+        "completion",
+        "check",
+        "fix",
+        "query",
+        "daemon",
+        "add",
+        "tidy",
+        "remove",
+        "update",
+        "publish",
+        "tree",
+        "audit",
+        "env",
+        "doctor",
+        "restore",
+        "pack",
+        "help"
     ]
 }
 
 func QueryCommandNames(): string[] {
     return [
-        "batch", "symbols", "outline", "ast", "diagnostics", "type", "inspect", "definition",
-        "def", "references", "refs", "completions", "doc", "hover", "call-graph", "implementors",
-        "perf", "trusted", "help"
+        "batch",
+        "symbols",
+        "outline",
+        "ast",
+        "diagnostics",
+        "type",
+        "inspect",
+        "definition",
+        "def",
+        "references",
+        "refs",
+        "completions",
+        "doc",
+        "hover",
+        "call-graph",
+        "implementors",
+        "perf",
+        "trusted",
+        "help"
     ]
 }
 
@@ -1133,7 +1131,6 @@ test "the retired idiom command is absent from help, the zsh script and the docs
     assert !CliReferenceDocs().Contains("nlc idiom")
 }
 
-
 // ═══ SLICE 45: THE SIX DEPENDENCY AND HOUSEKEEPING COMMANDS, PROVEN AS PROCESSES ══════════════
 //
 // These blocks replace the 21 console-reading bodies deleted from `tests/CliParityAuditTests.cs`
@@ -1174,17 +1171,12 @@ func WriteProjectYml(directory: string, text: string) {
 
 func ProjectWithNuGetDependency(prefix: string, name: string): string {
     directory := NewTempDirectory(prefix)
-    WriteProjectYml(directory,
-        "name: " + name + "\n"
-        + "version: 1.0.0\n"
-        + "backend: il\n"
-        + "targetFramework: net10.0\n"
-        + "\n"
-        + "dependencies:\n"
-        + "  - YamlDotNet@16.3.0\n")
+    WriteProjectYml(
+        directory,
+        "name: " + name + "\n" + "version: 1.0.0\n" + "backend: il\n" + "targetFramework: net10.0\n" + "\n" + "dependencies:\n" + "  - YamlDotNet@16.3.0\n"
+    )
     return directory
 }
-
 
 // ═══ `nlc clean` ══════════════════════════════════════════════════════════════════════════════
 
@@ -1230,7 +1222,6 @@ test "nlc clean on a directory with nothing to remove still exits 0" {
     Directory.Delete(directory, true)
 }
 
-
 // ═══ `nlc completion` ═════════════════════════════════════════════════════════════════════════
 
 test "nlc completion bash emits a bash script naming every top-level command" {
@@ -1266,7 +1257,6 @@ test "nlc completion bash carries the three nested command lists too" {
     assert run.Stdout.Contains("_nlc_watch_commands=")
 }
 
-
 // ═══ `nlc update` ═════════════════════════════════════════════════════════════════════════════
 
 test "nlc update --help exits 0, writes its usage to stdout, and says nothing on stderr" {
@@ -1295,8 +1285,10 @@ test "nlc update with only a framework dependency exits 0 and writes to STDOUT" 
     // stays silent — the exact mirror of the block above. The deleted bodies asserted each half in
     // isolation and never put the pair together.
     directory := NewTempDirectory("nlc-update-frameworkonly")
-    WriteProjectYml(directory,
-        "name: UpdateDemo\nversion: 1.0.0\nbackend: il\ntargetFramework: net10.0\n\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n")
+    WriteProjectYml(
+        directory,
+        "name: UpdateDemo\nversion: 1.0.0\nbackend: il\ntargetFramework: net10.0\n\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n"
+    )
 
     run := NlcIn(directory, "update")
 
@@ -1318,7 +1310,6 @@ test "nlc update names a package that is not in dependencies and exits 1" {
 
     Directory.Delete(directory, true)
 }
-
 
 // ═══ `nlc remove` ═════════════════════════════════════════════════════════════════════════════
 
@@ -1365,18 +1356,13 @@ test "nlc remove names a package that is not in dependencies and exits 1" {
     Directory.Delete(directory, true)
 }
 
-
 // ═══ `nlc tidy` ═══════════════════════════════════════════════════════════════════════════════
 
 func WriteTidyProject(directory: string, name: string, dependencies: string, program: string) {
-    WriteProjectYml(directory,
-        "name: " + name + "\n"
-        + "entry: Program.nl\n"
-        + "outputType: exe\n"
-        + "targetFramework: net10.0\n"
-        + "\n"
-        + "dependencies:\n"
-        + dependencies)
+    WriteProjectYml(
+        directory,
+        "name: " + name + "\n" + "entry: Program.nl\n" + "outputType: exe\n" + "targetFramework: net10.0\n" + "\n" + "dependencies:\n" + dependencies
+    )
     File.WriteAllText(Path.Combine(directory, "Program.nl"), program)
 }
 
@@ -1455,11 +1441,12 @@ test "nlc tidy --json uses a DIFFERENT missing-project sentence than the text ar
 
 test "nlc tidy --json classifies each dependency as used, possibly-unused or unknown" {
     directory := NewTempDirectory("nlc-tidy-json")
-    WriteTidyProject(directory, "TidyClassification",
-        "  - nuget: Newtonsoft.Json\n    version: 13.0.3\n"
-        + "  - nuget: Serilog.Sinks.Console\n    version: 5.0.1\n"
-        + "  - nuget: Polly\n    version: 8.0.0\n",
-        "  import  Newtonsoft.Json.Linq // used by tidy import extraction\n\nfunc Main() {\n    print \"ok\"\n}\n")
+    WriteTidyProject(
+        directory,
+        "TidyClassification",
+        "  - nuget: Newtonsoft.Json\n    version: 13.0.3\n" + "  - nuget: Serilog.Sinks.Console\n    version: 5.0.1\n" + "  - nuget: Polly\n    version: 8.0.0\n",
+        "  import  Newtonsoft.Json.Linq // used by tidy import extraction\n\nfunc Main() {\n    print \"ok\"\n}\n"
+    )
 
     run := Nlc("tidy --project \"" + directory + "\" --json")
 
@@ -1494,14 +1481,20 @@ test "the tidy envelope's ok field reports CLEANLINESS, not success, and exit 0 
     // exit code separates them. The deleted body asserted `Assert.Equal(0, exitCode)` and read the
     // `dependencies` array, and never read `ok` on this path at all.
     unclean := NewTempDirectory("nlc-tidy-ok-unclean")
-    WriteTidyProject(unclean, "TidyUnclean",
+    WriteTidyProject(
+        unclean,
+        "TidyUnclean",
         "  - nuget: Serilog.Sinks.Console\n    version: 5.0.1\n",
-        "func Main() {\n    print \"ok\"\n}\n")
+        "func Main() {\n    print \"ok\"\n}\n"
+    )
 
     clean := NewTempDirectory("nlc-tidy-ok-clean")
-    WriteTidyProject(clean, "TidyClean",
+    WriteTidyProject(
+        clean,
+        "TidyClean",
         "  - nuget: Newtonsoft.Json\n    version: 13.0.3\n",
-        "import Newtonsoft.Json.Linq\n\nfunc Main() {\n    print \"ok\"\n}\n")
+        "import Newtonsoft.Json.Linq\n\nfunc Main() {\n    print \"ok\"\n}\n"
+    )
 
     uncleanRun := Nlc("tidy --project \"" + unclean + "\" --json")
     cleanRun := Nlc("tidy --project \"" + clean + "\" --json")
@@ -1525,9 +1518,12 @@ test "the tidy envelope's ok field reports CLEANLINESS, not success, and exit 0 
 
 test "nlc tidy without --json prints a table and no JSON at all" {
     directory := NewTempDirectory("nlc-tidy-text")
-    WriteTidyProject(directory, "TidyTextClassification",
+    WriteTidyProject(
+        directory,
+        "TidyTextClassification",
         "  - nuget: Serilog.Sinks.Console\n    version: 5.0.1\n",
-        "func Main() {\n    print \"ok\"\n}\n")
+        "func Main() {\n    print \"ok\"\n}\n"
+    )
 
     run := Nlc("tidy --project \"" + directory + "\"")
 
@@ -1557,21 +1553,14 @@ test "nlc tidy --fix rewrites project.yml removing ONLY the package it named" {
     // The count in the message and the count of vanished lines are read TOGETHER here, which is
     // what makes the row able to fail: a filter that over-deletes still prints "Removed 1".
     directory := NewTempDirectory("nlc-tidy-fix")
-    WriteProjectYml(directory,
-        "name: TidyFix\n"
-        + "entry: Program.nl\n"
-        + "outputType: exe\n"
-        + "targetFramework: net10.0\n"
-        + "\n"
-        + "dependencies:\n"
-        + "  - Serilog.Sinks@1.0.0\n"
-        + "  - Newtonsoft.Json@13.0.3\n"
-        + "\n"
-        + "testDependencies:\n"
-        + "  - Serilog.SinksExtra@2.0.0\n"
-        + "  - Serilog.Sinks.Console@5.0.1\n")
-    File.WriteAllText(Path.Combine(directory, "Program.nl"),
-        "import Newtonsoft.Json.Linq\n\nfunc Main() {\n    print \"ok\"\n}\n")
+    WriteProjectYml(
+        directory,
+        "name: TidyFix\n" + "entry: Program.nl\n" + "outputType: exe\n" + "targetFramework: net10.0\n" + "\n" + "dependencies:\n" + "  - Serilog.Sinks@1.0.0\n" + "  - Newtonsoft.Json@13.0.3\n" + "\n" + "testDependencies:\n" + "  - Serilog.SinksExtra@2.0.0\n" + "  - Serilog.Sinks.Console@5.0.1\n"
+    )
+    File.WriteAllText(
+        Path.Combine(directory, "Program.nl"),
+        "import Newtonsoft.Json.Linq\n\nfunc Main() {\n    print \"ok\"\n}\n"
+    )
 
     projectPath := Path.Combine(directory, "project.yml")
     before := File.ReadAllLines(projectPath).Length
@@ -1602,7 +1591,6 @@ test "nlc tidy --fix rewrites project.yml removing ONLY the package it named" {
 
     Directory.Delete(directory, true)
 }
-
 
 // ═══ `nlc add` ════════════════════════════════════════════════════════════════════════════════
 
@@ -1663,8 +1651,10 @@ test "nlc add with no project.yml exits 1 and is the ONLY one of the three that 
 
 test "nlc add inserts a package INSIDE the dependencies block, before the next top-level key" {
     directory := NewTempDirectory("nlc-add-inline")
-    WriteProjectYml(directory,
-        "name: AddDemo\nversion: 1.0.0\nbackend: il\n\ndependencies:\n  - Newtonsoft.Json@13.0.3\ntargetFramework: net10.0\n")
+    WriteProjectYml(
+        directory,
+        "name: AddDemo\nversion: 1.0.0\nbackend: il\n\ndependencies:\n  - Newtonsoft.Json@13.0.3\ntargetFramework: net10.0\n"
+    )
 
     run := NlcIn(directory, "add Serilog@3.1.0")
 
@@ -1694,8 +1684,10 @@ test "nlc add inserts a package INSIDE the dependencies block, before the next t
 
 test "nlc add rejects a duplicate package case-insensitively and leaves project.yml untouched" {
     directory := NewTempDirectory("nlc-add-duppackage")
-    WriteProjectYml(directory,
-        "name: AddDuplicatePackageDemo\nversion: 1.0.0\nbackend: il\ntargetFramework: net10.0\n\ndependencies:\n  - Newtonsoft.Json@13.0.3\n")
+    WriteProjectYml(
+        directory,
+        "name: AddDuplicatePackageDemo\nversion: 1.0.0\nbackend: il\ntargetFramework: net10.0\n\ndependencies:\n  - Newtonsoft.Json@13.0.3\n"
+    )
     before := File.ReadAllText(Path.Combine(directory, "project.yml"))
 
     run := NlcIn(directory, "add newtonsoft.json@14.0.0")
@@ -1722,10 +1714,14 @@ test "nlc add rejects a duplicate project reference, and that arm offers NO reme
     // and there is no equivalent for a project reference.
     directory := NewTempDirectory("nlc-add-dupproject")
     Directory.CreateDirectory(Path.Combine(directory, "Shared"))
-    File.WriteAllText(Path.Combine(Path.Combine(directory, "Shared"), "project.yml"),
-        "name: Shared\nversion: 1.0.0\ntargetFramework: net10.0\noutputType: library\n")
-    WriteProjectYml(directory,
-        "name: AddDuplicateProjectDemo\nversion: 1.0.0\nbackend: il\ntargetFramework: net10.0\n\ndependencies:\n  - project: Shared/project.yml\n")
+    File.WriteAllText(
+        Path.Combine(Path.Combine(directory, "Shared"), "project.yml"),
+        "name: Shared\nversion: 1.0.0\ntargetFramework: net10.0\noutputType: library\n"
+    )
+    WriteProjectYml(
+        directory,
+        "name: AddDuplicateProjectDemo\nversion: 1.0.0\nbackend: il\ntargetFramework: net10.0\n\ndependencies:\n  - project: Shared/project.yml\n"
+    )
     before := File.ReadAllText(Path.Combine(directory, "project.yml"))
 
     run := NlcIn(directory, "add --path shared/PROJECT.yml")
@@ -1739,7 +1735,6 @@ test "nlc add rejects a duplicate project reference, and that arm offers NO reme
 
     Directory.Delete(directory, true)
 }
-
 
 // ═══ THE TWO CROSS-COMMAND SENTENCES ══════════════════════════════════════════════════════════
 
@@ -1792,7 +1787,6 @@ test "every one of the six commands reaches its N#-owned implementation through 
     assert unknown.ExitCode != 0
 }
 
-
 // ═══ THE TWO DECISIONS THAT RETIRE WITH A C# SUBJECT ══════════════════════════════════════════
 //
 // `Commands/QueryCommand.cs:108` and `Program.cs:581/:584/:633` are the closeout inventory's
@@ -1808,11 +1802,10 @@ test "every one of the six commands reaches its N#-owned implementation through 
 // ── `nlc query ast` — the compilation-unit ORDER ──────────────────────────────────────────────
 
 func WriteOrderingProject(directory: string) {
-    WriteProjectYml(directory,
-        "name: AstOrdering\n"
-        + "entry: Program.nl\n"
-        + "outputType: exe\n"
-        + "targetFramework: net10.0\n")
+    WriteProjectYml(
+        directory,
+        "name: AstOrdering\n" + "entry: Program.nl\n" + "outputType: exe\n" + "targetFramework: net10.0\n"
+    )
     File.WriteAllText(Path.Combine(directory, "Program.nl"), "func Main() {\n    print \"ok\"\n}\n")
     File.WriteAllText(Path.Combine(directory, "Zeta.nl"), "func Zed(): int {\n    return 1\n}\n")
     File.WriteAllText(Path.Combine(directory, "Beta.nl"), "func Bet(): int {\n    return 2\n}\n")
@@ -1998,7 +1991,6 @@ test "nlc format --stdin without --diff writes the formatted source and never na
     Directory.Delete(directory, true)
 }
 
-
 // ═══ THE DOCUMENTED TEST-DSL SURFACE IS EXACTLY WHAT THE RUNNER ACCEPTS ═══════════════════════
 //
 // PRODUCT DEFECT, PINNED AND FIXED HERE: "the documented `skip` form fails to emit".
@@ -2015,25 +2007,17 @@ test "nlc format --stdin without --diff writes the formatted source and never na
 // still one.
 
 func WriteSkipFormTestProject(directory: string) {
-    File.WriteAllText(Path.Combine(directory, "project.yml"),
-        "name: SkipForm.Tests\n"
-        + "version: 1.0.0\n"
-        + "backend: il\n"
-        + "outputType: library\n"
-        + "targetFramework: net10.0\n")
+    File.WriteAllText(
+        Path.Combine(directory, "project.yml"),
+        "name: SkipForm.Tests\n" + "version: 1.0.0\n" + "backend: il\n" + "outputType: library\n" + "targetFramework: net10.0\n"
+    )
 
     // Line 3 is the passing test and line 7 is the documented skip form, EXACTLY as
     // `website/docs/for-go-developers.md` used to publish it.
-    File.WriteAllText(Path.Combine(directory, "Probe.tests.nl"),
-        "namespace SkipForm\n"
-        + "\n"
-        + "test \"plain baseline\" {\n"
-        + "    assert 1 + 1 == 2\n"
-        + "}\n"
-        + "\n"
-        + "test \"needs network\" skip \"CI has no network\" {\n"
-        + "    // skipped\n"
-        + "}\n")
+    File.WriteAllText(
+        Path.Combine(directory, "Probe.tests.nl"),
+        "namespace SkipForm\n" + "\n" + "test \"plain baseline\" {\n" + "    assert 1 + 1 == 2\n" + "}\n" + "\n" + "test \"needs network\" skip \"CI has no network\" {\n" + "    // skipped\n" + "}\n"
+    )
 }
 
 test "the documented skip form is refused as NL323 at its own line, not as a bare emit decline" {
@@ -2068,16 +2052,10 @@ test "deleting ONLY the skip clause makes the same file build and run — the re
     directory := NewTempDirectory("nlc-test-skip-form-control")
     try {
         WriteSkipFormTestProject(directory)
-        File.WriteAllText(Path.Combine(directory, "Probe.tests.nl"),
-            "namespace SkipForm\n"
-            + "\n"
-            + "test \"plain baseline\" {\n"
-            + "    assert 1 + 1 == 2\n"
-            + "}\n"
-            + "\n"
-            + "test \"needs network\" {\n"
-            + "    // skipped\n"
-            + "}\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Probe.tests.nl"),
+            "namespace SkipForm\n" + "\n" + "test \"plain baseline\" {\n" + "    assert 1 + 1 == 2\n" + "}\n" + "\n" + "test \"needs network\" {\n" + "    // skipped\n" + "}\n"
+        )
 
         run := Nlc("test --project \"" + directory + "\" --no-cache --json")
 
@@ -2157,18 +2135,14 @@ test "the docs say what the runner does, and the cli-reference no longer scores 
 // spelled with the dotted letter, and `AnUnknownCommandExits1And...Lowercased` below went red.
 
 func WriteAsciiNameProject(directory: string) {
-    File.WriteAllText(Path.Combine(directory, "project.yml"),
-        "name: NSharpLang.InvariantTestName.Fixture\n"
-        + "version: 1.0.0\n"
-        + "backend: il\n"
-        + "outputType: library\n"
-        + "targetFramework: net10.0\n")
-    File.WriteAllText(Path.Combine(directory, "InvariantName.tests.nl"),
-        "namespace NSharpLang.InvariantTestName.Fixture\n"
-        + "\n"
-        + "test \"invariant identifier is pinned\" {\n"
-        + "    assert 1 == 1\n"
-        + "}\n")
+    File.WriteAllText(
+        Path.Combine(directory, "project.yml"),
+        "name: NSharpLang.InvariantTestName.Fixture\n" + "version: 1.0.0\n" + "backend: il\n" + "outputType: library\n" + "targetFramework: net10.0\n"
+    )
+    File.WriteAllText(
+        Path.Combine(directory, "InvariantName.tests.nl"),
+        "namespace NSharpLang.InvariantTestName.Fixture\n" + "\n" + "test \"invariant identifier is pinned\" {\n" + "    assert 1 == 1\n" + "}\n"
+    )
 }
 
 test "the test-method name nlc test reports is PascalCased INVARIANTLY, never with the machine's letters" {

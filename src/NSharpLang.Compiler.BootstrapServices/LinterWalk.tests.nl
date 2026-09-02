@@ -24,7 +24,6 @@ import NSharpLang.Compiler.Ast
 //       a recoverable shape into a throw, so both are asserted alone.
 //   (c) a parser-error placeholder suppresses a declaration's BINDING as well as its initializer
 //       walk — the linter must not report a name the parser could not read as unused.
-
 func LwkState(): LinterWalkState {
     return new LinterWalkState("test.nl", null, LinterConfig.Default())
 }
@@ -122,7 +121,6 @@ func LwkUnitImporting(namespaceName: string): CompilationUnit {
     imports.Add(new ImportDirective(namespaceName, null, 1, 1))
     return new CompilationUnit(null, imports, new List<Statement>(), null, new List<Declaration>(), 1, 1)
 }
-
 
 // ── the recursion guard ──────────────────────────────────────────────────────────────────────
 
@@ -234,7 +232,6 @@ test "a throw out of the walk still unwinds the guard" {
     walk.VisitExpression(LwkId("StringBuilder", 9, 9))
     assert LwkCodes(state) == "NL002@9:9;"
 }
-
 
 // ── the expression arm ───────────────────────────────────────────────────────────────────────
 
@@ -361,7 +358,6 @@ test "everything else is walked structurally, through the fail-safe child enumer
     walk.VisitExpression(new BinaryExpression(left, BinaryOperator.Add, right, 3, 10))
     assert LwkCodes(state) == "NL002@3:1;NL002@3:20;"
 }
-
 
 // ── the statement arm ────────────────────────────────────────────────────────────────────────
 
@@ -640,7 +636,6 @@ test "a statement shape with no arm is walked no further" {
     assert state.Diagnostics.Count == 0
 }
 
-
 // ── the operand slots a read-walk must see (the `off` / pattern family) ──────────────────────────
 //
 // One rule, three sites: EVERY EXPRESSION AN OPERAND SLOT CARRIES IS A READ. `off`'s handle had no
@@ -755,7 +750,6 @@ test "a NESTED pattern's compared value is reached through every composite shape
     walk.VisitStatement(LwkBlockOf(statements, 3, 1))
     assert state.Diagnostics.Count == 0
 }
-
 
 // ── the function arm ─────────────────────────────────────────────────────────────────────────
 

@@ -36,7 +36,6 @@ import NSharpLang.Compiler.Ast
 //       grammars, and the walk keeps them apart.
 //   (j) THE `else if` CHAIN STAYS FLAT — an else-if re-enters at the same depth, so five branches
 //       are five lines and not a staircase.
-
 func FwkConfig(size: int, spaces: bool, maxLine: int): FormatterConfig {
     config := new FormatterConfig()
     config.IndentSize = size
@@ -97,8 +96,23 @@ func FwkEmptyAttributes(): List<AttributeNode> {
 }
 
 func FwkFunction(name: string, body: BlockStatement?, returnType: TypeReference?, modifiers: Modifiers): FunctionDeclaration {
-    return new FunctionDeclaration(name, FwkEmptyParameters(), returnType, body, null, null, null,
-        modifiers, FwkEmptyAttributes(), false, null, false, false, 0, 0)
+    return new FunctionDeclaration(
+        name,
+        FwkEmptyParameters(),
+        returnType,
+        body,
+        null,
+        null,
+        null,
+        modifiers,
+        FwkEmptyAttributes(),
+        false,
+        null,
+        false,
+        false,
+        0,
+        0
+    )
 }
 
 // The text a single statement produces, at depth zero, with a fresh state each time.
@@ -680,8 +694,23 @@ test "a function with neither body ends its own line" {
 }
 
 test "an expression-bodied function writes an arrow and no braces" {
-    expressionBodied := new FunctionDeclaration("f", FwkEmptyParameters(), null, null, FwkIdentifier("e"),
-        null, null, Modifiers.None, FwkEmptyAttributes(), false, null, false, false, 0, 0)
+    expressionBodied := new FunctionDeclaration(
+        "f",
+        FwkEmptyParameters(),
+        null,
+        null,
+        FwkIdentifier("e"),
+        null,
+        null,
+        Modifiers.None,
+        FwkEmptyAttributes(),
+        false,
+        null,
+        false,
+        false,
+        0,
+        0
+    )
     builder := new StringBuilder()
     FwkWalk(FwkState()).FormatFunction(expressionBodied, builder)
     assert FwkShow(builder) == "func f() => e|"
@@ -691,16 +720,46 @@ test "type parameters are written between the name and the parameter list" {
     typeParameters := new List<TypeParameter>()
     typeParameters.Add(new TypeParameter("T"))
     typeParameters.Add(new TypeParameter("U"))
-    generic := new FunctionDeclaration("f", FwkEmptyParameters(), null, FwkOneStatementBlock(), null,
-        typeParameters, null, Modifiers.None, FwkEmptyAttributes(), false, null, false, false, 0, 0)
+    generic := new FunctionDeclaration(
+        "f",
+        FwkEmptyParameters(),
+        null,
+        FwkOneStatementBlock(),
+        null,
+        typeParameters,
+        null,
+        Modifiers.None,
+        FwkEmptyAttributes(),
+        false,
+        null,
+        false,
+        false,
+        0,
+        0
+    )
     builder := new StringBuilder()
     FwkWalk(FwkState()).FormatFunction(generic, builder)
     assert FwkShow(builder) == "func f<T, U>() {|    inner|}|"
 }
 
 test "an EMPTY type parameter list writes no angle brackets" {
-    generic := new FunctionDeclaration("f", FwkEmptyParameters(), null, FwkOneStatementBlock(), null,
-        new List<TypeParameter>(), null, Modifiers.None, FwkEmptyAttributes(), false, null, false, false, 0, 0)
+    generic := new FunctionDeclaration(
+        "f",
+        FwkEmptyParameters(),
+        null,
+        FwkOneStatementBlock(),
+        null,
+        new List<TypeParameter>(),
+        null,
+        Modifiers.None,
+        FwkEmptyAttributes(),
+        false,
+        null,
+        false,
+        false,
+        0,
+        0
+    )
     builder := new StringBuilder()
     FwkWalk(FwkState()).FormatFunction(generic, builder)
     assert FwkShow(builder) == "func f() {|    inner|}|"
@@ -712,15 +771,44 @@ test "a conversion operator writes its name and return type instead of the func 
     // the redundancy check — it skips the `public`/`private` block ENTIRELY. So `public implicit`
     // formats to `implicit`, and the same holds for an operator overload, which keeps `static` and
     // drops `public`. Both are asserted, because one alone reads like an accident.
-    conversion := new FunctionDeclaration("implicit", FwkEmptyParameters(), FwkType("int"),
-        FwkOneStatementBlock(), null, null, null, Modifiers.Public, FwkEmptyAttributes(), false, null, true, false, 0, 0)
+    conversion := new FunctionDeclaration(
+        "implicit",
+        FwkEmptyParameters(),
+        FwkType("int"),
+        FwkOneStatementBlock(),
+        null,
+        null,
+        null,
+        Modifiers.Public,
+        FwkEmptyAttributes(),
+        false,
+        null,
+        true,
+        false,
+        0,
+        0
+    )
     builder := new StringBuilder()
     FwkWalk(FwkState()).FormatFunction(conversion, builder)
     assert FwkShow(builder) == "implicit int() {|    inner|}|"
 
-    operatorOverload := new FunctionDeclaration("op_Addition", FwkEmptyParameters(), FwkType("int"),
-        FwkOneStatementBlock(), null, null, null, Modifiers.Public | Modifiers.Static,
-        FwkEmptyAttributes(), true, null, false, false, 0, 0)
+    operatorOverload := new FunctionDeclaration(
+        "op_Addition",
+        FwkEmptyParameters(),
+        FwkType("int"),
+        FwkOneStatementBlock(),
+        null,
+        null,
+        null,
+        Modifiers.Public | Modifiers.Static,
+        FwkEmptyAttributes(),
+        true,
+        null,
+        false,
+        false,
+        0,
+        0
+    )
     operatorBuilder := new StringBuilder()
     FwkWalk(FwkState()).FormatFunction(operatorOverload, operatorBuilder)
     assert FwkShow(operatorBuilder) == "static func op_Addition(): int {|    inner|}|"

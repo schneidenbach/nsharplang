@@ -27,7 +27,6 @@ import NSharpLang.Compiler.Ast
 //     second report in the next file;
 //   * the SETTER discipline for the two rebuilt collaborators, because a factory rebuild would drop
 //     that set mid-analysis.
-
 class IdentifierHarness {
     Rule: AnalyzerIdentifierResolution
     Errors: List<CompilerError>
@@ -46,7 +45,8 @@ class IdentifierHarness {
         bindings: BindingMap,
         extensions: List<FunctionDeclaration>,
         sink: AnalyzerDiagnosticSink,
-        members: AnalyzerMemberResolution) {
+        members: AnalyzerMemberResolution
+    ) {
         Rule = rule
         Errors = errors
         Scopes = scopes
@@ -77,7 +77,8 @@ func IdentifierRuleOf(): IdentifierHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     resolver := new AnalyzerTypeResolver(
         scopes,
@@ -86,10 +87,11 @@ func IdentifierRuleOf(): IdentifierHarness {
         probe,
         sink,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         model,
-        bindings)
+        bindings
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -107,7 +109,8 @@ func IdentifierRuleOf(): IdentifierHarness {
         clrConversion,
         extensions,
         namespaces,
-        new List<Assembly>())
+        new List<Assembly>()
+    )
     members := new AnalyzerMemberResolution(
         functionTypes,
         context,
@@ -115,7 +118,8 @@ func IdentifierRuleOf(): IdentifierHarness {
         resolver,
         clrConversion,
         extensionResolution,
-        namespaces)
+        namespaces
+    )
     soaEscape := new AnalyzerSoaEscape(sink, spans, scopes, context)
     ambient := new AnalyzerAmbientContext(sink, spans, soaEscape)
     nullFlow := new AnalyzerNullFlow(sink, spans, scopes, context)
@@ -132,7 +136,8 @@ func IdentifierRuleOf(): IdentifierHarness {
         extensions,
         members,
         model,
-        bindings)
+        bindings
+    )
     return new IdentifierHarness(rule, errors, scopes, model, bindings, extensions, sink, members)
 }
 

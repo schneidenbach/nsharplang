@@ -39,7 +39,6 @@ import NSharpLang.Compiler.Ast
 // `private` is public to this rule and not to that helper. A contract asserts the disagreement.
 //
 // (7) THE TWO WAIVER FINDINGS ARE INDEPENDENT AND BOTH FIRE PER `[allow]`, in declaration order.
-
 func SatArgs(): List<Argument> {
     return new List<Argument>()
 }

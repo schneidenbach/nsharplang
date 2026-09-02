@@ -19,7 +19,6 @@ import System.Text.Json
 // `tests/native/extension-calls` reach theirs: this project runs through `nlc test`, so the
 // compiler that built it is the compiler under test, and reflection keeps the asserts independent
 // of assembly identity across load contexts.
-
 func SetDocQueryObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -88,7 +87,6 @@ func DocProperty(owner: object, propertyName: string): object? {
 
     throw new InvalidOperationException("The production doc result has no " + propertyName + " member.")
 }
-
 
 func DocTextOf(value: object): string {
     text := value.ToString()

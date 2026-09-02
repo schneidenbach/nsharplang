@@ -18,7 +18,6 @@ namespace NSharpLang.Cli
 // less iteration, and every remaining assertion would still have held. **THE REGISTRY'S CONTENT
 // IS NOW LITERAL ON THIS SIDE AND LITERAL ON THE NATIVE SIDE**, so neither can drift into the
 // other.
-
 test "the registry lists exactly 27 top-level commands, in this order" {
     commands := CommandRegistry.TopLevelCommands
 

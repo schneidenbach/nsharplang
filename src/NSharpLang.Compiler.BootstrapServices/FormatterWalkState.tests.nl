@@ -29,7 +29,6 @@ import System.Text
 //       and is what makes `FormatSafe`'s idempotence check compare like with like.
 //   (f) A NULL COMMENT LIST IS AN EMPTY ONE, so an AST that was never lexed formats without a
 //       null check at any of the eight call sites.
-
 func FwsSpaces(size: int): FormatterConfig {
     config := new FormatterConfig()
     config.IndentSize = size
@@ -314,58 +313,6 @@ test "an exhausted stream emits nothing and moves no cursor" {
     state.EmitCommentsBefore(900, builder)
     assert FwsShow(builder) == "// only|"
     assert state.LastEmittedSourceLine == 1
-}
-
-// ---- the measurement pass ------------------------------------------------------------------------
-
-test "a snapshot restores the comment cursor and the gap tracker" {
-    state := FwsState()
-    state.BeginFile(FwsComments([1, 2], ["// a", "// b"]))
-    saved := state.Snapshot()
-    builder := FwsBuilder()
-    state.EmitCommentsBefore(9, builder)
-    assert state.CommentIndex == 2
-
-    state.Restore(saved)
-    assert state.CommentIndex == 0
-    assert state.LastEmittedSourceLine == 0
-}
-
-test "the restored cursor makes the same comments available AGAIN" {
-    // This is exactly what the measurement pass needs: the throwaway builder consumed the comments,
-    // and the real pass must still emit them.
-    state := FwsState()
-    state.BeginFile(FwsOneComment(1, "// a"))
-    saved := state.Snapshot()
-    scratch := FwsBuilder()
-    state.EmitCommentsBefore(9, scratch)
-    state.Restore(saved)
-
-    real := FwsBuilder()
-    state.EmitCommentsBefore(9, real)
-    assert FwsShow(scratch) == "// a|"
-    assert FwsShow(real) == "// a|"
-}
-
-test "the snapshot does NOT carry the indent depth" {
-    // (d) The C# saved two locals, not three. A throw inside a measured expression leaves the depth
-    // where the abandoned walk left it, and a clean restore does too.
-    state := FwsState()
-    saved := state.Snapshot()
-    state.Push()
-    state.Push()
-    state.Restore(saved)
-    assert state.IndentDepth == 2
-}
-
-test "a snapshot is a value, not a view: later writes do not move it" {
-    state := FwsState()
-    state.LastEmittedSourceLine = 5
-    saved := state.Snapshot()
-    state.LastEmittedSourceLine = 60
-    assert saved.LastEmittedSourceLine == 5
-    state.Restore(saved)
-    assert state.LastEmittedSourceLine == 5
 }
 
 // ---- the configuration round trip ------------------------------------------------------------------

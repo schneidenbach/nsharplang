@@ -11,7 +11,6 @@ import NSharpLang.Compiler.Ast
 // indirectly, through end-to-end analyzer diagnostics. This is their first DIRECT pinning, and it is
 // written against the two entry points plus the one helper an outside caller reaches
 // (TryConstructDelegateType), which is the whole of the owner's public surface.
-
 func ClrConversionFacts(context: MetadataLoadContext): AnalyzerWellKnownTypes {
     core := context.LoadFromAssemblyName("System.Runtime")
     return new AnalyzerWellKnownTypes(context, core)
@@ -82,7 +81,8 @@ func ClrConversionArgs2(first: TypeInfo, second: TypeInfo): List<TypeInfo> {
 
 func ClrConversionFunction(
     returnType: TypeInfo?,
-    parameters: List<TypeInfo>): FunctionTypeInfo {
+    parameters: List<TypeInfo>
+): FunctionTypeInfo {
     functionType := new FunctionTypeInfo()
     functionType.ParameterTypes = parameters
     functionType.ReturnType = returnType
@@ -125,7 +125,8 @@ func ClrConversionRecord(name: string): RecordTypeInfo {
         ClrConversionEmptyTypeParameters(),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func ClrConversionStruct(name: string): StructTypeInfo {
@@ -137,7 +138,8 @@ func ClrConversionStruct(name: string): StructTypeInfo {
         ClrConversionEmptyTypeParameters(),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func ClrConversionInterface(name: string): InterfaceTypeInfo {
@@ -149,7 +151,8 @@ func ClrConversionInterface(name: string): InterfaceTypeInfo {
         new TypeReference[](0),
         ClrConversionEmptyTypeParameters(),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func ClrConversionEnum(name: string): EnumTypeInfo {
@@ -211,29 +214,38 @@ test "arrays and nullables rebuild their shell, and a reference nullable is its 
         funnel := new AnalyzerClrTypeConversion(ClrConversionContext("/tmp/clr-shells.nl"), facts)
 
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(
-            new ArrayTypeInfo(BuiltInTypes.Int))) == "System.Int32[]"
+            new ArrayTypeInfo(BuiltInTypes.Int)
+        )) == "System.Int32[]"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(
-            new ArrayTypeInfo(new ArrayTypeInfo(BuiltInTypes.String)))) == "System.String[][]"
+            new ArrayTypeInfo(new ArrayTypeInfo(BuiltInTypes.String))
+        )) == "System.String[][]"
 
         // A value-type nullable is Nullable<T>; a reference-type nullable has no CLR shape of its own.
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
-            new NullableTypeInfo(BuiltInTypes.Int))) == "System.Nullable`1<System.Int32>"
+            new NullableTypeInfo(BuiltInTypes.Int)
+        )) == "System.Nullable`1<System.Int32>"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(
-            new NullableTypeInfo(BuiltInTypes.String))) == "System.String"
+            new NullableTypeInfo(BuiltInTypes.String)
+        )) == "System.String"
 
         // The oblivious wrapper is transparent, at any depth and under any shell.
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(
-            new ObliviousTypeInfo(BuiltInTypes.Int))) == "System.Int32"
+            new ObliviousTypeInfo(BuiltInTypes.Int)
+        )) == "System.Int32"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(
-            new ObliviousTypeInfo(new ObliviousTypeInfo(BuiltInTypes.Bool)))) == "System.Boolean"
+            new ObliviousTypeInfo(new ObliviousTypeInfo(BuiltInTypes.Bool))
+        )) == "System.Boolean"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(
-            new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.Char)))) == "System.Char[]"
+            new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.Char))
+        )) == "System.Char[]"
 
         // An unconvertible position poisons the whole shell rather than being skipped.
         assert funnel.TryConvertTypeInfoToClrType(
-            new ArrayTypeInfo(new SimpleTypeInfo("NoSuchBuiltIn"))) == null
+            new ArrayTypeInfo(new SimpleTypeInfo("NoSuchBuiltIn"))
+        ) == null
         assert funnel.TryConvertTypeInfoToClrType(
-            new NullableTypeInfo(new SimpleTypeInfo("NoSuchBuiltIn"))) == null
+            new NullableTypeInfo(new SimpleTypeInfo("NoSuchBuiltIn"))
+        ) == null
     } finally {
         scan.Dispose()
     }
@@ -248,39 +260,44 @@ test "compiler-known generics construct at their own arity and at no other" {
         funnel := new AnalyzerClrTypeConversion(ClrConversionContext("/tmp/clr-generic.nl"), facts)
 
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("List", ClrConversionArgs(BuiltInTypes.Int))))
-            == "System.Collections.Generic.List`1<System.Int32>"
+            new GenericTypeInfo("List", ClrConversionArgs(BuiltInTypes.Int))
+        )) == "System.Collections.Generic.List`1<System.Int32>"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
             new GenericTypeInfo(
                 "Dictionary",
-                ClrConversionArgs2(BuiltInTypes.String, BuiltInTypes.Int))))
-            == "System.Collections.Generic.Dictionary`2<System.String,System.Int32>"
+                ClrConversionArgs2(BuiltInTypes.String, BuiltInTypes.Int)
+            )
+        )) == "System.Collections.Generic.Dictionary`2<System.String,System.Int32>"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("Task", ClrConversionArgs(BuiltInTypes.Int))))
-            == "System.Threading.Tasks.Task`1<System.Int32>"
+            new GenericTypeInfo("Task", ClrConversionArgs(BuiltInTypes.Int))
+        )) == "System.Threading.Tasks.Task`1<System.Int32>"
 
         // Nesting re-enters the funnel at every argument position.
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
             new GenericTypeInfo(
                 "IEnumerable",
-                ClrConversionArgs(new ArrayTypeInfo(BuiltInTypes.Int)))))
-            == "System.Collections.Generic.IEnumerable`1<System.Int32[]>"
+                ClrConversionArgs(new ArrayTypeInfo(BuiltInTypes.Int))
+            )
+        )) == "System.Collections.Generic.IEnumerable`1<System.Int32[]>"
 
         // Arity is exact and the name table is case-sensitive.
         assert funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("List", ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.Int)))
-            == null
+            new GenericTypeInfo("List", ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.Int))
+        ) == null
         assert funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("Dictionary", ClrConversionArgs(BuiltInTypes.Int))) == null
+            new GenericTypeInfo("Dictionary", ClrConversionArgs(BuiltInTypes.Int))
+        ) == null
         assert funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("list", ClrConversionArgs(BuiltInTypes.Int))) == null
+            new GenericTypeInfo("list", ClrConversionArgs(BuiltInTypes.Int))
+        ) == null
         assert funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("NotAKnownName", ClrConversionArgs(BuiltInTypes.Int))) == null
+            new GenericTypeInfo("NotAKnownName", ClrConversionArgs(BuiltInTypes.Int))
+        ) == null
 
         // An unconvertible type argument declines the whole construction.
         assert funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("List", ClrConversionArgs(new SimpleTypeInfo("NoSuchBuiltIn"))))
-            == null
+            new GenericTypeInfo("List", ClrConversionArgs(new SimpleTypeInfo("NoSuchBuiltIn")))
+        ) == null
     } finally {
         scan.Dispose()
     }
@@ -302,26 +319,29 @@ test "a carried generic definition overrides the table and is normalized to an o
         closed := new ReflectionTypeInfo(typeof(List<string>)) as TypeInfo
         runtimeInt := new ReflectionTypeInfo(typeof(int)) as TypeInfo
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("NotAKnownName", ClrConversionArgs(runtimeInt), closed)))
-            == "System.Collections.Generic.List`1<System.Int32>"
+            new GenericTypeInfo("NotAKnownName", ClrConversionArgs(runtimeInt), closed)
+        )) == "System.Collections.Generic.List`1<System.Int32>"
 
         // A non-generic definition is not a definition at all.
         nonGeneric := new ReflectionTypeInfo(typeof(string)) as TypeInfo
         assert funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("List", ClrConversionArgs(BuiltInTypes.Int), nonGeneric)) == null
+            new GenericTypeInfo("List", ClrConversionArgs(BuiltInTypes.Int), nonGeneric)
+        ) == null
 
         // A carried definition that is not a ReflectionTypeInfo suppresses the table lookup and
         // leaves nothing behind: a present-but-unusable definition is NOT a fallback to the table.
         assert funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("List", ClrConversionArgs(BuiltInTypes.Int), BuiltInTypes.Int))
-            == null
+            new GenericTypeInfo("List", ClrConversionArgs(BuiltInTypes.Int), BuiltInTypes.Int)
+        ) == null
 
         // The carried definition's arity still has to match the written argument list.
         assert funnel.TryConvertTypeInfoToClrType(
             new GenericTypeInfo(
                 "NotAKnownName",
                 ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.Int),
-                closed)) == null
+                closed
+            )
+        ) == null
     } finally {
         scan.Dispose()
     }
@@ -354,7 +374,9 @@ test "a mixed-context construction re-homes through the table or answers nothing
             new GenericTypeInfo(
                 "ValueTask",
                 ClrConversionArgs(BuiltInTypes.Int),
-                new ReflectionTypeInfo(wrapDefinition)))
+                new ReflectionTypeInfo(wrapDefinition)
+            )
+        )
         assert rehomed != null
         assert ClrGenericShape(rehomed) == "System.Threading.Tasks.ValueTask`1<System.Int32>"
         assert rehomed.GetGenericTypeDefinition() == metadataValueTaskDefinition
@@ -366,7 +388,9 @@ test "a mixed-context construction re-homes through the table or answers nothing
             new GenericTypeInfo(
                 "NotAKnownName",
                 ClrConversionArgs(BuiltInTypes.Int),
-                new ReflectionTypeInfo(wrapDefinition))) == null
+                new ReflectionTypeInfo(wrapDefinition)
+            )
+        ) == null
 
         // Arguments that disagree AMONG THEMSELVES cannot cohere in any context.
         metadataString := core.GetType("System.String")
@@ -376,7 +400,10 @@ test "a mixed-context construction re-homes through the table or answers nothing
                 "Dictionary",
                 ClrConversionArgs2(
                     new ReflectionTypeInfo(typeof(string)),
-                    new ReflectionTypeInfo(metadataString)))) == null
+                    new ReflectionTypeInfo(metadataString)
+                )
+            )
+        ) == null
     } finally {
         scan.Dispose()
     }
@@ -397,26 +424,31 @@ test "JsonTypeInfo is the one generic whose type argument may be a surrogate" {
         // The exception: an N#-declared argument is accepted THROUGH the surrogate conversion, in
         // both spellings the analyzer may carry for the name.
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("JsonTypeInfo", ClrConversionArgs(widget))))
-            == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1<System.Object>"
+            new GenericTypeInfo("JsonTypeInfo", ClrConversionArgs(widget))
+        )) == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1<System.Object>"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
             new GenericTypeInfo(
                 "System.Text.Json.Serialization.Metadata.JsonTypeInfo",
-                ClrConversionArgs(widget))))
-            == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1<System.Object>"
+                ClrConversionArgs(widget)
+            )
+        )) == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1<System.Object>"
 
         // The rule is JsonTypeInfo's alone: every other compiler-known generic declines.
         assert funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("List", ClrConversionArgs(widget))) == null
+            new GenericTypeInfo("List", ClrConversionArgs(widget))
+        ) == null
         assert funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("Task", ClrConversionArgs(widget))) == null
+            new GenericTypeInfo("Task", ClrConversionArgs(widget))
+        ) == null
 
         // And it is not a licence to accept ANY unconvertible argument — a stranger simple name has
         // no surrogate either.
         assert funnel.TryConvertTypeInfoToClrType(
             new GenericTypeInfo(
                 "JsonTypeInfo",
-                ClrConversionArgs(new SimpleTypeInfo("NoSuchBuiltIn")))) == null
+                ClrConversionArgs(new SimpleTypeInfo("NoSuchBuiltIn"))
+            )
+        ) == null
     } finally {
         scan.Dispose()
     }
@@ -432,34 +464,39 @@ test "function types reify as Action or Func across every supported arity and de
 
         // A void return picks Action; the parameterless case is the non-generic Action.
         assert ClrTypeName(funnel.TryConstructDelegateType(
-            ClrConversionVoidFunction(0))) == "System.Action"
+            ClrConversionVoidFunction(0)
+        )) == "System.Action"
         assert ClrGenericShape(funnel.TryConstructDelegateType(
-            ClrConversionVoidFunction(1))) == "System.Action`1<System.Int32>"
+            ClrConversionVoidFunction(1)
+        )) == "System.Action`1<System.Int32>"
         assert ClrGenericShape(funnel.TryConstructDelegateType(
-            ClrConversionVoidFunction(4)))
-            == "System.Action`4<System.Int32,System.Int32,System.Int32,System.Int32>"
+            ClrConversionVoidFunction(4)
+        )) == "System.Action`4<System.Int32,System.Int32,System.Int32,System.Int32>"
         assert funnel.TryConstructDelegateType(ClrConversionVoidFunction(5)) == null
 
         // Everything else picks Func, whose arguments are the parameters THEN the return type.
         assert ClrGenericShape(funnel.TryConstructDelegateType(
-            ClrConversionValueFunction(0))) == "System.Func`1<System.String>"
+            ClrConversionValueFunction(0)
+        )) == "System.Func`1<System.String>"
         assert ClrGenericShape(funnel.TryConstructDelegateType(
-            ClrConversionValueFunction(1))) == "System.Func`2<System.Int32,System.String>"
+            ClrConversionValueFunction(1)
+        )) == "System.Func`2<System.Int32,System.String>"
         assert ClrGenericShape(funnel.TryConstructDelegateType(
-            ClrConversionValueFunction(4)))
-            == "System.Func`5<System.Int32,System.Int32,System.Int32,System.Int32,System.String>"
+            ClrConversionValueFunction(4)
+        )) == "System.Func`5<System.Int32,System.Int32,System.Int32,System.Int32,System.String>"
         assert funnel.TryConstructDelegateType(ClrConversionValueFunction(5)) == null
 
         // The type-shaped entry point routes a FunctionTypeInfo to exactly the same answer.
-        assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(ClrConversionValueFunction(1)))
-            == "System.Func`2<System.Int32,System.String>"
+        assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(ClrConversionValueFunction(1))) == "System.Func`2<System.Int32,System.String>"
 
         // A missing half of the signature, or an unconvertible position, declines.
         assert funnel.TryConstructDelegateType(
-            ClrConversionFunction(null, new List<TypeInfo>())) == null
+            ClrConversionFunction(null, new List<TypeInfo>())
+        ) == null
         assert funnel.TryConstructDelegateType(ClrConversionFunction(
             BuiltInTypes.Int,
-            ClrConversionArgs(new SimpleTypeInfo("NoSuchBuiltIn")))) == null
+            ClrConversionArgs(new SimpleTypeInfo("NoSuchBuiltIn"))
+        )) == null
     } finally {
         scan.Dispose()
     }
@@ -477,16 +514,20 @@ test "an anonymous union reifies at arity two and at no other arity" {
         // absent and every arity answers null — including the arity that WOULD construct. That is
         // the contract: a project that does not reference the runtime never constructs one.
         assert funnel.TryConvertTypeInfoToClrType(new AnonymousUnionTypeInfo(
-            ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.String))) == null
+            ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.String)
+        )) == null
         assert funnel.TryConvertTypeInfoToClrType(new AnonymousUnionTypeInfo(
-            ClrConversionArgs(BuiltInTypes.Int))) == null
+            ClrConversionArgs(BuiltInTypes.Int)
+        )) == null
         assert funnel.TryConvertTypeInfoToClrType(
-            new AnonymousUnionTypeInfo(new List<TypeInfo>())) == null
+            new AnonymousUnionTypeInfo(new List<TypeInfo>())
+        ) == null
 
         // The surrogate conversion does not invent one either: an anonymous union is not one of the
         // families that gets an `object` surrogate.
         assert funnel.TryConvertTypeInfoToClrTypeForBinding(new AnonymousUnionTypeInfo(
-            ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.String))) == null
+            ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.String)
+        )) == null
     } finally {
         scan.Dispose()
     }
@@ -510,8 +551,7 @@ test "the surrogate conversion substitutes object for every declared family and 
 
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(recordType)) == "System.Object"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(structType)) == "System.Object"
-        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(interfaceType))
-            == "System.Object"
+        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(interfaceType)) == "System.Object"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(enumType)) == "System.Object"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(unionType)) == "System.Object"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(distinct)) == "System.Object"
@@ -523,25 +563,28 @@ test "the surrogate conversion substitutes object for every declared family and 
 
         // Shells are rebuilt around the surrogate.
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new ArrayTypeInfo(recordType))) == "System.Object[]"
+            new ArrayTypeInfo(recordType)
+        )) == "System.Object[]"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new NullableTypeInfo(recordType))) == "System.Object"
+            new NullableTypeInfo(recordType)
+        )) == "System.Object"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new GenericTypeInfo("List", ClrConversionArgs(recordType))))
-            == "System.Collections.Generic.List`1<System.Object>"
+            new GenericTypeInfo("List", ClrConversionArgs(recordType))
+        )) == "System.Collections.Generic.List`1<System.Object>"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new GenericTypeInfo("Dictionary", ClrConversionArgs2(BuiltInTypes.String, recordType))))
-            == "System.Collections.Generic.Dictionary`2<System.String,System.Object>"
+            new GenericTypeInfo("Dictionary", ClrConversionArgs2(BuiltInTypes.String, recordType))
+        )) == "System.Collections.Generic.Dictionary`2<System.String,System.Object>"
 
         // A convertible value still takes the exact answer: the surrogate is a fallback, not a rule.
-        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(BuiltInTypes.Int))
-            == "System.Int32"
+        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(BuiltInTypes.Int)) == "System.Int32"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new NullableTypeInfo(BuiltInTypes.Int))) == "System.Nullable`1<System.Int32>"
+            new NullableTypeInfo(BuiltInTypes.Int)
+        )) == "System.Nullable`1<System.Int32>"
 
         // And a shape with no surrogate of its own stays unconvertible.
         assert funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new SimpleTypeInfo("NoSuchBuiltIn")) == null
+            new SimpleTypeInfo("NoSuchBuiltIn")
+        ) == null
         assert funnel.TryConvertTypeInfoToClrTypeForBinding(BuiltInTypes.Unknown) == null
     } finally {
         scan.Dispose()
@@ -556,34 +599,39 @@ test "the surrogate generic vocabulary is strictly smaller than the exact one" {
         facts := ClrConversionFacts(context)
         funnel := new AnalyzerClrTypeConversion(
             ClrConversionContext("/tmp/clr-vocabulary.nl"),
-            facts)
+            facts
+        )
 
         recordType := ClrConversionRecord("Point") as TypeInfo
 
         // In the shared vocabulary a declared type argument becomes `object`.
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new GenericTypeInfo("Task", ClrConversionArgs(recordType))))
-            == "System.Threading.Tasks.Task`1<System.Object>"
+            new GenericTypeInfo("Task", ClrConversionArgs(recordType))
+        )) == "System.Threading.Tasks.Task`1<System.Object>"
 
         // `Result` and the qualified spellings are deliberately NOT in the surrogate table: a
         // reconstructed `Result<object,object>` would name a type the program never wrote.
         assert funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new GenericTypeInfo("Result", ClrConversionArgs2(recordType, BuiltInTypes.String))) == null
+            new GenericTypeInfo("Result", ClrConversionArgs2(recordType, BuiltInTypes.String))
+        ) == null
         assert funnel.TryConvertTypeInfoToClrTypeForBinding(
             new GenericTypeInfo(
                 "NSharpLang.Runtime.Result",
-                ClrConversionArgs2(recordType, BuiltInTypes.String))) == null
+                ClrConversionArgs2(recordType, BuiltInTypes.String)
+            )
+        ) == null
         // JsonTypeInfo is absent from the surrogate table too — but it never needs it, because the
         // EXACT conversion already accepts a surrogate argument for that one name. Both spellings
         // therefore answer, and the answer comes from the exact path, not from this vocabulary.
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new GenericTypeInfo("JsonTypeInfo", ClrConversionArgs(recordType))))
-            == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1<System.Object>"
+            new GenericTypeInfo("JsonTypeInfo", ClrConversionArgs(recordType))
+        )) == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1<System.Object>"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(
             new GenericTypeInfo(
                 "System.Text.Json.Serialization.Metadata.JsonTypeInfo",
-                ClrConversionArgs(recordType))))
-            == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1<System.Object>"
+                ClrConversionArgs(recordType)
+            )
+        )) == "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1<System.Object>"
     } finally {
         scan.Dispose()
     }
@@ -605,27 +653,33 @@ test "a declared alias is resolved at every position the funnel descends through
 
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(alias)) == "System.Int32"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(
-            new ArrayTypeInfo(alias))) == "System.Int32[]"
+            new ArrayTypeInfo(alias)
+        )) == "System.Int32[]"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(
-            new ArrayTypeInfo(new ArrayTypeInfo(alias)))) == "System.Int32[][]"
+            new ArrayTypeInfo(new ArrayTypeInfo(alias))
+        )) == "System.Int32[][]"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
-            new NullableTypeInfo(alias))) == "System.Nullable`1<System.Int32>"
+            new NullableTypeInfo(alias)
+        )) == "System.Nullable`1<System.Int32>"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrType(
-            new ObliviousTypeInfo(alias))) == "System.Int32"
+            new ObliviousTypeInfo(alias)
+        )) == "System.Int32"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
-            new GenericTypeInfo("List", ClrConversionArgs(alias))))
-            == "System.Collections.Generic.List`1<System.Int32>"
+            new GenericTypeInfo("List", ClrConversionArgs(alias))
+        )) == "System.Collections.Generic.List`1<System.Int32>"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
             new GenericTypeInfo(
                 "List",
-                ClrConversionArgs(new GenericTypeInfo("List", ClrConversionArgs(alias))))))
-            == "System.Collections.Generic.List`1<System.Collections.Generic.List`1<System.Int32>>"
+                ClrConversionArgs(new GenericTypeInfo("List", ClrConversionArgs(alias)))
+            )
+        )) == "System.Collections.Generic.List`1<System.Collections.Generic.List`1<System.Int32>>"
         assert ClrGenericShape(funnel.TryConstructDelegateType(ClrConversionFunction(
             alias,
-            ClrConversionArgs(alias)))) == "System.Func`2<System.Int32,System.Int32>"
+            ClrConversionArgs(alias)
+        ))) == "System.Func`2<System.Int32,System.Int32>"
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(
-            new GenericTypeInfo("List", ClrConversionArgs(alias))))
-            == "System.Collections.Generic.List`1<System.Int32>"
+            new GenericTypeInfo("List", ClrConversionArgs(alias))
+        )) == "System.Collections.Generic.List`1<System.Int32>"
 
         // An alias this context does not own is transparent, so it converts to nothing rather than
         // to the type its reference happens to name.
@@ -647,15 +701,18 @@ test "without well-known-type facts the funnel answers runtime types and descend
     assert funnel.TryConvertTypeInfoToClrType(BuiltInTypes.String) == typeof(string)
     assert funnel.TryConvertTypeInfoToClrType(new ArrayTypeInfo(BuiltInTypes.Int)) == typeof(int[])
     assert ClrGenericShape(funnel.TryConvertTypeInfoToClrType(
-        new NullableTypeInfo(BuiltInTypes.Int))) == "System.Nullable`1<System.Int32>"
+        new NullableTypeInfo(BuiltInTypes.Int)
+    )) == "System.Nullable`1<System.Int32>"
     assert funnel.TryConvertTypeInfoToClrType(new NullableTypeInfo(BuiltInTypes.String)) == null
 
     // Generics, functions and unions all need the metadata facts and answer nothing without them.
     assert funnel.TryConvertTypeInfoToClrType(
-        new GenericTypeInfo("List", ClrConversionArgs(BuiltInTypes.Int))) == null
+        new GenericTypeInfo("List", ClrConversionArgs(BuiltInTypes.Int))
+    ) == null
     assert funnel.TryConstructDelegateType(ClrConversionValueFunction(1)) == null
     assert funnel.TryConvertTypeInfoToClrType(new AnonymousUnionTypeInfo(
-        ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.String))) == null
+        ClrConversionArgs2(BuiltInTypes.Int, BuiltInTypes.String)
+    )) == null
 
     // The surrogate conversion has no `object` to hand out, so it is the exact answer or nothing.
     assert funnel.TryConvertTypeInfoToClrTypeForBinding(BuiltInTypes.Int) == typeof(int)

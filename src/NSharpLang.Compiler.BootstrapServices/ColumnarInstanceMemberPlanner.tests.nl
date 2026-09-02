@@ -272,7 +272,8 @@ test "instance member planner maps open and closed multilevel generic base field
     baseBuilder := TypeOfCreateBuilder(
         "InstanceMappedBase",
         "ColumnarInstanceMemberTests.InstanceMappedBase",
-        2)
+        2
+    )
     baseType: Type = baseBuilder
     baseDefinition := new ColumnarStructDef(
         baseBuilder,
@@ -281,11 +282,15 @@ test "instance member planner maps open and closed multilevel generic base field
         true,
         false,
         false,
-        "InstanceMappedBase")
+        "InstanceMappedBase"
+    )
     baseArguments := baseBuilder.GetGenericArguments()
     assert baseArguments.Length == 2
     fixedField := ConstructionDefinePublicField(
-        baseBuilder, "Fixed", baseArguments[0])
+        baseBuilder,
+        "Fixed",
+        baseArguments[0]
+    )
     baseDefinition.Fields["Fixed"] = fixedField
     reorderedProperty := ColumnarPropertyDef.Define(
         baseBuilder,
@@ -293,13 +298,15 @@ test "instance member planner maps open and closed multilevel generic base field
         (MethodAttributes)646,
         baseArguments[1],
         "set_Reordered",
-        (MethodAttributes)646)
+        (MethodAttributes)646
+    )
     baseDefinition.Properties["Reordered"] = reorderedProperty
 
     middleBuilder := TypeOfCreateBuilder(
         "InstanceMappedMiddle",
         "ColumnarInstanceMemberTests.InstanceMappedMiddle",
-        1)
+        1
+    )
     middleType: Type = middleBuilder
     middleDefinition := new ColumnarStructDef(
         middleBuilder,
@@ -308,7 +315,8 @@ test "instance member planner maps open and closed multilevel generic base field
         true,
         false,
         false,
-        "InstanceMappedMiddle")
+        "InstanceMappedMiddle"
+    )
     middleArguments := middleBuilder.GetGenericArguments()
     assert middleArguments.Length == 1
     openBaseArguments := new Type[](2)
@@ -322,7 +330,8 @@ test "instance member planner maps open and closed multilevel generic base field
     derivedBuilder := TypeOfCreateBuilder(
         "InstanceMappedDerived",
         "ColumnarInstanceMemberTests.InstanceMappedDerived",
-        2)
+        2
+    )
     derivedType: Type = derivedBuilder
     derivedDefinition := new ColumnarStructDef(
         derivedBuilder,
@@ -331,7 +340,8 @@ test "instance member planner maps open and closed multilevel generic base field
         true,
         false,
         false,
-        "InstanceMappedDerived")
+        "InstanceMappedDerived"
+    )
     derivedArguments := derivedBuilder.GetGenericArguments()
     assert derivedArguments.Length == 2
     openMiddleArguments := new Type[](1)
@@ -350,27 +360,43 @@ test "instance member planner maps open and closed multilevel generic base field
     openBindings := ColumnarRangePlannerEmptyBindings()
     openBindings.SourceTypeDefinitions = definitions
     ColumnarRangePlannerAddParameter(
-        openBindings, "item", 0, openDerived)
+        openBindings,
+        "item",
+        0,
+        openDerived
+    )
     expectedOpenBaseArguments := new Type[](2)
     expectedOpenBaseArguments[0] = typeof(string)
     expectedOpenBaseArguments[1] = derivedArguments[1]
     expectedOpenBase := baseType.MakeGenericType(expectedOpenBaseArguments)
 
     openField := InstanceMemberPlan(
-        InstanceMemberTree("item", "Fixed"), openBindings)
+        InstanceMemberTree("item", "Fixed"),
+        openBindings
+    )
     assert openField.ResultType == typeof(string)
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        openField.FieldDeclaringTypes[0], expectedOpenBase)
+        openField.FieldDeclaringTypes[0],
+        expectedOpenBase
+    )
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        openField.Fields[0].get_DeclaringType(), expectedOpenBase)
+        openField.Fields[0].get_DeclaringType(),
+        expectedOpenBase
+    )
 
     openProperty := InstanceMemberPlan(
-        InstanceMemberTree("item", "Reordered"), openBindings)
+        InstanceMemberTree("item", "Reordered"),
+        openBindings
+    )
     assert openProperty.ResultType == derivedArguments[1]
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        openProperty.MethodDeclaringTypes[0], expectedOpenBase)
+        openProperty.MethodDeclaringTypes[0],
+        expectedOpenBase
+    )
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        openProperty.Methods[0].get_DeclaringType(), expectedOpenBase)
+        openProperty.Methods[0].get_DeclaringType(),
+        expectedOpenBase
+    )
 
     closedDerivedArguments := new Type[](2)
     closedDerivedArguments[0] = typeof(int)
@@ -379,32 +405,49 @@ test "instance member planner maps open and closed multilevel generic base field
     closedBindings := ColumnarRangePlannerEmptyBindings()
     closedBindings.SourceTypeDefinitions = definitions
     ColumnarRangePlannerAddParameter(
-        closedBindings, "item", 0, closedDerived)
+        closedBindings,
+        "item",
+        0,
+        closedDerived
+    )
     closedBaseArguments := new Type[](2)
     closedBaseArguments[0] = typeof(string)
     closedBaseArguments[1] = typeof(long)
     closedBase := baseType.MakeGenericType(closedBaseArguments)
 
     closedField := InstanceMemberPlan(
-        InstanceMemberTree("item", "Fixed"), closedBindings)
+        InstanceMemberTree("item", "Fixed"),
+        closedBindings
+    )
     assert closedField.ResultType == typeof(string)
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        closedField.FieldDeclaringTypes[0], closedBase)
+        closedField.FieldDeclaringTypes[0],
+        closedBase
+    )
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        closedField.Fields[0].get_DeclaringType(), closedBase)
+        closedField.Fields[0].get_DeclaringType(),
+        closedBase
+    )
 
     closedProperty := InstanceMemberPlan(
-        InstanceMemberTree("item", "Reordered"), closedBindings)
+        InstanceMemberTree("item", "Reordered"),
+        closedBindings
+    )
     assert closedProperty.ResultType == typeof(long)
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        closedProperty.MethodDeclaringTypes[0], closedBase)
+        closedProperty.MethodDeclaringTypes[0],
+        closedBase
+    )
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        closedProperty.Methods[0].get_DeclaringType(), closedBase)
+        closedProperty.Methods[0].get_DeclaringType(),
+        closedBase
+    )
 
     leafBuilder := TypeOfCreateBuilder(
         "InstanceMappedLeaf",
         "ColumnarInstanceMemberTests.InstanceMappedLeaf",
-        0)
+        0
+    )
     leafType: Type = leafBuilder
     ConstructionSetParent(leafBuilder, closedBase)
     leafDefinition := new ColumnarStructDef(
@@ -414,7 +457,8 @@ test "instance member planner maps open and closed multilevel generic base field
         true,
         false,
         false,
-        "InstanceMappedLeaf")
+        "InstanceMappedLeaf"
+    )
     leafDefinition.BaseDef = baseDefinition
     leafDefinition.ExactBaseType = closedBase
     leafDefinitions := new ColumnarStructDef[](2)
@@ -423,29 +467,46 @@ test "instance member planner maps open and closed multilevel generic base field
     leafBindings := ColumnarRangePlannerEmptyBindings()
     leafBindings.SourceTypeDefinitions = leafDefinitions
     ColumnarRangePlannerAddParameter(
-        leafBindings, "item", 0, leafType)
+        leafBindings,
+        "item",
+        0,
+        leafType
+    )
 
     leafField := InstanceMemberPlan(
-        InstanceMemberTree("item", "Fixed"), leafBindings)
+        InstanceMemberTree("item", "Fixed"),
+        leafBindings
+    )
     assert leafField.ResultType == typeof(string)
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        leafField.FieldDeclaringTypes[0], closedBase)
+        leafField.FieldDeclaringTypes[0],
+        closedBase
+    )
 
     leafProperty := InstanceMemberPlan(
-        InstanceMemberTree("item", "Reordered"), leafBindings)
+        InstanceMemberTree("item", "Reordered"),
+        leafBindings
+    )
     assert leafProperty.ResultType == typeof(long)
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        leafProperty.MethodDeclaringTypes[0], closedBase)
+        leafProperty.MethodDeclaringTypes[0],
+        closedBase
+    )
 
     assert !ColumnarInstanceMemberPlanner.ExactTypeOwnsDefinition(
-        middleType, middleDefinition)
+        middleType,
+        middleDefinition
+    )
     assert ColumnarInstanceMemberPlanner.ExactTypeOwnsDefinition(
-        openMiddle, middleDefinition)
+        openMiddle,
+        middleDefinition
+    )
 
     rawBuilder := TypeOfCreateBuilder(
         "InstanceRawBaseLeaf",
         "ColumnarInstanceMemberTests.InstanceRawBaseLeaf",
-        0)
+        0
+    )
     rawType: Type = rawBuilder
     ConstructionSetParent(rawBuilder, middleType)
     rawDefinition := new ColumnarStructDef(
@@ -455,7 +516,8 @@ test "instance member planner maps open and closed multilevel generic base field
         true,
         false,
         false,
-        "InstanceRawBaseLeaf")
+        "InstanceRawBaseLeaf"
+    )
     rawDefinition.BaseDef = middleDefinition
     rawDefinition.ExactBaseType = middleType
     rawDefinitions := new ColumnarStructDef[](3)
@@ -465,7 +527,11 @@ test "instance member planner maps open and closed multilevel generic base field
     rawBindings := ColumnarRangePlannerEmptyBindings()
     rawBindings.SourceTypeDefinitions = rawDefinitions
     ColumnarRangePlannerAddParameter(
-        rawBindings, "item", 0, rawType)
+        rawBindings,
+        "item",
+        0,
+        rawType
+    )
     rawTree := InstanceMemberTree("item", "Fixed")
     rawPlan := new ColumnarCodePlan()
     assert throws InvalidOperationException {
@@ -474,14 +540,14 @@ test "instance member planner maps open and closed multilevel generic base field
             rawTree.Source,
             rawTree.Root,
             rawBindings,
-            rawPlan)
+            rawPlan
+        )
     }
     ColumnarRangePlannerAssertEmptyRollback(rawPlan)
 
     mismatchedMiddleArguments := new Type[](1)
     mismatchedMiddleArguments[0] = derivedArguments[0]
-    derivedDefinition.ExactBaseType =
-        middleType.MakeGenericType(mismatchedMiddleArguments)
+    derivedDefinition.ExactBaseType = middleType.MakeGenericType(mismatchedMiddleArguments)
     corruptPlan := new ColumnarCodePlan()
     corruptTree := InstanceMemberTree("item", "Fixed")
     assert throws InvalidOperationException {
@@ -490,13 +556,17 @@ test "instance member planner maps open and closed multilevel generic base field
             corruptTree.Source,
             corruptTree.Root,
             closedBindings,
-            corruptPlan)
+            corruptPlan
+        )
     }
     ColumnarRangePlannerAssertEmptyRollback(corruptPlan)
     derivedDefinition.ExactBaseType = openMiddle
 
     shadowField := ConstructionDefinePublicField(
-        derivedBuilder, "Fixed", typeof(int))
+        derivedBuilder,
+        "Fixed",
+        typeof(int)
+    )
     derivedDefinition.Fields["Fixed"] = shadowField
     shadowTree := InstanceMemberTree("item", "Fixed")
     shadowPlan := new ColumnarCodePlan()
@@ -506,7 +576,8 @@ test "instance member planner maps open and closed multilevel generic base field
             shadowTree.Source,
             shadowTree.Root,
             closedBindings,
-            shadowPlan)
+            shadowPlan
+        )
     }
     ColumnarRangePlannerAssertEmptyRollback(shadowPlan)
 }

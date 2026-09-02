@@ -42,7 +42,6 @@ import NSharpLang.Compiler.Ast
 // (4) `HasDistinctParameterSignature` IS THE NEGATION OF "MATCHES ANY", NOT OF "MATCHES ALL". It
 // walks the whole existing set and answers false on the FIRST match, so one collision anywhere in
 // the set is enough.
-
 func SigFactsNoRefs(): List<TypeReference> {
     return new List<TypeReference>()
 }
@@ -123,18 +122,24 @@ test "overload signature facts render nested type reference signatures" {
         "Dictionary",
         SigFactsRefs2(
             new SimpleTypeReference("string"),
-            new ArrayTypeReference(new NullableTypeReference(new SimpleTypeReference("int")))))
+            new ArrayTypeReference(new NullableTypeReference(new SimpleTypeReference("int")))
+        )
+    )
 
     tupled := new TupleTypeReference(
         SigFactsTuples2(
             new TupleTypeElement(new SimpleTypeReference("string"), "name"),
-            new TupleTypeElement(new ByRefTypeReference(new SimpleTypeReference("int")), null)))
+            new TupleTypeElement(new ByRefTypeReference(new SimpleTypeReference("int")), null)
+        )
+    )
 
     signature := new FunctionTypeReference(
         SigFactsRefs2(
             new SimpleTypeReference("int"),
-            new UnionTypeReference(SigFactsRefs2(new SimpleTypeReference("string"), new SimpleTypeReference("null")))),
-        new SimpleTypeReference("bool"))
+            new UnionTypeReference(SigFactsRefs2(new SimpleTypeReference("string"), new SimpleTypeReference("null")))
+        ),
+        new SimpleTypeReference("bool")
+    )
 
     assert AnalyzerOverloadSignatureFacts.GetParameterTypeSignature(nested) == "Dictionary<string,int?[]>"
     assert AnalyzerOverloadSignatureFacts.GetParameterTypeSignature(tupled) == "(string,&int)"
@@ -170,11 +175,15 @@ test "overload signature facts drop tuple element names" {
     named := new TupleTypeReference(
         SigFactsTuples2(
             new TupleTypeElement(new SimpleTypeReference("string"), "first"),
-            new TupleTypeElement(new SimpleTypeReference("int"), "second")))
+            new TupleTypeElement(new SimpleTypeReference("int"), "second")
+        )
+    )
     unnamed := new TupleTypeReference(
         SigFactsTuples2(
             new TupleTypeElement(new SimpleTypeReference("string"), null),
-            new TupleTypeElement(new SimpleTypeReference("int"), null)))
+            new TupleTypeElement(new SimpleTypeReference("int"), null)
+        )
+    )
 
     assert AnalyzerOverloadSignatureFacts.GetParameterTypeSignature(named) == "(string,int)"
     assert AnalyzerOverloadSignatureFacts.GetParameterTypeSignature(unnamed) == "(string,int)"
@@ -188,13 +197,16 @@ test "overload signature facts drop tuple element names" {
 test "overload signature facts compare source parameter signatures" {
     first := SigFactsFunctionWith2(
         new SimpleTypeReference("int"),
-        new GenericTypeReference("List", SigFactsRefs1(new ArrayTypeReference(new SimpleTypeReference("string")))))
+        new GenericTypeReference("List", SigFactsRefs1(new ArrayTypeReference(new SimpleTypeReference("string"))))
+    )
     same := SigFactsFunctionWith2(
         new SimpleTypeReference("int"),
-        new GenericTypeReference("List", SigFactsRefs1(new ArrayTypeReference(new SimpleTypeReference("string")))))
+        new GenericTypeReference("List", SigFactsRefs1(new ArrayTypeReference(new SimpleTypeReference("string"))))
+    )
     different := SigFactsFunctionWith2(
         new SimpleTypeReference("int"),
-        new GenericTypeReference("List", SigFactsRefs1(new ArrayTypeReference(new SimpleTypeReference("bool")))))
+        new GenericTypeReference("List", SigFactsRefs1(new ArrayTypeReference(new SimpleTypeReference("bool"))))
+    )
 
     assert AnalyzerOverloadSignatureFacts.HasSourceParameterSignature(first)
     assert !AnalyzerOverloadSignatureFacts.HasSourceParameterSignature(new FunctionTypeInfo())

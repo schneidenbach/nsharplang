@@ -37,7 +37,6 @@ import NSharpLang.Compiler
 // `alloc(none)` caller passes the gate and still hears nothing. That is the original's behaviour.
 //
 // (9) EVERY RECORD THIS OWNER RETURNS SATISFIES `AotSafe == !UsesDynamicCode && !UsesReflection`.
-
 func ShpConfig(profile: string, mode: string, allowSidecars: bool, warmup: bool, aotTarget: string): ProjectConfig {
     config := ProjectFileParser.CreateDefault("hot-summary-contract")
     language := config.Language

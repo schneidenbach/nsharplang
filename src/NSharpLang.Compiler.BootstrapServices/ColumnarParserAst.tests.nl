@@ -43,11 +43,11 @@ import NSharpLang.Compiler.Ast
 // type's Members). Functions/properties/methods/constructors, statements, expressions, initializers, richer
 // type-references, parameters, type-params, base-types, modifiers, and attributes are later tranches, so the
 // corpus stays within the covered shapes (plain fields + nested types).
+class AstEq {
 
-public class AstEq {
     // Recursively compare two AST node instances. Returns "" when structurally equal, else a
     // path + mismatch string that points an assert at the exact divergent field.
-    public static func Diff(expected: object?, actual: object?, path: string): string {
+    static func Diff(expected: object?, actual: object?, path: string): string {
         if expected == null && actual == null {
             return ""
         }
@@ -633,8 +633,8 @@ func NoFileImports(): List<Statement> {
 // Golden-tree builders as static methods on a class. Each Add* constructs its node in `.Add(...)`
 // argument position and returns void, mirroring the owner's own construction sites, so no user AST node
 // is bound to a local/return slot.
-public class Golden {
-    public static func Unit(ns: NamespaceDeclaration?, imports: List<ImportDirective>, fileImports: List<Statement>, pkg: PackageDeclaration?, decls: List<Declaration>, line: int, column: int): CompilationUnit {
+class Golden {
+    static func Unit(ns: NamespaceDeclaration?, imports: List<ImportDirective>, fileImports: List<Statement>, pkg: PackageDeclaration?, decls: List<Declaration>, line: int, column: int): CompilationUnit {
         return new CompilationUnit(ns, imports, fileImports, pkg, decls, line, column)
     }
 
@@ -646,23 +646,23 @@ public class Golden {
     // resolves ambiguously and the columnar planner declines. Fully qualifying the type resolves it
     // uniquely — byte-exact, no planner change, no wall. (struct/record/interface/enum have no colliding
     // helper, which is why tranche 1 saw only ClassDeclaration decline.)
-    public static func AddClass(decls: List<Declaration>, name: string, line: int, column: int) {
+    static func AddClass(decls: List<Declaration>, name: string, line: int, column: int) {
         decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, null, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddStruct(decls: List<Declaration>, name: string, line: int, column: int) {
+    static func AddStruct(decls: List<Declaration>, name: string, line: int, column: int) {
         decls.Add(new StructDeclaration(name, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column, false))
     }
 
-    public static func AddInterface(decls: List<Declaration>, name: string, isDuck: bool, line: int, column: int) {
+    static func AddInterface(decls: List<Declaration>, name: string, isDuck: bool, line: int, column: int) {
         decls.Add(new InterfaceDeclaration(name, null, new List<TypeReference>(), new List<Declaration>(), Modifiers.None, isDuck, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddEnum(decls: List<Declaration>, name: string, enumType: EnumType, line: int, column: int) {
+    static func AddEnum(decls: List<Declaration>, name: string, enumType: EnumType, line: int, column: int) {
         decls.Add(new EnumDeclaration(name, new List<EnumMember>(), enumType, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddRecord(decls: List<Declaration>, name: string, isStruct: bool, line: int, column: int) {
+    static func AddRecord(decls: List<Declaration>, name: string, isStruct: bool, line: int, column: int) {
         decls.Add(new RecordDeclaration(name, null, new List<TypeReference>(), new List<Declaration>(), null, isStruct, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
@@ -670,19 +670,19 @@ public class Golden {
     // declaration node (mirroring the owner, where ParseTypeBody returns the parsed member list). The
     // ClassDeclaration/FieldDeclaration names are FULLY QUALIFIED to dodge the tests-enabled simple-name
     // collision with the local test-helper classes in AnalyzerDeclarationContext.tests.nl.
-    public static func AddClassM(decls: List<Declaration>, name: string, members: List<Declaration>, line: int, column: int) {
+    static func AddClassM(decls: List<Declaration>, name: string, members: List<Declaration>, line: int, column: int) {
         decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, null, null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddStructM(decls: List<Declaration>, name: string, members: List<Declaration>, line: int, column: int) {
+    static func AddStructM(decls: List<Declaration>, name: string, members: List<Declaration>, line: int, column: int) {
         decls.Add(new StructDeclaration(name, null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), line, column, false))
     }
 
-    public static func AddInterfaceM(decls: List<Declaration>, name: string, isDuck: bool, members: List<Declaration>, line: int, column: int) {
+    static func AddInterfaceM(decls: List<Declaration>, name: string, isDuck: bool, members: List<Declaration>, line: int, column: int) {
         decls.Add(new InterfaceDeclaration(name, null, new List<TypeReference>(), members, Modifiers.None, isDuck, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddRecordM(decls: List<Declaration>, name: string, isStruct: bool, members: List<Declaration>, line: int, column: int) {
+    static func AddRecordM(decls: List<Declaration>, name: string, isStruct: bool, members: List<Declaration>, line: int, column: int) {
         decls.Add(new RecordDeclaration(name, null, new List<TypeReference>(), members, null, isStruct, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
@@ -690,7 +690,7 @@ public class Golden {
     // byte-exact to Parser.cs :1771 — Type is a single-token SimpleTypeReference whose Span is
     // SpanFromTokens(t,t) ≡ FromStartAndLength(typeLine, typeColumn, typeName.Length); Initializer null;
     // Modifiers.None; PropertyModifier.None; no attributes.
-    public static func AddFieldTo(members: List<Declaration>, name: string, typeName: string, typeLine: int, typeColumn: int, line: int, column: int) {
+    static func AddFieldTo(members: List<Declaration>, name: string, typeName: string, typeLine: int, typeColumn: int, line: int, column: int) {
         simple := new SimpleTypeReference(typeName, typeLine, typeColumn)
         simple.Span = SourceSpan.FromStartAndLength(typeLine, typeColumn, typeName.Length)
         members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, simple, null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
@@ -701,7 +701,7 @@ public class Golden {
     // column, false, null)`). The Type is a single-token SimpleTypeReference whose Span is
     // SpanFromTokens(t,t) ≡ FromStartAndLength(typeLine, typeColumn, typeName.Length) — the same construction
     // as a field type (Parser.cs :1959).
-    public static func AddParam(paramList: List<Parameter>, name: string, typeName: string, typeLine: int, typeColumn: int, line: int, column: int) {
+    static func AddParam(paramList: List<Parameter>, name: string, typeName: string, typeLine: int, typeColumn: int, line: int, column: int) {
         simple := new SimpleTypeReference(typeName, typeLine, typeColumn)
         simple.Span = SourceSpan.FromStartAndLength(typeLine, typeColumn, typeName.Length)
         paramList.Add(new Parameter(name, simple, null, false, ParameterModifier.None, null, line, column, false, null))
@@ -713,11 +713,11 @@ public class Golden {
     // [startLine, startColumn .. startLine, endColumn] is FromStartAndLength(startLine, startColumn, endColumn -
     // startColumn) (byte-identical to Parser.cs SpanFromTokens/ExtendSpan on one line). Passing the ORACLE's
     // endColumn (not re-deriving it) keeps golden == Parser.cs, so owner == golden proves owner == Parser.cs.
-    public static func SpanOf(startLine: int, startColumn: int, endColumn: int): SourceSpan {
+    static func SpanOf(startLine: int, startColumn: int, endColumn: int): SourceSpan {
         return SourceSpan.FromStartAndLength(startLine, startColumn, endColumn - startColumn)
     }
 
-    public static func SimpleT(name: string, line: int, column: int, endColumn: int): TypeReference {
+    static func SimpleT(name: string, line: int, column: int, endColumn: int): TypeReference {
         node := new SimpleTypeReference(name, line, column)
         node.Span = Golden.SpanOf(line, column, endColumn)
         return node
@@ -726,113 +726,113 @@ public class Golden {
     // A SimpleTypeReference whose Span start differs from its Line/Column — the single-unnamed-tuple unwrap
     // `(int)`, where Parser.cs resets the inner type's Span to the whole parenthesized extent but leaves
     // Line/Column on the inner name token (Parser.cs :1990).
-    public static func SimpleTSpan(name: string, line: int, column: int, spanStartColumn: int, spanEndColumn: int): TypeReference {
+    static func SimpleTSpan(name: string, line: int, column: int, spanStartColumn: int, spanEndColumn: int): TypeReference {
         node := new SimpleTypeReference(name, line, column)
         node.Span = Golden.SpanOf(line, spanStartColumn, spanEndColumn)
         return node
     }
 
-    public static func GenericT(name: string, args: List<TypeReference>, line: int, column: int, endColumn: int): TypeReference {
+    static func GenericT(name: string, args: List<TypeReference>, line: int, column: int, endColumn: int): TypeReference {
         node := new GenericTypeReference(name, args, line, column)
         node.Span = Golden.SpanOf(line, column, endColumn)
         return node
     }
 
-    public static func ArrayT(element: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
+    static func ArrayT(element: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
         node := new ArrayTypeReference(element)
         node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
         return node
     }
 
-    public static func NullableT(inner: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
+    static func NullableT(inner: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
         node := new NullableTypeReference(inner)
         node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
         return node
     }
 
-    public static func ByRefT(inner: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
+    static func ByRefT(inner: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
         node := new ByRefTypeReference(inner)
         node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
         return node
     }
 
-    public static func UnionT(arms: List<TypeReference>, startLine: int, startColumn: int, endColumn: int): TypeReference {
+    static func UnionT(arms: List<TypeReference>, startLine: int, startColumn: int, endColumn: int): TypeReference {
         node := new UnionTypeReference(arms)
         node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
         return node
     }
 
-    public static func FuncT(paramTypes: List<TypeReference>, returnType: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
+    static func FuncT(paramTypes: List<TypeReference>, returnType: TypeReference, startLine: int, startColumn: int, endColumn: int): TypeReference {
         node := new FunctionTypeReference(paramTypes, returnType)
         node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
         return node
     }
 
-    public static func TupleElem(typeRef: TypeReference, name: string?): TupleTypeElement {
+    static func TupleElem(typeRef: TypeReference, name: string?): TupleTypeElement {
         return new TupleTypeElement(typeRef, name)
     }
 
-    public static func TupleT(elements: List<TupleTypeElement>, startLine: int, startColumn: int, endColumn: int): TypeReference {
+    static func TupleT(elements: List<TupleTypeElement>, startLine: int, startColumn: int, endColumn: int): TypeReference {
         node := new TupleTypeReference(elements)
         node.Span = Golden.SpanOf(startLine, startColumn, endColumn)
         return node
     }
 
     // Append a field / parameter carrying a PRE-BUILT rich type reference (the tranche-5 unlock).
-    public static func AddFieldT(members: List<Declaration>, name: string, fieldType: TypeReference, line: int, column: int) {
+    static func AddFieldT(members: List<Declaration>, name: string, fieldType: TypeReference, line: int, column: int) {
         members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddParamT(paramList: List<Parameter>, name: string, paramType: TypeReference, line: int, column: int) {
+    static func AddParamT(paramList: List<Parameter>, name: string, paramType: TypeReference, line: int, column: int) {
         paramList.Add(new Parameter(name, paramType, null, false, ParameterModifier.None, null, line, column, false, null))
     }
 
     // N+1c tranche 4: a record with a primary-constructor parameter list (empty body, no interfaces/generics,
     // no attributes) — the public-positional-record real-corpus shape. Modifiers is the threaded value.
-    public static func AddRecordParams(decls: List<Declaration>, name: string, paramList: List<Parameter>, modifiers: Modifiers, line: int, column: int) {
+    static func AddRecordParams(decls: List<Declaration>, name: string, paramList: List<Parameter>, modifiers: Modifiers, line: int, column: int) {
         decls.Add(new RecordDeclaration(name, null, new List<TypeReference>(), new List<Declaration>(), paramList, false, modifiers, new List<AttributeNode>(), line, column))
     }
 
     // N+1c tranche 4: a struct with threaded modifiers + attributes, no primary-ctor params (null), empty body.
-    public static func AddStructFull(decls: List<Declaration>, name: string, modifiers: Modifiers, attrs: List<AttributeNode>, line: int, column: int) {
+    static func AddStructFull(decls: List<Declaration>, name: string, modifiers: Modifiers, attrs: List<AttributeNode>, line: int, column: int) {
         decls.Add(new StructDeclaration(name, null, new List<TypeReference>(), new List<Declaration>(), null, modifiers, attrs, line, column, false))
     }
 
     // N+1c tranche 4: a class with threaded modifiers + attributes, no primary-ctor params (null), empty body.
     // FQN'd to dodge the tests-enabled `class ClassDeclaration` test-helper collision.
-    public static func AddClassFull(decls: List<Declaration>, name: string, modifiers: Modifiers, attrs: List<AttributeNode>, line: int, column: int) {
+    static func AddClassFull(decls: List<Declaration>, name: string, modifiers: Modifiers, attrs: List<AttributeNode>, line: int, column: int) {
         decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, null, null, new List<TypeReference>(), new List<Declaration>(), null, modifiers, attrs, line, column))
     }
 
     // N+1c tranche 4: append an argument-free AttributeNode (Parser.cs :292 — empty Argument list; line = the
     // `[` line, column = the `[` column + 1).
-    public static func AddAttr(attrs: List<AttributeNode>, name: string, line: int, column: int) {
+    static func AddAttr(attrs: List<AttributeNode>, name: string, line: int, column: int) {
         attrs.Add(new AttributeNode(name, new List<Argument>(), line, column))
     }
 
     // N+1c tranche 4: build the exact multi-flag Modifiers value (e.g. public sealed = Public | Sealed = 129)
     // via the int-bitmask + `(Modifiers)value` idiom, matching what the owner's ParseModifiers produces.
-    public static func Mods2(a: Modifiers, b: Modifiers): Modifiers {
+    static func Mods2(a: Modifiers, b: Modifiers): Modifiers {
         value := System.Convert.ToInt32(a) | System.Convert.ToInt32(b)
         return (Modifiers)value
     }
 
-    public static func AddImport(imports: List<ImportDirective>, ns: string, alias: string?, line: int, column: int) {
+    static func AddImport(imports: List<ImportDirective>, ns: string, alias: string?, line: int, column: int) {
         imports.Add(new ImportDirective(ns, alias, line, column))
     }
 
-    public static func AddFileImport(fileImports: List<Statement>, path: string, alias: string?, pathColumn: int, pathLength: int, line: int, column: int) {
+    static func AddFileImport(fileImports: List<Statement>, path: string, alias: string?, pathColumn: int, pathLength: int, line: int, column: int) {
         fileImport := new FileImport(path, alias, line, column)
         fileImport.PathColumn = pathColumn
         fileImport.PathLength = pathLength
         fileImports.Add(fileImport)
     }
 
-    public static func Ns(name: string, line: int, column: int): NamespaceDeclaration {
+    static func Ns(name: string, line: int, column: int): NamespaceDeclaration {
         return new NamespaceDeclaration(name, line, column)
     }
 
-    public static func Pkg(name: string, line: int, column: int): PackageDeclaration {
+    static func Pkg(name: string, line: int, column: int): PackageDeclaration {
         return new PackageDeclaration(name, line, column)
     }
 
@@ -841,90 +841,90 @@ public class Golden {
     // serializer over Parser.cs's parse tree); owner == golden proves owner == Parser.cs.
 
     // A TypeParameter carries ONLY its Name (Parser.cs :755).
-    public static func AddTP(tps: List<TypeParameter>, name: string) {
+    static func AddTP(tps: List<TypeParameter>, name: string) {
         tps.Add(new TypeParameter(name))
     }
 
     // ---- base/interface lists (no generics) ----
     // A class's `: T, U` splits [0]→BaseClass, [1..]→Interfaces (Parser.cs :977-978).
-    public static func AddClassBase(decls: List<Declaration>, name: string, baseClass: TypeReference?, interfaces: List<TypeReference>, line: int, column: int) {
+    static func AddClassBase(decls: List<Declaration>, name: string, baseClass: TypeReference?, interfaces: List<TypeReference>, line: int, column: int) {
         decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, null, baseClass, interfaces, new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
     // A struct's `: T, U` is a pure interface list (Parser.cs :1008-1015).
-    public static func AddStructIface(decls: List<Declaration>, name: string, interfaces: List<TypeReference>, line: int, column: int) {
+    static func AddStructIface(decls: List<Declaration>, name: string, interfaces: List<TypeReference>, line: int, column: int) {
         decls.Add(new StructDeclaration(name, null, interfaces, new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column, false))
     }
 
     // An interface's `: T, U` is its BaseInterfaces list (Parser.cs :1160-1168).
-    public static func AddInterfaceBase(decls: List<Declaration>, name: string, baseInterfaces: List<TypeReference>, line: int, column: int) {
+    static func AddInterfaceBase(decls: List<Declaration>, name: string, baseInterfaces: List<TypeReference>, line: int, column: int) {
         decls.Add(new InterfaceDeclaration(name, null, baseInterfaces, new List<Declaration>(), Modifiers.None, false, new List<AttributeNode>(), line, column))
     }
 
     // ---- type-parameter lists on declarations ----
-    public static func AddClassGP(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, line: int, column: int) {
+    static func AddClassGP(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, line: int, column: int) {
         decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddStructGP(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, line: int, column: int) {
+    static func AddStructGP(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, line: int, column: int) {
         decls.Add(new StructDeclaration(name, typeParams, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column, false))
     }
 
     // A record with generics + an interface list + positional params (Parser.cs :1066). interfaces empty when absent.
-    public static func AddRecordGP(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, interfaces: List<TypeReference>, paramList: List<Parameter>, mods: Modifiers, line: int, column: int) {
+    static func AddRecordGP(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, interfaces: List<TypeReference>, paramList: List<Parameter>, mods: Modifiers, line: int, column: int) {
         decls.Add(new RecordDeclaration(name, typeParams, interfaces, new List<Declaration>(), paramList, false, mods, new List<AttributeNode>(), line, column))
     }
 
     // A class with generics + base/interface split + modifiers (Parser.cs :984). FQN'd (test-stub collision).
-    public static func AddClassGPBase(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, baseClass: TypeReference?, interfaces: List<TypeReference>, mods: Modifiers, line: int, column: int) {
+    static func AddClassGPBase(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, baseClass: TypeReference?, interfaces: List<TypeReference>, mods: Modifiers, line: int, column: int) {
         decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, new List<Declaration>(), null, mods, new List<AttributeNode>(), line, column))
     }
 
     // ---- union bodies ----
-    public static func AddUnion(decls: List<Declaration>, name: string, cases: List<UnionCase>, line: int, column: int) {
+    static func AddUnion(decls: List<Declaration>, name: string, cases: List<UnionCase>, line: int, column: int) {
         decls.Add(new UnionDeclaration(name, null, cases, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
     // A bare union case (no payload) — Properties null (Parser.cs :1223).
-    public static func AddUCaseBare(cases: List<UnionCase>, name: string, line: int, column: int) {
+    static func AddUCaseBare(cases: List<UnionCase>, name: string, line: int, column: int) {
         cases.Add(new UnionCase(name, null, line, column))
     }
 
     // A union case with a `{ prop: Type, … }` payload (Parser.cs :1223).
-    public static func AddUCaseProps(cases: List<UnionCase>, name: string, props: List<UnionCaseProperty>, line: int, column: int) {
+    static func AddUCaseProps(cases: List<UnionCase>, name: string, props: List<UnionCaseProperty>, line: int, column: int) {
         cases.Add(new UnionCase(name, props, line, column))
     }
 
-    public static func AddUProp(props: List<UnionCaseProperty>, name: string, typeRef: TypeReference) {
+    static func AddUProp(props: List<UnionCaseProperty>, name: string, typeRef: TypeReference) {
         props.Add(new UnionCaseProperty(name, typeRef))
     }
 
     // ---- enum members ----
-    public static func AddEnumM(decls: List<Declaration>, name: string, members: List<EnumMember>, enumType: EnumType, mods: Modifiers, line: int, column: int) {
+    static func AddEnumM(decls: List<Declaration>, name: string, members: List<EnumMember>, enumType: EnumType, mods: Modifiers, line: int, column: int) {
         decls.Add(new EnumDeclaration(name, members, enumType, mods, new List<AttributeNode>(), line, column))
     }
 
     // A valueless enum member — Value null (Parser.cs :1310).
-    public static func AddEMem(members: List<EnumMember>, name: string, line: int, column: int) {
+    static func AddEMem(members: List<EnumMember>, name: string, line: int, column: int) {
         members.Add(new EnumMember(name, null, line, column))
     }
 
     // ---- soa record bodies ----
-    public static func AddSoa(decls: List<Declaration>, name: string, columns: List<SoaColumnDeclaration>, line: int, column: int) {
+    static func AddSoa(decls: List<Declaration>, name: string, columns: List<SoaColumnDeclaration>, line: int, column: int) {
         decls.Add(new SoaRecordDeclaration(name, columns, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddSCol(columns: List<SoaColumnDeclaration>, name: string, typeRef: TypeReference, line: int, column: int) {
+    static func AddSCol(columns: List<SoaColumnDeclaration>, name: string, typeRef: TypeReference, line: int, column: int) {
         columns.Add(new SoaColumnDeclaration(name, typeRef, line, column))
     }
 
     // ---- type-alias underlying type ----
     // FQN'd: a test-helper `class TypeAliasDeclaration` in NSharpLang.Compiler.TestStubs shares the simple name.
-    public static func AddTypeAlias(decls: List<Declaration>, name: string, typeRef: TypeReference, line: int, column: int) {
+    static func AddTypeAlias(decls: List<Declaration>, name: string, typeRef: TypeReference, line: int, column: int) {
         decls.Add(new NSharpLang.Compiler.Ast.TypeAliasDeclaration(name, typeRef, line, column))
     }
 
-    public static func AddNewtype(decls: List<Declaration>, name: string, underlyingType: TypeReference, line: int, column: int) {
+    static func AddNewtype(decls: List<Declaration>, name: string, underlyingType: TypeReference, line: int, column: int) {
         decls.Add(new NewtypeDeclaration(name, underlyingType, line, column))
     }
 
@@ -932,85 +932,85 @@ public class Golden {
     // Each mirrors a Parser.cs ParsePrimaryExpression construction site; the returned node is nested directly
     // into an EnumMember.Value argument (the tranche-7 value-bearing-member unlock), never bound to a local in
     // a contract. A value-returning builder is the same idiom as Golden.SimpleT (tranche 5).
-    public static func IntLit(value: string, line: int, column: int): Expression {
+    static func IntLit(value: string, line: int, column: int): Expression {
         return new IntLiteralExpression(value, line, column)
     }
 
-    public static func FloatLit(value: string, line: int, column: int): Expression {
+    static func FloatLit(value: string, line: int, column: int): Expression {
         return new FloatLiteralExpression(value, line, column)
     }
 
-    public static func CharLit(value: string, line: int, column: int): Expression {
+    static func CharLit(value: string, line: int, column: int): Expression {
         return new CharLiteralExpression(value, line, column)
     }
 
-    public static func StrLit(value: string, line: int, column: int): Expression {
+    static func StrLit(value: string, line: int, column: int): Expression {
         return new StringLiteralExpression(value, line, column)
     }
 
-    public static func BoolLit(value: bool, line: int, column: int): Expression {
+    static func BoolLit(value: bool, line: int, column: int): Expression {
         return new BoolLiteralExpression(value, line, column)
     }
 
-    public static func NullLit(line: int, column: int): Expression {
+    static func NullLit(line: int, column: int): Expression {
         return new NullLiteralExpression(line, column)
     }
 
-    public static func Ident(name: string, line: int, column: int): Expression {
+    static func Ident(name: string, line: int, column: int): Expression {
         return new IdentifierExpression(name, line, column)
     }
 
-    public static func DefaultE(line: int, column: int): Expression {
+    static func DefaultE(line: int, column: int): Expression {
         return new DefaultExpression(line, column)
     }
 
-    public static func ThisE(line: int, column: int): Expression {
+    static func ThisE(line: int, column: int): Expression {
         return new ThisExpression(line, column)
     }
 
-    public static func BaseE(line: int, column: int): Expression {
+    static func BaseE(line: int, column: int): Expression {
         return new BaseExpression(line, column)
     }
 
-    public static func Paren(inner: Expression, line: int, column: int): Expression {
+    static func Paren(inner: Expression, line: int, column: int): Expression {
         return new ParenthesizedExpression(inner, line, column)
     }
 
     // A value-bearing enum member — Value is the materialized expression (Parser.cs :1310).
-    public static func AddEMemV(members: List<EnumMember>, name: string, value: Expression, line: int, column: int) {
+    static func AddEMemV(members: List<EnumMember>, name: string, value: Expression, line: int, column: int) {
         members.Add(new EnumMember(name, value, line, column))
     }
 
     // ---- N+1c tranche 8: composed operator-tier builders ----
     // Each mirrors a Parser.cs Parse*Expression construction site (anchored on the OPERATOR token, except
     // TernaryExpression on the `?`). Every position is transcribed from the LIVE Parser.cs AstToJson oracle.
-    public static func Bin(left: Expression, op: BinaryOperator, right: Expression, line: int, column: int): Expression {
+    static func Bin(left: Expression, op: BinaryOperator, right: Expression, line: int, column: int): Expression {
         return new BinaryExpression(left, op, right, line, column)
     }
 
-    public static func Un(op: UnaryOperator, operand: Expression, line: int, column: int): Expression {
+    static func Un(op: UnaryOperator, operand: Expression, line: int, column: int): Expression {
         return new UnaryExpression(op, operand, line, column)
     }
 
-    public static func Tern(condition: Expression, thenExpr: Expression, elseExpr: Expression, line: int, column: int): Expression {
+    static func Tern(condition: Expression, thenExpr: Expression, elseExpr: Expression, line: int, column: int): Expression {
         return new TernaryExpression(condition, thenExpr, elseExpr, line, column)
     }
 
-    public static func Assign(target: Expression, op: AssignmentOperator, value: Expression, line: int, column: int): Expression {
+    static func Assign(target: Expression, op: AssignmentOperator, value: Expression, line: int, column: int): Expression {
         return new AssignmentExpression(target, op, value, line, column)
     }
 
-    public static func Rng(start: Expression?, end: Expression?, line: int, column: int): Expression {
+    static func Rng(start: Expression?, end: Expression?, line: int, column: int): Expression {
         return new RangeExpression(start, end, line, column)
     }
 
     // A field member WITH an initializer (Parser.cs :1782 — explicit type) — the tranche-8 field consumer.
-    public static func AddFieldInit(members: List<Declaration>, name: string, fieldType: TypeReference, initializer: Expression, line: int, column: int) {
+    static func AddFieldInit(members: List<Declaration>, name: string, fieldType: TypeReference, initializer: Expression, line: int, column: int) {
         members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, initializer, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
     }
 
     // A `Name := value` type-inference field (Parser.cs :1686 — null Type + initializer).
-    public static func AddFieldInfer(members: List<Declaration>, name: string, initializer: Expression, line: int, column: int) {
+    static func AddFieldInfer(members: List<Declaration>, name: string, initializer: Expression, line: int, column: int) {
         members.Add(new NSharpLang.Compiler.Ast.FieldDeclaration(name, null, initializer, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), line, column))
     }
 
@@ -1018,55 +1018,55 @@ public class Golden {
     // Each mirrors a Parser.cs construction site (member/index on the dot/bracket token, is/as on the is/as
     // token, await/must/throw and the typeof/nameof/sizeof/checked/unchecked/cast/spread primaries on their
     // keyword / `(` / `...` token). Every position was transcribed from the LIVE Parser.cs AstToJson oracle.
-    public static func Member(obj: Expression, memberName: string, isNullConditional: bool, line: int, column: int): Expression {
+    static func Member(obj: Expression, memberName: string, isNullConditional: bool, line: int, column: int): Expression {
         return new MemberAccessExpression(obj, memberName, isNullConditional, line, column)
     }
 
-    public static func Index(obj: Expression, index: Expression, isNullConditional: bool, line: int, column: int): Expression {
+    static func Index(obj: Expression, index: Expression, isNullConditional: bool, line: int, column: int): Expression {
         return new IndexAccessExpression(obj, index, isNullConditional, line, column)
     }
 
-    public static func Is(expr: Expression, typeRef: TypeReference, variableName: string?, line: int, column: int): Expression {
+    static func Is(expr: Expression, typeRef: TypeReference, variableName: string?, line: int, column: int): Expression {
         return new IsExpression(expr, typeRef, variableName, line, column)
     }
 
-    public static func Cast(expr: Expression, targetType: TypeReference, kind: CastKind, line: int, column: int): Expression {
+    static func Cast(expr: Expression, targetType: TypeReference, kind: CastKind, line: int, column: int): Expression {
         return new CastExpression(expr, targetType, kind, line, column)
     }
 
-    public static func Await(expr: Expression, line: int, column: int): Expression {
+    static func Await(expr: Expression, line: int, column: int): Expression {
         return new AwaitExpression(expr, line, column)
     }
 
-    public static func Must(expr: Expression, line: int, column: int): Expression {
+    static func Must(expr: Expression, line: int, column: int): Expression {
         return new MustExpression(expr, line, column)
     }
 
-    public static func Throw(expr: Expression, line: int, column: int): Expression {
+    static func Throw(expr: Expression, line: int, column: int): Expression {
         return new ThrowExpression(expr, line, column)
     }
 
-    public static func TypeOf(typeRef: TypeReference, line: int, column: int): Expression {
+    static func TypeOf(typeRef: TypeReference, line: int, column: int): Expression {
         return new TypeOfExpression(typeRef, line, column)
     }
 
-    public static func Nameof(target: Expression, line: int, column: int): Expression {
+    static func Nameof(target: Expression, line: int, column: int): Expression {
         return new NameofExpression(target, line, column)
     }
 
-    public static func SizeOf(typeRef: TypeReference, line: int, column: int): Expression {
+    static func SizeOf(typeRef: TypeReference, line: int, column: int): Expression {
         return new SizeOfExpression(typeRef, line, column)
     }
 
-    public static func Checked(expr: Expression, line: int, column: int): Expression {
+    static func Checked(expr: Expression, line: int, column: int): Expression {
         return new CheckedExpression(expr, line, column)
     }
 
-    public static func Unchecked(expr: Expression, line: int, column: int): Expression {
+    static func Unchecked(expr: Expression, line: int, column: int): Expression {
         return new UncheckedExpression(expr, line, column)
     }
 
-    public static func Spread(expr: Expression, line: int, column: int): Expression {
+    static func Spread(expr: Expression, line: int, column: int): Expression {
         return new SpreadExpression(expr, line, column)
     }
 
@@ -1077,79 +1077,79 @@ public class Golden {
     // keyword (:5196/:5217). The list ELEMENTS (Argument / TupleElement / PropertyInitializer) carry no
     // position of their own except PropertyInitializer's NameLine/NameColumn. Every position below was
     // transcribed from the LIVE Parser.cs AstToJson oracle.
-    public static func NoArgs(): List<Argument> {
+    static func NoArgs(): List<Argument> {
         return new List<Argument>()
     }
 
     // A typed null for a NON-generic call's TypeArguments (Parser.cs :4499).
-    public static func NoTypeArgs(): List<TypeReference>? {
+    static func NoTypeArgs(): List<TypeReference>? {
         return null
     }
 
-    public static func AddArg(args: List<Argument>, name: string?, value: Expression, modifier: ArgumentModifier) {
+    static func AddArg(args: List<Argument>, name: string?, value: Expression, modifier: ArgumentModifier) {
         args.Add(new Argument(name, value, modifier))
     }
 
-    public static func Call(callee: Expression, args: List<Argument>, typeArgs: List<TypeReference>?, line: int, column: int): Expression {
+    static func Call(callee: Expression, args: List<Argument>, typeArgs: List<TypeReference>?, line: int, column: int): Expression {
         return new CallExpression(callee, args, typeArgs, line, column)
     }
 
-    public static func NoProps(): List<PropertyInitializer> {
+    static func NoProps(): List<PropertyInitializer> {
         return new List<PropertyInitializer>()
     }
 
-    public static func AddProp(props: List<PropertyInitializer>, name: string?, indexExpression: Expression?, value: Expression, nameLine: int, nameColumn: int) {
+    static func AddProp(props: List<PropertyInitializer>, name: string?, indexExpression: Expression?, value: Expression, nameLine: int, nameColumn: int) {
         props.Add(new PropertyInitializer(name, indexExpression, value, nameLine, nameColumn))
     }
 
-    public static func With(target: Expression, props: List<PropertyInitializer>, line: int, column: int): Expression {
+    static func With(target: Expression, props: List<PropertyInitializer>, line: int, column: int): Expression {
         return new WithExpression(target, props, line, column)
     }
 
-    public static func ObjInit(props: List<PropertyInitializer>, line: int, column: int): ObjectInitializerExpression {
+    static func ObjInit(props: List<PropertyInitializer>, line: int, column: int): ObjectInitializerExpression {
         return new ObjectInitializerExpression(props, line, column)
     }
 
-    public static func NewE(typeRef: TypeReference?, args: List<Argument>, initializer: ObjectInitializerExpression?, arrayLength: Expression?, line: int, column: int): Expression {
+    static func NewE(typeRef: TypeReference?, args: List<Argument>, initializer: ObjectInitializerExpression?, arrayLength: Expression?, line: int, column: int): Expression {
         return new NewExpression(typeRef, args, initializer, line, column, arrayLength)
     }
 
-    public static func NoTupleElems(): List<TupleElement> {
+    static func NoTupleElems(): List<TupleElement> {
         return new List<TupleElement>()
     }
 
-    public static func AddTupleElem(elements: List<TupleElement>, name: string?, value: Expression) {
+    static func AddTupleElem(elements: List<TupleElement>, name: string?, value: Expression) {
         elements.Add(new TupleElement(name, value))
     }
 
-    public static func Tuple(elements: List<TupleElement>, line: int, column: int): Expression {
+    static func Tuple(elements: List<TupleElement>, line: int, column: int): Expression {
         return new TupleExpression(elements, line, column)
     }
 
-    public static func NoExprs(): List<Expression> {
+    static func NoExprs(): List<Expression> {
         return new List<Expression>()
     }
 
-    public static func AddExpr(elements: List<Expression>, value: Expression) {
+    static func AddExpr(elements: List<Expression>, value: Expression) {
         elements.Add(value)
     }
 
-    public static func ArrayLit(elements: List<Expression>, isImmutable: bool, line: int, column: int): Expression {
+    static func ArrayLit(elements: List<Expression>, isImmutable: bool, line: int, column: int): Expression {
         return new ArrayLiteralExpression(elements, isImmutable, line, column)
     }
 
-    public static func AllocE(inner: Expression, line: int, column: int): Expression {
+    static func AllocE(inner: Expression, line: int, column: int): Expression {
         return new AllocExpression(inner, line, column)
     }
 
-    public static func StackAllocE(elementType: TypeReference, length: Expression, line: int, column: int): Expression {
+    static func StackAllocE(elementType: TypeReference, length: Expression, line: int, column: int): Expression {
         return new StackAllocExpression(elementType, length, line, column)
     }
 
     // A declaration whose Attributes list carries ARGUMENT-bearing attributes (the tranche-9b unlock — the
     // tranche-4 argument-bearing decline is retired). Parser.cs :292 anchors the AttributeNode on the `[`
     // line and the `[` column + 1.
-    public static func AddAttrArgs(attrs: List<AttributeNode>, name: string, args: List<Argument>, line: int, column: int) {
+    static func AddAttrArgs(attrs: List<AttributeNode>, name: string, args: List<Argument>, line: int, column: int) {
         attrs.Add(new AttributeNode(name, args, line, column))
     }
 
@@ -1157,113 +1157,113 @@ public class Golden {
     // A position-FREE SimpleTypeReference (Line/Column 0, invalid Span) — Parser.cs builds the implicit lambda
     // parameter type (:3676/:5520) and the TypePattern type (:3444) with the ctor's defaults, so neither
     // carries a source position.
-    public static func BareT(name: string): TypeReference {
+    static func BareT(name: string): TypeReference {
         return new SimpleTypeReference(name, 0, 0)
     }
 
-    public static func NoParams(): List<Parameter> {
+    static func NoParams(): List<Parameter> {
         return new List<Parameter>()
     }
 
-    public static func AddLambdaParam(parameters: List<Parameter>, name: string, line: int, column: int) {
+    static func AddLambdaParam(parameters: List<Parameter>, name: string, line: int, column: int) {
         parameters.Add(new Parameter(name, Golden.BareT("var"), null, false, ParameterModifier.None, null, line, column, false, null))
     }
 
     // An EXPRESSION-bodied lambda (a block-bodied one carries a BlockStatement and declines until the
     // statement-body tranche).
-    public static func Lambda(parameters: List<Parameter>, body: Expression, line: int, column: int): Expression {
+    static func Lambda(parameters: List<Parameter>, body: Expression, line: int, column: int): Expression {
         return new LambdaExpression(parameters, body, null, line, column)
     }
 
-    public static func NoCases(): List<MatchCase> {
+    static func NoCases(): List<MatchCase> {
         return new List<MatchCase>()
     }
 
-    public static func AddCase(cases: List<MatchCase>, pattern: Pattern, guard: Expression?, body: Expression) {
+    static func AddCase(cases: List<MatchCase>, pattern: Pattern, guard: Expression?, body: Expression) {
         cases.Add(new MatchCase(pattern, guard, body))
     }
 
-    public static func Match(value: Expression, cases: List<MatchCase>, line: int, column: int): Expression {
+    static func Match(value: Expression, cases: List<MatchCase>, line: int, column: int): Expression {
         return new MatchExpression(value, cases, line, column)
     }
 
-    public static func NoPatterns(): List<Pattern> {
+    static func NoPatterns(): List<Pattern> {
         return new List<Pattern>()
     }
 
-    public static func AddPattern(patterns: List<Pattern>, pattern: Pattern) {
+    static func AddPattern(patterns: List<Pattern>, pattern: Pattern) {
         patterns.Add(pattern)
     }
 
-    public static func NoPatProps(): List<PropertyPattern> {
+    static func NoPatProps(): List<PropertyPattern> {
         return new List<PropertyPattern>()
     }
 
-    public static func AddPatProp(props: List<PropertyPattern>, name: string, pattern: Pattern?, bindingName: string?, line: int, column: int) {
+    static func AddPatProp(props: List<PropertyPattern>, name: string, pattern: Pattern?, bindingName: string?, line: int, column: int) {
         props.Add(new PropertyPattern(name, pattern, bindingName, line, column))
     }
 
-    public static func PIdent(name: string, line: int, column: int): Pattern {
+    static func PIdent(name: string, line: int, column: int): Pattern {
         return new IdentifierPattern(name, line, column)
     }
 
-    public static func PLit(literal: Expression, line: int, column: int): Pattern {
+    static func PLit(literal: Expression, line: int, column: int): Pattern {
         return new LiteralPattern(literal, line, column)
     }
 
-    public static func PType(typeRef: TypeReference, bindingName: string?, line: int, column: int): Pattern {
+    static func PType(typeRef: TypeReference, bindingName: string?, line: int, column: int): Pattern {
         return new TypePattern(typeRef, bindingName, line, column)
     }
 
-    public static func PUnion(caseName: string, props: List<PropertyPattern>?, line: int, column: int): Pattern {
+    static func PUnion(caseName: string, props: List<PropertyPattern>?, line: int, column: int): Pattern {
         return new UnionCasePattern(caseName, props, line, column)
     }
 
-    public static func PRel(op: string, value: Expression, line: int, column: int): Pattern {
+    static func PRel(op: string, value: Expression, line: int, column: int): Pattern {
         return new RelationalPattern(op, value, line, column)
     }
 
-    public static func PAnd(left: Pattern, right: Pattern, line: int, column: int): Pattern {
+    static func PAnd(left: Pattern, right: Pattern, line: int, column: int): Pattern {
         return new AndPattern(left, right, line, column)
     }
 
-    public static func POr(left: Pattern, right: Pattern, line: int, column: int): Pattern {
+    static func POr(left: Pattern, right: Pattern, line: int, column: int): Pattern {
         return new OrPattern(left, right, line, column)
     }
 
-    public static func PNot(inner: Pattern, line: int, column: int): Pattern {
+    static func PNot(inner: Pattern, line: int, column: int): Pattern {
         return new NotPattern(inner, line, column)
     }
 
-    public static func PPos(patterns: List<Pattern>, line: int, column: int): Pattern {
+    static func PPos(patterns: List<Pattern>, line: int, column: int): Pattern {
         return new PositionalPattern(patterns, line, column)
     }
 
-    public static func PObj(props: List<PropertyPattern>, line: int, column: int): Pattern {
+    static func PObj(props: List<PropertyPattern>, line: int, column: int): Pattern {
         return new ObjectPattern(props, line, column)
     }
 
-    public static func PList(elements: List<Pattern>, line: int, column: int): Pattern {
+    static func PList(elements: List<Pattern>, line: int, column: int): Pattern {
         return new ListPattern(elements, line, column)
     }
 
-    public static func PSlice(bindingName: string?, line: int, column: int): Pattern {
+    static func PSlice(bindingName: string?, line: int, column: int): Pattern {
         return new SlicePattern(bindingName, line, column)
     }
 
-    public static func NoParts(): List<InterpolatedStringPart> {
+    static func NoParts(): List<InterpolatedStringPart> {
         return new List<InterpolatedStringPart>()
     }
 
-    public static func AddText(parts: List<InterpolatedStringPart>, text: string, line: int, column: int) {
+    static func AddText(parts: List<InterpolatedStringPart>, text: string, line: int, column: int) {
         parts.Add(new InterpolatedStringText(text, line, column))
     }
 
-    public static func AddHole(parts: List<InterpolatedStringPart>, expr: Expression, formatClause: string?, line: int, column: int) {
+    static func AddHole(parts: List<InterpolatedStringPart>, expr: Expression, formatClause: string?, line: int, column: int) {
         parts.Add(new InterpolatedStringHole(expr, formatClause, line, column))
     }
 
-    public static func Interp(parts: List<InterpolatedStringPart>, isRaw: bool, line: int, column: int): Expression {
+    static func Interp(parts: List<InterpolatedStringPart>, isRaw: bool, line: int, column: int): Expression {
         return new InterpolatedStringExpression(parts, line, column, isRaw)
     }
 
@@ -1271,158 +1271,158 @@ public class Golden {
     // Every position below is transcribed from the LIVE Parser.cs AstToJson oracle over the identical
     // source, so `owner == golden` proves `owner == Parser.cs`.
 
-    public static func NoStmts(): List<Statement> {
+    static func NoStmts(): List<Statement> {
         return new List<Statement>()
     }
 
-    public static func Add(statements: List<Statement>, statement: Statement) {
+    static func Add(statements: List<Statement>, statement: Statement) {
         statements.Add(statement)
     }
 
-    public static func Block(statements: List<Statement>, line: int, column: int): BlockStatement {
+    static func Block(statements: List<Statement>, line: int, column: int): BlockStatement {
         return new BlockStatement(statements, line, column)
     }
 
     // The single-statement block shorthand (the common shape in these contracts).
-    public static func Block1(statement: Statement, line: int, column: int): BlockStatement {
+    static func Block1(statement: Statement, line: int, column: int): BlockStatement {
         statements := new List<Statement>()
         statements.Add(statement)
         return new BlockStatement(statements, line, column)
     }
 
-    public static func ExprStmt(expression: Expression, line: int, column: int): Statement {
+    static func ExprStmt(expression: Expression, line: int, column: int): Statement {
         return new ExpressionStatement(expression, line, column)
     }
 
-    public static func VarDecl(name: string, declaredType: TypeReference?, initializer: Expression?, kind: VariableKind, line: int, column: int): VariableDeclarationStatement {
+    static func VarDecl(name: string, declaredType: TypeReference?, initializer: Expression?, kind: VariableKind, line: int, column: int): VariableDeclarationStatement {
         return new VariableDeclarationStatement(name, declaredType, initializer, kind, line, column)
     }
 
-    public static func NoNames(): List<string> {
+    static func NoNames(): List<string> {
         return new List<string>()
     }
 
-    public static func AddName(names: List<string>, name: string) {
+    static func AddName(names: List<string>, name: string) {
         names.Add(name)
     }
 
-    public static func TupleDecl(names: List<string>, initializer: Expression, kind: VariableKind, line: int, column: int): Statement {
+    static func TupleDecl(names: List<string>, initializer: Expression, kind: VariableKind, line: int, column: int): Statement {
         return new TupleDeconstructionStatement(names, initializer, kind, line, column)
     }
 
-    public static func Empty(line: int, column: int): Statement {
+    static func Empty(line: int, column: int): Statement {
         return new EmptyStatement(line, column)
     }
 
-    public static func If(condition: Expression, thenStatement: Statement, elseStatement: Statement?, line: int, column: int): Statement {
+    static func If(condition: Expression, thenStatement: Statement, elseStatement: Statement?, line: int, column: int): Statement {
         return new IfStatement(condition, thenStatement, elseStatement, line, column)
     }
 
-    public static func While(condition: Expression, body: Statement, line: int, column: int): Statement {
+    static func While(condition: Expression, body: Statement, line: int, column: int): Statement {
         return new WhileStatement(condition, body, line, column)
     }
 
-    public static func For(initializer: Statement?, condition: Expression?, iterator: Expression?, body: Statement, line: int, column: int): Statement {
+    static func For(initializer: Statement?, condition: Expression?, iterator: Expression?, body: Statement, line: int, column: int): Statement {
         return new ForStatement(initializer, condition, iterator, body, line, column)
     }
 
-    public static func Foreach(variableName: string, collection: Expression, body: Statement, line: int, column: int): Statement {
+    static func Foreach(variableName: string, collection: Expression, body: Statement, line: int, column: int): Statement {
         return new ForeachStatement(variableName, collection, body, line, column)
     }
 
-    public static func AwaitForeach(variableName: string, collection: Expression, body: Statement, line: int, column: int): Statement {
+    static func AwaitForeach(variableName: string, collection: Expression, body: Statement, line: int, column: int): Statement {
         return new AwaitForEachStatement(variableName, collection, body, line, column)
     }
 
-    public static func Return(value: Expression?, line: int, column: int): Statement {
+    static func Return(value: Expression?, line: int, column: int): Statement {
         return new ReturnStatement(value, line, column)
     }
 
-    public static func Yield(value: Expression?, line: int, column: int): Statement {
+    static func Yield(value: Expression?, line: int, column: int): Statement {
         return new YieldStatement(value, line, column)
     }
 
-    public static func Break(line: int, column: int): Statement {
+    static func Break(line: int, column: int): Statement {
         return new BreakStatement(line, column)
     }
 
-    public static func Continue(line: int, column: int): Statement {
+    static func Continue(line: int, column: int): Statement {
         return new ContinueStatement(line, column)
     }
 
-    public static func ThrowStmt(expression: Expression, line: int, column: int): Statement {
+    static func ThrowStmt(expression: Expression, line: int, column: int): Statement {
         return new ThrowStatement(expression, line, column)
     }
 
-    public static func Print(value: Expression, line: int, column: int): Statement {
+    static func Print(value: Expression, line: int, column: int): Statement {
         return new PrintStatement(value, line, column)
     }
 
-    public static func Preproc(directive: string, line: int, column: int): Statement {
+    static func Preproc(directive: string, line: int, column: int): Statement {
         return new PreprocessorDirective(directive, line, column)
     }
 
-    public static func Off(handle: Expression, line: int, column: int): Statement {
+    static func Off(handle: Expression, line: int, column: int): Statement {
         return new OffStatement(handle, line, column)
     }
 
-    public static func NoCatches(): List<CatchClause> {
+    static func NoCatches(): List<CatchClause> {
         return new List<CatchClause>()
     }
 
-    public static func AddCatch(catches: List<CatchClause>, exceptionType: TypeReference?, variableName: string?, block: BlockStatement) {
+    static func AddCatch(catches: List<CatchClause>, exceptionType: TypeReference?, variableName: string?, block: BlockStatement) {
         catches.Add(new CatchClause(exceptionType, variableName, block))
     }
 
-    public static func Try(tryBlock: BlockStatement, catches: List<CatchClause>, finallyBlock: BlockStatement?, line: int, column: int): Statement {
+    static func Try(tryBlock: BlockStatement, catches: List<CatchClause>, finallyBlock: BlockStatement?, line: int, column: int): Statement {
         return new TryStatement(tryBlock, catches, finallyBlock, line, column)
     }
 
-    public static func Using(declaration: VariableDeclarationStatement?, expression: Expression?, body: Statement?, line: int, column: int): Statement {
+    static func Using(declaration: VariableDeclarationStatement?, expression: Expression?, body: Statement?, line: int, column: int): Statement {
         return new UsingStatement(declaration, expression, body, line, column)
     }
 
-    public static func Lock(lockObject: Expression, body: BlockStatement, line: int, column: int): Statement {
+    static func Lock(lockObject: Expression, body: BlockStatement, line: int, column: int): Statement {
         return new LockStatement(lockObject, body, line, column)
     }
 
-    public static func NoSwitchCases(): List<SwitchCase> {
+    static func NoSwitchCases(): List<SwitchCase> {
         return new List<SwitchCase>()
     }
 
-    public static func AddSwitchCase(cases: List<SwitchCase>, pattern: Pattern?, statements: List<Statement>, line: int, column: int) {
+    static func AddSwitchCase(cases: List<SwitchCase>, pattern: Pattern?, statements: List<Statement>, line: int, column: int) {
         cases.Add(new SwitchCase(pattern, statements, line, column))
     }
 
-    public static func Switch(value: Expression, cases: List<SwitchCase>, line: int, column: int): Statement {
+    static func Switch(value: Expression, cases: List<SwitchCase>, line: int, column: int): Statement {
         return new SwitchStatement(value, cases, line, column)
     }
 
-    public static func UnsafeBlock(body: BlockStatement, line: int, column: int): Statement {
+    static func UnsafeBlock(body: BlockStatement, line: int, column: int): Statement {
         return new UnsafeBlockStatement(body, line, column)
     }
 
-    public static func AllocBlock(body: BlockStatement, line: int, column: int): Statement {
+    static func AllocBlock(body: BlockStatement, line: int, column: int): Statement {
         return new AllocBlockStatement(body, line, column)
     }
 
-    public static func Allow(effects: List<string>, reason: string?, owner: string?, body: BlockStatement, line: int, column: int): Statement {
+    static func Allow(effects: List<string>, reason: string?, owner: string?, body: BlockStatement, line: int, column: int): Statement {
         return new AllowStatement(effects, reason, owner, body, line, column)
     }
 
-    public static func Assert(condition: Expression, message: Expression?, line: int, column: int): Statement {
+    static func Assert(condition: Expression, message: Expression?, line: int, column: int): Statement {
         return new AssertStatement(condition, message, line, column)
     }
 
-    public static func AssertThrows(exceptionType: TypeReference, body: BlockStatement, line: int, column: int): Statement {
+    static func AssertThrows(exceptionType: TypeReference, body: BlockStatement, line: int, column: int): Statement {
         return new AssertThrowsStatement(exceptionType, body, line, column)
     }
 
-    public static func BlockLambda(parameters: List<Parameter>, body: BlockStatement, line: int, column: int): LambdaExpression {
+    static func BlockLambda(parameters: List<Parameter>, body: BlockStatement, line: int, column: int): LambdaExpression {
         return new LambdaExpression(parameters, null, body, line, column)
     }
 
-    public static func OnSub(target: Expression, handler: LambdaExpression, line: int, column: int): Expression {
+    static func OnSub(target: Expression, handler: LambdaExpression, line: int, column: int): Expression {
         return new OnSubscriptionExpression(target, handler, line, column)
     }
 
@@ -1430,67 +1430,67 @@ public class Golden {
     // FunctionDeclaration is FULLY QUALIFIED (a local test-helper `class FunctionDeclaration` collides on
     // the simple name under the tests-enabled build, the established tranche-2 idiom).
 
-    public static func Func(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, expressionBody: Expression?, typeParameters: List<TypeParameter>?, constraints: List<GenericConstraint>?, modifiers: Modifiers, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
+    static func Func(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, expressionBody: Expression?, typeParameters: List<TypeParameter>?, constraints: List<GenericConstraint>?, modifiers: Modifiers, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
         return new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParameters, constraints, modifiers, new List<AttributeNode>(), false, null, false, false, line, column)
     }
 
     // The operator-overload / conversion-operator variant, whose two SourceSpan fields Parser.cs sets
     // through an object initializer after construction (:505-506).
-    public static func OperatorFunc(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, operatorSymbol: string?, keywordSpan: SourceSpan, symbolSpan: SourceSpan, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
+    static func OperatorFunc(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, operatorSymbol: string?, keywordSpan: SourceSpan, symbolSpan: SourceSpan, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
         node := new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, null, null, null, Modifiers.None, new List<AttributeNode>(), true, operatorSymbol, false, false, line, column)
         node.OperatorKeywordSpan = keywordSpan
         node.OperatorSymbolSpan = symbolSpan
         return node
     }
 
-    public static func AddFunc(target: List<Declaration>, node: NSharpLang.Compiler.Ast.FunctionDeclaration) {
+    static func AddFunc(target: List<Declaration>, node: NSharpLang.Compiler.Ast.FunctionDeclaration) {
         target.Add(node)
     }
 
-    public static func NoConstraints(): List<GenericConstraint>? {
+    static func NoConstraints(): List<GenericConstraint>? {
         return null
     }
 
-    public static func Constraints1(typeParameter: string, constraintTypes: List<TypeReference>, special: SpecialConstraintKind): List<GenericConstraint> {
+    static func Constraints1(typeParameter: string, constraintTypes: List<TypeReference>, special: SpecialConstraintKind): List<GenericConstraint> {
         list := new List<GenericConstraint>()
         list.Add(new GenericConstraint(typeParameter, constraintTypes, special))
         return list
     }
 
-    public static func NoTypeRefs(): List<TypeReference> {
+    static func NoTypeRefs(): List<TypeReference> {
         return new List<TypeReference>()
     }
 
-    public static func AddCtor(members: List<Declaration>, parameters: List<Parameter>, body: BlockStatement, initializer: Expression?, line: int, column: int) {
+    static func AddCtor(members: List<Declaration>, parameters: List<Parameter>, body: BlockStatement, initializer: Expression?, line: int, column: int) {
         members.Add(new ConstructorDeclaration(parameters, body, initializer, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddProp(members: List<Declaration>, name: string, propertyType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, expressionBody: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, line: int, column: int) {
+    static func AddProp(members: List<Declaration>, name: string, propertyType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, expressionBody: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, line: int, column: int) {
         members.Add(new PropertyDeclaration(name, propertyType, getBody, setBody, expressionBody, modifiers, propertyModifier, new List<AttributeNode>(), line, column))
     }
 
-    public static func AddIndexer(members: List<Declaration>, parameters: List<Parameter>, indexerType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, line: int, column: int) {
+    static func AddIndexer(members: List<Declaration>, parameters: List<Parameter>, indexerType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, line: int, column: int) {
         members.Add(new IndexerDeclaration(parameters, indexerType, getBody, setBody, Modifiers.None, new List<AttributeNode>(), line, column))
     }
 
-    public static func LocalFunc(node: NSharpLang.Compiler.Ast.FunctionDeclaration, line: int, column: int): Statement {
+    static func LocalFunc(node: NSharpLang.Compiler.Ast.FunctionDeclaration, line: int, column: int): Statement {
         return new LocalFunctionStatement(node, line, column)
     }
 
-    public static func AddTest(decls: List<Declaration>, description: string, body: BlockStatement, tableParameters: List<Parameter>?, tableCases: List<List<Expression> >?, skipReason: string?, line: int, column: int) {
+    static func AddTest(decls: List<Declaration>, description: string, body: BlockStatement, tableParameters: List<Parameter>?, tableCases: List<List<Expression>>?, skipReason: string?, line: int, column: int) {
         decls.Add(new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column))
     }
 
-    public static func NoTableParams(): List<Parameter>? {
+    static func NoTableParams(): List<Parameter>? {
         return null
     }
 
-    public static func NoTable(): List<List<Expression> >? {
+    static func NoTable(): List<List<Expression>>? {
         return null
     }
 
-    public static func Rows1(first: Expression, second: Expression): List<List<Expression> > {
-        rows := new List<List<Expression> >()
+    static func Rows1(first: Expression, second: Expression): List<List<Expression>> {
+        rows := new List<List<Expression>>()
         firstRow := new List<Expression>()
         firstRow.Add(first)
         rows.Add(firstRow)
@@ -1500,19 +1500,19 @@ public class Golden {
         return rows
     }
 
-    public static func AddSetup(decls: List<Declaration>, body: BlockStatement, line: int, column: int) {
+    static func AddSetup(decls: List<Declaration>, body: BlockStatement, line: int, column: int) {
         decls.Add(new SetupDeclaration(body, line, column))
     }
 
-    public static func AddTeardown(decls: List<Declaration>, body: BlockStatement, line: int, column: int) {
+    static func AddTeardown(decls: List<Declaration>, body: BlockStatement, line: int, column: int) {
         decls.Add(new TeardownDeclaration(body, line, column))
     }
 
-    public static func AddPreproc(decls: List<Declaration>, directive: string, line: int, column: int) {
+    static func AddPreproc(decls: List<Declaration>, directive: string, line: int, column: int) {
         decls.Add(new PreprocessorDeclaration(directive, line, column))
     }
 
-    public static func Param(name: string, paramType: TypeReference, defaultValue: Expression?, isThis: bool, modifier: ParameterModifier, line: int, column: int): Parameter {
+    static func Param(name: string, paramType: TypeReference, defaultValue: Expression?, isThis: bool, modifier: ParameterModifier, line: int, column: int): Parameter {
         return new Parameter(name, paramType, defaultValue, isThis, modifier, null, line, column, false, null)
     }
 
@@ -1536,70 +1536,70 @@ public class Golden {
     // simple names now live in `NSharpLang.Compiler.TestStubs`, but this file imports both
     // `NSharpLang.Compiler` and `NSharpLang.Compiler.Ast`, and the qualification costs nothing.
 
-    public static func ClassF(name: string, typeParameters: List<TypeParameter>?, baseClass: TypeReference?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, line: int, column: int): Declaration {
+    static func ClassF(name: string, typeParameters: List<TypeParameter>?, baseClass: TypeReference?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParameters, baseClass, interfaces, members, primaryConstructorParameters, modifiers, new List<AttributeNode>(), line, column)
     }
 
-    public static func StructF(name: string, typeParameters: List<TypeParameter>?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, isRefStruct: bool, line: int, column: int): Declaration {
+    static func StructF(name: string, typeParameters: List<TypeParameter>?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, isRefStruct: bool, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.StructDeclaration(name, typeParameters, interfaces, members, primaryConstructorParameters, modifiers, new List<AttributeNode>(), line, column, isRefStruct)
     }
 
-    public static func RecordF(name: string, typeParameters: List<TypeParameter>?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, isStruct: bool, modifiers: Modifiers, line: int, column: int): Declaration {
+    static func RecordF(name: string, typeParameters: List<TypeParameter>?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, isStruct: bool, modifiers: Modifiers, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.RecordDeclaration(name, typeParameters, interfaces, members, primaryConstructorParameters, isStruct, modifiers, new List<AttributeNode>(), line, column)
     }
 
-    public static func InterfaceF(name: string, typeParameters: List<TypeParameter>?, baseInterfaces: List<TypeReference>, members: List<Declaration>, modifiers: Modifiers, isDuckInterface: bool, line: int, column: int): Declaration {
+    static func InterfaceF(name: string, typeParameters: List<TypeParameter>?, baseInterfaces: List<TypeReference>, members: List<Declaration>, modifiers: Modifiers, isDuckInterface: bool, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.InterfaceDeclaration(name, typeParameters, baseInterfaces, members, modifiers, isDuckInterface, new List<AttributeNode>(), line, column)
     }
 
-    public static func EnumF(name: string, members: List<EnumMember>, enumType: EnumType, modifiers: Modifiers, line: int, column: int): Declaration {
+    static func EnumF(name: string, members: List<EnumMember>, enumType: EnumType, modifiers: Modifiers, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.EnumDeclaration(name, members, enumType, modifiers, new List<AttributeNode>(), line, column)
     }
 
-    public static func UnionF(name: string, typeParameters: List<TypeParameter>?, cases: List<UnionCase>, modifiers: Modifiers, line: int, column: int): Declaration {
+    static func UnionF(name: string, typeParameters: List<TypeParameter>?, cases: List<UnionCase>, modifiers: Modifiers, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.UnionDeclaration(name, typeParameters, cases, modifiers, new List<AttributeNode>(), line, column)
     }
 
-    public static func SoaF(name: string, columns: List<SoaColumnDeclaration>, modifiers: Modifiers, line: int, column: int): Declaration {
+    static func SoaF(name: string, columns: List<SoaColumnDeclaration>, modifiers: Modifiers, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.SoaRecordDeclaration(name, columns, modifiers, new List<AttributeNode>(), line, column)
     }
 
-    public static func TypeAliasF(name: string, aliasedType: TypeReference, line: int, column: int): Declaration {
+    static func TypeAliasF(name: string, aliasedType: TypeReference, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.TypeAliasDeclaration(name, aliasedType, line, column)
     }
 
-    public static func NewtypeF(name: string, underlyingType: TypeReference, line: int, column: int): Declaration {
+    static func NewtypeF(name: string, underlyingType: TypeReference, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.NewtypeDeclaration(name, underlyingType, line, column)
     }
 
     // A field's `Type` is NULLABLE — `Name := "Alice"` leaves it null for inference — while a property's
     // and an indexer's are not, which is why only this one takes a `TypeReference?`.
-    public static func FieldF(name: string, fieldType: TypeReference?, initializer: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, line: int, column: int): Declaration {
+    static func FieldF(name: string, fieldType: TypeReference?, initializer: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, initializer, modifiers, propertyModifier, new List<AttributeNode>(), line, column)
     }
 
-    public static func PropF(name: string, propertyType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, expressionBody: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, line: int, column: int): Declaration {
+    static func PropF(name: string, propertyType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, expressionBody: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.PropertyDeclaration(name, propertyType, getBody, setBody, expressionBody, modifiers, propertyModifier, new List<AttributeNode>(), line, column)
     }
 
-    public static func IndexerF(parameters: List<Parameter>, indexerType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, modifiers: Modifiers, line: int, column: int): Declaration {
+    static func IndexerF(parameters: List<Parameter>, indexerType: TypeReference, getBody: BlockStatement?, setBody: BlockStatement?, modifiers: Modifiers, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.IndexerDeclaration(parameters, indexerType, getBody, setBody, modifiers, new List<AttributeNode>(), line, column)
     }
 
-    public static func CtorF(parameters: List<Parameter>, body: BlockStatement, initializer: Expression?, modifiers: Modifiers, line: int, column: int): Declaration {
+    static func CtorF(parameters: List<Parameter>, body: BlockStatement, initializer: Expression?, modifiers: Modifiers, line: int, column: int): Declaration {
         return new NSharpLang.Compiler.Ast.ConstructorDeclaration(parameters, body, initializer, modifiers, new List<AttributeNode>(), line, column)
     }
 
     // `Constraints1` builds a one-entry list; a `where K : IKey where V : IValue` header needs two, so
     // the list is built by appending instead of by constructing.
-    public static func AddConstraint(constraints: List<GenericConstraint>, typeParameter: string, constraintTypes: List<TypeReference>, special: SpecialConstraintKind) {
+    static func AddConstraint(constraints: List<GenericConstraint>, typeParameter: string, constraintTypes: List<TypeReference>, special: SpecialConstraintKind) {
         constraints.Add(new GenericConstraint(typeParameter, constraintTypes, special))
     }
 
     // `PropertyModifier` is a flags enum too, and `required init Id: string` sets Required|Init in it
     // as well as in `Modifiers` — the sibling of `Mods2` for the member-level flag word.
     // It uses the same int-bitmask + cast idiom as `Mods2` above.
-    public static func PropMods2(first: PropertyModifier, second: PropertyModifier): PropertyModifier {
+    static func PropMods2(first: PropertyModifier, second: PropertyModifier): PropertyModifier {
         value := System.Convert.ToInt32(first) | System.Convert.ToInt32(second)
         return (PropertyModifier)value
     }
@@ -1617,38 +1617,38 @@ public class Golden {
     // `Argument`'s constructor gives `Modifier` a DEFAULT value; the columnar path declines a call that
     // omits a defaulted parameter, so `ArgF` takes it explicitly and every caller passes it.
 
-    public static func ArgF(name: string?, value: Expression, modifier: ArgumentModifier): Argument {
+    static func ArgF(name: string?, value: Expression, modifier: ArgumentModifier): Argument {
         return new Argument(name, value, modifier)
     }
 
-    public static func CatchF(exceptionType: TypeReference?, variableName: string?, block: BlockStatement): CatchClause {
+    static func CatchF(exceptionType: TypeReference?, variableName: string?, block: BlockStatement): CatchClause {
         return new CatchClause(exceptionType, variableName, block)
     }
 
     // `pattern` is nullable because a `default =>` arm materializes a SwitchCase with a null Pattern.
-    public static func CaseF(pattern: Pattern?, statements: List<Statement>, line: int, column: int): SwitchCase {
+    static func CaseF(pattern: Pattern?, statements: List<Statement>, line: int, column: int): SwitchCase {
         return new SwitchCase(pattern, statements, line, column)
     }
 
-    public static func TextPart(text: string, line: int, column: int): InterpolatedStringPart {
+    static func TextPart(text: string, line: int, column: int): InterpolatedStringPart {
         return new InterpolatedStringText(text, line, column)
     }
 
-    public static func HolePart(expr: Expression, formatClause: string?, line: int, column: int): InterpolatedStringPart {
+    static func HolePart(expr: Expression, formatClause: string?, line: int, column: int): InterpolatedStringPart {
         return new InterpolatedStringHole(expr, formatClause, line, column)
     }
 
     // The test-DSL declarations. `TableCases` is a list OF LISTS — one inner list per table row — and
     // `TableParameters` / `TableCases` / `SkipReason` are all null for a plain `test "…" { … }`.
-    public static func TestF(description: string, body: BlockStatement, tableParameters: List<Parameter>?, tableCases: List<List<Expression> >?, skipReason: string?, line: int, column: int): Declaration {
+    static func TestF(description: string, body: BlockStatement, tableParameters: List<Parameter>?, tableCases: List<List<Expression>>?, skipReason: string?, line: int, column: int): Declaration {
         return new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column)
     }
 
-    public static func SetupF(body: BlockStatement, line: int, column: int): Declaration {
+    static func SetupF(body: BlockStatement, line: int, column: int): Declaration {
         return new SetupDeclaration(body, line, column)
     }
 
-    public static func TeardownF(body: BlockStatement, line: int, column: int): Declaration {
+    static func TeardownF(body: BlockStatement, line: int, column: int): Declaration {
         return new TeardownDeclaration(body, line, column)
     }
 
@@ -1664,23 +1664,23 @@ public class Golden {
     // form of an existing `Add*` at the SAME arity, so the two forms stay interchangeable and neither
     // states less than the other.
 
-    public static func CaseM(pattern: Pattern, guard: Expression?, body: Expression): MatchCase {
+    static func CaseM(pattern: Pattern, guard: Expression?, body: Expression): MatchCase {
         return new MatchCase(pattern, guard, body)
     }
 
     // `pattern` is nullable because `{ Name: n }` with a bare binding leaves it null and fills
     // `bindingName` instead.
-    public static func PatPropF(name: string, pattern: Pattern?, bindingName: string?, line: int, column: int): PropertyPattern {
+    static func PatPropF(name: string, pattern: Pattern?, bindingName: string?, line: int, column: int): PropertyPattern {
         return new PropertyPattern(name, pattern, bindingName, line, column)
     }
 
     // `name` is nullable because an INDEXER initializer (`[0]: "x"`) carries a null Name and an
     // IndexExpression instead.
-    public static func PropInit(name: string?, indexExpression: Expression?, value: Expression, nameLine: int, nameColumn: int): PropertyInitializer {
+    static func PropInit(name: string?, indexExpression: Expression?, value: Expression, nameLine: int, nameColumn: int): PropertyInitializer {
         return new PropertyInitializer(name, indexExpression, value, nameLine, nameColumn)
     }
 
-    public static func TupleElemF(name: string?, value: Expression): TupleElement {
+    static func TupleElemF(name: string?, value: Expression): TupleElement {
         return new TupleElement(name, value)
     }
 
@@ -1695,7 +1695,7 @@ public class Golden {
     // inherited NL202 ("should return Declaration but returns …") that thirteen of those builders carry,
     // and a `.tests.nl` this slice adds should not add a row. `List<Declaration>.Add` takes the derived
     // type directly, exactly as the `members.Add(Golden.Func(…))` callers next door already do.
-    public static func OpFunc(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, modifiers: Modifiers, isOperatorOverload: bool, operatorSymbol: string?, isConversionOperator: bool, isImplicitConversion: bool, keywordSpan: SourceSpan, symbolSpan: SourceSpan, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
+    static func OpFunc(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, modifiers: Modifiers, isOperatorOverload: bool, operatorSymbol: string?, isConversionOperator: bool, isImplicitConversion: bool, keywordSpan: SourceSpan, symbolSpan: SourceSpan, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
         node := new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, null, null, null, modifiers, new List<AttributeNode>(), isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion, line, column)
         node.OperatorKeywordSpan = keywordSpan
         node.OperatorSymbolSpan = symbolSpan
@@ -1720,42 +1720,42 @@ public class Golden {
     // the slice-19 `OpFunc` lesson, which keeps this file at the 18 inherited `nlc check` rows it
     // already reported instead of earning a fourteenth NL202.
 
-    public static func ImportF(ns: string, alias: string?, line: int, column: int): ImportDirective {
+    static func ImportF(ns: string, alias: string?, line: int, column: int): ImportDirective {
         return new ImportDirective(ns, alias, line, column)
     }
 
-    public static func FileImportF(path: string, alias: string?, pathColumn: int, pathLength: int, line: int, column: int): FileImport {
+    static func FileImportF(path: string, alias: string?, pathColumn: int, pathLength: int, line: int, column: int): FileImport {
         node := new FileImport(path, alias, line, column)
         node.PathColumn = pathColumn
         node.PathLength = pathLength
         return node
     }
 
-    public static func AttrF(name: string, args: List<Argument>, line: int, column: int): AttributeNode {
+    static func AttrF(name: string, args: List<Argument>, line: int, column: int): AttributeNode {
         return new AttributeNode(name, args, line, column)
     }
 
-    public static func PreprocF(directive: string, line: int, column: int): PreprocessorDeclaration {
+    static func PreprocF(directive: string, line: int, column: int): PreprocessorDeclaration {
         return new PreprocessorDeclaration(directive, line, column)
     }
 
-    public static func ClassA(name: string, typeParameters: List<TypeParameter>?, baseClass: TypeReference?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.ClassDeclaration {
+    static func ClassA(name: string, typeParameters: List<TypeParameter>?, baseClass: TypeReference?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.ClassDeclaration {
         return new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParameters, baseClass, interfaces, members, primaryConstructorParameters, modifiers, attributes, line, column)
     }
 
-    public static func StructA(name: string, typeParameters: List<TypeParameter>?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, isRefStruct: bool, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.StructDeclaration {
+    static func StructA(name: string, typeParameters: List<TypeParameter>?, interfaces: List<TypeReference>, members: List<Declaration>, primaryConstructorParameters: List<Parameter>?, modifiers: Modifiers, isRefStruct: bool, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.StructDeclaration {
         return new NSharpLang.Compiler.Ast.StructDeclaration(name, typeParameters, interfaces, members, primaryConstructorParameters, modifiers, attributes, line, column, isRefStruct)
     }
 
-    public static func FieldA(name: string, fieldType: TypeReference?, initializer: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.FieldDeclaration {
+    static func FieldA(name: string, fieldType: TypeReference?, initializer: Expression?, modifiers: Modifiers, propertyModifier: PropertyModifier, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.FieldDeclaration {
         return new NSharpLang.Compiler.Ast.FieldDeclaration(name, fieldType, initializer, modifiers, propertyModifier, attributes, line, column)
     }
 
-    public static func FuncA(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, expressionBody: Expression?, typeParameters: List<TypeParameter>?, constraints: List<GenericConstraint>?, modifiers: Modifiers, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
+    static func FuncA(name: string, parameters: List<Parameter>, returnType: TypeReference?, body: BlockStatement?, expressionBody: Expression?, typeParameters: List<TypeParameter>?, constraints: List<GenericConstraint>?, modifiers: Modifiers, attributes: List<AttributeNode>, line: int, column: int): NSharpLang.Compiler.Ast.FunctionDeclaration {
         return new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParameters, constraints, modifiers, attributes, false, null, false, false, line, column)
     }
 
-    public static func ParamA(name: string, paramType: TypeReference, defaultValue: Expression?, isThis: bool, modifier: ParameterModifier, attributes: List<AttributeNode>, line: int, column: int): Parameter {
+    static func ParamA(name: string, paramType: TypeReference, defaultValue: Expression?, isThis: bool, modifier: ParameterModifier, attributes: List<AttributeNode>, line: int, column: int): Parameter {
         return new Parameter(name, paramType, defaultValue, isThis, modifier, attributes, line, column, false, null)
     }
 }
@@ -4781,7 +4781,9 @@ test "016 N+1c tranche 10: an if/else materializes both branches as nested Block
         Golden.Ident("a", 2, 20),
         Golden.Block1(CallStmt("b", 2, 24), 2, 22),
         Golden.Block1(CallStmt("c", 2, 37), 2, 35),
-        2, 17))
+        2,
+        17
+    ))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
@@ -5061,7 +5063,9 @@ test "016 N+1c tranche 10: AstEq surfaces a swapped then/else branch" {
         Golden.Ident("a", 2, 20),
         Golden.Block1(CallStmt("c", 2, 37), 2, 35),
         Golden.Block1(CallStmt("b", 2, 24), 2, 22),
-        2, 17))
+        2,
+        17
+    ))
     assert AstEq.Diff(expected, actual, "unit") != ""
 }
 

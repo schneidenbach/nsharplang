@@ -108,7 +108,6 @@ import NSharpLang.Compiler.Ast
 // shapes tranche 9c never reached: a ONE-element positional pattern (which is what a parenthesized
 // pattern turns out to be), a slice in the MIDDLE of a list, and every pattern kind composed with
 // every other.
-
 test "020 s19 parser patterns: a `match` arm's LiteralPattern anchors on the literal it wraps, at the same Line/Column, and the parser leaves IsExhaustive FALSE on every MatchExpression it builds (was ParserTests.TestMatchExpression)" {
     source := "\n            func Test() {\n                result := match x {\n                    1 => \"one\",\n                    2 => \"two\"\n                }\n            }\n        "
     assert PsCensus(source) == ""

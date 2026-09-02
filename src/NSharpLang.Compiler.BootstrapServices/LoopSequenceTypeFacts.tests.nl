@@ -43,7 +43,6 @@ import System.Collections.Generic
 // (5) A SOURCE GENERIC CANNOT IMPERSONATE A RUNTIME ONE BY NAME. When `GenericDefinition` is set
 // to anything that is not a `ReflectionTypeInfo`, the answer is `null` regardless of the name —
 // which is what stops a user type called `List` from being walked as the BCL's.
-
 func LoopFactsNoInfos(): List<TypeInfo> {
     return new List<TypeInfo>()
 }
@@ -110,7 +109,8 @@ func LoopFactsGenericArgumentText(value: TypeInfo?, index: int): string {
 func LoopFactsSyncElementText(name: string): string {
     return LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(
         new GenericTypeInfo(name, LoopFactsInfos1(BuiltInTypes.Int)),
-        false))
+        false
+    ))
 }
 
 test "source generics cannot impersonate runtime loop sequence shapes by name" {
@@ -119,11 +119,13 @@ test "source generics cannot impersonate runtime loop sequence shapes by name" {
     sourceList := new GenericTypeInfo(
         "List",
         arguments,
-        new SimpleTypeInfo("source List"))
+        new SimpleTypeInfo("source List")
+    )
 
     assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(
         sourceList,
-        false) == null
+        false
+    ) == null
 }
 
 // ---- the synchronous door -------------------------------------------------------------------------

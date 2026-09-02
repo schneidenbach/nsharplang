@@ -17,7 +17,6 @@ import NSharpLang.Compiler
 // `Where` clause restating the kernel's own predicate, and a `GroupBy` restating its grouping —
 // so each asserted only that two implementations of one rule agree. The answers are written out
 // literally below, which is what makes them pins.
-
 func SafeFix(title: string, safety: FixSafety): CodeAction {
     return new CodeAction(title, "NL000", new List<TextEdit>(), safety)
 }

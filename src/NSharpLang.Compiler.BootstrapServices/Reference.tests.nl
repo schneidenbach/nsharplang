@@ -18,7 +18,6 @@ import System.IO
 // assertion reached it only through a `ProjectFileParser.Parse` that happened to succeed. Its four
 // arms, the two path shapes each of the disk-backed arms accepts, and the three "must have a
 // value" refusals are below.
-
 func RfcTypeName(reference: Reference): string {
     try {
         kind := reference.Type

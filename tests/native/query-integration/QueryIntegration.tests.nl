@@ -44,11 +44,9 @@ import System.Text.Json
 // that path directly, and the one body that walked `snapshot.SemanticModels` only to build a
 // FAILURE MESSAGE drops the walk, because a message is not a claim.
 
-
 // ─── THE OBJECT?[] STORES ─────────────────────────────────────────────────────────────────────
 // A boxing store into an `object?[]` element declines at emit when the source is an `int`-typed
 // PARAMETER written straight into the element; routing it through a typed `object` local emits.
-
 func SetQueryObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -63,16 +61,13 @@ func SetQueryBool(values: object?[], index: int, value: bool) {
     values[index] = boxed
 }
 
-
 // ─── THE CORPUS ON DISK ───────────────────────────────────────────────────────────────────────
 
 func QueryRepositoryRoot(): string {
     current: string? = Path.GetFullPath(Environment.CurrentDirectory)
     while current != null {
         value := current ?? ""
-        if File.Exists(Path.Combine(value, "AGENTS.md"))
-            && Directory.Exists(Path.Combine(value, "src"))
-            && Directory.Exists(Path.Combine(value, "tests")) {
+        if File.Exists(Path.Combine(value, "AGENTS.md")) && Directory.Exists(Path.Combine(value, "src")) && Directory.Exists(Path.Combine(value, "tests")) {
             return value
         }
         parent := Path.GetDirectoryName(value)
@@ -103,7 +98,6 @@ func QueryFixturesDir(): string {
 
     return candidate
 }
-
 
 // ─── THE PRODUCTION TYPES, REACHED THE WAY EVERY NATIVE PROJECT REACHES THEM ──────────────────
 
@@ -182,7 +176,6 @@ func QueryRequireList(value: object?, what: string): IList {
     return list
 }
 
-
 // ─── READING A PRODUCTION RESULT ──────────────────────────────────────────────────────────────
 
 // `CallGraphResult`, `CallSiteResult`, `ImplementorsResult` and `ImplementorResult` are RECORDS,
@@ -227,7 +220,6 @@ func QueryChild(owner: object, propertyName: string): object {
 func QueryChildList(owner: object, propertyName: string): IList {
     return QueryRequireList(QueryProperty(owner, propertyName), propertyName)
 }
-
 
 // ─── ROWS ─────────────────────────────────────────────────────────────────────────────────────
 // Every production collection is flattened to a `List<string>` of pipe-joined rows, so a claim is
@@ -353,7 +345,6 @@ func QueryJoin(rows: List<string>): string {
 
     return text
 }
-
 
 // ─── THE ELEVEN SERVICE ENTRY POINTS ──────────────────────────────────────────────────────────
 
@@ -485,7 +476,6 @@ func QueryGetCompletions(snapshot: object, sourceFile: string, line: int, col: i
     return QueryRequire(QueryCall(engineType, "GetCompletions", engine, args), "GetCompletions")
 }
 
-
 // ─── THE FOUR FORMATTER ENTRY POINTS ──────────────────────────────────────────────────────────
 
 func QueryFormatterJson(methodName: string, results: object?, projectRoot: string?): string {
@@ -502,7 +492,6 @@ func QueryOutlineJson(outline: object): string {
     answer := QueryRequire(QueryCall(QueryFormatterType(), "OutlineToJson", null, args), "OutlineToJson")
     return answer.ToString() ?? ""
 }
-
 
 // ─── THE ROW SHAPES ───────────────────────────────────────────────────────────────────────────
 
@@ -766,7 +755,6 @@ func QueryCompletionNames(answer: object, groupKey: string): List<string> {
     return names
 }
 
-
 // ─── THE BINDING MAP ──────────────────────────────────────────────────────────────────────────
 
 func QueryBindings(snapshot: object): object {
@@ -797,7 +785,6 @@ func QueryProjectErrorRows(snapshot: object): List<string> {
 
     return rows
 }
-
 
 // ─── THE TWO SOURCE-SCANNING HELPERS THE DELETED FILE OWNED ───────────────────────────────────
 
@@ -862,7 +849,6 @@ func FirstBlankLineInFile(filePath: string): int {
 
     throw new InvalidOperationException("Could not find a blank line in " + filePath)
 }
-
 
 // ─── THE FIXTURE PROJECTS ─────────────────────────────────────────────────────────────────────
 
@@ -935,7 +921,6 @@ func QueryWriteEmptyMain(projectRoot: string) {
     QueryWriteSource(projectRoot, "Program.nl", "namespace QueryTemp\n\nfunc Main() {\n}\n")
 }
 
-
 // ─── THE SYMBOL FILTER THE DELETED FILE OWNED ────────────────────────────────────────────────
 // A FINDING, RECORDED AT ITS SITE. The deleted `BuildFilterRegex` carried the comment "Duplicate of
 // the CLI's BuildSymbolFilterRegex — kept here for service-layer tests", and that CLI function NO
@@ -993,7 +978,6 @@ func FilterNames(names: List<string>, pattern: string): List<string> {
     return matched
 }
 
-
 // A `JsonElement` INDEXER declines at emit; the array is walked with `EnumerateArray` instead,
 // which is the spelling `tests/native/ownership-audit` already uses.
 func QueryJsonAt(items: JsonElement, wanted: int): JsonElement {
@@ -1008,7 +992,6 @@ func QueryJsonAt(items: JsonElement, wanted: int): JsonElement {
 
     throw new InvalidOperationException("The JSON array has no element at index " + wanted.ToString() + ".")
 }
-
 
 // THE GOLDEN CLUSTER'S INPUT, BUILT THE ONLY WAY THIS EMIT PATH ALLOWS.
 //
@@ -1064,7 +1047,6 @@ func QueryGoldenDiagnostic(symbolName: string, line: int, snippet: string): obje
     SetQueryObject(args, 13, null)
     return args
 }
-
 
 // ═══ SYMBOLS ══════════════════════════════════════════════════════════════════════════════════
 
@@ -1162,7 +1144,8 @@ test "020 s39 query integration: Symbols PublicSurface UsesGoStyleCasingAndInter
     QueryWriteSource(
         projectRoot,
         "Api.nl",
-        "public class copiedPublicSurface {\n    Visible: int\n}\n\nprivate class CopiedPrivateSurface {\n    Visible: int\n}\n\nclass ExportedSurface {\n    Visible: int\n    hidden: int\n}\n\nclass hiddenSurface {\n    Visible: int\n}\n\nenum Labels: string {\n    Good = \"good\",\n    bad = \"bad\"\n}\n\nunion Result {\n    Ok { Value: int }\n    err { message: string }\n}\n\nfunc Helper(): int {\n    return 1\n}\n\nfunc helper(): int {\n    return 2\n}\n")
+        "public class copiedPublicSurface {\n    Visible: int\n}\n\nprivate class CopiedPrivateSurface {\n    Visible: int\n}\n\nclass ExportedSurface {\n    Visible: int\n    hidden: int\n}\n\nclass hiddenSurface {\n    Visible: int\n}\n\nenum Labels: string {\n    Good = \"good\",\n    bad = \"bad\"\n}\n\nunion Result {\n    Ok { Value: int }\n    err { message: string }\n}\n\nfunc Helper(): int {\n    return 1\n}\n\nfunc helper(): int {\n    return 2\n}\n"
+    )
 
     snapshot := QueryLoadProject(projectRoot)
     errorRows := QueryProjectErrorRows(snapshot)
@@ -1210,7 +1193,6 @@ test "020 s39 query integration: Symbols PublicSurface UsesGoStyleCasingAndInter
     QueryDeleteTemp(projectRoot)
 }
 
-
 // ═══ OUTLINE ══════════════════════════════════════════════════════════════════════════════════
 
 test "020 s39 query integration: Outline HelloWorld HasMainFunction — the file outline carries Main as a Function (was QueryIntegrationTests.Outline_HelloWorld_HasMainFunction)" {
@@ -1231,7 +1213,6 @@ test "020 s39 query integration: Outline SingleFileFastPath MatchesProjectOutlin
 
     assert RowsHavePrefix(rows, "Main|")
 }
-
 
 // ═══ DIAGNOSTICS ══════════════════════════════════════════════════════════════════════════════
 
@@ -1309,7 +1290,6 @@ test "020 s39 query integration: DiagnosticClustersToJson EmitsStableIdentifierR
     document.Dispose()
 }
 
-
 // ═══ COMPLETIONS ══════════════════════════════════════════════════════════════════════════════
 
 test "020 s39 query integration: Completions IdentifierContext ExcludesKeywordsByDefault — the LLM-facing default drops keywords and primitive types (was QueryIntegrationTests.Completions_IdentifierContext_ExcludesKeywordsByDefault)" {
@@ -1328,7 +1308,6 @@ test "020 s39 query integration: Completions IdentifierContext IncludesKeywordsW
     assert RowsHaveExact(keywords, "if")
     assert RowsHaveExact(keywords, "return")
 }
-
 
 // ═══ JSON ENVELOPES ═══════════════════════════════════════════════════════════════════════════
 
@@ -1396,7 +1375,6 @@ test "020 s39 query integration: Json Outline HasOutlineArray — the outline en
     document.Dispose()
 }
 
-
 // ═══ UNHAPPY PATHS ════════════════════════════════════════════════════════════════════════════
 
 test "020 s39 query integration: Outline NonexistentFile ReturnsEmpty — a missing file outlines to nothing (was QueryIntegrationTests.Outline_NonexistentFile_ReturnsEmpty)" {
@@ -1425,7 +1403,6 @@ test "020 s39 query integration: Diagnostics NonexistentFile ReturnsEmpty — a 
     assert diagnostics.Count == 0
 }
 
-
 // ═══ BINDING MAP ══════════════════════════════════════════════════════════════════════════════
 
 test "020 s39 query integration: BindingMap HelloWorld IsPopulated — the snapshot carries a binding map with bindings in it (was QueryIntegrationTests.BindingMap_HelloWorld_IsPopulated)" {
@@ -1439,7 +1416,6 @@ test "020 s39 query integration: BindingMap MultiFile HasCrossFileBindings — t
 
     assert QueryInt(bindings, "BindingCount") > 0
 }
-
 
 // ═══ POSITIVE SEMANTIC NAVIGATION ═════════════════════════════════════════════════════════════
 
@@ -1477,7 +1453,8 @@ test "020 s39 query integration: References SourceContexts AreTrimmedThroughProd
     QueryWriteSource(
         projectRoot,
         "Program.nl",
-        "namespace QueryTemp\n\n   record Widget {\n    Value: int\n}\n\n\t  func Read(widget: Widget): int {\n    return widget.Value\n}\n")
+        "namespace QueryTemp\n\n   record Widget {\n    Value: int\n}\n\n\t  func Read(widget: Widget): int {\n    return widget.Value\n}\n"
+    )
     snapshot := QueryLoadProject(projectRoot)
 
     filePath := Path.Combine(projectRoot, "Program.nl")
@@ -1499,11 +1476,13 @@ test "020 s39 query integration: TypeUseNavigation DuplicateTypeNames UsesSemant
     QueryWriteSource(
         projectRoot,
         "Foo/UseWidget.nl",
-        "namespace QueryTemp.Foo\nimport System.Collections.Generic\n\nfunc Read(items: List<Widget>, maybe: Widget?, many: Widget[], mapper: Func<Widget, string>): string {\n    return \"\"\n}\n")
+        "namespace QueryTemp.Foo\nimport System.Collections.Generic\n\nfunc Read(items: List<Widget>, maybe: Widget?, many: Widget[], mapper: Func<Widget, string>): string {\n    return \"\"\n}\n"
+    )
     QueryWriteSource(
         projectRoot,
         "Bar/UseWidget.nl",
-        "namespace QueryTemp.Bar\nimport System.Collections.Generic\n\nfunc Read(items: List<Widget>): int {\n    return 1\n}\n")
+        "namespace QueryTemp.Bar\nimport System.Collections.Generic\n\nfunc Read(items: List<Widget>): int {\n    return 1\n}\n"
+    )
     QueryWriteEmptyMain(projectRoot)
     snapshot := QueryLoadProject(projectRoot)
 
@@ -1555,7 +1534,8 @@ test "020 s39 query integration: References CommentWord DoesNotUseTextFallback �
     QueryWriteSource(
         projectRoot,
         "Program.nl",
-        "namespace QueryTemp\n\nfunc Main(): void {\n    let value := 1\n    // value in a comment is not a semantic reference target\n    print(value)\n}\n")
+        "namespace QueryTemp\n\nfunc Main(): void {\n    let value := 1\n    // value in a comment is not a semantic reference target\n    print(value)\n}\n"
+    )
 
     references := QueryFindReferences(QueryLoadProject(projectRoot), "Program.nl", 5, 8)
     assert references.Count == 0
@@ -1587,7 +1567,8 @@ test "020 s39 query integration: Completions ChainedMemberAccess DuplicateCrossF
     QueryWriteSource(
         projectRoot,
         "Foo/UseWidget.nl",
-        "namespace QueryTemp.Foo\n\nclass Factory {\n    func Create(): Widget {\n        return new Widget { FooOnly: \"ok\" }\n    }\n}\n\nfunc Read(factory: Factory): string {\n    return factory.Create().\n}\n")
+        "namespace QueryTemp.Foo\n\nclass Factory {\n    func Create(): Widget {\n        return new Widget { FooOnly: \"ok\" }\n    }\n}\n\nfunc Read(factory: Factory): string {\n    return factory.Create().\n}\n"
+    )
     QueryWriteEmptyMain(projectRoot)
     snapshot := QueryLoadProject(projectRoot)
 
@@ -1642,7 +1623,6 @@ test "020 s39 query integration: BindingMap MultiFile ImportedMemberUsage Resolv
     assert QueryInt(declaration, "Line") == 18
 }
 
-
 // ═══ TYPE QUERIES OVER THE ISSUE-TRACKER FIXTURE ══════════════════════════════════════════════
 
 test "020 s39 query integration: Type IssueTracker LocalVariableFromNewExpression Resolves — service is an IssueService class (was QueryIntegrationTests.Type_IssueTracker_LocalVariableFromNewExpression_Resolves)" {
@@ -1693,7 +1673,8 @@ test "020 s39 query integration: Type QueryableLinqChain ReportsProjectedReturnT
     QueryWriteSource(
         projectRoot,
         "Program.nl",
-        "import System.Linq\n\nfunc Main() {\n    source := [1, 2, 3]\n    query := source.AsQueryable()\n    filtered := query.Where(x => x > 1).Select(x => x.ToString())\n}\n")
+        "import System.Linq\n\nfunc Main() {\n    source := [1, 2, 3]\n    query := source.AsQueryable()\n    filtered := query.Where(x => x > 1).Select(x => x.ToString())\n}\n"
+    )
     snapshot := QueryLoadProject(projectRoot)
 
     programPath := Path.Combine(projectRoot, "Program.nl")
@@ -1710,7 +1691,6 @@ test "020 s39 query integration: Type QueryableLinqChain ReportsProjectedReturnT
 
     QueryDeleteTemp(projectRoot)
 }
-
 
 // ═══ REFERENCES AND DEFINITIONS OVER THE ISSUE-TRACKER FIXTURE ════════════════════════════════
 
@@ -1786,7 +1766,6 @@ test "020 s39 query integration: References IssueTracker EnumDeclaration FindsUs
     assert references.Count >= 1
 }
 
-
 // ═══ HOVER ════════════════════════════════════════════════════════════════════════════════════
 
 test "020 s39 query integration: HoverCommand ReturnsSignatureAndDoc — the Hi declaration hovers to a function signature carrying its return type and the file's doc comment (was QueryIntegrationTests.HoverCommand_ReturnsSignatureAndDoc)" {
@@ -1828,7 +1807,8 @@ test "020 s39 query integration: HoverAndType ChainedMemberAccess ResolveThrough
     QueryWriteSource(
         projectRoot,
         "Program.nl",
-        "func Main(): void\n    let message = \"hello\"\n    let len = message.ToUpper().Length\n")
+        "func Main(): void\n    let message = \"hello\"\n    let len = message.ToUpper().Length\n"
+    )
     snapshot := QueryLoadProject(projectRoot)
 
     // The deleted body walked `snapshot.CompilationUnits.Keys` to recover this path.
@@ -1859,7 +1839,6 @@ test "020 s39 query integration: HoverCommand NoSymbol ReturnsNull — the first
 
     assert QueryIsNothing(QueryGetHoverInfo(QueryHelloWorld(), "Program.nl", blankLine, 1))
 }
-
 
 // ═══ CALL GRAPH ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1898,7 +1877,6 @@ test "020 s39 query integration: CallGraph UnknownFunction ReturnsEmptyLists —
     assert QueryText(result, "Truncated") == "False"
 }
 
-
 // ═══ IMPLEMENTORS ═════════════════════════════════════════════════════════════════════════════
 
 test "020 s39 query integration: Implementors FindsConcreteTypes — IShape is implemented by the class Circle (was QueryIntegrationTests.Implementors_FindsConcreteTypes)" {
@@ -1924,7 +1902,6 @@ test "020 s39 query integration: Implementors ICache FindsMemoryCache — ICache
     rows := QueryImplementorRows(result)
     assert RowsHavePrefix(rows, "MemoryCache|")
 }
-
 
 // ═══ THE CLI'S SYMBOL FILTER ══════════════════════════════════════════════════════════════════
 

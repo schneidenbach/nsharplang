@@ -42,7 +42,6 @@ import NSharpLang.Compiler.Ast
 // (5) THE DICTIONARY RULE IS THE ONLY ONE WITH STATE, AND ALL THREE OF ITS CONDITIONS ARE
 // LOAD-BEARING: the suffix, a member-access receiver, and a REGISTERED receiver type whose erased
 // simple name is exactly `Dictionary`.
-
 func ScpArgs(): List<Argument> {
     return new List<Argument>()
 }

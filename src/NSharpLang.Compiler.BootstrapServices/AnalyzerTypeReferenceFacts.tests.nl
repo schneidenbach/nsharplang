@@ -8,7 +8,6 @@ import NSharpLang.Compiler.Columnar
 // Native contracts for the pure decision surface of the analyzer's type-REFERENCE resolver. All three
 // rules were inline or `private` in Analyzer.cs, so nothing named them: their behaviour was pinned
 // only indirectly, through end-to-end diagnostics. This is their first DIRECT pinning.
-
 func ReferenceFactsSimpleName(candidate: TypeInfo?): string {
     if candidate == null {
         return "<null>"
@@ -153,7 +152,8 @@ test "generic head arity distinguishes 'not generic' from 'cannot be checked her
     genericArguments := new List<TypeInfo>()
     genericArguments.Add(BuiltInTypes.Int)
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(
-        new GenericTypeInfo("List", genericArguments, null)) == -1
+        new GenericTypeInfo("List", genericArguments, null)
+    ) == -1
 }
 
 test "generic head arity reads the declared type parameters of every source family" {
@@ -162,51 +162,127 @@ test "generic head arity reads the declared type parameters of every source fami
     twoParameters := ReferenceFactsTypeParameters(["K", "V"])
 
     plainClass := new ClassTypeInfo(
-        "Plain", 1, 1, false, null, new TypeReference[](0), noParameters,
-        new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0), true)
+        "Plain",
+        1,
+        1,
+        false,
+        null,
+        new TypeReference[](0),
+        noParameters,
+        new ParameterDeclarationInfo[](0),
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0),
+        true
+    )
     genericClass := new ClassTypeInfo(
-        "Box", 1, 1, false, null, new TypeReference[](0), oneParameter,
-        new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0), true)
+        "Box",
+        1,
+        1,
+        false,
+        null,
+        new TypeReference[](0),
+        oneParameter,
+        new ParameterDeclarationInfo[](0),
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0),
+        true
+    )
     pairClass := new ClassTypeInfo(
-        "Pair", 1, 1, false, null, new TypeReference[](0), twoParameters,
-        new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0), true)
+        "Pair",
+        1,
+        1,
+        false,
+        null,
+        new TypeReference[](0),
+        twoParameters,
+        new ParameterDeclarationInfo[](0),
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0),
+        true
+    )
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(plainClass) == 0
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(genericClass) == 1
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(pairClass) == 2
 
     plainStruct := new StructTypeInfo(
-        "Point", 1, 1, new TypeReference[](0), noParameters,
-        new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0))
+        "Point",
+        1,
+        1,
+        new TypeReference[](0),
+        noParameters,
+        new ParameterDeclarationInfo[](0),
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0)
+    )
     genericStruct := new StructTypeInfo(
-        "Cell", 1, 1, new TypeReference[](0), oneParameter,
-        new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0))
+        "Cell",
+        1,
+        1,
+        new TypeReference[](0),
+        oneParameter,
+        new ParameterDeclarationInfo[](0),
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0)
+    )
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(plainStruct) == 0
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(genericStruct) == 1
 
     plainRecord := new RecordTypeInfo(
-        "Simple", 1, 1, false, new TypeReference[](0), noParameters,
-        new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0))
+        "Simple",
+        1,
+        1,
+        false,
+        new TypeReference[](0),
+        noParameters,
+        new ParameterDeclarationInfo[](0),
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0)
+    )
     genericRecord := new RecordTypeInfo(
-        "Wrapped", 1, 1, false, new TypeReference[](0), twoParameters,
-        new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0))
+        "Wrapped",
+        1,
+        1,
+        false,
+        new TypeReference[](0),
+        twoParameters,
+        new ParameterDeclarationInfo[](0),
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0)
+    )
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(plainRecord) == 0
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(genericRecord) == 2
 
     plainInterface := new InterfaceTypeInfo(
-        "Named", 1, 1, false, new TypeReference[](0), noParameters,
-        new DeclaredMemberInfo[](0), new NestedTypeInfo[](0))
+        "Named",
+        1,
+        1,
+        false,
+        new TypeReference[](0),
+        noParameters,
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0)
+    )
     genericInterface := new InterfaceTypeInfo(
-        "Holder", 1, 1, false, new TypeReference[](0), oneParameter,
-        new DeclaredMemberInfo[](0), new NestedTypeInfo[](0))
+        "Holder",
+        1,
+        1,
+        false,
+        new TypeReference[](0),
+        oneParameter,
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0)
+    )
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(plainInterface) == 0
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(genericInterface) == 1
 
     // Enums, newtypes and aliases are always arity ZERO, not -1: writing `Color<int>` is a reportable
     // mistake, and the alias arm reports on the ALIAS rather than silently checking its target.
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(
-        new AliasTypeInfo(new SimpleTypeReference("int", 0, 0))) == 0
+        new AliasTypeInfo(new SimpleTypeReference("int", 0, 0))
+    ) == 0
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(
-        new AliasTypeInfo(new GenericTypeReference("List", new List<TypeReference>(), 0, 0))) == 0
+        new AliasTypeInfo(new GenericTypeReference("List", new List<TypeReference>(), 0, 0))
+    ) == 0
 }
 
 test "generic head arity reads a union's OPTIONAL type-parameter list, absent meaning zero" {
@@ -214,11 +290,26 @@ test "generic head arity reads a union's OPTIONAL type-parameter list, absent me
     unionParameters.Add(new TypeParameter("T"))
 
     withParameters := new UnionTypeInfo(new UnionDeclarationInfo(
-        "Maybe", unionParameters, new List<UnionCase>(), 1, 1))
+        "Maybe",
+        unionParameters,
+        new List<UnionCase>(),
+        1,
+        1
+    ))
     withoutParameters := new UnionTypeInfo(new UnionDeclarationInfo(
-        "Shape", null, new List<UnionCase>(), 1, 1))
+        "Shape",
+        null,
+        new List<UnionCase>(),
+        1,
+        1
+    ))
     withEmptyParameters := new UnionTypeInfo(new UnionDeclarationInfo(
-        "Flat", new List<TypeParameter>(), new List<UnionCase>(), 1, 1))
+        "Flat",
+        new List<TypeParameter>(),
+        new List<UnionCase>(),
+        1,
+        1
+    ))
 
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(withParameters) == 1
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(withoutParameters) == 0
@@ -228,15 +319,18 @@ test "generic head arity reads a union's OPTIONAL type-parameter list, absent me
 test "generic head arity treats a reflected type as generic only when it is an open DEFINITION" {
     // An open definition reports its parameter count.
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(
-        new ReflectionTypeInfo(typeof(List<int>).GetGenericTypeDefinition())) == 1
+        new ReflectionTypeInfo(typeof(List<int>).GetGenericTypeDefinition())
+    ) == 1
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(
-        new ReflectionTypeInfo(typeof(Dictionary<string, int>).GetGenericTypeDefinition())) == 2
+        new ReflectionTypeInfo(typeof(Dictionary<string, int>).GetGenericTypeDefinition())
+    ) == 2
 
     // A CLOSED generic reports ZERO, not its argument count: it is already constructed, so a further
     // type-argument list on it is the reportable mistake.
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(new ReflectionTypeInfo(typeof(List<int>))) == 0
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(
-        new ReflectionTypeInfo(typeof(Dictionary<string, int>))) == 0
+        new ReflectionTypeInfo(typeof(Dictionary<string, int>))
+    ) == 0
 
     // And a non-generic reflected type is zero.
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(new ReflectionTypeInfo(typeof(int))) == 0
@@ -247,51 +341,65 @@ test "generic head arity treats a reflected type as generic only when it is an o
 test "visible type namespaces put the current one first, then imports in order, deduplicated" {
     // No package or namespace declaration: the GLOBAL namespace is a real candidate and comes first.
     assert ReferenceFactsNamespaceText(
-        AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(null, ReferenceFactsNamespaces([])))
-        == "<global>"
+        AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(null, ReferenceFactsNamespaces([]))
+    ) == "<global>"
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
-            null, ReferenceFactsNamespaces(["System", "System.Text"])))
-        == "<global>,System,System.Text"
+            null,
+            ReferenceFactsNamespaces(["System", "System.Text"])
+        )
+    ) == "<global>,System,System.Text"
 
     // A declared namespace comes first, then the imports in declaration order.
     assert ReferenceFactsNamespaceText(
-        AnalyzerTypeReferenceFacts.VisibleTypeNamespaces("Alpha", ReferenceFactsNamespaces([])))
-        == "Alpha"
+        AnalyzerTypeReferenceFacts.VisibleTypeNamespaces("Alpha", ReferenceFactsNamespaces([]))
+    ) == "Alpha"
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
-            "Alpha", ReferenceFactsNamespaces(["System", "System.Text", "System.IO"])))
-        == "Alpha,System,System.Text,System.IO"
+            "Alpha",
+            ReferenceFactsNamespaces(["System", "System.Text", "System.IO"])
+        )
+    ) == "Alpha,System,System.Text,System.IO"
 
     // The current namespace is not repeated when it is also imported, wherever the import sits.
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
-            "Alpha", ReferenceFactsNamespaces(["Alpha", "System"])))
-        == "Alpha,System"
+            "Alpha",
+            ReferenceFactsNamespaces(["Alpha", "System"])
+        )
+    ) == "Alpha,System"
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
-            "Alpha", ReferenceFactsNamespaces(["System", "Alpha"])))
-        == "Alpha,System"
+            "Alpha",
+            ReferenceFactsNamespaces(["System", "Alpha"])
+        )
+    ) == "Alpha,System"
 
     // Duplicate imports collapse to their FIRST occurrence, which is what keeps the candidate order
     // stable when the same namespace is imported twice.
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
-            "Alpha", ReferenceFactsNamespaces(["System", "System", "System.Text", "System"])))
-        == "Alpha,System,System.Text"
+            "Alpha",
+            ReferenceFactsNamespaces(["System", "System", "System.Text", "System"])
+        )
+    ) == "Alpha,System,System.Text"
 
     // Deduplication is case-SENSITIVE: namespaces that differ only in case are different candidates.
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
-            "Alpha", ReferenceFactsNamespaces(["alpha", "ALPHA", "Alpha"])))
-        == "Alpha,alpha,ALPHA"
+            "Alpha",
+            ReferenceFactsNamespaces(["alpha", "ALPHA", "Alpha"])
+        )
+    ) == "Alpha,alpha,ALPHA"
 
     // The global namespace never suppresses an import, and an empty import name is a real (if
     // useless) candidate rather than being silently dropped.
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
-            null, ReferenceFactsNamespaces(["", "System"])))
-        == "<global>,,System"
+            null,
+            ReferenceFactsNamespaces(["", "System"])
+        )
+    ) == "<global>,,System"
 }
 
 // ---- the built-in spelling set, and the three answers it reconciles --------------------------
@@ -300,8 +408,24 @@ test "visible type namespaces put the current one first, then imports in order, 
 // (`Int32`), a well-known struct (`DateTime`), a user type, and a near-miss of case.
 func BuiltInSpellingNames(): string[] {
     return [
-        "bool", "byte", "sbyte", "short", "ushort", "int", "uint", "long", "ulong",
-        "nint", "nuint", "char", "float", "double", "decimal", "string", "object", "void"
+        "bool",
+        "byte",
+        "sbyte",
+        "short",
+        "ushort",
+        "int",
+        "uint",
+        "long",
+        "ulong",
+        "nint",
+        "nuint",
+        "char",
+        "float",
+        "double",
+        "decimal",
+        "string",
+        "object",
+        "void"
     ]
 }
 

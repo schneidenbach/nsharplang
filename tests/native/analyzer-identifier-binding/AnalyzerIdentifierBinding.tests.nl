@@ -46,7 +46,6 @@ import System.Collections
 //   (d) THE BOUND CLASS NAME ON BOTH FIXTURES. The C# stated `Name == "Person"` on the second
 //       fixture only.
 //   (e) A REFUSAL. Nothing in the deleted file asked what an UNDECLARED identifier binds to.
-
 func SetBindingObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -258,7 +257,6 @@ func BoundMemberCensus(analysis: object, identifier: string): string {
 
     return census
 }
-
 
 // ---- contracts ----
 

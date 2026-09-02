@@ -22,7 +22,6 @@ import System.IO
 //       `UseSpaces` are not independent knobs on the same string.
 //   (c) THE INT PARSER IS EXACT AT THE 32-BIT BOUNDARY IN BOTH DIRECTIONS, including the
 //       asymmetric one: `-2147483648` parses and `2147483648` does not.
-
 func FcgDefault(): FormatterConfig {
     return new FormatterConfig()
 }
@@ -65,7 +64,6 @@ func FcgParsedValue(text: string): int {
 
     return 0
 }
-
 
 // ---- THE DEFAULTS AND THE INDENT STRING ----------------------------------------------------------
 

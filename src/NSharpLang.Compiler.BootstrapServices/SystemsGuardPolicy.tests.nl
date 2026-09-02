@@ -39,7 +39,6 @@ import NSharpLang.Compiler.Ast
 // (8) A FLOAT DIVISOR IS READ INVARIANTLY, WITHOUT ITS TYPE SUFFIX, AND WITHOUT THOUSANDS
 // SEPARATORS. The last is exactness: the rule reads under `NumberStyles.Float`, which does not admit
 // them, so `1,000` must not be readable as a non-zero literal.
-
 func SgpInt(text: string): IntLiteralExpression {
     return new IntLiteralExpression(text, 1, 1)
 }

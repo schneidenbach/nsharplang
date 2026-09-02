@@ -48,7 +48,6 @@ import NSharpLang.Compiler.CodeIntelligence
 // (4) THE APPLICATOR DOES NOT MUTATE ITS CALLER'S LIST. `ApplyEdits` sorts, and the caller — `nlc
 // fix` — reuses the list it passed to report what it changed. A sort in place would silently
 // reorder the caller's own view.
-
 func FacEdits(): List<TextEdit> {
     return new List<TextEdit>()
 }

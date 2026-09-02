@@ -37,7 +37,6 @@ import System.Collections.Generic
 // synthesised at the type's own position; recording one must not evict the type. The guard is
 // two-sided — it fires only when the EXISTING declaration is a type kind and the incoming NAME is
 // internal — so an ordinary re-record still overwrites.
-
 func BindingMapContractUsageAt(usages: List<SymbolUsage>, line: int, column: int): bool {
     for usage in usages {
         if usage.Line == line && usage.Column == column {

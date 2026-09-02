@@ -123,8 +123,8 @@ namespace NSharpLang.SystemsVectorizationFacts.Tests
 //   Vector3_Addition_MatchesRuntimeSemantics
 // They pinned operator-overload resolution on the BCL vector types, which is a separate feature from the
 // auto-vectorizer this project pins; restoring them needs the backend to model System.Numerics vectors first.
-
 class ReductionShapes {
+
     // ReductionLoopShapeTests.Matches_CanonicalReduction.
     static func WhileCanonicalInt(a: int[], n: int): int {
         acc := 0
@@ -247,7 +247,9 @@ class ReductionShapes {
     // ExpressionStatement arm (node kind 23) rather than the Block arm (kind 25).
     static func ForBracelessInt(a: int[], n: int): int {
         acc := 0
-        for i := 0; i < n; i++ acc = acc + a[i]
+        for i := 0; i < n; i++ {
+            acc = acc + a[i]
+        }
         return acc
     }
 

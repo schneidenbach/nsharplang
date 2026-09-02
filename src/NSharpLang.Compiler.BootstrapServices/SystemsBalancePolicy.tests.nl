@@ -33,7 +33,6 @@ import NSharpLang.Compiler
 // (7) THE SINK STILL DOWNGRADES ON TOP. A `[boundary]` that is not hot turns the resource rule's
 // flat Error into a warning, and audit mode turns everything into one; neither changes what the rule
 // preferred.
-
 func SbpConfig(profile: string, mode: string): ProjectConfig {
     config := ProjectFileParser.CreateDefault("balance-policy-contract")
     language := config.Language

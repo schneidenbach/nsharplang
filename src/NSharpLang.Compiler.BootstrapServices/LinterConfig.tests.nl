@@ -21,7 +21,6 @@ import NSharpLang.Compiler.Ast
 //
 // THE `.editorconfig` ARMS ARE ASSERTED ON DISK, not on a parsed structure, because
 // `FromEditorConfig` walks real directories and the walk is half the behaviour.
-
 func LcfLint(config: LinterConfig, sourceText: string, filePath: string): List<Diagnostic> {
     parsed := ColumnarParserRecovery.ParseFileAst(sourceText, null)
     unit := parsed.CompilationUnit

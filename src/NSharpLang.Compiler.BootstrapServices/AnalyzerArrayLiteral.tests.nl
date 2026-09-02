@@ -20,7 +20,6 @@ import NSharpLang.Compiler.Ast
 //   * WHICH WORD a mismatched element is scolded with, because a `List<T>` literal is not an array;
 //   * the COLLECTION-TARGET rule, seventeen members of reflection predicate, and in particular the
 //     four ways a target can be materialised and the one that is refused outright.
-
 class ArrayLiteralHarness {
     Arm: AnalyzerArrayLiteral
     Errors: List<CompilerError>
@@ -45,8 +44,8 @@ func ArrayArmOf(): ArrayLiteralHarness {
     sink := new AnalyzerDiagnosticSink(errors, provider)
     spans := new AnalyzerDiagnosticSpans(sink)
     usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
-    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal)
-    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
     namespaces := new List<string>()
     assemblies := new List<Assembly>()
     discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)

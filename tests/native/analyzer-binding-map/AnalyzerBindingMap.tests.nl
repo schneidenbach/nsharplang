@@ -38,7 +38,6 @@ import System.Collections
 //   (d) THE PARSE CENSUS. All twelve parse with an empty diagnostic list, so every binding below is
 //       over a complete tree rather than a recovered one.
 //   (e) A REFUSAL. Nothing in the deleted file asked what a position that binds NOTHING answers.
-
 func SetBindingObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -283,7 +282,6 @@ func BindingReferences(analysis: object, line: int, column: int): string {
 
     return text + "]"
 }
-
 
 // ---- contracts ----
 

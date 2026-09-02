@@ -29,7 +29,6 @@ import System.Collections.Generic
 //
 // (3) `UndefinedFunction` IS NOT `UndefinedVariable`. Both say "I cannot find"; only one of them
 // says "function". The deleted file's own test name recorded that this had regressed once.
-
 func ErrorBuilderText(value: string): string {
     return value.Replace("\r\n", "\n")
 }

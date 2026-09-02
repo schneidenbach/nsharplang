@@ -8,7 +8,6 @@ import NSharpLang.Compiler.Ast
 // assertions came out of `CompletionEngine.cs` with the rules, and they pin the three things the
 // deleted C# decided: the WORD a member is offered under, which kinds have no completion shape at
 // all, and how a parameter list reads.
-
 func CdfNoTypeParameters(): TypeParameter[] {
     return new TypeParameter[](0)
 }
@@ -31,18 +30,72 @@ func CdfNoModifiers(): ParameterModifier[] {
 
 func CdfMember(name: string, kind: DeclaredMemberKind, memberType: TypeReference?, isStatic: bool): DeclaredMemberInfo {
     return new DeclaredMemberInfo(
-        name, "Owner", kind, "member", memberType, isStatic, false, false, true,
-        0, CdfNoNames(), CdfNoTypes(), CdfNoModifiers(), 0, false, false,
-        memberType, 0, CdfNoTypeParameters(), CdfNoConstraints(),
-        0, false, false, false, false, "", false, false, 1, 1)
+        name,
+        "Owner",
+        kind,
+        "member",
+        memberType,
+        isStatic,
+        false,
+        false,
+        true,
+        0,
+        CdfNoNames(),
+        CdfNoTypes(),
+        CdfNoModifiers(),
+        0,
+        false,
+        false,
+        memberType,
+        0,
+        CdfNoTypeParameters(),
+        CdfNoConstraints(),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1
+    )
 }
 
 func CdfFunction(name: string, returnType: TypeReference?, isStatic: bool, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredCount: int): DeclaredMemberInfo {
     return new DeclaredMemberInfo(
-        name, "Owner", DeclaredMemberKind.Function, "function", null, isStatic, false, false, true,
-        parameterNames.Length, parameterNames, parameterTypes, parameterModifiers, requiredCount, false, false,
-        returnType, 0, CdfNoTypeParameters(), CdfNoConstraints(),
-        0, false, false, false, false, "", false, false, 1, 1)
+        name,
+        "Owner",
+        DeclaredMemberKind.Function,
+        "function",
+        null,
+        isStatic,
+        false,
+        false,
+        true,
+        parameterNames.Length,
+        parameterNames,
+        parameterTypes,
+        parameterModifiers,
+        requiredCount,
+        false,
+        false,
+        returnType,
+        0,
+        CdfNoTypeParameters(),
+        CdfNoConstraints(),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1
+    )
 }
 
 func CdfSimple(name: string): TypeReference {
@@ -136,7 +189,8 @@ test "a nested type is offered with no type text and is never static" {
 
         if item.Kind != expected[index] {
             throw new InvalidOperationException(
-                "A declared type kind was offered as " + item.Kind + " instead of " + expected[index] + ".")
+                "A declared type kind was offered as " + item.Kind + " instead of " + expected[index] + "."
+            )
         }
 
         assert item.Name == "Inner"
@@ -206,27 +260,23 @@ test "a declared member's parameter list defaults past the required count but ne
     modifiers[2] = ParameterModifier.Params
 
     member := CdfFunction("Write", CdfSimple("void"), false, names, types, modifiers, 1)
-    assert CompletionDeclarationFacts.FormatDeclaredMemberParameters(member) ==
-        "(count int, label string = ..., extras string)"
+    assert CompletionDeclarationFacts.FormatDeclaredMemberParameters(member) == "(count int, label string = ..., extras string)"
 
     // Required equal to the count defaults nothing.
     allRequired := CdfFunction("Write", CdfSimple("void"), false, names, types, modifiers, 3)
-    assert CompletionDeclarationFacts.FormatDeclaredMemberParameters(allRequired) ==
-        "(count int, label string, extras string)"
+    assert CompletionDeclarationFacts.FormatDeclaredMemberParameters(allRequired) == "(count int, label string, extras string)"
 
     // A SHORT type list still names every parameter — the missing ones read "unknown".
     shortTypes := new TypeReference[](1)
     shortTypes[0] = CdfSimple("int")
     shortTyped := CdfFunction("Write", CdfSimple("void"), false, names, shortTypes, modifiers, 3)
-    assert CompletionDeclarationFacts.FormatDeclaredMemberParameters(shortTyped) ==
-        "(count int, label unknown, extras unknown)"
+    assert CompletionDeclarationFacts.FormatDeclaredMemberParameters(shortTyped) == "(count int, label unknown, extras unknown)"
 
     // A short MODIFIER list reads `None` past its end, so those parameters do default.
     shortModifiers := new ParameterModifier[](1)
     shortModifiers[0] = ParameterModifier.None
     shortMods := CdfFunction("Write", CdfSimple("void"), false, names, types, shortModifiers, 0)
-    assert CompletionDeclarationFacts.FormatDeclaredMemberParameters(shortMods) ==
-        "(count int = ..., label string = ..., extras string = ...)"
+    assert CompletionDeclarationFacts.FormatDeclaredMemberParameters(shortMods) == "(count int = ..., label string = ..., extras string = ...)"
 
     // No parameters at all is "()", and it reaches the completion item unchanged.
     empty := CdfFunction("Now", CdfSimple("int"), false, CdfNoNames(), CdfNoTypes(), CdfNoModifiers(), 0)
@@ -249,7 +299,8 @@ test "the declared member modifier read is total in both directions" {
         actual := CompletionDeclarationFacts.GetDeclaredMemberParameterModifier(member, index)
         if actual != values[index] {
             throw new InvalidOperationException(
-                "Declared member modifier read disagreed at index " + index.ToString() + ".")
+                "Declared member modifier read disagreed at index " + index.ToString() + "."
+            )
         }
 
         index = index + 1
@@ -268,7 +319,6 @@ test "the declared member modifier read is total in both directions" {
 }
 
 // ── CONTRACTS FOR WHICH MEMBERS A SOURCE-DECLARED TYPE OFFERS (task 019 slice 4) ────────────────
-
 
 test "the four declaration families answer their own members and every other type answers nothing" {
     assert CompletionDeclarationFacts.DeclaredMembersOfType(CdfTypes.Class("C", CdfOneMember("A"))) != null

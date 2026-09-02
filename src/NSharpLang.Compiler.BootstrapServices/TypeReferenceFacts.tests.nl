@@ -45,7 +45,6 @@ import NSharpLang.Compiler.Ast
 // space either side of the union bar and after each comma; the overload-signature renderer next
 // door deliberately does not. Two renderers, two audiences, and neither can be folded into the
 // other.
-
 func TypeRefFactsRefs0(): List<TypeReference> {
     return new List<TypeReference>()
 }
@@ -156,18 +155,23 @@ test "type reference facts unwrap composite references without an explicit span"
     unionReference := new UnionTypeReference(
         TypeRefFactsRefs2(
             new SimpleTypeReference("First", 9, 11),
-            new SimpleTypeReference("Second", 9, 19)))
+            new SimpleTypeReference("Second", 9, 19)
+        )
+    )
     assert TypeReferenceFacts.GetStartSpan(unionReference) == new SourceSpan(9, 11, 9, 16)
 
     tupled := new TupleTypeReference(
         TypeRefFactsTuples2(
             new TupleTypeElement(new SimpleTypeReference("double", 10, 4), null),
-            new TupleTypeElement(new SimpleTypeReference("string", 10, 12), null)))
+            new TupleTypeElement(new SimpleTypeReference("string", 10, 12), null)
+        )
+    )
     assert TypeReferenceFacts.GetStartSpan(tupled) == new SourceSpan(10, 4, 10, 10)
 
     signature := new FunctionTypeReference(
         TypeRefFactsRefs1(new SimpleTypeReference("int", 11, 5)),
-        new SimpleTypeReference("Guid", 11, 14))
+        new SimpleTypeReference("Guid", 11, 14)
+    )
     assert TypeReferenceFacts.GetStartSpan(signature) == new SourceSpan(11, 14, 11, 18)
 }
 
@@ -178,24 +182,30 @@ test "type reference facts recurse into the arm that starts the reference" {
     unionReference := new UnionTypeReference(
         TypeRefFactsRefs2(
             new SimpleTypeReference("First", 9, 11),
-            new SimpleTypeReference("Second", 9, 19)))
+            new SimpleTypeReference("Second", 9, 19)
+        )
+    )
     assert TypeReferenceFacts.GetStartSpan(unionReference) != new SourceSpan(9, 19, 9, 25)
 
     tupled := new TupleTypeReference(
         TypeRefFactsTuples2(
             new TupleTypeElement(new SimpleTypeReference("double", 10, 4), null),
-            new TupleTypeElement(new SimpleTypeReference("string", 10, 12), null)))
+            new TupleTypeElement(new SimpleTypeReference("string", 10, 12), null)
+        )
+    )
     assert TypeReferenceFacts.GetStartSpan(tupled) != new SourceSpan(10, 12, 10, 18)
 
     // The function arm answers the RETURN type's span even though the parameter is to its left.
     signature := new FunctionTypeReference(
         TypeRefFactsRefs1(new SimpleTypeReference("int", 11, 5)),
-        new SimpleTypeReference("Guid", 11, 14))
+        new SimpleTypeReference("Guid", 11, 14)
+    )
     assert TypeReferenceFacts.GetStartSpan(signature) != new SourceSpan(11, 5, 11, 8)
 
     // A named tuple element is reached through its TYPE, not its name.
     named := new TupleTypeReference(
-        TypeRefFactsTuples1(new TupleTypeElement(new SimpleTypeReference("double", 10, 4), "amount")))
+        TypeRefFactsTuples1(new TupleTypeElement(new SimpleTypeReference("double", 10, 4), "amount"))
+    )
     assert TypeReferenceFacts.GetStartSpan(named) == new SourceSpan(10, 4, 10, 10)
 }
 
@@ -207,13 +217,17 @@ test "type reference facts unwrap nested composite references" {
 
     deep := new ByRefTypeReference(
         new NullableTypeReference(
-            new ArrayTypeReference(new GenericTypeReference("List", TypeRefFactsRefs0(), 2, 2))))
+            new ArrayTypeReference(new GenericTypeReference("List", TypeRefFactsRefs0(), 2, 2))
+        )
+    )
     assert TypeReferenceFacts.GetStartSpan(deep) == new SourceSpan(2, 2, 2, 6)
 
     unionOfComposites := new UnionTypeReference(
         TypeRefFactsRefs2(
             new ArrayTypeReference(new SimpleTypeReference("int", 4, 4)),
-            new SimpleTypeReference("string", 4, 12)))
+            new SimpleTypeReference("string", 4, 12)
+        )
+    )
     assert TypeReferenceFacts.GetStartSpan(unionOfComposites) == new SourceSpan(4, 4, 4, 7)
 }
 
@@ -255,7 +269,8 @@ test "type reference facts refuse non params type references" {
 
     dictionary := new GenericTypeReference(
         "Dictionary",
-        TypeRefFactsRefs2(new SimpleTypeReference("string"), new SimpleTypeReference("int")))
+        TypeRefFactsRefs2(new SimpleTypeReference("string"), new SimpleTypeReference("int"))
+    )
     assert !TypeReferenceFacts.IsValidParamsType(dictionary)
 }
 
@@ -292,8 +307,11 @@ test "type reference facts display nested type references" {
         TypeRefFactsRefs2(
             new GenericTypeReference(
                 "List",
-                TypeRefFactsRefs1(new ArrayTypeReference(new NullableTypeReference(new SimpleTypeReference("int"))))),
-            new ByRefTypeReference(new SimpleTypeReference("string"))))
+                TypeRefFactsRefs1(new ArrayTypeReference(new NullableTypeReference(new SimpleTypeReference("int"))))
+            ),
+            new ByRefTypeReference(new SimpleTypeReference("string"))
+        )
+    )
 
     assert TypeReferenceFacts.GetDisplayName(displayType) == "List<int?[]> | &string"
 }
@@ -331,13 +349,17 @@ test "type reference facts display tuple element names" {
     named := new TupleTypeReference(
         TypeRefFactsTuples2(
             new TupleTypeElement(new SimpleTypeReference("string"), "name"),
-            new TupleTypeElement(new SimpleTypeReference("int"), "age")))
+            new TupleTypeElement(new SimpleTypeReference("int"), "age")
+        )
+    )
     assert TypeReferenceFacts.GetDisplayName(named) == "(name: string, age: int)"
 
     partlyNamed := new TupleTypeReference(
         TypeRefFactsTuples2(
             new TupleTypeElement(new SimpleTypeReference("string"), "name"),
-            new TupleTypeElement(new SimpleTypeReference("int"), null)))
+            new TupleTypeElement(new SimpleTypeReference("int"), null)
+        )
+    )
     assert TypeReferenceFacts.GetDisplayName(partlyNamed) == "(name: string, int)"
 }
 

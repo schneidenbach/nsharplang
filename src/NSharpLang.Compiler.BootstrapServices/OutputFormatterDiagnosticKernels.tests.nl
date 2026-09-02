@@ -36,7 +36,6 @@ import NSharpLang.Compiler.Columnar
 //   (c) REFERENCE DEDUPLICATION IS BY POSITION AND IT SORTS. Two rows at the same file, line and
 //       column collapse to the FIRST — its context survives, the later one's is discarded — and the
 //       survivors come back file-then-line ordered regardless of input order.
-
 func OfdkPlainDiagnostic(code: string, severity: string, message: string, fileName: string, line: int, column: int, length: int): DiagnosticResult {
     return new DiagnosticResult(code, severity, message, fileName, line, column, length, null, null, null, null, null, null, null)
 }
@@ -123,7 +122,6 @@ func OfdkWriteFixture(root: string, source: string): string {
     return filePath
 }
 
-
 // ---- THE SEVERITY ARITHMETIC ---------------------------------------------------------------------
 
 test "the severity summary counts the three known levels and ignores a fourth" {
@@ -160,7 +158,6 @@ test "the severity filter is case-insensitive and materialises the matching rows
     assert warnings[0].Code == "NL901"
 }
 
-
 // ---- REFERENCE DEDUPLICATION ---------------------------------------------------------------------
 
 test "reference deduplication collapses by position, keeps the first context and sorts the rest" {
@@ -182,7 +179,6 @@ test "reference deduplication collapses by position, keeps the first context and
     assert deduplicated[2].Context == "p := Person{}"
 }
 
-
 // ---- THE END-TO-END DIAGNOSTIC ANSWER ------------------------------------------------------------
 
 test "a compiler error does not silence an unrelated lint on the same file" {
@@ -199,7 +195,8 @@ test "a compiler error does not silence an unrelated lint on the same file" {
         "    Console.WriteLine(undefined)",
         9,
         null,
-        ErrorSeverity.Error)
+        ErrorSeverity.Error
+    )
 
     diagnostics := CodeIntelligenceQueries.Diagnostics(OfdkSnapshot(root, filePath, source, compilerError), null)
 
@@ -224,7 +221,8 @@ test "a compiler shadowing error silences the linter's shadowing row and nothing
         "        value := 1",
         5,
         null,
-        ErrorSeverity.Error)
+        ErrorSeverity.Error
+    )
 
     diagnostics := CodeIntelligenceQueries.Diagnostics(OfdkSnapshot(root, filePath, source, compilerError), null)
 

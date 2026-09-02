@@ -88,7 +88,8 @@ test "nullability info composes through element and generic-argument positions" 
     context := NullabilityProbeContext()
 
     dictionaryDefinition := Type.GetType(
-        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib"
+    )
     if dictionaryDefinition == null {
         throw new InvalidOperationException("Dictionary`2 was not found.")
     }
@@ -263,8 +264,7 @@ func NullabilityRenderTypeInfo(typeInfo: TypeInfo?): string {
 
     generic := typeInfo as GenericTypeInfo
     if generic != null {
-        rendered := "Generic(" + generic.Name + ";def="
-            + NullabilityRenderTypeInfo(generic.GenericDefinition) + ";["
+        rendered := "Generic(" + generic.Name + ";def=" + NullabilityRenderTypeInfo(generic.GenericDefinition) + ";["
         index := 0
         while index < generic.TypeArguments.Count {
             if index > 0 {
@@ -319,17 +319,15 @@ test "a nullable value type becomes a nullable over its underlying type, not an 
 }
 
 test "an array converts element-first and every reference layer carries its own read state" {
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(string[])))
-        == "Oblivious(Array(Oblivious(Simple(string))))"
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int[])))
-        == "Oblivious(Array(Simple(int)))"
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int?[])))
-        == "Oblivious(Array(Nullable(Simple(int))))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(string[]))) == "Oblivious(Array(Oblivious(Simple(string))))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int[]))) == "Oblivious(Array(Simple(int)))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int?[]))) == "Oblivious(Array(Nullable(Simple(int))))"
 }
 
 test "a closed generic keeps its stripped name, its converted arguments and its definition" {
     dictionaryDefinition := Type.GetType(
-        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib"
+    )
     if dictionaryDefinition == null {
         throw new InvalidOperationException("Dictionary`2 was not found.")
     }
@@ -340,8 +338,7 @@ test "a closed generic keeps its stripped name, its converted arguments and its 
     closed := dictionaryDefinition.MakeGenericType(closedArguments)
 
     converted := NullabilityMetadataReflection.ConvertType(closed)
-    assert NullabilityRenderTypeInfo(converted)
-        == "Oblivious(Generic(Dictionary;def=Reflection(Dictionary`2);[Oblivious(Simple(string)),Simple(int)]))"
+    assert NullabilityRenderTypeInfo(converted) == "Oblivious(Generic(Dictionary;def=Reflection(Dictionary`2);[Oblivious(Simple(string)),Simple(int)]))"
 }
 
 func NullabilityStringComparisonType(): Type {
@@ -372,15 +369,12 @@ test "a generic parameter without an override becomes a simple type named after 
     assert parameter.get_IsGenericParameter()
     // An unconstrained parameter CAN carry reference nullability and has no annotation of its own,
     // so it comes back oblivious — the same treatment `string` gets.
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(parameter))
-        == "Oblivious(Simple(T))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(parameter)) == "Oblivious(Simple(T))"
 }
 
 test "a by-ref type is stripped before the walk sees it" {
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int).MakeByRefType()))
-        == "Simple(int)"
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(string).MakeByRefType()))
-        == "Oblivious(Simple(string))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(int).MakeByRefType())) == "Simple(int)"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertType(typeof(string).MakeByRefType())) == "Oblivious(Simple(string))"
 }
 
 test "the CLR display form renders aliases, arrays and generics" {
@@ -389,7 +383,8 @@ test "the CLR display form renders aliases, arrays and generics" {
     assert NullabilityMetadataReflection.FormatType(NullabilityStringComparisonType()) == "StringComparison"
 
     dictionaryDefinition := Type.GetType(
-        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib"
+    )
     if dictionaryDefinition == null {
         throw new InvalidOperationException("Dictionary`2 was not found.")
     }
@@ -413,21 +408,19 @@ test "the CLR display form renders aliases, arrays and generics" {
 
 test "a nullable annotation on a real BCL parameter reaches the converted type" {
     nullableParameter := NullabilityProbeStringParameter("IsNullOrEmpty")
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(nullableParameter))
-        == "Nullable(Simple(string))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(nullableParameter)) == "Nullable(Simple(string))"
 
     notNullParameter := NullabilityProbeStringParameter("Contains")
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(notNullParameter))
-        == "Simple(string)"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(notNullParameter)) == "Simple(string)"
 }
 
 test "flow attributes are formatted ahead of the parameter modifier" {
     nullableParameter := NullabilityProbeStringParameter("IsNullOrEmpty")
-    assert NullabilityMetadataReflection.FormatParameter(nullableParameter)
-        == "[NotNullWhen(false)] string? value"
+    assert NullabilityMetadataReflection.FormatParameter(nullableParameter) == "[NotNullWhen(false)] string? value"
 
     dictionaryDefinition := Type.GetType(
-        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib"
+    )
     if dictionaryDefinition == null {
         throw new InvalidOperationException("Dictionary`2 was not found.")
     }
@@ -475,16 +468,14 @@ test "properties, fields and returns all read through the same walk" {
         throw new InvalidOperationException("String.Length was not found.")
     }
 
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertProperty(lengthProperty))
-        == "Simple(int)"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertProperty(lengthProperty)) == "Simple(int)"
 
     emptyField := typeof(string).GetField("Empty")
     if emptyField == null {
         throw new InvalidOperationException("String.Empty was not found.")
     }
 
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertField(emptyField))
-        == "Simple(string)"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertField(emptyField)) == "Simple(string)"
 
     trimTypes := new Type[](0)
     trim := typeof(string).GetMethod("Trim", trimTypes)
@@ -514,8 +505,7 @@ test "a reflection type override answers for a generic parameter, by TypeInfo an
 
     // With no override at all the walk names the parameter itself, under the read state its
     // metadata carries.
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(parameter))
-        == "Nullable(Simple(T))"
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(parameter)) == "Nullable(Simple(T))"
 
     // A TypeInfo binding replaces the conversion outright — INCLUDING the wrapper, because the
     // generic-parameter override answers ahead of the read state rather than under it.
@@ -524,8 +514,8 @@ test "a reflection type override answers for a generic parameter, by TypeInfo an
     typeInfoOverrides[genericParameter] = replacement
     answering := AnalyzerReflectionTypeOverride.Direct(typeInfoOverrides, null)
     assert NullabilityRenderTypeInfo(
-        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, answering))
-        == "Simple(OVR:T)"
+        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, answering)
+    ) == "Simple(OVR:T)"
 
     // A CLR binding answers too, and it answers with the CONVERTED runtime type rather than with a
     // reflected one — `int` comes back as the built-in.
@@ -534,8 +524,8 @@ test "a reflection type override answers for a generic parameter, by TypeInfo an
     emptyTypeInfoOverrides := new Dictionary<Type, TypeInfo>()
     bound := AnalyzerReflectionTypeOverride.Direct(emptyTypeInfoOverrides, clrBindings)
     assert NullabilityRenderTypeInfo(
-        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, bound))
-        == "Simple(int)"
+        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, bound)
+    ) == "Simple(int)"
 
     // AN EMPTY OVERRIDE IS NOT "NO OVERRIDE". It still ANSWERS — with the plain conversion, which
     // reads an unbound generic parameter as a REFLECTED type rather than as the walk's named one.
@@ -544,18 +534,19 @@ test "a reflection type override answers for a generic parameter, by TypeInfo an
     noBindings := new Dictionary<Type, Type>()
     emptyOverride := AnalyzerReflectionTypeOverride.Direct(emptyTypeInfoOverrides, noBindings)
     emptyRender := NullabilityRenderTypeInfo(
-        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, emptyOverride))
+        NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, emptyOverride)
+    )
     assert emptyRender == "Reflection(T)"
 
     // The override is consulted at the LEAF too — a non-generic position routes through it and
     // comes back with the plain conversion, so a bound override changes nothing there.
     notNullParameter := NullabilityProbeStringParameter("Contains")
     assert NullabilityRenderTypeInfo(
-        NullabilityMetadataReflection.ConvertParameterWithOverride(notNullParameter, answering))
-        == "Simple(string)"
+        NullabilityMetadataReflection.ConvertParameterWithOverride(notNullParameter, answering)
+    ) == "Simple(string)"
     assert NullabilityRenderTypeInfo(
-        NullabilityMetadataReflection.ConvertParameter(notNullParameter))
-        == "Simple(string)"
+        NullabilityMetadataReflection.ConvertParameter(notNullParameter)
+    ) == "Simple(string)"
 }
 
 test "the display form and the metadata stripper agree with the N#-owned half" {

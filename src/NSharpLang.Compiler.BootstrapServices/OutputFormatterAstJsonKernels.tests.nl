@@ -12,7 +12,6 @@ import NSharpLang.Compiler.Ast
 // rendered, that a list becomes an array and a node becomes an object tagged with its concrete type
 // name, and — the one a reader would never guess — that a node's members are ordered by metadata
 // token, which puts BASE-class members before the node's own.
-
 func AjUnits(filePath: string, unit: CompilationUnit): List<AstJsonUnit> {
     units := new List<AstJsonUnit>()
     units.Add(new AstJsonUnit(filePath, unit))

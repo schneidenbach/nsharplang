@@ -170,7 +170,7 @@ test "bare sibling-function calls execute as binary operands through the product
 test "delegate invocation operands execute as binary comparisons through the product route" {
     fortyTwo: Func<int> = () => 42
     seven: Func<int> = () => 7
-    add: Func<int, int> = (n) => n + 1
+    add: Func<int, int> = n => n + 1
     assert DelegateEqualsAnswer(fortyTwo)
     assert !DelegateEqualsAnswer(seven)
     assert DelegateSumEquals(add, 41, 42)

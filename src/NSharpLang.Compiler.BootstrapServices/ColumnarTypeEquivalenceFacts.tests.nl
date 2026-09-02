@@ -8,7 +8,6 @@ import System.Reflection.Emit
 // `ColumnarTypeEquivalenceFacts` came out of `ColumnarIlEmitter.cs` whole. The C# owner keeps three
 // call-shape forwarders and no copy of the rule, so every arm below is now pinned in N# for the first
 // time — the C# original had no unit contract at all, only the corpus.
-
 enum TypeEquivalenceProbeEnum {
     Zero = 0,
     One = 1

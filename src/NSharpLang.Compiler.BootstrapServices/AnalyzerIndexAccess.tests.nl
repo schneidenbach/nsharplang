@@ -24,7 +24,6 @@ import NSharpLang.Compiler.Ast
 //     rather than the element in all three of the shapes that have one;
 //   * the reflected INDEXER lookup, whose `GetDefaultMembers` original names a type the columnar
 //     surface has no local for.
-
 class IndexAccessHarness {
     Arm: AnalyzerIndexAccess
     Errors: List<CompilerError>
@@ -39,7 +38,8 @@ class IndexAccessHarness {
         ambient: AnalyzerAmbientContext,
         scopes: AnalyzerScopeStack,
         context: AnalyzerDeclarationContext,
-        sink: AnalyzerDiagnosticSink) {
+        sink: AnalyzerDiagnosticSink
+    ) {
         Arm = arm
         Errors = errors
         Ambient = ambient
@@ -61,8 +61,8 @@ func IndexArmOf(inAssignmentTarget: bool): IndexAccessHarness {
     sink := new AnalyzerDiagnosticSink(errors, provider)
     spans := new AnalyzerDiagnosticSpans(sink)
     usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
-    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal)
-    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
     namespaces := new List<string>()
     assemblies := new List<Assembly>()
     discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)

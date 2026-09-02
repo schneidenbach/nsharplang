@@ -22,7 +22,6 @@ namespace NSharpLang.Compiler
 // the no-out entry the columnar expression planners actually call.
 
 // ── The escape table, crossed in full ───────────────────────────────────────────────────────────
-
 test "every admitted escape decodes to its own code point through the scalar seam" {
     assert StringLiteralDecoder.DecodeCharacterBody("\\0") == 0
     assert StringLiteralDecoder.DecodeCharacterBody("\\a") == 7

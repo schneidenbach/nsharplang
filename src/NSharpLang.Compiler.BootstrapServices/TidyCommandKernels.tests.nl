@@ -20,7 +20,6 @@ import NSharpLang.Compiler
 // are written as a plain array here and the intermediate type disappears with its only consumer.
 
 // ── the option summary ────────────────────────────────────────────────────────
-
 test "the tidy option summary reads the project, fix and json flags" {
     summary := TidyCommandKernels.GetOptionSummary(["--fix", "--json", "--project", "samples/demo"])
 
@@ -104,7 +103,8 @@ test "the classifier compares namespaces case-insensitively over non-ASCII names
 
     statusRanks := TidyCommandKernels.ClassifyDependencyStatusRanks(
         [new Reference { Nuget: "Résumé.Json", Version: "1.0.0" }],
-        nonAsciiImports)
+        nonAsciiImports
+    )
 
     assert statusRanks.Length == 1
     assert statusRanks[0] == 2
@@ -197,7 +197,8 @@ test "the removal filter drops a dependency line whose package part IS a doomed 
             "  - SerilogExtra",
             "name: Demo"
         ],
-        ["Serilog", "Newtonsoft.Json", "Unused.Package"])
+        ["Serilog", "Newtonsoft.Json", "Unused.Package"]
+    )
 
     // Non-list lines and lines that are not `- `-prefixed are always kept. The `nuget:` marker is
     // honoured anywhere on the line and case-insensitively, so `NUGET: unused.package` matches the
@@ -229,7 +230,8 @@ test "a doomed name that is a BARE PREFIX of another package leaves that package
     // `_`, `+`). Only the line that IS `Serilog` goes.
     collateral := TidyCommandKernels.FilterRemovalLines(
         ["  - Serilog", "  - SerilogExtra", "  - Serilogic.Core", "  - Serilog.Sinks.Console@5.0.1", "  - Serilog_Extra", "  - Serilog-Extra", "  - Seri"],
-        ["Serilog"])
+        ["Serilog"]
+    )
 
     assert collateral.Length == 6
     assert collateral[0] == "  - SerilogExtra"
@@ -254,7 +256,8 @@ test "the whole-name rule does not stop a doomed package being removed in any sp
             "  - NUGET: Serilog.Sinks@1.2.3",
             "  - Keep.Me"
         ],
-        ["Serilog.Sinks"])
+        ["Serilog.Sinks"]
+    )
 
     assert removed.Length == 1
     assert removed[0] == "  - Keep.Me"
@@ -290,7 +293,8 @@ test "an empty doomed name matches no line at all" {
     // a name — but the kernel is public and answers for itself.
     kept := TidyCommandKernels.FilterRemovalLines(
         ["  - Serilog", "  - Newtonsoft.Json", "name: Demo"],
-        [""])
+        [""]
+    )
 
     assert kept.Length == 3
     assert kept[0] == "  - Serilog"
@@ -313,7 +317,8 @@ test "the removal filter is NOT scoped to the dependencies section — measured,
             "  - Serilog.Sinks@1.0.0",
             "  - Serilog.SinksExtra@2.0.0"
         ],
-        ["Serilog.Sinks"])
+        ["Serilog.Sinks"]
+    )
 
     assert filteredLines.Length == 3
     assert filteredLines[0] == "dependencies:"
@@ -326,7 +331,8 @@ test "a doomed name LONGER than the line's package still does not match" {
     // one: the comparison is anchored at the package start and needs the whole name to fit.
     kept := TidyCommandKernels.FilterRemovalLines(
         ["  - Seri", "  - Extra.Serilog"],
-        ["Serilog"])
+        ["Serilog"]
+    )
 
     assert kept.Length == 2
     assert kept[0] == "  - Seri"
@@ -336,7 +342,8 @@ test "a doomed name LONGER than the line's package still does not match" {
 test "the removal filter matches a non-ASCII package name" {
     filteredLines := TidyCommandKernels.FilterRemovalLines(
         ["  - Résumé.Package", "  - Keep.Package"],
-        ["Résumé.Package"])
+        ["Résumé.Package"]
+    )
 
     assert filteredLines.Length == 1
     assert filteredLines[0] == "  - Keep.Package"

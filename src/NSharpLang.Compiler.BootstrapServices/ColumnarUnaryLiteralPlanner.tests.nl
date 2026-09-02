@@ -6,7 +6,8 @@ import NSharpLang.Compiler
 func ColumnarUnaryPlannerTree(
     operatorText: string,
     operandKind: int,
-    operandText: string): ColumnarRangePlannerTestTree {
+    operandText: string
+): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     operatorStart := builder.AddToken(operatorText)
     operand := builder.AddLeaf(operandKind, operandText)
@@ -16,18 +17,19 @@ func ColumnarUnaryPlannerTree(
         operatorText.Length,
         operatorStart,
         operatorText.Length + operandText.Length,
-        ColumnarRangePlannerChildren1(operand))
+        ColumnarRangePlannerChildren1(operand)
+    )
     return builder.Build(root)
 }
 
 func ColumnarUnaryPlannerPlan(
     operatorText: string,
     operandKind: int,
-    operandText: string): ColumnarCodePlan {
+    operandText: string
+): ColumnarCodePlan {
     tree := ColumnarUnaryPlannerTree(operatorText, operandKind, operandText)
     plan := new ColumnarCodePlan()
-    assert ColumnarUnaryLiteralPlanner.Plan(tree.Nodes, tree.Source, tree.Root, plan)
-        == ColumnarFragmentPlanStatus.Planned
+    assert ColumnarUnaryLiteralPlanner.Plan(tree.Nodes, tree.Source, tree.Root, plan) == ColumnarFragmentPlanStatus.Planned
     ColumnarCodePlanExecutor.Validate(plan)
     return plan
 }
@@ -35,11 +37,11 @@ func ColumnarUnaryPlannerPlan(
 func ColumnarUnaryPlannerDeclines(
     operatorText: string,
     operandKind: int,
-    operandText: string) {
+    operandText: string
+) {
     tree := ColumnarUnaryPlannerTree(operatorText, operandKind, operandText)
     plan := new ColumnarCodePlan()
-    assert ColumnarUnaryLiteralPlanner.Plan(tree.Nodes, tree.Source, tree.Root, plan)
-        == ColumnarFragmentPlanStatus.NotOwned
+    assert ColumnarUnaryLiteralPlanner.Plan(tree.Nodes, tree.Source, tree.Root, plan) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarScalarPlannerAssertEmpty(plan)
 }
 
@@ -54,14 +56,16 @@ func ColumnarUnaryPlannerFromEndNegative(operandText: string): ColumnarRangePlan
         1,
         minusStart,
         1 + operandText.Length,
-        ColumnarRangePlannerChildren1(operand))
+        ColumnarRangePlannerChildren1(operand)
+    )
     root := builder.AddNode(
         ColumnarExpressionNodeKind.UnaryExpression(),
         caretStart,
         1,
         caretStart,
         builder.Source.Length,
-        ColumnarRangePlannerChildren1(negativeOne))
+        ColumnarRangePlannerChildren1(negativeOne)
+    )
     return builder.Build(root)
 }
 
@@ -76,20 +80,25 @@ func ColumnarUnaryPlannerFlattenedIdentifier(prefix: string): ColumnarRangePlann
         5,
         spanStart,
         prefix.Length + 5,
-        new int[](0))
+        new int[](0)
+    )
     root := builder.AddNode(
         ColumnarExpressionNodeKind.UnaryExpression(),
         caretStart,
         1,
         caretStart,
         builder.Source.Length,
-        ColumnarRangePlannerChildren1(identifier))
+        ColumnarRangePlannerChildren1(identifier)
+    )
     return builder.Build(root)
 }
 
 test "unary literal planner owns the exact Int32 minimum through unchecked negate" {
     intMinimum := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "2147483648")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "2147483648"
+    )
     assert intMinimum.ResultType == typeof(int)
     assert intMinimum.FragmentCount == 2
     assert intMinimum.OperationCount == 2
@@ -98,53 +107,81 @@ test "unary literal planner owns the exact Int32 minimum through unchecked negat
     assert intMinimum.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
 
     separatedMinimum := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "2_147_483_648")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "2_147_483_648"
+    )
     assert separatedMinimum.Int32Values[separatedMinimum.OperandIndices[0]] == -2147483648
 
     hexadecimalMinimum := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "0x80000000")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "0x80000000"
+    )
     assert hexadecimalMinimum.Int32Values[hexadecimalMinimum.OperandIndices[0]] == -2147483648
 
     binaryMinimum := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(),
-        "0b10000000000000000000000000000000")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "0b10000000000000000000000000000000"
+    )
     assert binaryMinimum.Int32Values[binaryMinimum.OperandIndices[0]] == -2147483648
-
 }
 
 test "unary literal planner owns negate complement and logical-not families" {
     negativeInt := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "42")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "42"
+    )
     assert negativeInt.ResultType == typeof(int)
     assert negativeInt.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
 
     negativeDouble := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25")
+        "-",
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1.25"
+    )
     assert negativeDouble.ResultType == typeof(double)
     assert negativeDouble.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
 
     negativeLong := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "1L")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "1L"
+    )
     assert negativeLong.ResultType == typeof(long)
     assert negativeLong.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
 
     negativeSingle := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25f")
+        "-",
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1.25f"
+    )
     assert negativeSingle.ResultType == typeof(float)
     assert negativeSingle.OpCodeValues[1] == ColumnarCodePlanContract.Neg()
 
     complementLong := ColumnarUnaryPlannerPlan(
-        "~", ColumnarExpressionNodeKind.IntLiteralExpression(), "1L")
+        "~",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "1L"
+    )
     assert complementLong.ResultType == typeof(long)
     assert complementLong.OpCodeValues[1] == ColumnarCodePlanContract.Not()
 
     complementUnsigned := ColumnarUnaryPlannerPlan(
-        "~", ColumnarExpressionNodeKind.IntLiteralExpression(), "0UL")
+        "~",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "0UL"
+    )
     assert complementUnsigned.ResultType == typeof(ulong)
     assert complementUnsigned.OpCodeValues[1] == ColumnarCodePlanContract.Not()
 
     logicalNot := ColumnarUnaryPlannerPlan(
-        "!", ColumnarExpressionNodeKind.BoolLiteralExpression(), "true")
+        "!",
+        ColumnarExpressionNodeKind.BoolLiteralExpression(),
+        "true"
+    )
     assert logicalNot.ResultType == typeof(bool)
     assert logicalNot.OperationCount == 3
     assert logicalNot.OpCodeValues[1] == ColumnarCodePlanContract.LdcI4_0()
@@ -153,7 +190,10 @@ test "unary literal planner owns negate complement and logical-not families" {
     // Decimal negation is not an IL neg: the planner closes it through the exact
     // System.Decimal.op_UnaryNegation static, mirroring the legacy unary arm.
     negativeDecimal := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25m")
+        "-",
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1.25m"
+    )
     assert negativeDecimal.ResultType == typeof(decimal)
     assert negativeDecimal.MethodCount == 1
     assert negativeDecimal.MethodUsesDeclaredSignature[0]
@@ -165,50 +205,134 @@ test "unary literal planner owns negate complement and logical-not families" {
     assert negativeDecimal.MethodReturnTypes[0] == typeof(decimal)
 
     negativeIntegerFormDecimal := ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "5m")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "5m"
+    )
     assert negativeIntegerFormDecimal.ResultType == typeof(decimal)
     assert negativeIntegerFormDecimal.MethodCount == 1
     assert negativeIntegerFormDecimal.Methods[0].get_Name() == "op_UnaryNegation"
 }
 
 test "unary literal planner executes every admitted opcode through DynamicMethod" {
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "42"), typeof(int)) == "-42"
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25"), typeof(double)) == "-1.25"
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "1L"), typeof(long)) == "-1"
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25f"), typeof(float)) == "-1.25"
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "~", ColumnarExpressionNodeKind.IntLiteralExpression(), "0"), typeof(int)) == "-1"
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "~", ColumnarExpressionNodeKind.IntLiteralExpression(), "1L"), typeof(long)) == "-2"
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "!", ColumnarExpressionNodeKind.BoolLiteralExpression(), "true"), typeof(bool)) == "False"
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "2147483648"), typeof(int)) == "-2147483648"
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.25m"), typeof(decimal)) == "-1.25"
-    assert ExecutorRunV3ScalarPlan(ColumnarUnaryPlannerPlan(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "5m"), typeof(decimal)) == "-5"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "-",
+            ColumnarExpressionNodeKind.IntLiteralExpression(),
+            "42"
+        ),
+        typeof(int)
+    ) == "-42"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "-",
+            ColumnarExpressionNodeKind.FloatLiteralExpression(),
+            "1.25"
+        ),
+        typeof(double)
+    ) == "-1.25"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "-",
+            ColumnarExpressionNodeKind.IntLiteralExpression(),
+            "1L"
+        ),
+        typeof(long)
+    ) == "-1"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "-",
+            ColumnarExpressionNodeKind.FloatLiteralExpression(),
+            "1.25f"
+        ),
+        typeof(float)
+    ) == "-1.25"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "~",
+            ColumnarExpressionNodeKind.IntLiteralExpression(),
+            "0"
+        ),
+        typeof(int)
+    ) == "-1"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "~",
+            ColumnarExpressionNodeKind.IntLiteralExpression(),
+            "1L"
+        ),
+        typeof(long)
+    ) == "-2"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "!",
+            ColumnarExpressionNodeKind.BoolLiteralExpression(),
+            "true"
+        ),
+        typeof(bool)
+    ) == "False"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "-",
+            ColumnarExpressionNodeKind.IntLiteralExpression(),
+            "2147483648"
+        ),
+        typeof(int)
+    ) == "-2147483648"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "-",
+            ColumnarExpressionNodeKind.FloatLiteralExpression(),
+            "1.25m"
+        ),
+        typeof(decimal)
+    ) == "-1.25"
+    assert ExecutorRunV3ScalarPlan(
+        ColumnarUnaryPlannerPlan(
+            "-",
+            ColumnarExpressionNodeKind.IntLiteralExpression(),
+            "5m"
+        ),
+        typeof(decimal)
+    ) == "-5"
 }
 
 test "unary literal planner declines unsupported operators types and spellings atomically" {
     ColumnarUnaryPlannerDeclines(
-        "+", ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+        "+",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "1"
+    )
     ColumnarUnaryPlannerDeclines(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "1UL")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "1UL"
+    )
     ColumnarUnaryPlannerDeclines(
-        "~", ColumnarExpressionNodeKind.FloatLiteralExpression(), "1.0")
+        "~",
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "1.0"
+    )
     ColumnarUnaryPlannerDeclines(
-        "!", ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+        "!",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "1"
+    )
     ColumnarUnaryPlannerDeclines(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "9223372036854775808L")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "9223372036854775808L"
+    )
     ColumnarUnaryPlannerDeclines(
-        "-", ColumnarExpressionNodeKind.FloatLiteralExpression(), "not-a-decimal-m")
+        "-",
+        ColumnarExpressionNodeKind.FloatLiteralExpression(),
+        "not-a-decimal-m"
+    )
     ColumnarUnaryPlannerDeclines(
-        "-", ColumnarExpressionNodeKind.IntLiteralExpression(), "9223372036854775808LL")
+        "-",
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "9223372036854775808LL"
+    )
 
     malformedBuilder := new ColumnarRangePlannerNodeBuilder()
     malformedStart := malformedBuilder.AddToken("-")
@@ -218,12 +342,16 @@ test "unary literal planner declines unsupported operators types and spellings a
         1,
         malformedStart,
         1,
-        new int[](0))
+        new int[](0)
+    )
     malformed := malformedBuilder.Build(malformedRoot)
     malformedPlan := new ColumnarCodePlan()
     assert ColumnarUnaryLiteralPlanner.Plan(
-        malformed.Nodes, malformed.Source, malformed.Root, malformedPlan)
-        == ColumnarFragmentPlanStatus.NotOwned
+        malformed.Nodes,
+        malformed.Source,
+        malformed.Root,
+        malformedPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarScalarPlannerAssertEmpty(malformedPlan)
 
     magnitude := 1UL
@@ -234,7 +362,9 @@ test "unary literal planner declines unsupported operators types and spellings a
     assert !NumericLiteralFacts.TryParseUnsignedIntegerMagnitude("0o", out magnitude)
     assert magnitude == 0UL
     assert !NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(
-        "18446744073709551616", out magnitude)
+        "18446744073709551616",
+        out magnitude
+    )
     assert magnitude == 0UL
 }
 
@@ -253,7 +383,8 @@ test "range planner recursively consumes negative literals and rolls invalid end
         longTree.Root,
         ColumnarRangePlannerEmptyBindings(),
         ColumnarRangeIndexHandles.Resolve(),
-        longPlan) == ColumnarFragmentPlanStatus.NotOwned
+        longPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(longPlan)
 }
 
@@ -268,7 +399,8 @@ test "range planner never binds flattened explicit-this syntax as a bare value" 
         explicitThis.Root,
         bindings,
         ColumnarRangeIndexHandles.Resolve(),
-        rejected) == ColumnarFragmentPlanStatus.NotOwned
+        rejected
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(rejected)
 
     spacedBeforeDot := ColumnarUnaryPlannerFlattenedIdentifier("this .")
@@ -279,7 +411,8 @@ test "range planner never binds flattened explicit-this syntax as a bare value" 
         spacedBeforeDot.Root,
         bindings,
         ColumnarRangeIndexHandles.Resolve(),
-        spacedBeforeDotPlan) == ColumnarFragmentPlanStatus.NotOwned
+        spacedBeforeDotPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(spacedBeforeDotPlan)
 
     spacedAfterDot := ColumnarUnaryPlannerFlattenedIdentifier("this. ")
@@ -290,7 +423,8 @@ test "range planner never binds flattened explicit-this syntax as a bare value" 
         spacedAfterDot.Root,
         bindings,
         ColumnarRangeIndexHandles.Resolve(),
-        spacedAfterDotPlan) == ColumnarFragmentPlanStatus.NotOwned
+        spacedAfterDotPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(spacedAfterDotPlan)
 
     commentTrivia := ColumnarUnaryPlannerFlattenedIdentifier("this /* field */ . ")
@@ -301,7 +435,8 @@ test "range planner never binds flattened explicit-this syntax as a bare value" 
         commentTrivia.Root,
         bindings,
         ColumnarRangeIndexHandles.Resolve(),
-        commentTriviaPlan) == ColumnarFragmentPlanStatus.NotOwned
+        commentTriviaPlan
+    ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(commentTriviaPlan)
 
     bare := ColumnarRangePlannerFromEndIdentifier("count")

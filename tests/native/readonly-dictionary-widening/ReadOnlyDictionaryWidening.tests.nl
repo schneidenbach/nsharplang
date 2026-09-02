@@ -28,7 +28,6 @@ import System.Collections.Generic
 // `IReadOnlyCollection<T>` and does not resolve (`NL303`); `IReadOnlySet<T>` fails identically, so
 // the gap is the read-only heads' shared one and predates this row. `ContainsKey`, `TryGetValue` and
 // the indexer are what the interface declares itself, and all three are exercised below.
-
 class WideningWidget {
     Name: string
 
@@ -275,7 +274,8 @@ test "the pair's own constructor shape binds from concrete collections at every 
         WideningIntMap("Program.nl", 3),
         WideningOneList("NL301"),
         WideningOneList("Program.nl"),
-        WideningStringMap("Program.nl", "func Main() {}"))
+        WideningStringMap("Program.nl", "func Main() {}")
+    )
 
     assert shape.Root == "/project"
 

@@ -194,7 +194,6 @@ test "conditional planner type preflight agrees with emission ownership" {
     assert andType == typeof(bool)
 }
 
-
 // ---- 015-B12: THE ROOT-APPEND SEQUENCE, OWNED ONCE AND ENTERED FROM TWO WRAPPERS ----
 
 // `TryAppendRoot` is the sequence `Plan` used to inline. The contract that matters is that it appends

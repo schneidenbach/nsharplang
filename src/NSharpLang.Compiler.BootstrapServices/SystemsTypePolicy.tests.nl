@@ -44,7 +44,6 @@ import NSharpLang.Compiler.Ast
 //
 // (9) A `T: struct` CONSTRAINT IS CHECKED FIRST AND AS A FLAG. `T` under `T: struct` is acceptable
 // even in strict hot mode; the check is a bit test so `T: struct, new()` still counts.
-
 func StpPolicy(): SystemsTypePolicy {
     return new SystemsTypePolicy()
 }

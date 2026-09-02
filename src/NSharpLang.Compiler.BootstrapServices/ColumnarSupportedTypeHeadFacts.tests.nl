@@ -55,7 +55,6 @@ func SupportedTypeHeadRuntimeGenericParameter(): Type {
     return typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
 }
 
-
 // THE DIRECT `typeof` SURFACE. Thirty-one arms the head decides by identity and nothing else. The
 // negatives are chosen to be near neighbours of an admitted type rather than arbitrary rejects: a
 // `Guid` and a `DateTimeOffset` beside `DateTime`/`TimeSpan`, a `TextReader` beside `TextWriter`,
@@ -122,7 +121,10 @@ test "the supported-type head admits every exception by assignability, not by na
     // assignability rather than a list: the builder type is on no list the head carries. It is
     // built on the PERSISTED shape production emits, through `DefineType`'s parent argument.
     sourceException := ExternalGuardPersistedBuilder(
-        "Contoso.HeadFacts.SourceFailure", 0, typeof(InvalidOperationException))
+        "Contoso.HeadFacts.SourceFailure",
+        0,
+        typeof(InvalidOperationException)
+    )
     assert typeof(Exception).IsAssignableFrom(sourceException)
     assert ColumnarTypeOfPlanner.IsSupportedType(sourceException)
 

@@ -45,7 +45,6 @@ import System.Collections.Generic
 //
 // (4) EVERY MALFORMED DIRECTIVE IS ONE `InvalidPreprocessorDirective` AND THE BRANCH IS EXCLUDED.
 // A condition that does not parse is `false`, not `true`, so a broken `#if` never leaks its body.
-
 func PreprocessorContractSymbols(defines: string[]): HashSet<string> {
     symbolSet := new HashSet<string>()
     index := 0

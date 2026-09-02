@@ -16,7 +16,6 @@ import System.Globalization
 // code, a stderr sentence and a JSON envelope. `Console.SetOut` declines on this emit path at
 // `emit.call.static-member-unmodeled`, so those rows CANNOT be made here; they are in
 // `tests/native/cli-command-contracts`, spawned against the real binary.
-
 func NativeRun(outcomeRanks: int[], outcomeCount: int): NativeTestRun {
     return new NativeTestRun(new List<NativeTestResult>(), outcomeRanks, outcomeCount)
 }
@@ -222,11 +221,9 @@ test "a native test method takes NO parameters, and every other arity is refused
 }
 
 test "the arity refusal names the test and the count it actually found" {
-    assert TestCommandKernels.GetUnsupportedTestArityMessage("Tests.Adds", 2)
-        == "Test 'Tests.Adds' expects 2 argument(s), but a native test method takes none."
+    assert TestCommandKernels.GetUnsupportedTestArityMessage("Tests.Adds", 2) == "Test 'Tests.Adds' expects 2 argument(s), but a native test method takes none."
     // both arguments are really read — a kernel hard-coding either would pass one row and fail this
-    assert TestCommandKernels.GetUnsupportedTestArityMessage("Other.Subtracts", 1)
-        == "Test 'Other.Subtracts' expects 1 argument(s), but a native test method takes none."
+    assert TestCommandKernels.GetUnsupportedTestArityMessage("Other.Subtracts", 1) == "Test 'Other.Subtracts' expects 1 argument(s), but a native test method takes none."
 }
 
 test "the test full name joins the declaring type and the method with a dot" {
@@ -236,7 +233,6 @@ test "the test full name joins the declaring type and the method with a dot" {
     // exactly that shape rather than inventing a new one, so the move changes no output.
     assert TestCommandKernels.GetTestFullName(null, "Adds") == ".Adds"
 }
-
 
 // ══ 021/6: THE RUNNER'S REMAINING VOCABULARY ═══════════════════════════════════════════════════
 //
@@ -333,23 +329,18 @@ test "the verbose elapsed number is whole milliseconds, invariant, with no unit"
 // ── which verbose sentence prints ─────────────────────────────────────────────
 
 test "the verbose classification picks the passed, skipped or failed sentence" {
-    assert TestCommandKernels.GetVerboseMessage(TestCommandKernels.GetPassedOutcome(), "adds person", "12", null)
-        == "Passed adds person [12 ms]"
-    assert TestCommandKernels.GetVerboseMessage(TestCommandKernels.GetSkippedOutcome(), "adds person", "0", "not today")
-        == "Skipped adds person: not today"
-    assert TestCommandKernels.GetVerboseMessage(TestCommandKernels.GetFailedOutcome(), "adds person", "3", "nope")
-        == "Failed adds person: nope"
+    assert TestCommandKernels.GetVerboseMessage(TestCommandKernels.GetPassedOutcome(), "adds person", "12", null) == "Passed adds person [12 ms]"
+    assert TestCommandKernels.GetVerboseMessage(TestCommandKernels.GetSkippedOutcome(), "adds person", "0", "not today") == "Skipped adds person: not today"
+    assert TestCommandKernels.GetVerboseMessage(TestCommandKernels.GetFailedOutcome(), "adds person", "3", "nope") == "Failed adds person: nope"
 }
 
 test "the ABSENCE of an error message wins over the outcome, exactly as the runner had it" {
     // PINNED BECAUSE IT IS SURPRISING, NOT BECAUSE IT IS RIGHT. The C# conditional this replaces
     // tested `errorMessage == null` FIRST, so a skip carrying no reason read as a pass. The move is
     // an ownership move; changing this is a separate decision, and this row is what would fail it.
-    assert TestCommandKernels.GetVerboseMessage(TestCommandKernels.GetSkippedOutcome(), "adds person", "0", null)
-        == "Passed adds person [0 ms]"
+    assert TestCommandKernels.GetVerboseMessage(TestCommandKernels.GetSkippedOutcome(), "adds person", "0", null) == "Passed adds person [0 ms]"
     // and an unknown outcome carrying a message reads as a failure
-    assert TestCommandKernels.GetVerboseMessage("weird", "adds person", "1", "boom")
-        == "Failed adds person: boom"
+    assert TestCommandKernels.GetVerboseMessage("weird", "adds person", "1", "boom") == "Failed adds person: boom"
 }
 
 // ── the lifecycle vocabulary and its order ────────────────────────────────────
@@ -431,7 +422,6 @@ test "a test run is built Debug, and the output directory is built from the SAME
     assert TestCommandKernels.GetTestBuildConfiguration() == "Debug"
     // the second copy this slice deleted: the runner passed its own "Debug" to the build while the
     // directory kernel spelled another one into the path
-    assert TestCommandKernels.GetTestOutputDirectory("/tmp/demo", "net10.0")
-        .Contains(TestCommandKernels.GetTestBuildConfiguration())
+    assert TestCommandKernels.GetTestOutputDirectory("/tmp/demo", "net10.0").Contains(TestCommandKernels.GetTestBuildConfiguration())
     assert TestCommandKernels.GetTestOutputDirectory("/tmp/demo", "net10.0").EndsWith("tests")
 }

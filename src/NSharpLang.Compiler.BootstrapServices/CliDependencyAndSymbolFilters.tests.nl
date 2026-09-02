@@ -19,7 +19,6 @@ import NSharpLang.Compiler.CodeIntelligence
 // that would have caught a kernel ignoring one of its arguments.
 
 // ── UpdateDependencyFilter ────────────────────────────────────────────────────
-
 func FilterFixture(): Reference[] {
     return [
         new Reference { Nuget: "Serilog", Version: "3.1.1" },
@@ -212,7 +211,7 @@ test "a non-ASCII SYMBOL NAME is refused rather than silently mismatched" {
     caught := false
     try {
         QuerySymbolNameFilter.Filter([NewSymbol("café")], "caf*", 200)
-    } catch (error: InvalidOperationException) {
+    } catch error: InvalidOperationException {
         caught = true
         assert error.Message == "N# query symbol-name filter kernel rejected the pattern."
     }
@@ -224,7 +223,7 @@ test "a non-ASCII PATTERN is refused too, and the deleted body never pinned the 
     caught := false
     try {
         QuerySymbolNameFilter.Filter(SymbolFixture(), "usér", 200)
-    } catch (error: InvalidOperationException) {
+    } catch error: InvalidOperationException {
         caught = true
         assert error.Message == "N# query symbol-name filter kernel rejected the pattern."
     }

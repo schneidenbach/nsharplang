@@ -88,8 +88,8 @@ namespace NSharpLang.SystemsVectorizationFacts.Tests
 //       -> "a strictly increasing array transitions on every element"
 //   CountTransitionsInt32_EmptyRange_ReturnsSeed
 //       -> "an empty or inverted range counts nothing and returns the seed"
-
 class TransitionShapes {
+
     // The count-transitions benchmark shape: for, seeded from a[0], scanning [1, n).
     static func ForCount(a: int[], n: int): int {
         count := 0

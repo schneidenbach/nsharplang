@@ -62,7 +62,14 @@ func CiimRecord(name: string, interfaces: List<string>, isStruct: bool, line: in
 
 func CiimUnit(declarations: List<Declaration>): CompilationUnit {
     return new CompilationUnit(
-        null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+        null,
+        new List<ImportDirective>(),
+        new List<Statement>(),
+        null,
+        declarations,
+        1,
+        1
+    )
 }
 
 func CiimOne(declarations: List<Declaration>): List<CompilationUnit> {

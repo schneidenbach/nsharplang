@@ -19,7 +19,6 @@ import System.IO
 // THE DELETED BODY CARRIED A PRIVATE `CountOccurrences` HELPER, a hand-rolled `IndexOf` loop, to
 // count `<ProjectReference Include=` in the answer. Two-argument `IndexOf` declines on this emit
 // path, so the count is done by splitting on the marker instead — which is the same measurement.
-
 func CountOccurrences(text: string, value: string): int {
     return text.Split(value).Length - 1
 }
@@ -29,24 +28,18 @@ func NewRestoreTree(): string {
     Directory.CreateDirectory(Path.Combine(root, "App"))
     Directory.CreateDirectory(Path.Combine(root, "Shared"))
 
-    File.WriteAllText(Path.Combine(Path.Combine(root, "Shared"), "project.yml"),
-        "name: Shared\n"
-        + "outputType: library\n"
-        + "targetFramework: net10.0\n")
-    File.WriteAllText(Path.Combine(Path.Combine(root, "Shared"), "Shared.csproj"),
-        "<Project Sdk=\"NSharpLang.Sdk\" />")
-    File.WriteAllText(Path.Combine(Path.Combine(root, "App"), "project.yml"),
-        "name: App\n"
-        + "outputType: exe\n"
-        + "targetFramework: net10.0\n"
-        + "\n"
-        + "dependencies:\n"
-        + "  - nuget: Serilog\n"
-        + "    version: 3.1.1\n"
-        + "  - framework: Microsoft.AspNetCore.App\n"
-        + "  - project: ../Shared/project.yml\n"
-        + "  - project: ../Shared/Shared.csproj\n"
-        + "  - project: ../Shared/project.yml\n")
+    File.WriteAllText(
+        Path.Combine(Path.Combine(root, "Shared"), "project.yml"),
+        "name: Shared\n" + "outputType: library\n" + "targetFramework: net10.0\n"
+    )
+    File.WriteAllText(
+        Path.Combine(Path.Combine(root, "Shared"), "Shared.csproj"),
+        "<Project Sdk=\"NSharpLang.Sdk\" />"
+    )
+    File.WriteAllText(
+        Path.Combine(Path.Combine(root, "App"), "project.yml"),
+        "name: App\n" + "outputType: exe\n" + "targetFramework: net10.0\n" + "\n" + "dependencies:\n" + "  - nuget: Serilog\n" + "    version: 3.1.1\n" + "  - framework: Microsoft.AspNetCore.App\n" + "  - project: ../Shared/project.yml\n" + "  - project: ../Shared/Shared.csproj\n" + "  - project: ../Shared/project.yml\n"
+    )
 
     return root
 }

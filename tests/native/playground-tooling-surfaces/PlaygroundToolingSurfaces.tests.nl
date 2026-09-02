@@ -52,8 +52,6 @@ import System.Reflection
 //
 //   (e) THE UNSUPPORTED-CONSTRUCT CODE IS `PG204`, NOT `PG2` — the C# matched a PREFIX. The
 //       successor pins the code, the sentence and the `UnsupportedReason` whole.
-
-
 func SetPgObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -184,7 +182,6 @@ func PgSetFile(target: object, index: int, value: object) {
     setMethod.Invoke(target, arguments)
 }
 
-
 // ---- the shared response readers ----
 
 func PgList(owner: object, memberName: string): IList? {
@@ -266,7 +263,6 @@ func PgRow(response: object, index: int): string {
 
     return PgText(entry, "Code") + "|" + PgText(entry, "Severity") + "|" + PgText(entry, "Message") + "|" + PgText(entry, "File") + "|" + PgText(entry, "Line") + "|" + PgText(entry, "Column") + "|" + PgText(entry, "Length")
 }
-
 
 // ---- the CATALOG surface ----
 
@@ -373,7 +369,6 @@ func PgTutorialRow(catalog: object, index: int): string {
     return PgText(step, "Id") + "|" + PgText(step, "Title") + "|" + PgText(step, "Kind") + "|" + PgText(step, "ExampleId") + "|" + validationText
 }
 
-
 // ---- the EXAMPLE CORPUS, read straight off the production static ----
 
 func PgExamples(): IList {
@@ -444,7 +439,6 @@ func PgIndexOfExample(id: string): int {
     return -1
 }
 
-
 // ---- the CHECK entry point, for the example-corpus contracts ----
 
 func PgCheckFiles(files: object, activeFile: string): object {
@@ -470,7 +464,6 @@ func PgCheckExample(index: int): object {
     PgSetFile(files, 1, PgNewFile("Program.tests.nl", PgExampleTestsOrEmpty(index)))
     return PgCheckFiles(files, "Program.nl")
 }
-
 
 // ---- the COMPLETION surface ----
 
@@ -553,7 +546,6 @@ func PgAccessorCount(response: object): int {
     return total
 }
 
-
 // ---- the RUN surface, which EXECUTES the program ----
 
 func PgRunFiles(code: string, activeFile: string): object {
@@ -590,7 +582,6 @@ func PgStderr(response: object): string {
 func PgUnsupportedReason(response: object): string {
     return PgText(response, "UnsupportedReason")
 }
-
 
 // ---- the FORMAT surface ----
 
@@ -631,10 +622,7 @@ func PgWarning(response: object, index: int): string {
     return entry.ToString() ?? "<null>"
 }
 
-
-
 // ======== THE MIGRATED CUT — 14 deleted methods ========
-
 
 test "020 s38 playground tooling surfaces: Catalog StatesBrowserCapabilitiesAndExamples — 10 examples, 7 tutorial steps, 8 capability flags and 4 limitations (was PlaygroundCompilerTests.Catalog_StatesBrowserCapabilitiesAndExamples)" {
     catalog := PgCatalog()
@@ -1298,7 +1286,6 @@ test "020 s38 playground tooling surfaces: Complete MemberAccess ReturnsClrStati
     assert PgItem(chained, 39) == "<no-such-item>"
 }
 
-
 // ======== SLICE 38's TOOLING CONTROLS — FOUR MINIMAL NEGATIVES AND ONE STATICS PIN ========
 //
 // Each is a contract the deleted file never had.
@@ -1387,7 +1374,6 @@ test "020 s38 playground tooling surfaces: T3 — Format over a source WITH a co
     assert PgWarning(response, 0) == "Formatting is skipped while the source has compiler errors."
     assert PgWarning(response, 1) == "<no-such-warning>"
 }
-
 
 // ---- CHIP: PLAYGROUND vs `nlc run` DIVERGENCES (021 slice 11 measured seven; five are pinned here) ----
 //
@@ -1558,9 +1544,6 @@ func PgExpectedOutputCensus(): string {
 
     return census
 }
-
-
-
 
 // ---- the union-case SHORTHAND property pattern: the playground must accept what the compiler accepts ----
 //

@@ -38,24 +38,70 @@ func CidpSimple(name: string): SimpleTypeReference {
 
 func CidpFunction(name: string, modifiers: Modifiers, line: int): FunctionDeclaration {
     return new FunctionDeclaration(
-        name, new List<Parameter>(), CidpSimple("int"), null, null, null, null,
-        modifiers, CidpAttributes(), false, null, false, false, line, 3)
+        name,
+        new List<Parameter>(),
+        CidpSimple("int"),
+        null,
+        null,
+        null,
+        null,
+        modifiers,
+        CidpAttributes(),
+        false,
+        null,
+        false,
+        false,
+        line,
+        3
+    )
 }
 
 func CidpFunctionWithParameters(name: string, parameters: List<Parameter>): FunctionDeclaration {
     return new FunctionDeclaration(
-        name, parameters, null, null, null, null, null,
-        Modifiers.Public, CidpAttributes(), false, null, false, false, 4, 2)
+        name,
+        parameters,
+        null,
+        null,
+        null,
+        null,
+        null,
+        Modifiers.Public,
+        CidpAttributes(),
+        false,
+        null,
+        false,
+        false,
+        4,
+        2
+    )
 }
 
 func CidpClass(name: string, members: List<Declaration>, modifiers: Modifiers): ClassDeclaration {
     return new ClassDeclaration(
-        name, null, null, new List<TypeReference>(), members, null, modifiers, CidpAttributes(), 7, 1)
+        name,
+        null,
+        null,
+        new List<TypeReference>(),
+        members,
+        null,
+        modifiers,
+        CidpAttributes(),
+        7,
+        1
+    )
 }
 
 func CidpField(name: string, modifiers: Modifiers): FieldDeclaration {
     return new FieldDeclaration(
-        name, CidpSimple("string"), null, modifiers, PropertyModifier.None, CidpAttributes(), 11, 5)
+        name,
+        CidpSimple("string"),
+        null,
+        modifiers,
+        PropertyModifier.None,
+        CidpAttributes(),
+        11,
+        5
+    )
 }
 
 func CidpParameter(name: string, defaultValue: Expression?): Parameter {
@@ -110,7 +156,9 @@ func CidpOutlineNames(entry: OutlineEntry): string {
 
 test "a function projects its name, position, return type and chips" {
     symbol := CodeIntelligenceDeclarationProjection.SymbolFor(
-        CidpFunction("Draw", Modifiers.Public, 9), "Shapes.nl")
+        CidpFunction("Draw", Modifiers.Public, 9),
+        "Shapes.nl"
+    )
     assert symbol != null
     assert symbol.Name == "Draw"
     assert symbol.Kind == SymbolKind.Function
@@ -123,11 +171,15 @@ test "a function projects its name, position, return type and chips" {
 
 test "(c) a function's Members is NULL and a childless type's is an EMPTY ARRAY" {
     functionSymbol := CodeIntelligenceDeclarationProjection.SymbolFor(
-        CidpFunction("Draw", Modifiers.Public, 9), "Shapes.nl")
+        CidpFunction("Draw", Modifiers.Public, 9),
+        "Shapes.nl"
+    )
     assert functionSymbol.Members == null
 
     classSymbol := CodeIntelligenceDeclarationProjection.SymbolFor(
-        CidpClass("Widget", new List<Declaration>(), Modifiers.Public), "Shapes.nl")
+        CidpClass("Widget", new List<Declaration>(), Modifiers.Public),
+        "Shapes.nl"
+    )
     assert classSymbol.Members != null
     assert classSymbol.Members.Length == 0
 }
@@ -163,19 +215,25 @@ test "(a) the same disagreement at FILE level: Symbols filters, OutlineEntries d
 
 test "(b) A STATIC FIELD IS A Field AND AN INSTANCE FIELD IS A Property — IN THE SYMBOL ANSWER" {
     staticSymbol := CodeIntelligenceDeclarationProjection.SymbolFor(
-        CidpField("Count", Modifiers.Public | Modifiers.Static), "Shapes.nl")
+        CidpField("Count", Modifiers.Public | Modifiers.Static),
+        "Shapes.nl"
+    )
     assert staticSymbol.Kind == SymbolKind.Field
 
     instanceSymbol := CodeIntelligenceDeclarationProjection.SymbolFor(
-        CidpField("Count", Modifiers.Public), "Shapes.nl")
+        CidpField("Count", Modifiers.Public),
+        "Shapes.nl"
+    )
     assert instanceSymbol.Kind == SymbolKind.Property
 }
 
 test "(b) THE OUTLINE CALLS BOTH FIELDS A Property, AND CARRIES THE TYPE INSTEAD OF THE CHIPS" {
     staticEntry := CodeIntelligenceDeclarationProjection.OutlineFor(
-        CidpField("Count", Modifiers.Public | Modifiers.Static))
+        CidpField("Count", Modifiers.Public | Modifiers.Static)
+    )
     instanceEntry := CodeIntelligenceDeclarationProjection.OutlineFor(
-        CidpField("Count", Modifiers.Public))
+        CidpField("Count", Modifiers.Public)
+    )
 
     assert staticEntry.Kind == SymbolKind.Property
     assert instanceEntry.Kind == SymbolKind.Property
@@ -191,7 +249,9 @@ test "(d) A CONSTRUCTOR'S PARAMETERS CARRY THE FLAG BUT NEVER THE DEFAULT TEXT" 
     parameters.Add(CidpParameter("count", new IntLiteralExpression("3", 1, 1)))
 
     functionSymbol := CodeIntelligenceDeclarationProjection.SymbolFor(
-        CidpFunctionWithParameters("Draw", parameters), "Shapes.nl")
+        CidpFunctionWithParameters("Draw", parameters),
+        "Shapes.nl"
+    )
     assert functionSymbol.Parameters.Length == 1
     assert functionSymbol.Parameters[0].Name == "count"
     assert functionSymbol.Parameters[0].Type == "int"
@@ -199,8 +259,14 @@ test "(d) A CONSTRUCTOR'S PARAMETERS CARRY THE FLAG BUT NEVER THE DEFAULT TEXT" 
     assert functionSymbol.Parameters[0].DefaultValue != null
 
     constructorDeclaration := new ConstructorDeclaration(
-        parameters, new BlockStatement(new List<Statement>(), 1, 1), null,
-        Modifiers.Public, CidpAttributes(), 6, 4)
+        parameters,
+        new BlockStatement(new List<Statement>(), 1, 1),
+        null,
+        Modifiers.Public,
+        CidpAttributes(),
+        6,
+        4
+    )
     constructorSymbol := CodeIntelligenceDeclarationProjection.SymbolFor(constructorDeclaration, "Shapes.nl")
     assert constructorSymbol.Name == "constructor"
     assert constructorSymbol.Kind == SymbolKind.Constructor
@@ -211,13 +277,14 @@ test "(d) A CONSTRUCTOR'S PARAMETERS CARRY THE FLAG BUT NEVER THE DEFAULT TEXT" 
 
 test "(e) A DEFAULT VALUE'S TEXT IS ITS AST NODE'S RUNTIME TYPE NAME" {
     literal := new IntLiteralExpression("3", 1, 1)
-    assert CodeIntelligenceDeclarationProjection.DefaultValueText(literal) ==
-        "NSharpLang.Compiler.Ast.IntLiteralExpression"
+    assert CodeIntelligenceDeclarationProjection.DefaultValueText(literal) == "NSharpLang.Compiler.Ast.IntLiteralExpression"
 
     parameters := new List<Parameter>()
     parameters.Add(CidpParameter("count", literal))
     symbol := CodeIntelligenceDeclarationProjection.SymbolFor(
-        CidpFunctionWithParameters("Draw", parameters), "Shapes.nl")
+        CidpFunctionWithParameters("Draw", parameters),
+        "Shapes.nl"
+    )
     assert symbol.Parameters[0].DefaultValue == "NSharpLang.Compiler.Ast.IntLiteralExpression"
 }
 
@@ -225,7 +292,9 @@ test "a parameter with no default carries neither the flag nor the text" {
     parameters := new List<Parameter>()
     parameters.Add(CidpParameter("count", null))
     symbol := CodeIntelligenceDeclarationProjection.SymbolFor(
-        CidpFunctionWithParameters("Draw", parameters), "Shapes.nl")
+        CidpFunctionWithParameters("Draw", parameters),
+        "Shapes.nl"
+    )
     assert symbol.Parameters[0].HasDefault == false
     assert symbol.Parameters[0].DefaultValue == null
 }
@@ -236,7 +305,14 @@ test "(f)(g) AN ENUM LISTS ITS MEMBERS AT LINE 0 IN THE SYMBOL ANSWER AND HAS NO
     members.Add(new EnumMember("Green", null, 13, 5))
 
     declaration := new EnumDeclaration(
-        "Colour", members, EnumType.Int, Modifiers.Public, CidpAttributes(), 11, 1)
+        "Colour",
+        members,
+        EnumType.Int,
+        Modifiers.Public,
+        CidpAttributes(),
+        11,
+        1
+    )
 
     symbol := CodeIntelligenceDeclarationProjection.SymbolFor(declaration, "Shapes.nl")
     assert symbol.Kind == SymbolKind.Enum
@@ -258,7 +334,14 @@ test "(f) A UNION'S CASES ARE FILTERED BY THE EXPORTED CONVENTION, AND ITS OUTLI
     cases.Add(new UnionCase("square", null, 16, 5))
 
     declaration := new UnionDeclaration(
-        "Shape", null, cases, Modifiers.Public, CidpAttributes(), 14, 1)
+        "Shape",
+        null,
+        cases,
+        Modifiers.Public,
+        CidpAttributes(),
+        14,
+        1
+    )
 
     symbol := CodeIntelligenceDeclarationProjection.SymbolFor(declaration, "Shapes.nl")
     assert symbol.Kind == SymbolKind.Union
@@ -274,7 +357,13 @@ test "a soa record carries the type name 'soa' in BOTH answers and its columns a
     columns.Add(new SoaColumnDeclaration("X", CidpSimple("float"), 21, 5))
 
     declaration := new SoaRecordDeclaration(
-        "Points", columns, Modifiers.Public, CidpAttributes(), 20, 1)
+        "Points",
+        columns,
+        Modifiers.Public,
+        CidpAttributes(),
+        20,
+        1
+    )
 
     symbol := CodeIntelligenceDeclarationProjection.SymbolFor(declaration, "Shapes.nl")
     assert symbol.Kind == SymbolKind.Record
@@ -309,7 +398,14 @@ test "an alias, a newtype and a test carry NO modifier chips at all" {
 
 test "a test declaration is named by its DESCRIPTION in both answers" {
     declaration := new TestDeclaration(
-        "it draws", new BlockStatement(new List<Statement>(), 1, 1), null, null, null, 40, 1)
+        "it draws",
+        new BlockStatement(new List<Statement>(), 1, 1),
+        null,
+        null,
+        null,
+        40,
+        1
+    )
 
     symbol := CodeIntelligenceDeclarationProjection.SymbolFor(declaration, "Shapes.nl")
     assert symbol.Name == "it draws"
@@ -347,26 +443,53 @@ test "a type's outline END LINE is estimated from its members, not from its own 
     members.Add(CidpFunction("Draw", Modifiers.None, 19))
 
     entry := CodeIntelligenceDeclarationProjection.OutlineFor(
-        CidpClass("Widget", members, Modifiers.Public))
+        CidpClass("Widget", members, Modifiers.Public)
+    )
     assert entry.Line == 7
     assert entry.EndLine == 20
 
     // With no members at all the estimate falls back to the declaration's own line.
     bare := CodeIntelligenceDeclarationProjection.OutlineFor(
-        CidpClass("Widget", new List<Declaration>(), Modifiers.Public))
+        CidpClass("Widget", new List<Declaration>(), Modifiers.Public)
+    )
     assert bare.EndLine == 7
 }
 
 test "a struct, a record and an interface each project their own kind" {
     structDeclaration := new StructDeclaration(
-        "Point", null, new List<TypeReference>(), new List<Declaration>(), null,
-        Modifiers.Public, CidpAttributes(), 60, 1)
+        "Point",
+        null,
+        new List<TypeReference>(),
+        new List<Declaration>(),
+        null,
+        Modifiers.Public,
+        CidpAttributes(),
+        60,
+        1
+    )
     recordDeclaration := new RecordDeclaration(
-        "Person", null, new List<TypeReference>(), new List<Declaration>(), null, false,
-        Modifiers.Public, CidpAttributes(), 61, 1)
+        "Person",
+        null,
+        new List<TypeReference>(),
+        new List<Declaration>(),
+        null,
+        false,
+        Modifiers.Public,
+        CidpAttributes(),
+        61,
+        1
+    )
     interfaceDeclaration := new InterfaceDeclaration(
-        "IShape", null, new List<TypeReference>(), new List<Declaration>(),
-        Modifiers.Public, false, CidpAttributes(), 62, 1)
+        "IShape",
+        null,
+        new List<TypeReference>(),
+        new List<Declaration>(),
+        Modifiers.Public,
+        false,
+        CidpAttributes(),
+        62,
+        1
+    )
 
     assert CodeIntelligenceDeclarationProjection.SymbolFor(structDeclaration, "S.nl").Kind == SymbolKind.Struct
     assert CodeIntelligenceDeclarationProjection.SymbolFor(recordDeclaration, "S.nl").Kind == SymbolKind.Record
@@ -378,8 +501,17 @@ test "a struct, a record and an interface each project their own kind" {
 
 test "a property projects its declared type in both answers" {
     declaration := new PropertyDeclaration(
-        "Width", CidpSimple("int"), null, null, null, Modifiers.Public,
-        PropertyModifier.None, CidpAttributes(), 70, 5)
+        "Width",
+        CidpSimple("int"),
+        null,
+        null,
+        null,
+        Modifiers.Public,
+        PropertyModifier.None,
+        CidpAttributes(),
+        70,
+        5
+    )
 
     symbol := CodeIntelligenceDeclarationProjection.SymbolFor(declaration, "Shapes.nl")
     assert symbol.Kind == SymbolKind.Property
@@ -407,12 +539,15 @@ test "the projections NEST, and the filter applies at every level" {
     outer.Add(CidpClass("Inner", inner, Modifiers.Public))
 
     symbol := CodeIntelligenceDeclarationProjection.SymbolFor(
-        CidpClass("Outer", outer, Modifiers.Public), "Shapes.nl")
+        CidpClass("Outer", outer, Modifiers.Public),
+        "Shapes.nl"
+    )
     assert CidpMemberNames(symbol) == "Inner"
     assert CidpMemberNames(symbol.Members[0]) == "Tick"
 
     entry := CodeIntelligenceDeclarationProjection.OutlineFor(
-        CidpClass("Outer", outer, Modifiers.Public))
+        CidpClass("Outer", outer, Modifiers.Public)
+    )
     assert CidpOutlineNames(entry) == "Inner"
     assert CidpOutlineNames(entry.Children[0]) == "Tick,tock"
 }

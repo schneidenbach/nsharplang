@@ -1,8 +1,8 @@
 namespace NSharpLang.ColumnarEmitFacts.Tests
 
-import Demo
 import System
 import System.Reflection.Emit
+import Demo
 
 
 // THE FOUR REMAINING `ColumnarCompiler.TryEmitProgram` CASES, ON THE SAME ROUTE THE FILE BESIDE
@@ -31,7 +31,6 @@ import System.Reflection.Emit
 // function is reachable ACROSS files, which reflection over a single emitted type could not see.
 
 // ---- A top-level type alias, ahead of the function the scan must still find --------------------
-
 type TaskId = int
 
 func AliasedValue(): int {
@@ -243,7 +242,6 @@ test "the bodies the ordinary body driver declines still run on the host path" {
     assert DriverTwoStatements() == 42
 }
 
-
 // ---- 015-B4: the driver's three new claim classes, in real source -------------------------------
 
 // A BOOL literal is kind 4 and belongs to the boolean owner, which is a schema-v1 producer — so
@@ -320,7 +318,6 @@ func DriverVoidBare() {
 func DriverNullablePassthrough(v: int?): int? {
     return v
 }
-
 
 // ---- 015-B5: the three identifier classes the expression door adds, in real source --------------
 //
@@ -443,7 +440,6 @@ test "the expression door claims a by-ref parameter read and derefs it" {
     assert DriverRefRead(ref v) == 64
 }
 
-
 // ---- 015-B6: the two composite classes, and the statement loop, in real source -------------------
 //
 // The nine owner gates that THREW on a method-body plan are open, and these are the bodies that prove
@@ -533,7 +529,6 @@ test "the statement loop claims a declaration and the return that reads it in re
     assert member.ReadDeclared() == 29
 }
 
-
 // ---- 015-B7: the direct-call composite in real source ---------------------------------------------
 //
 // The first claimed kind whose owner consults the three binding facts the driver now routes. Every
@@ -589,7 +584,6 @@ test "the expression door claims a direct call in both positions in real source"
     holder := new DriverCallHolder(37)
     assert holder.ReadViaCall() == 37
 }
-
 
 // ---- 015-B8: a plan local read INSIDE a claimed call ----------------------------------------------
 //
@@ -675,7 +669,6 @@ test "the expression door claims a call whose subtree reads a plan local" {
     assert DriverMirrorReceiver() == 6
 }
 
-
 // ---- 015-B9 — THE BINARY COMPOSITE, AND THE TWO ARGUMENT SHAPES THE CALL OWNER NOW ADMITS ----
 //
 // Three claims in real source, and they are three DIFFERENT decisions:
@@ -756,7 +749,6 @@ test "the expression door claims the binary composite and the arguments a call n
     assert DriverIndexArgument() == 4
     assert DriverIndexSelectorArgument() == 4
 }
-
 
 // ---- THE INDEX/RANGE OWNER'S INHERITED VALUE SURFACE, AND THE CONSTRUCTION SCRATCH'S FRAME (015-B10) ----
 //
@@ -949,7 +941,6 @@ test "the declaring module binds, the adopted negative literal narrows, and the 
     assert B11StringElementMember(names, 0) == 3
 }
 
-
 // ---- 015-B12: THE CONDITIONAL OWNER'S TWO DOOR ARMS, AS SOURCE THE REAL PIPELINE COMPILES ---------
 
 // THE FIRST CLAIMED KIND WHOSE ROWS BRANCH. Every body the door claimed before this slice lowers to a
@@ -1065,7 +1056,6 @@ test "the claimed short circuit still refuses to evaluate its right operand" {
     assert DoorOrRightCalls(false) == 1
 }
 
-
 // ---- 015-B13: THE CHECKED CONTEXT (class K) — THE CLAIM WHOSE SEMANTICS ARE A THROW ----
 //
 // Every earlier door claim could be checked by comparing a VALUE. This one cannot: `checked` and
@@ -1167,7 +1157,6 @@ test "the claimed checked context restores the flag rather than merely setting i
     // And a checked INITIALIZER does not leak into the statement after it: the return's `+` wraps.
     assert DoorCheckedDeclarationThenPlainAdd(2147483647, 1) == -2147483648
 }
-
 
 // ---- THE MEMBER-ACCESS ROOT AT THE DOOR (015-B14) ----
 //
@@ -1293,7 +1282,6 @@ test "the expression door claims the member-access root through every receiver c
     assert DoorMemberChecked(box) == 7
 }
 
-
 // ---- AND THE MEMBER-ACCESS ROOTS THE DOOR DOES **NOT** CLAIM STILL COMPILE (015-B14) ----
 //
 // Every one of these is a NARROWING rather than a divergence: the door declines and the host emits the
@@ -1348,7 +1336,6 @@ test "the member-access roots the door declines are emitted by the host exactly 
     assert DoorMemberOfCallResult("  ab  ") == 2
     assert DoorMemberWidenedReturn(box) == 7L
 }
-
 
 // ---- THE EXTERNAL-STATIC ROOT: DOOR KIND 8's OTHER OWNER (class X, 015-B15) ----
 //
@@ -1438,7 +1425,6 @@ test "the expression door claims the external static-member root through all thr
     assert reader.ReadNewLine() == Environment.NewLine
 }
 
-
 // ---- AND THE MEMBER-ACCESS ROOTS THE SEVENTH ARM DOES **NOT** CLAIM (015-B15 → 015-B16) ----
 //
 // Named precisely rather than loosely, because a MARKED CLI was run over these bodies and neither is a
@@ -1467,7 +1453,6 @@ test "the member-access roots outside the external-static arm keep their existin
     assert DoorStaticComposedReceiver() == 1970
     assert DoorStaticShadowedOwner("shadow") == "shadow"
 }
-
 
 // ---- THE PARENTHESIS ROOT: DOOR KIND 7 (class G, 015-B16) ----
 //
@@ -1618,7 +1603,6 @@ test "the parenthesis does not lose the overflow flag in either nesting directio
     }
     assert inside
 }
-
 
 // ---- THE TYPEOF ROOT: DOOR KIND 55 (class Y, 015-B16) ----
 //

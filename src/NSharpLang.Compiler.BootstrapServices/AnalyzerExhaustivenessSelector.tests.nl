@@ -12,7 +12,6 @@ import NSharpLang.Compiler.Ast
 // measurement said no call site reveals — the CATCH-ALL / QUALIFIED split on an identifier pattern,
 // and the LENIENT qualifier match, whose rejection arm (a case name qualified by a foreign type)
 // never fired once across the whole 71-target corpus.
-
 func ExhaustivenessCase(name: string): UnionCase {
     return new UnionCase(name, null, 1, 1)
 }
@@ -73,39 +72,52 @@ test "only an identifier pattern can be a catch-all" {
     // A literal, a case pattern and an object pattern all TEST the value, so none of them is a
     // binding that matches everything — the answer is shape-driven, not name-driven.
     assert !AnalyzerExhaustivenessSelector.IsCatchAllPattern(
-        new LiteralPattern(new IntLiteralExpression("1", 1, 1), 1, 1))
+        new LiteralPattern(new IntLiteralExpression("1", 1, 1), 1, 1)
+    )
     assert !AnalyzerExhaustivenessSelector.IsCatchAllPattern(
-        ExhaustivenessCasePattern("Success", null))
+        ExhaustivenessCasePattern("Success", null)
+    )
     assert !AnalyzerExhaustivenessSelector.IsCatchAllPattern(
-        new ObjectPattern(new List<PropertyPattern>(), 1, 1))
+        new ObjectPattern(new List<PropertyPattern>(), 1, 1)
+    )
 }
 
 test "a property entry is total when it only binds or applies a catch-all" {
     // `{ value }` and `{ value: v }` place no restriction; `{ value: Kind.Io }` does. This is the
     // distinction that decides whether an arm covers its case outright or only partially.
     assert AnalyzerExhaustivenessSelector.IsTotalPropertyPattern(
-        ExhaustivenessProperty("value", null))
+        ExhaustivenessProperty("value", null)
+    )
     assert AnalyzerExhaustivenessSelector.IsTotalPropertyPattern(
-        ExhaustivenessProperty("value", ExhaustivenessIdentifier("v")))
+        ExhaustivenessProperty("value", ExhaustivenessIdentifier("v"))
+    )
     assert AnalyzerExhaustivenessSelector.IsTotalPropertyPattern(
-        ExhaustivenessProperty("value", ExhaustivenessIdentifier("_")))
+        ExhaustivenessProperty("value", ExhaustivenessIdentifier("_"))
+    )
     assert !AnalyzerExhaustivenessSelector.IsTotalPropertyPattern(
-        ExhaustivenessProperty("value", ExhaustivenessIdentifier("Kind.Io")))
+        ExhaustivenessProperty("value", ExhaustivenessIdentifier("Kind.Io"))
+    )
 }
 
 test "a union-case arm is total with no properties, no property list, or all-total properties" {
     // An arm with NO property list and one with an EMPTY list are both total: neither reads the
     // payload at all.
     assert AnalyzerExhaustivenessSelector.IsTotalUnionCasePattern(
-        ExhaustivenessCasePattern("Success", null))
+        ExhaustivenessCasePattern("Success", null)
+    )
     assert AnalyzerExhaustivenessSelector.IsTotalUnionCasePattern(
-        ExhaustivenessCasePattern("Success", new List<PropertyPattern>()))
+        ExhaustivenessCasePattern("Success", new List<PropertyPattern>())
+    )
     assert AnalyzerExhaustivenessSelector.IsTotalUnionCasePattern(
         ExhaustivenessCasePattern("Success", ExhaustivenessProperties(
-            ExhaustivenessProperty("value", null))))
+            ExhaustivenessProperty("value", null)
+        ))
+    )
     assert !AnalyzerExhaustivenessSelector.IsTotalUnionCasePattern(
         ExhaustivenessCasePattern("Success", ExhaustivenessProperties(
-            ExhaustivenessProperty("value", ExhaustivenessIdentifier("Kind.Io")))))
+            ExhaustivenessProperty("value", ExhaustivenessIdentifier("Kind.Io"))
+        ))
+    )
 }
 
 test "a nested union pattern is total when it is a dotted identifier or an unconstrained case" {
@@ -113,16 +125,22 @@ test "a nested union pattern is total when it is a dotted identifier or an uncon
     // property list — is unconditionally total. An UNDOTTED identifier is a binding, not a case
     // reference, so it is not total in this sense at all.
     assert AnalyzerExhaustivenessSelector.IsTotalNestedUnionPattern(
-        ExhaustivenessIdentifier("Kind.Io"))
+        ExhaustivenessIdentifier("Kind.Io")
+    )
     assert !AnalyzerExhaustivenessSelector.IsTotalNestedUnionPattern(
-        ExhaustivenessIdentifier("k"))
+        ExhaustivenessIdentifier("k")
+    )
     assert AnalyzerExhaustivenessSelector.IsTotalNestedUnionPattern(
-        ExhaustivenessCasePattern("Io", null))
+        ExhaustivenessCasePattern("Io", null)
+    )
     assert !AnalyzerExhaustivenessSelector.IsTotalNestedUnionPattern(
         ExhaustivenessCasePattern("Io", ExhaustivenessProperties(
-            ExhaustivenessProperty("at", ExhaustivenessIdentifier("Kind.Parse")))))
+            ExhaustivenessProperty("at", ExhaustivenessIdentifier("Kind.Parse"))
+        ))
+    )
     assert !AnalyzerExhaustivenessSelector.IsTotalNestedUnionPattern(
-        new LiteralPattern(new IntLiteralExpression("1", 1, 1), 1, 1))
+        new LiteralPattern(new IntLiteralExpression("1", 1, 1), 1, 1)
+    )
 }
 
 test "a case name is everything after the last dot" {
@@ -163,22 +181,32 @@ test "a nested case name is read from either spelling and null from a binding" {
     unionType := ExhaustivenessUnion("Kind", ExhaustivenessNames2("Io", "Parse"))
 
     assert AnalyzerExhaustivenessSelector.GetMatchedUnionCaseName(
-        unionType, ExhaustivenessIdentifier("Kind.Io")) == "Io"
+        unionType,
+        ExhaustivenessIdentifier("Kind.Io")
+    ) == "Io"
     assert AnalyzerExhaustivenessSelector.GetMatchedUnionCaseName(
-        unionType, ExhaustivenessCasePattern("Parse", null)) == "Parse"
+        unionType,
+        ExhaustivenessCasePattern("Parse", null)
+    ) == "Parse"
     assert AnalyzerExhaustivenessSelector.GetMatchedUnionCaseName(
-        unionType, ExhaustivenessIdentifier("k")) == null
+        unionType,
+        ExhaustivenessIdentifier("k")
+    ) == null
     assert AnalyzerExhaustivenessSelector.GetMatchedUnionCaseName(
-        unionType, ExhaustivenessIdentifier("Other.Io")) == null
+        unionType,
+        ExhaustivenessIdentifier("Other.Io")
+    ) == null
     assert AnalyzerExhaustivenessSelector.GetMatchedUnionCaseName(
-        unionType, new LiteralPattern(new IntLiteralExpression("1", 1, 1), 1, 1)) == null
+        unionType,
+        new LiteralPattern(new IntLiteralExpression("1", 1, 1), 1, 1)
+    ) == null
 }
 
 test "partial coverage renders only the FIRST hint for a case" {
     // A case may have several missing nested arms, but the message names one. Rendering all of them
     // would make the message grow with the nested union's size for no extra guidance — the single
     // named arm is enough to unblock the reader.
-    hints := new Dictionary<string, List<string> >(StringComparer.Ordinal)
+    hints := new Dictionary<string, List<string>>(StringComparer.Ordinal)
     both := new List<string>()
     both.Add("Outcome.Bad { kind: Kind.Parse }")
     both.Add("Outcome.Bad { kind: Kind.Other }")
@@ -194,7 +222,7 @@ test "partial coverage renders only the FIRST hint for a case" {
 
 test "a case with an empty hint list renders bare" {
     // An EMPTY list is not the same as no entry, and both must render the case name alone.
-    hints := new Dictionary<string, List<string> >(StringComparer.Ordinal)
+    hints := new Dictionary<string, List<string>>(StringComparer.Ordinal)
     hints["Bad"] = new List<string>()
 
     partialCases := new List<string>()
@@ -236,7 +264,14 @@ test "flag selection splits missing cases into never-covered and partially cover
     partialCases := new List<string>()
     never := new List<string>()
     AnalyzerExhaustivenessSelector.SelectMissingUnionCasesFromFlags(
-        cases, coveredFlags, partialFlags, 3, out missing, out partialCases, out never)
+        cases,
+        coveredFlags,
+        partialFlags,
+        3,
+        out missing,
+        out partialCases,
+        out never
+    )
 
     assert missing.Count == 2
     assert missing[0] == "Bad"

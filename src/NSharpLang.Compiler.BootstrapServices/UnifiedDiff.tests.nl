@@ -18,7 +18,6 @@ import System
 // never exercised at all, and which is the only path that returns the empty string.
 
 // ── the deleted row, reproduced whole ─────────────────────────────────────────
-
 func TwelveLineBefore(): string {
     return "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\ntwelve"
 }
@@ -107,7 +106,10 @@ test "two edits far apart become TWO hunks and two edits close together become O
     apart := UnifiedDiff.Create(
         "a\nb\nc\nd\ne\nf\ng\nh",
         "A\nb\nc\nd\ne\nf\ng\nH",
-        "x", "y", 1)
+        "x",
+        "y",
+        1
+    )
     assert CountOccurrences(apart, "@@ ") == 2
 
     together := UnifiedDiff.Create("a\nb\nc\nd", "A\nb\nC\nd", "x", "y", 1)

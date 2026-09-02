@@ -8,13 +8,13 @@ class EnumDefaulted {
     Required: int
     Selected: Selection
 
-    constructor(seed: int, selected: Selection = Selection . Value) {
+    constructor(seed: int, selected: Selection = Selection.Value) {
         this.Required = seed
         this.Selected = selected
     }
 }
 
-class PrimaryEnumDefaulted(seed: int, selected: Selection = Selection . Value) {
+class PrimaryEnumDefaulted(seed: int, selected: Selection = Selection.Value) {
     func RequiredValue(): int {
         return seed
     }

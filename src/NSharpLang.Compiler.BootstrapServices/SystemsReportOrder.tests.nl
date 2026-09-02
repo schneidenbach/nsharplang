@@ -39,7 +39,6 @@ import System.Collections.Generic
 //
 // (6) AN EMPTY INPUT ANSWERS EMPTY, not null — every one of these feeds a JSON array a consumer
 // enumerates.
-
 func SroFiles(values: List<string>): string[] {
     return SystemsReportOrder.OrderedFiles(values)
 }

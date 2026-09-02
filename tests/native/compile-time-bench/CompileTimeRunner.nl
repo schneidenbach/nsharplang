@@ -27,7 +27,6 @@ import System.Text.Json
 // mutated the repository it measures would invalidate both its own next run and the working tree of
 // whoever ran it.
 
-
 // ─── DISCOVERY ────────────────────────────────────────────────────────────────────────────────
 
 // The repository root, found by walking up from the directory this assembly was loaded into. The
@@ -37,10 +36,7 @@ func BenchRepositoryRoot(): string {
     current: string? = AppContext.BaseDirectory
     while current != null {
         directory := current ?? ""
-        if File.Exists(Path.Combine(directory, "AGENTS.md"))
-            && Directory.Exists(Path.Combine(directory, "src"))
-            && Directory.Exists(Path.Combine(directory, "tests"))
-            && Directory.Exists(Path.Combine(directory, "examples")) {
+        if File.Exists(Path.Combine(directory, "AGENTS.md")) && Directory.Exists(Path.Combine(directory, "src")) && Directory.Exists(Path.Combine(directory, "tests")) && Directory.Exists(Path.Combine(directory, "examples")) {
             return directory
         }
 
@@ -60,9 +56,12 @@ func BenchDefaultCliDll(repositoryRoot: string): string {
         Path.Combine(
             Path.Combine(
                 Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.Cli"),
-                "bin"),
-            "Debug"),
-        Path.Combine("net10.0", "Cli.dll"))
+                "bin"
+            ),
+            "Debug"
+        ),
+        Path.Combine("net10.0", "Cli.dll")
+    )
 }
 
 func BenchAbsoluteProjectPath(repositoryRoot: string, relativeProject: string): string {
@@ -80,7 +79,6 @@ func BenchAbsoluteProjectPath(repositoryRoot: string, relativeProject: string): 
 func BenchQuote(value: string): string {
     return "\"" + value + "\""
 }
-
 
 // ─── THE SPAWN KERNEL ─────────────────────────────────────────────────────────────────────────
 
@@ -174,7 +172,6 @@ func BenchRunUnderTimeUtility(arguments: string, workingDirectory: string): Benc
     return BenchRunProcess(timeUtility, BenchTimeUtilityFlag() + " dotnet " + arguments, workingDirectory)
 }
 
-
 // ─── ONE MEASURED RUN ─────────────────────────────────────────────────────────────────────────
 
 class BenchCommandRun {
@@ -208,7 +205,8 @@ class BenchCommandRun {
 func BenchFreshOutputDirectory(sequence: int): string {
     directory := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-compile-bench-" + BenchIntText(sequence) + "-" + BenchLongText(DateTime.UtcNow.Ticks))
+        "nsharp-compile-bench-" + BenchIntText(sequence) + "-" + BenchLongText(DateTime.UtcNow.Ticks)
+    )
     BenchDeleteDirectory(directory)
     Directory.CreateDirectory(directory)
     return directory
@@ -231,7 +229,8 @@ func BenchMeasureOnce(cliDll: string, projectDirectory: string, command: string,
     if command == "check" {
         run := BenchRunUnderTimeUtility(
             BenchQuote(cliDll) + " check --project " + BenchQuote(projectDirectory) + " --json",
-            Path.GetTempPath())
+            Path.GetTempPath()
+        )
         measured := new BenchCommandRun(command, run.ExitCode, run.WallMs, BenchParsePeakRssBytes(run.Stderr))
         measured.Stdout = run.Stdout
         measured.CliStderr = BenchStripTimeUtilityLines(run.Stderr)
@@ -241,9 +240,9 @@ func BenchMeasureOnce(cliDll: string, projectDirectory: string, command: string,
     outputDirectory := BenchFreshOutputDirectory(sequence)
     before := BenchSnapshotDirectory(projectDirectory)
     run := BenchRunUnderTimeUtility(
-        BenchQuote(cliDll) + " build --project " + BenchQuote(projectDirectory)
-            + " --timings -o " + BenchQuote(outputDirectory),
-        Path.GetTempPath())
+        BenchQuote(cliDll) + " build --project " + BenchQuote(projectDirectory) + " --timings -o " + BenchQuote(outputDirectory),
+        Path.GetTempPath()
+    )
     after := BenchSnapshotDirectory(projectDirectory)
     BenchDeleteDirectory(outputDirectory)
 
@@ -282,7 +281,6 @@ func BenchCheckedFilesFromJson(stdout: string): int {
 
     return result
 }
-
 
 // ─── ONE PROJECT, ONE COMMAND, N RUNS ─────────────────────────────────────────────────────────
 
@@ -342,7 +340,8 @@ func BenchMeasureProjectCommand(
     relativeProject: string,
     command: string,
     runs: int,
-    runRows: StringBuilder): BenchProjectResult {
+    runRows: StringBuilder
+): BenchProjectResult {
     projectDirectory := BenchAbsoluteProjectPath(repositoryRoot, relativeProject)
     sources := BenchMeasureProjectSources(projectDirectory)
     result := new BenchProjectResult(relativeProject, command, sources.Files, sources.Lines)
@@ -424,7 +423,6 @@ func BenchTruncate(text: string, limit: int): string {
     return collapsed.Substring(0, limit) + " …"
 }
 
-
 // ─── THE CSV ROWS ─────────────────────────────────────────────────────────────────────────────
 
 func BenchRunCsvHeader(): string {
@@ -432,42 +430,19 @@ func BenchRunCsvHeader(): string {
 }
 
 func BenchRunCsvRow(project: string, run: int, measured: BenchCommandRun): string {
-    return BenchCsvCell(project)
-        + "," + BenchCsvCell(measured.Command)
-        + "," + BenchIntText(run)
-        + "," + BenchIntText(measured.ExitCode)
-        + "," + BenchLongText(measured.WallMs)
-        + "," + BenchCsvNumber(measured.ResolveMs)
-        + "," + BenchCsvNumber(measured.EmitMs)
-        + "," + BenchCsvNumber(measured.TotalMs)
-        + "," + BenchCsvNumber(measured.PeakRssBytes)
+    return BenchCsvCell(project) + "," + BenchCsvCell(measured.Command) + "," + BenchIntText(run) + "," + BenchIntText(measured.ExitCode) + "," + BenchLongText(measured.WallMs) + "," + BenchCsvNumber(measured.ResolveMs) + "," + BenchCsvNumber(measured.EmitMs) + "," + BenchCsvNumber(measured.TotalMs) + "," + BenchCsvNumber(measured.PeakRssBytes)
 }
 
 // The `ok` column of the first shape of this file was a bool, and a bool cannot tell "the compiler
 // rejected this project" apart from "this project has nothing for the compiler to read". `status`
 // replaces it with the three answers that exist: `measured`, `failed`, `no non-test sources`.
 func BenchSummaryCsvHeader(): string {
-    return "project,command,files,lines,status,runs,medianWallMs,minWallMs,maxWallMs,"
-        + "medianResolveMs,medianEmitMs,medianTotalMs,medianPeakRssBytes,linesPerSecond"
+    return "project,command,files,lines,status,runs,medianWallMs,minWallMs,maxWallMs," + "medianResolveMs,medianEmitMs,medianTotalMs,medianPeakRssBytes,linesPerSecond"
 }
 
 func BenchSummaryCsvRow(result: BenchProjectResult): string {
-    return BenchCsvCell(result.Project)
-        + "," + BenchCsvCell(result.Command)
-        + "," + BenchIntText(result.Files)
-        + "," + BenchLongText(result.Lines)
-        + "," + BenchCsvCell(result.Status)
-        + "," + BenchIntText(result.Runs)
-        + "," + BenchLongText(result.MedianWallMs)
-        + "," + BenchLongText(result.MinWallMs)
-        + "," + BenchLongText(result.MaxWallMs)
-        + "," + BenchCsvNumber(result.MedianResolveMs)
-        + "," + BenchCsvNumber(result.MedianEmitMs)
-        + "," + BenchCsvNumber(result.MedianTotalMs)
-        + "," + BenchCsvNumber(result.MedianPeakRssBytes)
-        + "," + BenchFormatTenths(result.LinesPerSecondTenths)
+    return BenchCsvCell(result.Project) + "," + BenchCsvCell(result.Command) + "," + BenchIntText(result.Files) + "," + BenchLongText(result.Lines) + "," + BenchCsvCell(result.Status) + "," + BenchIntText(result.Runs) + "," + BenchLongText(result.MedianWallMs) + "," + BenchLongText(result.MinWallMs) + "," + BenchLongText(result.MaxWallMs) + "," + BenchCsvNumber(result.MedianResolveMs) + "," + BenchCsvNumber(result.MedianEmitMs) + "," + BenchCsvNumber(result.MedianTotalMs) + "," + BenchCsvNumber(result.MedianPeakRssBytes) + "," + BenchFormatTenths(result.LinesPerSecondTenths)
 }
-
 
 // ─── THE ENVIRONMENT BLOCK ────────────────────────────────────────────────────────────────────
 
@@ -485,7 +460,8 @@ class BenchEnvironmentFacts {
         osDescription: string,
         architecture: string,
         processorCount: int,
-        timeUtility: string) {
+        timeUtility: string
+    ) {
         CliCommit = cliCommit
         DotnetVersion = dotnetVersion
         OsDescription = osDescription
@@ -597,7 +573,6 @@ func BenchReadDotnetVersion(): string {
 
     return run.Stdout.Trim()
 }
-
 
 // ─── THE MARKDOWN REPORT ──────────────────────────────────────────────────────────────────────
 
@@ -735,18 +710,10 @@ func BenchProjectTableRow(builder: StringBuilder, project: string, build: BenchP
         checkResults = check.DiagnosticResultCount
     }
 
-    BenchAppendLine(builder, "| `" + project + "` | " + BenchIntText(files) + " | " + BenchLongText(lines)
-        + " | " + BenchOkColumn(build, check)
-        + " | " + BenchCell(buildMedian)
-        + " | " + BenchCell(buildResolve)
-        + " | " + BenchCell(buildEmit)
-        + " | " + BenchCell(buildTotal)
-        + " | " + BenchRssCell(buildRss)
-        + " | " + BenchRateCell(buildRate)
-        + " | " + BenchCell(checkMedian)
-        + " | " + BenchRssCell(checkRss)
-        + " | " + BenchRateCell(checkRate)
-        + " | " + BenchCell(checkResults) + " |")
+    BenchAppendLine(
+        builder,
+        "| `" + project + "` | " + BenchIntText(files) + " | " + BenchLongText(lines) + " | " + BenchOkColumn(build, check) + " | " + BenchCell(buildMedian) + " | " + BenchCell(buildResolve) + " | " + BenchCell(buildEmit) + " | " + BenchCell(buildTotal) + " | " + BenchRssCell(buildRss) + " | " + BenchRateCell(buildRate) + " | " + BenchCell(checkMedian) + " | " + BenchRssCell(checkRss) + " | " + BenchRateCell(checkRate) + " | " + BenchCell(checkResults) + " |"
+    )
 }
 
 class BenchAggregate {
@@ -803,12 +770,10 @@ func BenchAggregateTable(results: List<BenchProjectResult>, label: string): stri
 }
 
 func BenchAggregateRow(builder: StringBuilder, aggregate: BenchAggregate) {
-    BenchAppendLine(builder, "| " + aggregate.Command
-        + " | " + aggregate.Scope
-        + " | " + BenchIntText(aggregate.Projects)
-        + " | " + BenchLongText(aggregate.Lines)
-        + " | " + BenchLongText(aggregate.SumMedianWallMs)
-        + " | " + BenchRateCell(aggregate.LinesPerSecondTenths) + " |")
+    BenchAppendLine(
+        builder,
+        "| " + aggregate.Command + " | " + aggregate.Scope + " | " + BenchIntText(aggregate.Projects) + " | " + BenchLongText(aggregate.Lines) + " | " + BenchLongText(aggregate.SumMedianWallMs) + " | " + BenchRateCell(aggregate.LinesPerSecondTenths) + " |"
+    )
 }
 
 // The middle, slowest and fastest per-project rate for one command, as one Markdown line each.
@@ -845,9 +810,8 @@ func BenchRateSpreadLines(results: List<BenchProjectResult>, command: string, bu
         return
     }
 
-    BenchAppendLine(builder, "- `" + command + "` per-project lines/s — median "
-        + BenchRateCell(BenchMedian(rates, count))
-        + ", slowest `" + slowest + "` at " + BenchRateCell(slowestRate)
-        + ", fastest `" + fastest + "` at " + BenchRateCell(fastestRate)
-        + " (over " + BenchIntText(count) + " measured project rows).")
+    BenchAppendLine(
+        builder,
+        "- `" + command + "` per-project lines/s — median " + BenchRateCell(BenchMedian(rates, count)) + ", slowest `" + slowest + "` at " + BenchRateCell(slowestRate) + ", fastest `" + fastest + "` at " + BenchRateCell(fastestRate) + " (over " + BenchIntText(count) + " measured project rows)."
+    )
 }

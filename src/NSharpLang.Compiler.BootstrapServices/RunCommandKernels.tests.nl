@@ -11,7 +11,6 @@ namespace NSharpLang.Cli
 // pair and returns the first token that is not part of it. So `["--backend", "--help"]` yields a
 // backend of `--help` and NO source operand — the same two tokens read two ways, and both readings
 // are pinned below because the command needs both.
-
 test "run option summary reads the backend option and the source operand beside it" {
     args := ["--backend", "il", "Program.nl"]
     summary := RunCommandKernels.GetOptionSummary(args)
@@ -50,12 +49,10 @@ test "the run help text names the command, its usage and its success exit code" 
 test "every run sentence is spelled by a kernel, character for character" {
     assert RunCommandKernels.GetFileNotFoundMessage("missing.nl") == "File not found: missing.nl"
     assert RunCommandKernels.GetSourceStartingMessage("Program.nl") == "Running Program.nl..."
-    assert RunCommandKernels.GetMissingProjectFileMessage()
-        == "No project.yml found in current directory. Run 'nlc new <name>' to create a project."
+    assert RunCommandKernels.GetMissingProjectFileMessage() == "No project.yml found in current directory. Run 'nlc new <name>' to create a project."
     assert RunCommandKernels.GetLibraryProjectMessage() == "Cannot run a library project."
     assert RunCommandKernels.GetProjectStartingMessage() == "Running..."
-    assert RunCommandKernels.GetSingleFileBackendStartMessage("Program.nl")
-        == "Running Program.nl with the IL backend..."
+    assert RunCommandKernels.GetSingleFileBackendStartMessage("Program.nl") == "Running Program.nl with the IL backend..."
     assert RunCommandKernels.GetLibrarySourceFileMessage() == "Cannot run a library source file."
     assert RunCommandKernels.GetFailedMessage("denied") == "Run failed: denied"
 }

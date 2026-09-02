@@ -79,7 +79,6 @@ func XlcAssertRuntimeTypeRow(canonical: string, expectedFullName: string) {
     assert Type.GetType(resolved) == XlcType(expectedFullName)
 }
 
-
 // ── the seven type admissions ────────────────────────────────────────────────────────────────
 
 test "every Linq-to-XML type is admitted under its short and its fully qualified spelling" {
@@ -135,7 +134,6 @@ test "the exact identity names the implementation assembly and leaves every othe
     assert ColumnarExternalBindingPlans.ExactTypeIdentity("System.Xml.XmlDocument") == "System.Xml.XmlDocument, System.Private.CoreLib"
 }
 
-
 // ── the two static call rows ─────────────────────────────────────────────────────────────────
 
 test "XDocument.Load binds the string overload exactly and nothing beside it" {
@@ -184,7 +182,6 @@ test "XName.Get is the conversion N# spells where C# inserts op_Implicit" {
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("XName", "Get", XlcNone()).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("XName", "Get", XlcOne("System.Int32")).IsSupported
 }
-
 
 // ── the four instance call rows ──────────────────────────────────────────────────────────────
 
@@ -273,7 +270,6 @@ test "the instance rows refuse the wrong receiver, the wrong argument and the wr
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan("System.Xml.Linq.XElement", "Nodes", nameArgument).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan("System.Xml.Linq.XElement", "Element", XlcNone()).IsSupported
 }
-
 
 // ── the six instance property rows ───────────────────────────────────────────────────────────
 

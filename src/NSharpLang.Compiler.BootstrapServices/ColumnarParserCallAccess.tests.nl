@@ -108,7 +108,6 @@ import NSharpLang.Compiler.Ast
 // no synthetic one-line source can express. And `NullEqualityInitializer_…` pins that an initializer
 // ending in `== null` STOPS at the newline — the next parenthesized indexed assignment is a SECOND
 // statement, not a continuation.
-
 test "020 s21 parser access: `person.Name` and `person?.Age` both build a MemberAccessExpression, but they do NOT anchor alike — the plain form anchors on the DOT and the null-conditional form on the QUESTION MARK, one column earlier — and they differ in IsNullConditional (false, then true) (was ParserTests.TestMemberAccess)" {
     source := "\n            func Test() {\n                x := person.Name\n                y := person?.Age\n            }\n        "
     assert PsCensus(source) == ""

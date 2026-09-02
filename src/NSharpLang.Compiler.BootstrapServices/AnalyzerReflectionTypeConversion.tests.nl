@@ -15,7 +15,6 @@ import System.Reflection
 // Generic and non-primitive types are resolved by CANONICAL IDENTITY rather than through `typeof`:
 // the columnar `typeof` surface does not carry most of them, and the resolved instances are the
 // identical runtime ones.
-
 func ConversionRuntimeType(canonicalName: string): Type {
     resolved := Type.GetType(canonicalName)
     if resolved == null {
@@ -133,9 +132,15 @@ test "with nothing to substitute the override walk IS the plain conversion" {
     listOfInt := ConversionClosedList(typeof(int))
     plain := AnalyzerReflectionTypeConversion.ConvertReflectionType(listOfInt)
     withEmpty := AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-        listOfInt, emptyOverrides, emptyBindings)
+        listOfInt,
+        emptyOverrides,
+        emptyBindings
+    )
     withNull := AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-        listOfInt, emptyOverrides, null)
+        listOfInt,
+        emptyOverrides,
+        null
+    )
     assert TypeInfoIdentityFacts.AreEqual(plain, withEmpty)
     assert TypeInfoIdentityFacts.AreEqual(plain, withNull)
 }
@@ -151,20 +156,29 @@ test "a TypeInfo override beats a CLR binding, and both only apply at a generic 
     bindings[parameter] = typeof(int)
 
     both := AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-        parameter, overrides, bindings)
+        parameter,
+        overrides,
+        bindings
+    )
     bothSimple := both as SimpleTypeInfo
     assert bothSimple != null
     assert bothSimple.Name == "string"
 
     onlyBinding := AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-        parameter, new Dictionary<Type, TypeInfo>(), bindings)
+        parameter,
+        new Dictionary<Type, TypeInfo>(),
+        bindings
+    )
     bindingSimple := onlyBinding as SimpleTypeInfo
     assert bindingSimple != null
     assert bindingSimple.Name == "int"
 
     // A CONCRETE type is never overridden, however full the tables are.
     concrete := AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-        typeof(string), overrides, bindings)
+        typeof(string),
+        overrides,
+        bindings
+    )
     concreteSimple := concrete as SimpleTypeInfo
     assert concreteSimple != null
     assert concreteSimple.Name == "string"
@@ -180,7 +194,10 @@ test "the override walk descends through arrays, by-refs and generic arguments" 
 
     arrayOfParameter := parameter.MakeArrayType()
     convertedArray := AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-        arrayOfParameter, overrides, bindings)
+        arrayOfParameter,
+        overrides,
+        bindings
+    )
     array := convertedArray as ArrayTypeInfo
     assert array != null
     elementSimple := array.ElementType as SimpleTypeInfo
@@ -189,14 +206,20 @@ test "the override walk descends through arrays, by-refs and generic arguments" 
 
     byRefParameter := parameter.MakeByRefType()
     convertedByRef := AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-        byRefParameter, overrides, bindings)
+        byRefParameter,
+        overrides,
+        bindings
+    )
     byRefSimple := convertedByRef as SimpleTypeInfo
     assert byRefSimple != null
     assert byRefSimple.Name == "bool"
 
     openParameterList := ConversionClosedList(parameter)
     convertedList := AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(
-        openParameterList, overrides, bindings)
+        openParameterList,
+        overrides,
+        bindings
+    )
     generic := convertedList as GenericTypeInfo
     assert generic != null
     assert generic.Name == "List"
@@ -227,11 +250,15 @@ test "applying bindings rewrites a parameter through arrays, by-refs and instant
     assert Object.Equals(direct, typeof(string))
 
     arrayApplied := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(
-        parameter.MakeArrayType(), bindings)
+        parameter.MakeArrayType(),
+        bindings
+    )
     assert Object.Equals(arrayApplied, typeof(string[]))
 
     byRefApplied := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(
-        parameter.MakeByRefType(), bindings)
+        parameter.MakeByRefType(),
+        bindings
+    )
     assert byRefApplied.get_IsByRef()
     byRefElement := byRefApplied.GetElementType()
     assert byRefElement != null
@@ -255,14 +282,22 @@ test "the BOUND override rule differs from the direct one exactly where it shoul
 
     // A CLOSED type with no TypeInfo overrides takes the "apply the bindings, then convert" arm.
     closed := AnalyzerReflectionTypeConversion.ConvertBoundType(
-        listOfString, noOverrides, bindings, false)
+        listOfString,
+        noOverrides,
+        bindings,
+        false
+    )
     closedGeneric := closed as GenericTypeInfo
     assert closedGeneric != null
     assert closedGeneric.Name == "List"
 
     // An OPEN one still mentions a type parameter, so it takes the override walk.
     openApplied := AnalyzerReflectionTypeConversion.ConvertBoundType(
-        openList, noOverrides, bindings, false)
+        openList,
+        noOverrides,
+        bindings,
+        false
+    )
     openGeneric := openApplied as GenericTypeInfo
     assert openGeneric != null
     argumentSimple := openGeneric.TypeArguments[0] as SimpleTypeInfo
@@ -271,7 +306,11 @@ test "the BOUND override rule differs from the direct one exactly where it shoul
 
     // And declaring that TypeInfo overrides EXIST forces the override walk even for a closed type.
     forced := AnalyzerReflectionTypeConversion.ConvertBoundType(
-        listOfString, noOverrides, bindings, true)
+        listOfString,
+        noOverrides,
+        bindings,
+        true
+    )
     forcedGeneric := forced as GenericTypeInfo
     assert forcedGeneric != null
     assert forcedGeneric.Name == "List"
@@ -291,25 +330,35 @@ test "an expanded params element is converted from its recorded element type" {
 
     // The EXPANDED spelling: the bound argument carries the ELEMENT type.
     expanded := new SuppliedReflectionBoundArgument(
-        1, elementType, ConversionArgument(), 1)
+        1,
+        elementType,
+        ConversionArgument(),
+        1
+    )
     expandedType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
         expanded,
         tail,
         new Dictionary<Type, Type>(),
         new Dictionary<Type, TypeInfo>(),
-        false)
+        false
+    )
     assert !(expandedType is ArrayTypeInfo)
 
     // The DIRECT spelling: the bound argument carries the declared ARRAY, so the parameter is read
     // and the expected type is the array itself.
     direct := new SuppliedReflectionBoundArgument(
-        1, tail.get_ParameterType(), ConversionArgument(), 1)
+        1,
+        tail.get_ParameterType(),
+        ConversionArgument(),
+        1
+    )
     directType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
         direct,
         tail,
         new Dictionary<Type, Type>(),
         new Dictionary<Type, TypeInfo>(),
-        false)
+        false
+    )
     assert directType is ArrayTypeInfo
 }
 
@@ -322,13 +371,18 @@ test "an ordinary position is converted from the parameter, not the recorded typ
     // The recorded open type is deliberately WRONG here; a non-params position must still read the
     // PARAMETER, because that is what carries the declaration's nullability metadata.
     supplied := new SuppliedReflectionBoundArgument(
-        0, typeof(int), ConversionArgument(), 0)
+        0,
+        typeof(int),
+        ConversionArgument(),
+        0
+    )
     answered := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
         supplied,
         head,
         new Dictionary<Type, Type>(),
         new Dictionary<Type, TypeInfo>(),
-        false)
+        false
+    )
     assert ConversionTypeName(answered) == "string"
 }
 

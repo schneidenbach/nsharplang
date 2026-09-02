@@ -29,7 +29,6 @@ import NSharpLang.Compiler.Ast
 //   * the candidate list is capped at eight DISTINCT signatures;
 //   * `-0` is not a negative constant, and a cast is transparent to the sign question only when its
 //     target is a SIGNED integer type — including through a declared alias.
-
 func ValidatorErrors(): List<CompilerError> {
     return new List<CompilerError>()
 }
@@ -54,7 +53,9 @@ func ValidatorOwner(errors: List<CompilerError>): AnalyzerSyntheticCallValidator
 // the RICH `ErrorMessageBuilder` shape reachable. Both shapes are pinned, because the choice
 // between them is made by what the sink can supply and not by the report.
 func ValidatorOwnerWithText(
-    errors: List<CompilerError>, sourceText: string?): AnalyzerSyntheticCallValidator {
+    errors: List<CompilerError>,
+    sourceText: string?
+): AnalyzerSyntheticCallValidator {
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
     scopes := ValidatorScopes()
@@ -63,7 +64,8 @@ func ValidatorOwnerWithText(
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     sink := new AnalyzerDiagnosticSink(errors, provider)
     resolver := new AnalyzerTypeResolver(
@@ -73,10 +75,11 @@ func ValidatorOwnerWithText(
         probe,
         sink,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -88,14 +91,30 @@ func ValidatorOwnerWithText(
     spans := new AnalyzerDiagnosticSpans(sink)
     reporter := new AnalyzerSyntheticCallReporter(sink, spans)
     walk := new AnalyzerSyntheticCallWalk(
-        resolver, binder, reporter, scoring, assignability, spans, sink)
+        resolver,
+        binder,
+        reporter,
+        scoring,
+        assignability,
+        spans,
+        sink
+    )
     constants := new AnalyzerConstantExpressionFacts(scopes, context)
     if sourceText != null {
         sink.BeginAnalysis("probe.nl", sourceText)
     }
 
     return new AnalyzerSyntheticCallValidator(
-        context, resolver, assignability, scoring, walk, reporter, spans, sink, constants)
+        context,
+        resolver,
+        assignability,
+        scoring,
+        walk,
+        reporter,
+        spans,
+        sink,
+        constants
+    )
 }
 
 // ------------------------------------------------------------------ signature and call shapes
@@ -201,7 +220,8 @@ func VParamsSignature(): FunctionTypeInfo {
     signature.ParameterModifiers = modifiers
     signature.HasParamsParameter = true
     signature.SourceParameterTypes = VRefs1(
-        new ArrayTypeReference(new SimpleTypeReference("int")))
+        new ArrayTypeReference(new SimpleTypeReference("int"))
+    )
     return signature
 }
 
@@ -224,7 +244,8 @@ func VCandidates2(first: FunctionTypeInfo, second: FunctionTypeInfo): List<Funct
 func VConstraint(
     typeParameter: string,
     constraints: List<TypeReference>,
-    special: SpecialConstraintKind): List<GenericConstraint> {
+    special: SpecialConstraintKind
+): List<GenericConstraint> {
     list := new List<GenericConstraint>()
     list.Add(new GenericConstraint(typeParameter, constraints, special))
     return list
@@ -337,7 +358,11 @@ test "the arity report RETURNS — a call that does not fit is not also type-che
 
     // One argument of the WRONG type against a two-parameter signature: only the arity fires.
     owner.ValidateCall(
-        signature, VCall(VArgs1(VIdentifier("a"))), VTypes1(BuiltInTypes.String), null)
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VTypes1(BuiltInTypes.String),
+        null
+    )
     assert VCodes(errors) == "NL401"
 }
 
@@ -352,7 +377,8 @@ test "argument types are checked in ARGUMENT order, one report each" {
         signature,
         VCall(VArgs2(VIdentifier("a"), VIdentifier("b"))),
         VTypes2(BuiltInTypes.String, BuiltInTypes.String),
-        null)
+        null
+    )
     assert VCodes(errors) == "NL202,NL202"
     assert errors[0].Message.Contains("p1")
     assert errors[1].Message.Contains("p2")
@@ -367,7 +393,8 @@ test "an UNKNOWN on either side is skipped rather than reported" {
         signature,
         VCall(VArgs2(VIdentifier("a"), VIdentifier("b"))),
         VTypes2(BuiltInTypes.Unknown, BuiltInTypes.String),
-        null)
+        null
+    )
     assert errors.Count == 0
 }
 
@@ -377,7 +404,11 @@ test "the detail-only NL202 names the argument by POSITION, or by NAME when the 
     signature := VSignature(VTypes1(BuiltInTypes.Int))
 
     owner.ValidateCall(
-        signature, VCall(VArgs1(VIdentifier("a"))), VTypes1(BuiltInTypes.String), null)
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VTypes1(BuiltInTypes.String),
+        null
+    )
     assert errors.Count == 1
     assert errors[0].Message.Contains("Argument 1")
 
@@ -396,7 +427,11 @@ test "a signature with NO parameter names still reports, through the detail-only
     signature.ParameterNames = null
 
     owner.ValidateCall(
-        signature, VCall(VArgs1(VIdentifier("a"))), VTypes1(BuiltInTypes.String), null)
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VTypes1(BuiltInTypes.String),
+        null
+    )
     assert errors.Count == 1
     assert errors[0].DiagnosticId == "NL202"
     assert errors[0].Message.Contains("this parameter expects")
@@ -412,13 +447,21 @@ test "a params tail compares ELEMENT to ELEMENT" {
 
     // A loose STRING argument against `params p1: int[]` is an element mismatch.
     owner.ValidateCall(
-        signature, VCall(VArgs1(VIdentifier("a"))), VTypes1(BuiltInTypes.String), null)
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VTypes1(BuiltInTypes.String),
+        null
+    )
     assert VCodes(errors) == "NL202"
 
     // A loose INT argument is the element type and passes.
     errors.Clear()
     owner.ValidateCall(
-        signature, VCall(VArgs1(VIdentifier("a"))), VTypes1(BuiltInTypes.Int), null)
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VTypes1(BuiltInTypes.Int),
+        null
+    )
     assert errors.Count == 0
 
     // The params ARRAY itself passes too — that is the direct-array arm.
@@ -427,7 +470,8 @@ test "a params tail compares ELEMENT to ELEMENT" {
         signature,
         VCall(VArgs1(VIdentifier("a"))),
         VTypes1(new ArrayTypeInfo(BuiltInTypes.Int)),
-        null)
+        null
+    )
     assert errors.Count == 0
 }
 
@@ -464,7 +508,12 @@ test "the expected type is CLOSED over the call's generic bindings" {
 
     assert VTypeText(owner.GetExpectedArgumentType(signature, call, 0, 0, null)) == "T"
     assert VTypeText(owner.GetExpectedArgumentType(
-        signature, call, 0, 0, VBindings("T", BuiltInTypes.String))) == "string"
+        signature,
+        call,
+        0,
+        0,
+        VBindings("T", BuiltInTypes.String)
+    )) == "string"
 }
 
 test "a ref parameter's expected type is by-REF" {
@@ -487,13 +536,19 @@ test "the `class` constraint reports a value type and accepts a reference type" 
     signature := VGenericSignature(VConstraint("T", VRefs0(), SpecialConstraintKind.Class))
 
     owner.ValidateGenericConstraints(
-        signature, VCall(VArgs1(VIdentifier("a"))), VBindings("T", BuiltInTypes.Int))
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VBindings("T", BuiltInTypes.Int)
+    )
     assert VCodes(errors) == "NL208"
     assert errors[0].Message.Contains("is a value type")
 
     errors.Clear()
     owner.ValidateGenericConstraints(
-        signature, VCall(VArgs1(VIdentifier("a"))), VBindings("T", BuiltInTypes.String))
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VBindings("T", BuiltInTypes.String)
+    )
     assert errors.Count == 0
 }
 
@@ -508,7 +563,10 @@ test "the `struct` constraint rejects a reference type AND a nullable value type
 
     errors.Clear()
     owner.ValidateGenericConstraints(
-        signature, call, VBindings("T", new NullableTypeInfo(BuiltInTypes.Int)))
+        signature,
+        call,
+        VBindings("T", new NullableTypeInfo(BuiltInTypes.Int))
+    )
     assert VCodes(errors) == "NL208"
     assert errors[0].Message.Contains("not a non-nullable value type")
 
@@ -536,8 +594,7 @@ test "a type parameter NOTHING bound is skipped, not reported" {
 test "every violated arm of one constraint reports independently, in declaration order" {
     errors := ValidatorErrors()
     owner := ValidatorOwner(errors)
-    combined := Convert.ToInt32(SpecialConstraintKind.Class)
-        | Convert.ToInt32(SpecialConstraintKind.New)
+    combined := Convert.ToInt32(SpecialConstraintKind.Class) | Convert.ToInt32(SpecialConstraintKind.New)
     both := (SpecialConstraintKind)combined
     signature := VGenericSignature(VConstraint("T", VRefs0(), both))
 
@@ -552,12 +609,20 @@ test "every violated arm of one constraint reports independently, in declaration
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](1),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     violating.PrimaryConstructorParameters[0] = new ParameterDeclarationInfo(
-        "x", new SimpleTypeReference("int"), 1, 1)
+        "x",
+        new SimpleTypeReference("int"),
+        1,
+        1
+    )
 
     owner.ValidateGenericConstraints(
-        signature, VCall(VArgs1(VIdentifier("a"))), VBindings("T", violating))
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VBindings("T", violating)
+    )
     assert VCodes(errors) == "NL208"
     assert errors[0].Message.Contains("no parameterless constructor")
 }
@@ -566,16 +631,23 @@ test "a constraint TYPE the bound type does not satisfy reports, and the report 
     errors := ValidatorErrors()
     owner := ValidatorOwner(errors)
     signature := VGenericSignature(
-        VConstraint("T", VRefs1(new SimpleTypeReference("string")), SpecialConstraintKind.None))
+        VConstraint("T", VRefs1(new SimpleTypeReference("string")), SpecialConstraintKind.None)
+    )
 
     owner.ValidateGenericConstraints(
-        signature, VCall(VArgs1(VIdentifier("a"))), VBindings("T", BuiltInTypes.Int))
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VBindings("T", BuiltInTypes.Int)
+    )
     assert VCodes(errors) == "NL208"
     assert errors[0].Message.Contains("does not implement `string`")
 
     errors.Clear()
     owner.ValidateGenericConstraints(
-        signature, VCall(VArgs1(VIdentifier("a"))), VBindings("T", BuiltInTypes.String))
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VBindings("T", BuiltInTypes.String)
+    )
     assert errors.Count == 0
 }
 
@@ -583,14 +655,18 @@ test "the DECLARATION'S resolved constraint types win over the written reference
     errors := ValidatorErrors()
     owner := ValidatorOwner(errors)
     signature := VGenericSignature(
-        VConstraint("T", VRefs1(new SimpleTypeReference("Missing")), SpecialConstraintKind.None))
-    resolved := new Dictionary<string, List<TypeInfo> >(StringComparer.Ordinal)
+        VConstraint("T", VRefs1(new SimpleTypeReference("Missing")), SpecialConstraintKind.None)
+    )
+    resolved := new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
     resolved["T"] = VTypes1(BuiltInTypes.String)
     signature.ResolvedGenericConstraintTypes = resolved
 
     // `Missing` never resolves, but the declaration recorded `string`, so THAT is what checks.
     owner.ValidateGenericConstraints(
-        signature, VCall(VArgs1(VIdentifier("a"))), VBindings("T", BuiltInTypes.Int))
+        signature,
+        VCall(VArgs1(VIdentifier("a"))),
+        VBindings("T", BuiltInTypes.Int)
+    )
     assert VCodes(errors) == "NL208"
     assert errors[0].Message.Contains("does not implement `string`")
 }
@@ -606,7 +682,8 @@ test "every value type satisfies new(), and a record CLASS with primary paramete
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(structType)
 
     recordStruct := new RecordTypeInfo(
@@ -618,9 +695,14 @@ test "every value type satisfies new(), and a record CLASS with primary paramete
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](1),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     recordStruct.PrimaryConstructorParameters[0] = new ParameterDeclarationInfo(
-        "x", new SimpleTypeReference("int"), 1, 1)
+        "x",
+        new SimpleTypeReference("int"),
+        1,
+        1
+    )
     // A record STRUCT keeps its implicit constructor whatever it declares.
     assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(recordStruct)
 
@@ -633,9 +715,14 @@ test "every value type satisfies new(), and a record CLASS with primary paramete
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](1),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     recordClass.PrimaryConstructorParameters[0] = new ParameterDeclarationInfo(
-        "x", new SimpleTypeReference("int"), 1, 1)
+        "x",
+        new SimpleTypeReference("int"),
+        1,
+        1
+    )
     assert !AnalyzerSyntheticCallValidator.HasParameterlessConstructor(recordClass)
 
     emptyRecordClass := new RecordTypeInfo(
@@ -647,7 +734,8 @@ test "every value type satisfies new(), and a record CLASS with primary paramete
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
     assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(emptyRecordClass)
 }
 
@@ -663,7 +751,8 @@ test "a CLASS answers from its own recorded flag, and an unknown type is assumed
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(withCtor)
 
     withoutCtor := new ClassTypeInfo(
@@ -677,7 +766,8 @@ test "a CLASS answers from its own recorded flag, and an unknown type is assumed
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        false)
+        false
+    )
     assert !AnalyzerSyntheticCallValidator.HasParameterlessConstructor(withoutCtor)
 
     // A type the analyzer could not resolve must not add a constraint report on top of the
@@ -688,12 +778,15 @@ test "a CLASS answers from its own recorded flag, and an unknown type is assumed
 
 test "a CLR value type satisfies new() even with no declared constructor; a CLR class must declare one" {
     assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(
-        new ReflectionTypeInfo(typeof(int)))
+        new ReflectionTypeInfo(typeof(int))
+    )
     assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(
-        new ReflectionTypeInfo(typeof(object)))
+        new ReflectionTypeInfo(typeof(object))
+    )
     // `string` has no public parameterless constructor.
     assert !AnalyzerSyntheticCallValidator.HasParameterlessConstructor(
-        new ReflectionTypeInfo(typeof(string)))
+        new ReflectionTypeInfo(typeof(string))
+    )
 }
 
 // ------------------------------------------------------------------ return type
@@ -711,8 +804,7 @@ test "a signature with no declared return type is VOID, not unknown, and inferen
     generic.ReturnType = new SimpleTypeInfo("T")
     generic.SourceParameterTypes = VRefs1(new SimpleTypeReference("T"))
     generic.TypeParameters = VTypeParameters("T")
-    assert VTypeText(owner.ResolveReturnType(generic, call, VTypes1(BuiltInTypes.String), null))
-        == "string"
+    assert VTypeText(owner.ResolveReturnType(generic, call, VTypes1(BuiltInTypes.String), null)) == "string"
 }
 
 // ------------------------------------------------------------------ no matching overload
@@ -722,7 +814,10 @@ test "an EMPTY candidate list reports nothing" {
     owner := ValidatorOwner(errors)
 
     owner.ReportNoMatchingOverload(
-        new List<FunctionTypeInfo>(), VCall(VArgs1(VIdentifier("a"))), VTypes1(BuiltInTypes.Int))
+        new List<FunctionTypeInfo>(),
+        VCall(VArgs1(VIdentifier("a"))),
+        VTypes1(BuiltInTypes.Int)
+    )
     assert errors.Count == 0
 }
 
@@ -751,14 +846,22 @@ test "the report names the CALL's target, falling back to the first candidate's 
     signature.SyntheticName = "declared"
 
     owner.ReportNoMatchingOverload(
-        VCandidates1(signature), VCall(VArgs0()), new List<TypeInfo>())
+        VCandidates1(signature),
+        VCall(VArgs0()),
+        new List<TypeInfo>()
+    )
     assert errors.Count == 1
     // The call is written `f(...)`, so `f` wins over the declaration's own name.
     assert errors[0].Message.Contains("'f'")
 
     errors.Clear()
     anonymous := new CallExpression(
-        new IntLiteralExpression("1", 1, 1), VArgs0(), null, 1, 1)
+        new IntLiteralExpression("1", 1, 1),
+        VArgs0(),
+        null,
+        1,
+        1
+    )
     owner.ReportNoMatchingOverload(VCandidates1(signature), anonymous, new List<TypeInfo>())
     assert errors.Count == 1
     assert errors[0].Message.Contains("'declared'")
@@ -771,7 +874,10 @@ test "two DIFFERENT signatures both render" {
     second := VSignature(VTypes2(BuiltInTypes.String, BuiltInTypes.String))
 
     owner.ReportNoMatchingOverload(
-        VCandidates2(first, second), VCall(VArgs0()), new List<TypeInfo>())
+        VCandidates2(first, second),
+        VCall(VArgs0()),
+        new List<TypeInfo>()
+    )
     assert errors.Count == 1
     hint := errors[0].ContextualHint
     assert hint != null
@@ -794,7 +900,8 @@ test "a wrap column written as null or default reports; a real array does not" {
         "wrap",
         VCall(VArgs1(new NullLiteralExpression(1, 1))),
         VTypes1(new ArrayTypeInfo(BuiltInTypes.Int)),
-        placement)
+        placement
+    )
     assert VCodes(errors) == "NL202"
     assert errors[0].Message.Contains("cannot be null")
 
@@ -804,7 +911,8 @@ test "a wrap column written as null or default reports; a real array does not" {
         "wrap",
         VCall(VArgs1(new DefaultExpression(1, 1))),
         VTypes1(new ArrayTypeInfo(BuiltInTypes.Int)),
-        placement)
+        placement
+    )
     assert VCodes(errors) == "NL202"
 
     errors.Clear()
@@ -813,7 +921,8 @@ test "a wrap column written as null or default reports; a real array does not" {
         "wrap",
         VCall(VArgs1(VIdentifier("columns"))),
         VTypes1(new ArrayTypeInfo(BuiltInTypes.Int)),
-        placement)
+        placement
+    )
     assert errors.Count == 0
 }
 
@@ -826,22 +935,36 @@ test "a negative capacity, source row and target row each report, and -0 does no
     placement1[0] = 0
 
     negative: Expression = new UnaryExpression(
-        UnaryOperator.Negate, new IntLiteralExpression("5", 1, 1), 1, 1)
+        UnaryOperator.Negate,
+        new IntLiteralExpression("5", 1, 1),
+        1,
+        1
+    )
     owner.ValidateSoaCall(
-        capacity, "ensureCapacity", VCall(VArgs1(negative)), VTypes1(BuiltInTypes.Int), placement1)
+        capacity,
+        "ensureCapacity",
+        VCall(VArgs1(negative)),
+        VTypes1(BuiltInTypes.Int),
+        placement1
+    )
     assert VCodes(errors) == "NL202"
     assert errors[0].Message.Contains("capacity must not be negative")
 
     // Negative ZERO is not negative.
     errors.Clear()
     negativeZero: Expression = new UnaryExpression(
-        UnaryOperator.Negate, new IntLiteralExpression("0", 1, 1), 1, 1)
+        UnaryOperator.Negate,
+        new IntLiteralExpression("0", 1, 1),
+        1,
+        1
+    )
     owner.ValidateSoaCall(
         capacity,
         "ensureCapacity",
         VCall(VArgs1(negativeZero)),
         VTypes1(BuiltInTypes.Int),
-        placement1)
+        placement1
+    )
     assert errors.Count == 0
 
     errors.Clear()
@@ -851,13 +974,18 @@ test "a negative capacity, source row and target row each report, and -0 does no
     placement2[0] = 0
     placement2[1] = 1
     other: Expression = new UnaryExpression(
-        UnaryOperator.Negate, new IntLiteralExpression("2", 1, 1), 1, 1)
+        UnaryOperator.Negate,
+        new IntLiteralExpression("2", 1, 1),
+        1,
+        1
+    )
     owner.ValidateSoaCall(
         copyRow,
         "copyRow",
         VCall(VArgs2(negative, other)),
         VTypes2(BuiltInTypes.Int, BuiltInTypes.Int),
-        placement2)
+        placement2
+    )
     assert VCodes(errors) == "NL202,NL202"
     assert errors[0].Message.Contains("source row id")
     assert errors[1].Message.Contains("target row id")
@@ -870,10 +998,19 @@ test "a synthetic name that is not an SoA intrinsic checks nothing" {
     placement: int[] = new int[1]
     placement[0] = 0
     negative: Expression = new UnaryExpression(
-        UnaryOperator.Negate, new IntLiteralExpression("5", 1, 1), 1, 1)
+        UnaryOperator.Negate,
+        new IntLiteralExpression("5", 1, 1),
+        1,
+        1
+    )
 
     owner.ValidateSoaCall(
-        signature, "f", VCall(VArgs1(negative)), VTypes1(BuiltInTypes.Int), placement)
+        signature,
+        "f",
+        VCall(VArgs1(negative)),
+        VTypes1(BuiltInTypes.Int),
+        placement
+    )
     assert errors.Count == 0
 }
 
@@ -884,11 +1021,19 @@ test "a written negative is a NEGATION of a non-zero magnitude, through wrappers
     constants := ValidatorConstants(scopes)
 
     negative: Expression = new UnaryExpression(
-        UnaryOperator.Negate, new IntLiteralExpression("7", 1, 1), 1, 1)
+        UnaryOperator.Negate,
+        new IntLiteralExpression("7", 1, 1),
+        1,
+        1
+    )
     assert constants.IsConstantNegative(negative)
 
     zero: Expression = new UnaryExpression(
-        UnaryOperator.Negate, new IntLiteralExpression("0", 1, 1), 1, 1)
+        UnaryOperator.Negate,
+        new IntLiteralExpression("0", 1, 1),
+        1,
+        1
+    )
     assert !constants.IsConstantNegative(zero)
 
     // Parentheses, `checked` and `unchecked` change nothing.
@@ -898,15 +1043,29 @@ test "a written negative is a NEGATION of a non-zero magnitude, through wrappers
 
     // A cast to a SIGNED integer type is transparent; a cast to an unsigned one is not.
     signed: Expression = new CastExpression(
-        negative, new SimpleTypeReference("int"), CastKind.Hard, 1, 1)
+        negative,
+        new SimpleTypeReference("int"),
+        CastKind.Hard,
+        1,
+        1
+    )
     assert constants.IsConstantNegative(signed)
     unsigned: Expression = new CastExpression(
-        negative, new SimpleTypeReference("uint"), CastKind.Hard, 1, 1)
+        negative,
+        new SimpleTypeReference("uint"),
+        CastKind.Hard,
+        1,
+        1
+    )
     assert !constants.IsConstantNegative(unsigned)
 
     // A negated IDENTIFIER is not a written constant at all.
     identifier: Expression = new UnaryExpression(
-        UnaryOperator.Negate, new IdentifierExpression("k", 1, 1), 1, 1)
+        UnaryOperator.Negate,
+        new IdentifierExpression("k", 1, 1),
+        1,
+        1
+    )
     assert !constants.IsConstantNegative(identifier)
 }
 
@@ -917,18 +1076,37 @@ test "a DECLARED ALIAS of a signed integer type is transparent to the sign quest
     constants := ValidatorConstants(scopes)
 
     negative: Expression = new UnaryExpression(
-        UnaryOperator.Negate, new IntLiteralExpression("7", 1, 1), 1, 1)
+        UnaryOperator.Negate,
+        new IntLiteralExpression("7", 1, 1),
+        1,
+        1
+    )
 
     aliased: Expression = new CastExpression(
-        negative, new SimpleTypeReference("MyInt"), CastKind.Hard, 1, 1)
+        negative,
+        new SimpleTypeReference("MyInt"),
+        CastKind.Hard,
+        1,
+        1
+    )
     assert constants.IsConstantNegative(aliased)
 
     // An alias of a NON-integer type is opaque, and so is a name that resolves to nothing.
     stringAlias: Expression = new CastExpression(
-        negative, new SimpleTypeReference("MyStr"), CastKind.Hard, 1, 1)
+        negative,
+        new SimpleTypeReference("MyStr"),
+        CastKind.Hard,
+        1,
+        1
+    )
     assert !constants.IsConstantNegative(stringAlias)
     missing: Expression = new CastExpression(
-        negative, new SimpleTypeReference("Nope"), CastKind.Hard, 1, 1)
+        negative,
+        new SimpleTypeReference("Nope"),
+        CastKind.Hard,
+        1,
+        1
+    )
     assert !constants.IsConstantNegative(missing)
 }
 
@@ -939,11 +1117,19 @@ test "null and default are the literal shape, through any wrapper and any cast" 
 
     // Unlike the sign question, the cast here is peeled whatever its target is.
     unsignedCast: Expression = new CastExpression(
-        nullLiteral, new SimpleTypeReference("uint"), CastKind.Hard, 1, 1)
+        nullLiteral,
+        new SimpleTypeReference("uint"),
+        CastKind.Hard,
+        1,
+        1
+    )
     assert AnalyzerConstantExpressionFacts.IsNullOrDefaultLiteral(unsignedCast)
 
     wrapped: Expression = new ParenthesizedExpression(
-        new CheckedExpression(nullLiteral, 1, 1), 1, 1)
+        new CheckedExpression(nullLiteral, 1, 1),
+        1,
+        1
+    )
     assert AnalyzerConstantExpressionFacts.IsNullOrDefaultLiteral(wrapped)
 
     assert !AnalyzerConstantExpressionFacts.IsNullOrDefaultLiteral(new IdentifierExpression("k", 1, 1))
@@ -952,13 +1138,28 @@ test "null and default are the literal shape, through any wrapper and any cast" 
 test "the transparent wrappers peel in any order and any depth, and nothing else does" {
     inner: Expression = new IdentifierExpression("k", 1, 1)
     nested: Expression = new ParenthesizedExpression(
-        new UncheckedExpression(new CheckedExpression(
-            new ParenthesizedExpression(inner, 1, 1), 1, 1), 1, 1), 1, 1)
+        new UncheckedExpression(
+            new CheckedExpression(
+                new ParenthesizedExpression(inner, 1, 1),
+                1,
+                1
+            ),
+            1,
+            1
+        ),
+        1,
+        1
+    )
     assert AnalyzerConstantExpressionFacts.UnwrapTransparentWrappers(nested) == inner
 
     // A CAST is not transparent here — that is the sign question's own rule, not this one's.
     cast: Expression = new CastExpression(
-        inner, new SimpleTypeReference("int"), CastKind.Hard, 1, 1)
+        inner,
+        new SimpleTypeReference("int"),
+        CastKind.Hard,
+        1,
+        1
+    )
     assert AnalyzerConstantExpressionFacts.UnwrapTransparentWrappers(cast) == cast
 }
 
@@ -966,23 +1167,30 @@ test "the transparent wrappers peel in any order and any depth, and nothing else
 
 test "what the user WROTE names a callable reference, and the TYPE answers only when nothing was" {
     identifier: Expression = new IdentifierExpression("mg", 1, 1)
-    assert AnalyzerCallableReferenceFacts.GetCallableReferenceName(identifier, BuiltInTypes.Unknown)
-        == "mg"
+    assert AnalyzerCallableReferenceFacts.GetCallableReferenceName(identifier, BuiltInTypes.Unknown) == "mg"
 
     member: Expression = new MemberAccessExpression(
-        new IdentifierExpression("a", 1, 1), "Tag", false, 1, 1)
-    assert AnalyzerCallableReferenceFacts.GetCallableReferenceName(member, BuiltInTypes.Unknown)
-        == "Tag"
+        new IdentifierExpression("a", 1, 1),
+        "Tag",
+        false,
+        1,
+        1
+    )
+    assert AnalyzerCallableReferenceFacts.GetCallableReferenceName(member, BuiltInTypes.Unknown) == "Tag"
 
     // Wrappers do not change what was written.
     wrapped: Expression = new ParenthesizedExpression(identifier, 1, 1)
-    assert AnalyzerCallableReferenceFacts.GetCallableReferenceName(wrapped, BuiltInTypes.Unknown)
-        == "mg"
+    assert AnalyzerCallableReferenceFacts.GetCallableReferenceName(wrapped, BuiltInTypes.Unknown) == "mg"
 }
 
 test "an unwritten reference falls to the TYPE, and an empty name falls through to `method`" {
     anonymous: Expression = new CallExpression(
-        new IdentifierExpression("f", 1, 1), new List<Argument>(), null, 1, 1)
+        new IdentifierExpression("f", 1, 1),
+        new List<Argument>(),
+        null,
+        1,
+        1
+    )
 
     named := VSignature(VTypes1(BuiltInTypes.Int))
     named.SyntheticName = "declared"
@@ -1000,8 +1208,7 @@ test "an unwritten reference falls to the TYPE, and an empty name falls through 
     emptyGroup := new NSharpMethodGroupInfo(new List<FunctionTypeInfo>())
     assert AnalyzerCallableReferenceFacts.GetCallableReferenceName(anonymous, emptyGroup) == "method"
 
-    assert AnalyzerCallableReferenceFacts.GetCallableReferenceName(anonymous, BuiltInTypes.Int)
-        == "method"
+    assert AnalyzerCallableReferenceFacts.GetCallableReferenceName(anonymous, BuiltInTypes.Int) == "method"
 }
 
 test "a method group in argument position is NAMED rather than typed, and the phrase is not double-quoted" {

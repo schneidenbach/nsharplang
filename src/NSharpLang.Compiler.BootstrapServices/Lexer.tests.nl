@@ -62,7 +62,6 @@ import System.Collections.Generic
 // single line feed even when the source spelled `\r\n`.
 
 // ---- Helpers -----------------------------------------------------------------------------------
-
 func LexerContractTokens(source: string): List<Token> {
     lexer := new Lexer(source, "test.nl")
     return lexer.Tokenize()

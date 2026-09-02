@@ -26,7 +26,6 @@ import NSharpLang.Compiler.Ast
 //
 // (4) SIMPLE NAME IS THE LAST SEGMENT, NOT A NAMESPACE STRIP. `A.B.C` is `C`; a trailing dot yields
 // the empty string rather than the whole name; and nothing is trimmed, lowered or unquoted.
-
 func StnSimple(name: string): SimpleTypeReference {
     return new SimpleTypeReference(name, 1, 1)
 }

@@ -43,7 +43,6 @@ import NSharpLang.Compiler.Ast
 //
 // (9) A CALLEE FINDING NAMES TWO FUNCTIONS. Its call path is caller then callee, which is what the
 // renderer turns into `effect path: a -> b`; every other systems finding names one.
-
 func ScpConfig(profile: string, mode: string, unknownExternalCalls: string): ProjectConfig {
     config := ProjectFileParser.CreateDefault("callee-policy-contract")
     language := config.Language

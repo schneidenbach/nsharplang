@@ -91,7 +91,6 @@ import NSharpLang.Compiler.Ast
 // namespace + import + file-import + declarations, all over synthetic one-line sources. What the
 // contracts below add is the REAL-WORLD corpus — indented headers, three imports at once, both
 // import kinds interleaved, and the two package orderings.
-
 test "020 s20 parser header: a file-scoped namespace, three imports (one aliased) and a declaration all hang off ONE CompilationUnit whose own anchor is the NAMESPACE's, and every import anchors on its own `import` keyword (was ParserTests.TestNamespaceAndUsings)" {
     source := "\n            namespace MyApp.Services\n\n            import System\n            import System.Collections.Generic\n            import System.Text.Json as Json\n\n            func Test() {}\n        "
     assert PsCensus(source) == ""

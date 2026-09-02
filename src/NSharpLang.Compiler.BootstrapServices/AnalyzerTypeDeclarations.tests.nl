@@ -1175,10 +1175,38 @@ test "THE FIELD'S NAME IS DECLARED AFTER EVERY RULE, SO A REFUSED INITIALIZER ST
 
 func TypeDeclMemberInfo(name: string, modifierBits: int): DeclaredMemberInfo {
     return new DeclaredMemberInfo(
-        name, "Owner", DeclaredMemberKind.Function, "function", null, false, false, false, true,
-        0, new string[](0), new TypeReference[](0), new ParameterModifier[](0), 0, false, false,
-        null, 0, new TypeParameter[](0), new GenericConstraint[](0),
-        0, false, false, false, false, "", false, false, 1, 1, modifierBits)
+        name,
+        "Owner",
+        DeclaredMemberKind.Function,
+        "function",
+        null,
+        false,
+        false,
+        false,
+        true,
+        0,
+        new string[](0),
+        new TypeReference[](0),
+        new ParameterModifier[](0),
+        0,
+        false,
+        false,
+        null,
+        0,
+        new TypeParameter[](0),
+        new GenericConstraint[](0),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1,
+        modifierBits
+    )
 }
 
 func TypeDeclMemberInfos(first: DeclaredMemberInfo): DeclaredMemberInfo[] {
@@ -1217,14 +1245,20 @@ test "A MEMBER IS OVERRIDABLE WHEN IT OPENS A SLOT, AND A SEALED OVERRIDE CLOSES
 
 test "THE SOURCE ARM READS THE BASE MEMBER'S OWN MODIFIERS, AND ONLY A FUNCTION ANSWERS" {
     assert AnalyzerTypeDeclarations.ClassifyDeclaredOverrideTarget(
-        TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", TypeDeclVirtualBits())), "Speak") == 1
+        TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", TypeDeclVirtualBits())),
+        "Speak"
+    ) == 1
     assert AnalyzerTypeDeclarations.ClassifyDeclaredOverrideTarget(
-        TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", 0)), "Speak") == 2
+        TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", 0)),
+        "Speak"
+    ) == 2
 
     // A member of another name is not this one's slot, and the walk must keep going rather than
     // answer — 0 is "not found HERE", which is what sends the walk to the base above.
     assert AnalyzerTypeDeclarations.ClassifyDeclaredOverrideTarget(
-        TypeDeclMemberInfos(TypeDeclMemberInfo("Bark", TypeDeclVirtualBits())), "Speak") == 0
+        TypeDeclMemberInfos(TypeDeclMemberInfo("Bark", TypeDeclVirtualBits())),
+        "Speak"
+    ) == 0
 }
 
 test "METADATA ANSWERS FOR AN EXTERNAL BASE, AND `object` IS THE IMPLICIT ROOT" {

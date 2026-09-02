@@ -16,7 +16,6 @@ import System.IO
 // makes `nlc build` start compiling `obj/`, `node_modules/` or a nested `.git` worktree — every one
 // of those is a build that hangs or fails on somebody else's source. All twelve are below, plus the
 // case-insensitivity the comparison is written with and two names that are deliberately kept.
-
 func PcmNamesOf(paths: string[]): string {
     names := new string[](paths.Length)
     index := 0

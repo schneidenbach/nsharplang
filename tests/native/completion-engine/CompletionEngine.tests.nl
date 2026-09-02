@@ -32,7 +32,6 @@ import NSharpLang.Compiler
 //   (b) THE KEYWORD SWITCH IS SYMMETRIC. The same position is asked twice, once with
 //       `includeKeywords` true and once false, and the three keyword groups are stated present in
 //       the first and absent in the second.
-
 func SetCompletionObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -42,12 +41,14 @@ func SetCompletionObject(values: object?[], index: int, value: object?) {
 func WriteCompletionFixture(source: string): string {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-completion-engine-" + Guid.NewGuid().ToString("N"))
+        "nsharp-completion-engine-" + Guid.NewGuid().ToString("N")
+    )
     Directory.CreateDirectory(fixtureRoot)
 
     File.WriteAllText(
         Path.Combine(fixtureRoot, "project.yml"),
-        "name: CompletionEngineFixture\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n")
+        "name: CompletionEngineFixture\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n"
+    )
     File.WriteAllText(Path.Combine(fixtureRoot, "test.nl"), source)
 
     return fixtureRoot
@@ -339,7 +340,6 @@ func CompletionLineLength(source: string, line: int): int {
     return source.Split('\n')[line - 1].Length
 }
 
-
 // ── Identifier completions ──────────────────────────────────────────────────────────────────────
 
 test "an identifier position offers the locals declared above it" {
@@ -377,7 +377,8 @@ test "an identifier position offers the type declarations in the file" {
 
 test "every declared type kind appears in the type group" {
     fixtureRoot := WriteCompletionFixture(
-        "class Cat {}\nstruct Point {\n    X: int\n    Y: int\n}\nenum Color { Red, Green, Blue }\n\nfunc main() {\n    \n}")
+        "class Cat {}\nstruct Point {\n    X: int\n    Y: int\n}\nenum Color { Red, Green, Blue }\n\nfunc main() {\n    \n}"
+    )
     answer := AskCompletions(LoadCompletionSnapshot(fixtureRoot), CompletionFixtureFile(fixtureRoot), 9, 4, false)
 
     assert CompletionHasGroup(answer, "types")
@@ -420,7 +421,6 @@ test "a function completion carries its return type, parameter list and instance
     Directory.Delete(fixtureRoot, true)
 }
 
-
 // ── Keyword completions ─────────────────────────────────────────────────────────────────────────
 
 test "asking for keywords adds the keyword, primitive-type and modifier groups" {
@@ -451,12 +451,12 @@ test "the same position without the keyword switch offers none of those three gr
     Directory.Delete(fixtureRoot, true)
 }
 
-
 // ── Member access ───────────────────────────────────────────────────────────────────────────────
 
 test "a member access on an N# class offers its fields and its methods" {
     fixtureRoot := WriteCompletionFixture(
-        "class Dog {\n    Name: string\n    func Bark(): string {\n        return \"Woof\"\n    }\n}\n\nfunc main() {\n    dog := new Dog { Name: \"Rex\" }\n    dog.\n}")
+        "class Dog {\n    Name: string\n    func Bark(): string {\n        return \"Woof\"\n    }\n}\n\nfunc main() {\n    dog := new Dog { Name: \"Rex\" }\n    dog.\n}"
+    )
     answer := AskCompletions(LoadCompletionSnapshot(fixtureRoot), CompletionFixtureFile(fixtureRoot), 10, 8, false)
 
     assert CompletionText(answer, "Context") == "MemberAccess"
@@ -477,7 +477,8 @@ test "a member access on a call result resolves through the callee's return type
         CompletionFixtureFile(fixtureRoot),
         16,
         CompletionLineLength(source, 16),
-        false)
+        false
+    )
 
     assert CompletionText(answer, "Context") == "MemberAccess"
     assert CompletionText(answer, "Receiver") == "factory.Create()"
@@ -489,7 +490,6 @@ test "a member access on a call result resolves through the callee's return type
     Directory.Delete(fixtureRoot, true)
 }
 
-
 test "a BCL receiver offers its members and NOT the accessors the CLR synthesises" {
     source := "func main() {\n    summary := \"warm\"\n    summary.\n}"
     fixtureRoot := WriteCompletionFixture(source)
@@ -498,7 +498,8 @@ test "a BCL receiver offers its members and NOT the accessors the CLR synthesise
         CompletionFixtureFile(fixtureRoot),
         3,
         CompletionLineLength(source, 3),
-        false)
+        false
+    )
 
     assert CompletionText(answer, "Context") == "MemberAccess"
     assert CompletionText(answer, "Receiver") == "summary"

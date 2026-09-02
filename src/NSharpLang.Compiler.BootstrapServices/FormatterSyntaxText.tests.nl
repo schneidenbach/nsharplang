@@ -26,7 +26,6 @@ import NSharpLang.Compiler.Ast
 //   (e) THE MODIFIER ORDER IS FIXED, and `override` comes before `async`, not in flag order.
 //   (f) A BLANK `reason:` IS AN ABSENT ONE, so `allow(alloc, reason: "  ")` formats to `allow(alloc)`.
 //   (g) AN ALREADY-ESCAPED QUOTE IS NOT DOUBLED, which is the one guard in the quoting loop.
-
 func FstSimple(name: string): SimpleTypeReference {
     return new SimpleTypeReference(name, 0, 0)
 }

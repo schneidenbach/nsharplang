@@ -12,7 +12,6 @@ namespace NSharpLang.Cli.Commands
 // THE SINGULAR/PLURAL SPLIT IS THE POINT OF `GetVulnerabilitySummaryMessage`. One vulnerability
 // reads `1 vulnerability found:` and two read `2 vulnerabilities found:`; both are pinned, because
 // a report a user reads under pressure should not say "1 vulnerabilities".
-
 test "audit option summary reads the project, json and help flags" {
     summary := AuditCommandKernels.GetOptionSummary(["--project", "samples/demo", "--json", "-h"])
 
@@ -48,11 +47,9 @@ test "the audit help text names the command, its usage and its failure banner" {
 }
 
 test "every audit sentence is spelled by a kernel, character for character" {
-    assert AuditCommandKernels.GetProjectDirectoryNotFoundMessage("/missing/project")
-        == "Project directory not found: /missing/project"
+    assert AuditCommandKernels.GetProjectDirectoryNotFoundMessage("/missing/project") == "Project directory not found: /missing/project"
     assert AuditCommandKernels.GetNoCsprojFileMessage() == "No .csproj file found. Run 'nlc init' to create one."
-    assert AuditCommandKernels.GetVulnerableFlagUnsupportedMessage()
-        == "The --vulnerable flag requires .NET SDK 8.0 or later."
+    assert AuditCommandKernels.GetVulnerableFlagUnsupportedMessage() == "The --vulnerable flag requires .NET SDK 8.0 or later."
     assert AuditCommandKernels.GetFailedMessage("denied") == "Audit failed: denied"
     assert AuditCommandKernels.GetNoKnownVulnerabilitiesMessage() == "No known vulnerabilities found."
 }
@@ -64,7 +61,6 @@ test "the vulnerability summary is singular for one and plural for two" {
 
 test "each vulnerability renders as an indented severity line and a further-indented url line" {
     assert AuditCommandKernels.GetVulnerabilityLine("High", "Serilog", "3.1.0") == "  High: Serilog@3.1.0"
-    assert AuditCommandKernels.GetVulnerabilityUrlLine("https://example.test/advisory")
-        == "    https://example.test/advisory"
+    assert AuditCommandKernels.GetVulnerabilityUrlLine("https://example.test/advisory") == "    https://example.test/advisory"
     assert AuditCommandKernels.GetParseFailureMessage() == "  (could not parse vulnerability details)"
 }

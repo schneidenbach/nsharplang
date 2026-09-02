@@ -24,7 +24,8 @@ func AssertVirtualCall(
     receiver: string,
     member: string,
     arguments: string[],
-    expectedReturnType: string) {
+    expectedReturnType: string
+) {
     plan := ColumnarExternalBindingPlans.GetInstanceCallPlan(receiver, member, arguments)
     assert plan.IsSupported
     assert plan.Kind == ColumnarExternalCallKind.CallVirtual
@@ -49,7 +50,8 @@ func AssertStaticCall(
     selectionArguments: string[],
     expectedParameters: string[],
     expectedDeclaringType: string,
-    expectedReturnType: string) {
+    expectedReturnType: string
+) {
     plan := ColumnarExternalBindingPlans.GetStaticCallPlan(typeName, member, selectionArguments)
     assert plan.IsSupported
     assert plan.Kind == ColumnarExternalCallKind.Call
@@ -258,47 +260,60 @@ test "the opcode-allowlist widening is exactly five names wide" {
 
 test "external static selections accept short and fully qualified owner names" {
     qualifiedOpcode := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.Reflection.Emit.OpCodes", "Ldsfld")
+        "System.Reflection.Emit.OpCodes",
+        "Ldsfld"
+    )
     assert qualifiedOpcode.IsSupported
     assert qualifiedOpcode.Kind == ColumnarExternalStaticMemberKind.Field
-    assert qualifiedOpcode.DeclaringTypeName
-        == "System.Reflection.Emit.OpCodes, System.Private.CoreLib"
+    assert qualifiedOpcode.DeclaringTypeName == "System.Reflection.Emit.OpCodes, System.Private.CoreLib"
 
     shortProperty := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "Environment", "NewLine")
+        "Environment",
+        "NewLine"
+    )
     qualifiedProperty := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.Environment", "NewLine")
+        "System.Environment",
+        "NewLine"
+    )
     assert shortProperty.IsSupported
     assert qualifiedProperty.IsSupported
     assert shortProperty.DeclaringTypeName == qualifiedProperty.DeclaringTypeName
     assert shortProperty.ValueTypeName == qualifiedProperty.ValueTypeName
 
     methodAttributes := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "MethodAttributes", "Public")
+        "MethodAttributes",
+        "Public"
+    )
     qualifiedMethodAttributes := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.Reflection.MethodAttributes", "Public")
+        "System.Reflection.MethodAttributes",
+        "Public"
+    )
     assert methodAttributes.IsSupported
     assert qualifiedMethodAttributes.IsSupported
-    assert methodAttributes.DeclaringTypeName
-        == qualifiedMethodAttributes.DeclaringTypeName
-    assert methodAttributes.ValueTypeName
-        == qualifiedMethodAttributes.ValueTypeName
+    assert methodAttributes.DeclaringTypeName == qualifiedMethodAttributes.DeclaringTypeName
+    assert methodAttributes.ValueTypeName == qualifiedMethodAttributes.ValueTypeName
 
     callingConvention := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "CallingConventions", "Standard")
+        "CallingConventions",
+        "Standard"
+    )
     qualifiedCallingConvention := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.Reflection.CallingConventions", "Standard")
+        "System.Reflection.CallingConventions",
+        "Standard"
+    )
     assert callingConvention.IsSupported
     assert qualifiedCallingConvention.IsSupported
-    assert callingConvention.DeclaringTypeName
-        == qualifiedCallingConvention.DeclaringTypeName
-    assert callingConvention.ValueTypeName
-        == qualifiedCallingConvention.ValueTypeName
+    assert callingConvention.DeclaringTypeName == qualifiedCallingConvention.DeclaringTypeName
+    assert callingConvention.ValueTypeName == qualifiedCallingConvention.ValueTypeName
 
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "MethodAttributes", "Private").IsSupported
+        "MethodAttributes",
+        "Private"
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "CallingConventions", "VarArgs").IsSupported
+        "CallingConventions",
+        "VarArgs"
+    ).IsSupported
 }
 
 test "range code plans own exact runtime type identities" {
@@ -314,27 +329,32 @@ test "range code plans own exact runtime type identities" {
 
     metadataLoadContext := ""
     assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
-        "MetadataLoadContext", out metadataLoadContext)
-    assert metadataLoadContext
-        == "System.Reflection.MetadataLoadContext, System.Reflection.MetadataLoadContext"
+        "MetadataLoadContext",
+        out metadataLoadContext
+    )
+    assert metadataLoadContext == "System.Reflection.MetadataLoadContext, System.Reflection.MetadataLoadContext"
     pathResolver := ""
     assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
-        "PathAssemblyResolver", out pathResolver)
-    assert pathResolver
-        == "System.Reflection.PathAssemblyResolver, System.Reflection.MetadataLoadContext"
+        "PathAssemblyResolver",
+        out pathResolver
+    )
+    assert pathResolver == "System.Reflection.PathAssemblyResolver, System.Reflection.MetadataLoadContext"
     assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
-        "System.Reflection.MetadataLoadContext")
+        "System.Reflection.MetadataLoadContext"
+    )
     assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
-        "System.Reflection.PathAssemblyResolver")
+        "System.Reflection.PathAssemblyResolver"
+    )
 
     runtimeHelpersTypeName := ""
     assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
         "RuntimeHelpers",
-        out runtimeHelpersTypeName)
-    assert runtimeHelpersTypeName
-        == "System.Runtime.CompilerServices.RuntimeHelpers, System.Private.CoreLib"
+        out runtimeHelpersTypeName
+    )
+    assert runtimeHelpersTypeName == "System.Runtime.CompilerServices.RuntimeHelpers, System.Private.CoreLib"
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
-        "System.Runtime.CompilerServices.RuntimeHelpers")
+        "System.Runtime.CompilerServices.RuntimeHelpers"
+    )
 
     arrayTypeName := ""
     assert ColumnarExternalBindingPlans.TryGetRuntimeTypeName("System.Array", out arrayTypeName)
@@ -349,14 +369,16 @@ test "scalar executor contracts own exact DynamicMethod reflection calls" {
         "System.Reflection.ConstructorInfo",
         "Invoke",
         objectArray,
-        "System.Object")
+        "System.Object"
+    )
 
     noArguments := new string[](0)
     AssertVirtualCall(
         "System.Reflection.Emit.DynamicMethod",
         "GetILGenerator",
         noArguments,
-        "System.Reflection.Emit.ILGenerator")
+        "System.Reflection.Emit.ILGenerator"
+    )
 
     invokeArguments := new string[](2)
     invokeArguments[0] = "System.Object"
@@ -365,7 +387,8 @@ test "scalar executor contracts own exact DynamicMethod reflection calls" {
         "System.Reflection.Emit.DynamicMethod",
         "Invoke",
         invokeArguments,
-        "System.Object")
+        "System.Object"
+    )
 }
 
 test "range code plans own exact reflection handle calls" {
@@ -375,7 +398,8 @@ test "range code plans own exact reflection handle calls" {
         "System.Type",
         "GetConstructor",
         oneTypeArray,
-        "System.Reflection.ConstructorInfo")
+        "System.Reflection.ConstructorInfo"
+    )
 
     methodArguments := new string[](2)
     methodArguments[0] = "System.String"
@@ -384,7 +408,8 @@ test "range code plans own exact reflection handle calls" {
         "System.Type",
         "GetMethod",
         methodArguments,
-        "System.Reflection.MethodInfo")
+        "System.Reflection.MethodInfo"
+    )
 
     oneString := new string[](1)
     oneString[0] = "System.String"
@@ -392,47 +417,56 @@ test "range code plans own exact reflection handle calls" {
         "System.Type",
         "GetMethod",
         oneString,
-        "System.Reflection.MethodInfo")
+        "System.Reflection.MethodInfo"
+    )
 
     AssertVirtualCall(
         "System.Type",
         "GetElementType",
         new string[](0),
-        "System.Type")
+        "System.Type"
+    )
     AssertVirtualCall(
         "System.Type",
         "MakeArrayType",
         new string[](0),
-        "System.Type")
+        "System.Type"
+    )
     AssertVirtualCall(
         "System.Reflection.PropertyInfo",
         "GetGetMethod",
         new string[](0),
-        "System.Reflection.MethodInfo")
+        "System.Reflection.MethodInfo"
+    )
     AssertVirtualCall(
         "System.Reflection.PropertyInfo",
         "get_PropertyType",
         new string[](0),
-        "System.Type")
+        "System.Type"
+    )
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "PropertyInfo",
         "get_PropertyType",
-        new string[](0)).IsSupported
+        new string[](0)
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Reflection.PropertyInfo",
         "PropertyType",
-        new string[](0)).IsSupported
+        new string[](0)
+    ).IsSupported
     oneObject := new string[](1)
     oneObject[0] = "System.Object"
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Reflection.PropertyInfo",
         "get_PropertyType",
-        oneObject).IsSupported
+        oneObject
+    ).IsSupported
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "MakeGenericMethod",
         oneTypeArray,
-        "System.Reflection.MethodInfo")
+        "System.Reflection.MethodInfo"
+    )
 }
 
 test "source property metadata owns exact TypeBuilder method definition" {
@@ -445,7 +479,8 @@ test "source property metadata owns exact TypeBuilder method definition" {
         "System.Reflection.Emit.TypeBuilder",
         "DefineMethod",
         arguments,
-        "System.Reflection.Emit.MethodBuilder")
+        "System.Reflection.Emit.MethodBuilder"
+    )
 
     wrongAttributes := new string[](4)
     wrongAttributes[0] = "System.String"
@@ -455,13 +490,18 @@ test "source property metadata owns exact TypeBuilder method definition" {
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Reflection.Emit.TypeBuilder",
         "DefineMethod",
-        wrongAttributes).IsSupported
+        wrongAttributes
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "TypeBuilder", "DefineMethod", arguments).IsSupported
+        "TypeBuilder",
+        "DefineMethod",
+        arguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Reflection.Emit.TypeBuilder",
         "defineMethod",
-        arguments).IsSupported
+        arguments
+    ).IsSupported
 }
 
 test "source constructor metadata owns exact TypeBuilder constructor definition" {
@@ -473,7 +513,8 @@ test "source constructor metadata owns exact TypeBuilder constructor definition"
         "System.Reflection.Emit.TypeBuilder",
         "DefineConstructor",
         arguments,
-        "System.Reflection.Emit.ConstructorBuilder")
+        "System.Reflection.Emit.ConstructorBuilder"
+    )
 
     wrongConvention := new string[](3)
     wrongConvention[0] = "System.Reflection.MethodAttributes"
@@ -482,9 +523,13 @@ test "source constructor metadata owns exact TypeBuilder constructor definition"
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Reflection.Emit.TypeBuilder",
         "DefineConstructor",
-        wrongConvention).IsSupported
+        wrongConvention
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "TypeBuilder", "DefineConstructor", arguments).IsSupported
+        "TypeBuilder",
+        "DefineConstructor",
+        arguments
+    ).IsSupported
 }
 
 test "recursive code plans own exact type and local facts" {
@@ -494,12 +539,14 @@ test "recursive code plans own exact type and local facts" {
         "System.Type",
         "GetMethods",
         noArguments,
-        "System.Reflection.MethodInfo[]")
+        "System.Reflection.MethodInfo[]"
+    )
     AssertVirtualCall(
         "System.Type",
         "GetConstructors",
         noArguments,
-        "System.Reflection.ConstructorInfo[]")
+        "System.Reflection.ConstructorInfo[]"
+    )
     AssertVirtualCall("System.Type", "get_BaseType", noArguments, "System.Type")
     AssertVirtualCall("System.Type", "get_IsSZArray", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsValueType", noArguments, "System.Boolean")
@@ -513,9 +560,15 @@ test "recursive code plans own exact type and local facts" {
     AssertVirtualCall("System.Type", "get_IsGenericType", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_HasElementType", noArguments, "System.Boolean")
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Type", "HasElementType", noArguments).IsSupported
+        "System.Type",
+        "HasElementType",
+        noArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "Type", "get_HasElementType", noArguments).IsSupported
+        "Type",
+        "get_HasElementType",
+        noArguments
+    ).IsSupported
     AssertVirtualCall("System.Type", "get_IsAbstract", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsInterface", noArguments, "System.Boolean")
     AssertVirtualCall("System.Type", "get_IsByRefLike", noArguments, "System.Boolean")
@@ -524,7 +577,8 @@ test "recursive code plans own exact type and local facts" {
         "System.Type",
         "get_DeclaringMethod",
         noArguments,
-        "System.Reflection.MethodBase")
+        "System.Reflection.MethodBase"
+    )
 
     oneType := new string[](1)
     oneType[0] = "System.Type"
@@ -536,7 +590,8 @@ test "recursive code plans own exact type and local facts" {
         "System.Reflection.Emit.LocalBuilder",
         "get_LocalType",
         noArguments,
-        "System.Type")
+        "System.Type"
+    )
 }
 
 test "recursive executor owns exact reflection signature facts" {
@@ -545,118 +600,141 @@ test "recursive executor owns exact reflection signature facts" {
         "System.Reflection.MethodInfo",
         "GetParameters",
         noArguments,
-        "System.Reflection.ParameterInfo[]")
+        "System.Reflection.ParameterInfo[]"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "GetGenericArguments",
         noArguments,
-        "System.Type[]")
+        "System.Type[]"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "GetGenericMethodDefinition",
         noArguments,
-        "System.Reflection.MethodInfo")
+        "System.Reflection.MethodInfo"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_ReturnType",
         noArguments,
-        "System.Type")
+        "System.Type"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_Name",
         noArguments,
-        "System.String")
+        "System.String"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_IsStatic",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_IsAbstract",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_IsPublic",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_DeclaringType",
         noArguments,
-        "System.Type")
+        "System.Type"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_IsGenericMethod",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_IsGenericMethodDefinition",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.MethodInfo",
         "get_CallingConvention",
         noArguments,
-        "System.Reflection.CallingConventions")
+        "System.Reflection.CallingConventions"
+    )
 
     AssertVirtualCall(
         "System.Reflection.ConstructorInfo",
         "GetParameters",
         noArguments,
-        "System.Reflection.ParameterInfo[]")
+        "System.Reflection.ParameterInfo[]"
+    )
     AssertVirtualCall(
         "System.Reflection.ConstructorInfo",
         "get_IsStatic",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.ConstructorInfo",
         "get_DeclaringType",
         noArguments,
-        "System.Type")
+        "System.Type"
+    )
     AssertVirtualCall(
         "System.Reflection.ConstructorInfo",
         "get_CallingConvention",
         noArguments,
-        "System.Reflection.CallingConventions")
+        "System.Reflection.CallingConventions"
+    )
     AssertVirtualCall(
         "System.Reflection.FieldInfo",
         "get_FieldType",
         noArguments,
-        "System.Type")
+        "System.Type"
+    )
     AssertVirtualCall(
         "System.Reflection.FieldInfo",
         "get_IsStatic",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.FieldInfo",
         "get_IsLiteral",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.FieldInfo",
         "get_IsPublic",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.FieldInfo",
         "get_DeclaringType",
         noArguments,
-        "System.Type")
+        "System.Type"
+    )
     AssertVirtualCall(
         "System.Reflection.ParameterInfo",
         "get_ParameterType",
         noArguments,
-        "System.Type")
+        "System.Type"
+    )
     AssertVirtualCall(
         "System.Reflection.ParameterInfo",
         "get_IsOptional",
         noArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
     parameterAttributeArguments := new string[](2)
     parameterAttributeArguments[0] = "System.Type"
     parameterAttributeArguments[1] = "System.Boolean"
@@ -664,7 +742,8 @@ test "recursive executor owns exact reflection signature facts" {
         "System.Reflection.ParameterInfo",
         "IsDefined",
         parameterAttributeArguments,
-        "System.Boolean")
+        "System.Boolean"
+    )
 }
 
 test "range code plans own the short IL argument operand" {
@@ -676,16 +755,19 @@ test "range code plans own the short IL argument operand" {
         "System.Reflection.Emit.ILGenerator",
         "Emit",
         arguments,
-        "System.Void")
+        "System.Void"
+    )
 }
 
 test "runtime call plans own exact constructed generic return identities" {
     plan := ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.IO.StreamReader",
         "ReadToEndAsync",
-        new string[](0))
+        new string[](0)
+    )
     runtimeType := Type.GetType(
-        "System.Threading.Tasks.Task`1[System.String], System.Private.CoreLib")
+        "System.Threading.Tasks.Task`1[System.String], System.Private.CoreLib"
+    )
 
     assert runtimeType != null
     assert plan.IsSupported
@@ -702,14 +784,16 @@ test "static call plans own exact CLR overloads" {
         stringArgument,
         stringArgument,
         "System.Reflection.Assembly",
-        "System.Reflection.Assembly")
+        "System.Reflection.Assembly"
+    )
     AssertStaticCall(
         "Assembly",
         "Load",
         stringArgument,
         stringArgument,
         "System.Reflection.Assembly",
-        "System.Reflection.Assembly")
+        "System.Reflection.Assembly"
+    )
     AssertStaticCall("Type", "GetType", stringArgument, stringArgument, "System.Type", "System.Type")
 
     assemblyNameArguments := new string[](2)
@@ -721,14 +805,16 @@ test "static call plans own exact CLR overloads" {
         stringArgument,
         stringArgument,
         "System.Reflection.AssemblyName",
-        "System.Reflection.AssemblyName")
+        "System.Reflection.AssemblyName"
+    )
     AssertStaticCall(
         "AssemblyName",
         "ReferenceMatchesDefinition",
         assemblyNameArguments,
         assemblyNameArguments,
         "System.Reflection.AssemblyName",
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertStaticCall("Int32", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
     AssertStaticCall("int", "Parse", stringArgument, stringArgument, "System.Int32", "System.Int32")
 
@@ -741,14 +827,16 @@ test "static call plans own exact CLR overloads" {
         intTryParseArguments,
         intTryParseArguments,
         "System.Int32",
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertStaticCall(
         "int",
         "TryParse",
         intTryParseArguments,
         intTryParseArguments,
         "System.Int32",
-        "System.Boolean")
+        "System.Boolean"
+    )
 
     doubleParseSelection := new string[](2)
     doubleParseSelection[0] = "System.String"
@@ -762,7 +850,8 @@ test "static call plans own exact CLR overloads" {
         doubleParseSelection,
         doubleParseParameters,
         "System.Double",
-        "System.Double")
+        "System.Double"
+    )
 
     doubleTryParseSelection := new string[](3)
     doubleTryParseSelection[0] = "System.String"
@@ -778,7 +867,8 @@ test "static call plans own exact CLR overloads" {
         doubleTryParseSelection,
         doubleTryParseParameters,
         "System.Double",
-        "System.Boolean")
+        "System.Boolean"
+    )
 }
 
 test "static call plans own String.Join over string sequences with the enumerable overload" {
@@ -788,7 +878,10 @@ test "static call plans own String.Join over string sequences with the enumerabl
     enumerableIdentity := typeof(IEnumerable<string>).get_AssemblyQualifiedName()
 
     listPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", listArguments)
+        "String",
+        "Join",
+        listArguments
+    )
     assert listPlan.IsSupported
     assert listPlan.Kind == ColumnarExternalCallKind.Call
     assert listPlan.DeclaringTypeName == "System.String, System.Private.CoreLib"
@@ -803,7 +896,10 @@ test "static call plans own String.Join over string sequences with the enumerabl
     qualifiedArguments[0] = "System.String"
     qualifiedArguments[1] = typeof(List<string>).FullName
     qualifiedPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "System.String", "Join", qualifiedArguments)
+        "System.String",
+        "Join",
+        qualifiedArguments
+    )
     assert qualifiedPlan.IsSupported
     assert qualifiedPlan.ParameterTypeNames[1] == enumerableIdentity
 
@@ -814,14 +910,20 @@ test "static call plans own String.Join over string sequences with the enumerabl
     lowerArguments[0] = "System.String"
     lowerArguments[1] = typeof(List<string>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "string", "Join", lowerArguments).IsSupported
+        "string",
+        "Join",
+        lowerArguments
+    ).IsSupported
 
     // A direct IEnumerable<string> value flows to the identical overload.
     enumerableArguments := new string[](2)
     enumerableArguments[0] = "System.String"
     enumerableArguments[1] = typeof(IEnumerable<string>).FullName
     enumerablePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", enumerableArguments)
+        "String",
+        "Join",
+        enumerableArguments
+    )
     assert enumerablePlan.IsSupported
     assert enumerablePlan.ParameterTypeNames[1] == enumerableIdentity
 
@@ -843,7 +945,10 @@ test "String.Join plans close the generic overload for int sequences with pinned
     intArrayArguments[0] = "System.String"
     intArrayArguments[1] = "System.Int32[]"
     arrayPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", intArrayArguments)
+        "String",
+        "Join",
+        intArrayArguments
+    )
     assert arrayPlan.IsSupported, "String.Join over an int[] must plan the pinned generic closure."
     assert arrayPlan.Kind == ColumnarExternalCallKind.Call
     assert arrayPlan.TypeArgumentNames.Length == 1
@@ -857,7 +962,10 @@ test "String.Join plans close the generic overload for int sequences with pinned
     intListArguments[0] = "System.String"
     intListArguments[1] = typeof(List<int>).FullName
     listPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", intListArguments)
+        "String",
+        "Join",
+        intListArguments
+    )
     assert listPlan.IsSupported, "String.Join over a List<int> must plan the pinned generic closure."
     assert listPlan.TypeArgumentNames.Length == 1
     assert listPlan.ParameterTypeNames[1] == enumerableIntIdentity
@@ -866,7 +974,10 @@ test "String.Join plans close the generic overload for int sequences with pinned
     intEnumerableArguments[0] = "System.String"
     intEnumerableArguments[1] = typeof(IEnumerable<int>).FullName
     enumerablePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", intEnumerableArguments)
+        "String",
+        "Join",
+        intEnumerableArguments
+    )
     assert enumerablePlan.IsSupported, "String.Join over an IEnumerable<int> must plan the pinned generic closure."
     assert enumerablePlan.TypeArgumentNames.Length == 1
     assert enumerablePlan.ParameterTypeNames[1] == enumerableIntIdentity
@@ -876,7 +987,10 @@ test "String.Join plans close the generic overload for int sequences with pinned
     stringListArguments[0] = "System.String"
     stringListArguments[1] = typeof(List<string>).FullName
     assert ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", stringListArguments).TypeArgumentNames.Length == 0
+        "String",
+        "Join",
+        stringListArguments
+    ).TypeArgumentNames.Length == 0
 }
 
 test "String.Join plans close the generic overload for supported primitive element sequences" {
@@ -887,7 +1001,10 @@ test "String.Join plans close the generic overload for supported primitive eleme
     longArrayArguments[0] = "System.String"
     longArrayArguments[1] = "System.Int64[]"
     longPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", longArrayArguments)
+        "String",
+        "Join",
+        longArrayArguments
+    )
     assert longPlan.IsSupported, "String.Join over a long[] must plan the generic closure."
     assert longPlan.Kind == ColumnarExternalCallKind.Call
     assert longPlan.TypeArgumentNames.Length == 1
@@ -901,7 +1018,10 @@ test "String.Join plans close the generic overload for supported primitive eleme
     doubleListArguments[0] = "System.String"
     doubleListArguments[1] = typeof(List<double>).FullName
     doublePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", doubleListArguments)
+        "String",
+        "Join",
+        doubleListArguments
+    )
     assert doublePlan.IsSupported, "String.Join over a List<double> must plan the generic closure."
     assert doublePlan.TypeArgumentNames[0] == "System.Double, System.Private.CoreLib"
     assert doublePlan.ParameterTypeNames[1] == typeof(IEnumerable<double>).get_AssemblyQualifiedName()
@@ -911,7 +1031,10 @@ test "String.Join plans close the generic overload for supported primitive eleme
     byteReadOnlyArguments[0] = "System.String"
     byteReadOnlyArguments[1] = typeof(IReadOnlyList<byte>).FullName
     bytePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", byteReadOnlyArguments)
+        "String",
+        "Join",
+        byteReadOnlyArguments
+    )
     assert bytePlan.IsSupported, "String.Join over an IReadOnlyList<byte> must plan the generic closure."
     assert bytePlan.TypeArgumentNames[0] == "System.Byte, System.Private.CoreLib"
     assert bytePlan.ParameterTypeNames[1] == typeof(IEnumerable<byte>).get_AssemblyQualifiedName()
@@ -921,7 +1044,10 @@ test "String.Join plans close the generic overload for supported primitive eleme
     charEnumerableArguments[0] = "System.String"
     charEnumerableArguments[1] = typeof(IEnumerable<char>).FullName
     charPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", charEnumerableArguments)
+        "String",
+        "Join",
+        charEnumerableArguments
+    )
     assert charPlan.IsSupported, "String.Join over an IEnumerable<char> must plan the generic closure."
     assert charPlan.TypeArgumentNames[0] == "System.Char, System.Private.CoreLib"
     assert charPlan.ParameterTypeNames[1] == typeof(IEnumerable<char>).get_AssemblyQualifiedName()
@@ -934,7 +1060,10 @@ test "String.Join plans decline outside the modeled sequence contracts" {
     stringArrayArguments[0] = "System.String"
     stringArrayArguments[1] = "System.String[]"
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", stringArrayArguments).IsSupported
+        "String",
+        "Join",
+        stringArrayArguments
+    ).IsSupported
 
     // A List<decimal> is a value sequence, but decimal is outside the supported primitive Join
     // element set, so it is declined (only the modeled primitive elements close the generic).
@@ -942,27 +1071,42 @@ test "String.Join plans decline outside the modeled sequence contracts" {
     decimalListArguments[0] = "System.String"
     decimalListArguments[1] = typeof(List<decimal>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", decimalListArguments).IsSupported
+        "String",
+        "Join",
+        decimalListArguments
+    ).IsSupported
 
     // A non-string separator, wrong arity, and mis-spelled member all decline.
     charSeparatorArguments := new string[](2)
     charSeparatorArguments[0] = "System.Char"
     charSeparatorArguments[1] = typeof(List<string>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", charSeparatorArguments).IsSupported
+        "String",
+        "Join",
+        charSeparatorArguments
+    ).IsSupported
 
     oneArgument := new string[](1)
     oneArgument[0] = "System.String"
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "Join", oneArgument).IsSupported
+        "String",
+        "Join",
+        oneArgument
+    ).IsSupported
 
     listArguments := new string[](2)
     listArguments[0] = "System.String"
     listArguments[1] = typeof(List<string>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "String", "join", listArguments).IsSupported
+        "String",
+        "join",
+        listArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "StringBuilder", "Join", listArguments).IsSupported
+        "StringBuilder",
+        "Join",
+        listArguments
+    ).IsSupported
 }
 
 test "static call plans own exact TypeBuilder member rebinding overloads" {
@@ -975,14 +1119,16 @@ test "static call plans own exact TypeBuilder member rebinding overloads" {
         fieldArguments,
         fieldArguments,
         "System.Reflection.Emit.TypeBuilder",
-        "System.Reflection.FieldInfo")
+        "System.Reflection.FieldInfo"
+    )
     AssertStaticCall(
         "System.Reflection.Emit.TypeBuilder",
         "GetField",
         fieldArguments,
         fieldArguments,
         "System.Reflection.Emit.TypeBuilder",
-        "System.Reflection.FieldInfo")
+        "System.Reflection.FieldInfo"
+    )
 
     methodArguments := new string[](2)
     methodArguments[0] = "System.Type"
@@ -993,14 +1139,16 @@ test "static call plans own exact TypeBuilder member rebinding overloads" {
         methodArguments,
         methodArguments,
         "System.Reflection.Emit.TypeBuilder",
-        "System.Reflection.MethodInfo")
+        "System.Reflection.MethodInfo"
+    )
     AssertStaticCall(
         "System.Reflection.Emit.TypeBuilder",
         "GetMethod",
         methodArguments,
         methodArguments,
         "System.Reflection.Emit.TypeBuilder",
-        "System.Reflection.MethodInfo")
+        "System.Reflection.MethodInfo"
+    )
 
     constructorArguments := new string[](2)
     constructorArguments[0] = "System.Type"
@@ -1011,14 +1159,16 @@ test "static call plans own exact TypeBuilder member rebinding overloads" {
         constructorArguments,
         constructorArguments,
         "System.Reflection.Emit.TypeBuilder",
-        "System.Reflection.ConstructorInfo")
+        "System.Reflection.ConstructorInfo"
+    )
     AssertStaticCall(
         "System.Reflection.Emit.TypeBuilder",
         "GetConstructor",
         constructorArguments,
         constructorArguments,
         "System.Reflection.Emit.TypeBuilder",
-        "System.Reflection.ConstructorInfo")
+        "System.Reflection.ConstructorInfo"
+    )
 }
 
 test "external binding scopes own exact assembly type discovery calls" {
@@ -1028,80 +1178,107 @@ test "external binding scopes own exact assembly type discovery calls" {
         "System.Reflection.Assembly",
         "GetName",
         new string[](0),
-        "System.Reflection.AssemblyName")
+        "System.Reflection.AssemblyName"
+    )
     AssertVirtualCall(
         "System.Reflection.Assembly",
         "GetType",
         stringArgument,
-        "System.Type")
+        "System.Type"
+    )
     AssertVirtualCall(
         "System.Reflection.Assembly",
         "GetExportedTypes",
         new string[](0),
-        "System.Type[]")
+        "System.Type[]"
+    )
     AssertVirtualCall(
         "System.Type",
         "get_AssemblyQualifiedName",
         new string[](0),
-        "System.String")
+        "System.String"
+    )
     AssertVirtualCall(
         "System.Type",
         "get_Assembly",
         new string[](0),
-        "System.Reflection.Assembly")
+        "System.Reflection.Assembly"
+    )
     AssertVirtualCall(
         "System.Reflection.Assembly",
         "get_Location",
         new string[](0),
-        "System.String")
+        "System.String"
+    )
     AssertVirtualCall(
         "System.Reflection.Assembly",
         "get_ReflectionOnly",
         new string[](0),
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertVirtualCall(
         "System.Reflection.AssemblyName",
         "get_FullName",
         new string[](0),
-        "System.String")
+        "System.String"
+    )
 
     AssertVirtualCall(
         "System.Reflection.MetadataLoadContext",
         "LoadFromAssemblyPath",
         stringArgument,
-        "System.Reflection.Assembly")
+        "System.Reflection.Assembly"
+    )
     AssertVirtualCall(
         "System.Reflection.MetadataLoadContext",
         "LoadFromAssemblyName",
         stringArgument,
-        "System.Reflection.Assembly")
+        "System.Reflection.Assembly"
+    )
     AssertVirtualCall(
         "System.Reflection.MetadataLoadContext",
         "Dispose",
         new string[](0),
-        "System.Void")
+        "System.Void"
+    )
 }
 
 test "static call plans decline aliases signatures and arity outside the contract" {
     stringArgument := new string[](1)
     stringArgument[0] = "System.String"
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "System.Type", "GetType", stringArgument).IsSupported
+        "System.Type",
+        "GetType",
+        stringArgument
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "Type", "getType", stringArgument).IsSupported
+        "Type",
+        "getType",
+        stringArgument
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "Type", "GetType", new string[](0)).IsSupported
+        "Type",
+        "GetType",
+        new string[](0)
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "AssemblyName", "GetAssemblyName", new string[](0)).IsSupported
+        "AssemblyName",
+        "GetAssemblyName",
+        new string[](0)
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "Assembly", "Load", new string[](0)).IsSupported
+        "Assembly",
+        "Load",
+        new string[](0)
+    ).IsSupported
     wrongAssemblyNames := new string[](2)
     wrongAssemblyNames[0] = "System.Reflection.AssemblyName"
     wrongAssemblyNames[1] = "System.Type"
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "AssemblyName",
         "ReferenceMatchesDefinition",
-        wrongAssemblyNames).IsSupported
+        wrongAssemblyNames
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("System.Int32", "Parse", stringArgument).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("double", "Parse", stringArgument).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan("System.Double", "Parse", stringArgument).IsSupported
@@ -1113,7 +1290,8 @@ test "static call plans decline aliases signatures and arity outside the contrac
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "Int32",
         "TryParse",
-        wrongIntTryParseArguments).IsSupported
+        wrongIntTryParseArguments
+    ).IsSupported
 
     wrongDoubleParseArguments := new string[](2)
     wrongDoubleParseArguments[0] = "System.String"
@@ -1121,7 +1299,8 @@ test "static call plans decline aliases signatures and arity outside the contrac
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "Double",
         "Parse",
-        wrongDoubleParseArguments).IsSupported
+        wrongDoubleParseArguments
+    ).IsSupported
 
     wrongDoubleTryParseArguments := new string[](3)
     wrongDoubleTryParseArguments[0] = "System.String"
@@ -1130,7 +1309,8 @@ test "static call plans decline aliases signatures and arity outside the contrac
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "Double",
         "TryParse",
-        wrongDoubleTryParseArguments).IsSupported
+        wrongDoubleTryParseArguments
+    ).IsSupported
 }
 
 test "TypeBuilder member rebinding plans decline every near miss" {
@@ -1138,31 +1318,52 @@ test "TypeBuilder member rebinding plans decline every near miss" {
     fieldArguments[0] = "System.Type"
     fieldArguments[1] = "System.Reflection.FieldInfo"
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "typebuilder", "GetField", fieldArguments).IsSupported
+        "typebuilder",
+        "GetField",
+        fieldArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "TypeBuilder", "getField", fieldArguments).IsSupported
+        "TypeBuilder",
+        "getField",
+        fieldArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "TypeBuilder", "GetField", new string[](1)).IsSupported
+        "TypeBuilder",
+        "GetField",
+        new string[](1)
+    ).IsSupported
 
     builderFieldArguments := new string[](2)
     builderFieldArguments[0] = "System.Type"
     builderFieldArguments[1] = "System.Reflection.Emit.FieldBuilder"
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "TypeBuilder", "GetField", builderFieldArguments).IsSupported
+        "TypeBuilder",
+        "GetField",
+        builderFieldArguments
+    ).IsSupported
 
     swappedFieldArguments := new string[](2)
     swappedFieldArguments[0] = "System.Reflection.FieldInfo"
     swappedFieldArguments[1] = "System.Type"
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "TypeBuilder", "GetField", swappedFieldArguments).IsSupported
+        "TypeBuilder",
+        "GetField",
+        swappedFieldArguments
+    ).IsSupported
 
     wrongMethodArguments := new string[](2)
     wrongMethodArguments[0] = "System.Type"
     wrongMethodArguments[1] = "System.Reflection.MethodBase"
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "TypeBuilder", "GetMethod", wrongMethodArguments).IsSupported
+        "TypeBuilder",
+        "GetMethod",
+        wrongMethodArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "TypeBuilder", "GetConstructor", wrongMethodArguments).IsSupported
+        "TypeBuilder",
+        "GetConstructor",
+        wrongMethodArguments
+    ).IsSupported
 }
 
 // The reflected-nullability capability (task 017 slice 12 stage A). These contracts pin the
@@ -1176,33 +1377,45 @@ test "the reflected nullability types are on the runtime type surface" {
     AssertRuntimeType("CustomAttributeData", "System.Reflection.CustomAttributeData")
     AssertRuntimeType(
         "CustomAttributeTypedArgument",
-        "System.Reflection.CustomAttributeTypedArgument")
+        "System.Reflection.CustomAttributeTypedArgument"
+    )
 
     AssertRuntimeType(
         "System.Reflection.NullabilityInfoContext",
-        "System.Reflection.NullabilityInfoContext")
+        "System.Reflection.NullabilityInfoContext"
+    )
     AssertRuntimeType("System.Reflection.NullabilityInfo", "System.Reflection.NullabilityInfo")
     AssertRuntimeType("System.Reflection.NullabilityState", "System.Reflection.NullabilityState")
     AssertRuntimeType(
         "System.Reflection.CustomAttributeData",
-        "System.Reflection.CustomAttributeData")
+        "System.Reflection.CustomAttributeData"
+    )
     AssertRuntimeType(
         "System.Reflection.CustomAttributeTypedArgument",
-        "System.Reflection.CustomAttributeTypedArgument")
+        "System.Reflection.CustomAttributeTypedArgument"
+    )
 
     // Spelling is exact in both directions: neither a near-miss canonical nor a near-miss runtime
     // name is admitted.
     unknownTypeName := ""
     assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
-        "NullabilityInfoContexts", out unknownTypeName)
+        "NullabilityInfoContexts",
+        out unknownTypeName
+    )
     assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
-        "nullabilityInfoContext", out unknownTypeName)
+        "nullabilityInfoContext",
+        out unknownTypeName
+    )
     assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName(
-        "System.NullabilityInfoContext", out unknownTypeName)
+        "System.NullabilityInfoContext",
+        out unknownTypeName
+    )
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
-        "System.Reflection.NullabilityInfoContexts")
+        "System.Reflection.NullabilityInfoContexts"
+    )
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
-        "System.Reflection.CustomAttributeNamedArgument")
+        "System.Reflection.CustomAttributeNamedArgument"
+    )
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(null)
 }
 
@@ -1243,7 +1456,8 @@ test "the attribute-data sequence identities are computed, not spelled" {
     assert dataList.Contains("System.Reflection.CustomAttributeData,")
     assert argumentList.StartsWith(
         "System.Collections.Generic.IList`1[[",
-        StringComparison.Ordinal)
+        StringComparison.Ordinal
+    )
     assert argumentList.Contains("System.Reflection.CustomAttributeTypedArgument,")
     assert dataList != argumentList
 
@@ -1252,9 +1466,11 @@ test "the attribute-data sequence identities are computed, not spelled" {
 
     // The OPEN definition and the element type alone are not sequences and stay off the surface.
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
-        "System.Collections.Generic.IList`1")
+        "System.Collections.Generic.IList`1"
+    )
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(
-        "System.Collections.Generic.IList`1[[System.Reflection.CustomAttributeData]]")
+        "System.Collections.Generic.IList`1[[System.Reflection.CustomAttributeData]]"
+    )
 
     // A different element closes to a different identity that is NOT admitted.
     otherList := ColumnarExternalBindingPlans.ClosedListFullName("System.String")
@@ -1265,25 +1481,31 @@ test "the nullability read state is an ordinary enum static member plan" {
     nullable := ColumnarExternalBindingPlans.GetStaticMemberPlan("NullabilityState", "Nullable")
     assert nullable.IsSupported
     assert nullable.Kind == ColumnarExternalStaticMemberKind.Field
-    assert nullable.DeclaringTypeName
-        == "System.Reflection.NullabilityState, System.Private.CoreLib"
+    assert nullable.DeclaringTypeName == "System.Reflection.NullabilityState, System.Private.CoreLib"
     assert nullable.MemberName == "Nullable"
     assert nullable.ValueTypeName == "System.Reflection.NullabilityState, System.Private.CoreLib"
 
     qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
         "System.Reflection.NullabilityState",
-        "Unknown")
+        "Unknown"
+    )
     assert qualified.IsSupported
     assert qualified.DeclaringTypeName == nullable.DeclaringTypeName
     assert qualified.ValueTypeName == nullable.ValueTypeName
     assert qualified.MemberName == "Unknown"
 
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "NullabilityState", "NotNull").IsSupported
+        "NullabilityState",
+        "NotNull"
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "nullabilityState", "Nullable").IsSupported
+        "nullabilityState",
+        "Nullable"
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "NullabilityStates", "Nullable").IsSupported
+        "NullabilityStates",
+        "Nullable"
+    ).IsSupported
 }
 
 test "the reflected nullability capability adds no call plan of its own" {
@@ -1293,17 +1515,35 @@ test "the reflected nullability capability adds no call plan of its own" {
     // exactly what a value receiver like CustomAttributeTypedArgument cannot survive.
     noArguments := new string[](0)
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Reflection.NullabilityInfoContext", "Create", noArguments).IsSupported
+        "System.Reflection.NullabilityInfoContext",
+        "Create",
+        noArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Reflection.NullabilityInfo", "get_ReadState", noArguments).IsSupported
+        "System.Reflection.NullabilityInfo",
+        "get_ReadState",
+        noArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Reflection.CustomAttributeData", "get_AttributeType", noArguments).IsSupported
+        "System.Reflection.CustomAttributeData",
+        "get_AttributeType",
+        noArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Reflection.CustomAttributeTypedArgument", "get_Value", noArguments).IsSupported
+        "System.Reflection.CustomAttributeTypedArgument",
+        "get_Value",
+        noArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Reflection.ParameterInfo", "GetCustomAttributesData", noArguments).IsSupported
+        "System.Reflection.ParameterInfo",
+        "GetCustomAttributesData",
+        noArguments
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Reflection.MethodInfo", "get_ReturnParameter", noArguments).IsSupported
+        "System.Reflection.MethodInfo",
+        "get_ReturnParameter",
+        noArguments
+    ).IsSupported
 }
 
 // The filtered method enumeration (task 017 slice 20 phase A). Re-finding a method on a generic
@@ -1316,40 +1556,56 @@ test "the binding mask's members are on the static member surface" {
     publicFlag := ColumnarExternalBindingPlans.GetStaticMemberPlan("BindingFlags", "Public")
     assert publicFlag.IsSupported
     assert publicFlag.Kind == ColumnarExternalStaticMemberKind.Field
-    assert publicFlag.DeclaringTypeName
-        == "System.Reflection.BindingFlags, System.Private.CoreLib"
+    assert publicFlag.DeclaringTypeName == "System.Reflection.BindingFlags, System.Private.CoreLib"
     assert publicFlag.MemberName == "Public"
     assert publicFlag.ValueTypeName == "System.Reflection.BindingFlags, System.Private.CoreLib"
 
     qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
         "System.Reflection.BindingFlags",
-        "NonPublic")
+        "NonPublic"
+    )
     assert qualified.IsSupported
     assert qualified.DeclaringTypeName == publicFlag.DeclaringTypeName
     assert qualified.ValueTypeName == publicFlag.ValueTypeName
     assert qualified.MemberName == "NonPublic"
 
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlags", "Instance").IsSupported
+        "BindingFlags",
+        "Instance"
+    ).IsSupported
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlags", "Static").IsSupported
+        "BindingFlags",
+        "Static"
+    ).IsSupported
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlags", "DeclaredOnly").IsSupported
+        "BindingFlags",
+        "DeclaredOnly"
+    ).IsSupported
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlags", "FlattenHierarchy").IsSupported
+        "BindingFlags",
+        "FlattenHierarchy"
+    ).IsSupported
 
     // The owner is spelled exactly, in both the short and the qualified form.
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "bindingFlags", "Public").IsSupported
+        "bindingFlags",
+        "Public"
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlag", "Public").IsSupported
+        "BindingFlag",
+        "Public"
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.BindingFlags", "Public").IsSupported
+        "System.BindingFlags",
+        "Public"
+    ).IsSupported
 
     // The mask is a DIFFERENT enum from its reflection neighbours: `Public` names a member of both
     // it and MethodAttributes, and the two must never collapse onto one declaring identity.
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "MethodAttributes", "Public").DeclaringTypeName != publicFlag.DeclaringTypeName
+        "MethodAttributes",
+        "Public"
+    ).DeclaringTypeName != publicFlag.DeclaringTypeName
 }
 
 test "the filtered method enumeration is on the Type call surface" {
@@ -1359,17 +1615,18 @@ test "the filtered method enumeration is on the Type call surface" {
         "System.Type",
         "GetMethods",
         bindingMask,
-        "System.Reflection.MethodInfo[]")
+        "System.Reflection.MethodInfo[]"
+    )
 
     // The plan names the mask's own exact identity as its one parameter, so the emitted call site
     // resolves the filtered overload and not the unfiltered one.
     filtered := ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Type",
         "GetMethods",
-        bindingMask)
+        bindingMask
+    )
     assert filtered.ParameterTypeNames.Length == 1
-    assert filtered.ParameterTypeNames[0]
-        == "System.Reflection.BindingFlags, System.Private.CoreLib"
+    assert filtered.ParameterTypeNames[0] == "System.Reflection.BindingFlags, System.Private.CoreLib"
 
     // Both arities are on the surface at once, and they are DIFFERENT plans: the arity-0 arm keeps
     // its empty parameter list, so neither row can be mistaken for the other.
@@ -1377,7 +1634,8 @@ test "the filtered method enumeration is on the Type call surface" {
     unfiltered := ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Type",
         "GetMethods",
-        noArguments)
+        noArguments
+    )
     assert unfiltered.IsSupported
     assert unfiltered.ParameterTypeNames.Length == 0
     assert filtered.MemberName == unfiltered.MemberName
@@ -1393,37 +1651,64 @@ test "the filtered method enumeration declines every near miss" {
     // The receiver is spelled exactly, and it is the CLR type — not the short name and not a
     // reflected member type that also answers methods.
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "Type", "GetMethods", bindingMask).IsSupported
+        "Type",
+        "GetMethods",
+        bindingMask
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Reflection.TypeInfo", "GetMethods", bindingMask).IsSupported
+        "System.Reflection.TypeInfo",
+        "GetMethods",
+        bindingMask
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        null, "GetMethods", bindingMask).IsSupported
+        null,
+        "GetMethods",
+        bindingMask
+    ).IsSupported
 
     // The member name is exact, and the neighbouring enumerations do NOT gain the mask overload.
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Type", "getMethods", bindingMask).IsSupported
+        "System.Type",
+        "getMethods",
+        bindingMask
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Type", "GetMethod", bindingMask).IsSupported
+        "System.Type",
+        "GetMethod",
+        bindingMask
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Type", "GetConstructors", bindingMask).IsSupported
+        "System.Type",
+        "GetConstructors",
+        bindingMask
+    ).IsSupported
 
     // The one argument is the mask itself. Its underlying integer is a different overload the
     // surface does not carry, and neither is any other one-argument spelling.
     wrongArgument := new string[](1)
     wrongArgument[0] = "System.Int32"
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Type", "GetMethods", wrongArgument).IsSupported
+        "System.Type",
+        "GetMethods",
+        wrongArgument
+    ).IsSupported
     stringArgument := new string[](1)
     stringArgument[0] = "System.String"
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Type", "GetMethods", stringArgument).IsSupported
+        "System.Type",
+        "GetMethods",
+        stringArgument
+    ).IsSupported
 
     // Arity is exact in the other direction too: no two-argument form exists.
     twoArguments := new string[](2)
     twoArguments[0] = "System.Reflection.BindingFlags"
     twoArguments[1] = "System.Reflection.BindingFlags"
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Type", "GetMethods", twoArguments).IsSupported
+        "System.Type",
+        "GetMethods",
+        twoArguments
+    ).IsSupported
 }
 
 test "the string comparer's own string pair is on the instance call surface" {
@@ -1434,11 +1719,15 @@ test "the string comparer's own string pair is on the instance call surface" {
         "System.StringComparer",
         "Compare",
         stringPair,
-        "System.Int32")
+        "System.Int32"
+    )
 
     // The receiver is spelled exactly — not the short name.
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "StringComparer", "Compare", stringPair).IsSupported
+        "StringComparer",
+        "Compare",
+        stringPair
+    ).IsSupported
 
     // Only the string pair is modeled: the boxing Compare(object, object) overload is not, and
     // neither is any other arity.
@@ -1446,15 +1735,24 @@ test "the string comparer's own string pair is on the instance call surface" {
     objectPair[0] = "System.Object"
     objectPair[1] = "System.Object"
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.StringComparer", "Compare", objectPair).IsSupported
+        "System.StringComparer",
+        "Compare",
+        objectPair
+    ).IsSupported
     oneString := new string[](1)
     oneString[0] = "System.String"
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.StringComparer", "Compare", oneString).IsSupported
+        "System.StringComparer",
+        "Compare",
+        oneString
+    ).IsSupported
 
     // The member name is exact: the equality surface is not implied by the comparison one.
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.StringComparer", "Equals", stringPair).IsSupported
+        "System.StringComparer",
+        "Equals",
+        stringPair
+    ).IsSupported
 }
 
 test "the migrated legacy arms are on the plan surface with their exact identities" {
@@ -1465,34 +1763,49 @@ test "the migrated legacy arms are on the plan surface with their exact identiti
         new string[](0),
         new string[](0),
         "System.OperatingSystem",
-        "System.Boolean")
+        "System.Boolean"
+    )
     AssertStaticCall(
         "System.OperatingSystem",
         "IsWindows",
         new string[](0),
         new string[](0),
         "System.OperatingSystem",
-        "System.Boolean")
+        "System.Boolean"
+    )
     oneString := new string[](1)
     oneString[0] = "System.String"
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "OperatingSystem", "IsWindows", oneString).IsSupported
+        "OperatingSystem",
+        "IsWindows",
+        oneString
+    ).IsSupported
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
-        "OperatingSystem", "IsLinux", new string[](0)).IsSupported
+        "OperatingSystem",
+        "IsLinux",
+        new string[](0)
+    ).IsSupported
 
     // AppDomain.GetAssemblies(): the CoreLib instance enumeration.
     AssertVirtualCall(
         "System.AppDomain",
         "GetAssemblies",
         new string[](0),
-        "System.Reflection.Assembly[]")
+        "System.Reflection.Assembly[]"
+    )
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "AppDomain", "GetAssemblies", new string[](0)).IsSupported
+        "AppDomain",
+        "GetAssemblies",
+        new string[](0)
+    ).IsSupported
 
     // JsonDocument.Dispose(): declared OUTSIDE CoreLib, so the identity is asserted inline —
     // the shared helper pins the CoreLib suffix and cannot speak for System.Text.Json.
     disposePlan := ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Text.Json.JsonDocument", "Dispose", new string[](0))
+        "System.Text.Json.JsonDocument",
+        "Dispose",
+        new string[](0)
+    )
     assert disposePlan.IsSupported
     assert disposePlan.Kind == ColumnarExternalCallKind.CallVirtual
     assert disposePlan.DeclaringTypeName == "System.Text.Json.JsonDocument, System.Text.Json"
@@ -1500,5 +1813,8 @@ test "the migrated legacy arms are on the plan surface with their exact identiti
     assert disposePlan.ParameterTypeNames.Length == 0
     assert disposePlan.ReturnTypeName == "System.Void, System.Private.CoreLib"
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "JsonDocument", "Dispose", new string[](0)).IsSupported
+        "JsonDocument",
+        "Dispose",
+        new string[](0)
+    ).IsSupported
 }

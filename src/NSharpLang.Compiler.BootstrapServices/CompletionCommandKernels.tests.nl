@@ -12,7 +12,6 @@ namespace NSharpLang.Cli.Commands
 // `tests/native/cli-command-contracts`, spawned against the real binary — which is strictly
 // stronger, because the deleted body called `CompletionCommand.Execute` directly and never proved
 // that `nlc completion` reaches it.
-
 test "the shell name is matched case-insensitively, and each of the three has its own kind" {
     bash := CompletionCommandKernels.GetOptionSummary(["BASH"])
     assert bash.ShellKind == CompletionShellKind.Bash

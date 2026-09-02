@@ -17,7 +17,6 @@ import NSharpLang.Compiler.Ast
 // disagreements in both directions, so a future reader who folds them has a failing test rather than
 // a silently different systems report. Slice 1 recorded the same trap for `ErasedName` versus
 // `GetDisplayName`; this is its second instance and it is now a pattern, not an accident.
-
 func SenIdentifier(name: string): IdentifierExpression {
     return new IdentifierExpression(name, 3, 5)
 }

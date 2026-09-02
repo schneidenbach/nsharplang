@@ -69,7 +69,7 @@ test "TransitionIssue rejects invalid transition" {
     service.CreateIssue("Test issue", "desc", Priority.Medium, tags.ToArray())
 
     // Open -> Open is not a valid transition
-    _, err := service.TransitionIssue(1, new IssueStatus.Open {})
+    _, err := service.TransitionIssue(1, new IssueStatus.Open {  })
     assert err != null
 }
 

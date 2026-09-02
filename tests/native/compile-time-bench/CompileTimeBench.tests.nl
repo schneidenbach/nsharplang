@@ -19,10 +19,7 @@ import System.IO
 // stray line — a progress note, a "skipped" note, a green summary — makes a passing run unreadable
 // and turns the gate red. Every fact a failure needs travels in the assertion message instead.
 
-
 // ─── HELPERS ──────────────────────────────────────────────────────────────────────────────────
-
-
 func BenchTestLongs(a: long, b: long, c: long): long[] {
     values := new long[](3)
     values[0] = a
@@ -34,7 +31,8 @@ func BenchTestLongs(a: long, b: long, c: long): long[] {
 func BenchTestScratchDirectory(name: string): string {
     directory := Path.Combine(
         Path.GetTempPath(),
-        "nsharp-compile-bench-" + name + "-" + BenchLongText(DateTime.UtcNow.Ticks))
+        "nsharp-compile-bench-" + name + "-" + BenchLongText(DateTime.UtcNow.Ticks)
+    )
     BenchDeleteDirectory(directory)
     Directory.CreateDirectory(directory)
     return directory
@@ -43,7 +41,8 @@ func BenchTestScratchDirectory(name: string): string {
 func BenchTestBaselinePath(): string {
     return Path.Combine(
         Path.Combine(Path.Combine(BenchRepositoryRoot(), "tests"), "fixtures"),
-        Path.Combine("compile-time", "bootstrap-build-baseline.golden.json"))
+        Path.Combine("compile-time", "bootstrap-build-baseline.golden.json")
+    )
 }
 
 func BenchTestStageText(): string {
@@ -51,33 +50,16 @@ func BenchTestStageText(): string {
 }
 
 func BenchTestPlaceholderBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\","
-        + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1,"
-        + "\"measuredAt\":\"2026-09-01\","
-        + "\"cliCommit\":\"0000000000000000000000000000000000000000\","
-        + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5,"
-        + "\"files\":0,\"lines\":0,\"medianWallMs\":0,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
+    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"0000000000000000000000000000000000000000\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":0,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
 }
 
 func BenchTestMeasuredBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\","
-        + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1,"
-        + "\"measuredAt\":\"2026-09-01\","
-        + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\","
-        + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5,"
-        + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000,"
-        + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
+    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
 }
 
 // The same baseline with `expectedExitCode` 0, for the arm where a run is supposed to SUCCEED.
 func BenchTestSuccessBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\","
-        + "\"command\":\"build\",\"stage\":\"parse, analysis and emit\",\"expectedExitCode\":0,"
-        + "\"measuredAt\":\"2026-09-01\","
-        + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\","
-        + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5,"
-        + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000,"
-        + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
+    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\"," + "\"command\":\"build\",\"stage\":\"parse, analysis and emit\",\"expectedExitCode\":0," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
 }
 
 // Three runs' worth of "the CLI printed its own failure banner".
@@ -100,14 +82,7 @@ func BenchTestExitCodes(a: int, b: int, c: int): int[] {
 // An `nlc check --json` envelope carrying three codes in mixed order, with a tie on count so the
 // code-ascending tiebreak is exercised.
 func BenchTestCheckEnvelopeJson(): string {
-    return "{\"schemaVersion\":1,\"command\":\"check\",\"checkedFiles\":3,\"ok\":false,\"results\":["
-        + "{\"code\":\"NL402\",\"severity\":\"error\"},"
-        + "{\"code\":\"NL202\",\"severity\":\"error\"},"
-        + "{\"code\":\"NL402\",\"severity\":\"error\"},"
-        + "{\"code\":\"NL905\",\"severity\":\"warning\"},"
-        + "{\"code\":\"NL202\",\"severity\":\"error\"},"
-        + "{\"code\":\"NL402\",\"severity\":\"error\"}"
-        + "],\"summary\":{\"errors\":5,\"warnings\":1,\"info\":0}}"
+    return "{\"schemaVersion\":1,\"command\":\"check\",\"checkedFiles\":3,\"ok\":false,\"results\":[" + "{\"code\":\"NL402\",\"severity\":\"error\"}," + "{\"code\":\"NL202\",\"severity\":\"error\"}," + "{\"code\":\"NL402\",\"severity\":\"error\"}," + "{\"code\":\"NL905\",\"severity\":\"warning\"}," + "{\"code\":\"NL202\",\"severity\":\"error\"}," + "{\"code\":\"NL402\",\"severity\":\"error\"}" + "],\"summary\":{\"errors\":5,\"warnings\":1,\"info\":0}}"
 }
 
 // A three-line `--timings` block exactly as `BuildCommandKernels.GetTimingsMessage` writes it.
@@ -118,22 +93,12 @@ func BenchTestTimingsStderr(): string {
 // The same block as it actually arrives: the CLI's own diagnostic first, then the timings, then
 // the BSD time utility's rusage dump on the very same stream.
 func BenchTestMacOsMixedStderr(): string {
-    return "Program.nl(3,5): warning NL001: Variable 'unused' is declared but never read\n"
-        + "Build timings:\n  Resolve:    0.4s\n  Emit IL:    12.1s\n  Total:      12.5s\n"
-        + "       12.63 real        21.44 user         2.10 sys\n"
-        + "           142606336  maximum resident set size\n"
-        + "                   0  average shared memory size\n"
-        + "               33418  page reclaims\n"
+    return "Program.nl(3,5): warning NL001: Variable 'unused' is declared but never read\n" + "Build timings:\n  Resolve:    0.4s\n  Emit IL:    12.1s\n  Total:      12.5s\n" + "       12.63 real        21.44 user         2.10 sys\n" + "           142606336  maximum resident set size\n" + "                   0  average shared memory size\n" + "               33418  page reclaims\n"
 }
 
 func BenchTestLinuxMixedStderr(): string {
-    return "Build timings:\n  Resolve:    0.4s\n  Emit IL:    12.1s\n  Total:      12.5s\n"
-        + "\tCommand being timed: \"dotnet Cli.dll build\"\n"
-        + "\tUser time (seconds): 21.44\n"
-        + "\tMaximum resident set size (kbytes): 139264\n"
-        + "\tExit status: 0\n"
+    return "Build timings:\n  Resolve:    0.4s\n  Emit IL:    12.1s\n  Total:      12.5s\n" + "\tCommand being timed: \"dotnet Cli.dll build\"\n" + "\tUser time (seconds): 21.44\n" + "\tMaximum resident set size (kbytes): 139264\n" + "\tExit status: 0\n"
 }
-
 
 // ─── THE MEDIAN RULE ──────────────────────────────────────────────────────────────────────────
 
@@ -164,7 +129,6 @@ test "compile-time bench: min and max report the extremes of the measured runs a
     assert BenchMaximum(values, 3) == 900
     assert values[0] == 900
 }
-
 
 // ─── THE `--timings` PARSER ───────────────────────────────────────────────────────────────────
 
@@ -214,9 +178,7 @@ test "compile-time bench: stripping the time utility keeps the CLI's own stderr 
 }
 
 test "compile-time bench: a diagnostic's source-line gutter starts with a line NUMBER and is still kept — only plain-word rusage rows are the time utility's" {
-    stderr := "error NL012: Parameter 'name' in 'ParseTypeBody' is never read\n"
-        + "1486 |     func ParseTypeBody(name: string): List<Declaration> {\n"
-        + "           142606336  maximum resident set size\n"
+    stderr := "error NL012: Parameter 'name' in 'ParseTypeBody' is never read\n" + "1486 |     func ParseTypeBody(name: string): List<Declaration> {\n" + "           142606336  maximum resident set size\n"
     cliStderr := BenchStripTimeUtilityLines(stderr)
     assert cliStderr.IndexOf("1486 |", StringComparison.Ordinal) > 0
     assert cliStderr.IndexOf("maximum resident set size", StringComparison.Ordinal) < 0
@@ -229,7 +191,6 @@ test "compile-time bench: stripping the time utility on Linux drops the tab-inde
     assert cliStderr.IndexOf("Maximum resident set size", StringComparison.Ordinal) < 0
     assert cliStderr.IndexOf("Command being timed", StringComparison.Ordinal) < 0
 }
-
 
 // ─── THE PEAK-RSS PARSER ──────────────────────────────────────────────────────────────────────
 
@@ -254,7 +215,6 @@ test "compile-time bench: peak RSS renders as megabytes with one decimal, rounde
     assert BenchFormatMegabytes(-1) == ""
 }
 
-
 // ─── THE CSV ROWS ─────────────────────────────────────────────────────────────────────────────
 
 test "compile-time bench: a build run row carries the CLI's resolve, emit and total alongside the wall clock and the peak RSS" {
@@ -262,26 +222,22 @@ test "compile-time bench: a build run row carries the CLI's resolve, emit and to
     measured.ResolveMs = 400
     measured.EmitMs = 12100
     measured.TotalMs = 12500
-    assert BenchRunCsvRow("examples/01-hello-world", 2, measured)
-        == "examples/01-hello-world,build,2,0,12634,400,12100,12500,142606336"
+    assert BenchRunCsvRow("examples/01-hello-world", 2, measured) == "examples/01-hello-world,build,2,0,12634,400,12100,12500,142606336"
 }
 
 test "compile-time bench: a check run row leaves the three build-only timing cells EMPTY" {
     measured := new BenchCommandRun("check", 0, 843, 98304)
-    assert BenchRunCsvRow("examples/01-hello-world", 1, measured)
-        == "examples/01-hello-world,check,1,0,843,,,,98304"
+    assert BenchRunCsvRow("examples/01-hello-world", 1, measured) == "examples/01-hello-world,check,1,0,843,,,,98304"
 }
 
 test "compile-time bench: a run with no peak RSS leaves the RSS cell EMPTY and still carries every other column" {
     measured := new BenchCommandRun("check", 1, 220, -1)
-    assert BenchRunCsvRow("templates/nsharp-console", 3, measured)
-        == "templates/nsharp-console,check,3,1,220,,,,"
+    assert BenchRunCsvRow("templates/nsharp-console", 3, measured) == "templates/nsharp-console,check,3,1,220,,,,"
 }
 
 test "compile-time bench: the two CSV headers are the columns the report promises" {
     assert BenchRunCsvHeader() == "project,command,run,exitCode,wallMs,resolveMs,emitMs,totalMs,peakRssBytes"
-    assert BenchSummaryCsvHeader()
-        == "project,command,files,lines,status,runs,medianWallMs,minWallMs,maxWallMs,medianResolveMs,medianEmitMs,medianTotalMs,medianPeakRssBytes,linesPerSecond"
+    assert BenchSummaryCsvHeader() == "project,command,files,lines,status,runs,medianWallMs,minWallMs,maxWallMs,medianResolveMs,medianEmitMs,medianTotalMs,medianPeakRssBytes,linesPerSecond"
 }
 
 test "compile-time bench: a summary row states files, lines, the status, the medians and the lines-per-second rate" {
@@ -295,8 +251,7 @@ test "compile-time bench: a summary row states files, lines, the status, the med
     result.MedianTotalMs = 900
     result.MedianPeakRssBytes = 98304
     result.LinesPerSecondTenths = BenchLinesPerSecondTenths(12, 1000)
-    assert BenchSummaryCsvRow(result)
-        == "examples/01-hello-world,build,1,12,measured,5,1000,900,1400,300,600,900,98304,12.0"
+    assert BenchSummaryCsvRow(result) == "examples/01-hello-world,build,1,12,measured,5,1000,900,1400,300,600,900,98304,12.0"
 }
 
 test "compile-time bench: a project the compiler REJECTED and a project with NOTHING TO COMPILE are different statuses, not one `ok=false`" {
@@ -308,13 +263,11 @@ test "compile-time bench: a project the compiler REJECTED and a project with NOT
     rejected.MinWallMs = 486
     rejected.MaxWallMs = 486
     rejected.LinesPerSecondTenths = BenchLinesPerSecondTenths(33, 486)
-    assert BenchSummaryCsvRow(rejected)
-        == "templates/nsharp-systems-cli,build,1,33,failed,1,486,486,486,,,,,67.9"
+    assert BenchSummaryCsvRow(rejected) == "templates/nsharp-systems-cli,build,1,33,failed,1,486,486,486,,,,,67.9"
 
     empty := new BenchProjectResult("tests/native/as-boxing", "build", 0, 0)
     empty.Status = BenchNoSourcesStatus()
-    assert BenchSummaryCsvRow(empty)
-        == "tests/native/as-boxing,build,0,0,no non-test sources,0,-1,-1,-1,,,,,"
+    assert BenchSummaryCsvRow(empty) == "tests/native/as-boxing,build,0,0,no non-test sources,0,-1,-1,-1,,,,,"
 }
 
 test "compile-time bench: a project with no non-test sources contributes NO project and NO lines to an aggregate" {
@@ -341,7 +294,6 @@ test "compile-time bench: a CSV cell that could break a row is quoted and its qu
     assert BenchCsvCell("say \"hi\"") == "\"say \"\"hi\"\"\""
 }
 
-
 // ─── THE LINES-PER-SECOND FORMULA ─────────────────────────────────────────────────────────────
 
 test "compile-time bench: lines per second is lines divided by the median wall clock in seconds, to one decimal, rounded half-up" {
@@ -362,7 +314,6 @@ test "compile-time bench: only `\\n`-terminated lines are counted, so a trailing
     assert BenchCountLines("a\nb\nc") == 2
     assert BenchCountLines("") == 0
 }
-
 
 // ─── THE BASELINE ─────────────────────────────────────────────────────────────────────────────
 
@@ -397,8 +348,7 @@ test "compile-time bench: a baseline for another schema version, project or comm
     assert BenchBaselineRefusal(wrongSchema) == "baseline schemaVersion 2 is not the supported version 1"
 
     wrongProject := new BenchBaseline(1, "examples/01-hello-world", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
-    assert BenchBaselineRefusal(wrongProject)
-        == "baseline project 'examples/01-hello-world' is not 'src/NSharpLang.Compiler.BootstrapServices'"
+    assert BenchBaselineRefusal(wrongProject) == "baseline project 'examples/01-hello-world' is not 'src/NSharpLang.Compiler.BootstrapServices'"
 
     wrongCommand := new BenchBaseline(1, "src/NSharpLang.Compiler.BootstrapServices", "check", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
     assert BenchBaselineRefusal(wrongCommand) == "baseline command 'check' is not 'build'"
@@ -416,9 +366,9 @@ test "compile-time bench: a baseline with a MISSING or negative expectedExitCode
     refusal := BenchBaselineRefusal(noExit)
     assert refusal.IndexOf("baseline expectedExitCode is missing or negative", StringComparison.Ordinal) == 0
 
-    legacy := BenchParseBaseline("{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\","
-        + "\"command\":\"build\",\"measuredAt\":\"\",\"cliCommit\":\"\",\"machine\":\"\",\"runs\":5,"
-        + "\"files\":0,\"lines\":0,\"medianWallMs\":1,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}")
+    legacy := BenchParseBaseline(
+        "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\"," + "\"command\":\"build\",\"measuredAt\":\"\",\"cliCommit\":\"\",\"machine\":\"\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":1,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
+    )
     assert legacy.Stage == ""
     assert legacy.ExpectedExitCode == -1
     assert BenchBaselineRefusal(legacy).IndexOf("baseline stage is missing", StringComparison.Ordinal) == 0
@@ -433,7 +383,6 @@ test "compile-time bench: a tolerance factor is read as thousandths and rendered
     assert BenchFormatFixed3(2000) == "2"
     assert BenchFormatFixed3(1250) == "1.25"
 }
-
 
 // ─── THE GATE VERDICT ─────────────────────────────────────────────────────────────────────────
 
@@ -510,12 +459,10 @@ test "compile-time bench: the failure banner is recognised in the CLI's own stdo
     assert !BenchSawBuildFailedBanner("")
 }
 
-
 // ─── THE CHECK ENVELOPE'S DIAGNOSTIC CENSUS ───────────────────────────────────────────────────
 
 test "compile-time bench: the check envelope's results are censused by code, ordered by count DESCENDING and then by code ASCENDING, whatever order they arrived in" {
-    assert BenchDiagnosticCensus(BenchTestCheckEnvelopeJson())
-        == "6 results: NL402 ×3, NL202 ×2, NL905 ×1"
+    assert BenchDiagnosticCensus(BenchTestCheckEnvelopeJson()) == "6 results: NL402 ×3, NL202 ×2, NL905 ×1"
     assert BenchDiagnosticResultCount(BenchTestCheckEnvelopeJson()) == 6
 }
 
@@ -536,7 +483,6 @@ test "compile-time bench: a result carrying no code is still counted, so the per
     envelope := "{\"results\":[{\"severity\":\"error\"},{\"code\":\"NL202\",\"severity\":\"error\"}]}"
     assert BenchDiagnosticCensus(envelope) == "2 results: (no code) ×1, NL202 ×1"
 }
-
 
 // ─── THE SOURCE-SELECTION RULE ────────────────────────────────────────────────────────────────
 
@@ -579,7 +525,6 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
     assert !BenchShouldSkipSourceDirectory("src")
 }
 
-
 // ─── THE CORPUS ───────────────────────────────────────────────────────────────────────────────
 
 // 68 at 8cf40128a; 70 since the two 2026-09 measurement branches merged (tests/native/systems-vectorization-facts and
@@ -615,7 +560,6 @@ test "compile-time bench: the corpus is sorted ordinally by repository-relative 
     assert ordered
 }
 
-
 // ─── THE TREE-UNTOUCHED PROOF ─────────────────────────────────────────────────────────────────
 
 test "compile-time bench: an unchanged directory listing DIFFS to nothing, and a written file shows up as an added entry" {
@@ -630,7 +574,6 @@ test "compile-time bench: an unchanged directory listing DIFFS to nothing, and a
 
     assert difference.IndexOf("+ written.txt|", StringComparison.Ordinal) == 0
 }
-
 
 // ─── THE GATE ─────────────────────────────────────────────────────────────────────────────────
 
@@ -654,8 +597,7 @@ test "compile-time gate: nlc build on src/NSharpLang.Compiler.BootstrapServices 
         assert refusal == "", "compile-time gate: " + refusal
 
         cliDll := BenchDefaultCliDll(repositoryRoot)
-        assert File.Exists(cliDll), "compile-time gate: the CLI under test was not found at " + cliDll
-            + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug"
+        assert File.Exists(cliDll), "compile-time gate: the CLI under test was not found at " + cliDll + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug"
 
         projectDirectory := BenchAbsoluteProjectPath(repositoryRoot, baseline.Project)
         wallMs := new long[](3)

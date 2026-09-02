@@ -2,9 +2,9 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Globalization
 import System.Reflection
 import System.Reflection.Emit
-import System.Globalization
 
 class ColumnarAddressableDirectCallFixture {
     HolderType: Type

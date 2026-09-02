@@ -61,7 +61,6 @@ import NSharpLang.Compiler.Ast
 // section (a) and all four lambda-anchor rules in section (b) into the RESTATEMENT column, and it
 // confirmed each of the fourteen shapes labelled new at exactly ZERO prior occurrences.
 
-
 // ---- (a) KEYWORD AND PRIMARY EXPRESSIONS — 15 contracts ----
 //
 // WHAT THESE FIFTEEN PIN, SPLIT INTO RESTATEMENTS AND WHAT IS NEW — THE SIBLING SWEEP WAS RUN FIRST.
@@ -88,7 +87,6 @@ import NSharpLang.Compiler.Ast
 // enclosing CompilationUnit anchors on the `async` (column 13). The estate's one sibling —
 // `ColumnarParserAst.tests.nl` :5828, an `async` LOCAL function — anchors the declaration on the
 // `async` itself. Both are pinned as measured; neither is claimed to be the right one.
-
 test "020 s22 parser primary: `[1, 2, 3]` builds an ArrayLiteralExpression anchored on its `[` with IsImmutable FALSE and three IntLiteralExpression elements, each anchored on its own digit and each holding its literal TEXT rather than a parsed number (was ParserTests.TestArrayLiteral)" {
     source := "\n            func Test() {\n                arr := [1, 2, 3]\n            }\n        "
     assert PsCensus(source) == ""
@@ -341,7 +339,6 @@ test "020 s22 parser primary: `must input` is a MustExpression anchored on the k
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-
 // ---- (b) LAMBDAS — 7 contracts ----
 //
 // THE ANCHOR RULE IS A RESTATEMENT AND THE NESTING IS NOT. `ColumnarParserAst.tests.nl` already pins
@@ -509,7 +506,6 @@ test "020 s22 parser lambda: `x => y => x + y` nests a LambdaExpression inside a
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-
 // ---- (c) TYPE REFERENCES — 4 contracts, and the residue's ONE negative ----
 //
 // THIS IS THE ONLY FAMILY OF THE FOUR WHOSE DELETED TESTS STATED POSITIONS.
@@ -631,7 +627,6 @@ test "020 s22 parser type NEGATIVE: `int |` with no right arm is refused ONCE at
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, declaration1, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
-
 
 // ---- (d) OPERATORS — 4 contracts ----
 //

@@ -25,7 +25,6 @@ import NSharpLang.Compiler.Ast
 //     expression around it and produces no cascade;
 //   * and that the two SoA escapes SHORT-CIRCUIT, which is the arm's one behavioural difference from
 //     the boolean-condition family's look-alike pair.
-
 class RangeArmHarness {
     Arm: AnalyzerRangeExpression
     Errors: List<CompilerError>
@@ -54,8 +53,8 @@ func RangeArmOf(): RangeArmHarness {
     sink := new AnalyzerDiagnosticSink(errors, provider)
     spans := new AnalyzerDiagnosticSpans(sink)
     usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
-    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal)
-    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
     namespaces := new List<string>()
     assemblies := new List<Assembly>()
     discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)

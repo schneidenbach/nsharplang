@@ -21,16 +21,21 @@ import NSharpLang.Compiler.CodeIntelligence
 // are pinned as they are so a future narrowing is a deliberate, visible change.
 
 // ── the daemon parameter summary ──────────────────────────────────────────────
-
 test "the daemon parameter summary reads all five values and both flags" {
     summary := QueryCommandKernels.GetDaemonParameterSummary([
-        "--file", "Program.nl",
-        "--pos", "12:4",
-        "--name", "Main",
-        "--kind", "Function",
-        "--severity", "warning",
+        "--file",
+        "Program.nl",
+        "--pos",
+        "12:4",
+        "--name",
+        "Main",
+        "--kind",
+        "Function",
+        "--severity",
+        "warning",
         "--include-keywords",
-        "--clusters"])
+        "--clusters"
+    ])
 
     assert summary.File == "Program.nl"
     assert summary.Pos == "12:4"
@@ -43,7 +48,8 @@ test "the daemon parameter summary reads all five values and both flags" {
 
 test "a daemon parameter value is taken permissively, and a trailing option keeps its null" {
     summary := QueryCommandKernels.GetDaemonParameterSummary(
-        ["--file", "--include-keywords", "--pos", "--clusters", "--severity"])
+        ["--file", "--include-keywords", "--pos", "--clusters", "--severity"]
+    )
 
     assert summary.File == "--include-keywords"
     assert summary.Pos == "--clusters"
@@ -61,10 +67,15 @@ test "a lone --file sets no flags" {
 test "the command option summary reads the filter, function, limit, requests and operand" {
     summary := QueryCommandKernels.GetCommandOptionSummary([
         "Type.Name",
-        "--filter", "*Service",
-        "--function", "Main",
-        "--limit", "25",
-        "--requests", "batch.json"])
+        "--filter",
+        "*Service",
+        "--function",
+        "Main",
+        "--limit",
+        "25",
+        "--requests",
+        "batch.json"
+    ])
 
     assert summary.Filter == "*Service"
     assert summary.Function == "Main"
@@ -75,7 +86,8 @@ test "the command option summary reads the filter, function, limit, requests and
 
 test "command option values are taken permissively and a leading option is not an operand" {
     summary := QueryCommandKernels.GetCommandOptionSummary(
-        ["--filter", "--function", "--limit", "--requests", "--requests"])
+        ["--filter", "--function", "--limit", "--requests", "--requests"]
+    )
 
     assert summary.Filter == "--function"
     assert summary.Function == "--limit"
@@ -96,13 +108,21 @@ test "a trailing option with no value leaves both its own slot and the operand n
 test "the top-level summary takes the LAST project, keeps the first subcommand, and collects the rest" {
     summary := QueryCommandKernels.GetTopLevelOptionSummary([
         "symbols",
-        "--project", "demo",
-        "--file", "Program.nl",
-        "--pos", "12:4",
-        "--text", "--json", "--text",
-        "--no-daemon", "--compact",
+        "--project",
+        "demo",
+        "--file",
+        "Program.nl",
+        "--pos",
+        "12:4",
+        "--text",
+        "--json",
+        "--text",
+        "--no-daemon",
+        "--compact",
         "loose",
-        "--project", "other"])
+        "--project",
+        "other"
+    ])
 
     assert summary.Subcommand == "symbols"
     assert summary.ProjectDir == "other"

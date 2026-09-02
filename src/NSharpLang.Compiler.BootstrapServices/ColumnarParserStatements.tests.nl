@@ -100,7 +100,6 @@ func PsCensus(source: string): string {
     return builder.ToString()
 }
 
-
 // ---- contracts ----
 
 test "020 s18 parser statements: `let x: int = 42` and `y := \"hello\"` are the SAME node with the SAME Kind=Let — the shorthand differs only in a null Type (was ParserTests.TestVariableDeclaration)" {
@@ -404,7 +403,7 @@ test "020 s18 parser statements: a table's cases are a LIST OF LISTS in row orde
     tparams4.Add(Golden.Param("a", Golden.SimpleT("int", 2, 38, 41), null, false, ParameterModifier.None, 2, 35))
     tparams4.Add(Golden.Param("b", Golden.SimpleT("int", 2, 46, 49), null, false, ParameterModifier.None, 2, 43))
     tparams4.Add(Golden.Param("expected", Golden.SimpleT("int", 2, 61, 64), null, false, ParameterModifier.None, 2, 51))
-    rows5 := new List<List<Expression> >()
+    rows5 := new List<List<Expression>>()
     exprs6 := new List<Expression>()
     exprs6.Add(Golden.IntLit("1", 3, 6))
     exprs6.Add(Golden.IntLit("2", 3, 9))
@@ -499,7 +498,7 @@ test "020 s18 parser statements: a table-driven test carries BOTH its rows and a
     tparams4.Add(Golden.Param("a", Golden.SimpleT("int", 2, 28, 31), null, false, ParameterModifier.None, 2, 25))
     tparams4.Add(Golden.Param("b", Golden.SimpleT("int", 2, 36, 39), null, false, ParameterModifier.None, 2, 33))
     tparams4.Add(Golden.Param("expected", Golden.SimpleT("int", 2, 51, 54), null, false, ParameterModifier.None, 2, 41))
-    rows5 := new List<List<Expression> >()
+    rows5 := new List<List<Expression>>()
     exprs6 := new List<Expression>()
     exprs6.Add(Golden.IntLit("1", 3, 6))
     exprs6.Add(Golden.IntLit("2", 3, 9))

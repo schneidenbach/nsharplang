@@ -73,7 +73,8 @@ test "GetTypeReferenceName reads the head name through nullable and array wrappe
     assert CodeIntelligenceDisplayText.GetTypeReferenceName(new ArrayTypeReference(CidtSimple("Widget"))) == "Widget"
     // Nested: an array of nullables still names the element.
     assert CodeIntelligenceDisplayText.GetTypeReferenceName(
-        new ArrayTypeReference(new NullableTypeReference(CidtSimple("Widget")))) == "Widget"
+        new ArrayTypeReference(new NullableTypeReference(CidtSimple("Widget")))
+    ) == "Widget"
 }
 
 test "GetTypeReferenceName answers null for a reference shape it does not name" {
@@ -174,8 +175,7 @@ test "(b) THE CHIPS HAVE A PRINTED ORDER AND IT IS NOT THE ENUM'S BIT ORDER" {
 }
 
 test "(b) every chip in one mask, in the printed order" {
-    assert CidtChips(Modifiers.Public | Modifiers.Static | Modifiers.Async | Modifiers.Readonly)
-        == "pub,static,async,readonly"
+    assert CidtChips(Modifiers.Public | Modifiers.Static | Modifiers.Async | Modifiers.Readonly) == "pub,static,async,readonly"
 }
 
 test "a modifier the chip list does not name contributes nothing" {
@@ -190,7 +190,8 @@ test "a modifier the chip list does not name contributes nothing" {
 test "ExtractCalleeName reads identifiers and member names, and nothing else" {
     assert CodeIntelligenceDisplayText.ExtractCalleeName(CidtId("run")) == "run"
     assert CodeIntelligenceDisplayText.ExtractCalleeName(
-        new MemberAccessExpression(CidtId("widget"), "Run", false, 1, 1)) == "Run"
+        new MemberAccessExpression(CidtId("widget"), "Run", false, 1, 1)
+    ) == "Run"
     assert CodeIntelligenceDisplayText.ExtractCalleeName(new IntLiteralExpression("1", 1, 1)) == null
 }
 
@@ -198,7 +199,8 @@ test "GetExpressionQueryName reads the name a type query should look up" {
     assert CodeIntelligenceDisplayText.GetExpressionQueryName(null) == null
     assert CodeIntelligenceDisplayText.GetExpressionQueryName(CidtId("widget")) == "widget"
     assert CodeIntelligenceDisplayText.GetExpressionQueryName(
-        new MemberAccessExpression(CidtId("widget"), "Name", false, 1, 1)) == "Name"
+        new MemberAccessExpression(CidtId("widget"), "Name", false, 1, 1)
+    ) == "Name"
     assert CodeIntelligenceDisplayText.GetExpressionQueryName(new IntLiteralExpression("1", 1, 1)) == null
 }
 
@@ -213,9 +215,11 @@ test "(e) THE UNWRAPPING IS RECURSIVE, AND THE COMPOSITION IS THE POINT" {
 
 test "a new expression and a cast both name their TYPE, not a value" {
     assert CodeIntelligenceDisplayText.GetExpressionQueryName(
-        new NewExpression(CidtSimple("Widget"), new List<Argument>(), null, 1, 1)) == "Widget"
+        new NewExpression(CidtSimple("Widget"), new List<Argument>(), null, 1, 1)
+    ) == "Widget"
     assert CodeIntelligenceDisplayText.GetExpressionQueryName(
-        new CastExpression(CidtId("value"), CidtSimple("Widget"), CastKind.Hard, 1, 1)) == "Widget"
+        new CastExpression(CidtId("value"), CidtSimple("Widget"), CastKind.Hard, 1, 1)
+    ) == "Widget"
 }
 
 // ── The suggestion line ──────────────────────────────────────────────────

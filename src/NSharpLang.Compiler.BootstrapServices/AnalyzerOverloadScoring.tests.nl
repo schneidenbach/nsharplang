@@ -57,13 +57,15 @@ func OverloadContext(): AnalyzerDeclarationContext {
 
 func OverloadResolver(
     scopes: AnalyzerScopeStack,
-    context: AnalyzerDeclarationContext): AnalyzerTypeResolver {
+    context: AnalyzerDeclarationContext
+): AnalyzerTypeResolver {
     provider := new AnalyzerProjectSourceProvider()
     discovery := new AnalyzerProjectTypeDiscovery(
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     return new AnalyzerTypeResolver(
         scopes,
@@ -72,10 +74,11 @@ func OverloadResolver(
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
 }
 
 // The scoring owner with NO well-known-type bag — the state the analyzer is in before it has loaded
@@ -317,7 +320,9 @@ test "a compatible generic type is searched for on the type itself, its interfac
 
     // An INTERFACE the argument implements.
     enumerableOfInt := OverloadClosed1(
-        "System.Collections.Generic.IEnumerable`1, System.Private.CoreLib", typeof(int))
+        "System.Collections.Generic.IEnumerable`1, System.Private.CoreLib",
+        typeof(int)
+    )
     interfaceMatch: Type? = null
     assert AnalyzerOverloadFacts.TryFindCompatibleGenericType(enumerableOfInt, listOfInt, out interfaceMatch)
     assert interfaceMatch == enumerableOfInt
@@ -337,7 +342,9 @@ test "a compatible generic type is searched for on the type itself, its interfac
 test "an extension receiver is compatible closed by assignability and open by re-expression" {
     // Closed: `IEnumerable<int>` accepts a `List<int>` receiver but not an `int`.
     enumerableOfInt := OverloadClosed1(
-        "System.Collections.Generic.IEnumerable`1, System.Private.CoreLib", typeof(int))
+        "System.Collections.Generic.IEnumerable`1, System.Private.CoreLib",
+        typeof(int)
+    )
     listOfInt := OverloadClosed1("System.Collections.Generic.List`1, System.Private.CoreLib", typeof(int))
     assert AnalyzerOverloadFacts.IsExtensionParameterCompatible(enumerableOfInt, listOfInt)
     assert !AnalyzerOverloadFacts.IsExtensionParameterCompatible(enumerableOfInt, typeof(int))
@@ -396,11 +403,20 @@ test "an extension method call needs a member-access callee, and the receiver fo
     assert !AnalyzerOverloadFacts.IsExtensionMethodCall(countMethod, OverloadIdentifierCall())
 
     assert AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(
-        countMethod, OverloadMemberAccessCall(), listOfInt)
+        countMethod,
+        OverloadMemberAccessCall(),
+        listOfInt
+    )
     assert !AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(
-        countMethod, OverloadMemberAccessCall(), typeof(int))
+        countMethod,
+        OverloadMemberAccessCall(),
+        typeof(int)
+    )
     assert !AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(
-        countMethod, OverloadMemberAccessCall(), null)
+        countMethod,
+        OverloadMemberAccessCall(),
+        null
+    )
 }
 
 // ---------------------------------------------------------------- arity and params
@@ -432,14 +448,19 @@ test "a params parameter's element type covers arrays, the span family and read-
     assert spanElement == typeof(int)
 
     readOnlyListOfString := OverloadClosed1(
-        "System.Collections.Generic.IReadOnlyList`1, System.Private.CoreLib", typeof(string))
+        "System.Collections.Generic.IReadOnlyList`1, System.Private.CoreLib",
+        typeof(string)
+    )
     listElement: Type = typeof(object)
     assert AnalyzerOverloadFacts.TryGetReflectionParamsElementType(readOnlyListOfString, out listElement)
     assert listElement == typeof(string)
 
     // Anything else answers false AND `object`, because the caller uses the element type either way.
     dictionaryOfIntString := OverloadClosed2(
-        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib", typeof(int), typeof(string))
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib",
+        typeof(int),
+        typeof(string)
+    )
     otherElement: Type = typeof(string)
     assert !AnalyzerOverloadFacts.TryGetReflectionParamsElementType(dictionaryOfIntString, out otherElement)
     assert otherElement == typeof(object)
@@ -455,25 +476,39 @@ test "an expanded params argument is distinguished from a directly passed array"
     expandedElement := OverloadBoundArgument(1, typeof(object))
     directArray := OverloadBoundArgument(1, typeof(object[]))
     assert AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(
-        expandedElement, paramsParameter)
+        expandedElement,
+        paramsParameter
+    )
     assert !AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(
-        directArray, paramsParameter)
+        directArray,
+        paramsParameter
+    )
 
     // A parameter that is not a params tail is never expanded.
     fixedArgument := OverloadBoundArgument(0, typeof(string))
     assert !AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(
-        fixedArgument, fixedParameter)
+        fixedArgument,
+        fixedParameter
+    )
 }
 
 // A bound argument for the expansion question. Only the position and the OPEN parameter type
 // participate; the argument node is a placeholder.
 func OverloadBoundArgument(
     parameterIndex: int,
-    openParameterType: Type): SuppliedReflectionBoundArgument {
+    openParameterType: Type
+): SuppliedReflectionBoundArgument {
     placeholder := new Argument(
-        null, new IdentifierExpression("x", 1, 1), ArgumentModifier.None)
+        null,
+        new IdentifierExpression("x", 1, 1),
+        ArgumentModifier.None
+    )
     return new SuppliedReflectionBoundArgument(
-        parameterIndex, openParameterType, placeholder, parameterIndex)
+        parameterIndex,
+        openParameterType,
+        placeholder,
+        parameterIndex
+    )
 }
 
 test "a by-ref element type is taken off, and a non-by-ref type is itself" {
@@ -486,12 +521,15 @@ test "a by-ref element type is taken off, and a non-by-ref type is itself" {
 test "a lambda's delegate target strips the by-ref shell and unwraps an expression tree" {
     funcOfIntInt := OverloadClosed2("System.Func`2, System.Private.CoreLib", typeof(int), typeof(int))
     expressionOfFunc := OverloadClosed1(
-        "System.Linq.Expressions.Expression`1, System.Linq.Expressions", funcOfIntInt)
+        "System.Linq.Expressions.Expression`1, System.Linq.Expressions",
+        funcOfIntInt
+    )
 
     assert AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(funcOfIntInt) == funcOfIntInt
     assert AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(expressionOfFunc) == funcOfIntInt
     assert AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(
-        expressionOfFunc.MakeByRefType()) == funcOfIntInt
+        expressionOfFunc.MakeByRefType()
+    ) == funcOfIntInt
 }
 
 // Without a well-known-type bag there are no metadata facts at all, so the answer is false rather
@@ -558,7 +596,10 @@ test "a broad delegate lambda contributes its annotated parameters with no modif
         delegateRoot := OverloadRuntimeType("System.Delegate, System.Private.CoreLib")
 
         signature := scoring.CreateBroadDelegateSignatureForLambda(
-            delegateRoot, bindings, OverloadLambda("x", "int"))
+            delegateRoot,
+            bindings,
+            OverloadLambda("x", "int")
+        )
         assert signature != null
         parameterTypes := signature.ParameterTypes
         assert parameterTypes != null
@@ -570,7 +611,10 @@ test "a broad delegate lambda contributes its annotated parameters with no modif
 
         // An un-annotated lambda produces NO signature rather than a partial one.
         assert scoring.CreateBroadDelegateSignatureForLambda(
-            delegateRoot, bindings, OverloadLambda("x", "var")) == null
+            delegateRoot,
+            bindings,
+            OverloadLambda("x", "var")
+        ) == null
     } finally {
         scan.Dispose()
     }
@@ -585,7 +629,9 @@ test "an operator parameter refuses an unknown operand and accepts assignable, i
     assert AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(typeof(int), typeof(int))
     assert AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(typeof(object), typeof(string))
     assert AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(
-        typeof(int).MakeByRefType(), typeof(int))
+        typeof(int).MakeByRefType(),
+        typeof(int)
+    )
     assert !AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(typeof(int), typeof(string))
 }
 
@@ -663,9 +709,13 @@ test "the receiver offset needs both the signature flag and a member-access call
     receiverStyle := OverloadSignature(OverloadTypeList(BuiltInTypes.Int))
     receiverStyle.SourceHasReceiverParameter = true
     assert AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(
-        receiverStyle, OverloadMemberAccessCall()) == 1
+        receiverStyle,
+        OverloadMemberAccessCall()
+    ) == 1
     assert AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(
-        receiverStyle, OverloadIdentifierCall()) == 0
+        receiverStyle,
+        OverloadIdentifierCall()
+    ) == 0
 }
 
 test "only a bare type-parameter name counts as a direct type-parameter reference" {
@@ -788,11 +838,13 @@ test "a source params element type covers arrays and single-argument generics, a
     assert OverloadTypeName(arrayElement) == "int"
 
     genericElement := scoring.GetNSharpParamsElementType(
-        new GenericTypeInfo("ReadOnlySpan", OverloadTypeList(BuiltInTypes.Int)))
+        new GenericTypeInfo("ReadOnlySpan", OverloadTypeList(BuiltInTypes.Int))
+    )
     assert OverloadTypeName(genericElement) == "int"
 
     assert scoring.GetNSharpParamsElementType(
-        new GenericTypeInfo("Dictionary", OverloadTypeList2(BuiltInTypes.Int, BuiltInTypes.String))) == null
+        new GenericTypeInfo("Dictionary", OverloadTypeList2(BuiltInTypes.Int, BuiltInTypes.String))
+    ) == null
     assert scoring.GetNSharpParamsElementType(BuiltInTypes.Int) == null
 }
 
@@ -848,9 +900,13 @@ test "a spread argument contributes its ELEMENT type to generic inference" {
 test "a reflected candidate's signature drops the receiver for a receiver-style extension call" {
     countMethod := OverloadEnumerableMethod("Count", 1)
     withReceiver := AnalyzerOverloadFacts.FormatReflectionMethodSignature(
-        countMethod, OverloadMemberAccessCall())
+        countMethod,
+        OverloadMemberAccessCall()
+    )
     withoutReceiver := AnalyzerOverloadFacts.FormatReflectionMethodSignature(
-        countMethod, OverloadIdentifierCall())
+        countMethod,
+        OverloadIdentifierCall()
+    )
 
     assert withReceiver.StartsWith("Count(")
     assert withReceiver.Contains("()")
@@ -871,18 +927,14 @@ test "a source candidate's signature renders type parameters, the clamped offset
     typeParameters.Add(new TypeParameter("T"))
     signature.TypeParameters = typeParameters
 
-    assert AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(signature, "f", 0)
-        == "f<T>(a: int, b: string): bool"
+    assert AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(signature, "f", 0) == "f<T>(a: int, b: string): bool"
 
     // The receiver offset drops the first parameter.
-    assert AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(signature, "f", 1)
-        == "f<T>(b: string): bool"
+    assert AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(signature, "f", 1) == "f<T>(b: string): bool"
 
     // A nonsense offset is clamped to an empty list rather than indexing out of the signature.
-    assert AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(signature, "f", 9)
-        == "f<T>(): bool"
-    assert AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(signature, "f", -3)
-        == "f<T>(a: int, b: string): bool"
+    assert AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(signature, "f", 9) == "f<T>(): bool"
+    assert AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(signature, "f", -3) == "f<T>(a: int, b: string): bool"
 }
 
 test "a source parameter renders its modifier, its source type name and its default marker" {

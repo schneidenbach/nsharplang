@@ -15,7 +15,6 @@ import NSharpLang.Compiler.Ast
 // that a resolved receiver matches by assignability and not only by identity, that a NAMED source
 // extension which rejects the receiver still falls through to the external scan, that the
 // containing type name is read at the CALL, and that the three collections are LIVE.
-
 class ExtensionReceiverHarness {
     Resolution: AnalyzerExtensionMethodResolution
     Resolver: AnalyzerTypeResolver
@@ -28,7 +27,8 @@ class ExtensionReceiverHarness {
         resolver: AnalyzerTypeResolver,
         declared: List<FunctionDeclaration>,
         namespaces: List<string>,
-        assemblies: List<Assembly>) {
+        assemblies: List<Assembly>
+    ) {
         Resolution = resolution
         Resolver = resolver
         Declared = declared
@@ -47,7 +47,8 @@ func ExtensionReceiverDefault(): ExtensionReceiverHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     resolver := new AnalyzerTypeResolver(
         scopes,
@@ -56,10 +57,11 @@ func ExtensionReceiverDefault(): ExtensionReceiverHarness {
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -83,11 +85,13 @@ func ExtensionReceiverDefault(): ExtensionReceiverHarness {
             clrConversion,
             declared,
             namespaces,
-            assemblies),
+            assemblies
+        ),
         resolver,
         declared,
         namespaces,
-        assemblies)
+        assemblies
+    )
 }
 
 func ExtensionReceiverParameter(name: string, typeName: string): Parameter {
@@ -98,10 +102,25 @@ func ExtensionReceiverParameter(name: string, typeName: string): Parameter {
 func ExtensionReceiverDeclaration(
     name: string,
     parameters: List<Parameter>,
-    typeParameters: List<TypeParameter>?): FunctionDeclaration {
+    typeParameters: List<TypeParameter>?
+): FunctionDeclaration {
     return new FunctionDeclaration(
-        name, parameters, null, null, null, typeParameters, null, Modifiers.Public,
-        new List<AttributeNode>(), false, null, false, false, 1, 1)
+        name,
+        parameters,
+        null,
+        null,
+        null,
+        typeParameters,
+        null,
+        Modifiers.Public,
+        new List<AttributeNode>(),
+        false,
+        null,
+        false,
+        false,
+        1,
+        1
+    )
 }
 
 func ExtensionReceiverOn(receiverTypeName: string, typeParameterNames: string[]): FunctionDeclaration {
@@ -144,7 +163,10 @@ test "a declaration with no parameters is never applicable" {
 
     // Not even when the declaration is generic — a type parameter is not a receiver.
     emptyGeneric := ExtensionReceiverDeclaration(
-        "Probe", new List<Parameter>(), ExtensionReceiverTypeParameterList("T"))
+        "Probe",
+        new List<Parameter>(),
+        ExtensionReceiverTypeParameterList("T")
+    )
     assert !harness.Resolution.IsExtensionReceiverApplicable(emptyGeneric, BuiltInTypes.Int)
 }
 
@@ -165,7 +187,9 @@ test "an unconstrained receiver accepts every receiver type" {
     assert harness.Resolution.IsExtensionReceiverApplicable(unconstrained, BuiltInTypes.Bool)
     assert harness.Resolution.IsExtensionReceiverApplicable(unconstrained, BuiltInTypes.Object)
     assert harness.Resolution.IsExtensionReceiverApplicable(
-        unconstrained, new ArrayTypeInfo(BuiltInTypes.Int))
+        unconstrained,
+        new ArrayTypeInfo(BuiltInTypes.Int)
+    )
 }
 
 test "the type-parameter test is by NAME against this declaration only" {
@@ -211,7 +235,9 @@ test "a resolved receiver also matches by ASSIGNABILITY, not identity alone" {
     assert harness.Resolution.IsExtensionReceiverApplicable(objectReceiver, BuiltInTypes.String)
     assert harness.Resolution.IsExtensionReceiverApplicable(objectReceiver, BuiltInTypes.Int)
     assert harness.Resolution.IsExtensionReceiverApplicable(
-        objectReceiver, new ArrayTypeInfo(BuiltInTypes.String))
+        objectReceiver,
+        new ArrayTypeInfo(BuiltInTypes.String)
+    )
 
     // And the direction is receiver-accepts-target, not the reverse: a `string` receiver does not
     // accept an `object`.
@@ -266,7 +292,8 @@ test "one applicable source extension answers with that function's type" {
     // A name nothing declares is not this extension; with no reference assemblies loaded the
     // external scan has nowhere to look, so the answer is `unknown` rather than a wrong function.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.TryResolveExtensionMethod(BuiltInTypes.Int, "Thrice", "Owner"))
+        harness.Resolution.TryResolveExtensionMethod(BuiltInTypes.Int, "Thrice", "Owner")
+    )
 }
 
 test "several applicable source extensions answer as a method GROUP" {
@@ -300,7 +327,10 @@ test "a NAMED source extension that REJECTS the receiver falls through to the ex
     // extension wins outright, with the external candidates never consulted.
     harness.Declared.Add(ExtensionSurfaceNamed("AsSpan", "object"))
     sourceAnswer := harness.Resolution.TryResolveExtensionMethod(
-        BuiltInTypes.String, "AsSpan", "Owner")
+        BuiltInTypes.String,
+        "AsSpan",
+        "Owner"
+    )
     sourceFunction := sourceAnswer as FunctionTypeInfo
     assert sourceFunction != null
     assert sourceFunction.SourceName == "AsSpan"
@@ -335,15 +365,18 @@ test "the declaration list is LIVE, not a snapshot taken at construction" {
     // `Analyze`, and appends to it as the declaration walk proceeds — so an extension declared later
     // in the same file must be visible to a resolution that happens after it.
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.TryResolveExtensionMethod(BuiltInTypes.Int, "Twice", null))
+        harness.Resolution.TryResolveExtensionMethod(BuiltInTypes.Int, "Twice", null)
+    )
 
     harness.Declared.Add(ExtensionSurfaceNamed("Twice", "int"))
     assert !BuiltInTypes.IsUnknown(
-        harness.Resolution.TryResolveExtensionMethod(BuiltInTypes.Int, "Twice", null))
+        harness.Resolution.TryResolveExtensionMethod(BuiltInTypes.Int, "Twice", null)
+    )
 
     harness.Declared.Clear()
     assert BuiltInTypes.IsUnknown(
-        harness.Resolution.TryResolveExtensionMethod(BuiltInTypes.Int, "Twice", null))
+        harness.Resolution.TryResolveExtensionMethod(BuiltInTypes.Int, "Twice", null)
+    )
 }
 
 test "the external scan finds a `[Extension]` static only under an IMPORTED namespace" {
@@ -384,7 +417,9 @@ test "a matching PUBLIC STATIC with no `[Extension]` attribute is not a candidat
     // imported namespace, and its first parameter accepts a `string` — every test but the attribute
     // passes. Without the attribute test, `"x".ToBoolean()` would bind.
     assert harness.Resolution.FindExternalExtensionMethods(
-        BuiltInTypes.String, "ToBoolean").Count == 0
+        BuiltInTypes.String,
+        "ToBoolean"
+    ).Count == 0
 
     // The control: the same scan over a name that IS an extension answers on the same receiver.
     assert harness.Resolution.FindExternalExtensionMethods(BuiltInTypes.String, "AsSpan").Count > 0

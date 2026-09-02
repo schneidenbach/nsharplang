@@ -94,8 +94,8 @@ namespace NSharpLang.SystemsVectorizationFacts.Tests
 //       -> "an empty or inverted range returns the seeds untouched"
 //   FusedMinMaxInt32_SimdPath_MatchesSeparateAndScalar[(MinValue,MaxValue),(0,0),(7,7),(MaxValue,MinValue)]
 //       -> "the fused pair agrees with the two separate scans and with the scalar fold"
-
 class MinMaxShapes {
+
     // The min-max-delta benchmark shape: for, temp subject, seeded from a[0], scanning [1, n).
     static func ForTempDelta(a: int[], n: int): int {
         min := a[0]
@@ -301,6 +301,7 @@ class MinMaxShapes {
 }
 
 class MinMaxNearMisses {
+
     // `<=` is not the strict comparison the matcher requires.
     static func ForNonStrict(a: int[], n: int): int {
         min := a[0]

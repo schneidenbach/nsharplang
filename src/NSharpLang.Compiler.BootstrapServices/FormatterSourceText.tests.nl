@@ -28,7 +28,6 @@ import NSharpLang.Compiler.Ast
 // one line of text; `FstFormatRaw` is the same pipeline without that substitution, for the
 // substring reads. `new Formatter()` and the one-argument `Format(ast)` both omit a defaulted
 // parameter, which the estate declines, so both are written at full arity.
-
 func FstUnit(source: string): CompilationUnit {
     parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
     unit := parsed.CompilationUnit

@@ -6,26 +6,34 @@ import System.Reflection
 
 test "source property factory establishes CLR accessor identity" {
     definition := SourceCallDefinition(
-        "ConstructionPropertyDefinitionProbe", true)
+        "ConstructionPropertyDefinitionProbe",
+        true
+    )
     property := ColumnarPropertyDef.Define(
         definition.Builder,
         "get_Value",
         MethodAttributes.Public,
         typeof(int),
         "set_Value",
-        MethodAttributes.Public)
+        MethodAttributes.Public
+    )
 
     assert property.Getter.get_IsSpecialName()
     setter := property.Setter
     if setter == null {
         throw new InvalidOperationException(
-            "The property factory omitted its requested setter.")
+            "The property factory omitted its requested setter."
+        )
     }
     assert setter.get_IsSpecialName()
     assert ColumnarConstructionPlanner.SameObject(
-        property.Getter.get_DeclaringType(), definition.Builder)
+        property.Getter.get_DeclaringType(),
+        definition.Builder
+    )
     assert ColumnarConstructionPlanner.SameObject(
-        setter.get_DeclaringType(), definition.Builder)
+        setter.get_DeclaringType(),
+        definition.Builder
+    )
 }
 
 test "source constructor definitions atomically retain exact normalized signatures" {
@@ -37,14 +45,19 @@ test "source constructor definitions atomically retain exact normalized signatur
     builder := definition.DefineUserConstructor(
         parameterTypes,
         new int[](0),
-        new string[](0))
+        new string[](0)
+    )
 
     assert definition.Constructors.Count == 1
     retained := definition.Constructors[0]
     assert ColumnarConstructionPlanner.SameObject(
-        retained.Builder, builder)
+        retained.Builder,
+        builder
+    )
     assert ColumnarConstructionPlanner.SameObject(
-        builder.get_DeclaringType(), definition.Builder)
+        builder.get_DeclaringType(),
+        definition.Builder
+    )
     assert retained.ParamTypes.Length == 2
     assert retained.ParamTypes[0] == typeof(int)
     assert retained.ParamTypes[1] == typeof(string)
@@ -71,7 +84,8 @@ test "source constructor definitions copy explicit default columns" {
     definition.DefineUserConstructor(
         parameterTypes,
         defaultKinds,
-        defaultTexts)
+        defaultTexts
+    )
 
     retained := definition.Constructors[0]
     defaultKinds[0] = -1
@@ -89,10 +103,10 @@ test "source constructor definition corruption leaves no partial registration" {
         definition.DefineUserConstructor(
             oneType,
             new int[](1),
-            new string[](0))
+            new string[](0)
+        )
     }
     assert definition.Constructors.Count == 0
-
 }
 
 test "source constructor enum defaults retain exact declaration identity" {
@@ -102,7 +116,8 @@ test "source constructor enum defaults retain exact declaration identity" {
         typeof(string),
         new Dictionary<string, int>(StringComparer.Ordinal),
         rightStrings,
-        "Right.Selection")
+        "Right.Selection"
+    )
     canonical := ""
     claimed := false
     assert ColumnarConstructorDefaultBinder.TryCanonicalizeSourceEnumMember(
@@ -111,12 +126,15 @@ test "source constructor enum defaults retain exact declaration identity" {
         right,
         right,
         out canonical,
-        out claimed)
+        out claimed
+    )
     assert claimed
     assert canonical == "Right.Selection.Value"
 
     definition := SourceCallDefinition(
-        "ConstructionExactDefaultProbe", true)
+        "ConstructionExactDefaultProbe",
+        true
+    )
     parameterTypes := new Type[](1)
     parameterTypes[0] = typeof(string)
     defaultKinds := new int[](1)
@@ -124,9 +142,11 @@ test "source constructor enum defaults retain exact declaration identity" {
     defaultTexts := new string[](1)
     defaultTexts[0] = canonical
     definition.DefineUserConstructor(
-        parameterTypes, defaultKinds, defaultTexts)
-    assert definition.Constructors[0].DefaultTexts[0]
-        == "Right.Selection.Value"
+        parameterTypes,
+        defaultKinds,
+        defaultTexts
+    )
+    assert definition.Constructors[0].DefaultTexts[0] == "Right.Selection.Value"
 }
 
 test "source constructor enum default rejects erased identity mismatch" {
@@ -136,14 +156,16 @@ test "source constructor enum default rejects erased identity mismatch" {
         typeof(string),
         new Dictionary<string, int>(StringComparer.Ordinal),
         leftStrings,
-        "Left.Selection")
+        "Left.Selection"
+    )
     rightStrings := new Dictionary<string, string>(StringComparer.Ordinal)
     rightStrings["Value"] = "right"
     right := new ColumnarEnumDef(
         typeof(string),
         new Dictionary<string, int>(StringComparer.Ordinal),
         rightStrings,
-        "Right.Selection")
+        "Right.Selection"
+    )
     canonical := ""
     claimed := false
     assert !ColumnarConstructorDefaultBinder.TryCanonicalizeSourceEnumMember(
@@ -152,7 +174,8 @@ test "source constructor enum default rejects erased identity mismatch" {
         right,
         left,
         out canonical,
-        out claimed)
+        out claimed
+    )
     assert claimed
 }
 
@@ -163,7 +186,8 @@ test "constructor default binder canonicalizes complete source and runtime enum 
         typeof(string),
         new Dictionary<string, int>(StringComparer.Ordinal),
         sourceStrings,
-        "Right.Selection")
+        "Right.Selection"
+    )
     sourceEnums := SemanticEmptyEnums()
     sourceEnums[sourceEnum.DeclaredTypeName] = sourceEnum
     sourceSources := new string[](1)
@@ -177,7 +201,8 @@ test "constructor default binder canonicalizes complete source and runtime enum 
         SemanticEmptyStructs(),
         SemanticEmptyUnions(),
         null,
-        "")
+        ""
+    )
 
     sourceParameterTypes := new Type[](1)
     sourceParameterTypes[0] = typeof(string)
@@ -194,7 +219,8 @@ test "constructor default binder canonicalizes complete source and runtime enum 
         sourceDefaultKinds,
         sourceDefaultTexts,
         sourceResolution.Enums,
-        out canonicalSourceDefaults)
+        out canonicalSourceDefaults
+    )
     assert canonicalSourceDefaults.Length == 1
     assert canonicalSourceDefaults[0] == "Right.Selection.Value"
 
@@ -209,12 +235,14 @@ test "constructor default binder canonicalizes complete source and runtime enum 
         SemanticEmptyStructs(),
         SemanticEmptyUnions(),
         null,
-        "")
+        ""
+    )
     runtimeParameterTypes := new Type[](1)
     runtimeDayType := Type.GetType("System.DayOfWeek")
     if runtimeDayType == null {
         throw new InvalidOperationException(
-            "System.DayOfWeek runtime type was not found.")
+            "System.DayOfWeek runtime type was not found."
+        )
     }
     runtimeParameterTypes[0] = runtimeDayType
     runtimeParameterCanonicals := new string[](1)
@@ -230,7 +258,8 @@ test "constructor default binder canonicalizes complete source and runtime enum 
         runtimeDefaultKinds,
         runtimeDefaultTexts,
         runtimeResolution.Enums,
-        out canonicalRuntimeDefaults)
+        out canonicalRuntimeDefaults
+    )
     assert canonicalRuntimeDefaults.Length == 1
     assert canonicalRuntimeDefaults[0] == "System.DayOfWeek.Friday"
 }

@@ -19,7 +19,8 @@ func SourceOperatorTwoTypes(leftType: Type, rightType: Type): Type[] {
 
 func SourceOperatorDefinitions(
     first: ColumnarStructDef,
-    second: ColumnarStructDef?): ColumnarStructDef[] {
+    second: ColumnarStructDef?
+): ColumnarStructDef[] {
     if second == null {
         result := new ColumnarStructDef[](1)
         result[0] = first
@@ -35,39 +36,51 @@ func SourceOperatorDefine(
     owner: ColumnarStructDef,
     methodName: string,
     parameterTypes: Type[],
-    returnType: Type): ColumnarStaticMethodDef {
+    returnType: Type
+): ColumnarStaticMethodDef {
     return SourceCallDefineStatic(
         owner,
         methodName,
         parameterTypes,
         new int[](parameterTypes.Length),
         returnType,
-        (MethodAttributes)2198)
+        (MethodAttributes)2198
+    )
 }
 
 func AssertSelectedSourceOperator(
     selection: ColumnarSourceOperatorSelection,
     owner: ColumnarStructDef,
     definition: ColumnarStaticMethodDef,
-    parameterCount: int) {
+    parameterCount: int
+) {
     assert selection.Status == ColumnarSourceOperatorStatus.Selected
     assert selection.IsSourceType
     assert selection.IsSelected
     assert ColumnarConstructionPlanner.SameObject(
-        selection.SourceDefinition, owner)
+        selection.SourceDefinition,
+        owner
+    )
     assert ColumnarConstructionPlanner.SameObject(
-        selection.OperatorDefinition, definition)
+        selection.OperatorDefinition,
+        definition
+    )
     method := selection.Method
     if method == null {
         throw new InvalidOperationException(
-            "Selected source operator has no method handle.")
+            "Selected source operator has no method handle."
+        )
     }
     assert ColumnarConstructionPlanner.SameObject(method, definition.Builder)
     assert ColumnarConstructionPlanner.SameObject(
-        selection.DeclaringType, owner.Builder)
+        selection.DeclaringType,
+        owner.Builder
+    )
     assert selection.ParameterTypes.Length == parameterCount
     assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
-        selection.ReturnType, definition.ReturnType)
+        selection.ReturnType,
+        definition.ReturnType
+    )
 }
 
 test "source operator resolver maps every admitted unary spelling to its exact declaration" {
@@ -85,14 +98,20 @@ test "source operator resolver maps every admitted unary spelling to its exact d
     index := 0
     while index < symbols.Length {
         owner := SourceCallDefinition(
-            "SourceUnaryOperator" + index.ToString(), true)
+            "SourceUnaryOperator" + index.ToString(),
+            true
+        )
         definition := SourceOperatorDefine(
             owner,
             methodNames[index],
             SourceOperatorOneType(owner.Builder),
-            owner.Builder)
+            owner.Builder
+        )
         selection := ColumnarSourceOperatorResolver.ResolveUnary(
-            symbols[index], owner.Builder, SourceOperatorDefinitions(owner, null))
+            symbols[index],
+            owner.Builder,
+            SourceOperatorDefinitions(owner, null)
+        )
         AssertSelectedSourceOperator(selection, owner, definition, 1)
         index += 1
     }
@@ -137,17 +156,21 @@ test "source operator resolver maps every admitted binary spelling to its exact 
     index := 0
     while index < symbols.Length {
         owner := SourceCallDefinition(
-            "SourceBinaryOperator" + index.ToString(), true)
+            "SourceBinaryOperator" + index.ToString(),
+            true
+        )
         definition := SourceOperatorDefine(
             owner,
             methodNames[index],
             SourceOperatorTwoTypes(owner.Builder, owner.Builder),
-            owner.Builder)
+            owner.Builder
+        )
         selection := ColumnarSourceOperatorResolver.ResolveBinary(
             symbols[index],
             owner.Builder,
             owner.Builder,
-            SourceOperatorDefinitions(owner, null))
+            SourceOperatorDefinitions(owner, null)
+        )
         AssertSelectedSourceOperator(selection, owner, definition, 2)
         index += 1
     }
@@ -158,11 +181,19 @@ test "source binary operator resolver searches both exact owners once and reject
     right := SourceCallDefinition("SourceOperatorRight", true)
     parameterTypes := SourceOperatorTwoTypes(left.Builder, right.Builder)
     rightDefinition := SourceOperatorDefine(
-        right, "op_Addition", parameterTypes, right.Builder)
+        right,
+        "op_Addition",
+        parameterTypes,
+        right.Builder
+    )
     definitions := SourceOperatorDefinitions(left, right)
 
     rightSelected := ColumnarSourceOperatorResolver.ResolveBinary(
-        "+", left.Builder, right.Builder, definitions)
+        "+",
+        left.Builder,
+        right.Builder,
+        definitions
+    )
     AssertSelectedSourceOperator(rightSelected, right, rightDefinition, 2)
 
     sameOwner := SourceCallDefinition("SourceOperatorSameOwner", true)
@@ -170,18 +201,28 @@ test "source binary operator resolver searches both exact owners once and reject
         sameOwner,
         "op_Addition",
         SourceOperatorTwoTypes(sameOwner.Builder, sameOwner.Builder),
-        sameOwner.Builder)
+        sameOwner.Builder
+    )
     sameSelected := ColumnarSourceOperatorResolver.ResolveBinary(
         "+",
         sameOwner.Builder,
         sameOwner.Builder,
-        SourceOperatorDefinitions(sameOwner, null))
+        SourceOperatorDefinitions(sameOwner, null)
+    )
     AssertSelectedSourceOperator(sameSelected, sameOwner, sameDefinition, 2)
 
     _leftDefinition := SourceOperatorDefine(
-        left, "op_Addition", parameterTypes, left.Builder)
+        left,
+        "op_Addition",
+        parameterTypes,
+        left.Builder
+    )
     ambiguous := ColumnarSourceOperatorResolver.ResolveBinary(
-        "+", left.Builder, right.Builder, definitions)
+        "+",
+        left.Builder,
+        right.Builder,
+        definitions
+    )
     assert ambiguous.Status == ColumnarSourceOperatorStatus.Rejected
     assert ambiguous.IsSourceType
     assert !ambiguous.IsSelected
@@ -190,7 +231,9 @@ test "source binary operator resolver searches both exact owners once and reject
 test "source operator resolver requires exact unmodified structural operand shapes" {
     owner := SourceCallDefinition("SourceOperatorExactShape", true)
     genericBuilder := TypeOfCreateSourceBuilder(
-        "SourceOperatorExactShape.Generic", true)
+        "SourceOperatorExactShape.Generic",
+        true
+    )
     genericDefinition: Type = genericBuilder
     shapeArguments := new Type[](1)
     ownerType: Type = owner.Builder
@@ -202,45 +245,57 @@ test "source operator resolver requires exact unmodified structural operand shap
         owner,
         "op_Addition",
         SourceOperatorTwoTypes(owner.Builder, firstShape),
-        owner.Builder)
+        owner.Builder
+    )
     exact := ColumnarSourceOperatorResolver.ResolveBinary(
         "+",
         owner.Builder,
         secondShape,
-        SourceOperatorDefinitions(owner, null))
+        SourceOperatorDefinitions(owner, null)
+    )
     AssertSelectedSourceOperator(exact, owner, exactDefinition, 2)
 
     wrongArityOwner := SourceCallDefinition(
-        "SourceOperatorWrongArity", true)
+        "SourceOperatorWrongArity",
+        true
+    )
     SourceOperatorDefine(
         wrongArityOwner,
         "op_Addition",
         SourceOperatorOneType(wrongArityOwner.Builder),
-        wrongArityOwner.Builder)
+        wrongArityOwner.Builder
+    )
     wrongArity := ColumnarSourceOperatorResolver.ResolveBinary(
         "+",
         wrongArityOwner.Builder,
         wrongArityOwner.Builder,
-        SourceOperatorDefinitions(wrongArityOwner, null))
+        SourceOperatorDefinitions(wrongArityOwner, null)
+    )
     assert wrongArity.Status == ColumnarSourceOperatorStatus.Rejected
 
     wrongTypeOwner := SourceCallDefinition(
-        "SourceOperatorWrongType", true)
+        "SourceOperatorWrongType",
+        true
+    )
     SourceOperatorDefine(
         wrongTypeOwner,
         "op_Addition",
         SourceOperatorTwoTypes(wrongTypeOwner.Builder, typeof(string)),
-        wrongTypeOwner.Builder)
+        wrongTypeOwner.Builder
+    )
     wrongType := ColumnarSourceOperatorResolver.ResolveBinary(
         "+",
         wrongTypeOwner.Builder,
         wrongTypeOwner.Builder,
-        SourceOperatorDefinitions(wrongTypeOwner, null))
+        SourceOperatorDefinitions(wrongTypeOwner, null)
+    )
     assert wrongType.Status == ColumnarSourceOperatorStatus.Rejected
 
     modifiedOwner := SourceCallDefinition("SourceOperatorModified", true)
     modifiedTypes := SourceOperatorTwoTypes(
-        modifiedOwner.Builder, modifiedOwner.Builder)
+        modifiedOwner.Builder,
+        modifiedOwner.Builder
+    )
     modifiedKinds := new int[](2)
     modifiedKinds[1] = 2
     SourceCallDefineStatic(
@@ -249,58 +304,75 @@ test "source operator resolver requires exact unmodified structural operand shap
         modifiedTypes,
         modifiedKinds,
         modifiedOwner.Builder,
-        (MethodAttributes)2198)
+        (MethodAttributes)2198
+    )
     modified := ColumnarSourceOperatorResolver.ResolveBinary(
         "+",
         modifiedOwner.Builder,
         modifiedOwner.Builder,
-        SourceOperatorDefinitions(modifiedOwner, null))
+        SourceOperatorDefinitions(modifiedOwner, null)
+    )
     assert modified.Status == ColumnarSourceOperatorStatus.Rejected
 }
 
 test "source operator resolver rejects excluded declarations and non-source operands" {
     runtimeOnly := ColumnarSourceOperatorResolver.ResolveBinary(
-        "+", typeof(int), typeof(int), new ColumnarStructDef[](0))
+        "+",
+        typeof(int),
+        typeof(int),
+        new ColumnarStructDef[](0)
+    )
     assert runtimeOnly.Status == ColumnarSourceOperatorStatus.NotSourceType
     assert !runtimeOnly.IsSourceType
 
     owner := SourceCallDefinition("SourceOperatorUnsupported", true)
     unsupported := ColumnarSourceOperatorResolver.ResolveUnary(
-        "++", owner.Builder, SourceOperatorDefinitions(owner, null))
+        "++",
+        owner.Builder,
+        SourceOperatorDefinitions(owner, null)
+    )
     assert unsupported.Status == ColumnarSourceOperatorStatus.Rejected
 
     privateOwner := SourceCallDefinition("SourceOperatorPrivate", true)
     privateTypes := SourceOperatorTwoTypes(
-        privateOwner.Builder, privateOwner.Builder)
+        privateOwner.Builder,
+        privateOwner.Builder
+    )
     SourceCallDefineStatic(
         privateOwner,
         "op_Addition",
         privateTypes,
         new int[](2),
         privateOwner.Builder,
-        (MethodAttributes)2193)
+        (MethodAttributes)2193
+    )
     privateSelection := ColumnarSourceOperatorResolver.ResolveBinary(
         "+",
         privateOwner.Builder,
         privateOwner.Builder,
-        SourceOperatorDefinitions(privateOwner, null))
+        SourceOperatorDefinitions(privateOwner, null)
+    )
     assert privateSelection.Status == ColumnarSourceOperatorStatus.Rejected
 
     ordinaryOwner := SourceCallDefinition("SourceOperatorOrdinary", true)
     ordinaryTypes := SourceOperatorTwoTypes(
-        ordinaryOwner.Builder, ordinaryOwner.Builder)
+        ordinaryOwner.Builder,
+        ordinaryOwner.Builder
+    )
     SourceCallDefineStatic(
         ordinaryOwner,
         "op_Addition",
         ordinaryTypes,
         new int[](2),
         ordinaryOwner.Builder,
-        (MethodAttributes)150)
+        (MethodAttributes)150
+    )
     ordinarySelection := ColumnarSourceOperatorResolver.ResolveBinary(
         "+",
         ordinaryOwner.Builder,
         ordinaryOwner.Builder,
-        SourceOperatorDefinitions(ordinaryOwner, null))
+        SourceOperatorDefinitions(ordinaryOwner, null)
+    )
     assert ordinarySelection.Status == ColumnarSourceOperatorStatus.Rejected
 
     genericOwner := SourceCallDefinition("SourceOperatorGeneric", true)
@@ -308,13 +380,15 @@ test "source operator resolver rejects excluded declarations and non-source oper
         genericOwner,
         "op_Addition",
         SourceOperatorTwoTypes(genericOwner.Builder, genericOwner.Builder),
-        genericOwner.Builder)
+        genericOwner.Builder
+    )
     SourceCallMakeGeneric(genericDefinition.Builder)
     genericSelection := ColumnarSourceOperatorResolver.ResolveBinary(
         "+",
         genericOwner.Builder,
         genericOwner.Builder,
-        SourceOperatorDefinitions(genericOwner, null))
+        SourceOperatorDefinitions(genericOwner, null)
+    )
     assert genericSelection.Status == ColumnarSourceOperatorStatus.Rejected
 
     closedOwner := SourceCallGenericDefinition("SourceOperatorClosed")
@@ -323,7 +397,10 @@ test "source operator resolver rejects excluded declarations and non-source oper
     closedArguments[0] = typeof(int)
     closedType := closedDefinition.MakeGenericType(closedArguments)
     closedSelection := ColumnarSourceOperatorResolver.ResolveUnary(
-        "-", closedType, SourceOperatorDefinitions(closedOwner, null))
+        "-",
+        closedType,
+        SourceOperatorDefinitions(closedOwner, null)
+    )
     assert closedSelection.Status == ColumnarSourceOperatorStatus.NotSourceType
 }
 
@@ -333,13 +410,15 @@ test "source operator resolver deduplicates repeated facts and rejects corrupted
         owner,
         "op_Addition",
         SourceOperatorTwoTypes(owner.Builder, owner.Builder),
-        owner.Builder)
+        owner.Builder
+    )
     SourceCallAddStaticFact(owner, "op_Addition", definition)
     repeated := ColumnarSourceOperatorResolver.ResolveBinary(
         "+",
         owner.Builder,
         owner.Builder,
-        SourceOperatorDefinitions(owner, null))
+        SourceOperatorDefinitions(owner, null)
+    )
     AssertSelectedSourceOperator(repeated, owner, definition, 2)
 
     mappedOwner := SourceCallDefinition("SourceOperatorMappedOwner", true)
@@ -348,13 +427,15 @@ test "source operator resolver deduplicates repeated facts and rejects corrupted
         foreignOwner,
         "op_Addition",
         SourceOperatorTwoTypes(mappedOwner.Builder, mappedOwner.Builder),
-        mappedOwner.Builder)
+        mappedOwner.Builder
+    )
     SourceCallAddStaticFact(mappedOwner, "op_Addition", foreignDefinition)
     assert throws InvalidOperationException {
         ColumnarSourceOperatorResolver.ResolveBinary(
             "+",
             mappedOwner.Builder,
             mappedOwner.Builder,
-            SourceOperatorDefinitions(mappedOwner, null))
+            SourceOperatorDefinitions(mappedOwner, null)
+        )
     }
 }

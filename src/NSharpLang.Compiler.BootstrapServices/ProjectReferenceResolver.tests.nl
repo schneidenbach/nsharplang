@@ -21,7 +21,6 @@ import System.IO
 // A THIRD FILE IS NOT NEEDED TO CATCH A REGRESSION IN THE FIRST ARM: the named-csproj arm and the
 // directory-named arm are only distinguishable when the two names DIFFER, so every block below
 // keeps them different on purpose.
-
 func NewProjectDirectory(): string {
     directory := Path.Combine(Path.GetTempPath(), "nsharp-projectref-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory(directory)

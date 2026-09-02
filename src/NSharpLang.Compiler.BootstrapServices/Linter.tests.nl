@@ -1154,10 +1154,12 @@ func LnuPlaceholderUnit(lengthName: string): CompilationUnit {
             null,
             2,
             15,
-            new IdentifierExpression(lengthName, 2, 23)),
+            new IdentifierExpression(lengthName, 2, 23)
+        ),
         VariableKind.Let,
         2,
-        9))
+        9
+    ))
 
     declarations := new List<Declaration>()
     declarations.Add(new FunctionDeclaration(
@@ -1175,7 +1177,8 @@ func LnuPlaceholderUnit(lengthName: string): CompilationUnit {
         false,
         false,
         1,
-        1))
+        1
+    ))
 
     return new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
 }

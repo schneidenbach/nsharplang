@@ -13,7 +13,6 @@ namespace NSharpLang.Cli
 // DUPLICATES COLLAPSE AND ORDER IS FIRST-SEEN. The deleted input contained `FEATURE_X` twice and
 // `SECOND` twice, and expected `FEATURE_X, SECOND, THIRD` — deduplicated, in the order the symbols
 // first appeared, not sorted.
-
 test "the extractor splits a value on commas and semicolons, trims it, and deduplicates" {
     extraction := DefineArgumentKernels.Extract([
         "--define",
@@ -23,7 +22,8 @@ test "the extractor splits a value on commas and semicolons, trims it, and dedup
         "-o",
         "dist",
         "-d=THIRD; SECOND",
-        "Program.nl"])
+        "Program.nl"
+    ])
 
     assert extraction.Defines.Length == 3
     assert extraction.Defines[0] == "FEATURE_X"

@@ -18,7 +18,6 @@ namespace NSharpLang.Cli.Commands
 // looped fifteen; each is named below so a failure reports WHICH case moved.
 
 // ── the forwarded arguments ───────────────────────────────────────────────────
-
 test "the forwarder drops the target and the watch-only options, and keeps the rest in order" {
     forwardedArgs := WatchCommandKernels.GetForwardedArgs([
         "test",
@@ -168,7 +167,6 @@ test "a bare .nl extension with no stem still triggers, and a non-N# path does n
     assert !WatchCommandKernels.ShouldTriggerForChangedPath("src/nested/")
     assert !WatchCommandKernels.ShouldTriggerForChangedPath("")
 }
-
 
 // ══ 021/6: THE WATCH DEFAULTS ═════════════════════════════════════════════════════════════════
 //

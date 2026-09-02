@@ -44,7 +44,6 @@ import NSharpLang.Compiler.Ast
 // `SimpleTypeReference` and `GenericTypeReference`, takes `null` without throwing, and answers
 // false for every other reference shape — including an `ArrayTypeReference` over a task-like
 // element, which is a `Task[]` and not a `Task`.
-
 func TaskFactsNoInfos(): List<TypeInfo> {
     return new List<TypeInfo>()
 }
@@ -77,7 +76,8 @@ func TaskFactsClass(name: string): ClassTypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
 }
 
 func TaskFactsStruct(name: string): StructTypeInfo {
@@ -89,7 +89,8 @@ func TaskFactsStruct(name: string): StructTypeInfo {
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func TaskFactsRecord(name: string): RecordTypeInfo {
@@ -102,7 +103,8 @@ func TaskFactsRecord(name: string): RecordTypeInfo {
         new TypeParameter[](0),
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func TaskFactsInterface(name: string): InterfaceTypeInfo {
@@ -114,7 +116,8 @@ func TaskFactsInterface(name: string): InterfaceTypeInfo {
         new TypeReference[](0),
         new TypeParameter[](0),
         new DeclaredMemberInfo[](0),
-        new NestedTypeInfo[](0))
+        new NestedTypeInfo[](0)
+    )
 }
 
 func TaskFactsUnion(name: string): UnionTypeInfo {

@@ -9,7 +9,6 @@ import NSharpLang.Compiler.Ast
 // out of `CompletionEngine.cs` with the members: the fuzzy column search and its bounds, the
 // thirteen expression shapes that can be named as a receiver and the ones that cannot, and the
 // three doors a receiver is typed through — recorded type, identifier, literal — in that order.
-
 func CrfUnit(declarations: List<Declaration>): CompilationUnit {
     return new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
 }
@@ -67,10 +66,37 @@ func CrfMember(name: string): DeclaredMemberInfo {
     typeParameters := new TypeParameter[](0)
     constraints := new GenericConstraint[](0)
     return new DeclaredMemberInfo(
-        name, "Owner", DeclaredMemberKind.Property, "member", memberType, false, false, false, true,
-        0, parameterNames, parameterTypes, parameterModifiers, 0, false, false,
-        memberType, 0, typeParameters, constraints,
-        0, false, false, false, false, "", false, false, 1, 1)
+        name,
+        "Owner",
+        DeclaredMemberKind.Property,
+        "member",
+        memberType,
+        false,
+        false,
+        false,
+        true,
+        0,
+        parameterNames,
+        parameterTypes,
+        parameterModifiers,
+        0,
+        false,
+        false,
+        memberType,
+        0,
+        typeParameters,
+        constraints,
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1
+    )
 }
 
 func CrfNoMembers(): DeclaredMemberInfo[] {

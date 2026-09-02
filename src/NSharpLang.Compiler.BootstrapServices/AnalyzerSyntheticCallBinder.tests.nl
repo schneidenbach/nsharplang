@@ -22,7 +22,6 @@ import NSharpLang.Compiler.Ast
 //   * the least upper bound tries the COMMON SUPERTYPE rule before the numeric one, so `int`/`double`
 //     answers `double` by assignability rather than by widening;
 //   * the collecting inference walk gathers ALL bounds rather than binding at the first sighting.
-
 func SyntheticContext(): AnalyzerDeclarationContext {
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
@@ -38,7 +37,8 @@ func SyntheticBinder(): AnalyzerSyntheticCallBinder {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     resolver := new AnalyzerTypeResolver(
         scopes,
@@ -47,10 +47,11 @@ func SyntheticBinder(): AnalyzerSyntheticCallBinder {
         probe,
         new AnalyzerDiagnosticSink(new List<CompilerError>(), provider),
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -66,7 +67,8 @@ func SyntheticBinder(): AnalyzerSyntheticCallBinder {
 func SyntheticSignature(
     parameterNames: List<string>,
     parameterTypes: List<TypeInfo>,
-    modifiers: List<ParameterModifier>): FunctionTypeInfo {
+    modifiers: List<ParameterModifier>
+): FunctionTypeInfo {
     signature := new FunctionTypeInfo()
     signature.SyntheticName = "f"
     signature.ParameterNames = parameterNames
@@ -112,7 +114,10 @@ func SyntheticModifiers(count: int): List<ParameterModifier> {
 // `count` plain parameters named p1..pN, all `int`.
 func SyntheticPlain(count: int): FunctionTypeInfo {
     return SyntheticSignature(
-        SyntheticNames(count), SyntheticIntTypes(count), SyntheticModifiers(count))
+        SyntheticNames(count),
+        SyntheticIntTypes(count),
+        SyntheticModifiers(count)
+    )
 }
 
 // `leading` plain `int` parameters followed by a `params int[]` tail.
@@ -213,8 +218,8 @@ func SyntheticTypeParameters(name: string): List<TypeParameter> {
     return parameters
 }
 
-func SyntheticBounds(name: string): Dictionary<string, List<TypeInfo> > {
-    bounds := new Dictionary<string, List<TypeInfo> >(StringComparer.Ordinal)
+func SyntheticBounds(name: string): Dictionary<string, List<TypeInfo>> {
+    bounds := new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
     bounds[name] = new List<TypeInfo>()
     return bounds
 }
@@ -241,7 +246,11 @@ test "positional arguments fill parameters left to right" {
     arguments.Add(SyntheticPositional("a"))
     arguments.Add(SyntheticPositional("b"))
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticPlain(3), "f", SyntheticCall(arguments), 0)
+        SyntheticPlain(3),
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
 
     assert binding.Success == false
     assert SyntheticMap(binding) == "0,1"
@@ -257,7 +266,11 @@ test "a named argument reaches its parameter wherever it is written" {
     arguments.Add(SyntheticNamed("p1", "a"))
     arguments.Add(SyntheticNamed("p2", "b"))
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticPlain(3), "f", SyntheticCall(arguments), 0)
+        SyntheticPlain(3),
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
 
     assert binding.Success
     assert SyntheticMap(binding) == "2,0,1"
@@ -272,7 +285,11 @@ test "THE POSITIONAL CURSOR SKIPS A POSITION A NAME ALREADY CLAIMED" {
     arguments.Add(SyntheticNamed("p2", "b"))
     arguments.Add(SyntheticPositional("c"))
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticPlain(3), "f", SyntheticCall(arguments), 0)
+        SyntheticPlain(3),
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
 
     assert binding.Success
     assert SyntheticMap(binding) == "0,1,2"
@@ -283,7 +300,11 @@ test "an unknown parameter name fails the bind, names itself, AND LETS THE WALK 
     arguments.Add(SyntheticNamed("nope", "a"))
     arguments.Add(SyntheticNamed("alsoNope", "b"))
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticPlain(2), "f", SyntheticCall(arguments), 0)
+        SyntheticPlain(2),
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
 
     assert binding.Success == false
     // Both unknown names reported, then BOTH parameters reported missing — four failures, in
@@ -304,7 +325,11 @@ test "the same parameter twice is a duplicate rather than a silent overwrite" {
     arguments.Add(SyntheticNamed("p1", "a"))
     arguments.Add(SyntheticNamed("p1", "b"))
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticPlain(1), "f", SyntheticCall(arguments), 0)
+        SyntheticPlain(1),
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
 
     assert binding.Success == false
     assert binding.Failures.Count == 1
@@ -318,13 +343,16 @@ test "an extra positional argument with no params tail is an overflow failure" {
     arguments.Add(SyntheticPositional("a"))
     arguments.Add(SyntheticPositional("b"))
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticPlain(1), "f", SyntheticCall(arguments), 0)
+        SyntheticPlain(1),
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
 
     assert binding.Success == false
     assert binding.Failures.Count == 1
     assert binding.Failures[0].ArgumentIndex == 1
-    assert binding.Failures[0].Message
-        == "'f' got more positional arguments than its signature accepts"
+    assert binding.Failures[0].Message == "'f' got more positional arguments than its signature accepts"
 }
 
 test "every overflow argument falls into the params tail, and the tail counts as bound" {
@@ -334,7 +362,11 @@ test "every overflow argument falls into the params tail, and the tail counts as
     arguments.Add(SyntheticPositional("c"))
     arguments.Add(SyntheticPositional("d"))
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticParams(1), "f", SyntheticCall(arguments), 0)
+        SyntheticParams(1),
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
 
     assert binding.Success
     assert SyntheticMap(binding) == "0,1,1,1"
@@ -349,14 +381,22 @@ test "AN EMPTY PARAMS TAIL IS NOT SPECIAL-CASED — THE REQUIRED COUNT IS THE ON
     arguments := SyntheticArgs()
     arguments.Add(SyntheticPositional("a"))
     strict := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticParams(1), "f", SyntheticCall(arguments), 0)
+        SyntheticParams(1),
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
     assert strict.Success == false
     assert strict.Failures.Count == 1
     assert strict.Failures[0].ParameterIndex == 1
 
     declared := SyntheticRequire(SyntheticParams(1), 1)
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        declared, "f", SyntheticCall(arguments), 0)
+        declared,
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
     assert binding.Success
     assert SyntheticMap(binding) == "0"
 }
@@ -366,7 +406,11 @@ test "an optional parameter is not required, and a required one that is missing 
     arguments := SyntheticArgs()
     arguments.Add(SyntheticPositional("a"))
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        signature, "f", SyntheticCall(arguments), 0)
+        signature,
+        "f",
+        SyntheticCall(arguments),
+        0
+    )
 
     assert binding.Success == false
     // p2 is required and missing; p3 is optional and is NOT reported.
@@ -381,7 +425,11 @@ test "a signature with no recorded names still names the position it wanted" {
     signature.ParameterTypes = SyntheticIntTypes(2)
     signature.ParameterModifiers = SyntheticModifiers(2)
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        signature, "f", SyntheticCall(SyntheticArgs()), 0)
+        signature,
+        "f",
+        SyntheticCall(SyntheticArgs()),
+        0
+    )
 
     assert binding.Success == false
     assert binding.Failures.Count == 2
@@ -395,7 +443,11 @@ test "A RECEIVER-SUPPLIED PARAMETER MAY NOT BE NAMED, AND IS NOT REQUIRED" {
     arguments := SyntheticArgs()
     arguments.Add(SyntheticNamed("p1", "a"))
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticPlain(2), "f", SyntheticMemberCall(arguments), 1)
+        SyntheticPlain(2),
+        "f",
+        SyntheticMemberCall(arguments),
+        1
+    )
 
     assert binding.Success == false
     assert binding.Failures.Count == 2
@@ -405,14 +457,22 @@ test "A RECEIVER-SUPPLIED PARAMETER MAY NOT BE NAMED, AND IS NOT REQUIRED" {
     reachable := SyntheticArgs()
     reachable.Add(SyntheticPositional("b"))
     good := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticPlain(2), "f", SyntheticMemberCall(reachable), 1)
+        SyntheticPlain(2),
+        "f",
+        SyntheticMemberCall(reachable),
+        1
+    )
     assert good.Success
     assert SyntheticMap(good) == "1"
 }
 
 test "a receiver offset past the end of the signature is clamped rather than trusted" {
     binding := AnalyzerSyntheticCallFacts.BindFunctionArguments(
-        SyntheticPlain(1), "f", SyntheticCall(SyntheticArgs()), 9)
+        SyntheticPlain(1),
+        "f",
+        SyntheticCall(SyntheticArgs()),
+        9
+    )
 
     assert binding.Success
     assert binding.Failures.Count == 0
@@ -422,16 +482,26 @@ test "the call target's name is the declaration's, then the written one, then th
     named := new FunctionTypeInfo()
     named.SyntheticName = "declared"
     assert AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(
-        named, SyntheticCall(SyntheticArgs())) == "declared"
+        named,
+        SyntheticCall(SyntheticArgs())
+    ) == "declared"
 
     anonymous := new FunctionTypeInfo()
     assert AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(
-        anonymous, SyntheticCall(SyntheticArgs())) == "f"
+        anonymous,
+        SyntheticCall(SyntheticArgs())
+    ) == "f"
     assert AnalyzerSyntheticCallFacts.GetCallTargetName(
-        SyntheticMemberCall(SyntheticArgs())) == "f"
+        SyntheticMemberCall(SyntheticArgs())
+    ) == "f"
 
     indexedCallee: Expression = new IndexAccessExpression(
-        SyntheticIdentifier("table"), SyntheticIdentifier("i"), false, 1, 1)
+        SyntheticIdentifier("table"),
+        SyntheticIdentifier("i"),
+        false,
+        1,
+        1
+    )
     unnamed := new CallExpression(indexedCallee, SyntheticArgs(), null, 1, 1)
     assert AnalyzerSyntheticCallFacts.GetCallTargetName(unnamed) == null
     assert AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(anonymous, unnamed) == "function"
@@ -454,7 +524,10 @@ test "the generic cost counts the arguments that landed on a BARE type-parameter
     argTypes := SyntheticTypeList2(BuiltInTypes.String, BuiltInTypes.Int)
 
     assert AnalyzerSyntheticCallFacts.GetGenericParameterCost(
-        signature, SyntheticCall(arguments), argTypes) == 1
+        signature,
+        SyntheticCall(arguments),
+        argTypes
+    ) == 1
 }
 
 test "a written type costs nothing, and a signature with no type parameters costs nothing" {
@@ -468,11 +541,17 @@ test "a written type costs nothing, and a signature with no type parameters cost
     argTypes := SyntheticTypeList(BuiltInTypes.Int)
     // No TypeParameters at all.
     assert AnalyzerSyntheticCallFacts.GetGenericParameterCost(
-        signature, SyntheticCall(arguments), argTypes) == 0
+        signature,
+        SyntheticCall(arguments),
+        argTypes
+    ) == 0
 
     signature.TypeParameters = SyntheticTypeParameters("T")
     assert AnalyzerSyntheticCallFacts.GetGenericParameterCost(
-        signature, SyntheticCall(arguments), argTypes) == 0
+        signature,
+        SyntheticCall(arguments),
+        argTypes
+    ) == 0
 }
 
 test "THE PARAMS TAIL IS COSTED THROUGH ITS ELEMENT, once per element argument" {
@@ -495,7 +574,10 @@ test "THE PARAMS TAIL IS COSTED THROUGH ITS ELEMENT, once per element argument" 
     argTypes.Add(BuiltInTypes.Int)
 
     assert AnalyzerSyntheticCallFacts.GetGenericParameterCost(
-        signature, SyntheticCall(arguments), argTypes) == 3
+        signature,
+        SyntheticCall(arguments),
+        argTypes
+    ) == 3
 }
 
 test "a call whose arguments do not even place has no cost" {
@@ -510,7 +592,10 @@ test "a call whose arguments do not even place has no cost" {
     argTypes := SyntheticTypeList(BuiltInTypes.Int)
 
     assert AnalyzerSyntheticCallFacts.GetGenericParameterCost(
-        signature, SyntheticCall(arguments), argTypes) == 0
+        signature,
+        SyntheticCall(arguments),
+        argTypes
+    ) == 0
 }
 
 // ------------------------------------------------------------------ closing a signature
@@ -522,14 +607,17 @@ test "a bound type-parameter NAME is substituted at the leaves, in both represen
     external: TypeInfo = new ExternalTypeInfo("T")
     simple: TypeInfo = new SimpleTypeInfo("T")
     assert SyntheticTypeName(
-        AnalyzerSyntheticCallFacts.ApplyGenericBindings(external, bindings)) == "string"
+        AnalyzerSyntheticCallFacts.ApplyGenericBindings(external, bindings)
+    ) == "string"
     assert SyntheticTypeName(
-        AnalyzerSyntheticCallFacts.ApplyGenericBindings(simple, bindings)) == "string"
+        AnalyzerSyntheticCallFacts.ApplyGenericBindings(simple, bindings)
+    ) == "string"
 
     // An UNBOUND name is left alone rather than replaced with a hole.
     unbound: TypeInfo = new SimpleTypeInfo("U")
     assert SyntheticTypeName(
-        AnalyzerSyntheticCallFacts.ApplyGenericBindings(unbound, bindings)) == "U"
+        AnalyzerSyntheticCallFacts.ApplyGenericBindings(unbound, bindings)
+    ) == "U"
 }
 
 test "substitution rebuilds every composite shell above the leaf" {
@@ -539,51 +627,62 @@ test "substitution rebuilds every composite shell above the leaf" {
     leaf: TypeInfo = new SimpleTypeInfo("T")
     arrayOfT: TypeInfo = new ArrayTypeInfo(leaf)
     assert SyntheticTypeName(
-        AnalyzerSyntheticCallFacts.ApplyGenericBindings(arrayOfT, bindings)) == "int[]"
+        AnalyzerSyntheticCallFacts.ApplyGenericBindings(arrayOfT, bindings)
+    ) == "int[]"
 
     nullableOfT: TypeInfo = new NullableTypeInfo(leaf)
     assert SyntheticTypeName(
-        AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableOfT, bindings)) == "int?"
+        AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableOfT, bindings)
+    ) == "int?"
 
     obliviousOfT: TypeInfo = new ObliviousTypeInfo(leaf)
     assert SyntheticTypeName(
-        AnalyzerSyntheticCallFacts.ApplyGenericBindings(obliviousOfT, bindings)) == "int!"
+        AnalyzerSyntheticCallFacts.ApplyGenericBindings(obliviousOfT, bindings)
+    ) == "int!"
 
     genericArguments := new List<TypeInfo>()
     genericArguments.Add(leaf)
     listOfT: TypeInfo = new GenericTypeInfo("List", genericArguments)
     assert SyntheticTypeName(
-        AnalyzerSyntheticCallFacts.ApplyGenericBindings(listOfT, bindings)) == "List<int>"
+        AnalyzerSyntheticCallFacts.ApplyGenericBindings(listOfT, bindings)
+    ) == "List<int>"
 }
 
 test "no bindings leaves the type exactly as it was" {
     empty := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
     candidate: TypeInfo = new SimpleTypeInfo("T")
     assert SyntheticTypeName(
-        AnalyzerSyntheticCallFacts.ApplyGenericBindings(candidate, empty)) == "T"
+        AnalyzerSyntheticCallFacts.ApplyGenericBindings(candidate, empty)
+    ) == "T"
     assert SyntheticTypeName(
-        AnalyzerSyntheticCallFacts.ApplyGenericBindings(candidate, null)) == "T"
+        AnalyzerSyntheticCallFacts.ApplyGenericBindings(candidate, null)
+    ) == "T"
 }
 
 // ------------------------------------------------------------------ the least upper bound
 
 test "the numeric widening order admits both spellings and refuses a mixed list" {
     assert SyntheticTypeName(AnalyzerSyntheticCallFacts.TryComputeNumericLub(
-        SyntheticTypeList2(BuiltInTypes.Byte, BuiltInTypes.Long))) == "long"
+        SyntheticTypeList2(BuiltInTypes.Byte, BuiltInTypes.Long)
+    )) == "long"
     assert SyntheticTypeName(AnalyzerSyntheticCallFacts.TryComputeNumericLub(
-        SyntheticTypeList2(BuiltInTypes.Float, BuiltInTypes.Decimal))) == "decimal"
+        SyntheticTypeList2(BuiltInTypes.Float, BuiltInTypes.Decimal)
+    )) == "decimal"
     assert SyntheticTypeName(AnalyzerSyntheticCallFacts.TryComputeNumericLub(
-        SyntheticTypeList2(BuiltInTypes.Short, BuiltInTypes.Double))) == "double"
+        SyntheticTypeList2(BuiltInTypes.Short, BuiltInTypes.Double)
+    )) == "double"
 
     // The CLR spelling reads the same as the keyword — one bound may be written in source and
     // another read from metadata for the same type parameter.
     clrInt: TypeInfo = new SimpleTypeInfo("System.Int32")
     assert SyntheticTypeName(AnalyzerSyntheticCallFacts.TryComputeNumericLub(
-        SyntheticTypeList2(clrInt, BuiltInTypes.Byte))) == "int"
+        SyntheticTypeList2(clrInt, BuiltInTypes.Byte)
+    )) == "int"
 
     // ONE non-numeric member answers null for the WHOLE list rather than a partial answer.
     assert AnalyzerSyntheticCallFacts.TryComputeNumericLub(
-        SyntheticTypeList2(BuiltInTypes.Int, BuiltInTypes.String)) == null
+        SyntheticTypeList2(BuiltInTypes.Int, BuiltInTypes.String)
+    ) == null
 }
 
 test "the least upper bound is object, the single bound, then a common supertype" {
@@ -591,18 +690,22 @@ test "the least upper bound is object, the single bound, then a common supertype
 
     assert SyntheticTypeName(binder.ComputeLeastUpperBound(new List<TypeInfo>())) == "object"
     assert SyntheticTypeName(
-        binder.ComputeLeastUpperBound(SyntheticTypeList(BuiltInTypes.String))) == "string"
+        binder.ComputeLeastUpperBound(SyntheticTypeList(BuiltInTypes.String))
+    ) == "string"
     assert SyntheticTypeName(binder.ComputeLeastUpperBound(
-        SyntheticTypeList2(BuiltInTypes.Int, BuiltInTypes.Int))) == "int"
+        SyntheticTypeList2(BuiltInTypes.Int, BuiltInTypes.Int)
+    )) == "int"
 
     // THE COMMON-SUPERTYPE RULE RUNS BEFORE THE NUMERIC ONE: `int`/`double` answers `double`
     // because `int` converts to it, not because the widening table says so.
     assert SyntheticTypeName(binder.ComputeLeastUpperBound(
-        SyntheticTypeList2(BuiltInTypes.Int, BuiltInTypes.Double))) == "double"
+        SyntheticTypeList2(BuiltInTypes.Int, BuiltInTypes.Double)
+    )) == "double"
 
     // Nothing in common is `object` — the conservative answer, deliberately not a failure.
     assert SyntheticTypeName(binder.ComputeLeastUpperBound(
-        SyntheticTypeList2(BuiltInTypes.String, BuiltInTypes.Bool))) == "object"
+        SyntheticTypeList2(BuiltInTypes.String, BuiltInTypes.Bool)
+    )) == "object"
 }
 
 // ------------------------------------------------------------------ the argument comparison
@@ -615,7 +718,15 @@ test "an ordinary position compares the parameter's type against the argument's"
     arguments.Add(SyntheticPositional("b"))
 
     comparison := binder.GetArgumentComparisonTypes(
-        SyntheticPlain(2), SyntheticCall(arguments), argTypes, 1, 1, -1, 0, null)
+        SyntheticPlain(2),
+        SyntheticCall(arguments),
+        argTypes,
+        1,
+        1,
+        -1,
+        0,
+        null
+    )
 
     assert comparison.Matched
     assert SyntheticTypeName(comparison.ExpectedType) == "int"
@@ -629,7 +740,15 @@ test "a position outside the signature does not match at all" {
     arguments.Add(SyntheticPositional("a"))
 
     comparison := binder.GetArgumentComparisonTypes(
-        SyntheticPlain(1), SyntheticCall(arguments), argTypes, 0, 7, -1, 0, null)
+        SyntheticPlain(1),
+        SyntheticCall(arguments),
+        argTypes,
+        0,
+        7,
+        -1,
+        0,
+        null
+    )
 
     assert comparison.Matched == false
 }
@@ -644,7 +763,15 @@ test "A DIRECT PARAMS ARRAY IS COMPARED WHOLE, AN EXPANDED TAIL ELEMENT BY ELEME
     arrayType: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
     directTypes := SyntheticTypeList(arrayType)
     direct := binder.GetArgumentComparisonTypes(
-        signature, SyntheticCall(directArguments), directTypes, 0, 0, 0, 0, null)
+        signature,
+        SyntheticCall(directArguments),
+        directTypes,
+        0,
+        0,
+        0,
+        0,
+        null
+    )
     assert direct.Matched
     assert SyntheticTypeName(direct.ExpectedType) == "int[]"
     assert SyntheticTypeName(direct.ArgumentType) == "int[]"
@@ -655,7 +782,15 @@ test "A DIRECT PARAMS ARRAY IS COMPARED WHOLE, AN EXPANDED TAIL ELEMENT BY ELEME
     expandedArguments.Add(SyntheticPositional("b"))
     expandedTypes := SyntheticTypeList2(BuiltInTypes.Int, BuiltInTypes.Int)
     expanded := binder.GetArgumentComparisonTypes(
-        signature, SyntheticCall(expandedArguments), expandedTypes, 0, 0, 0, 0, null)
+        signature,
+        SyntheticCall(expandedArguments),
+        expandedTypes,
+        0,
+        0,
+        0,
+        0,
+        null
+    )
     assert expanded.Matched
     assert SyntheticTypeName(expanded.ExpectedType) == "int"
     assert SyntheticTypeName(expanded.ArgumentType) == "int"
@@ -669,7 +804,15 @@ test "a spread compares element to element, and an unknown spread carries no inf
     spreadArguments.Add(SyntheticSpread("xs"))
     longArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Long)
     spread := binder.GetArgumentComparisonTypes(
-        signature, SyntheticCall(spreadArguments), SyntheticTypeList(longArray), 0, 0, 0, 0, null)
+        signature,
+        SyntheticCall(spreadArguments),
+        SyntheticTypeList(longArray),
+        0,
+        0,
+        0,
+        0,
+        null
+    )
     assert spread.Matched
     assert SyntheticTypeName(spread.ExpectedType) == "int"
     assert SyntheticTypeName(spread.ArgumentType) == "long"
@@ -678,7 +821,15 @@ test "a spread compares element to element, and an unknown spread carries no inf
     // candidate survives instead of being eliminated by an error-recovery type.
     unknownType: TypeInfo = BuiltInTypes.Unknown
     unknown := binder.GetArgumentComparisonTypes(
-        signature, SyntheticCall(spreadArguments), SyntheticTypeList(unknownType), 0, 0, 0, 0, null)
+        signature,
+        SyntheticCall(spreadArguments),
+        SyntheticTypeList(unknownType),
+        0,
+        0,
+        0,
+        0,
+        null
+    )
     assert unknown.Matched
     assert unknown.ExpectedType == null
     assert unknown.ArgumentType == null
@@ -697,7 +848,15 @@ test "a params parameter that is not an array describes nothing and is SKIPPED, 
     arguments := SyntheticArgs()
     arguments.Add(SyntheticPositional("a"))
     comparison := binder.GetArgumentComparisonTypes(
-        signature, SyntheticCall(arguments), SyntheticTypeList(BuiltInTypes.Int), 0, 0, 0, 0, null)
+        signature,
+        SyntheticCall(arguments),
+        SyntheticTypeList(BuiltInTypes.Int),
+        0,
+        0,
+        0,
+        0,
+        null
+    )
 
     assert comparison.Matched
     assert comparison.ExpectedType == null
@@ -710,7 +869,10 @@ test "the comparison closes the parameter type with the inferred bindings first"
     types := new List<TypeInfo>()
     types.Add(openParameter)
     signature := SyntheticSignature(
-        SyntheticNames(1), types, SyntheticModifiers(1))
+        SyntheticNames(1),
+        types,
+        SyntheticModifiers(1)
+    )
 
     bindings := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
     bindings["T"] = BuiltInTypes.String
@@ -718,7 +880,15 @@ test "the comparison closes the parameter type with the inferred bindings first"
     arguments := SyntheticArgs()
     arguments.Add(SyntheticPositional("a"))
     comparison := binder.GetArgumentComparisonTypes(
-        signature, SyntheticCall(arguments), SyntheticTypeList(BuiltInTypes.String), 0, 0, -1, 0, bindings)
+        signature,
+        SyntheticCall(arguments),
+        SyntheticTypeList(BuiltInTypes.String),
+        0,
+        0,
+        -1,
+        0,
+        bindings
+    )
 
     assert comparison.Matched
     assert SyntheticTypeName(comparison.ExpectedType) == "string"

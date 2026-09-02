@@ -18,7 +18,6 @@ import NSharpLang.Compiler.Ast
 // EXHAUSTIVENESS IS AN AST WRITE, so every contract that expects coverage asserts
 // `IsExhaustive` rather than merely "no diagnostic": a walk that silently declined to decide would
 // pass the second check and fail the first.
-
 class MatchExhaustivenessHarness {
     Exhaustiveness: AnalyzerMatchExhaustiveness
     Errors: List<CompilerError>
@@ -29,7 +28,8 @@ class MatchExhaustivenessHarness {
         exhaustiveness: AnalyzerMatchExhaustiveness,
         errors: List<CompilerError>,
         scopes: AnalyzerScopeStack,
-        context: AnalyzerDeclarationContext) {
+        context: AnalyzerDeclarationContext
+    ) {
         Exhaustiveness = exhaustiveness
         Errors = errors
         Scopes = scopes
@@ -47,7 +47,8 @@ func MatchExhaustivenessDefault(): MatchExhaustivenessHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -58,10 +59,11 @@ func MatchExhaustivenessDefault(): MatchExhaustivenessHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -73,7 +75,8 @@ func MatchExhaustivenessDefault(): MatchExhaustivenessHarness {
         new AnalyzerMatchExhaustiveness(diagnostics, substitution, assignability, resolver),
         errors,
         scopes,
-        context)
+        context
+    )
 }
 
 func MatchArmBody(): Expression {
@@ -195,7 +198,8 @@ test "a union covered by unguarded case arms is exhaustive and silent" {
     unionType := MatchUnionOf("Shape", MatchCaseList2(MatchUnionCase("Circle"), MatchUnionCase("Square")))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(MatchCasePattern("Shape.Circle", null)),
-        MatchArm(MatchCasePattern("Shape.Square", null))))
+        MatchArm(MatchCasePattern("Shape.Square", null))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, unionType)
 
@@ -208,7 +212,10 @@ test "a union missing one case reports it, in DECLARATION order" {
     // order the union declares them rather than the order the arms happen to appear.
     harness := MatchExhaustivenessDefault()
     unionType := MatchUnionOf("Shape", MatchCaseList3(
-        MatchUnionCase("Circle"), MatchUnionCase("Square"), MatchUnionCase("Tri")))
+        MatchUnionCase("Circle"),
+        MatchUnionCase("Square"),
+        MatchUnionCase("Tri")
+    ))
     matchExpression := MatchOf(MatchArms1(MatchArm(MatchCasePattern("Shape.Square", null))))
 
     harness.Exhaustiveness.Check(matchExpression, unionType)
@@ -226,7 +233,8 @@ test "an unguarded wildcard makes a union exhaustive and stops the walk" {
     unionType := MatchUnionOf("Shape", MatchCaseList2(MatchUnionCase("Circle"), MatchUnionCase("Square")))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(MatchIdent("_")),
-        MatchArm(MatchCasePattern("Other.Nonsense", null))))
+        MatchArm(MatchCasePattern("Other.Nonsense", null))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, unionType)
 
@@ -277,7 +285,8 @@ test "a GUARDED arm never covers — not even a guarded wildcard" {
     unionType := MatchUnionOf("Shape", MatchCaseList2(MatchUnionCase("Circle"), MatchUnionCase("Square")))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(MatchCasePattern("Shape.Circle", null)),
-        MatchGuardedArm(MatchIdent("_"))))
+        MatchGuardedArm(MatchIdent("_"))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, unionType)
 
@@ -290,7 +299,8 @@ test "a qualified identifier arm covers its case without a property list" {
     unionType := MatchUnionOf("Shape", MatchCaseList2(MatchUnionCase("Circle"), MatchUnionCase("Square")))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(MatchIdent("Shape.Circle")),
-        MatchArm(MatchIdent("Shape.Square"))))
+        MatchArm(MatchIdent("Shape.Square"))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, unionType)
 
@@ -306,7 +316,8 @@ test "an arm qualified by a FOREIGN type covers nothing" {
     unionType := MatchUnionOf("Shape", MatchCaseList2(MatchUnionCase("Circle"), MatchUnionCase("Square")))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(MatchIdent("Other.Circle")),
-        MatchArm(MatchCasePattern("Shape.Square", null))))
+        MatchArm(MatchCasePattern("Shape.Square", null))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, unionType)
 
@@ -324,16 +335,17 @@ test "a constrained arm partially covers its case and names the missing nested a
 
     outcome := MatchUnionOf("Outcome", MatchCaseList2(
         MatchUnionCase("Ok"),
-        MatchUnionCaseWith("Bad", "kind", "Kind")))
+        MatchUnionCaseWith("Bad", "kind", "Kind")
+    ))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(MatchCasePattern("Outcome.Ok", null)),
-        MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("Kind.Io"))))))
+        MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("Kind.Io"))))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, outcome)
 
     assert !matchExpression.IsExhaustive
-    assert MatchOnlyMessage(harness.Errors)
-        == "This match doesn't cover all cases — partially covered: Bad (missing nested arm: Outcome.Bad { kind: Kind.Parse }). add 'Outcome.Bad { kind: Kind.Parse }', an unconstrained 'Outcome.Bad' arm, or a wildcard '_' arm."
+    assert MatchOnlyMessage(harness.Errors) == "This match doesn't cover all cases — partially covered: Bad (missing nested arm: Outcome.Bad { kind: Kind.Parse }). add 'Outcome.Bad { kind: Kind.Parse }', an unconstrained 'Outcome.Bad' arm, or a wildcard '_' arm."
 }
 
 test "constrained arms that between them cover every nested case DO cover the outer case" {
@@ -345,11 +357,13 @@ test "constrained arms that between them cover every nested case DO cover the ou
 
     outcome := MatchUnionOf("Outcome", MatchCaseList2(
         MatchUnionCase("Ok"),
-        MatchUnionCaseWith("Bad", "kind", "Kind")))
+        MatchUnionCaseWith("Bad", "kind", "Kind")
+    ))
     matchExpression := MatchOf(MatchArms3(
         MatchArm(MatchCasePattern("Outcome.Ok", null)),
         MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("Kind.Io")))),
-        MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("Kind.Parse"))))))
+        MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("Kind.Parse"))))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, outcome)
 
@@ -365,16 +379,17 @@ test "a never-covered case and a partially covered one compose ONE message, miss
     outcome := MatchUnionOf("Outcome", MatchCaseList3(
         MatchUnionCase("Ok"),
         MatchUnionCaseWith("Bad", "kind", "Kind"),
-        MatchUnionCase("Skipped")))
+        MatchUnionCase("Skipped")
+    ))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(MatchCasePattern("Outcome.Ok", null)),
-        MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("Kind.Io"))))))
+        MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("Kind.Io"))))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, outcome)
 
     assert !matchExpression.IsExhaustive
-    assert MatchOnlyMessage(harness.Errors)
-        == "This match doesn't cover all cases — missing: Skipped; partially covered: Bad (missing nested arm: Outcome.Bad { kind: Kind.Parse }). add 'Outcome.Bad { kind: Kind.Parse }', an unconstrained 'Outcome.Bad' arm, or a wildcard '_' arm."
+    assert MatchOnlyMessage(harness.Errors) == "This match doesn't cover all cases — missing: Skipped; partially covered: Bad (missing nested arm: Outcome.Bad { kind: Kind.Parse }). add 'Outcome.Bad { kind: Kind.Parse }', an unconstrained 'Outcome.Bad' arm, or a wildcard '_' arm."
 }
 
 test "a total arm anywhere in the group settles the case, whatever the constrained ones say" {
@@ -384,11 +399,13 @@ test "a total arm anywhere in the group settles the case, whatever the constrain
 
     outcome := MatchUnionOf("Outcome", MatchCaseList2(
         MatchUnionCase("Ok"),
-        MatchUnionCaseWith("Bad", "kind", "Kind")))
+        MatchUnionCaseWith("Bad", "kind", "Kind")
+    ))
     matchExpression := MatchOf(MatchArms3(
         MatchArm(MatchCasePattern("Outcome.Ok", null)),
         MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("Kind.Io")))),
-        MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("k"))))))
+        MatchArm(MatchCasePattern("Outcome.Bad", MatchPropertyList("kind", MatchIdent("k"))))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, outcome)
 
@@ -408,7 +425,13 @@ test "a GENERIC union instantiation resolves to its definition and is asked the 
         "Box",
         MatchTypeArguments(BuiltInTypes.Int),
         new UnionTypeInfo(new UnionDeclarationInfo(
-            "Box", parameters, MatchCaseList2(MatchUnionCase("Full"), MatchUnionCase("Empty")), 1, 1)))
+            "Box",
+            parameters,
+            MatchCaseList2(MatchUnionCase("Full"), MatchUnionCase("Empty")),
+            1,
+            1
+        ))
+    )
 
     matchExpression := MatchOf(MatchArms1(MatchArm(MatchCasePattern("Box.Full", null))))
 
@@ -429,7 +452,13 @@ test "a generic instantiation whose ARGUMENT COUNT disagrees is not a union at a
         "Box",
         MatchTypeArguments2(BuiltInTypes.Int, BuiltInTypes.String),
         new UnionTypeInfo(new UnionDeclarationInfo(
-            "Box", parameters, MatchCaseList2(MatchUnionCase("Full"), MatchUnionCase("Empty")), 1, 1)))
+            "Box",
+            parameters,
+            MatchCaseList2(MatchUnionCase("Full"), MatchUnionCase("Empty")),
+            1,
+            1
+        ))
+    )
 
     matchExpression := MatchOf(MatchArms1(MatchArm(MatchIdent("anything"))))
 
@@ -442,14 +471,15 @@ test "a generic instantiation whose ARGUMENT COUNT disagrees is not a union at a
 test "an enum is covered by qualified member names and reports the rest in declaration order" {
     harness := MatchExhaustivenessDefault()
     enumType := MatchEnumOf("Status", MatchEnumMembers2(
-        MatchIntMember("Pending", "0"), MatchIntMember("Active", "1")))
+        MatchIntMember("Pending", "0"),
+        MatchIntMember("Active", "1")
+    ))
     matchExpression := MatchOf(MatchArms1(MatchArm(MatchIdent("Status.Active"))))
 
     harness.Exhaustiveness.Check(matchExpression, enumType)
 
     assert !matchExpression.IsExhaustive
-    assert MatchOnlyMessage(harness.Errors)
-        == "This match doesn't cover all enum members — missing: Pending"
+    assert MatchOnlyMessage(harness.Errors) == "This match doesn't cover all enum members — missing: Pending"
 }
 
 test "an enum member qualified by a FOREIGN type covers nothing" {
@@ -457,16 +487,18 @@ test "an enum member qualified by a FOREIGN type covers nothing" {
     // question's three-way lenient match. The asymmetry is deliberate and this pins it.
     harness := MatchExhaustivenessDefault()
     enumType := MatchEnumOf("Status", MatchEnumMembers2(
-        MatchIntMember("Pending", "0"), MatchIntMember("Active", "1")))
+        MatchIntMember("Pending", "0"),
+        MatchIntMember("Active", "1")
+    ))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(MatchIdent("Status.Pending")),
-        MatchArm(MatchIdent("Other.Active"))))
+        MatchArm(MatchIdent("Other.Active"))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, enumType)
 
     assert !matchExpression.IsExhaustive
-    assert MatchOnlyMessage(harness.Errors)
-        == "This match doesn't cover all enum members — missing: Active"
+    assert MatchOnlyMessage(harness.Errors) == "This match doesn't cover all enum members — missing: Active"
 }
 
 test "an enum is covered by LITERALS in its declared value kind, and only that kind" {
@@ -474,25 +506,30 @@ test "an enum is covered by LITERALS in its declared value kind, and only that k
     // same text is a different kind and covers nothing.
     harness := MatchExhaustivenessDefault()
     enumType := MatchEnumOf("Status", MatchEnumMembers2(
-        MatchIntMember("Pending", "0"), MatchIntMember("Active", "1")))
+        MatchIntMember("Pending", "0"),
+        MatchIntMember("Active", "1")
+    ))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(new LiteralPattern(new IntLiteralExpression("0", 1, 1), 1, 1)),
-        MatchArm(new LiteralPattern(new StringLiteralExpression("1", 1, 1), 1, 1))))
+        MatchArm(new LiteralPattern(new StringLiteralExpression("1", 1, 1), 1, 1))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, enumType)
 
     assert !matchExpression.IsExhaustive
-    assert MatchOnlyMessage(harness.Errors)
-        == "This match doesn't cover all enum members — missing: Active"
+    assert MatchOnlyMessage(harness.Errors) == "This match doesn't cover all enum members — missing: Active"
 }
 
 test "a STRING enum is covered by string literals equal to its declared text" {
     harness := MatchExhaustivenessDefault()
     enumType := MatchEnumOf("Status", MatchEnumMembers2(
-        MatchStringMember("Pending", "pending"), MatchStringMember("Active", "active")))
+        MatchStringMember("Pending", "pending"),
+        MatchStringMember("Active", "active")
+    ))
     matchExpression := MatchOf(MatchArms2(
         MatchArm(new LiteralPattern(new StringLiteralExpression("pending", 1, 1), 1, 1)),
-        MatchArm(new LiteralPattern(new StringLiteralExpression("active", 1, 1), 1, 1))))
+        MatchArm(new LiteralPattern(new StringLiteralExpression("active", 1, 1), 1, 1))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, enumType)
 
@@ -503,7 +540,9 @@ test "a STRING enum is covered by string literals equal to its declared text" {
 test "an enum catch-all binding covers everything, an enum wildcard too" {
     harness := MatchExhaustivenessDefault()
     enumType := MatchEnumOf("Status", MatchEnumMembers2(
-        MatchIntMember("Pending", "0"), MatchIntMember("Active", "1")))
+        MatchIntMember("Pending", "0"),
+        MatchIntMember("Active", "1")
+    ))
 
     binding := MatchOf(MatchArms1(MatchArm(MatchIdent("other"))))
     harness.Exhaustiveness.Check(binding, enumType)
@@ -522,7 +561,9 @@ test "the ENUM walk answers `_` and a binding through ONE branch too, and not a 
     // member name must still be measured member-by-member rather than read as a catch-all.
     harness := MatchExhaustivenessDefault()
     enumType := MatchEnumOf("Status", MatchEnumMembers2(
-        MatchIntMember("Pending", "0"), MatchIntMember("Active", "1")))
+        MatchIntMember("Pending", "0"),
+        MatchIntMember("Active", "1")
+    ))
 
     wildcard := MatchOf(MatchArms1(MatchArm(MatchIdent("_"))))
     harness.Exhaustiveness.Check(wildcard, enumType)
@@ -536,8 +577,7 @@ test "the ENUM walk answers `_` and a binding through ONE branch too, and not a 
     dotted := MatchOf(MatchArms1(MatchArm(MatchIdent("Status.Pending"))))
     harness.Exhaustiveness.Check(dotted, enumType)
     assert !dotted.IsExhaustive
-    assert MatchOnlyMessage(harness.Errors)
-        == "This match doesn't cover all enum members — missing: Active"
+    assert MatchOnlyMessage(harness.Errors) == "This match doesn't cover all enum members — missing: Active"
 }
 
 test "a NULLABLE match needs both the absent and the present arm — the corpus reaches neither" {
@@ -549,22 +589,21 @@ test "a NULLABLE match needs both the absent and the present arm — the corpus 
     presentOnly := MatchOf(MatchArms1(MatchArm(MatchIdent("value"))))
     harness.Exhaustiveness.Check(presentOnly, nullableType)
     assert !presentOnly.IsExhaustive
-    assert harness.Errors[0].Message
-        == "This nullable match doesn't cover null — handle both 'null' and a non-null value arm"
+    assert harness.Errors[0].Message == "This nullable match doesn't cover null — handle both 'null' and a non-null value arm"
 
     nullOnly := MatchOf(MatchArms1(
-        MatchArm(new LiteralPattern(new NullLiteralExpression(1, 1), 1, 1))))
+        MatchArm(new LiteralPattern(new NullLiteralExpression(1, 1), 1, 1))
+    ))
     harness.Exhaustiveness.Check(nullOnly, nullableType)
     assert !nullOnly.IsExhaustive
-    assert harness.Errors[1].Message
-        == "This nullable match doesn't cover present string — handle both 'null' and a non-null value arm"
+    assert harness.Errors[1].Message == "This nullable match doesn't cover present string — handle both 'null' and a non-null value arm"
 
     neither := MatchOf(MatchArms1(
-        MatchArm(new LiteralPattern(new StringLiteralExpression("x", 1, 1), 1, 1))))
+        MatchArm(new LiteralPattern(new StringLiteralExpression("x", 1, 1), 1, 1))
+    ))
     harness.Exhaustiveness.Check(neither, nullableType)
     assert !neither.IsExhaustive
-    assert harness.Errors[2].Message
-        == "This nullable match doesn't cover null and present string — handle both 'null' and a non-null value arm"
+    assert harness.Errors[2].Message == "This nullable match doesn't cover null and present string — handle both 'null' and a non-null value arm"
 
     assert harness.Errors.Count == 3
 }
@@ -576,23 +615,31 @@ test "the PRESENT half of a nullable is covered by four pattern kinds, not only 
     nullableType := new NullableTypeInfo(BuiltInTypes.String)
     nullArm := MatchArm(new LiteralPattern(new NullLiteralExpression(1, 1), 1, 1))
 
-    typeTest := MatchOf(MatchArms2(nullArm,
-        MatchArm(new TypePattern(new SimpleTypeReference("string", 1, 1), "s", 1, 1))))
+    typeTest := MatchOf(MatchArms2(
+        nullArm,
+        MatchArm(new TypePattern(new SimpleTypeReference("string", 1, 1), "s", 1, 1))
+    ))
     harness.Exhaustiveness.Check(typeTest, nullableType)
     assert typeTest.IsExhaustive
 
-    objectShape := MatchOf(MatchArms2(nullArm,
-        MatchArm(new ObjectPattern(new List<PropertyPattern>(), 1, 1))))
+    objectShape := MatchOf(MatchArms2(
+        nullArm,
+        MatchArm(new ObjectPattern(new List<PropertyPattern>(), 1, 1))
+    ))
     harness.Exhaustiveness.Check(objectShape, nullableType)
     assert objectShape.IsExhaustive
 
-    positional := MatchOf(MatchArms2(nullArm,
-        MatchArm(new PositionalPattern(new List<Pattern>(), 1, 1))))
+    positional := MatchOf(MatchArms2(
+        nullArm,
+        MatchArm(new PositionalPattern(new List<Pattern>(), 1, 1))
+    ))
     harness.Exhaustiveness.Check(positional, nullableType)
     assert positional.IsExhaustive
 
-    listShape := MatchOf(MatchArms2(nullArm,
-        MatchArm(new ListPattern(new List<Pattern>(), 1, 1))))
+    listShape := MatchOf(MatchArms2(
+        nullArm,
+        MatchArm(new ListPattern(new List<Pattern>(), 1, 1))
+    ))
     harness.Exhaustiveness.Check(listShape, nullableType)
     assert listShape.IsExhaustive
 
@@ -606,13 +653,13 @@ test "a DOTTED identifier covers neither half of a nullable" {
     nullableType := new NullableTypeInfo(BuiltInTypes.String)
     matchExpression := MatchOf(MatchArms2(
         MatchArm(new LiteralPattern(new NullLiteralExpression(1, 1), 1, 1)),
-        MatchArm(MatchIdent("Status.Active"))))
+        MatchArm(MatchIdent("Status.Active"))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, nullableType)
 
     assert !matchExpression.IsExhaustive
-    assert MatchOnlyMessage(harness.Errors)
-        == "This nullable match doesn't cover present string — handle both 'null' and a non-null value arm"
+    assert MatchOnlyMessage(harness.Errors) == "This nullable match doesn't cover present string — handle both 'null' and a non-null value arm"
 }
 
 test "an ANONYMOUS UNION is covered by ASSIGNABILITY, so one pattern can cover several arms" {
@@ -625,7 +672,8 @@ test "an ANONYMOUS UNION is covered by ASSIGNABILITY, so one pattern can cover s
     unionType := new AnonymousUnionTypeInfo(arms)
 
     matchExpression := MatchOf(MatchArms1(
-        MatchArm(new TypePattern(new SimpleTypeReference("object", 1, 1), "o", 1, 1))))
+        MatchArm(new TypePattern(new SimpleTypeReference("object", 1, 1), "o", 1, 1))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, unionType)
 
@@ -641,13 +689,13 @@ test "an anonymous union names its UNCOVERED arms, in arm order" {
     unionType := new AnonymousUnionTypeInfo(arms)
 
     matchExpression := MatchOf(MatchArms1(
-        MatchArm(new TypePattern(new SimpleTypeReference("int", 1, 1), "i", 1, 1))))
+        MatchArm(new TypePattern(new SimpleTypeReference("int", 1, 1), "i", 1, 1))
+    ))
 
     harness.Exhaustiveness.Check(matchExpression, unionType)
 
     assert !matchExpression.IsExhaustive
-    assert MatchOnlyMessage(harness.Errors)
-        == "This match doesn't cover all anonymous union arms — missing: string"
+    assert MatchOnlyMessage(harness.Errors) == "This match doesn't cover all anonymous union arms — missing: string"
 }
 
 test "an anonymous union's catch-all binding covers it, and a guarded type test does not" {
@@ -663,7 +711,8 @@ test "an anonymous union's catch-all binding covers it, and a guarded type test 
 
     guarded := MatchOf(MatchArms2(
         MatchArm(new TypePattern(new SimpleTypeReference("int", 1, 1), "i", 1, 1)),
-        MatchGuardedArm(new TypePattern(new SimpleTypeReference("string", 1, 1), "s", 1, 1))))
+        MatchGuardedArm(new TypePattern(new SimpleTypeReference("string", 1, 1), "s", 1, 1))
+    ))
     harness.Exhaustiveness.Check(guarded, new AnonymousUnionTypeInfo(arms))
     assert !guarded.IsExhaustive
     assert harness.Errors.Count == 1
@@ -676,12 +725,14 @@ test "a scrutinee with no closed alternative set is exhaustive only through a ca
 
     withCatchAll := MatchOf(MatchArms2(
         MatchArm(new LiteralPattern(new IntLiteralExpression("1", 1, 1), 1, 1)),
-        MatchArm(MatchIdent("rest"))))
+        MatchArm(MatchIdent("rest"))
+    ))
     harness.Exhaustiveness.Check(withCatchAll, BuiltInTypes.Int)
     assert withCatchAll.IsExhaustive
 
     without := MatchOf(MatchArms1(
-        MatchArm(new LiteralPattern(new IntLiteralExpression("1", 1, 1), 1, 1))))
+        MatchArm(new LiteralPattern(new IntLiteralExpression("1", 1, 1), 1, 1))
+    ))
     harness.Exhaustiveness.Check(without, BuiltInTypes.Int)
     assert !without.IsExhaustive
 
@@ -714,7 +765,13 @@ test "the declared-union resolution binds a generic instantiation's arguments by
         "Box",
         MatchTypeArguments(BuiltInTypes.Int),
         new UnionTypeInfo(new UnionDeclarationInfo(
-            "Box", parameters, MatchCaseList2(MatchUnionCase("Full"), MatchUnionCase("Empty")), 1, 1)))
+            "Box",
+            parameters,
+            MatchCaseList2(MatchUnionCase("Full"), MatchUnionCase("Empty")),
+            1,
+            1
+        ))
+    )
 
     substitution: Dictionary<string, TypeInfo>? = null
     resolved := harness.Exhaustiveness.ResolveDeclaredUnionType(generic, out substitution)

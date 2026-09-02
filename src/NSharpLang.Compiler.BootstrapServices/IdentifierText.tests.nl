@@ -17,7 +17,6 @@ import System
 // — every character class is checked against BOTH predicates, and `IsValid` is checked to agree
 // with `IsStart`/`IsPart` character by character over a spread of scripts and categories rather
 // than over the ASCII letters everyone remembers to test.
-
 func IdtChars(text: string): char[] {
     return text.ToCharArray()
 }
@@ -49,7 +48,6 @@ func IdtValidByCharacters(name: string): bool {
 
     return true
 }
-
 
 // ── the character rule ───────────────────────────────────────────────────────────────────────
 
@@ -123,7 +121,6 @@ test "the CLR's OTHER connectors are refused — N# names one connector and it i
     }
 }
 
-
 // ── the whole-string rule (the seven that moved from AnalyzerDeclarationPolicy, and more) ────
 
 test "the identifier rule itself answers each shape" {
@@ -168,13 +165,43 @@ test "a dotted name is not an identifier — it is a sequence of them" {
     assert IdentifierText.IsValid("Text")
 }
 
-
 // ── the two rules are ONE rule, which is the point of the consolidation ──────────────────────
 
 test "IsValid is IsStart followed by IsPart, character for character" {
-    subjects := ["Name", "_name", "n1", "1n", "", "has-dash", "has space", "x", "_", "Ω", "1",
-        "-", "a1_b2", "a b", "ab ", " ab", "a.b", "a-b", "a?", "System.Text", "naïve", "Ωmega",
-        "café2", "_9", "9_", "__", "a⁀b", "‌x", "ЖивойКод", "漢字", "٣x", "x٣"]
+    subjects := [
+        "Name",
+        "_name",
+        "n1",
+        "1n",
+        "",
+        "has-dash",
+        "has space",
+        "x",
+        "_",
+        "Ω",
+        "1",
+        "-",
+        "a1_b2",
+        "a b",
+        "ab ",
+        " ab",
+        "a.b",
+        "a-b",
+        "a?",
+        "System.Text",
+        "naïve",
+        "Ωmega",
+        "café2",
+        "_9",
+        "9_",
+        "__",
+        "a⁀b",
+        "‌x",
+        "ЖивойКод",
+        "漢字",
+        "٣x",
+        "x٣"
+    ]
     index := 0
     while index < subjects.Length {
         assert IdentifierText.IsValid(subjects[index]) == IdtValidByCharacters(subjects[index])

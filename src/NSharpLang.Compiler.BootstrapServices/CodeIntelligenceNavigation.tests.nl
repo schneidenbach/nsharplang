@@ -39,8 +39,17 @@ func CinAttributes(): List<AttributeNode> {
 
 func CinClass(name: string, line: int, column: int): ClassDeclaration {
     return new ClassDeclaration(
-        name, null, null, new List<TypeReference>(), new List<Declaration>(), null,
-        Modifiers.Public, CinAttributes(), line, column)
+        name,
+        null,
+        null,
+        new List<TypeReference>(),
+        new List<Declaration>(),
+        null,
+        Modifiers.Public,
+        CinAttributes(),
+        line,
+        column
+    )
 }
 
 func CinUnit(declarations: List<Declaration>, importNames: string[]): CompilationUnit {
@@ -90,13 +99,11 @@ test "a compilation-unit match carries both halves and an unmatched one carries 
 test "the null-state answer falls back to the type when there is no model and no expression" {
     // (d) the fallback arm — no semantic model, no expression, so the TYPE alone decides
     typeInfo := new SimpleTypeInfo("int")
-    assert CodeIntelligenceNavigation.NullabilityForExpression(null, null, typeInfo) ==
-        NullStateFacts.GetSchemaText(CodeIntelligenceTypeResolution.DefaultNullState(typeInfo))
+    assert CodeIntelligenceNavigation.NullabilityForExpression(null, null, typeInfo) == NullStateFacts.GetSchemaText(CodeIntelligenceTypeResolution.DefaultNullState(typeInfo))
 
     // a nullable annotation and a plain one do not report the same thing
     nullableInfo := new SimpleTypeInfo("string?")
-    assert CodeIntelligenceNavigation.NullabilityForExpression(null, null, nullableInfo) ==
-        NullStateFacts.GetSchemaText(CodeIntelligenceTypeResolution.DefaultNullState(nullableInfo))
+    assert CodeIntelligenceNavigation.NullabilityForExpression(null, null, nullableInfo) == NullStateFacts.GetSchemaText(CodeIntelligenceTypeResolution.DefaultNullState(nullableInfo))
 }
 
 test "the expression finder answers null on a unit with nothing at the position" {

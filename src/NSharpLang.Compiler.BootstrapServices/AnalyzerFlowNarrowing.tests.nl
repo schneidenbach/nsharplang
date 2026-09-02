@@ -23,7 +23,6 @@ import NSharpLang.Compiler.Ast
 // INSTALLATION INTERSECTS. Two conditions can narrow the same name and the MORE SPECIFIC type wins
 // regardless of order; the null fact is installed for every path but the TYPE only for a simple
 // name, because a member path's declared member type is not the scope's to rewrite.
-
 class FlowNarrowingHarness {
     Owner: AnalyzerFlowNarrowing
     Scopes: AnalyzerScopeStack
@@ -32,7 +31,8 @@ class FlowNarrowingHarness {
     constructor(
         owner: AnalyzerFlowNarrowing,
         scopes: AnalyzerScopeStack,
-        context: AnalyzerDeclarationContext) {
+        context: AnalyzerDeclarationContext
+    ) {
         Owner = owner
         Scopes = scopes
         Context = context
@@ -51,7 +51,8 @@ func FlowNarrowingDefault(): FlowNarrowingHarness {
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
@@ -62,10 +63,11 @@ func FlowNarrowingDefault(): FlowNarrowingHarness {
         probe,
         diagnostics,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         new SemanticModel(),
-        new BindingMap())
+        new BindingMap()
+    )
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
@@ -76,7 +78,8 @@ func FlowNarrowingDefault(): FlowNarrowingHarness {
     return new FlowNarrowingHarness(
         new AnalyzerFlowNarrowing(scopes, resolver, assignability),
         scopes,
-        context)
+        context
+    )
 }
 
 func FnName(name: string): IdentifierExpression {
@@ -126,7 +129,8 @@ func FnClass(name: string): TypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     return result
 }
 
@@ -142,7 +146,8 @@ func FnDerivedClass(name: string, baseName: string): TypeInfo {
         new ParameterDeclarationInfo[](0),
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0),
-        true)
+        true
+    )
     return result
 }
 
@@ -188,7 +193,8 @@ test "the LITERAL may be written on either side" {
     harness := FlowNarrowingDefault()
 
     split := harness.Owner.ExtractFlowNarrowings(
-        FnBinary(FnNull(), BinaryOperator.NotEqual, FnName("x")))
+        FnBinary(FnNull(), BinaryOperator.NotEqual, FnName("x"))
+    )
 
     assert split.Then.Count == 1
     assert split.Then[0].Path == "x"
@@ -198,7 +204,8 @@ test "a comparison against something that is NOT the null literal narrows nothin
     harness := FlowNarrowingDefault()
 
     split := harness.Owner.ExtractFlowNarrowings(
-        FnBinary(FnName("x"), BinaryOperator.NotEqual, new IntLiteralExpression("0", 3, 9)))
+        FnBinary(FnName("x"), BinaryOperator.NotEqual, new IntLiteralExpression("0", 3, 9))
+    )
 
     assert split.Then.Count == 0
     assert split.Else.Count == 0
@@ -225,7 +232,8 @@ test "an operator that is neither equality nor a connective narrows nothing" {
     harness := FlowNarrowingDefault()
 
     split := harness.Owner.ExtractFlowNarrowings(
-        FnBinary(FnName("x"), BinaryOperator.Less, new IntLiteralExpression("3", 3, 9)))
+        FnBinary(FnName("x"), BinaryOperator.Less, new IntLiteralExpression("3", 3, 9))
+    )
 
     assert split.Then.Count == 0
     assert split.Else.Count == 0
@@ -459,7 +467,8 @@ test "installing a narrowing writes the NULL FACT and the TYPE into the current 
     harness := FlowNarrowingDefault()
 
     harness.Owner.ApplyNarrowingsToScope(
-        FnOneNarrowing(new FlowNarrowing("x", BuiltInTypes.Int, NullState.NotNull)))
+        FnOneNarrowing(new FlowNarrowing("x", BuiltInTypes.Int, NullState.NotNull))
+    )
 
     assert harness.Scopes.Peek().NullStates["x"] == NullState.NotNull
     assert BuiltInTypes.Is(harness.Scopes.Peek().Symbols["x"], BuiltInTypes.Int)
@@ -468,7 +477,8 @@ test "a narrowing with a NULL type installs only the fact" {
     harness := FlowNarrowingDefault()
 
     harness.Owner.ApplyNarrowingsToScope(
-        FnOneNarrowing(new FlowNarrowing("x", null, NullState.NotNull)))
+        FnOneNarrowing(new FlowNarrowing("x", null, NullState.NotNull))
+    )
 
     assert harness.Scopes.Peek().NullStates["x"] == NullState.NotNull
     assert !harness.Scopes.Peek().Symbols.ContainsKey("x")
@@ -477,7 +487,8 @@ test "a DOTTED path gets the fact but never a rewritten type" {
     harness := FlowNarrowingDefault()
 
     harness.Owner.ApplyNarrowingsToScope(
-        FnOneNarrowing(new FlowNarrowing("box.Value", BuiltInTypes.Int, NullState.NotNull)))
+        FnOneNarrowing(new FlowNarrowing("box.Value", BuiltInTypes.Int, NullState.NotNull))
+    )
 
     assert harness.Scopes.Peek().NullStates["box.Value"] == NullState.NotNull
     assert !harness.Scopes.Peek().Symbols.ContainsKey("box.Value")
@@ -487,7 +498,8 @@ test "a NULL narrowing marks the path's error-tuple results available" {
     harness.Scopes.Peek().ErrorTupleResults["err"] = new ErrorTupleResultGuard("value", "err", 1, 1)
 
     harness.Owner.ApplyNarrowingsToScope(
-        FnOneNarrowing(new FlowNarrowing("err", null, NullState.Null)))
+        FnOneNarrowing(new FlowNarrowing("err", null, NullState.Null))
+    )
 
     assert harness.Scopes.Peek().AvailableErrorTupleResults.Contains("value")
 }
@@ -496,7 +508,8 @@ test "a NOT-NULL narrowing does NOT mark error-tuple results available" {
     harness.Scopes.Peek().ErrorTupleResults["err"] = new ErrorTupleResultGuard("value", "err", 1, 1)
 
     harness.Owner.ApplyNarrowingsToScope(
-        FnOneNarrowing(new FlowNarrowing("err", null, NullState.NotNull)))
+        FnOneNarrowing(new FlowNarrowing("err", null, NullState.NotNull))
+    )
 
     assert !harness.Scopes.Peek().AvailableErrorTupleResults.Contains("value")
 }
@@ -529,7 +542,8 @@ test "UNRELATED types take the newer one — it came from a later condition" {
     harness.Scopes.Peek().Symbols["x"] = BuiltInTypes.String
 
     harness.Owner.ApplyNarrowingsToScope(
-        FnOneNarrowing(new FlowNarrowing("x", BuiltInTypes.Bool, NullState.NotNull)))
+        FnOneNarrowing(new FlowNarrowing("x", BuiltInTypes.Bool, NullState.NotNull))
+    )
 
     assert BuiltInTypes.Is(harness.Scopes.Peek().Symbols["x"], BuiltInTypes.Bool)
 }

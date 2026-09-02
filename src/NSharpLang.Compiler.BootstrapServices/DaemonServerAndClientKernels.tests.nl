@@ -17,7 +17,6 @@ import System.Text.Json
 // into agreement with a wrong answer.
 
 // ── the client's four sentences ───────────────────────────────────────────────
-
 test "the daemon client's failure sentences are exactly these" {
     assert DaemonClientKernels.GetConnectionErrorMessage("socket refused") == "[daemon] Connection error: socket refused"
     assert DaemonClientKernels.GetExecutablePathMissingMessage() == "Cannot determine executable path for daemon"

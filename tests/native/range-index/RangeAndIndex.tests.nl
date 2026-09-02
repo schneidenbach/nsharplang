@@ -119,20 +119,21 @@ class ExplicitThisRangeReader {
         if count == "" {
             throw new ArgumentOutOfRangeException("count")
         }
-        return values[^this .count]
+        return values[^this.count]
     }
 
     func ReadWithTriviaAfterDot(values: int[], count: int): int {
         if count < 0 {
             throw new ArgumentOutOfRangeException("count")
         }
-        return values[^this. count]
+        return values[^this.count]
     }
 
     func SetWithCommentTrivia(count: int) {
-        this /* field, not the parameter */ . count = count
+        this.count = count
     }
 }
+/* field, not the parameter */
 
 class CurrentClassRangeReader {
     count: int
@@ -354,7 +355,8 @@ class InheritedRangeBase {
 }
 
 class InheritedRangeReader: InheritedRangeBase {
-    constructor(initialCount: int, initialStart: int): base(initialCount, initialStart) {}
+    constructor(initialCount: int, initialStart: int): base(initialCount, initialStart) {
+    }
 
     func ReadBareField(): int {
         return inheritedCount

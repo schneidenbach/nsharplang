@@ -22,7 +22,6 @@ import NSharpLang.Compiler.Ast
 //     generic reports;
 //   * the SPANS and LENGTHS the reports carry, because an IDE underlines exactly those columns;
 //   * the SEMANTIC-MODEL and BINDING-MAP writes, which are what hover and go-to-definition read.
-
 func ResolverSinkOf(errors: List<CompilerError>): AnalyzerDiagnosticSink {
     return new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
 }
@@ -40,7 +39,8 @@ func ResolverOf(
     scopes: AnalyzerScopeStack,
     sink: AnalyzerDiagnosticSink,
     model: SemanticModel,
-    bindings: BindingMap): AnalyzerTypeResolver {
+    bindings: BindingMap
+): AnalyzerTypeResolver {
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
     provider := new AnalyzerProjectSourceProvider()
@@ -48,7 +48,8 @@ func ResolverOf(
         provider,
         context,
         new List<string>(),
-        new Dictionary<string, string>(StringComparer.Ordinal))
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     return new AnalyzerTypeResolver(
         scopes,
@@ -57,10 +58,11 @@ func ResolverOf(
         probe,
         sink,
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, TypeInfo> >(StringComparer.Ordinal),
-        new Dictionary<string, Dictionary<string, SymbolDeclaration> >(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
         model,
-        bindings)
+        bindings
+    )
 }
 
 // A class type shaped only where these contracts read it: its type-parameter list decides the head
@@ -68,7 +70,8 @@ func ResolverOf(
 func ResolverClassOf(
     name: string,
     typeParameters: TypeParameter[],
-    nestedTypes: NestedTypeInfo[]): ClassTypeInfo {
+    nestedTypes: NestedTypeInfo[]
+): ClassTypeInfo {
     return new ClassTypeInfo(
         name,
         1,
@@ -80,7 +83,8 @@ func ResolverClassOf(
         new ParameterDeclarationInfo[0],
         new DeclaredMemberInfo[0],
         nestedTypes,
-        true)
+        true
+    )
 }
 
 func ResolverCodes(errors: List<CompilerError>): string {
@@ -181,10 +185,28 @@ test "the sink appends to the caller's own list, so report order survives the bo
     // A shell report and an owner report land in ONE list in call order. That is the whole reason the
     // list is a constructor argument rather than owned state.
     errors.Add(AnalyzerDiagnostics.Create(
-        ErrorCode.UnusedVariable, "shell first", "a.nl", 1, 1, null, null, 3, ErrorSeverity.Warning))
+        ErrorCode.UnusedVariable,
+        "shell first",
+        "a.nl",
+        1,
+        1,
+        null,
+        null,
+        3,
+        ErrorSeverity.Warning
+    ))
     sink.Report(ErrorCode.TypeNotFound, "owner second", 2, 2, null, 4)
     errors.Add(AnalyzerDiagnostics.Create(
-        ErrorCode.InvalidSyntax, "shell third", "a.nl", 3, 3, null, null, 5, ErrorSeverity.Error))
+        ErrorCode.InvalidSyntax,
+        "shell third",
+        "a.nl",
+        3,
+        3,
+        null,
+        null,
+        5,
+        ErrorSeverity.Error
+    ))
 
     assert errors.Count == 3
     assert errors[0].Message == "shell first"
@@ -459,14 +481,17 @@ test "every reference family resolves through the dispatch, composing inner reso
 
     assert ResolverTypeName(resolver.ResolveType(new SimpleTypeReference("int", 3, 5))) == "simple:int"
     assert ResolverTypeName(resolver.ResolveType(
-        new ArrayTypeReference(new SimpleTypeReference("int", 3, 5)))) == "array(simple:int)"
+        new ArrayTypeReference(new SimpleTypeReference("int", 3, 5))
+    )) == "array(simple:int)"
     assert ResolverTypeName(resolver.ResolveType(
-        new ArrayTypeReference(new ArrayTypeReference(new SimpleTypeReference("int", 3, 5)))))
-        == "array(array(simple:int))"
+        new ArrayTypeReference(new ArrayTypeReference(new SimpleTypeReference("int", 3, 5)))
+    )) == "array(array(simple:int))"
     assert ResolverTypeName(resolver.ResolveType(
-        new NullableTypeReference(new SimpleTypeReference("int", 3, 5)))) == "nullable(simple:int)"
+        new NullableTypeReference(new SimpleTypeReference("int", 3, 5))
+    )) == "nullable(simple:int)"
     assert ResolverTypeName(resolver.ResolveType(
-        new ByRefTypeReference(new SimpleTypeReference("int", 3, 5)))) == "byref(simple:int)"
+        new ByRefTypeReference(new SimpleTypeReference("int", 3, 5))
+    )) == "byref(simple:int)"
 
     elements := new List<TupleTypeElement>()
     elements.Add(new TupleTypeElement(new SimpleTypeReference("int", 3, 5), "first"))
@@ -482,7 +507,8 @@ test "every reference family resolves through the dispatch, composing inner reso
     parameterTypes := new List<TypeReference>()
     parameterTypes.Add(new SimpleTypeReference("int", 3, 5))
     functionType := resolver.ResolveType(
-        new FunctionTypeReference(parameterTypes, new SimpleTypeReference("bool", 3, 14)))
+        new FunctionTypeReference(parameterTypes, new SimpleTypeReference("bool", 3, 14))
+    )
     assert ResolverTypeName(functionType) == "function/1"
     assert ResolverTypeName((functionType as FunctionTypeInfo).ReturnType) == "simple:bool"
 
@@ -663,8 +689,7 @@ test "a repeated arm is NL306 and is DROPPED, and more than two distinct arms is
     threeArms.Add(new SimpleTypeReference("int", 5, 5))
     threeArms.Add(new SimpleTypeReference("string", 5, 11))
     threeArms.Add(new SimpleTypeReference("bool", 5, 20))
-    assert ResolverArmNames(resolver.ResolveType(new UnionTypeReference(threeArms)))
-        == "simple:int|simple:string|simple:bool"
+    assert ResolverArmNames(resolver.ResolveType(new UnionTypeReference(threeArms))) == "simple:int|simple:string|simple:bool"
     assert errors.Count == 2
     assert errors[1].Code == ErrorCode.InvalidTypeArgument
     assert errors[1].Message == "Anonymous union types support exactly two arms in v1; this union has 3 arms."
@@ -708,7 +733,10 @@ test "a dotted name walks nested members from a root IN SCOPE, and refuses every
     resolver := ResolverOf(scopes, ResolverSinkOf(errors), model, bindings)
 
     scopes.DeclareNestedTypeIfAbsent("Outer", ResolverClassOf(
-        "Outer", [], [new NestedTypeInfo("Inner", new SimpleTypeInfo("Outer.Inner"))]))
+        "Outer",
+        [],
+        [new NestedTypeInfo("Inner", new SimpleTypeInfo("Outer.Inner"))]
+    ))
 
     resolved: TypeInfo = BuiltInTypes.Unknown
     assert resolver.TryResolveDottedNestedType("Outer.Inner", out resolved)
@@ -745,7 +773,8 @@ test "a `.Row` reference is refused only when the feature is on AND the prefix n
     columns := new List<SoaColumnInfo>()
     columns.Add(new SoaColumnInfo("kind", new SimpleTypeReference("int", 2, 11), 2, 5))
     scopes.DeclareNestedTypeIfAbsent("NodeTable", new SoaRecordTypeInfo(
-        new SoaRecordDeclarationInfo("NodeTable", columns, 1, 1)))
+        new SoaRecordDeclarationInfo("NodeTable", columns, 1, 1)
+    ))
     scopes.DeclareNestedTypeIfAbsent("Plain", new SimpleTypeInfo("Plain"))
 
     previous := Environment.GetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA")
@@ -780,8 +809,7 @@ test "a `.Row` reference is refused only when the feature is on AND the prefix n
 
         // Through the reference walk the row reference SHORT-CIRCUITS to unknown rather than
         // resolving through the remaining channels.
-        assert ResolverTypeName(resolver.ResolveType(new SimpleTypeReference("NodeTable.Row", 8, 11)))
-            == "unknown"
+        assert ResolverTypeName(resolver.ResolveType(new SimpleTypeReference("NodeTable.Row", 8, 11))) == "unknown"
 
         // And the SoA set is cleared by a new analysis, exactly like the unresolved set.
         resolver.BeginAnalysis("/p/main.nl", null, model, bindings)

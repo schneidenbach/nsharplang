@@ -2,9 +2,9 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Globalization
 import System.Reflection
 import System.Reflection.Emit
-import System.Globalization
 
 class ColumnarBoundIdentifierBoxOwner<T> {
     Box: T
@@ -609,16 +609,21 @@ test "bound identifier planner interns repeated parameter ordinals" {
 
 test "bound identifier planner interns repeated generic current-instance handles by exact shape" {
     owner := SourceCallGenericDefinition(
-        "ColumnarBoundIdentifierGenericCurrent")
+        "ColumnarBoundIdentifierGenericCurrent"
+    )
     field := ConstructionDefinePublicField(
-        owner.Builder, "Field", typeof(int))
+        owner.Builder,
+        "Field",
+        typeof(int)
+    )
     owner.Fields["Field"] = field
 
     bindings := ColumnarRangePlannerEmptyBindings()
-    bindings.CurrentInstance =
-        ColumnarCurrentInstanceFacts.FromSourceDefinition(owner)
+    bindings.CurrentInstance = ColumnarCurrentInstanceFacts.FromSourceDefinition(owner)
     plan := ColumnarRangePlannerPlan(
-        BoundRepeatedRangeTree("Field"), bindings)
+        BoundRepeatedRangeTree("Field"),
+        bindings
+    )
 
     assert plan.ArgumentCount == 1
     assert plan.ArgumentOrdinals[0] == 0
@@ -631,34 +636,54 @@ test "bound identifier planner interns repeated generic current-instance handles
 
 test "bound identifier planner rejects genuinely conflicting argument shapes and address modes" {
     firstOwner := SourceCallGenericDefinition(
-        "ColumnarBoundIdentifierArgumentFirst")
+        "ColumnarBoundIdentifierArgumentFirst"
+    )
     firstBuilderType: Type = firstOwner.Builder
     firstArguments := firstBuilderType.GetGenericArguments()
     firstType := firstBuilderType.MakeGenericType(firstArguments)
     equivalentType := firstBuilderType.MakeGenericType(
-        firstBuilderType.GetGenericArguments())
+        firstBuilderType.GetGenericArguments()
+    )
 
     addressConflict := new ColumnarCodePlan()
     addressConflict.PrepareV3()
     ColumnarBoundIdentifierPlanner.GetOrAddArgument(
-        addressConflict, 3, firstType, false)
+        addressConflict,
+        3,
+        firstType,
+        false
+    )
     assert throws InvalidOperationException {
         ColumnarBoundIdentifierPlanner.GetOrAddArgument(
-            addressConflict, 3, equivalentType, true)
+            addressConflict,
+            3,
+            equivalentType,
+            true
+        )
     }
 
     secondOwner := SourceCallGenericDefinition(
-        "ColumnarBoundIdentifierArgumentSecond")
+        "ColumnarBoundIdentifierArgumentSecond"
+    )
     secondBuilderType: Type = secondOwner.Builder
     secondType := secondBuilderType.MakeGenericType(
-        secondBuilderType.GetGenericArguments())
+        secondBuilderType.GetGenericArguments()
+    )
     typeConflict := new ColumnarCodePlan()
     typeConflict.PrepareV3()
     ColumnarBoundIdentifierPlanner.GetOrAddArgument(
-        typeConflict, 4, firstType, false)
+        typeConflict,
+        4,
+        firstType,
+        false
+    )
     assert throws InvalidOperationException {
         ColumnarBoundIdentifierPlanner.GetOrAddArgument(
-            typeConflict, 4, secondType, false)
+            typeConflict,
+            4,
+            secondType,
+            false
+        )
     }
 }
 
@@ -736,21 +761,17 @@ test "bound identifier plans execute parameters locals lifted values and boxed c
 func BoundByRefDerefText(
     elementType: Type,
     expectedOpcode: short,
-    argumentValue: object): string {
+    argumentValue: object
+): string {
     tree := BoundIdentifierTree("value")
     byRefType := elementType.MakeByRefType()
     bindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(bindings, "value", 0, byRefType)
     plan := BoundPlan(tree, bindings)
-    if plan.ResultType != elementType
-        || plan.OperationCount != 2
-        || plan.ArgumentCount != 1
-        || !plan.ArgumentIsAddress[0]
-        || plan.Types[plan.ArgumentTypeIndices[0]] != elementType
-        || plan.OpCodeValues[0] != ColumnarCodePlanContract.Ldarg()
-        || plan.OpCodeValues[1] != expectedOpcode {
+    if plan.ResultType != elementType || plan.OperationCount != 2 || plan.ArgumentCount != 1 || !plan.ArgumentIsAddress[0] || plan.Types[plan.ArgumentTypeIndices[0]] != elementType || plan.OpCodeValues[0] != ColumnarCodePlanContract.Ldarg() || plan.OpCodeValues[1] != expectedOpcode {
         throw new InvalidOperationException(
-            "A byref deref plan does not carry the exact ldarg + typed ldind shape.")
+            "A byref deref plan does not carry the exact ldarg + typed ldind shape."
+        )
     }
 
     parameterTypes := new Type[](1)
@@ -769,25 +790,41 @@ test "bound identifier planner derefs typed byref parameters with executed ldind
     // ldind row, and executes through a real byref DynamicMethod slot to the element value —
     // the legacy case-6 EmitLoadArgument + EmitLoadByRefElement deref, planner-owned.
     assert BoundByRefDerefText(
-        typeof(int), ColumnarCodePlanContract.LdindI4(), 32) == "32"
+        typeof(int),
+        ColumnarCodePlanContract.LdindI4(),
+        32
+    ) == "32"
     // The expected side is TEXT. It used to be `fiveBillion.ToString()` and `(2.5).ToString()`,
     // which read the CURRENT culture on both sides at once, so the row passed under de-DE while
     // both halves said `2,5` — a rendering contract that could not fail on a rendering bug.
     fiveBillion := 5000000000L
     assert BoundByRefDerefText(
-        typeof(long), ColumnarCodePlanContract.LdindI8(), fiveBillion)
-        == "5000000000"
+        typeof(long),
+        ColumnarCodePlanContract.LdindI8(),
+        fiveBillion
+    ) == "5000000000"
     assert BoundByRefDerefText(
-        typeof(double), ColumnarCodePlanContract.LdindR8(), 2.5)
-        == "2.5"
+        typeof(double),
+        ColumnarCodePlanContract.LdindR8(),
+        2.5
+    ) == "2.5"
     assert BoundByRefDerefText(
-        typeof(uint), ColumnarCodePlanContract.LdindU4(), (uint)42) == "42"
+        typeof(uint),
+        ColumnarCodePlanContract.LdindU4(),
+        (uint)42
+    ) == "42"
     negativeSevenInt := -7
     negativeSeven := (short)negativeSevenInt
     assert BoundByRefDerefText(
-        typeof(short), ColumnarCodePlanContract.LdindI2(), negativeSeven) == "-7"
+        typeof(short),
+        ColumnarCodePlanContract.LdindI2(),
+        negativeSeven
+    ) == "-7"
     assert BoundByRefDerefText(
-        typeof(string), ColumnarCodePlanContract.LdindRef(), "deref") == "deref"
+        typeof(string),
+        ColumnarCodePlanContract.LdindRef(),
+        "deref"
+    ) == "deref"
 }
 
 test "bound identifier planner declines byref elements outside the ldind table atomically" {

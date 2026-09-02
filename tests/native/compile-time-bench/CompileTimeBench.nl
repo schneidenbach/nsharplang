@@ -33,9 +33,7 @@ import System.Text.Json
 // cross-check is what would catch a project that started declaring one, and it reports the
 // mismatch as a named row rather than silently mis-measuring.
 
-
 // ─── SMALL TEXT AND NUMBER KERNELS ────────────────────────────────────────────────────────────
-
 func BenchLongText(value: long): string {
     return value.ToString() ?? ""
 }
@@ -381,7 +379,6 @@ func BenchCsvNumber(value: long): string {
     return BenchLongText(value)
 }
 
-
 // ─── THE `--timings` PARSER ───────────────────────────────────────────────────────────────────
 
 // `nlc build --timings` writes, to STDERR:
@@ -473,7 +470,6 @@ func BenchParseBuildTimings(stderr: string): BenchBuildTimings {
     found := resolveMs >= 0 && emitMs >= 0 && totalMs >= 0
     return new BenchBuildTimings(found, resolveMs, emitMs, totalMs)
 }
-
 
 // ─── THE OS TIME UTILITY'S STDERR ─────────────────────────────────────────────────────────────
 
@@ -607,7 +603,6 @@ func BenchFirstToken(line: string): string {
     return trimmed.Substring(0, space)
 }
 
-
 // ─── THE THREE STATUSES A PROJECT ROW CAN HAVE ────────────────────────────────────────────────
 
 // A project whose replicated selection yields ZERO files is NOT a project that failed to compile.
@@ -628,7 +623,6 @@ func BenchMeasuredStatus(): string {
 func BenchFailedStatus(): string {
     return "failed"
 }
-
 
 // ─── THE CHECK ENVELOPE'S DIAGNOSTIC CENSUS ───────────────────────────────────────────────────
 
@@ -750,23 +744,11 @@ func BenchDiagnosticResultCount(stdout: string): int {
     }
 }
 
-
 // ─── THE SOURCE-SELECTION RULE, REPLICATED ────────────────────────────────────────────────────
 
 // `ProjectConfig.ShouldSkipSourceDirectory`, name for name.
 func BenchShouldSkipSourceDirectory(name: string): bool {
-    return BenchNameEquals(name, ".context")
-        || BenchNameEquals(name, ".git")
-        || BenchNameEquals(name, ".github")
-        || BenchNameEquals(name, ".hermes")
-        || BenchNameEquals(name, ".vscode")
-        || BenchNameEquals(name, ".vscode-test")
-        || BenchNameEquals(name, ".worktrees")
-        || BenchNameEquals(name, "bin")
-        || BenchNameEquals(name, "node_modules")
-        || BenchNameEquals(name, "nsharp")
-        || BenchNameEquals(name, "obj")
-        || BenchNameEquals(name, "out")
+    return BenchNameEquals(name, ".context") || BenchNameEquals(name, ".git") || BenchNameEquals(name, ".github") || BenchNameEquals(name, ".hermes") || BenchNameEquals(name, ".vscode") || BenchNameEquals(name, ".vscode-test") || BenchNameEquals(name, ".worktrees") || BenchNameEquals(name, "bin") || BenchNameEquals(name, "node_modules") || BenchNameEquals(name, "nsharp") || BenchNameEquals(name, "obj") || BenchNameEquals(name, "out")
 }
 
 func BenchNameEquals(left: string, right: string): bool {
@@ -855,7 +837,6 @@ func BenchMeasureProjectSources(projectRoot: string): BenchSourceMeasure {
     return new BenchSourceMeasure(files.Count, lines)
 }
 
-
 // ─── THE CORPUS ───────────────────────────────────────────────────────────────────────────────
 
 // The large-project case. It is NOT part of the corpus: it sits under `src/`, and the corpus is
@@ -872,10 +853,7 @@ func BenchSelfProjectPath(): string {
 }
 
 func BenchShouldSkipCorpusDirectory(name: string): bool {
-    return BenchNameEquals(name, "bin")
-        || BenchNameEquals(name, "obj")
-        || BenchNameEquals(name, "node_modules")
-        || BenchNameEquals(name, ".git")
+    return BenchNameEquals(name, "bin") || BenchNameEquals(name, "obj") || BenchNameEquals(name, "node_modules") || BenchNameEquals(name, ".git")
 }
 
 // Every `project.yml` under `examples/`, `tests/` and `templates/`, as repository-relative
@@ -899,8 +877,7 @@ func BenchCollectCorpusProjectsUnder(repositoryRoot: string, relativeRoot: strin
 }
 
 func BenchCollectCorpusProjectsRecursive(directory: string, relativePath: string, projects: List<string>) {
-    if File.Exists(Path.Combine(directory, "project.yml"))
-        && relativePath != BenchSelfProjectPath() {
+    if File.Exists(Path.Combine(directory, "project.yml")) && relativePath != BenchSelfProjectPath() {
         projects.Add(relativePath)
     }
 
@@ -916,7 +893,6 @@ func BenchCollectCorpusProjectsRecursive(directory: string, relativePath: string
         i = i + 1
     }
 }
-
 
 // ─── THE TREE-UNTOUCHED PROOF ─────────────────────────────────────────────────────────────────
 
@@ -947,8 +923,9 @@ func BenchSnapshotDirectoryRecursive(directory: string, relativePath: string, li
     i := 0
     while i < files.Length {
         name := Path.GetFileName(files[i]) ?? ""
-        lines.Add(BenchSnapshotEntryPath(relativePath, name)
-            + "|" + BenchLongText(BenchFileLastWriteTicks(files[i])))
+        lines.Add(
+            BenchSnapshotEntryPath(relativePath, name) + "|" + BenchLongText(BenchFileLastWriteTicks(files[i]))
+        )
         i = i + 1
     }
 
@@ -1020,7 +997,6 @@ func BenchDiffSnapshots(before: string, after: string): string {
     return BenchJoinLines(differences)
 }
 
-
 // ─── THE CHECKED-IN BASELINE ──────────────────────────────────────────────────────────────────
 
 // THE BASELINE SAYS WHAT STAGE IT COVERS, AND WHAT EXIT CODE THAT STAGE PRODUCES.
@@ -1070,7 +1046,8 @@ class BenchBaseline {
         lines: long,
         medianWallMs: long,
         medianPeakRssBytes: long,
-        toleranceThousandths: long) {
+        toleranceThousandths: long
+    ) {
         SchemaVersion = schemaVersion
         Project = project
         Command = command
@@ -1124,7 +1101,8 @@ func BenchParseBaseline(json: string): BenchBaseline {
         root.GetProperty("lines").GetInt64(),
         root.GetProperty("medianWallMs").GetInt64(),
         root.GetProperty("medianPeakRssBytes").GetInt64(),
-        BenchParseFixed3(root.GetProperty("toleranceFactor").GetRawText() ?? ""))
+        BenchParseFixed3(root.GetProperty("toleranceFactor").GetRawText() ?? "")
+    )
     document.Dispose()
     return baseline
 }
@@ -1146,22 +1124,15 @@ func BenchBaselineRefusal(baseline: BenchBaseline): string {
     }
 
     if baseline.Stage == "" {
-        return "baseline stage is missing: the baseline must say in prose which stage of the command"
-            + " its milliseconds cover, because `nlc build` stops at strict lint on this project and"
-            + " does not reach analysis or emit"
+        return "baseline stage is missing: the baseline must say in prose which stage of the command" + " its milliseconds cover, because `nlc build` stops at strict lint on this project and" + " does not reach analysis or emit"
     }
 
     if baseline.ExpectedExitCode < 0 {
-        return "baseline expectedExitCode is missing or negative: the baseline must pin the exit code"
-            + " the measured stage produces, so that a run which stops failing is caught instead of"
-            + " silently changing what is measured"
+        return "baseline expectedExitCode is missing or negative: the baseline must pin the exit code" + " the measured stage produces, so that a run which stops failing is caught instead of" + " silently changing what is measured"
     }
 
     if baseline.MedianWallMs <= 0 {
-        return "baseline not measured: medianWallMs is " + BenchLongText(baseline.MedianWallMs)
-            + " in tests/fixtures/compile-time/bootstrap-build-baseline.golden.json."
-            + " Run the harness on src/NSharpLang.Compiler.BootstrapServices and fill in the measured"
-            + " medianWallMs, medianPeakRssBytes, files, lines, cliCommit, machine and measuredAt."
+        return "baseline not measured: medianWallMs is " + BenchLongText(baseline.MedianWallMs) + " in tests/fixtures/compile-time/bootstrap-build-baseline.golden.json." + " Run the harness on src/NSharpLang.Compiler.BootstrapServices and fill in the measured" + " medianWallMs, medianPeakRssBytes, files, lines, cliCommit, machine and measuredAt."
     }
 
     if baseline.ToleranceThousandths <= 0 {
@@ -1181,26 +1152,14 @@ func BenchGateVerdict(
     count: int,
     medianWallMs: long,
     baseline: BenchBaseline,
-    cliCommit: string): string {
-    detail := "runs=[" + BenchLongListText(wallMs, count) + "] ms"
-        + " exitCodes=[" + BenchIntListText(exitCodes, count) + "]"
-        + " expectedExitCode=" + BenchIntText(baseline.ExpectedExitCode)
-        + " median=" + BenchLongText(medianWallMs) + "ms"
-        + " baseline=" + BenchLongText(baseline.MedianWallMs) + "ms"
-        + " tolerance=x" + BenchFormatFixed3(baseline.ToleranceThousandths)
-        + " limit=" + BenchLongText(BenchGateLimitMs(baseline)) + "ms"
-        + " cliCommit=" + cliCommit
-        + " baselineCliCommit=" + baseline.CliCommit
-        + " baselineMachine=" + baseline.Machine
-        + " stage=" + baseline.Stage
+    cliCommit: string
+): string {
+    detail := "runs=[" + BenchLongListText(wallMs, count) + "] ms" + " exitCodes=[" + BenchIntListText(exitCodes, count) + "]" + " expectedExitCode=" + BenchIntText(baseline.ExpectedExitCode) + " median=" + BenchLongText(medianWallMs) + "ms" + " baseline=" + BenchLongText(baseline.MedianWallMs) + "ms" + " tolerance=x" + BenchFormatFixed3(baseline.ToleranceThousandths) + " limit=" + BenchLongText(BenchGateLimitMs(baseline)) + "ms" + " cliCommit=" + cliCommit + " baselineCliCommit=" + baseline.CliCommit + " baselineMachine=" + baseline.Machine + " stage=" + baseline.Stage
 
     i := 0
     while i < count {
         if exitCodes[i] != baseline.ExpectedExitCode {
-            return "compile-time gate: nlc build on " + baseline.Project + " exited "
-                + BenchIntText(exitCodes[i]) + " on run " + BenchIntText(i + 1) + " but the baseline pins "
-                + BenchIntText(baseline.ExpectedExitCode) + ". "
-                + BenchExitCodeChangeAdvice(exitCodes[i], baseline.ExpectedExitCode) + " " + detail
+            return "compile-time gate: nlc build on " + baseline.Project + " exited " + BenchIntText(exitCodes[i]) + " on run " + BenchIntText(i + 1) + " but the baseline pins " + BenchIntText(baseline.ExpectedExitCode) + ". " + BenchExitCodeChangeAdvice(exitCodes[i], baseline.ExpectedExitCode) + " " + detail
         }
 
         i = i + 1
@@ -1213,11 +1172,7 @@ func BenchGateVerdict(
         j := 0
         while j < count {
             if !failureBanners[j] {
-                return "compile-time gate: run " + BenchIntText(j + 1) + " of nlc build on " + baseline.Project
-                    + " exited " + BenchIntText(exitCodes[j]) + " as baselined but its stdout did NOT carry the"
-                    + " CLI's own '" + BenchBuildFailedBanner() + "' banner, so the CLI did not report the"
-                    + " failure itself — a crash, a kill or a missing CLI cannot pass as the expected failure. "
-                    + detail
+                return "compile-time gate: run " + BenchIntText(j + 1) + " of nlc build on " + baseline.Project + " exited " + BenchIntText(exitCodes[j]) + " as baselined but its stdout did NOT carry the" + " CLI's own '" + BenchBuildFailedBanner() + "' banner, so the CLI did not report the" + " failure itself — a crash, a kill or a missing CLI cannot pass as the expected failure. " + detail
             }
 
             j = j + 1
@@ -1243,14 +1198,11 @@ func BenchSawBuildFailedBanner(stdout: string): bool {
 // Which direction the exit code moved decides what the reader has to do about it.
 func BenchExitCodeChangeAdvice(actual: int, expected: int): string {
     if expected != 0 && actual == 0 {
-        return "The command now SUCCEEDS where the baseline recorded a failure, so it is reaching stages"
-            + " the baseline never covered and the two numbers are not comparable: re-measure the baseline"
-            + " and rewrite its stage before trusting this gate again."
+        return "The command now SUCCEEDS where the baseline recorded a failure, so it is reaching stages" + " the baseline never covered and the two numbers are not comparable: re-measure the baseline" + " and rewrite its stage before trusting this gate again."
     }
 
     if expected == 0 && actual != 0 {
-        return "The command now FAILS where the baseline recorded a success; fix the failure rather than"
-            + " the baseline."
+        return "The command now FAILS where the baseline recorded a success; fix the failure rather than" + " the baseline."
     }
 
     return "The measured stage changed: re-measure the baseline and rewrite its stage."

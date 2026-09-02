@@ -8,7 +8,6 @@ import System.Collections.Generic
 // Server Protocol's `CompletionItemKind` values, so these assertions are pinning an ECOSYSTEM FACT
 // against drift, exactly as the JSON-RPC error-code contracts do — a change here is a protocol
 // violation, not a preference.
-
 func EcfItem(name: string, kind: string, itemType: string?, parameters: string?): CompletionItem {
     return new CompletionItem(name, kind, itemType, parameters, null, false)
 }

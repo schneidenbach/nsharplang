@@ -10,7 +10,6 @@ namespace NSharpLang.Cli.Commands
 // project files, or a user who initialised in place gets a subtly different project from one who
 // scaffolded. The `library` spelling then differs from it in exactly two ways — no `entry:` line,
 // and `outputType: library` — and both are pinned, the absence one as an absence.
-
 test "init option summary reads the name, type, force and help flags" {
     summary := InitCommandKernels.GetOptionSummary(["--name", "MyLib", "--type", "library", "--force", "-h"])
 
@@ -43,10 +42,8 @@ test "the init help text names the command, its usage and its failure banner" {
 }
 
 test "every init sentence is spelled by a kernel, character for character" {
-    assert InitCommandKernels.GetInvalidTypeMessage("service")
-        == "Invalid type 'service'. Expected 'exe' or 'library'."
-    assert InitCommandKernels.GetProjectFileExistsMessage()
-        == "project.yml already exists. Use --force to overwrite."
+    assert InitCommandKernels.GetInvalidTypeMessage("service") == "Invalid type 'service'. Expected 'exe' or 'library'."
+    assert InitCommandKernels.GetProjectFileExistsMessage() == "project.yml already exists. Use --force to overwrite."
     assert InitCommandKernels.GetCreatedFileMessage("Program.nl") == "Created: Program.nl"
     assert InitCommandKernels.GetSuccessMessage() == "N# project initialized. Run 'nlc build' to compile."
     assert InitCommandKernels.GetFailedMessage("denied") == "Init failed: denied"

@@ -16,7 +16,6 @@ namespace NSharpLang.Cli
 // failure reports WHICH exclusion moved rather than one anonymous parameterised case.
 
 // ── the discovered-path filter ────────────────────────────────────────────────
-
 test "a source file under src is formatted, and one under an artifact directory is not" {
     assert FormatCommandKernels.ShouldFormatDiscoveredPath("src/Program.nl")
     assert !FormatCommandKernels.ShouldFormatDiscoveredPath("bin/Debug/Generated.nl")
@@ -29,16 +28,25 @@ test "a fixtures segment is excluded case-insensitively, on either separator" {
     assert !FormatCommandKernels.ShouldFormatDiscoveredPath("editors\\vscode\\test\\fixtures\\errors\\Bad.nl")
 }
 
-test "the exclusions match a WHOLE segment and a WHOLE suffix, never a prefix of one" {
-    // `node_modulesx` is not `node_modules`, and `Contest.nl` does not end in `.tests.nl` even
-    // though it contains `test`.
+test "the exclusions match a WHOLE segment, never a prefix of one" {
+    // `node_modulesx` is not `node_modules`, and `Contest.nl` merely contains `test`.
     assert FormatCommandKernels.ShouldFormatDiscoveredPath("src/node_modulesx/File.nl")
     assert FormatCommandKernels.ShouldFormatDiscoveredPath("src/Contest.nl")
 }
 
-test "a .tests.nl file is never formatted by discovery, in any case" {
-    assert !FormatCommandKernels.ShouldFormatDiscoveredPath("src/Calculator.tests.nl")
-    assert !FormatCommandKernels.ShouldFormatDiscoveredPath("src/Calculator.TESTS.NL")
+// A `.tests.nl` FILE IS DISCOVERED LIKE ANY OTHER N# SOURCE, AND THIS ROW IS THE REVERSAL OF AN
+// EARLIER ONE. Discovery used to refuse the suffix, so `nlc format --project X` and
+// `nlc format <file>` answered different questions about the same file and the whole contract
+// estate sat outside the product gate's formatting check. Both spellings are asserted because the
+// deleted rule was case-insensitive and its removal must be too.
+test "a .tests.nl file IS formatted by discovery, in any case" {
+    assert FormatCommandKernels.ShouldFormatDiscoveredPath("src/Calculator.tests.nl")
+    assert FormatCommandKernels.ShouldFormatDiscoveredPath("src/Calculator.TESTS.NL")
+}
+
+// The one exclusion that still keeps a test source out: a fixture is deliberately malformed.
+test "a .tests.nl file under a fixtures directory is still excluded" {
+    assert !FormatCommandKernels.ShouldFormatDiscoveredPath("tests/fixtures/format/Case.tests.nl")
 }
 
 // ── the skipped directory names ───────────────────────────────────────────────
