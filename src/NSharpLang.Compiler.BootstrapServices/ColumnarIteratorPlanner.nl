@@ -2050,7 +2050,7 @@ class ColumnarIteratorBodyPlanner {
             creation := nodes.Child(node, 0)
             exceptionName := nodes.Text(source, nodes.Child(creation, 0))
             messageText := nodes.Text(source, nodes.Child(creation, 1))
-            messagePool := emit.Plan.AddString(StringLiteralDecoder.Decode(messageText))
+            messagePool := emit.Plan.AddString(StringLiteralDecoder.Decode(messageText, false))
             emit.Plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), messagePool)
             ctorPool := emit.Plan.AddConstructor(LowerableExceptionConstructor(exceptionName))
             emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), ctorPool)

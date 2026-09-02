@@ -376,7 +376,7 @@ class ColumnarScalarLiteralPlanner {
             return false
         }
 
-        decoded := StringLiteralDecoder.Decode(text)
+        decoded := StringLiteralDecoder.Decode(text, false)
         valueIndex := plan.AddString(decoded)
         plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
         return true

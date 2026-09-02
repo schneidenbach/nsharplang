@@ -8514,7 +8514,7 @@ func ColumnarTestCaseLabel(source: string, result: int[]): string {
         return ""
     }
 
-    description := StringLiteralDecoder.Decode(source.Substring(result[0], result[1]))
+    description := StringLiteralDecoder.Decode(source.Substring(result[0], result[1]), false)
     if result[4] < 0 || result[5] <= 0 || result[4] + result[5] > source.Length {
         return description
     }

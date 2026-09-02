@@ -190,8 +190,15 @@ class SystemsAttributeSet {
         return null
     }
 
-    // The parser keeps a string literal's quotes; every consumer of a reason or an owner wants the
-    // text. A value that is not quoted on BOTH ends is returned untouched rather than half-stripped.
+    // The parser keeps an ORDINARY string literal's quotes; every consumer of a reason or an owner
+    // wants the text. A value that is not quoted on BOTH ends is returned untouched rather than
+    // half-stripped.
+    //
+    // THAT GUARD IS WHAT MAKES THIS CORRECT FOR A RAW LITERAL, and the correctness is load-bearing
+    // rather than incidental. A raw literal's `Value` is its BARE BODY — the lexer appends neither
+    // `"""` — so `[trusted(reason: """abc""")]` arrives here as `abc`, and a version of this that
+    // stripped one character from each end unconditionally would answer `b`. Do not "simplify" the
+    // both-ends test into a length check.
     static func Unquote(value: string): string {
         if value.Length < 2 {
             return value

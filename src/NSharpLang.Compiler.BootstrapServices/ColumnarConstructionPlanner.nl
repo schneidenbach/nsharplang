@@ -1923,7 +1923,7 @@ class ColumnarConstructionPlanner {
             return true
         }
         if defaultKind == 4 {
-            valueIndex := plan.AddString(StringLiteralDecoder.Decode(defaultText))
+            valueIndex := plan.AddString(StringLiteralDecoder.Decode(defaultText, false))
             plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
             return true
         }

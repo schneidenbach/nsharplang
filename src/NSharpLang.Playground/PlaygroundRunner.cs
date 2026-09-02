@@ -212,7 +212,7 @@ internal sealed class PlaygroundRunner
         {
             IntLiteralExpression literal => int.Parse(literal.Value, CultureInfo.InvariantCulture),
             FloatLiteralExpression literal => double.Parse(literal.Value, CultureInfo.InvariantCulture),
-            StringLiteralExpression literal => PlaygroundRunFacts.DecodeStringLiteralText(literal.Value),
+            StringLiteralExpression literal => PlaygroundRunFacts.DecodeStringLiteralText(literal.Value, literal.IsRaw),
             CharLiteralExpression literal => literal.Value.Length == 0 ? '\0' : literal.Value[0],
             BoolLiteralExpression literal => literal.Value,
             NullLiteralExpression => null,
@@ -635,7 +635,7 @@ internal sealed class PlaygroundRunner
             case LiteralPattern literal:
                 object? literalValue = literal.Literal switch
                 {
-                    StringLiteralExpression stringLiteral => PlaygroundRunFacts.DecodeStringLiteralText(stringLiteral.Value),
+                    StringLiteralExpression stringLiteral => PlaygroundRunFacts.DecodeStringLiteralText(stringLiteral.Value, stringLiteral.IsRaw),
                     IntLiteralExpression intLiteral => int.Parse(intLiteral.Value, CultureInfo.InvariantCulture),
                     BoolLiteralExpression boolLiteral => boolLiteral.Value,
                     NullLiteralExpression => null,
