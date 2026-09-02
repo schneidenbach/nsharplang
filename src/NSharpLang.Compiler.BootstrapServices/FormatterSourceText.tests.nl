@@ -132,6 +132,28 @@ func FstSafeIdempotent(source: string): bool {
     return FstSafeText(once) == once
 }
 
+// `FormatSafe` WITH THE COMMENT STREAM — the pipeline `nlc format` actually runs. The helpers above
+// pass a null comment list, which drops every comment in the file and so cannot reach any shape
+// whose bug lives in where a comment lands. `Tokenize` is called for its EFFECT (it populates
+// `Comments`); the count is read only so the call is not a bare statement.
+func FstSafeCommentsResult(source: string): FormatResult {
+    lexer := new Lexer(source, "test.nl")
+    tokens := lexer.Tokenize()
+    if tokens.Count == 0 {
+        return new FormatResult()
+    }
+
+    formatter := new Formatter(null)
+    return formatter.FormatSafe(source, FstUnit(source), lexer.Comments, "test.nl")
+}
+
+func FstSafeCommentsSuccess(source: string): bool {
+    return FstSafeCommentsResult(source).Success
+}
+
+func FstSafeCommentsWarnings(source: string): int {
+    return FstSafeCommentsResult(source).Warnings.Count
+}
 
 // ---- THE CANONICAL BODY: INDENTATION IS REBUILT, NEVER PRESERVED ---------------------------------
 
@@ -410,6 +432,69 @@ test "the blank line between a header comment and a namespace FOLLOWS THE SOURCE
 
 test "a lock statement with a leading comment inside it is idempotent" {
     assert FstIdempotentComments("func Decrement() {\nlock _lock {\n// parentheses optional\n_value--\n}\n}")
+}
+
+// ---- THE FILE HEAD'S OWN BLANK LINES ARE ACCOUNTED FOR ------------------------------------------
+//
+// `Format` writes a blank line after the namespace, after the import block and after the package
+// UNCONDITIONALLY: they are the language's spelling, not the source's. Each one is an output line
+// with no source line behind it, so each one advances the gap tracker
+// (`FormatterWalkState.AccountForEmittedBlankLine`).
+//
+// WITHOUT THAT ACCOUNTING THE TRACKER LIES BY EXACTLY ONE LINE, and a file whose first comment sits
+// DIRECTLY under its last import grows a blank line on every format — pass 1 writes one, pass 2
+// reads the gap the blank created and writes a second. `FormatSafe`'s idempotence gate then rejects
+// the file and `nlc format` refuses to touch it at all. That was true of exactly one file in the
+// repository (`ColumnarIteratorPlanner.tests.nl`, whose `import System.Reflection.Emit` is followed
+// on the next line by its header comment), and it was true of all three separators.
+//
+// The three rows below assert the FIXED POINT and the canonical text together, because the fixed
+// point alone would also be satisfied by a formatter that wrote two blanks every time.
+
+test "an import block followed IMMEDIATELY by a comment is a fixed point, at ONE blank line" {
+    source := "import System\n// header\nclass C {\n}"
+
+    assert FstFormatComments(source) == "import System||// header|class C {|}"
+    assert FstIdempotentComments(source)
+    assert FstSafeCommentsSuccess(source)
+    assert FstSafeCommentsWarnings(source) == 0
+}
+
+test "a namespace followed IMMEDIATELY by a comment is a fixed point, at ONE blank line" {
+    source := "namespace N\n// header\nclass C {\n}"
+
+    assert FstFormatComments(source) == "namespace N||// header|class C {|}"
+    assert FstIdempotentComments(source)
+    assert FstSafeCommentsSuccess(source)
+}
+
+test "a package followed IMMEDIATELY by a comment is a fixed point, at ONE blank line" {
+    source := "package p\n// header\nclass C {\n}"
+
+    assert FstFormatComments(source) == "package p||// header|class C {|}"
+    assert FstIdempotentComments(source)
+    assert FstSafeCommentsSuccess(source)
+}
+
+// The namespace separator is read by the IMPORT loop as well as by the declaration loop, so a
+// comment standing between the namespace and the first import exercises a second reader of the
+// same tracker.
+test "a comment between the namespace and the first import is a fixed point" {
+    source := "namespace N\n// header\nimport System\nclass C {\n}"
+
+    assert FstFormatComments(source) == "namespace N||// header|import System||class C {|}"
+    assert FstIdempotentComments(source)
+}
+
+// THE TWO SPELLINGS CONVERGE, AND A WIDER GAP IS STILL PRESERVED. A source that already carries the
+// blank line formats to the same text as one that does not — that is what makes the fix a
+// normalisation rather than a deletion — while a source with TWO blank lines keeps both, which is
+// the spelling the whole contract estate is written in and which must not move.
+test "the gap between the imports and the first comment normalises to one blank and saturates at two" {
+    assert FstFormatComments("import System\n\n// header\nclass C {\n}") == "import System||// header|class C {|}"
+    assert FstFormatComments("import System\n\n\n// header\nclass C {\n}") == "import System|||// header|class C {|}"
+    assert FstIdempotentComments("import System\n\n// header\nclass C {\n}")
+    assert FstIdempotentComments("import System\n\n\n// header\nclass C {\n}")
 }
 
 // ---- OBJECT INITIALIZERS: THE ONE PLACE THE FORMATTER MEASURES A LINE ----------------------------

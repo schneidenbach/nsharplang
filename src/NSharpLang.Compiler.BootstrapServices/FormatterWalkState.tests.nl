@@ -189,6 +189,36 @@ test "a line BEFORE the tracker is not a blank line either" {
     assert !state.HasBlankLineBefore(4)
 }
 
+// ---- the formatter's OWN blank lines -------------------------------------------------------------
+//
+// `Format` writes three blank lines nothing in the source asked for — after the namespace, after
+// the import block and after the package. Each is an output line with no source line behind it, so
+// each advances the baseline by one; without that the tracker lies by one and the file head grows a
+// blank line on every format until `FormatSafe`'s idempotence gate rejects the file.
+
+test "an emitted blank line closes exactly one line of gap" {
+    state := FwsState()
+    state.LastEmittedSourceLine = 10
+    assert state.HasBlankLineBefore(12)
+
+    state.AccountForEmittedBlankLine()
+    assert state.LastEmittedSourceLine == 11
+    // The gap the blank line just filled no longer reads as one.
+    assert !state.HasBlankLineBefore(12)
+    // A WIDER gap still does: the accounting is one line, not "no gaps from here on".
+    assert state.HasBlankLineBefore(13)
+}
+
+test "an emitted blank line before anything has been emitted does NOT open the file" {
+    // Zero means "nothing emitted yet" and must keep meaning that, or the first declaration in a
+    // file would read a phantom gap against line 1.
+    state := FwsState()
+    assert state.LastEmittedSourceLine == 0
+    state.AccountForEmittedBlankLine()
+    assert state.LastEmittedSourceLine == 0
+    assert !state.HasBlankLineBefore(900)
+}
+
 // ---- the comment stream ---------------------------------------------------------------------------
 
 test "only the comments strictly before the line are emitted" {
