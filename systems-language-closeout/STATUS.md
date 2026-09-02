@@ -85,7 +85,11 @@ proof in the bar ran green; the numbers are in §4.1 and the coordinator commits
    is unreachable from N# at emit). Then re-run 021's closing decision and its box.
 6. The 15 product-defect chips (below) are for parallel sessions; they stay pinned-as-measured in the estate.
 
-Pending the owner's decision (2026-09-01): re-sequence to 015-B → 015-D → **015-E on Reflection.Emit**
+Decided (2026-09-01): file task 022, shelve the `MetadataBuilder` writer, port 015-E on Reflection.Emit; the formatter
+wraps gofmt-style (author-preserving). **OPEN — the user's call:** `MEASUREMENT-VERDICT-2026-09.md` §7, option (a)
+continue 015 to deletion (−45 C# lines per B sub-slice, byte-identical by construction, so it fixes no speed number) versus
+(b) declare `ColumnarIlEmitter.cs` a reviewed mechanical host and redirect effort to the 132.6 s emit regression, self-hosting
+`nlc build`/`check`, the native-kernel gap, task 022 and an incremental SDK build. Earlier line kept for context: re-sequence to 015-B → 015-D → **015-E on Reflection.Emit**
 (no metadata writer) → **task 022** (loader deletion → NativeAOT `nlc`); shelve the `MetadataBuilder`
 writer (its type-reference description model survives as a shared prerequisite). See §3.8's correction.
 
@@ -2259,6 +2263,24 @@ follow-ups; the first three 017 slices as the ledger recorded them; the 016 arc'
 | 015 sub-slice (interpolation base-call splitter) | NOT committed this turn | The string-classification half of `TryResolveInterpolationBaseCallPlan` (the `base.` prefix + `()` suffix Ordinal parse and name extraction/validation) deleted from `ColumnarIlEmitter.cs` (21,438→21,433, −5) → `ColumnarInterpolationSplitter.TrySplitBaseCall` + 2 contracts; the reflection guard/base-chain resolution/return-type guards stay as mechanical host | This was the LAST inline interpolation string-classification split (cast/equality/coalesce/integer-additive already N#-owned) — after it the directly-MOVABLE decision surface for 015-proper is EXHAUSTED. | PRODUCT_IL_DIFFS=0 across 162 assemblies; native 208/208; contracts 762/762; units 3,190/3,190; ratchet head `d7f043fb072388db` |
 | 015 pivot sub-slice (case-12 dead-arm prune) | `6e94ca88c` | Deleted four provably-dead case-12 residual sub-arms: bitwise and/or/xor, record-struct structural equality, the `null == null` fold, and the multi-term string-concat CHAIN (`TryEmitStringConcatChain` + `CanProveStringExpression`). `ColumnarIlEmitter.cs` 21,534→21,438 (−96). No N# owner added — the planners already own the plannable surface | A partial 166-arm instrumentation run MISSED `stringcharconcat`; only the FULL self-emit (228 arms) caught the three sibling arms (ternary, ref-identity equality, string+char) that had to be RETAINED — the slice-5 escape signature. Candidate (a) preflight static-call typing proven load-bearing. | 0 IL diffs across 162 assemblies (the 12 sweep diffs are C# `Compiler.dll`/`BootstrapServices.dll` copied as a reflection-test dependency); native 208/208; contracts 760/760; ratchet head `40cb7fa576abc6c2` |
 
+### 4.9 Measurement slices (2026-09)
+
+Two measurement briefs ran in parallel sessions during the 015-B arc; the user merges them. Their verdicts
+are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-09.md`).
+
+| slice | commit | what moved | durable finding | numbers |
+|---|---|---|---|---|
+| compile-time benchmark + verdict | `2b23d7848` (merged `8e8927647`) | new N#-owned harness `tests/native/compile-time-bench` (spawns `nlc build --timings` / `nlc check --json` as processes, 5 runs, medians, lines/s, RSS, failing-check census); its gate block auto-runs in Step 3a against `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json` (median ×1.5, pinned exit code, honours `SYSTEMS_BENCH=skip`); verdict at `systems-language-closeout/MEASUREMENT-VERDICT-2026-09.md`, raw output under `artifacts/compile-time/2026-09-01/` | `nlc build` on the compiler's own sources = parse + strict lint only and STOPS (45 findings, then 198 analysis errors in the MLC type model) — the SDK disables analysis for that project by name and the emit-only path takes **132.6 s for 172,653 lines (1.3 K lines/s), 14× slower per line than 2026-07-08**, with NO incremental skip on `dotnet build`. Tip pipeline ties the last C# pipeline on the 36 corpus projects both compile (0.995× build / 0.959× check). §7 puts options (a) continue 015 to deletion / (b) reviewed mechanical host + fix the regressions to the USER | BootstrapServices: build 7,868 ms / 172 MB / 21.9 K lines/s; check 26,997 ms / 683 MB / 6.4 K lines/s; harness 51/51; idle window 23:03–23:25 |
+
+- IPv6 to `api.nuget.org` is black-holed on this machine and .NET does not fall back: export
+  `DOTNET_SYSTEM_NET_DISABLEIPV6=1` before every gate or the isolated package cache stalls to NuGet's
+  100 s timeout (found by the native-comparison session, verified with `curl -6` vs `curl -4`).
+- The ownership ratchet refuses new non-N# files under `scripts/` and `tests/` (OWN003) and pins the
+  gate scripts' line counts (OWN004), so a new gate step is an N# native project auto-run by Step 3a,
+  and its baseline lives at the one JSON exemption under `tests/fixtures/compile-time/`.
+- §7's AOT argument for option (a) ("Reflection.Emit cannot ship in a native image") is superseded by
+  §3.8's correction: `PersistedAssemblyBuilder` runs under NativeAOT; the AOT path is task 022.
+
 ## 5. Remediations, corrections, do-not-relitigate verdicts
 
 Two ratchet remediations, one mid-arc reconciliation and the wave-one product-defect chip fixes, recorded as rows:
@@ -2309,6 +2331,7 @@ Two ratchet remediations, one mid-arc reconciliation and the wave-one product-de
   `head-v1:9717a7390756f51c` → `head-v1:58190ee65270a462` in BOTH keys.
 
 Corrections and standing verdicts, one line each:
+- 2026-09-01 compile-time: the first isolated gate went red because the bench's gate block printed one line ahead of its JSON envelope (Step 3a's `json.load` refused it — fixed, the block is silent on success) and because of the nuget IPv6 stall; measurement waited 2 h 23 min for other sessions' builds to stop — idle medians need every session holding.
 - **The owner that walks reads for NL001** is `LinterWalk`
   (`src/NSharpLang.Compiler.BootstrapServices/LinterWalk.nl`): a read lands in
   `LinterWalkState.MarkVariableUsed` and NL001 is reported by `LinterWalkState.CheckUnusedVariables` when a
