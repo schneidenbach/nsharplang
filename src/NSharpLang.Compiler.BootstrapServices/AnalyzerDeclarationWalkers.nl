@@ -453,6 +453,7 @@ class AnalyzerDeclarationWalkers {
 
         phase := state.Phase
         if phase == 0 {
+            ReportUnsupportedSkipClause(test)
             state.Phase = 1
             return OpenScope(test.Line, test.Column)
         }
@@ -509,6 +510,31 @@ class AnalyzerDeclarationWalkers {
 
         state.Phase = 99
         return CloseScope()
+    }
+
+    // PHASE 0 ALSO — THE `skip "reason"` CLAUSE, REFUSED WHERE THE DEVELOPER WROTE IT.
+    //
+    // `skip` is written by the docs, parsed by the recovery parser into `TestDeclaration.SkipReason`,
+    // rendered by the formatter and listed by the LSP — and emitted by NOTHING. The runner capability
+    // was MEASURED and declined (020 slice 2: zero consumers across 2,818 attributed test methods, and
+    // a STATIC modifier cannot express the runtime preconditions the only candidates wanted), so a
+    // file that spells `skip` cannot be built and will not become buildable.
+    //
+    // Before this report the refusal reached the developer as the WHOLE FILE declining at
+    // `parse.declaration-scan` — no code, no line, no column, no reason, and every passing test in the
+    // same file taken down with it. Reporting here is what turns that into one `NL323` at a position,
+    // with a suggestion, everywhere the analyzer runs. It is a REFUSAL, not a step toward the
+    // capability: nothing here emits, skips or reports a skipped test.
+    //
+    // THE SPAN IS THE DECLARATION HEAD, NOT THE `skip` TOKEN. `TestDeclaration` carries the reason but
+    // not the clause's own position, and giving it one reshapes the AST and its columnar
+    // materialization for four characters of squiggle; the message names the clause instead.
+    func ReportUnsupportedSkipClause(test: TestDeclaration) {
+        if test.SkipReason == null {
+            return
+        }
+
+        diagnostics.Report(ErrorCode.FeatureNotImplemented, "test '" + test.Description + "' declares 'skip', which is parsed for forward compatibility but is not compiled by 'nlc test'", test.Line, test.Column, "Delete the skip clause and its reason, or comment out the whole test declaration — nlc test cannot report a skipped test.", 4)
     }
 
     // PHASES 1 AND 2 — THE `setup` BLOCK'S NAMES, INJECTED. Each is declared and then recorded, at

@@ -353,7 +353,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Run single test | `-run` | name filter | `5` | `nlc test --filter` |
 | Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` shows individual test results |
 | Table-driven tests | struct slices | `#[case]` | `5` | `test "desc" with (params) [cases] { }` |
-| Test skip | `t.Skip()` | `#[ignore]` | `5` | `test "desc" skip "reason" { }` |
+| Test skip | `t.Skip()` | `#[ignore]` | None | No equivalent. A `skip "reason"` clause parses for forward compatibility but no backend emits it — `nlc test` reports `NL323`. Comment the test out, or select tests with `nlc test --filter` |
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
 | Test coverage | `-cover` | external tools | Planned | `nlc test --coverage` exits 1 with unsupported-feature guidance today |

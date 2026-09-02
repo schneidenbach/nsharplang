@@ -808,21 +808,24 @@ Row values must be literals — `int`, `float`, `char`, `string`, `bool` or `nul
 expression is reported as `NL310`, and a row whose value count does not match the parameter count is
 reported as `NL202`.
 
-### Skip Tests
+### Skipping a Test
 
-Mark a test as skipped with a reason:
+**There is no runnable skip.** N# parses a `skip "reason"` clause after a test's description for
+forward compatibility, and the formatter and the editor tooling understand it, but no backend emits
+it — so `nlc test` refuses a file that contains one:
 
-```n#
-test "needs network" skip "CI has no network" {
-    response := HttpClient.Get("https://api.example.com")
-    assert response.StatusCode == 200
-}
+```text
+error NL323: test 'needs network' declares 'skip', which is parsed for forward compatibility but is not compiled by 'nlc test'
+  --> Network.tests.nl:3:1
+   |
+  3 | test "needs network" skip "CI has no network" {
+   | ^^^^
+   |
+help: Delete the skip clause and its reason, or comment out the whole test declaration — nlc test cannot report a skipped test.
 ```
 
-:::caution Not yet runnable
-`skip` parses and is understood by the editor tooling, but `nlc test` does not yet compile a file
-that contains one. Leave the test out, or comment its body, until skip support lands.
-:::
+To leave a test out of a run, comment out the whole declaration, or use `nlc test --filter` to
+select the tests you want. A `skip` clause is not a way to keep an unfinished test in the file.
 
 ### Setup Blocks
 

@@ -693,3 +693,83 @@ test "with NO declaring class the check does not run at all" {
 
     assert harness.Errors.Count == 0
 }
+
+// ── THE `skip "reason"` CLAUSE — REFUSED, NOT SERVED ──────────────────────────
+//
+// PRODUCT DEFECT, PINNED: "the documented `skip` form fails to emit". `test "d" skip "r" { }` is the
+// spelling `website/docs` published; it parses, it analyses, the formatter renders it and the LSP
+// lists it — and it used to take the WHOLE FILE down at the columnar emit scan with
+// `This product path requires successful N# columnar emission after analysis passes.`: no code, no
+// line, no column, no reason, and every PASSING test in the same file lost with it.
+//
+// These contracts pin the refusal, and a refusal is all they pin. 020 slice 2 measured the skip
+// CAPABILITY (zero consumers across 2,818 attributed test methods; a STATIC modifier cannot express
+// the runtime preconditions the only candidates wanted) and declined it; nothing here emits, skips,
+// or reports a skipped test, and nothing here should be read as a step toward one.
+
+func DeclWalkSkippedTest(reason: string?): TestDeclaration {
+    return new TestDeclaration("a test", DeclWalkEmptyBlock(), null, null, reason, 3, 1)
+}
+
+test "a test that declares skip is refused BY NAME, IN POSITION, with a suggestion" {
+    harness := DeclWalkHarnessOf()
+
+    DeclWalkRun(harness, harness.Walkers.BeginTest(DeclWalkSkippedTest("CI has no network"), harness.Assignability), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.FeatureNotImplemented
+    assert harness.Errors[0].DiagnosticId == "NL323"
+    assert harness.Errors[0].Message == "test 'a test' declares 'skip', which is parsed for forward compatibility but is not compiled by 'nlc test'"
+    assert harness.Errors[0].Suggestion == "Delete the skip clause and its reason, or comment out the whole test declaration — nlc test cannot report a skipped test."
+    assert harness.Errors[0].Severity == ErrorSeverity.Error
+
+    // The declaration head, four characters wide: the `test` keyword. `TestDeclaration` carries the
+    // reason but not the clause's own position, so the message names the clause and the span points
+    // at the declaration that carries it.
+    assert harness.Errors[0].Line == 3
+    assert harness.Errors[0].Column == 1
+    assert harness.Errors[0].Length == 4
+}
+
+test "the refusal is the ONLY thing skip changes — the walk itself is byte-for-byte the plain one" {
+    skipped := DeclWalkHarnessOf()
+    plain := DeclWalkHarnessOf()
+
+    skippedSteps := DeclWalkRun(skipped, skipped.Walkers.BeginTest(DeclWalkSkippedTest("reason"), skipped.Assignability), null)
+    plainSteps := DeclWalkRun(plain, plain.Walkers.BeginTest(DeclWalkTest(null, null), plain.Assignability), null)
+
+    assert DeclWalkTranscript(skippedSteps) == DeclWalkTranscript(plainSteps)
+    assert DeclWalkTranscript(skippedSteps) == "2 5 6"
+    assert skipped.Errors.Count == 1
+    assert plain.Errors.Count == 0
+}
+
+test "an EMPTY skip reason is still a skip clause, and a null one is still no clause" {
+    empty := DeclWalkHarnessOf()
+    absent := DeclWalkHarnessOf()
+
+    DeclWalkRun(empty, empty.Walkers.BeginTest(DeclWalkSkippedTest(""), empty.Assignability), null)
+    DeclWalkRun(absent, absent.Walkers.BeginTest(DeclWalkSkippedTest(null), absent.Assignability), null)
+
+    assert empty.Errors.Count == 1
+    assert empty.Errors[0].Code == ErrorCode.FeatureNotImplemented
+    assert absent.Errors.Count == 0
+}
+
+test "a TABLE-DRIVEN test that also declares skip is refused ONCE, before its rows are walked" {
+    harness := DeclWalkHarnessOf()
+    parameters := DeclWalkParams()
+    DeclWalkParam(parameters, "value", "int", 3, 12)
+    rows := DeclWalkRows()
+    row := DeclWalkValues()
+    row.Add(new IntLiteralExpression("1", 5, 5))
+    DeclWalkRow(rows, row)
+    declaration := new TestDeclaration("a test", DeclWalkEmptyBlock(), parameters, rows, "reason", 3, 1)
+
+    DeclWalkRun(harness, harness.Walkers.BeginTest(declaration, harness.Assignability), BuiltInTypes.Int)
+
+    // One report for the declaration, not one per row: the lowering that turns R rows into R tests
+    // happens at emit, and the clause is written once.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.FeatureNotImplemented
+}
