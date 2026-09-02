@@ -509,3 +509,128 @@ test "020 s18 parser statements: a table-driven test carries BOTH its rows and a
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 2, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
+
+// ---- THE CAST OPERAND MAY NOT CROSS A LINE BOUNDARY (chip: "parse failure after a bare member access") ----
+//
+// N# HAS NO STATEMENT TERMINATOR, SO A NEWLINE AFTER A `)` IS A STATEMENT BOUNDARY. The C#-inherited
+// `(Name)operand` cast disambiguation used to read straight through it: `print(c.Count)` followed on the
+// NEXT line by `sum := 0` parsed as a cast of `sum` to the type `c.Count`. That swallowed the whole
+// declaration and produced `NL101 Unexpected token ':=' in expression` where the next statement began,
+// an `NL301 Variable not found` cascade for every later use of `sum`, `NL313`, and a FALSE `NL001` about
+// the receiver the cast target had demoted from a read to a type name. `NL101` is an error, so
+// `nlc build` stopped.
+//
+// THE TRIGGER IS NOT THE MEMBER ACCESS. It is any PARENTHESIZED expression that scans as a type name and
+// sits at the end of a line, so `print(x)` followed by `sum := 0` broke identically and `y := (x)` did
+// too. A member CALL (`print(c.Get())`) and a real ARGUMENT LIST (`g(a.B)`) were never affected: neither
+// leaves a `)` closing a type-shaped parenthesis in expression-primary position.
+//
+// `ColumnarParserRecovery.IsCastExpression` and the `ColumnarParserKernels` cast arm now both require the
+// operand to begin on the CLOSING PAREN'S OWN LINE, so the diagnostic front end and the emit front end
+// read one grammar and the FOLLOWING statement always parses independently. The same-line cast is
+// untouched, including the dotted-type form the estate already pins.
+
+test "chip cast-line-boundary: a bare member access is an expression statement of its own and the `:=` declaration on the NEXT LINE parses independently" {
+    source := "func f() {\n    a.B\n    c := 1\n}\n"
+    assert PsCensus(source) == ""
+    actual := PsAst(source)
+    decls1 := new List<Declaration>()
+    stmts2 := new List<Statement>()
+    stmts2.Add(Golden.ExprStmt(Golden.Member(Golden.Ident("a", 2, 5), "B", false, 2, 6), 2, 5))
+    stmts2.Add(Golden.VarDecl("c", null, Golden.IntLit("1", 3, 10), VariableKind.Let, 3, 5))
+    decls1.Add(Golden.Func("f", Golden.NoParams(), null, Golden.Block(stmts2, 1, 10), null, null, null, Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "chip cast-line-boundary: THE REPRODUCTION -- `print(a.B)` is a print of a PARENTHESIZED member access and the `:=` declaration on the next line is its own statement, not the operand of a cast to the type `a.B`" {
+    source := "func f() {\n    print(a.B)\n    c := 1\n}\n"
+    assert PsCensus(source) == ""
+    actual := PsAst(source)
+    decls1 := new List<Declaration>()
+    stmts2 := new List<Statement>()
+    stmts2.Add(Golden.Print(Golden.Paren(Golden.Member(Golden.Ident("a", 2, 11), "B", false, 2, 12), 2, 10), 2, 5))
+    stmts2.Add(Golden.VarDecl("c", null, Golden.IntLit("1", 3, 10), VariableKind.Let, 3, 5))
+    decls1.Add(Golden.Func("f", Golden.NoParams(), null, Golden.Block(stmts2, 1, 10), null, null, null, Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "chip cast-line-boundary: a CALL on the line after `print(a.B)` is its own expression statement -- an identifier callee is a cast-operand start, so this is the shape that would have been swallowed" {
+    source := "func f() {\n    print(a.B)\n    g()\n}\n"
+    assert PsCensus(source) == ""
+    actual := PsAst(source)
+    decls1 := new List<Declaration>()
+    stmts2 := new List<Statement>()
+    stmts2.Add(Golden.Print(Golden.Paren(Golden.Member(Golden.Ident("a", 2, 11), "B", false, 2, 12), 2, 10), 2, 5))
+    stmts2.Add(Golden.ExprStmt(Golden.Call(Golden.Ident("g", 3, 5), Golden.NoArgs(), Golden.NoTypeArgs(), 3, 6), 3, 5))
+    decls1.Add(Golden.Func("f", Golden.NoParams(), null, Golden.Block(stmts2, 1, 10), null, null, null, Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "chip cast-line-boundary: the boundary holds INSIDE A NESTED BLOCK -- the `if` body carries both statements and neither leaks into the other" {
+    source := "func f() {\n    if x {\n        print(a.B)\n        c := 1\n    }\n}\n"
+    assert PsCensus(source) == ""
+    actual := PsAst(source)
+    decls1 := new List<Declaration>()
+    stmts2 := new List<Statement>()
+    stmts3 := new List<Statement>()
+    stmts3.Add(Golden.Print(Golden.Paren(Golden.Member(Golden.Ident("a", 3, 15), "B", false, 3, 16), 3, 14), 3, 9))
+    stmts3.Add(Golden.VarDecl("c", null, Golden.IntLit("1", 4, 14), VariableKind.Let, 4, 9))
+    stmts2.Add(Golden.If(Golden.Ident("x", 2, 8), Golden.Block(stmts3, 2, 10), null, 2, 5))
+    decls1.Add(Golden.Func("f", Golden.NoParams(), null, Golden.Block(stmts2, 1, 10), null, null, null, Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "chip cast-line-boundary: a type-shaped parenthesis that ENDS THE BODY stays a parenthesized expression -- nothing follows it on its line and the `}` is not a cast operand" {
+    source := "func f() {\n    y := (a.B)\n}\n"
+    assert PsCensus(source) == ""
+    actual := PsAst(source)
+    decls1 := new List<Declaration>()
+    stmts2 := new List<Statement>()
+    stmts2.Add(Golden.VarDecl("y", null, Golden.Paren(Golden.Member(Golden.Ident("a", 2, 11), "B", false, 2, 12), 2, 10), VariableKind.Let, 2, 5))
+    decls1.Add(Golden.Func("f", Golden.NoParams(), null, Golden.Block(stmts2, 1, 10), null, null, null, Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "chip cast-line-boundary: NEGATIVE -- a SAME-LINE cast to a dotted type is still a hard cast, so the fix removed a line-crossing reading and nothing else" {
+    source := "func f() {\n    y := (a.B)c\n}\n"
+    assert PsCensus(source) == ""
+    actual := PsAst(source)
+    decls1 := new List<Declaration>()
+    stmts2 := new List<Statement>()
+    stmts2.Add(Golden.VarDecl("y", null, Golden.Cast(Golden.Ident("c", 2, 15), Golden.SimpleT("a.B", 2, 11, 14), CastKind.Hard, 2, 10), VariableKind.Let, 2, 5))
+    decls1.Add(Golden.Func("f", Golden.NoParams(), null, Golden.Block(stmts2, 1, 10), null, null, null, Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "chip cast-line-boundary: NEGATIVE -- the documented `(int)x` primitive cast is untouched" {
+    source := "func f() {\n    y := (int)x\n}\n"
+    assert PsCensus(source) == ""
+    actual := PsAst(source)
+    decls1 := new List<Declaration>()
+    stmts2 := new List<Statement>()
+    stmts2.Add(Golden.VarDecl("y", null, Golden.Cast(Golden.Ident("x", 2, 15), Golden.SimpleT("int", 2, 11, 14), CastKind.Hard, 2, 10), VariableKind.Let, 2, 5))
+    decls1.Add(Golden.Func("f", Golden.NoParams(), null, Golden.Block(stmts2, 1, 10), null, null, null, Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "chip cast-line-boundary: NEGATIVE -- a real ARGUMENT LIST `g(a.B)` was never the defect and still parses as a call whose next-line declaration is independent" {
+    source := "func f() {\n    g(a.B)\n    c := 1\n}\n"
+    assert PsCensus(source) == ""
+    actual := PsAst(source)
+    decls1 := new List<Declaration>()
+    stmts2 := new List<Statement>()
+    args3 := new List<Argument>()
+    args3.Add(Golden.ArgF(null, Golden.Member(Golden.Ident("a", 2, 7), "B", false, 2, 8), ArgumentModifier.None))
+    stmts2.Add(Golden.ExprStmt(Golden.Call(Golden.Ident("g", 2, 5), args3, Golden.NoTypeArgs(), 2, 6), 2, 5))
+    stmts2.Add(Golden.VarDecl("c", null, Golden.IntLit("1", 3, 10), VariableKind.Let, 3, 5))
+    decls1.Add(Golden.Func("f", Golden.NoParams(), null, Golden.Block(stmts2, 1, 10), null, null, null, Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}

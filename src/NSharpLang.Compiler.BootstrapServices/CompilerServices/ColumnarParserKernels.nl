@@ -4796,7 +4796,15 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
             // `(<identifier>)..end` is a parenthesized range start, not a cast whose operand
             // begins with `..`. Open-start ranges are expression starts everywhere else.
-            if st.Pos + 1 < count && tokens.Kinds[st.Pos + 1] != 125 && IsExpressionStartKind(tokens.Kinds[st.Pos + 1]) {
+            //
+            // AND the operand must begin on the closing paren's OWN LINE. N# has no statement
+            // terminator, so a newline between the `)` and the next token is a STATEMENT BOUNDARY --
+            // `print(c.Count)` followed on the next line by `sum := 0` is two statements, never a cast
+            // of `sum` to the type `c.Count`. This mirrors ColumnarParserRecovery.IsCastExpression so
+            // the diagnostic front end and this emit front end read one grammar. Entry points that
+            // carry no source text (st.Source empty) cannot see the break and keep the same-line-only
+            // reading they had; every STATEMENT route passes source.
+            if st.Pos + 1 < count && tokens.Kinds[st.Pos + 1] != 125 && IsExpressionStartKind(tokens.Kinds[st.Pos + 1]) && !ParserSourceHasLineBreakBetween(st.Source, tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos], tokens.Starts[st.Pos + 1]) {
                 isCast = true
             }
         }
@@ -8574,6 +8582,28 @@ func ParserDeclarationIsTopLevelDeclarationBoundaryBefore(tokens: ParserDeclarat
 
     previousKind := tokens.Kinds[index - 1]
     return previousKind == 136 || previousKind == 130 || previousKind == 133
+}
+
+// Does the source between two token offsets contain a line break? The cast lookahead uses it to keep a
+// `(Type)` at the end of a line from swallowing the FIRST TOKEN OF THE NEXT STATEMENT as its operand:
+// N# has no statement terminator, so that newline IS the boundary. `source` may be empty (several
+// expression-only entry points build their ParserState without it), in which case the range check below
+// answers false and the caller keeps its prior reading rather than guessing.
+func ParserSourceHasLineBreakBetween(source: string, start: int, end: int): bool {
+    if start < 0 || start >= end || end > source.Length {
+        return false
+    }
+
+    i := start
+    while i < end {
+        if source[i] == '\n' {
+            return true
+        }
+
+        i = i + 1
+    }
+
+    return false
 }
 
 func ParserDeclarationTokenTextEquals(source: string, start: int, length: int, expected: string): bool {

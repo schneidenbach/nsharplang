@@ -8251,6 +8251,16 @@ class ColumnarParserRecovery {
     // than a tuple / parenthesized expression. N# has no first-class Func values, so Parser.cs's nested
     // scan closures are lowered to methods over two explicit scan-state fields (ScanPosition, ScanSplit).
     // No cursor mutation, no diagnostics.
+    //
+    // THE CAST OPERAND MUST BEGIN ON THE CLOSING PAREN'S OWN LINE. N# has NO statement terminator
+    // ("no semicolons" is a documented promise), so a newline between the `)` and the next token is a
+    // STATEMENT BOUNDARY and the following statement must parse INDEPENDENTLY. Without that rule the
+    // C#-inherited `(Name)operand` disambiguation reads across the boundary: `print(c.Count)` followed
+    // on the NEXT line by `sum := 0` became a cast of `sum` to the type `c.Count`, which swallowed the
+    // declaration and produced NL101 at the `:=` plus an NL301 cascade and a false NL001 about the
+    // receiver the cast target had demoted to a type name. The line test is deliberately spelled here
+    // rather than in a helper: this class is at the columnar front end's per-class member ceiling
+    // (§2.1), so a new member function would decline the whole class.
     func IsCastExpression(): bool {
         ScanPosition = Position + 1
         // skip '(' without mutating the parser cursor
@@ -8261,11 +8271,14 @@ class ColumnarParserRecovery {
         if ScanCurrentType() != TokenType.RightParen {
             return false
         }
-        operandType := TokenType.Eof
-        if ScanPosition + 1 < Tokens.Count {
-            operandType = Tokens[ScanPosition + 1].Type
+        if ScanPosition + 1 >= Tokens.Count {
+            return false
         }
-        return ParserTokenFacts.IsCastOperandStart(operandType)
+        // ScanSplit is 0 here (ScanCurrentType answered RightParen), so ScanPosition indexes the `)`.
+        if Tokens[ScanPosition + 1].Line != Tokens[ScanPosition].Line {
+            return false
+        }
+        return ParserTokenFacts.IsCastOperandStart(Tokens[ScanPosition + 1].Type)
     }
 
     func ScanCurrentType(): TokenType {
