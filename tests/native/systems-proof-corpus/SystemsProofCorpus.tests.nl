@@ -161,6 +161,26 @@ func RunProofAssembly(name: string, assemblyName: string): ProofRun {
     return RunProcess("dotnet", "\"" + Path.Combine(outputDirectory, assemblyName + ".dll") + "\"", outputDirectory)
 }
 
+// A probe project written under the system temp directory and checked by the REAL CLI. It exists
+// because the corpus has no shipped sample for a shape the compiler must REFUSE — a refused shape
+// cannot also be a shipped sample — and a refusal pinned only inside the analyzer's own contracts
+// would not say that `nlc check` fails the build over it.
+func WriteNativeImportProbe(folderName: string, parameterSpelling: string): string {
+    directory := Path.Combine(Path.GetTempPath(), folderName)
+    if Directory.Exists(directory) {
+        Directory.Delete(directory, true)
+    }
+
+    Directory.CreateDirectory(directory)
+    File.WriteAllText(Path.Combine(directory, "project.yml"), "name: NativeImportProbe\nversion: 0.1.0\ntargetFramework: net10.0\noutputType: exe\nentry: Program.nl\n")
+    File.WriteAllText(Path.Combine(directory, "Program.nl"), "namespace Probe.NativeImport\n\nimport System\nimport System.Runtime.InteropServices\n\nstatic class NativeHash {\n    [LibraryImport(\"fast_hash\")]\n    static func Hash64(data: " + parameterSpelling + ", len: int, out value: ulong): int\n}\n\nfunc Main() {\n    Console.WriteLine(0)\n}\n")
+    return directory
+}
+
+func CheckProjectJson(directory: string): ProofRun {
+    return RunProcess("dotnet", "\"" + ProofCliDll() + "\" check --project \"" + directory + "\" --json", Path.GetTempPath())
+}
+
 // `assembly=<bool> runtime=<bool>` — the two artifacts the deleted body checked with `File.Exists`.
 func ProofArtifacts(name: string, assemblyName: string): string {
     outputDirectory := ProofOutputDirectory(name)
@@ -648,14 +668,27 @@ test "020 s40 systems proof corpus: 26-native-device-handle runs — the native 
     assert run.Stderr == ""
 }
 
-// THE `27-c-library-cli` FINDING. This proof cannot run, and the reason is the ANSWER to
-// the deleted `AssertNativeImportHasNoManagedBody(…, "NativeHash", "Hash64")`: the CLR's
-// INTEROP MARSHALLER is what fails, at the call to `NativeHash.Hash64`, which no managed
-// body could ever provoke. `[LibraryImport]` over a `ReadOnlySpan<byte>` parameter is not
-// marshalable on this emit path, so the sample is unrunnable even where `fast_hash` exists.
-// The deleted C# never ran it — it only read metadata — so this was invisible for the file's
-// whole life.
-test "020 s40 systems proof corpus: 27-c-library-cli is a genuine native import — the interop marshaller, not managed code, is what fails (was SystemsNSharpTests.ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence)" {
+// THE `27-c-library-cli` FINDING, AND ITS FIX. Slice 40 pinned this proof as A SHIPPED SAMPLE
+// THAT COULD NOT EXECUTE: `[LibraryImport]` over a `ReadOnlySpan<byte>` was accepted in
+// SILENCE — `nlc check --json` answered `ok: true` with zero rows and `nlc build` succeeded —
+// and the program then aborted at exit 134 with `MarshalDirectiveException: Cannot marshal
+// 'parameter #1': Non-blittable generic types cannot be marshaled.`, raised by the CLR's
+// interop marshaller at the call, BEFORE the native library was looked for.
+//
+// A generic type can never appear in a P/Invoke signature, and nothing rewrites it here: C#
+// survives spans under `[LibraryImport]` only because a SOURCE GENERATOR replaces the
+// declaration with a pinning wrapper around a pointer-taking stub, while N# emits the P/Invoke
+// directly. So the shape is now REFUSED at check time (`NL405`, pinned below and in
+// `AnalyzerAttributeValidator.tests.nl`) and the sample is spelled with the array the
+// marshaller accepts.
+//
+// WHAT THE RUN PROVES NOW IS STRICTLY MORE THAN WHAT IT PROVED BEFORE. The call reaches the
+// native LOADER — `DllNotFoundException` naming `fast_hash`, from `NativeHash.Hash64` itself —
+// which is the successor to the deleted `AssertNativeImportHasNoManagedBody(…, "NativeHash",
+// "Hash64")`: only a GENUINE interop stub gets as far as `dlopen`, and no managed body could
+// produce this stack. The sample still cannot COMPLETE, because `fast_hash` stands in for a C
+// library this repository does not carry; what it can now do is marshal.
+test "020 s40 systems proof corpus: 27-c-library-cli is a genuine native import — its signature marshals and the call reaches the native loader, not the marshaller (was SystemsNSharpTests.ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence)" {
     build := BuildProof("27-c-library-cli")
     assert build.ExitCode == 0
     assert ProofArtifacts("27-c-library-cli", "SystemsProof27CLibraryCli") == "assembly=true runtime=true"
@@ -663,8 +696,37 @@ test "020 s40 systems proof corpus: 27-c-library-cli is a genuine native import 
     run := RunProofAssembly("27-c-library-cli", "SystemsProof27CLibraryCli")
     assert run.ExitCode != 0
     assert run.Stdout == ""
-    assert run.Stderr.Contains("System.Runtime.InteropServices.MarshalDirectiveException")
+    assert !run.Stderr.Contains("MarshalDirectiveException")
+    assert run.Stderr.Contains("System.DllNotFoundException")
+    assert run.Stderr.Contains("fast_hash")
     assert run.Stderr.Contains("SystemsProofs.CLibraryCli.NativeHash.Hash64")
+}
+
+// THE CONTROL FOR THE REFUSAL, THROUGH THE REAL CLI. The corpus no longer ships a sample with
+// the refused shape — that is the point of the fix — so the negative is written out and checked
+// here, beside a byte-identical positive that differs only in the parameter's spelling. Without
+// the pair, `27` passing would be equally consistent with the rule having been deleted.
+//
+// The sentence is matched in PIECES rather than whole: the `--json` envelope escapes `'` as
+// `\u0027` and `<` as `\u003C`, so `can't marshal parameter 'data'` and `ReadOnlySpan<byte>` do
+// not occur literally in the output. The code, the verb and the type NAME do.
+test "020 chip: nlc check REFUSES a [LibraryImport] span parameter and ACCEPTS the array beside it" {
+    spanProbe := WriteNativeImportProbe("nsharp-native-import-probe-span", "ReadOnlySpan<byte>")
+    refused := CheckProjectJson(spanProbe)
+    arrayProbe := WriteNativeImportProbe("nsharp-native-import-probe-array", "byte[]")
+    accepted := CheckProjectJson(arrayProbe)
+    Directory.Delete(spanProbe, true)
+    Directory.Delete(arrayProbe, true)
+
+    assert refused.ExitCode == 1
+    assert refused.Stdout.Contains("\"code\": \"NL405\"")
+    assert refused.Stdout.Contains("marshal parameter")
+    assert refused.Stdout.Contains("ReadOnlySpan")
+    assert refused.Stdout.Contains("\"errors\": 1")
+
+    assert accepted.ExitCode == 0
+    assert !accepted.Stdout.Contains("NL405")
+    assert accepted.Stdout.Contains("\"errors\": 0")
 }
 
 test "020 s40 systems proof corpus: 30-cold-failure-logging runs — the cold failure logger executes as a process (was SystemsNSharpTests.ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence)" {
