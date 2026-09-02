@@ -85,6 +85,10 @@ proof in the bar ran green; the numbers are in §4.1 and the coordinator commits
    is unreachable from N# at emit). Then re-run 021's closing decision and its box.
 6. The 15 product-defect chips (below) are for parallel sessions; they stay pinned-as-measured in the estate.
 
+Pending the owner's decision (2026-09-01): re-sequence to 015-B → 015-D → **015-E on Reflection.Emit**
+(no metadata writer) → **task 022** (loader deletion → NativeAOT `nlc`); shelve the `MetadataBuilder`
+writer (its type-reference description model survives as a shared prerequisite). See §3.8's correction.
+
 ### Baselines at `8cf40128a` (re-measure at your tip; never inherit)
 
 | measure | value |
@@ -169,18 +173,26 @@ join). Rows may only be removed (`0/0/0,text-v1:removed`) or exact-shrunk; the e
 Audit reads 17/18 before the repin (record it) and 18/18 after. `audit --verbose` prints the values to paste.
 OWN003 = a gate log inside the byte-copy; OWN009 = leftover `TestResults/.trx`.
 
-### Product-defect chips filed for parallel sessions (14, pinned-as-measured)
+### Product-defect chips (15 filed; state at `ef3ff87c3`, 2026-09-01)
 
-raw-interpolation `:` swallow · four-arg `Analyze` degraded diagnostics · NL309 coverage · dead `match`
-wildcard arm + missing override-virtual check ·
-`LibraryImport` span marshalling crash · systems policy accepting unresolved members (FIXED — see §5) ·
-`nlc tidy` bare-prefix deletion (FIXED — see §5) · false NL001 on `off` reads ·
-parse failure after bare member access ·
-locale-sensitive estate blocks · documented `skip` form failing to emit · playground union shorthand ·
-playground vs `nlc run` divergences · format non-idempotence + the `.tests.nl` gate gap.
+Fixed and merged (see §5 for each decode row): four-arg `Analyze` degraded diagnostics · dead `match`
+wildcard arm + missing override-virtual check (now NL311) · `LibraryImport` span marshalling (now NL405) ·
+systems policy accepting unresolved members · `nlc tidy` bare-prefix deletion · false NL001 on `off` reads ·
+parse failure after bare member access (the trigger was the CAST lookahead crossing a line). Fixed earlier:
+raw-interpolation `:` swallow (`e6aa8c88b`). WITHDRAWN with proof: undefined type names silent at declaration
+sites (every probe spelled `Missing`, a real BCL type; two smaller real holes it hid are fixed).
 
-CLOSED: **undefined type names silent at declaration sites** — the filed finding was a probe artifact and is
-WITHDRAWN, two smaller real holes it hid are fixed, and the family is pinned. See §5.
+Held: format non-idempotence + the `.tests.nl` gate gap — fixed on `stream/chip-format-idempotence`; its
+233-file estate reformat waits on a decision about an argument-list WRAPPING policy (the canonical join puts
+6,224 lines over 120 chars). In flight (paused during a peer benchmark hold): NL309 coverage · locale-sensitive
+estate blocks · documented `skip` form failing to emit · playground union shorthand · playground vs `nlc run`
+divergences.
+
+Wave-3 candidates found by the chips: `unsafe`/`alloc`/`allow` block bodies unwalked by the linter (NL001
+fail-open) · `TypePattern` type references untracked (false NL010) · `nlc tidy --fix` corrupts the mapping
+dependency form · tidy's removal filter not scoped to a dependency section (decision) · `where` clauses on
+TYPE declarations do not parse · `override` PROPERTIES unchecked · tuple-deconstruction scan crossing lines
+(invalid source only) · the formatter argument-list wrapping policy (decision).
 
 ## 2. Walls and gotchas
 
@@ -1067,6 +1079,27 @@ Structural knowledge the code does not state. Process lessons are in §2; per-sl
   three internal invariant sentences on CLR-handed impossible paths.
 
 ### 3.8 021's terminal state and the measured AOT direction
+
+> **CORRECTED 2026-09-01 by two decodes proven by execution (a NativeAOT `osx-arm64` publish + run).**
+> `MetadataLoadContext` is AOT-compatible (`ilc` zero errors; its `IL3050` are false positives on
+> metadata-only overrides), and so is `PersistedAssemblyBuilder` — the emitter's ONLY builder (one site,
+> `ColumnarIlEmitter.cs:3991`; zero `DefineDynamicAssembly` sites) — including with an MLC `RoAssembly` as its
+> core assembly and MLC types in every signature position (a 2,560-byte assembly saved and read back clean).
+> NativeAOT forbids exactly two things this compiler does: loading an assembly into its own process
+> (`Assembly.LoadFrom` → `PlatformNotSupportedException`; `Assembly.Load` → `FileNotFoundException`; the
+> emitter's runtime-loader sites `:2794/:9314/:9329/:9359` plus 3 N# sites) and generating code to RUN
+> in-process (`DefineDynamicAssembly`, unused). Consequences: the "replace MLC with `MetadataReader`" task is
+> dead; the `MetadataBuilder` second executor is OFF the AOT path (ownership work only — and Reflection.Emit is
+> already spellable from N# while `MetadataBuilder` is not, so the 015-E declaration host ports to N# ON
+> Reflection.Emit with no catalog widening); the AOT work is a drafted task 022 — (1) AOT capability floor over
+> the full builder/opcode/131-member surface, (2) one type universe: delete the runtime-loader half and
+> re-source `metadataPath` off `Assembly.Location`, (3a) admit `new` on a `nuget:` type → (3b) retire the
+> `Analyzer.cs` MLC quarantine, (4) serve the editor from the analyzer's universe (VS Code-gated),
+> (5) a NativeAOT `nlc`. Census at `8cf40128a`: 105/403 production `.nl` name reflection types (70 %
+> `Columnar*`, 20 % `Analyzer*`); 131 distinct reflection members, only 4 MLC-hostile; `MetadataLoadContext`
+> IS spellable from N# — the one wall is `new` on a `nuget:`-sourced type. Filing task 022 and shelving the
+> writer are pending the owner's decision. The bullets below are the 021 audit's record as written and are
+> superseded where they conflict with this note.
 
 - The closing contract is a CONJUNCTION of four: every surviving non-N# file must be *pre-existing,
   non-growing, mechanical, and explicitly reviewed against a canonical N# owner*. Three PASS.
