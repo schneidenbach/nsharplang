@@ -147,7 +147,7 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
-| packaged SDK 0.1.0 in both feeds | packed from `b57c661a0` (Sdk nupkg md5 `932ac6ca…`), carries `System.Reflection.Module` + `get_Module` |
+| packaged SDK 0.1.0 in both feeds | packed from `385b7e8d1` (Sdk nupkg md5 `e55c25e1…`), carrying the incremental-emit stamp and the retained external-type scan; **measured through the shipped package on a loaded box: the compiler's own product build 29.6 s wall (was 133–160 s), no-op rebuild 0.93 s (was 132.8 s), tests-included build 46.0 s (was 273–307 s); estate restore+emit+test 76 s, 7,305/7,305** |
 | gate | `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` → 126 steps, `GATE EXIT 0`, ~22 min |
 
 ### The verification bar (every B-arc slice; the accumulated standard)
