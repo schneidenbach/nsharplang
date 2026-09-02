@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System.Collections.Generic
 
 class ErrorMessageBuilder {
+
     // NL202, AND THE SENTENCE IS THE CALLER'S. Every reporting site already knows what disagrees with
     // what — the variable and its annotation, the member and its value, the field and its initializer,
     // the `if` and its condition — and says so when it has no source text to underline. The rich shape

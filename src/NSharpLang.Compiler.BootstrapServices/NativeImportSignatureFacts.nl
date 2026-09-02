@@ -28,6 +28,7 @@ import NSharpLang.Compiler.Ast
 // two families it names are settled: neither a generic name nor a tuple can be anything but generic in
 // metadata.
 class NativeImportSignatureFacts {
+
     // `[LibraryImport]`, `[LibraryImportAttribute]` and the fully-qualified spellings are one
     // attribute, exactly as everywhere else in the analyzer. `DllImport` is admitted by the same
     // door: it is the same P/Invoke stub with an older spelling and the same marshaller.

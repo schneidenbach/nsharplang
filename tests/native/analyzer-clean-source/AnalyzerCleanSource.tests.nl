@@ -21626,7 +21626,7 @@ test "undefined type names at declaration sites: THE ARTIFACT'S THIRD HALF — 0
     assert AcCensus(rich) == "NL202:TypeMismatch@3:33+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|Type mismatch|<null>|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|Variable 'item' is typed as 'Missing', but the value is 'int'|<null>|Error"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
     assert AcRow(rich, 1) == "<no-such-error>"
 }
