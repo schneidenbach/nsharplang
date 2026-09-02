@@ -383,12 +383,33 @@ class TidyCommandKernels {
         return false
     }
 
+    // `nlc tidy --fix` REWRITES the user's `project.yml` from this answer, so the match must name
+    // the WHOLE package, never a prefix of a longer one. The name has to fit, has to compare equal,
+    // AND has to END where it ends on the line: the character after it must not be one a package
+    // name can continue with. Without that last condition a doomed `Serilog.Sinks` takes
+    // `Serilog.SinksExtra` and `Serilog.Sinks.Console` with it — different packages, on lines the
+    // report never named, in sections (`testDependencies:`) tidy never classified.
     static func RemovalLineStartsWithPackage(lineValue: string, packageStart: int, packageName: string): bool {
-        if packageStart + packageName.Length > lineValue.Length {
+        if packageName.Length == 0 {
+            return false
+        }
+
+        packageEnd := packageStart + packageName.Length
+        if packageEnd > lineValue.Length {
+            return false
+        }
+
+        if packageEnd < lineValue.Length && IsPackageNameChar(lineValue[packageEnd]) {
             return false
         }
 
         return TextSegmentEqualsIgnoreCase(lineValue, packageStart, packageName, 0, packageName.Length)
+    }
+
+    // The characters a NuGet package id can continue with. Everything else — end of line, the `@`
+    // that introduces a version, whitespace before a comment, a quote — ENDS the name.
+    static func IsPackageNameChar(value: char): bool {
+        return char.IsLetterOrDigit(value) || value == '.' || value == '-' || value == '_' || value == '+'
     }
 
     static func RemovalLineHasNugetMarkerAt(lineValue: string, start: int): bool {

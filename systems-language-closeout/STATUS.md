@@ -177,9 +177,9 @@ OWN003 = a gate log inside the byte-copy; OWN009 = leftover `TestResults/.trx`.
 raw-interpolation `:` swallow · four-arg `Analyze` degraded diagnostics · NL309 coverage · dead `match`
 wildcard arm + missing override-virtual check · undefined type names silent at declaration sites ·
 `LibraryImport` span marshalling crash · systems policy accepting unresolved members · `nlc tidy` bare-prefix
-deletion · false NL001 on `off` reads · parse failure after bare member access · locale-sensitive estate
-blocks · documented `skip` form failing to emit · playground union shorthand · playground vs `nlc run`
-divergences · format non-idempotence + the `.tests.nl` gate gap.
+deletion (FIXED — see §5) · false NL001 on `off` reads · parse failure after bare member access ·
+locale-sensitive estate blocks · documented `skip` form failing to emit · playground union shorthand ·
+playground vs `nlc run` divergences · format non-idempotence + the `.tests.nl` gate gap.
 
 ## 2. Walls and gotchas
 
@@ -2175,15 +2175,36 @@ follow-ups; the first three 017 slices as the ledger recorded them; the 016 arc'
 
 ## 5. Remediations, corrections, do-not-relitigate verdicts
 
-Two ratchet remediations and one mid-arc reconciliation, recorded as rows:
+Two ratchet remediations, one mid-arc reconciliation and one product-defect chip fix, recorded as rows:
 
 | record | commit hash(es) | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
+| CHIP FIX: `nlc tidy` bare-prefix deletion (020 slice 43's data-loss finding, pinned-as-measured) | `stream/chip-tidy-bare-prefix` off `8cf40128a` | `TidyCommandKernels.RemovalLineStartsWithPackage` compared `packageName.Length` characters and checked NOTHING after them; it now also requires the name to END on the line — the next character may not continue a package id (letter, digit, `.`, `-`, `_`, `+`) — and an empty doomed name matches nothing. The pinned BARE-PREFIX block is CONVERTED to pin the correct behaviour; 4 estate blocks and 1 native block are added (positive, negative, idempotence, empty name, and the end-to-end `--fix` rewrite) | THE CHIP'S TITLE IS WRONG AND THE ARCHIVE IS RIGHT: `nlc tidy` NEVER deletes an `import` — it rewrites `project.yml` DEPENDENCY LINES, so NL010's owner (`LinterNamespaceImportUsage`, a namespace→known-type-name table) answers a different question and cannot be consulted. The CLASSIFIER side was already delimiter-correct (`NamespaceMatchesPrefix` requires `.` after the first segment); only the REMOVAL side was not. The blast radius reached lines tidy never classified: `TidyCommand.RemoveDependencies` hands the filter EVERY line of the file | Zero C# delta (the `tidy` CLI surface is one dispatch arm, `Program.cs:52`); `+194/−20` over 3 `.nl` files. Estate `Passed: 7196, Failed: 0`; native cli-command-contracts `Passed: 84` (83 + 1). Mutation panel (revert the kernel, keep the tests): **5 predicted red, 5 measured red, 0 unpredicted**, the three negative controls green. Before/after `tidy` + `tidy --fix` sweep over 19 `project.yml` (examples/ + BootstrapServices): **0 report divergences, 0 rewrites** |
 | RATCHET REMEDIATION of the two chip commits (2026-08-02) | `6658e8304` (nlc-check `NotImplementedException` on receiver-style generics), `c78ea1f22` (formatter safety-check failures) — amended mid-remediation to `c8b9964e1`; idiom precedent `1142885be`; head `head-v1:65015a9692586d08` → `head-v1:8265394c9ce3a302` | Both fixes STAY; both landed WITHOUT ratchet accounting, so the audit failed with **10 violations across five tracked files**. `tests/CheckCommandTests.cs` 721/618/112 → 674/573/101 (exactly at its 674-line ceiling); `tests/ColumnarDeclineDiagnosticsTests.cs` 245/218/32 → 212/184/27 (exactly at its 212-line AND 27-marker ceilings); three fingerprint-only repins (`ColumnarIlEmitter.cs`, `Formatter.cs`, `tests/FormatterTests.cs` 2,134 → 2,132 under the approved-shrink rule) | Paid with LOSSLESS comment compression plus SUBSUMPTION-PROVEN assertion consolidations only — no test, no assertion subject and no program fixture deleted. `Assert.False(result.Success)` was deliberately KEPT at all four sites because `MultiFileCompilationResult.Success` is an INDEPENDENT constructor-supplied bool, NOT derived from `Errors`, so `Assert.Single(NL103 errors)` does NOT subsume it — the tempting fifth consolidation was REJECTED on that proof. | audit 18/18 (all 10 OWN004/OWN005 cleared); manifest still EXACTLY 391 lines; `epochPathFingerprint`/`epochFactFingerprint` BIT-IDENTICAL; 381-row sweep 0 drifted rows; unit 3,194/3,194; contracts 2,046/2,046 |
 | RATCHET + PARITY REMEDIATION of `170244a5f` (2026-07-29) | `170244a5f` "Fix infinite loop in ParseTestDeclaration table-case recovery"; head `head-v1:1be7f7cb4c07e417` → `head-v1:682bbdb2c76e50c8` in BOTH the manifest and the mirrored `OwnershipPolicy.ReviewedHeadFingerprint` constant | A CORRECT fix by a separate session that (a) exceeded the IMMUTABLE E0 epoch ceilings on both files and (b) skipped the N# parity mirror — audit failed with 6 violations (OWN004+OWN005 each) and broke the integration gate. Paid: `Parser.cs` 7,128/6,192 → 7,116/6,180 and `ParserErrorTests.cs` 1,944/1,609/568 → 1,923/1,588/563; `ColumnarParserRecovery.nl`'s `ParseTestDeclaration` table-case loops gained the same no-progress guards + 4 parity contracts | The owner's `ConsumeToken` does NOT advance on mismatch either, so the N# mirror REPRODUCED THE HANG FAITHFULLY — a parity mirror inherits the defect unless it carries the same guard. Zero-functional-change was proven by stripping every whole-line comment and blank from HEAD and from the compressed file and showing the remaining 5,872 code lines BYTE-IDENTICAL. | audit 18/18; contracts 1,442/1,442 (1,438 + 4); NET non-N# change −33 lines across two C# files; all new code is N#; no VS Code gate owed (no production/LSP wiring change) |
 | 020 reconciliation (slice 43) | slice cut at `e929453e0`; reconciled over chip commits `2d2ddb39d`, `0a66db6ec`, `1e426e07d`, `65c02f471`, `fa6ed3214` | No C#→N# movement: a coordinator reconciliation onto a tip four concurrent chip commits had moved. `tests/TestSdkFeed.cs` losslessly compressed back under its epoch ceiling (326/287 → 324/284, markers unchanged at 3); `NSharpLang.Sdk.csproj` and `test-all-core.sh` repinned as reviewed drift | `LanguageServer.csproj`'s drift was a PHANTOM: the file carries a UTF-8 BOM, the audit reads utf-8-sig, and a plain-utf-8 reader hashes the BOM into a false drift. RULE: ratchet tooling must read utf-8-sig, and the manifest's header keys are colon-space formatted while rows are compact — REGEX the stored head, never string-match it. | contracts 2,897/2,897 (chip baseline 2,865 + slice 32); head `f66e4eda5ec3d44a` → `b283a83ef600d146`, mirrored; audit 18/18; manifest 391 lines, no BOM |
 
 Corrections and standing verdicts, one line each:
+
+- **The tidy bare-prefix REPRODUCTION, so nobody rediscovers it.** A project whose `dependencies:` names an
+  unused `Serilog.Sinks` and whose `testDependencies:` names `Serilog.SinksExtra` and
+  `Serilog.Sinks.Console`: the table reports ONE possibly-unused dependency, the command prints
+  `Removed 1 possibly-unused dependency.`, and the file loses THREE lines — the message and the damage
+  disagree, which is what makes the end-to-end row able to fail at all. A repro CANNOT be built inside a
+  single `dependencies:` list: the classifier keys on the FIRST SEGMENT only, so a package with a doomed
+  name as a bare prefix always shares that name's first segment and therefore its status. The collateral
+  only reaches lines tidy never classified (`testDependencies:`, `exclude:`).
+- **A SECOND tidy finding is pinned as measured and deliberately NOT fixed:** the removal filter is not
+  scoped to a dependency section — it is handed every line of `project.yml` and tests only for `- ` after
+  the indent — so a `testDependencies:` entry naming EXACTLY a doomed package still goes. The whole-name
+  rule bounds the blast radius to an exact match; section scoping is a separate product decision.
+- **A THIRD tidy finding, measured while probing the fix and NOT fixed — `nlc tidy --fix` CORRUPTS the
+  mapping form of a dependency.** A dependency written as `  - nuget: X` / `    version: 1.2.3` loses only
+  the `- nuget:` line, because the filter's structural test is `- ` after the indent; the `version:` line
+  survives as a stray mapping directly under `dependencies:`. Measured end to end: a two-dependency
+  `project.yml` came back with `dependencies:` followed by a bare `    version: 1.0.0`. It predates this
+  fix (the old and new matchers both remove exactly that one line) and is orthogonal to the prefix rule —
+  fixing it means DELETING MORE, which is a separate product decision and a separate chip.
 
 - **The Min/Max correction (`86f4c251b`).** Sub-slice 5's Min/Max deletion was PARTIALLY WRONG: "provably
   dead" held only for plannable receivers, while `Select(v => …).Min()/.Max()` whole-subtree-exits to the

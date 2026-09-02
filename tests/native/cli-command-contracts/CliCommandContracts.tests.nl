@@ -1546,6 +1546,63 @@ test "nlc tidy without --json prints a table and no JSON at all" {
     Directory.Delete(directory, true)
 }
 
+test "nlc tidy --fix rewrites project.yml removing ONLY the package it named" {
+    // THE DATA-LOSS DEFECT, END TO END — THE ONE ARM NO KERNEL BLOCK CAN MAKE, because the loss is
+    // a FILE, not a return value. `nlc tidy --fix` rewrites `project.yml` from a line filter whose
+    // package match used to be a BARE PREFIX. On exactly this project the report named ONE
+    // dependency and the file lost THREE lines: `Serilog.Sinks` (correctly) plus
+    // `Serilog.SinksExtra` and `Serilog.Sinks.Console` — different packages, sitting in a
+    // `testDependencies:` section `TidyCommand` never classified and the table never printed.
+    //
+    // The count in the message and the count of vanished lines are read TOGETHER here, which is
+    // what makes the row able to fail: a filter that over-deletes still prints "Removed 1".
+    directory := NewTempDirectory("nlc-tidy-fix")
+    WriteProjectYml(directory,
+        "name: TidyFix\n"
+        + "entry: Program.nl\n"
+        + "outputType: exe\n"
+        + "targetFramework: net10.0\n"
+        + "\n"
+        + "dependencies:\n"
+        + "  - Serilog.Sinks@1.0.0\n"
+        + "  - Newtonsoft.Json@13.0.3\n"
+        + "\n"
+        + "testDependencies:\n"
+        + "  - Serilog.SinksExtra@2.0.0\n"
+        + "  - Serilog.Sinks.Console@5.0.1\n")
+    File.WriteAllText(Path.Combine(directory, "Program.nl"),
+        "import Newtonsoft.Json.Linq\n\nfunc Main() {\n    print \"ok\"\n}\n")
+
+    projectPath := Path.Combine(directory, "project.yml")
+    before := File.ReadAllLines(projectPath).Length
+
+    run := Nlc("tidy --fix --project \"" + directory + "\"")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("Removed 1 possibly-unused dependency.")
+
+    rewritten := File.ReadAllText(projectPath)
+    // THE NEGATIVE HALF: the one package the report named is gone.
+    assert !rewritten.Contains("Serilog.Sinks@1.0.0")
+    // THE POSITIVE HALF: everything the report did NOT name survives, prefix or not.
+    assert rewritten.Contains("  - Newtonsoft.Json@13.0.3")
+    assert rewritten.Contains("  - Serilog.SinksExtra@2.0.0")
+    assert rewritten.Contains("  - Serilog.Sinks.Console@5.0.1")
+    assert rewritten.Contains("testDependencies:")
+    // ONE line left, not three.
+    assert File.ReadAllLines(projectPath).Length == before - 1
+
+    // IDEMPOTENCE: a second `--fix` finds nothing to remove and leaves the file exactly as it was.
+    second := Nlc("tidy --fix --project \"" + directory + "\"")
+
+    assert second.ExitCode == 0
+    assert second.Stdout.Contains("Nothing to remove.")
+    assert File.ReadAllText(projectPath) == rewritten
+
+    Directory.Delete(directory, true)
+}
+
 
 // ═══ `nlc add` ════════════════════════════════════════════════════════════════════════════════
 
