@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "command": "check.systemsReport",
+  "projectRoot": "/tmp/nsharp-ide-verify-sys",
+  "checkedFiles": 1,
+  "ok": false,
+  "diagnostics": [
+    {
+      "code": "NL001",
+      "severity": "error",
+      "message": "Variable \u0027scratch\u0027 is declared but never read",
+      "file": "Program.nl",
+      "line": 15,
+      "column": 5,
+      "length": 7,
+      "sourceSnippet": "    scratch := new byte[16]",
+      "suggestion": "If this is intentional, prefix it with \u0027_\u0027 to indicate it\u0027s unused: \u0027_scratch\u0027",
+      "docsUrl": "https://docs.n-sharp.dev/errors/NL001"
+    },
+    {
+      "code": "NSYS010",
+      "severity": "error",
+      "message": "allocation not allowed in [hot] function",
+      "file": "Program.nl",
+      "line": 15,
+      "column": 16,
+      "length": 1,
+      "sourceSnippet": "    scratch := new byte[16]",
+      "explanation": "Systems policy \u0027[hot]\u0027 rejected the \u0027allocation\u0027 effect.",
+      "suggestion": "Move allocation behind a [boundary], return caller-provided storage, or use a narrow allow(alloc) only for a cold path.",
+      "hint": "effect path: RecordError",
+      "docsUrl": "https://docs.n-sharp.dev/errors/NSYS010"
+    },
+    {
+      "code": "NSYS050",
+      "severity": "warning",
+      "message": "unknown external call \u0027Console.WriteLine\u0027 has no systems summary",
+      "file": "Program.nl",
+      "line": 33,
+      "column": 5,
+      "length": 9,
+      "sourceSnippet": "    print Export(metrics)",
+      "explanation": "Systems policy \u0027systems:strict\u0027 rejected the \u0027unknownExternalCall\u0027 effect.",
+      "suggestion": "Add a sidecar HotSummary or put the call in a [boundary].",
+      "hint": "effect path: Main",
+      "docsUrl": "https://docs.n-sharp.dev/errors/NSYS050"
+    }
+  ],
+  "summary": {
+    "errors": 2,
+    "warnings": 1,
+    "info": 0
+  },
+  "systemsReport": {
+    "schemaVersion": 1,
+    "profile": "systems",
+    "mode": "strict",
+    "aotTarget": "nativeaot",
+    "aot": {
+      "target": "nativeaot",
+      "analysis": "pass",
+      "nativeImageEmitted": false,
+      "trimSafe": true
+    },
+    "warmup": [],
+    "functions": [
+      {
+        "name": "RecordPacket",
+        "file": "/tmp/nsharp-ide-verify-sys/Program.nl",
+        "line": 9,
+        "column": 1,
+        "isHot": true,
+        "isBoundary": false,
+        "allocNone": false,
+        "summarySource": "explicitHot",
+        "effects": {
+          "allocates": false,
+          "boxes": false,
+          "constructsDelegate": false,
+          "capturesClosure": false,
+          "usesRuntimeDispatch": false,
+          "usesReflection": false,
+          "usesDynamicCode": false,
+          "throws": false,
+          "hasImplicitTrapObligation": false,
+          "usesUnknownExternalCall": false,
+          "usesResource": false,
+          "usesPool": false,
+          "usesConcurrencyPrimitive": true,
+          "requiresWarmup": false,
+          "aotSafe": true
+        },
+        "calls": [
+          "Interlocked.Increment"
+        ]
+      },
+      {
+        "name": "RecordError",
+        "file": "/tmp/nsharp-ide-verify-sys/Program.nl",
+        "line": 14,
+        "column": 1,
+        "isHot": true,
+        "isBoundary": false,
+        "allocNone": false,
+        "summarySource": "explicitHot",
+        "effects": {
+          "allocates": true,
+          "boxes": false,
+          "constructsDelegate": false,
+          "capturesClosure": false,
+          "usesRuntimeDispatch": false,
+          "usesReflection": false,
+          "usesDynamicCode": false,
+          "throws": false,
+          "hasImplicitTrapObligation": false,
+          "usesUnknownExternalCall": false,
+          "usesResource": false,
+          "usesPool": false,
+          "usesConcurrencyPrimitive": true,
+          "requiresWarmup": false,
+          "aotSafe": true
+        },
+        "calls": [
+          "Interlocked.Increment"
+        ]
+      },
+      {
+        "name": "Export",
+        "file": "/tmp/nsharp-ide-verify-sys/Program.nl",
+        "line": 20,
+        "column": 1,
+        "isHot": false,
+        "isBoundary": true,
+        "allocNone": false,
+        "summarySource": "sourceInferred",
+        "effects": {
+          "allocates": false,
+          "boxes": false,
+          "constructsDelegate": false,
+          "capturesClosure": false,
+          "usesRuntimeDispatch": false,
+          "usesReflection": false,
+          "usesDynamicCode": false,
+          "throws": false,
+          "hasImplicitTrapObligation": false,
+          "usesUnknownExternalCall": false,
+          "usesResource": false,
+          "usesPool": false,
+          "usesConcurrencyPrimitive": false,
+          "requiresWarmup": false,
+          "aotSafe": true
+        },
+        "calls": []
+      },
+      {
+        "name": "Main",
+        "file": "/tmp/nsharp-ide-verify-sys/Program.nl",
+        "line": 30,
+        "column": 1,
+        "isHot": false,
+        "isBoundary": false,
+        "allocNone": false,
+        "summarySource": "sourceInferred",
+        "effects": {
+          "allocates": false,
+          "boxes": false,
+          "constructsDelegate": false,
+          "capturesClosure": false,
+          "usesRuntimeDispatch": false,
+          "usesReflection": false,
+          "usesDynamicCode": false,
+          "throws": false,
+          "hasImplicitTrapObligation": false,
+          "usesUnknownExternalCall": true,
+          "usesResource": false,
+          "usesPool": false,
+          "usesConcurrencyPrimitive": true,
+          "requiresWarmup": false,
+          "aotSafe": true
+        },
+        "calls": [
+          "Export",
+          "RecordPacket"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "code": "NSYS010",
+        "severity": "error",
+        "effect": "allocation",
+        "message": "allocation not allowed in [hot] function",
+        "file": "/tmp/nsharp-ide-verify-sys/Program.nl",
+        "line": 15,
+        "column": 16,
+        "length": 1,
+        "function": "RecordError",
+        "policy": "[hot]",
+        "summarySource": "sourceInferred",
+        "suggestion": "Move allocation behind a [boundary], return caller-provided storage, or use a narrow allow(alloc) only for a cold path.",
+        "callPath": [
+          "RecordError"
+        ]
+      },
+      {
+        "code": "NSYS050",
+        "severity": "warning",
+        "effect": "unknownExternalCall",
+        "message": "unknown external call \u0027Console.WriteLine\u0027 has no systems summary",
+        "file": "/tmp/nsharp-ide-verify-sys/Program.nl",
+        "line": 33,
+        "column": 5,
+        "length": 9,
+        "function": "Main",
+        "policy": "systems:strict",
+        "summarySource": "sourceInferred",
+        "suggestion": "Add a sidecar HotSummary or put the call in a [boundary].",
+        "callPath": [
+          "Main"
+        ]
+      }
+    ],
+    "trustedSites": [],
+    "summary": {
+      "functions": 4,
+      "hotFunctions": 2,
+      "boundaryFunctions": 1,
+      "findings": 2,
+      "errors": 1,
+      "warnings": 1,
+      "trustedSites": 0
+    }
+  }
+}

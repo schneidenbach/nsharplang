@@ -29,7 +29,7 @@ This file is the current public-facing limitations register for N# docs. Keep it
 
 ## IDE Support
 
-- **VS Code support is real but must be visually verified for launch claims.** Syntax highlighting, diagnostics, hover/completion, code actions, and related LSP behavior have tests, but user-facing IDE claims require a fresh extension reload plus real VS Code visual QA.
+- **VS Code support is real but must be visually verified for launch claims.** Syntax highlighting, diagnostics, hover/completion, code actions, and related LSP behavior have tests, but user-facing IDE claims require a fresh extension reload plus real VS Code visual QA. Last visual verification: 2026-09-02 at systems-language d26460045 with VSIX 0.6.0 in VS Code 1.134 (record and screenshots in `artifacts/ide-verification/2026-09/README.md`). PASS: syntax highlighting, live NL202 diagnostic with the Elm-style body and squiggle, parser cast-lookahead fix, go-to-definition and find-references across files, NL002 auto-import quick fix applied, NSYS010/NSYS050 rendering identical to `nlc check --systems-report`. FAIL (open defects): hover on BCL members shows nothing or only a bare name, hover inside interpolated-string holes reports `string` for every member, member completion after a trailing `.` lists scope identifiers and keywords instead of members, and NL002 is anchored on `new` so the import fix is only offered with the cursor on `new`. Rename was driven only to the widget (the click-tier harness cannot type), so end-to-end rename remains unverified in the editor.
 - **Debugger UX is not a public polished workflow.** F5/debugging should remain hidden or caveated until there is a tested N# debugger-backed flow.
 
 ## Documentation Rules
