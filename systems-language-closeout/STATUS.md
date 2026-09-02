@@ -167,12 +167,12 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `26592a954` (re-measure at your tip; never inherit)
+### Baselines at `0006d0d41` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 595 (596 − 2 collapsed Range duplicates + 1 new, D2) |
-| BootstrapServices estate (`.tests.nl` blocks) | 7,320 (7,305 at `385b7e8d1`; the widening's deleted snapshot contracts −3; D2 +15; +3 elsewhere in the batch) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,335** measured in the gate at `0006d0d41` (7,305 at `385b7e8d1` − 3 widening + 15 D2 + 18 format-fidelity; the earlier "7,320" was an unmeasured sum) |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20,784 lines / 19,768 non-blank |
