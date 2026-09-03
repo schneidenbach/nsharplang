@@ -650,7 +650,7 @@ class AnalyzerLoopSequence {
     static func AsynchronousSequenceDefinition(): Type {
         definition := Type.GetType("System.Collections.Generic.IAsyncEnumerable`1")
         if definition == null {
-            throw new InvalidOperationException("Required async sequence interface System.Collections.Generic.IAsyncEnumerable`1 was not found.")
+            throw new InvalidOperationException("AnalyzerLoopSequence requires System.Collections.Generic.IAsyncEnumerable`1 in the compiler's own core library, and Type.GetType returned null for it.")
         }
 
         return definition
@@ -659,7 +659,7 @@ class AnalyzerLoopSequence {
     static func NonGenericSequenceType(): Type {
         sequence := Type.GetType("System.Collections.IEnumerable")
         if sequence == null {
-            throw new InvalidOperationException("Required sequence interface System.Collections.IEnumerable was not found.")
+            throw new InvalidOperationException("AnalyzerLoopSequence requires System.Collections.IEnumerable in the compiler's own core library, and Type.GetType returned null for it.")
         }
 
         return sequence

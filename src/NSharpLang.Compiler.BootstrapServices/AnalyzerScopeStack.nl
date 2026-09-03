@@ -81,7 +81,7 @@ class AnalyzerScopeStack {
     // The innermost open scope.
     func Peek(): Scope {
         if scopes.Count == 0 {
-            throw new InvalidOperationException("Stack empty.")
+            throw new InvalidOperationException("AnalyzerScopeStack.Peek requires at least one open scope, and the stack is empty.")
         }
 
         return scopes[scopes.Count - 1]
@@ -90,7 +90,7 @@ class AnalyzerScopeStack {
     // The outermost open scope — the global scope, at the bottom of the stack.
     func GlobalScope(): Scope {
         if scopes.Count == 0 {
-            throw new InvalidOperationException("Sequence contains no elements")
+            throw new InvalidOperationException("AnalyzerScopeStack.GlobalScope requires the global scope to be open, and the stack is empty.")
         }
 
         return scopes[0]
@@ -114,7 +114,7 @@ class AnalyzerScopeStack {
     // maximum int: a closing scope runs to the end of its line.
     func Pop(model: SemanticModel) {
         if scopes.Count == 0 {
-            throw new InvalidOperationException("Stack empty.")
+            throw new InvalidOperationException("AnalyzerScopeStack.Pop requires an open scope to close, and the stack is empty.")
         }
 
         scopes.RemoveAt(scopes.Count - 1)

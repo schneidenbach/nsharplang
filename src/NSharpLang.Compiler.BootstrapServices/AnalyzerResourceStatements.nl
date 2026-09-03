@@ -962,7 +962,7 @@ class AnalyzerResourceStatements {
     static func DisposableRoot(): Type {
         disposable := Type.GetType("System.IDisposable")
         if disposable == null {
-            throw new InvalidOperationException("Required interface System.IDisposable was not found.")
+            throw new InvalidOperationException("AnalyzerResourceStatements requires System.IDisposable in the compiler's own core library, and Type.GetType returned null for it.")
         }
 
         return disposable
@@ -971,7 +971,7 @@ class AnalyzerResourceStatements {
     static func VoidRuntimeType(): Type {
         voidType := Type.GetType("System.Void")
         if voidType == null {
-            throw new InvalidOperationException("Required type System.Void was not found.")
+            throw new InvalidOperationException("AnalyzerResourceStatements requires System.Void in the compiler's own core library, and Type.GetType returned null for it.")
         }
 
         return voidType

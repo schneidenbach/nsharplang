@@ -658,7 +658,7 @@ class AnalyzerDeclarationContext {
             if name == "ptr" {
                 invoke := typeof(Action).GetMethod("Invoke", new Type[](0))
                 if invoke == null {
-                    throw new InvalidOperationException("System.Action.Invoke has no canonical void return type.")
+                    throw new InvalidOperationException("AnalyzerDeclarationContext takes the canonical void type from System.Action.Invoke's return type, and the compiler's own core library declares no such method.")
                 }
                 voidType := invoke.get_ReturnType()
                 pointerType := voidType.MakePointerType()

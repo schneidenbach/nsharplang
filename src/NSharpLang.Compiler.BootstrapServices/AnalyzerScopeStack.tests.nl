@@ -97,9 +97,15 @@ test "an empty stack throws for Peek, Pop and GlobalScope exactly as the collect
     stack := new AnalyzerScopeStack()
 
     // `Stack<Scope>.Peek()` and `.Pop()` threw InvalidOperationException("Stack empty."), and
-    // `Enumerable.Last()` threw InvalidOperationException("Sequence contains no elements"). Both the
+    // `Enumerable.Last()` threw InvalidOperationException("AnalyzerScopeStack.GlobalScope requires the global scope to be open, and the stack is empty."). Both the
     // TYPE and the MESSAGE are pinned: a silent change from one exception to another is a behaviour
     // change even on a path production never takes.
+    //
+    // THE MESSAGES ARE NO LONGER THE COLLECTIONS' — DELIBERATELY, AND THIS CONTRACT IS THE RECORD.
+    // The borrowed sentences named nothing: "Stack empty." does not say whose stack, and "Sequence
+    // contains no elements" is `Enumerable`'s wording for a question this type does not ask. Each
+    // now names its OWNER and the INVARIANT it states, because the only reader who will ever see one
+    // is someone debugging the compiler. The exception TYPE is unchanged.
     peekThrew := false
     peekMessage := ""
     try {
@@ -110,7 +116,7 @@ test "an empty stack throws for Peek, Pop and GlobalScope exactly as the collect
         peekMessage = ex.Message
     }
     assert peekThrew
-    assert peekMessage == "Stack empty."
+    assert peekMessage == "AnalyzerScopeStack.Peek requires at least one open scope, and the stack is empty."
 
     popThrew := false
     popMessage := ""
@@ -123,7 +129,7 @@ test "an empty stack throws for Peek, Pop and GlobalScope exactly as the collect
         popMessage = ex.Message
     }
     assert popThrew
-    assert popMessage == "Stack empty."
+    assert popMessage == "AnalyzerScopeStack.Pop requires an open scope to close, and the stack is empty."
 
     globalThrew := false
     globalMessage := ""
@@ -135,7 +141,7 @@ test "an empty stack throws for Peek, Pop and GlobalScope exactly as the collect
         globalMessage = ex.Message
     }
     assert globalThrew
-    assert globalMessage == "Sequence contains no elements"
+    assert globalMessage == "AnalyzerScopeStack.GlobalScope requires the global scope to be open, and the stack is empty."
 }
 
 test "pushing opens a semantic scope parented to the current one; popping closes it" {
