@@ -1889,66 +1889,53 @@ test "construction planner owns exact runtime catalog constructors and executes 
     assert repeatResult != null
     assert repeatResult.ToString() == "xxxx"
 
-    types := new Type[](14)
-    counts := new int[](14)
-    types[0] = typeof(System.Text.StringBuilder)
-    counts[0] = 0
-    types[1] = typeof(System.Text.StringBuilder)
-    counts[1] = 1
-    types[2] = typeof(Version)
-    counts[2] = 4
-    types[3] = typeof(object)
-    counts[3] = 0
-    types[4] = typeof(System.Diagnostics.ProcessStartInfo)
-    counts[4] = 0
-    types[5] = typeof(System.Diagnostics.Process)
-    counts[5] = 0
-    types[6] = typeof(System.Text.Json.JsonSerializerOptions)
-    counts[6] = 0
-    types[7] = typeof(System.IO.StreamReader)
-    counts[7] = 1
-    types[8] = typeof(YamlDotNet.Serialization.DeserializerBuilder)
-    counts[8] = 0
-    types[9] = typeof(YamlDotNet.Core.Events.Scalar)
-    counts[9] = 1
-    types[10] = typeof(YamlDotNet.Core.Events.MappingStart)
-    counts[10] = 0
-    types[11] = typeof(YamlDotNet.Core.Events.MappingEnd)
-    counts[11] = 0
-    types[12] = typeof(InvalidOperationException)
-    counts[12] = 1
-    types[13] = typeof(ArgumentException)
-    counts[13] = 2
+    // THE RETIRED ALLOW-LIST, ROW FOR ROW, NOW SELECTED BY THE GENERAL RULE. Every (type, arguments)
+    // pair the hand list admitted must still select a constructor of the same arity — the general rule
+    // is a replacement, not a new policy, wherever the two overlap. The arguments are spelled here
+    // because selection is now BY argument flow rather than by arity alone.
+    assert ConstructionSelectArity(typeof(System.Text.StringBuilder), new Type[](0)) == 0
+    assert ConstructionSelectArity(typeof(System.Text.StringBuilder), ConstructionOneType(typeof(int))) == 1
+    assert ConstructionSelectArity(typeof(Version), ConstructionFourInts()) == 4
+    assert ConstructionSelectArity(typeof(object), new Type[](0)) == 0
+    assert ConstructionSelectArity(typeof(System.Diagnostics.ProcessStartInfo), new Type[](0)) == 0
+    assert ConstructionSelectArity(typeof(System.Diagnostics.Process), new Type[](0)) == 0
+    assert ConstructionSelectArity(typeof(System.Text.Json.JsonSerializerOptions), new Type[](0)) == 0
+    assert ConstructionSelectArity(typeof(System.IO.StreamReader), ConstructionOneType(typeof(System.IO.Stream))) == 1
+    assert ConstructionSelectArity(typeof(YamlDotNet.Serialization.DeserializerBuilder), new Type[](0)) == 0
+    assert ConstructionSelectArity(typeof(YamlDotNet.Core.Events.Scalar), ConstructionOneType(typeof(string))) == 1
+    assert ConstructionSelectArity(typeof(YamlDotNet.Core.Events.MappingStart), new Type[](0)) == 0
+    assert ConstructionSelectArity(typeof(YamlDotNet.Core.Events.MappingEnd), new Type[](0)) == 0
+    assert ConstructionSelectArity(typeof(InvalidOperationException), ConstructionOneType(typeof(string))) == 1
+    assert ConstructionSelectArity(typeof(ArgumentException), ConstructionTwoTypes(typeof(string), typeof(string))) == 2
 
-    index := 0
-    while index < types.Length {
-        constructor: ConstructorInfo? = null
-        parameters := new Type[](0)
-        assert ColumnarConstructionPlanner.TrySelectRuntimeConstructor(
-            types[index],
-            counts[index],
-            out constructor,
-            out parameters
-        )
-        assert constructor != null
-        assert parameters.Length == counts[index]
-        index += 1
+    // TWO PINNED DECLINES ARE CONVERTED, because the allow-list was the only reason they declined and
+    // the general rule reaches them. `Random()` is an ordinary public parameterless constructor that
+    // was absent from the hand list; `InvalidOperationException(string, Exception)` is a real overload
+    // the retired arm could not describe, because it asked for (string, string) and threw the answer
+    // away when `GetConstructor` returned null.
+    assert ConstructionSelectArity(typeof(Random), new Type[](0)) == 0
+    assert ConstructionSelectArity(typeof(InvalidOperationException), ConstructionTwoTypes(typeof(string), typeof(Exception))) == 2
+
+    // Still a decline, and for the reason that survives: no constructor of that shape exists.
+    assert ConstructionSelect(typeof(InvalidOperationException), ConstructionTwoTypes(typeof(string), typeof(string))) == null
+}
+
+func ConstructionSelectArity(targetType: Type, argumentTypes: Type[]): int {
+    selected := ConstructionSelect(targetType, argumentTypes)
+    if selected == null {
+        return -1
     }
 
-    unsupported: ConstructorInfo? = null
-    unsupportedParameters := new Type[](0)
-    assert !ColumnarConstructionPlanner.TrySelectRuntimeConstructor(
-        typeof(Random),
-        0,
-        out unsupported,
-        out unsupportedParameters
-    )
-    assert !ColumnarConstructionPlanner.TrySelectRuntimeConstructor(
-        typeof(InvalidOperationException),
-        2,
-        out unsupported,
-        out unsupportedParameters
-    )
+    return selected.GetParameters().Length
+}
+
+func ConstructionFourInts(): Type[] {
+    result := new Type[](4)
+    result[0] = typeof(int)
+    result[1] = typeof(int)
+    result[2] = typeof(int)
+    result[3] = typeof(int)
+    return result
 }
 
 test "construction planner owns explicit and aliased runtime generic construction" {
@@ -3452,7 +3439,7 @@ test "construction planner resolves exact aliases and nested live type parameter
     ), "newarr operand identity"
 }
 
-test "construction planner terminally rejects raw union bases and unsupported runtime constructors" {
+test "construction planner terminally rejects raw union bases" {
     unionBuilder := TypeOfCreateSourceBuilder(
         "ConstructionUnion",
         false
@@ -3497,21 +3484,6 @@ test "construction planner terminally rejects raw union bases and unsupported ru
     _unionCasePlan := ConstructionRejected(
         unionCaseTree,
         unionBindings,
-        out ownership,
-        out legacy
-    )
-    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
-    assert !legacy
-
-    randomTree := ConstructionNewTree(
-        "Random",
-        ConstructionEmptyTexts(),
-        ConstructionEmptyKinds()
-    )
-    ConstructionStampScope(randomTree, "import System\n")
-    _randomPlan := ConstructionRejected(
-        randomTree,
-        ColumnarRangePlannerEmptyBindings(),
         out ownership,
         out legacy
     )
@@ -3702,4 +3674,136 @@ test "construction value admission types an ordinary index under the frame it wi
     unmodelled := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(unmodelled, "target", 0, typeof(int))
     assert !ColumnarConstructionPlanner.ValueSyntaxIsAdmitted(tree.Nodes, tree.Source, tree.Root, unmodelled, ColumnarRangeIndexHandles.Resolve(), 0)
+}
+
+// THE ALLOW-LIST IS GONE AND THE RULE IS GENERAL. What stood in `TrySelectRuntimeConstructor` was a
+// chain of `targetType == typeof(X)` arms — a hand list of what one slice needed, keyed on exactly the
+// type-identity comparisons task 022 exists to remove, silently declining every other external
+// construction. These blocks pin the replacement on both sides: the shapes that were dead and now
+// bind, the shapes the allow-list admitted and which must still select the SAME constructor, and the
+// ambiguity that must decline rather than guess.
+func ConstructionTypes(values: Type[]): Type[] {
+    return values
+}
+
+func ConstructionOneType(first: Type): Type[] {
+    result := new Type[](1)
+    result[0] = first
+    return result
+}
+
+func ConstructionSelect(targetType: Type, argumentTypes: Type[]): ConstructorInfo? {
+    facts := ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length)
+    selected: ConstructorInfo? = null
+    parameters := new Type[](0)
+    if !ColumnarConstructionPlanner.TrySelectRuntimeConstructor(targetType, argumentTypes, facts, out selected, out parameters) {
+        return null
+    }
+
+    return selected
+}
+
+test "the general rule reproduces the retired allow-list's selections" {
+    // StringBuilder had two admitted arities; both must still pick the same constructor.
+    empty := ConstructionSelect(typeof(StringBuilder), new Type[](0))
+    assert empty != null
+    assert empty.GetParameters().Length == 0
+
+    capacity := ConstructionSelect(typeof(StringBuilder), ConstructionOneType(typeof(int)))
+    assert capacity != null
+    parameters := capacity.GetParameters()
+    assert parameters.Length == 1
+    assert parameters[0].get_ParameterType() == typeof(int)
+
+    // `object` and the approved exception shape the retired `IsApprovedExceptionType` fed.
+    assert ConstructionSelect(typeof(object), new Type[](0)) != null
+    message := ConstructionSelect(typeof(InvalidOperationException), ConstructionOneType(typeof(string)))
+    assert message != null
+    assert message.GetParameters().Length == 1
+}
+
+test "constructors the allow-list could never reach are now selected" {
+    // A CoreLib type that was absent from the list: the decline had nothing to do with `nuget:`.
+    context := ConstructionSelect(typeof(NullabilityInfoContext), new Type[](0))
+    assert context != null
+    assert context.GetParameters().Length == 0
+
+    // A two-argument exception constructor. The retired arm asked for (string, string) and then threw
+    // the answer away when `GetConstructor` returned null for most types, so this was dead everywhere.
+    named := ConstructionSelect(typeof(ArgumentException), ConstructionTypes(ConstructionTwoTypes(typeof(string), typeof(string))))
+    assert named != null
+    assert named.GetParameters().Length == 2
+}
+
+func ConstructionTwoTypes(first: Type, second: Type): Type[] {
+    result := new Type[](2)
+    result[0] = first
+    result[1] = second
+    return result
+}
+
+test "a constructor the allow-list did not list now plans end to end" {
+    // CONVERTED FROM A PINNED REJECTION, and this is the whole point of the slice: `new Random()` is an
+    // ordinary public parameterless constructor that the retired hand list simply did not name, so it
+    // was refused for no reason the language could defend. It now plans a `newobj` like any other.
+    randomTree := ConstructionNewTree(
+        "Random",
+        ConstructionEmptyTexts(),
+        ConstructionEmptyKinds()
+    )
+    ConstructionStampScope(randomTree, "import System\n")
+    randomPlan := ConstructionPlan(randomTree, ColumnarRangePlannerEmptyBindings())
+    assert randomPlan.ResultType.FullName == "System.Random"
+    assert randomPlan.ConstructorCount == 1
+    assert randomPlan.ConstructorParameterTypes[0].Length == 0
+    assert randomPlan.OpCodeValues[randomPlan.OperationCount - 1] == ColumnarCodePlanContract.Newobj()
+}
+
+test "an argument that needs a reference conversion still selects, with no special case" {
+    // `string[]` -> `IEnumerable<string>` and an upcast to an abstract parameter type are admitted by
+    // the shared flow scorer, not by anything written for these calls.
+    resolver := ConstructionSelect(typeof(PathAssemblyResolver), ConstructionOneType(typeof(string).MakeArrayType()))
+    assert resolver != null
+    assert resolver.GetParameters().Length == 1
+}
+
+test "an unselectable target declines instead of guessing" {
+    // Abstract, interface and open-generic targets are not constructible.
+    assert ConstructionSelect(typeof(MetadataAssemblyResolver), new Type[](0)) == null
+    // The interface is reached through `Type.GetType`: `typeof` of a non-generic interface is off the
+    // columnar surface (§2.1), and the point here is the SELECTOR's answer, not how the type is spelled.
+    disposable := Type.GetType("System.IDisposable")
+    assert disposable != null
+    assert ConstructionSelect(disposable, new Type[](0)) == null
+
+    // No constructor of this arity.
+    assert ConstructionSelect(typeof(StringBuilder), ConstructionTwoTypes(typeof(int), typeof(int))) != null
+    assert ConstructionSelect(typeof(object), ConstructionOneType(typeof(int))) == null
+}
+
+test "two constructors that score equally decline rather than picking one" {
+    // `StreamWriter(Stream)` and `StreamWriter(string)` both adopt a null literal, so neither is more
+    // specific. The old allow-list could not reach this question at all; the general rule must refuse
+    // it, and the caller turns the refusal into `OwnedRejected` — a decline the trace shows, never a
+    // silent fall-through that would bind one of them arbitrarily.
+    //
+    // Both types are reached through `Type.GetType`: `typeof` of a type outside the core library does
+    // not emit (§2.1) and `StreamWriter`/`MemoryStream` are that family. What is under test is the
+    // SELECTOR's answer, not how the type is spelled.
+    writerType := Type.GetType("System.IO.StreamWriter")
+    assert writerType != null
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.IsNullLiteral[0] = true
+    selected: ConstructorInfo? = null
+    parameters := new Type[](0)
+    argumentTypes := ConstructionOneType(typeof(object))
+    assert !ColumnarConstructionPlanner.TrySelectRuntimeConstructor(writerType, argumentTypes, facts, out selected, out parameters)
+    assert selected == null
+
+    // The same target with an argument only ONE constructor accepts selects that one.
+    streamType := Type.GetType("System.IO.MemoryStream")
+    assert streamType != null
+    stream := ConstructionSelect(writerType, ConstructionOneType(streamType))
+    assert stream != null
+    assert stream.GetParameters().Length == 1
 }
