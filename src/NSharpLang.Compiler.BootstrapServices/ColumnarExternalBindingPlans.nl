@@ -719,6 +719,16 @@ class ColumnarExternalBindingPlans {
             if memberName == "get_IsStatic" || memberName == "get_IsAbstract" || memberName == "get_IsPublic" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
+
+            // `get_IsFamily` is the protected-visibility test, and it is INERT until the package that
+            // carries this row is republished: the estate is compiled by the packaged SDK, so a row and
+            // its first use cannot land in one commit. It exists so that
+            // `ColumnarOverrideTargetResolver.IsOverridableTarget`, which currently accepts only PUBLIC
+            // override targets, can be widened to protected ones in a later commit without that commit
+            // also having to add the row.
+            if memberName == "get_IsFamily" {
+                return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
+            }
             if memberName == "get_IsGenericMethod" || memberName == "get_IsGenericMethodDefinition" {
                 return VirtualCall(receiver, memberName, Empty(), "System.Boolean")
             }
