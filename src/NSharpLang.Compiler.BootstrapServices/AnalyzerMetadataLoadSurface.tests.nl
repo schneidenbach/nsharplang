@@ -15,9 +15,9 @@ import System.Runtime.InteropServices
 // library and hand back its path; no such kernel exists yet". That reading was about the FIXTURE, not
 // about the rule, and the fixture it asked for is not the only one that produces the shape. What both
 // blocks need is ONE assembly identity present at TWO paths, and the machine that runs this gate
-// already ships exactly that: `System.Runtime, Version=10.0.0.0, PublicKeyToken=b03f5f7f11d50a3a`
-// exists both as the shared framework's type-forwarding facade and as the reference pack's reference
-// assembly -- two very different files, one identity. Both paths are DERIVED at run time
+// already ships exactly that: `System.Console, Version=10.0.0.0, PublicKeyToken=b03f5f7f11d50a3a`
+// exists both as the shared framework's 208 KB implementation and as the reference pack's 16 KB
+// reference assembly -- two very different files, one identity. Both paths are DERIVED at run time
 // (`RuntimeEnvironment.GetRuntimeDirectory` and `DocQueryKernels.GetReferencePackDirectories`), never
 // written down, because a hard-coded SDK path is a contract about this machine rather than about the
 // rule.
@@ -34,20 +34,29 @@ func MetadataLoadSurfaceFrameworkDirectory(): string {
     return RuntimeEnvironment.GetRuntimeDirectory()
 }
 
-func MetadataLoadSurfaceFrameworkRuntimePath(): string {
-    return Path.Combine(MetadataLoadSurfaceFrameworkDirectory(), "System.Runtime.dll")
+func MetadataLoadSurfaceFrameworkPath(simpleName: string): string {
+    return Path.Combine(MetadataLoadSurfaceFrameworkDirectory(), simpleName + ".dll")
+}
+
+// THE FIXTURE IS DELIBERATELY NOT THE CORE ASSEMBLY (022/3b-3). `Open` cores the context on
+// `MetadataCoreAssemblyName()`, and a `MetadataLoadContext` binds its core eagerly -- so the core
+// identity is ALREADY loaded before any of these blocks asks for anything, and the adopt stage would
+// claim it by construction. `System.Console` ships in both directories under one identity and is not
+// the core, so the dedupe rules are demonstrated on an identity the context has not pre-decided.
+func MetadataLoadSurfaceTwinName(): string {
+    return "System.Console"
 }
 
 // The SAME identity from the reference pack. `GetReferencePackDirectories` is the analyzer's own
 // root discovery -- the one that climbs the runtime directory rather than reading `Assembly.Location`
 // -- so this fixture is built out of a production kernel rather than a path guess.
-func MetadataLoadSurfaceReferencePackRuntimePath(): string {
+func MetadataLoadSurfaceReferencePackPath(simpleName: string): string {
     seeds := new string[](1)
     seeds[0] = MetadataLoadSurfaceFrameworkDirectory()
     directories := DocQueryKernels.GetReferencePackDirectories(seeds, Environment.GetEnvironmentVariable("DOTNET_ROOT"))
     index := 0
     while index < directories.Length {
-        candidate := Path.Combine(directories[index], "System.Runtime.dll")
+        candidate := Path.Combine(directories[index], simpleName + ".dll")
         if File.Exists(candidate) {
             return candidate
         }
@@ -58,12 +67,21 @@ func MetadataLoadSurfaceReferencePackRuntimePath(): string {
     return ""
 }
 
-// A context whose resolver CAN serve `System.Runtime` from the shared framework directory. That is
-// deliberate: the first block's whole question is whether a directory the resolver would happily
-// answer from can outrank the path the caller actually asked for.
-func MetadataLoadSurfaceOpenContext(): MetadataLoadContext {
-    resolver := new PathAssemblyResolver(Directory.GetFiles(MetadataLoadSurfaceFrameworkDirectory(), "*.dll"))
-    return new MetadataLoadContext(resolver, "System.Private.CoreLib")
+// A resolver that CAN serve the twin from the shared framework directory. That is deliberate:
+// the first block's whole question is whether a directory the resolver would happily answer from can
+// outrank the path the caller actually asked for. The surface cores the context itself (022/3b-3), so
+// what a caller hands over is a resolver and nothing else.
+func MetadataLoadSurfaceResolver(): MetadataAssemblyResolver {
+    return new PathAssemblyResolver(Directory.GetFiles(MetadataLoadSurfaceFrameworkDirectory(), "*.dll"))
+}
+
+func MetadataLoadSurfaceContextOf(surface: AnalyzerMetadataLoadSurface): MetadataLoadContext {
+    loadContext := surface.Context
+    if loadContext == null {
+        throw new InvalidOperationException("The surface did not open a load context.")
+    }
+
+    return loadContext
 }
 
 func MetadataLoadSurfaceNew(assemblies: List<Assembly>, failures: Dictionary<string, string>): AnalyzerMetadataLoadSurface {
@@ -89,9 +107,9 @@ func MetadataLoadSurfaceHolds(directories: List<string>, value: string): bool {
 
 // ── the two fixture facts every block below leans on ─────────────────────────
 
-test "the two System.Runtime copies are two files carrying one identity" {
-    frameworkPath := MetadataLoadSurfaceFrameworkRuntimePath()
-    referencePath := MetadataLoadSurfaceReferencePackRuntimePath()
+test "the two copies of the twin assembly are two files carrying one identity" {
+    frameworkPath := MetadataLoadSurfaceFrameworkPath(MetadataLoadSurfaceTwinName())
+    referencePath := MetadataLoadSurfaceReferencePackPath(MetadataLoadSurfaceTwinName())
 
     assert File.Exists(frameworkPath)
     assert referencePath.Length > 0
@@ -100,7 +118,7 @@ test "the two System.Runtime copies are two files carrying one identity" {
 
     frameworkIdentity := AssemblyName.GetAssemblyName(frameworkPath)
     referenceIdentity := AssemblyName.GetAssemblyName(referencePath)
-    assert frameworkIdentity.get_Name() == "System.Runtime"
+    assert frameworkIdentity.get_Name() == MetadataLoadSurfaceTwinName()
     assert frameworkIdentity.get_FullName() == referenceIdentity.get_FullName()
     assert AssemblyName.ReferenceMatchesDefinition(frameworkIdentity, referenceIdentity)
 }
@@ -109,7 +127,7 @@ test "the two System.Runtime copies are two files carrying one identity" {
 
 test "a search directory holding the same identity does not win over the requested path" {
     frameworkDirectory := MetadataLoadSurfaceFrameworkDirectory()
-    referencePath := MetadataLoadSurfaceReferencePackRuntimePath()
+    referencePath := MetadataLoadSurfaceReferencePackPath(MetadataLoadSurfaceTwinName())
     assert File.Exists(referencePath)
 
     assemblies := new List<Assembly>()
@@ -118,7 +136,7 @@ test "a search directory holding the same identity does not win over the request
 
     // The list the resolver would hold. Taking it here is what a resolver construction does.
     directories := surface.BeginResolverDirectories()
-    surface.Attach(MetadataLoadSurfaceOpenContext())
+    surface.Open(MetadataLoadSurfaceResolver())
     surface.AddSearchDirectory(frameworkDirectory)
     assert MetadataLoadSurfaceHolds(directories, frameworkDirectory)
 
@@ -129,7 +147,7 @@ test "a search directory holding the same identity does not win over the request
     assert MetadataLoadSurfaceLocationOf(assemblies, 0) == Path.GetFullPath(referencePath)
 
     loadedName := assemblies[0].GetName()
-    assert loadedName.get_Name() == "System.Runtime"
+    assert loadedName.get_Name() == MetadataLoadSurfaceTwinName()
 
     // The requested path's own directory joins the search list too -- that is stage 1 of the probe,
     // and it happens whether or not the load goes on to dedupe.
@@ -139,22 +157,21 @@ test "a search directory holding the same identity does not win over the request
 // ── migrated: LoadReferencedAssembly_AdoptsAlreadyLoadedIdentityInsteadOfThrowing
 
 test "a second load of an already-loaded identity adopts the first copy instead of throwing" {
-    frameworkPath := MetadataLoadSurfaceFrameworkRuntimePath()
-    referencePath := MetadataLoadSurfaceReferencePackRuntimePath()
+    frameworkPath := MetadataLoadSurfaceFrameworkPath(MetadataLoadSurfaceTwinName())
+    referencePath := MetadataLoadSurfaceReferencePackPath(MetadataLoadSurfaceTwinName())
     assert File.Exists(referencePath)
 
-    context := MetadataLoadSurfaceOpenContext()
+    assemblies := new List<Assembly>()
+    failures := new Dictionary<string, string>(StringComparer.Ordinal)
+    surface := MetadataLoadSurfaceNew(assemblies, failures)
+    surface.Open(MetadataLoadSurfaceResolver())
+    context := MetadataLoadSurfaceContextOf(surface)
 
     // Staged the way the metadata RESOLVER stages one: straight into the load context, bypassing the
     // analyzer's registry. This is the stale-beside-restored NuGet extraction, exactly.
     staged := context.LoadFromAssemblyPath(frameworkPath)
     stagedName := staged.GetName()
-    assert stagedName.get_Name() == "System.Runtime"
-
-    assemblies := new List<Assembly>()
-    failures := new Dictionary<string, string>(StringComparer.Ordinal)
-    surface := MetadataLoadSurfaceNew(assemblies, failures)
-    surface.Attach(context)
+    assert stagedName.get_Name() == MetadataLoadSurfaceTwinName()
 
     surface.LoadByPath(referencePath)
 
@@ -179,14 +196,14 @@ test "a second load of an already-loaded identity adopts the first copy instead 
 // ── new: the by-path dedupe
 
 test "the same path loaded twice registers once and contributes its directory once" {
-    referencePath := MetadataLoadSurfaceReferencePackRuntimePath()
+    referencePath := MetadataLoadSurfaceReferencePackPath(MetadataLoadSurfaceTwinName())
     assert File.Exists(referencePath)
 
     assemblies := new List<Assembly>()
     failures := new Dictionary<string, string>(StringComparer.Ordinal)
     surface := MetadataLoadSurfaceNew(assemblies, failures)
     directories := surface.BeginResolverDirectories()
-    surface.Attach(MetadataLoadSurfaceOpenContext())
+    surface.Open(MetadataLoadSurfaceResolver())
 
     surface.LoadByPath(referencePath)
     surface.LoadByPath(referencePath)
@@ -197,8 +214,8 @@ test "the same path loaded twice registers once and contributes its directory on
     assert directories.Count == 1
 
     // The by-NAME door dedupes on the SIMPLE name, which is weaker on purpose: a caller asking for
-    // "System.Runtime" is asking for whatever version this analysis already resolved.
-    surface.LoadByName("System.Runtime")
+    // a simple name is asking for whatever version this analysis already resolved.
+    surface.LoadByName(MetadataLoadSurfaceTwinName())
     assert assemblies.Count == 1
 }
 
@@ -211,7 +228,7 @@ test "a failed load is recorded rather than thrown and the first failure per ide
     assemblies := new List<Assembly>()
     failures := new Dictionary<string, string>(StringComparer.Ordinal)
     surface := MetadataLoadSurfaceNew(assemblies, failures)
-    surface.Attach(MetadataLoadSurfaceOpenContext())
+    surface.Open(MetadataLoadSurfaceResolver())
 
     surface.LoadByPath(missingPath)
 
@@ -239,7 +256,7 @@ test "a failed load is recorded rather than thrown and the first failure per ide
 // ── new: an unattached surface is a no-op, which is what `Dispose` restores
 
 test "an unattached surface loads nothing, and Detach puts it back into that state" {
-    referencePath := MetadataLoadSurfaceReferencePackRuntimePath()
+    referencePath := MetadataLoadSurfaceReferencePackPath(MetadataLoadSurfaceTwinName())
     assert File.Exists(referencePath)
 
     assemblies := new List<Assembly>()
@@ -249,19 +266,53 @@ test "an unattached surface loads nothing, and Detach puts it back into that sta
     // Before `Attach`: both doors answer nothing, and neither records a failure. A surface with no
     // context is not a broken surface -- it is an analyzer that never loaded one.
     surface.LoadByPath(referencePath)
-    surface.LoadByName("System.Runtime")
+    surface.LoadByName(MetadataLoadSurfaceTwinName())
     assert assemblies.Count == 0
     assert failures.Count == 0
 
-    surface.Attach(MetadataLoadSurfaceOpenContext())
-    surface.LoadByName("System.Runtime")
+    surface.Open(MetadataLoadSurfaceResolver())
+    surface.LoadByName(MetadataLoadSurfaceTwinName())
     assert assemblies.Count == 1
 
     // `Dispose` disposes the context and detaches. Loading through a disposed context would throw
     // inside the load and be recorded as a failure; detaching means nothing is attempted at all.
-    surface.Detach()
+    surface.Close()
     surface.LoadByPath(referencePath)
-    surface.LoadByName("System.Console")
+    surface.LoadByName("System.Linq")
     assert assemblies.Count == 1
     assert failures.Count == 0
+}
+
+// ── 022/3b-3: the context is opened, cored and closed here, and so is the well-known-type bag ──
+
+test "the surface cores the context on the policy's core assembly and builds the well-known bag" {
+    assemblies := new List<Assembly>()
+    failures := new Dictionary<string, string>(StringComparer.Ordinal)
+    surface := MetadataLoadSurfaceNew(assemblies, failures)
+
+    // Before `Open` there is no context at all, and the bag cannot be built from one.
+    assert surface.Context == null
+
+    surface.Open(MetadataLoadSurfaceResolver())
+    context := MetadataLoadSurfaceContextOf(surface)
+
+    // THE CORE IDENTITY IS THE POLICY'S, NOT A LITERAL WRITTEN HERE. Every `int`, `string` and
+    // `object` a referenced assembly names binds through it, so a second spelling of the name would
+    // be a second answer to the question the whole context is built around.
+    core := context.get_CoreAssembly()
+    assert core != null
+    coreName := core.GetName()
+    assert coreName.get_Name() == AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName()
+
+    // The bag arrives BUILT. The `?? throw` this replaces used to live in `Analyzer.cs`, which is
+    // supposed to decide nothing -- and "the context produced no core assembly" is a decision about
+    // whether analysis can proceed at all.
+    facts := surface.CreateWellKnownTypes()
+    resolvedString := facts.Resolve("System.String")
+    assert resolvedString != null
+    assert facts.ResolveRequired("System.Object").get_FullName() == "System.Object"
+
+    // `Close` releases the context, and the surface is a no-op again.
+    surface.Close()
+    assert surface.Context == null
 }

@@ -29,9 +29,8 @@ public class Analyzer : IDisposable
     private readonly AnalyzerDeclarationContext _declarationContext = new();
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
     private string? _declarationContextFilePath;
-    // MetadataLoadContext-based assembly inspection (no runtime loading, no version conflicts)
+    // Metadata-based assembly inspection; the load context is opened and closed by the N# surface.
     private NSharpMetadataResolver? _metadataResolver;
-    private MetadataLoadContext? _mlc;
     private AnalyzerWellKnownTypes? _wellKnownTypes;
     // Rebuilt, not mutated, whenever _wellKnownTypes changes: the owner's own fields never change
     // after construction.
@@ -2301,17 +2300,14 @@ public class Analyzer : IDisposable
             }
         }
 
-        _mlc = new MetadataLoadContext(_metadataResolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName());
-        _metadataLoadSurface.Attach(_mlc);
+        _metadataLoadSurface.Open(_metadataResolver);
 
         foreach (var assemblyName in AnalyzerMetadataLoadPolicy.CommonAssemblyNames())
         {
             LoadReferencedAssemblyByName(assemblyName);
         }
 
-        _wellKnownTypes = new AnalyzerWellKnownTypes(
-            _mlc,
-            _mlc.CoreAssembly ?? throw new InvalidOperationException("MLC core assembly not loaded"));
+        _wellKnownTypes = _metadataLoadSurface.CreateWellKnownTypes();
         _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, _wellKnownTypes);
         _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, _wellKnownTypes);
         _assignability = CreateAssignability();
@@ -2348,9 +2344,7 @@ public class Analyzer : IDisposable
     {
         if (!_disposed)
         {
-            _metadataLoadSurface.Detach();
-            _mlc?.Dispose();
-            _mlc = null;
+            _metadataLoadSurface.Close();
             _wellKnownTypes = null;
             _clrTypeConversion = new AnalyzerClrTypeConversion(_declarationContext, null);
             _assignabilityFacts = new AnalyzerAssignabilityFacts(_declarationContext, null);
