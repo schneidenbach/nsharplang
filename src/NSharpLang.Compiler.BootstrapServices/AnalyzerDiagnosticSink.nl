@@ -72,7 +72,14 @@ class AnalyzerDiagnosticSink {
         return CodeIntelligenceTextUtilities.GetSourceLine(resolved, line)
     }
 
+    // A REPORT WHOSE SENTENCE WOULD CARRY THE PARSER'S `<error>` PLACEHOLDER IS A CASCADE AND IS NOT
+    // MADE. The rule and why it is safe are stated on `DiagnosticPlaceholderGuard`; the doors are
+    // where it is enforced, because any of the hundreds of sites that quote a name can be handed one.
     func Report(code: ErrorCode, message: string, line: int, column: int, suggestion: string?, length: int) {
+        if DiagnosticPlaceholderGuard.TextCarriesPlaceholder(message) || DiagnosticPlaceholderGuard.TextCarriesPlaceholder(suggestion) {
+            return
+        }
+
         errorsValue.Add(AnalyzerDiagnostics.Create(code, message, currentFilePathValue, line, column, SourceSnippet(line), suggestion, length, ErrorSeverity.Error))
     }
 
@@ -81,6 +88,10 @@ class AnalyzerDiagnosticSink {
     // snippet and a docs link is still one report, in one position, among its neighbours — so they
     // must not reach the list by different doors.
     func ReportBuilt(error: CompilerError) {
+        if DiagnosticPlaceholderGuard.CarriesPlaceholder(error) {
+            return
+        }
+
         errorsValue.Add(error)
     }
 
@@ -160,6 +171,10 @@ class AnalyzerDiagnosticSink {
     }
 
     func Warn(code: ErrorCode, message: string, line: int, column: int, suggestion: string?, length: int) {
+        if DiagnosticPlaceholderGuard.TextCarriesPlaceholder(message) || DiagnosticPlaceholderGuard.TextCarriesPlaceholder(suggestion) {
+            return
+        }
+
         errorsValue.Add(AnalyzerDiagnostics.Create(code, message, currentFilePathValue, line, column, SourceSnippet(line), suggestion, length, ErrorSeverity.Warning))
     }
 

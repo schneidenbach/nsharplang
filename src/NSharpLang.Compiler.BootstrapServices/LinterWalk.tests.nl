@@ -1071,3 +1071,158 @@ class LwkUnknownPattern: Pattern {
     constructor(Line: int, Column: int): base(Line, Column) {
     }
 }
+
+// ── a write is not a read ────────────────────────────────────────────────────────────────────
+//
+// NL001 and NL012 both say "never read", and both used to measure whether the name was MENTIONED
+// again: every assignment reached `VisitChildExpressions`, which handed the TARGET to the identifier
+// arm and marked it used. `total := 0` followed by `total = 5` and nothing else was therefore
+// ACCEPTED. These state the rule and, just as importantly, its four boundaries — three shapes that
+// really do read the name, and the by-reference parameter whose write escapes to the caller.
+
+func LwkInt(value: int, line: int, column: int): IntLiteralExpression {
+    return new IntLiteralExpression(value.ToString(), line, column)
+}
+
+// `operator` is a RESERVED WORD and a parameter named that declines the whole declaration (§2.1),
+// which the estate reports as an unlocated NL103 `parse.function` at the `func` keyword.
+func LwkAssign(target: Expression, value: Expression, assignmentOperator: AssignmentOperator, line: int, column: int): ExpressionStatement {
+    assignment := new AssignmentExpression(target, assignmentOperator, value, line, column)
+    return new ExpressionStatement(assignment, line, column)
+}
+
+func LwkWrite(name: string, line: int, column: int): ExpressionStatement {
+    return LwkAssign(LwkId(name, line, column), LwkInt(5, line, column + 4), AssignmentOperator.Assign, line, column)
+}
+
+func LwkRefParam(name: string, modifier: ParameterModifier, line: int, column: int): Parameter {
+    return new Parameter(name, LwkSimple("int"), null, false, modifier, null, line, column, false, null)
+}
+
+// One function body, walked, with the state's diagnostics rendered by code and position.
+func LwkWalkBody(state: LinterWalkState, parameters: List<Parameter>, statements: List<Statement>): string {
+    walk := new LinterWalk(state)
+    walk.VisitFunction(LwkFunction("Run", parameters, LwkBlockOf(statements, 7, 1), null, false))
+    return LwkCodes(state)
+}
+
+test "a plain assignment to a bare name is a WRITE, and a variable only ever written is NL001" {
+    state := LwkState()
+    statements := LwkStatements()
+    statements.Add(LwkVar("total", LwkInt(0, 8, 14), 8, 5))
+    statements.Add(LwkWrite("total", 9, 5))
+    assert LwkWalkBody(state, LwkParams([]), statements) == "NL001@8:5;"
+}
+
+test "a read anywhere still silences it, including a read on the RIGHT of the write that names it" {
+    state := LwkState()
+    statements := LwkStatements()
+    statements.Add(LwkVar("total", LwkInt(0, 8, 14), 8, 5))
+    statements.Add(LwkAssign(LwkId("total", 9, 5), LwkId("total", 9, 13), AssignmentOperator.Assign, 9, 5))
+    assert LwkWalkBody(state, LwkParams([]), statements) == ""
+}
+
+test "a COMPOUND assignment reads the target to compute the new value, so it is a use" {
+    plus := LwkState()
+    plusStatements := LwkStatements()
+    plusStatements.Add(LwkVar("total", LwkInt(0, 8, 14), 8, 5))
+    plusStatements.Add(LwkAssign(LwkId("total", 9, 5), LwkInt(1, 9, 14), AssignmentOperator.AddAssign, 9, 5))
+    assert LwkWalkBody(plus, LwkParams([]), plusStatements) == ""
+
+    coalesce := LwkState()
+    coalesceStatements := LwkStatements()
+    coalesceStatements.Add(LwkVar("total", LwkInt(0, 8, 14), 8, 5))
+    coalesceStatements.Add(LwkAssign(LwkId("total", 9, 5), LwkInt(1, 9, 14), AssignmentOperator.NullCoalesceAssign, 9, 5))
+    assert LwkWalkBody(coalesce, LwkParams([]), coalesceStatements) == ""
+}
+
+test "an ELEMENT write and a MEMBER write both READ the receiver to find where to store, so both are uses" {
+    element := LwkState()
+    elementStatements := LwkStatements()
+    elementStatements.Add(LwkVar("values", LwkInt(0, 8, 15), 8, 5))
+    elementTarget := new IndexAccessExpression(LwkId("values", 9, 5), LwkInt(0, 9, 12), false, 9, 5)
+    elementStatements.Add(LwkAssign(elementTarget, LwkInt(1, 9, 17), AssignmentOperator.Assign, 9, 5))
+    assert LwkWalkBody(element, LwkParams([]), elementStatements) == ""
+
+    member := LwkState()
+    memberStatements := LwkStatements()
+    memberStatements.Add(LwkVar("box", LwkInt(0, 8, 12), 8, 5))
+    memberTarget := new MemberAccessExpression(LwkId("box", 9, 5), "Value", false, 9, 9)
+    memberStatements.Add(LwkAssign(memberTarget, LwkInt(1, 9, 17), AssignmentOperator.Assign, 9, 5))
+    assert LwkWalkBody(member, LwkParams([]), memberStatements) == ""
+}
+
+test "a BY-VALUE parameter that is only written is NL012 — the store dies with the frame" {
+    state := LwkState()
+    statements := LwkStatements()
+    statements.Add(LwkWrite("value", 8, 5))
+    assert LwkWalkBody(state, LwkParams(["value"]), statements) == "NL012@10:5;"
+}
+
+test "a `ref` or `out` parameter's write ESCAPES TO THE CALLER, so the write IS the use" {
+    outParameters := new List<Parameter>()
+    outParameters.Add(LwkRefParam("value", ParameterModifier.Out, 10, 5))
+    outState := LwkState()
+    outStatements := LwkStatements()
+    outStatements.Add(LwkWrite("value", 8, 5))
+    assert LwkWalkBody(outState, outParameters, outStatements) == ""
+
+    refParameters := new List<Parameter>()
+    refParameters.Add(LwkRefParam("value", ParameterModifier.Ref, 10, 5))
+    refState := LwkState()
+    refStatements := LwkStatements()
+    refStatements.Add(LwkWrite("value", 8, 5))
+    assert LwkWalkBody(refState, refParameters, refStatements) == ""
+
+    // ...and a by-reference parameter that is never mentioned at all is still reported, because the
+    // exemption is for the WRITE, not for the modifier.
+    silentParameters := new List<Parameter>()
+    silentParameters.Add(LwkRefParam("value", ParameterModifier.Out, 10, 5))
+    silentState := LwkState()
+    assert LwkWalkBody(silentState, silentParameters, LwkStatements()) == "NL012@10:5;"
+}
+
+test "`params` is a by-VALUE array the caller built, so a write to it is as dead as any other" {
+    parameters := new List<Parameter>()
+    parameters.Add(LwkRefParam("values", ParameterModifier.Params, 10, 5))
+    state := LwkState()
+    statements := LwkStatements()
+    statements.Add(LwkWrite("values", 8, 5))
+    assert LwkWalkBody(state, parameters, statements) == "NL012@10:5;"
+}
+
+test "the write still counts as a MENTION for the import rules, which ask a different question" {
+    // NL002 is asked of the written name exactly as it is of a read one: whether a bare name that
+    // looks like a type needs an import is not a question about reads.
+    state := LwkState()
+    statements := LwkStatements()
+    statements.Add(LwkWrite("StringBuilder", 3, 5))
+    walk := new LinterWalk(state)
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+    assert LwkCodes(state) == "NL002@3:5;"
+}
+
+// ── the LAST written-type slot: a `catch` clause ────────────────────────────────────────────────
+//
+// The family above widened six type slots and left the seventh. A `catch` clause's `ExceptionType`
+// is a `TypeReference` hanging off a `CatchClause`, which is not an `Expression` and not a
+// `Statement`, so nothing reached it: a file whose ONLY mention of `System` was
+// `catch (e: InvalidOperationException)` reported a false NL010 against that import — an ERROR that
+// fails `nlc check` on correct source, and whose `nlc fix` DELETES the import the file needs.
+
+test "a type named ONLY in a `catch` clause makes its import used, and needs one when absent" {
+    assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    try {\n        print(\"body\")\n    } catch (e: StringBuilder) {\n        print(\"caught\")\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    try {\n        print(\"body\")\n    } catch (e: StringBuilder) {\n        print(\"caught\")\n    }\n}\n") == "NL002@5:17+13;"
+}
+
+test "a BARE `catch` names no type and asks nothing, and its clause is still walked" {
+    // Non-vacuity: the clause body's own read is still credited, so the widening did not replace the
+    // block walk with the type walk.
+    assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    builder := new StringBuilder()\n    try {\n        print(\"body\")\n    } catch {\n        print(builder.Length)\n    }\n}\n") == ""
+}
+
+test "the exception VARIABLE is still exempt from NL001, and the clause type does not make it read" {
+    // `catch (error: StringBuilder)` binds `error`; binding the exception is how you name the clause,
+    // not how you use a value, and tracking the TYPE must not change that either way.
+    assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    try {\n        print(\"body\")\n    } catch (error: StringBuilder) {\n        print(\"caught\")\n    }\n}\n") == ""
+}

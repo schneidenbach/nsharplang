@@ -763,7 +763,7 @@ class AnalyzerImports {
         while index < symbols.Count {
             symbol := symbols[index]
             index = index + 1
-            RecordImportReference(symbol.Name, resolvedPath, fileImport)
+            RecordImportReference(symbol.Name, resolvedPath, fileImport, AnalyzerBindingFacts.IsTypeDeclarationKind(symbol.Declaration.Kind))
 
             globalScope := scopes.GlobalScope()
             if symbol.Declaration.Kind == "function" {
@@ -802,13 +802,13 @@ class AnalyzerImports {
 
     // ONE UNALIASED IMPORT OF ONE NAME, REMEMBERED IN FIRST-INSERTION ORDER. The order list is the
     // collision report's iteration order and therefore user-visible; see the type comment.
-    func RecordImportReference(symbolName: string, resolvedPath: string, fileImport: FileImport) {
+    func RecordImportReference(symbolName: string, resolvedPath: string, fileImport: FileImport, declaresType: bool) {
         if !importedSymbols.ContainsKey(symbolName) {
             importedSymbols[symbolName] = new List<ImportedSymbolReference>()
             importedSymbolOrder.Add(symbolName)
         }
 
-        importedSymbols[symbolName].Add(new ImportedSymbolReference(resolvedPath, fileImport.Path, fileImport.Line, fileImport.DiagnosticColumn, fileImport.DiagnosticLength))
+        importedSymbols[symbolName].Add(new ImportedSymbolReference(resolvedPath, fileImport.Path, fileImport.Line, fileImport.DiagnosticColumn, fileImport.DiagnosticLength, declaresType))
     }
 
     // ------------------------------------------------------------------------------------------
@@ -831,13 +831,37 @@ class AnalyzerImports {
             duplicate := references[1]
             importList := FormatImportCollisionSources(references)
             message := "Imported symbol '" + symbol + "' is defined by multiple file imports"
-            suggestion := "Add an alias to one import, such as `import \"" + duplicate.ImportPath + "\" as Alias`, and qualify the symbol."
             humanExplanation := "The symbol '" + symbol + "' is imported more than once, so N# cannot choose which definition to use."
-            contextualHint := "N# found '" + symbol + "' in these file imports: " + importList + ".\n" + "Unaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit."
+            contextualHint := "N# found '" + symbol + "' in these file imports: " + importList + ".\n" + ImportCollisionAdvice(symbol, duplicate)
+            suggestion := ImportCollisionSuggestion(symbol, duplicate)
 
             sourceSnippet := diagnostics.SourceSnippet(duplicate.Line)
             diagnostics.ReportBuilt(AnalyzerDiagnostics.CreateImportCollision(message, diagnostics.CurrentFilePath, duplicate.SourcePath, duplicate.Line, duplicate.Column, sourceSnippet, duplicate.Length, suggestion, humanExplanation, contextualHint))
         }
+    }
+
+    // THE FIX THAT COMPILES, WHICH IS NOT THE SAME FIX FOR BOTH KINDS OF SYMBOL. This used to say
+    // "Add an alias to one import … and qualify the symbol" for everything, and for a colliding
+    // FUNCTION that is a spelling the compiler refuses: the alias clears NL702 and then
+    // `Alias.Format(value)` stops the build at NL103 `emit.call.static-member-unmodeled`. Measured on
+    // the shipped CLI: an alias-qualified TYPE (`Alias.Tag` as a type and `new Alias.Tag(...)`)
+    // resolves and emits; an alias-qualified CALL does not; a fully-qualified `Lib.Money.Format(v)`
+    // reports NL301; renaming one of the two declarations always works. So the type arm keeps the
+    // alias and the function arm says rename.
+    static func ImportCollisionSuggestion(symbol: string, duplicate: ImportedSymbolReference): string {
+        if duplicate.DeclaresType {
+            return "Add an alias to one import, such as `import \"" + duplicate.ImportPath + "\" as Alias`, and write the type as `Alias." + symbol + "`."
+        }
+
+        return "Rename one of the two '" + symbol + "' declarations so each name means one thing — an alias clears the collision but an alias-qualified CALL does not compile yet."
+    }
+
+    static func ImportCollisionAdvice(symbol: string, duplicate: ImportedSymbolReference): string {
+        if duplicate.DeclaresType {
+            return "Unaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit."
+        }
+
+        return "Unaliased file imports place their exported symbols directly in scope. An alias on one import silences this, but a call through an alias (`Alias." + symbol + "(...)`) is not yet lowered — renaming one declaration is the fix that builds."
     }
 
     // THE IMPORTS A COLLIDING NAME CAME FROM, quoted as written, deduplicated case-insensitively and

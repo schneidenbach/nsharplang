@@ -217,7 +217,7 @@ func ImportReferences(paths: List<string>): List<ImportedSymbolReference> {
     references := new List<ImportedSymbolReference>()
     index := 0
     while index < paths.Count {
-        references.Add(new ImportedSymbolReference("/resolved/" + paths[index], paths[index], index + 1, 8, 4))
+        references.Add(new ImportedSymbolReference("/resolved/" + paths[index], paths[index], index + 1, 8, 4, false))
         index = index + 1
     }
 
@@ -769,7 +769,7 @@ test "two unaliased imports of one name collide, and the report points at the SE
     assert reported.Message == "Imported symbol 'Widget' is defined by multiple file imports"
     assert reported.Line == 2
     assert reported.Column == 5
-    assert reported.Suggestion == "Add an alias to one import, such as `import \"./WidgetsB.nl\" as Alias`, and qualify the symbol."
+    assert reported.Suggestion == "Add an alias to one import, such as `import \"./WidgetsB.nl\" as Alias`, and write the type as `Alias.Widget`."
 }
 
 test "three imports of one name still report ONCE, and the hint names every source in order" {
@@ -855,6 +855,8 @@ test "the collision report carries the human explanation and the hint's second s
     hint := reported.ContextualHint
     assert hint != null
     assert hint.EndsWith("Unaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit.", StringComparison.Ordinal)
+    // A colliding TYPE keeps the alias advice, because an alias-qualified type resolves and emits.
+    assert reported.Suggestion == "Add an alias to one import, such as `import \"./WidgetsB.nl\" as Alias`, and write the type as `Alias.Widget`."
 }
 
 test "colliding FUNCTIONS collide exactly as colliding types do" {
@@ -868,6 +870,26 @@ test "colliding FUNCTIONS collide exactly as colliding types do" {
     harness.Owner.CheckImportCollisions()
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "Imported symbol 'Helper' is defined by multiple file imports"
+
+    // ...AND ARE TOLD A DIFFERENT FIX, because the one the type arm gives does not compile for them:
+    // the alias clears NL702 and `Alias.Helper()` then stops the build at NL103
+    // `emit.call.static-member-unmodeled`. Measured on the shipped CLI; see `ImportCollisionSuggestion`.
+    reported := harness.Errors[0]
+    assert reported.Suggestion == "Rename one of the two 'Helper' declarations so each name means one thing — an alias clears the collision but an alias-qualified CALL does not compile yet."
+    hint := reported.ContextualHint
+    assert hint != null
+    assert hint.EndsWith("Unaliased file imports place their exported symbols directly in scope. An alias on one import silences this, but a call through an alias (`Alias.Helper(...)`) is not yet lowered — renaming one declaration is the fix that builds.", StringComparison.Ordinal)
+}
+
+// THE TWO ARMS ASKED DIRECTLY, so the rule is pinned independently of any import that drives it.
+test "the collision fix depends on the KIND of the symbol that collided, and only the type arm keeps the alias" {
+    typeReference := new ImportedSymbolReference("/resolved/./money.nl", "./money.nl", 2, 8, 12, true)
+    assert AnalyzerImports.ImportCollisionSuggestion("Tag", typeReference) == "Add an alias to one import, such as `import \"./money.nl\" as Alias`, and write the type as `Alias.Tag`."
+    assert AnalyzerImports.ImportCollisionAdvice("Tag", typeReference) == "Unaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit."
+
+    functionReference := new ImportedSymbolReference("/resolved/./money.nl", "./money.nl", 2, 8, 12, false)
+    assert AnalyzerImports.ImportCollisionSuggestion("Format", functionReference) == "Rename one of the two 'Format' declarations so each name means one thing — an alias clears the collision but an alias-qualified CALL does not compile yet."
+    assert AnalyzerImports.ImportCollisionAdvice("Format", functionReference) == "Unaliased file imports place their exported symbols directly in scope. An alias on one import silences this, but a call through an alias (`Alias.Format(...)`) is not yet lowered — renaming one declaration is the fix that builds."
 }
 
 // ── THE RESET ──────────────────────────────────────────────────────────────────

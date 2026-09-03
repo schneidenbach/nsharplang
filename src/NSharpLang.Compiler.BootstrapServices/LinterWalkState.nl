@@ -15,11 +15,11 @@ import NSharpLang.Compiler.CodeIntelligence
 // against a name table alone. `Scope` is null until the parameters have actually been declared —
 // a function with no body never opens one.
 class LinterParameterFrame {
-    Params: List<(string, int, int)>
+    Params: List<(string, int, int, bool)>
     Usages: HashSet<string>
     Scope: Dictionary<string, (int, int, bool)>?
 
-    constructor(declaredParams: List<(string, int, int)>, usages: HashSet<string>) {
+    constructor(declaredParams: List<(string, int, int, bool)>, usages: HashSet<string>) {
         Params = declaredParams
         Usages = usages
         Scope = null
@@ -41,10 +41,10 @@ class LinterParameterFrame {
 class LinterFunctionFrame {
     WasInAsync: bool
     HadAwait: bool
-    OuterParams: List<(string, int, int)>
+    OuterParams: List<(string, int, int, bool)>
     OuterParamUsages: HashSet<string>
 
-    constructor(wasInAsync: bool, hadAwait: bool, outerParams: List<(string, int, int)>, outerParamUsages: HashSet<string>) {
+    constructor(wasInAsync: bool, hadAwait: bool, outerParams: List<(string, int, int, bool)>, outerParamUsages: HashSet<string>) {
         WasInAsync = wasInAsync
         HadAwait = hadAwait
         OuterParams = outerParams
@@ -123,7 +123,7 @@ class LinterWalkState {
 
     hasAwaitInFunction: bool
     inAsyncFunction: bool
-    currentFunctionParams: List<(string, int, int)>
+    currentFunctionParams: List<(string, int, int, bool)>
     currentFunctionParamUsages: HashSet<string>
     paramFrames: List<LinterParameterFrame>
 
@@ -149,7 +149,7 @@ class LinterWalkState {
 
         hasAwaitInFunction = false
         inAsyncFunction = false
-        currentFunctionParams = new List<(string, int, int)>()
+        currentFunctionParams = new List<(string, int, int, bool)>()
         currentFunctionParamUsages = new HashSet<string>()
         paramFrames = new List<LinterParameterFrame>()
     }
@@ -165,6 +165,14 @@ class LinterWalkState {
         }
 
         if suppressions.IsSuppressed(line, code) {
+            return
+        }
+
+        // A finding whose sentence would carry the parser's `<error>` placeholder is a cascade off a
+        // syntax error that has already been reported, and is not made. See
+        // `DiagnosticPlaceholderGuard`; this is the linter's one door, as the sink's three are the
+        // analyzer's.
+        if DiagnosticPlaceholderGuard.TextCarriesPlaceholder(message) || DiagnosticPlaceholderGuard.TextCarriesPlaceholder(suggestion) {
             return
         }
 
@@ -479,6 +487,46 @@ class LinterWalkState {
         usedVariables.Add(name)
     }
 
+    // A WRITE TO A BARE NAME, WHICH IS NOT A READ.
+    //
+    // `total := 0` followed by `total = 5` used to reach `MarkVariableUsed` through the ordinary
+    // child walk, so a store-only local was accepted by a rule whose own message says "never read".
+    // A write now marks nothing used — WITH ONE EXCEPTION, and it is not a softening of the rule but
+    // the rest of it: a `ref` or `out` parameter's write ESCAPES TO THE CALLER, so it is the use.
+    // `func Read(out value: int) { value = 23 }` is the entire purpose of an `out` parameter and the
+    // only legal thing to do with one — reading it before assignment is not allowed at all.
+    //
+    // The frame walk is `CreditResolvedParameter`'s, with the by-ref question added: the read must be
+    // credited to the parameter the name LEXICALLY resolves to, so a shadowing local in a nearer
+    // scope must not credit an enclosing by-ref parameter.
+    func MarkVariableWritten(name: string) {
+        resolvedScope := ResolveScope(name)
+        if resolvedScope == null {
+            return
+        }
+
+        index := paramFrames.Count - 1
+        while index >= 0 {
+            frame := paramFrames[index]
+            if Object.ReferenceEquals(frame.Scope, resolvedScope) && FrameDeclaresByRefParameter(frame, name) {
+                frame.Usages.Add(name)
+                return
+            }
+
+            index = index - 1
+        }
+    }
+
+    static func FrameDeclaresByRefParameter(frame: LinterParameterFrame, name: string): bool {
+        for parameter in frame.Params {
+            if parameter.Item1 == name {
+                return parameter.Item4
+            }
+        }
+
+        return false
+    }
+
     // The innermost scope that binds the name, or nothing when no open scope does.
     func ResolveScope(name: string): Dictionary<string, (int, int, bool)>? {
         if declaredVariables.ContainsKey(name) {
@@ -548,7 +596,7 @@ class LinterWalkState {
             allCodeIdentifiers.Add("Task")
         }
 
-        currentFunctionParams = new List<(string, int, int)>()
+        currentFunctionParams = new List<(string, int, int, bool)>()
         currentFunctionParamUsages = new HashSet<string>()
         paramFrames.Add(new LinterParameterFrame(currentFunctionParams, currentFunctionParamUsages))
         return frame
@@ -564,8 +612,11 @@ class LinterWalkState {
         currentFunctionParamUsages = frame.OuterParamUsages
     }
 
-    func AddParameter(name: string, line: int, column: int) {
-        currentFunctionParams.Add((name, line, column))
+    // `declaredByRef` is a `ref` or `out` modifier on the parameter, and it is recorded because a
+    // WRITE to such a parameter is a USE of it: the store escapes to the caller. See
+    // `MarkVariableWritten`.
+    func AddParameter(name: string, line: int, column: int, declaredByRef: bool) {
+        currentFunctionParams.Add((name, line, column, declaredByRef))
     }
 
     // Records the scope the current function's parameters were declared into, so a read can be
@@ -627,7 +678,13 @@ class LinterWalkState {
     // than the brace, which is why the block's own line is read back out of the source.
     func ReportEmptyCatchBlock(blockLine: int, blockColumn: int) {
         span := LinterBlockOwnerSpanResolver.Resolve(blockLine, blockColumn, SourceLine(blockLine))
-        AddDiagnostic("NL011", "This catch block is empty — exceptions will be silently swallowed", span.Line, span.Column, config.GetSeverity("NL011"), "Log the error, handle it, or add a comment explaining why it's safe to ignore", span.Length)
+        // EVERY OPTION NAMED HERE CLEARS THE RULE, WHICH THE OLD TEXT'S THIRD ONE DID NOT. It invited
+        // "add a comment explaining why it's safe to ignore", and a comment is not a statement: the
+        // reader took the advice, re-ran, and got the same error. Measured on the shipped CLI: a
+        // `print`, a `return -1` and a `throw new InvalidOperationException("bad", error)` each clear
+        // it, `// nlc:ignore NL011` on the line above the `catch` clears it, and a bare `throw` does
+        // not even parse — N# has no re-throw form, so the suggestion does not offer one.
+        AddDiagnostic("NL011", "This catch block is empty — exceptions will be silently swallowed", span.Line, span.Column, config.GetSeverity("NL011"), "Log it, handle it, return a fallback, or wrap it in a `throw new ...`. If ignoring it is deliberate, put `// nlc:ignore NL011` on the line above the `catch` — a comment alone does not clear this.", span.Length)
     }
 
     // Every identifier an interpolated string's holes read is a genuine use of that variable.

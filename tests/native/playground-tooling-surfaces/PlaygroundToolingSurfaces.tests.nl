@@ -1019,8 +1019,8 @@ test "020 s38 playground tooling surfaces: Complete MemberAccess ReturnsStringMe
     assert PgText(site, "Context") == "MemberAccess"
     assert PgText(site, "Receiver") == "$\"this is a string\""
     assert PgText(site, "ReceiverType") == "System.String"
-    assert PgSummary(site) == "5/0/0"
-    assert PgCensus(site) == "NL101@1:1+19;NL101@1:20+1;NL903@1:20+7;NL306@1:21+7;NL903@1:21+7;"
+    assert PgSummary(site) == "2/0/0"
+    assert PgCensus(site) == "NL101@1:1+19;NL101@1:20+1;"
     assert PgItemCount(site) == 39
     assert PgAccessorCount(site) == 0
     assert PgLabelCensus(site) == "Clone;CompareTo;Contains;CopyTo;EndsWith;EnumerateRunes;Equals;GetEnumerator;GetHashCode;GetPinnableReference;GetType;GetTypeCode;IndexOf;IndexOfAny;Insert;IsNormalized;LastIndexOf;LastIndexOfAny;Normalize;PadLeft;PadRight;Remove;Replace;ReplaceLineEndings;Split;StartsWith;Substring;ToCharArray;ToLower;ToLowerInvariant;ToString;ToUpper;ToUpperInvariant;Trim;TrimEnd;TrimStart;TryCopyTo;Chars;Length;"

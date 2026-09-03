@@ -4537,9 +4537,9 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
 //       the deleted `AssertNoErrorCode(ControlTransferOutOfFinally)` was satisfied by a file that
 //       never reached the walk. `Lock_OnEnumValue_ReportsNL320` spells an enum whose members are
 //       newline-separated rather than comma-separated; that reports `NL101` twice, and its NL320
-//       claim SURVIVES — but the analysis reports FOUR rows, two of them `NL903` complaining about
-//       an identifier literally named `<error>`, a recovery artefact leaking a synthetic name into
-//       a user-facing sentence. Both parse censuses are pinned WHOLE.
+//       claim SURVIVES — and where the analysis USED TO report four rows, three of them quoting an
+//       identifier literally named `<error>`, `DiagnosticPlaceholderGuard` now suppresses those
+//       three at the sink and one row is left. Both parse censuses are pinned WHOLE.
 //
 //   (e) A CODE NAMED `VisibilityConventionWarning` IS REPORTED AT `Error` SEVERITY, TWICE — the
 //       same shape slice 28 found in `NullabilityWarning`, in a second code.
@@ -6132,26 +6132,26 @@ test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the whole censu
     assert AcHint(rich, 0) == "`Monitor` locks on object IDENTITY. A value type has no stable identity: it would be\nboxed into a fresh object on every `lock`, so no two threads would ever contend on\nthe same lock — the lock would guard nothing."
 }
 
-test "020 s30 analyzer error codes: THIS FIXTURE DOES NOT PARSE — an enum whose members are newline-separated rather than comma-separated reports `NL101` TWICE and `Success == False`, and the analysis then reports FOUR rows, two of them `NL903` complaining about an identifier literally named `<error>`; the NL320 claim survives all of it, but the deleted assertion saw only that one code was present (was AnalyzerTests.Lock_OnEnumValue_ReportsNL320)" {
+test "020 s30 analyzer error codes: THIS FIXTURE DOES NOT PARSE — an enum whose members are newline-separated rather than comma-separated reports `NL101` TWICE and `Success == False`, and the analysis then reports ONE row: the three that quoted the parser's `<error>` placeholder are suppressed as cascades and the NL320 claim survives all of it, where the deleted assertion saw only that one code was present (was AnalyzerTests.Lock_OnEnumValue_ReportsNL320)" {
     source := "\nenum Color {\n    Red\n    Green\n}\n\nfunc F() {\n    c := Color.Red\n    lock c {\n        print(1)\n    }\n}"
     assert AcParseCensus(source) == "NL101@4:5+5;NL101@5:1+1;"
     assert AcParseSuccess(source) == "False"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@7:1+7;NL903:VisibilityConventionWarning@5:1+7;NL903:VisibilityConventionWarning@7:1+7;NL320:LockRequiresReferenceType@9:10+1;"
+    assert AcCensus(analysis) == "NL320:LockRequiresReferenceType@9:10+1;"
     assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 4
-    assert AcRow(analysis, 0) == "DuplicateDeclaration|A type named '<error>' already exists — each type name must be unique|<null>|Error"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "LockRequiresReferenceType|'Color' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
     assert AcCodeErrorCount(analysis, "LockRequiresReferenceType") == 1
     assert AcCodeCount(analysis, "LockRequiresReferenceType") == 1
     assert AcCodeRow(analysis, "LockRequiresReferenceType") == "LockRequiresReferenceType|'Color' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
     assert AcCodeAnchor(analysis, "LockRequiresReferenceType") == "NL320@9:10+1"
-    assert AcSuggestions(analysis, 3) == "<null>"
+    assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL306:DuplicateDeclaration@7:1+7;NL903:VisibilityConventionWarning@5:1+7;NL903:VisibilityConventionWarning@7:1+7;NL320:LockRequiresReferenceType@9:10+1;"
+    assert AcCensus(rich) == "NL320:LockRequiresReferenceType@9:10+1;"
     assert AcCodeRow(rich, "LockRequiresReferenceType") == "LockRequiresReferenceType|'Color' is not a reference type as required by the lock statement|Lock on a dedicated `object` field instead: `sync: object = new object()`|Error"
     assert AcCodeAnchor(rich, "LockRequiresReferenceType") == "NL320@9:10+1"
-    assert AcSuggestions(rich, 3) == "<null>"
-    assert AcHint(rich, 3) == "`Monitor` locks on object IDENTITY. A value type has no stable identity: it would be\nboxed into a fresh object on every `lock`, so no two threads would ever contend on\nthe same lock — the lock would guard nothing."
+    assert AcSuggestions(rich, 0) == "<null>"
+    assert AcHint(rich, 0) == "`Monitor` locks on object IDENTITY. A value type has no stable identity: it would be\nboxed into a fresh object on every `lock`, so no two threads would ever contend on\nthe same lock — the lock would guard nothing."
 }
 
 test "020 s30 analyzer error codes: `LockRequiresReferenceType`: the whole census is pinned (1 row); the deleted claim was that `LockRequiresReferenceType` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.Lock_OnNullableInt_ReportsNL320)" {
@@ -8229,25 +8229,25 @@ test "020 s31 analyzer error codes: a sized array allocation that also passes co
     assert AcCensus(analysis) == "NL321:InvalidSizedArrayConstructorArguments@7:27+3;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcRow(analysis, 0) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "InvalidSizedArrayConstructorArguments") == 1
     assert AcCodeErrorCount(analysis, "InvalidSizedArrayConstructorArguments") == 1
-    assert AcCodeRow(analysis, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcCodeRow(analysis, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcCodeAnchor(analysis, "InvalidSizedArrayConstructorArguments") == "NL321@7:27+3"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL321:InvalidSizedArrayConstructorArguments@7:27+3;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcRow(rich, 0) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "InvalidSizedArrayConstructorArguments") == 1
     assert AcCodeErrorCount(rich, "InvalidSizedArrayConstructorArguments") == 1
-    assert AcCodeRow(rich, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcCodeRow(rich, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcCodeAnchor(rich, "InvalidSizedArrayConstructorArguments") == "NL321@7:27+3"
 }
 
@@ -8262,13 +8262,13 @@ test "020 s31 analyzer error codes: the sized-array rejection does not stop argu
     assert AcRow(analysis, 0) == "UndefinedVariable|I can't find 'missing' — it hasn't been declared in this scope|<null>|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
-    assert AcRow(analysis, 1) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcRow(analysis, 1) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcHint(analysis, 1) == "<null>"
     assert AcSuggestions(analysis, 1) == "<null>"
     assert AcRow(analysis, 2) == "<no-such-error>"
     assert AcCodeCount(analysis, "InvalidSizedArrayConstructorArguments") == 1
     assert AcCodeErrorCount(analysis, "InvalidSizedArrayConstructorArguments") == 1
-    assert AcCodeRow(analysis, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcCodeRow(analysis, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcCodeAnchor(analysis, "InvalidSizedArrayConstructorArguments") == "NL321@3:27+3"
     assert AcCodeCount(analysis, "UndefinedVariable") == 1
     assert AcCodeErrorCount(analysis, "UndefinedVariable") == 1
@@ -8281,13 +8281,13 @@ test "020 s31 analyzer error codes: the sized-array rejection does not stop argu
     assert AcRow(rich, 0) == "UndefinedVariable|Variable 'missing' not found|<null>|Error"
     assert AcHint(rich, 0) == "Make sure you've declared this variable before using it."
     assert AcSuggestions(rich, 0) == "<null>"
-    assert AcRow(rich, 1) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcRow(rich, 1) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcHint(rich, 1) == "<null>"
     assert AcSuggestions(rich, 1) == "<null>"
     assert AcRow(rich, 2) == "<no-such-error>"
     assert AcCodeCount(rich, "InvalidSizedArrayConstructorArguments") == 1
     assert AcCodeErrorCount(rich, "InvalidSizedArrayConstructorArguments") == 1
-    assert AcCodeRow(rich, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcCodeRow(rich, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcCodeAnchor(rich, "InvalidSizedArrayConstructorArguments") == "NL321@3:27+3"
     assert AcCodeCount(rich, "UndefinedVariable") == 1
     assert AcCodeErrorCount(rich, "UndefinedVariable") == 1
@@ -21059,7 +21059,7 @@ test "020 s36 analyzer clean source V-CONTROL V10c: the same file with NO sideca
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
     assert AcRow(analysis, 0) == "ImportNotFound|Cannot find import './B'|<null>|Error"
-    assert AcHint(analysis, 0) == "Make sure the file exists at the path './B'.\nThe path should be relative to your project root.\n\nCommon issues:\n  - Check for typos in the file path\n  - Make sure the file extension is correct\n  - Verify the file is in the expected directory"
+    assert AcHint(analysis, 0) == "Make sure the file exists at the path './B'.\nA path starting with './' or '../' is relative to THIS file; any other path is relative to the project root.\nThe '.nl' extension is optional — 'Helper' and 'Helper.nl' name the same file.\n\nCommon issues:\n  - Check for typos in the file path\n  - Check whether the path should start with './' (beside this file) or not (from the project root)\n  - Verify the file is in the expected directory"
     assert AcSnippet(analysis, 0) == "import \"./B\""
     assert AcRow(analysis, 1) == "<no-such-error>"
 }
@@ -21121,30 +21121,30 @@ test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P1: an ORDINARY identifi
     assert AcRow(analysis, 3) == "<no-such-error>"
 }
 
-test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P2: `<error>` with one trailing character in the array-length slot reports THREE rows where `<error>` reports one — the suppression is EXACT-MATCH and case-sensitive (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
+test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P2: `<error>` with one trailing character in the array-length slot reports TWO rows — the TREE-WALK suppression is EXACT-MATCH so the follow-on is still generated, and it is the SENTENCE guard that drops the one row quoting the derived name (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
     unit := AcPlaceholderUnit("<error>x")
     assert AcShapeOfUnit(unit) == "imports=0;FunctionDeclaration:Main;"
     analysis := AcAnalyzeUnit(unit)
-    assert AcCensus(analysis) == "NL301:UndefinedVariable@2:16+1;NL202:TypeMismatch@2:16+1;NL202:TypeMismatch@2:8+1;"
-    assert AcErrorCount(analysis) == 3
+    assert AcCensus(analysis) == "NL202:TypeMismatch@2:16+1;NL202:TypeMismatch@2:8+1;"
+    assert AcErrorCount(analysis) == 2
     assert AcCodeCount(analysis, "TypeMismatch") == 2
-    assert AcRow(analysis, 0) == "UndefinedVariable|I can't find '<error>x' — it hasn't been declared in this scope|<null>|Error"
-    assert AcRow(analysis, 1) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
-    assert AcRow(analysis, 2) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
-    assert AcRow(analysis, 3) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedVariable") == 0
+    assert AcRow(analysis, 0) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 1) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 2) == "<no-such-error>"
 }
 
-test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P3: `<error>` with one leading character in the array-length slot reports THREE rows where `<error>` reports one — the suppression is EXACT-MATCH and case-sensitive (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
+test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P3: `<error>` with one leading character in the array-length slot reports TWO rows — the TREE-WALK suppression is EXACT-MATCH so the follow-on is still generated, and it is the SENTENCE guard that drops the one row quoting the derived name (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
     unit := AcPlaceholderUnit("x<error>")
     assert AcShapeOfUnit(unit) == "imports=0;FunctionDeclaration:Main;"
     analysis := AcAnalyzeUnit(unit)
-    assert AcCensus(analysis) == "NL301:UndefinedVariable@2:16+1;NL202:TypeMismatch@2:16+1;NL202:TypeMismatch@2:8+1;"
-    assert AcErrorCount(analysis) == 3
+    assert AcCensus(analysis) == "NL202:TypeMismatch@2:16+1;NL202:TypeMismatch@2:8+1;"
+    assert AcErrorCount(analysis) == 2
     assert AcCodeCount(analysis, "TypeMismatch") == 2
-    assert AcRow(analysis, 0) == "UndefinedVariable|I can't find 'x<error>' — it hasn't been declared in this scope|<null>|Error"
-    assert AcRow(analysis, 1) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
-    assert AcRow(analysis, 2) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
-    assert AcRow(analysis, 3) == "<no-such-error>"
+    assert AcCodeCount(analysis, "UndefinedVariable") == 0
+    assert AcRow(analysis, 0) == "TypeMismatch|Array length must be an int, not 'unknown'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 1) == "TypeMismatch|The condition in an 'if' must be a boolean, but I found 'int[]'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 2) == "<no-such-error>"
 }
 
 test "020 s36 analyzer clean source PLACEHOLDER-CONTROL P4: the EMPTY name in the array-length slot reports THREE rows where `<error>` reports one — the suppression is EXACT-MATCH and case-sensitive (the minimal negative of AnalyzerTests.ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn)" {
