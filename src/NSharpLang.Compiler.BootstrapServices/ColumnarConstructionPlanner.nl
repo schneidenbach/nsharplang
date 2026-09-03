@@ -1277,17 +1277,24 @@ class ColumnarConstructionPlanner {
     static func TryAppendRuntimeConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
+        // THE ARGUMENT TYPES ARE COLLECTED FIRST, because the constructor is now selected BY them
+        // rather than by arity against a hand list. `TryGetConstructorArguments` reads types without
+        // appending instructions, so nothing is emitted before the selection is known.
         argumentCount := nodes.ChildCount(node) - 1
-        parameters := new Type[](0)
-        constructor: ConstructorInfo? = null
-        if !TrySelectRuntimeConstructor(targetType, argumentCount, out constructor, out parameters) || constructor == null {
-            return false
-        }
-
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+            return false
+        }
+
+        parameters := new Type[](0)
+        constructor: ConstructorInfo? = null
+        if !TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameters) || constructor == null {
+            // OWNED AND REFUSED, never silently deferred: an unselectable construction is a decline the
+            // trace shows, not a fall-through to another owner that would bind something else.
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            legacyWholeSubtreePlanning = false
             return false
         }
         if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, parameters, argumentFacts) {
@@ -1759,118 +1766,150 @@ class ColumnarConstructionPlanner {
         return result
     }
 
-    static func TrySelectRuntimeConstructor(targetType: Type, argumentCount: int, out constructor: ConstructorInfo?, out parameterTypes: Type[]): bool {
+    // EVERY PUBLIC CONSTRUCTOR OF AN EXTERNAL TYPE IS A CANDIDATE, and the selection is the same rule
+    // the ordinary call resolver already applies to methods: fixed arity, score each candidate by
+    // argument flow, take a UNIQUE best. What stood here was a hand list of `targetType == typeof(X)`
+    // arms -- what one slice happened to need -- which silently declined every other external
+    // construction and was keyed on exactly the type-identity comparisons task 022 exists to remove.
+    //
+    // No `==` on `Type` survives in the selection: identity is decided by the shared flow scorer, which
+    // reaches assignability through `IsAssignableFrom` and the conversion facts, so the rule holds when
+    // the operands come from a different type universe.
+    //
+    // A TIE IS A DECLINE, not a guess. `bestCount > 1` means two constructors score equally for these
+    // arguments and choosing either would be arbitrary; the caller turns that into `OwnedRejected`.
+    static func TrySelectRuntimeConstructor(targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[]): bool {
         constructor = null
         parameterTypes = new Type[](0)
-        selectedParameterTypes := new Type[](0)
-
-        if targetType == typeof(string) {
-            if argumentCount == 2 {
-                selectedParameterTypes = Types2(typeof(char), typeof(int))
-            } else if argumentCount == 3 {
-                selectedParameterTypes = Types3(typeof(char).MakeArrayType(), typeof(int), typeof(int))
-            } else {
-                return false
-            }
-        } else if targetType == typeof(StringBuilder) {
-            if argumentCount == 0 {
-                selectedParameterTypes = new Type[](0)
-            } else if argumentCount == 1 {
-                selectedParameterTypes = Types1(typeof(int))
-            } else {
-                return false
-            }
-        } else if targetType == typeof(Version) {
-            if argumentCount != 4 {
-                return false
-            }
-            selectedParameterTypes = Types4(typeof(int), typeof(int), typeof(int), typeof(int))
-        } else if targetType == typeof(object) || targetType == typeof(ProcessStartInfo) || targetType == typeof(Process) || targetType == typeof(JsonSerializerOptions) || targetType == typeof(DeserializerBuilder) || targetType == typeof(MappingStart) || targetType == typeof(MappingEnd) {
-            if argumentCount != 0 {
-                return false
-            }
-            selectedParameterTypes = new Type[](0)
-        } else if targetType == typeof(StreamReader) {
-            if argumentCount != 1 {
-                return false
-            }
-            selectedParameterTypes = Types1(typeof(Stream))
-        } else if targetType == typeof(Scalar) {
-            if argumentCount != 1 {
-                return false
-            }
-            selectedParameterTypes = Types1(typeof(string))
-        } else if IsApprovedExceptionType(targetType) {
-            if argumentCount == 0 {
-                selectedParameterTypes = new Type[](0)
-            } else if argumentCount == 1 {
-                selectedParameterTypes = Types1(typeof(string))
-            } else if argumentCount == 2 {
-                selectedParameterTypes = Types2(typeof(string), typeof(string))
-            } else {
-                return false
-            }
-        } else {
+        if !IsConstructibleRuntimeTarget(targetType) {
             return false
         }
 
-        parameterTypes = selectedParameterTypes
-        resolvedConstructor := targetType.GetConstructor(selectedParameterTypes)
-        if resolvedConstructor == null {
-            parameterTypes = new Type[](0)
-            return false
-        }
-        if resolvedConstructor.get_DeclaringType() != targetType {
-            throw new InvalidOperationException("Construction runtime catalog resolved a constructor on the wrong owner.")
-        }
-        parameters := resolvedConstructor.GetParameters()
-        if parameters.Length != selectedParameterTypes.Length {
-            constructor = null
-            return false
-        }
+        candidates := RuntimeConstructorsOrEmpty(targetType)
+        bestScore := -1
+        bestCount := 0
+        selected: ConstructorInfo? = null
+        selectedParameters := new Type[](0)
         index := 0
-        while index < parameters.Length {
-            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(parameters[index].get_ParameterType(), selectedParameterTypes[index]) {
-                constructor = null
-                return false
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() {
+                parameters := candidate.GetParameters()
+                if parameters != null && parameters.Length == argumentTypes.Length && !IsExcludedConstructorShape(candidate, parameters) {
+                    types := ConstructorParameterTypesOrNull(parameters)
+                    if types != null {
+                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(types, argumentTypes, argumentFacts)
+                        if score > bestScore {
+                            bestScore = score
+                            bestCount = 1
+                            selected = candidate
+                            selectedParameters = types
+                        } else if score >= 0 && score == bestScore {
+                            bestCount = bestCount + 1
+                        }
+                    }
+                }
             }
-            index += 1
+
+            index = index + 1
         }
-        constructor = resolvedConstructor
+
+        if bestCount != 1 || selected == null || bestScore < 0 {
+            return false
+        }
+
+        declaringType := selected.get_DeclaringType()
+        if declaringType == null || !ExternalAssemblyScan.HasExactTypeIdentity(declaringType, TargetTypeIdentity(targetType)) {
+            throw new InvalidOperationException("Construction selected a constructor on the wrong owner.")
+        }
+
+        constructor = selected
+        parameterTypes = selectedParameters
         return true
     }
 
-    static func IsApprovedExceptionType(targetType: Type): bool {
-        return targetType == typeof(Exception) || targetType == typeof(InvalidOperationException) || targetType == typeof(ArgumentException) || targetType == typeof(ArgumentNullException) || targetType == typeof(ArgumentOutOfRangeException) || targetType == typeof(FormatException) || targetType == typeof(NotSupportedException) || targetType == typeof(NotImplementedException) || targetType == typeof(TimeoutException) || targetType == typeof(DivideByZeroException) || targetType == typeof(ArithmeticException) || targetType == typeof(OverflowException) || targetType == typeof(NullReferenceException) || targetType == typeof(IndexOutOfRangeException) || targetType == typeof(InvalidCastException) || targetType == typeof(FileNotFoundException) || targetType == typeof(YamlException)
+    // The owner check is by IDENTITY STRING, not by `==`: a constructor read out of one universe and a
+    // target read out of another are different objects for the same type, and the emitter's whole
+    // direction is to stop asking object questions about types.
+    static func TargetTypeIdentity(targetType: Type): string {
+        identity := targetType.get_AssemblyQualifiedName()
+        if identity == null {
+            return ""
+        }
+
+        return identity
+    }
+
+    // `new` needs a concrete, non-generic, non-builder target. A builder-bound type is refused here
+    // rather than probed: `GetConstructors` over Reflection.Emit metadata is not a semantic answer, and
+    // the closed-generic and source paths own those shapes before this one is reached.
+    static func IsConstructibleRuntimeTarget(targetType: Type): bool {
+        if targetType == null || ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(targetType) {
+            return false
+        }
+
+        return !targetType.get_IsAbstract() && !targetType.get_IsInterface() && !targetType.get_IsGenericTypeDefinition() && !targetType.get_IsGenericParameter() && !targetType.get_IsArray() && !targetType.get_IsByRef() && !targetType.get_IsPointer()
+    }
+
+    static func RuntimeConstructorsOrEmpty(targetType: Type): ConstructorInfo[] {
+        try {
+            constructors := targetType.GetConstructors()
+            if constructors == null {
+                return new ConstructorInfo[](0)
+            }
+
+            return constructors
+        } catch {
+            return new ConstructorInfo[](0)
+        }
+    }
+
+    // A `params` tail or a vararg signature is an expansion the plan rows do not model, and a by-ref,
+    // pointer or open-generic parameter is not an emittable signature -- the same exclusions the
+    // ordinary call resolver applies to methods.
+    static func IsExcludedConstructorShape(candidate: ConstructorInfo, parameters: ParameterInfo[]): bool {
+        convention := (int)candidate.get_CallingConvention()
+        if (convention & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0 {
+            return true
+        }
+
+        index := 0
+        while index < parameters.Length {
+            parameter := parameters[index]
+            if parameter == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
+                return true
+            }
+
+            parameterType := parameter.get_ParameterType()
+            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func ConstructorParameterTypesOrNull(parameters: ParameterInfo[]): Type[]? {
+        types := new Type[](parameters.Length)
+        index := 0
+        while index < parameters.Length {
+            parameterType := parameters[index].get_ParameterType()
+            if parameterType == null {
+                return null
+            }
+
+            types[index] = parameterType
+            index = index + 1
+        }
+
+        return types
     }
 
     static func Types1(first: Type): Type[] {
         result := new Type[](1)
         result[0] = first
-        return result
-    }
-
-    static func Types2(first: Type, second: Type): Type[] {
-        result := new Type[](2)
-        result[0] = first
-        result[1] = second
-        return result
-    }
-
-    static func Types3(first: Type, second: Type, third: Type): Type[] {
-        result := new Type[](3)
-        result[0] = first
-        result[1] = second
-        result[2] = third
-        return result
-    }
-
-    static func Types4(first: Type, second: Type, third: Type, fourth: Type): Type[] {
-        result := new Type[](4)
-        result[0] = first
-        result[1] = second
-        result[2] = third
-        result[3] = fourth
         return result
     }
 
