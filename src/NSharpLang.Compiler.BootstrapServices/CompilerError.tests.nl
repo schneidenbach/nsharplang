@@ -95,8 +95,8 @@ test "the diagnostic id is NL plus the numeric error code" {
     assert CompilerError.Create(ErrorCode.UnexpectedToken, "m", 1, 1, ErrorSeverity.Error).DiagnosticId == "NL101"
     assert CompilerError.Create(ErrorCode.NonExhaustiveMatch, "m", 1, 1, ErrorSeverity.Error).DiagnosticId == "NL501"
     assert CompilerError.Create(ErrorCode.CircularImport, "m", 1, 1, ErrorSeverity.Error).DiagnosticId == "NL703"
-    assert CompilerError.Create(ErrorCode.UnusedVariable, "m", 1, 1, ErrorSeverity.Warning).DiagnosticId == "NL901"
-    assert CompilerError.Create(ErrorCode.AotExpressionTree, "m", 1, 1, ErrorSeverity.Error).DiagnosticId == "NL963"
+    assert CompilerError.Create(ErrorCode.VisibilityConventionWarning, "m", 1, 1, ErrorSeverity.Warning).DiagnosticId == "NL903"
+    assert CompilerError.Create(ErrorCode.ReferenceLoadFailure, "m", 1, 1, ErrorSeverity.Warning).DiagnosticId == "NL923"
 
     // AND THE OVERRIDE, WHICH NOTHING ANYWHERE STATED. A non-null `DiagnosticIdOverride` replaces
     // the derived id everywhere the id is read, including inside the rendered header.
@@ -173,17 +173,17 @@ test "with snippet infers the span from the nearest visible token" {
 
 // Successor to Warning_Format_ShowsWarning.
 test "a warning renders as a warning" {
-    warning := CompilerError.Create(ErrorCode.UnusedVariable, "Variable 'x' is unused", 5, 10, ErrorSeverity.Warning)
+    warning := CompilerError.Create(ErrorCode.VisibilityConventionWarning, "Public member 'x' should be PascalCase", 5, 10, ErrorSeverity.Warning)
     formatted := warning.Format(false)
 
     assert formatted.Contains("warning")
-    assert formatted.Contains("NL901")
+    assert formatted.Contains("NL903")
 
-    assert CompilerErrorText(formatted) == "warning NL901: Variable 'x' is unused\n  --> line 5, column 10\n"
+    assert CompilerErrorText(formatted) == "warning NL903: Public member 'x' should be PascalCase\n  --> line 5, column 10\n"
 
     // NOT IN THE DELETED FILE: severity moves ONLY the leading word. The same code at error severity
     // renders an otherwise identical line, so nothing else in the header is severity-dependent.
-    assert CompilerErrorText(CompilerError.Create(ErrorCode.UnusedVariable, "Variable 'x' is unused", 5, 10, ErrorSeverity.Error).Format(false)) == "error NL901: Variable 'x' is unused\n  --> line 5, column 10\n"
+    assert CompilerErrorText(CompilerError.Create(ErrorCode.VisibilityConventionWarning, "Public member 'x' should be PascalCase", 5, 10, ErrorSeverity.Error).Format(false)) == "error NL903: Public member 'x' should be PascalCase\n  --> line 5, column 10\n"
 }
 
 // Successor to RustStyle_StillWorksWithoutElmContext.
@@ -325,11 +325,10 @@ test "a suggestions list suppresses the help line in both rich renderers" {
 // ever indirectly, through a rendered string. All seven are stated here directly, together, so a
 // code moved between bands cannot silently change the heading a user sees.
 test "the elm severity table names all seven headings" {
-    assert CompilerErrorSeverityHeading(ErrorCode.UnusedVariable, ErrorSeverity.Warning) == "WARNING"
+    assert CompilerErrorSeverityHeading(ErrorCode.VisibilityConventionWarning, ErrorSeverity.Warning) == "WARNING"
     assert CompilerErrorSeverityHeading(ErrorCode.TypeMismatch, ErrorSeverity.Error) == "TYPE MISMATCH"
     assert CompilerErrorSeverityHeading(ErrorCode.TypeNotFound, ErrorSeverity.Error) == "TYPE MISMATCH"
     assert CompilerErrorSeverityHeading(ErrorCode.UndefinedVariable, ErrorSeverity.Error) == "NAMING ERROR"
-    assert CompilerErrorSeverityHeading(ErrorCode.UndefinedType, ErrorSeverity.Error) == "NAMING ERROR"
     assert CompilerErrorSeverityHeading(ErrorCode.UndefinedMember, ErrorSeverity.Error) == "NAMING ERROR"
     assert CompilerErrorSeverityHeading(ErrorCode.NonExhaustiveMatch, ErrorSeverity.Error) == "INCOMPLETE PATTERN MATCH"
     assert CompilerErrorSeverityHeading(ErrorCode.WrongArgumentCount, ErrorSeverity.Error) == "FUNCTION CALL ERROR"

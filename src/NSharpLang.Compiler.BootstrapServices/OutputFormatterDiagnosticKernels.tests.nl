@@ -149,13 +149,13 @@ test "a diagnostic summary remembers the three counts it was constructed with" {
 test "the severity filter is case-insensitive and materialises the matching rows only" {
     diagnostics := new List<DiagnosticResult>()
     diagnostics.Add(OfdkTypedDiagnostic("NL202", "error", "Type mismatch", "Program.nl", 5, 4, 3, "int", "string"))
-    diagnostics.Add(OfdkPlainDiagnostic("NL901", "warning", "Unused variable", "Program.nl", 10, 4, 1))
-    diagnostics.Add(OfdkPlainDiagnostic("NL902", "info", "Informational", "Program.nl", 12, 4, 1))
+    diagnostics.Add(OfdkPlainDiagnostic("NL923", "warning", "Reference load failure", "Program.nl", 10, 4, 1))
+    diagnostics.Add(OfdkPlainDiagnostic("NL905", "info", "Informational", "Program.nl", 12, 4, 1))
 
     warnings := OutputFormatterDiagnosticKernels.FilterDiagnosticSeverityResults(diagnostics, "WARNING")
 
     assert warnings.Count == 1
-    assert warnings[0].Code == "NL901"
+    assert warnings[0].Code == "NL923"
 }
 
 // ---- REFERENCE DEDUPLICATION ---------------------------------------------------------------------

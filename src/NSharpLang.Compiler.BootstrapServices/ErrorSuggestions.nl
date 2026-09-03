@@ -96,18 +96,8 @@ class ErrorSuggestions {
             return "Reorganize imports to avoid cycles. Move shared types to a separate file that both files can import"
         }
 
-        if code == ErrorCode.DuckInterfaceMismatch {
-            if additionalInfo != null {
-                return "Implement missing method: " + additionalInfo
-            }
-        }
-
         if code == ErrorCode.InvalidOperatorOverload {
             return "Operators must be public static and have correct parameter types"
-        }
-
-        if code == ErrorCode.ComparisonOperatorPair {
-            return "Define both operators in the pair (== with !=, < with >, <= with >=)"
         }
 
         if code == ErrorCode.UnreachableStatement {

@@ -150,27 +150,6 @@ test "an elm-style non-exhaustive match lists the cases it is missing" {
     assert ErrorBuilderText(formatted).Contains("You need to handle these cases:\n\n    Pending\n    Cancelled\n\n")
 }
 
-// Successor to ElmStyle_UndefinedType_SuggestsSimilarTypes.
-test "an elm-style undefined type lists the types it nearly matched" {
-    similarTypes := new List<string>()
-    similarTypes.Add("Person")
-    similarTypes.Add("Persons")
-    error := ErrorMessageBuilder.UndefinedType("test.nl", 8, 15, "p: Persn", 5, "Persn", similarTypes)
-    formatted := error.Format(false)
-
-    assert formatted.Contains("NAMING ERROR")
-    assert formatted.Contains("I cannot find a type called `Persn`")
-    assert formatted.Contains("Did you mean one of these?")
-    assert formatted.Contains("Person")
-    assert formatted.Contains("Persons")
-
-    // NOT IN THE DELETED FILE: the two hint arms, and the docs URL, which differ from the variable
-    // builder's even though both render the same NAMING ERROR heading.
-    assert formatted.Contains("Check that the type is imported.")
-    assert !ErrorMessageBuilder.UndefinedType("test.nl", 8, 15, "p: Persn", 5, "Persn", new List<string>()).Format(false).Contains("Did you mean one of these?")
-    assert ErrorBuilderDocsUrl(error) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL302"
-}
-
 // Successor to ReturnValueRequiresReturnType_FormatForTooling_ExplainsImplicitVoid.
 test "returning a value from an unannotated function explains the implicit void" {
     error := ErrorMessageBuilder.ReturnValueRequiresReturnType("test.nl", 3, 5, "    return 42", 6, "Hi", "int")
@@ -207,7 +186,6 @@ test "every builder links the documentation page for the code it raises" {
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ReturnTypeMismatch("f.nl", 1, 1, "x", 1, "Hi", "string", "int")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.WrongArgumentType("f.nl", 1, 1, "x", 1, "Hi", 1, "p", "string", "int")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedVariable("f.nl", 1, 1, "x", 1, "v", empty)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL301"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedType("f.nl", 1, 1, "x", 1, "T", empty)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL302"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedMember("f.nl", 1, 1, "x", 1, "m", "T", empty)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL303"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.MissingReturn("f.nl", 1, 1, "x", 1, "int")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL305"
     assert ErrorBuilderDocsUrl(ErrorMessageBuilder.DuplicateDeclaration("f.nl", 1, 1, "x", 1, "n", "function")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL306"

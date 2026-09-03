@@ -312,7 +312,7 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
             return "TYPE MISMATCH"
         }
 
-        if Code == ErrorCode.UndefinedVariable || Code == ErrorCode.UndefinedType || Code == ErrorCode.UndefinedMember {
+        if Code == ErrorCode.UndefinedVariable || Code == ErrorCode.UndefinedMember {
             return "NAMING ERROR"
         }
 

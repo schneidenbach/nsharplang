@@ -146,24 +146,6 @@ class ErrorMessageBuilder {
         }
     }
 
-    static func UndefinedType(fileName: string, line: int, column: int, sourceSnippet: string, length: int, typeName: string, similarTypes: List<string>): CompilerError {
-        humanExplanation := "I cannot find a type called `" + typeName + "` on line " + IntText(line) + ":"
-        contextualHint := "Make sure the type is defined and imported correctly."
-        if HasItems(similarTypes) {
-            contextualHint = "Check that the type is imported. If it's from another namespace,\n" + "you may need to add an import statement at the top of your file."
-        }
-
-        return new CompilerError(ErrorCode.UndefinedType, "Type '" + typeName + "' not found", line, column, ErrorSeverity.Error) {
-            FileName: fileName,
-            SourceSnippet: sourceSnippet,
-            Length: length,
-            HumanExplanation: humanExplanation,
-            ContextualHint: contextualHint,
-            Suggestions: OptionalNames(similarTypes),
-            DocsUrl: DiagnosticDocs.UrlFor("NL302")
-        }
-    }
-
     static func WrongArgumentCount(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, expected: int, actual: int): CompilerError {
         humanExplanation := "I am having trouble with this function call on line " + IntText(line) + ":"
 

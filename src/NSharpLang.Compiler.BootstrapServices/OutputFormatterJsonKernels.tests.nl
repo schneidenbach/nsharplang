@@ -238,7 +238,7 @@ func OfjkTypedDiagnostic(code: string, severity: string, message: string, fileNa
 func OfjkDiagnosticsFixture(): List<DiagnosticResult> {
     diagnostics := new List<DiagnosticResult>()
     diagnostics.Add(OfjkTypedDiagnostic("NL202", "error", "Type mismatch", "Program.nl", 5, 4, 3, "int", "string"))
-    diagnostics.Add(OfjkPlainDiagnostic("NL901", "warning", "Unused variable", "Program.nl", 10, 4, 1))
+    diagnostics.Add(OfjkPlainDiagnostic("NL923", "warning", "Reference load failure", "Program.nl", 10, 4, 1))
     return diagnostics
 }
 

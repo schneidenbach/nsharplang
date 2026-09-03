@@ -185,7 +185,7 @@ test "the sink appends to the caller's own list, so report order survives the bo
     // A shell report and an owner report land in ONE list in call order. That is the whole reason the
     // list is a constructor argument rather than owned state.
     errors.Add(AnalyzerDiagnostics.Create(
-        ErrorCode.UnusedVariable,
+        ErrorCode.VisibilityConventionWarning,
         "shell first",
         "a.nl",
         1,
@@ -212,7 +212,7 @@ test "the sink appends to the caller's own list, so report order survives the bo
     assert errors[0].Message == "shell first"
     assert errors[1].Message == "owner second"
     assert errors[2].Message == "shell third"
-    assert ResolverCodes(errors) == "901,201,103"
+    assert ResolverCodes(errors) == "903,201,103"
 }
 
 test "the sink stamps the current file and severity, and a warning is not an error" {
@@ -221,7 +221,7 @@ test "the sink stamps the current file and severity, and a warning is not an err
     sink.BeginAnalysis("/p/main.nl", "line one\nline two\nline three\n")
 
     sink.Report(ErrorCode.TypeNotFound, "boom", 2, 5, "fix it", 7)
-    sink.Warn(ErrorCode.UnusedVariable, "meh", 3, 1, null, 2)
+    sink.Warn(ErrorCode.ReferenceLoadFailure, "meh", 3, 1, null, 2)
 
     assert errors[0].FileName == "/p/main.nl"
     assert errors[0].Severity == ErrorSeverity.Error

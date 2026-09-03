@@ -243,7 +243,7 @@ N# is near-zero-warnings: every active linter rule is a build-blocking **error**
 
 **Deleted (pure-style, now handled by `nlc format`):** `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block). These slots are retired and not reused.
 
-Compiler diagnostics also include error `NL905` for possible null dereference/index/call access — now flow-based, so an unguarded nullable access is an error while narrowing via `if x != null`, `?.`, or `??` clears it. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics. Other promoted compiler diagnostics (`NL903` visibility-convention, `NL904` obsolete-usage, `NL907` nullability) are likewise build-blocking errors.
+Compiler diagnostics also include error `NL905` for possible null dereference/index/call access — now flow-based, so an unguarded nullable access is an error while narrowing via `if x != null`, `?.`, or `??` clears it. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics. Other promoted compiler diagnostics (`NL903` visibility-convention, `NL907` nullability) are likewise build-blocking errors.
 
 **Currently supported auto-fixes (`nlc fix`):**
 

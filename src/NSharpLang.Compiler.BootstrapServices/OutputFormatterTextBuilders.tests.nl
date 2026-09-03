@@ -215,7 +215,7 @@ test "the summary counts errors and warnings separately and pluralises each" {
     diagnostics := new List<DiagnosticResult>()
     diagnostics.Add(OftbPlainDiagnostic("NL301", "error", "Undefined variable 'x'", "A.nl", 1, 0, 1))
     diagnostics.Add(OftbPlainDiagnostic("NL301", "error", "Undefined variable 'y'", "B.nl", 2, 0, 1))
-    diagnostics.Add(OftbPlainDiagnostic("NL901", "warning", "Unused variable", "A.nl", 5, 0, 1))
+    diagnostics.Add(OftbPlainDiagnostic("NL923", "warning", "Reference load failure", "A.nl", 5, 0, 1))
 
     text := OutputFormatterTextBuilders.DiagnosticsToText(diagnostics)
 

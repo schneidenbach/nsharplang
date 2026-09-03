@@ -117,11 +117,10 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 - `NL201`: TypeNotFound — emitted at declared-type positions (parameter/return/field/property/variable annotations, type aliases, `new` expressions, generic type arguments) when a simple type name resolves through no channel (built-ins, declarations/scopes incl. generic type parameters, using aliases, MLC external types, project symbols, compiler-known generics like `Result`/`Task`/`Func` with the CLR arity-suffix probe). Includes a nearest-in-scope "Did you mean 'X'?" suggestion (Levenshtein ≤ 2). Deliberately lenient cases that do NOT report: dotted/qualified names (namespace-qualified externals, `new Union.Case`), pass-1 signature collection, and lazy cross-file member resolution (no generic type parameters in scope there). Visibility-blocked cross-file types report NL201 (they are not findable from that file); enriching that to an "exists but file-private" message is a known follow-up. Before this check, typos and missing references silently reached IL emission and crashed with a raw `InvalidOperationException`.
 - `NL202`: TypeMismatch (assignment, return, argument; return diagnostics distinguish omitted return type, explicit void, and wrong non-void return type)
 - `NL203`: CannotInferType
-- `NL204-208`: InvalidCast, AmbiguousType, CannotResolveType, InvalidTypeArgument, GenericConstraintViolation
+- `NL204`, `NL207`, `NL208`: InvalidCast, InvalidTypeArgument, GenericConstraintViolation
 
 ### Semantic Errors (300-399)
 - `NL301`: UndefinedVariable
-- `NL302`: UndefinedType
 - `NL303`: UndefinedMember
 - `NL304`: DefiniteAssignmentError — covers both constructor fields and locals. A local declared without an initializer (`let x: int`) that is read before it is definitely assigned on every path that reaches the read is an error; the squiggle underlines the offending READ of the variable.
 - `NL305`: MissingReturn
@@ -145,13 +144,14 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 ### Function/Method Errors (400-499)
 - `NL401`: WrongArgumentCount
 - `NL402`: NoMatchingOverload
-- `NL403-410`: Various parameter errors
+- `NL405`, `NL407`, `NL409`, `NL410`: parameter errors (invalid parameter, `params` not last, a required parameter after an optional one, an invalid default value)
 - `NL411`: MethodGroupUsedAsValue (bare method reference used where a value is required; call it or pass it to a delegate parameter)
 - `NL412`: UndefinedFunction (bare call target cannot be resolved as a function, method, or callable value)
 
 ### Pattern Matching Errors (500-599)
 - `NL501`: NonExhaustiveMatch
 - `NL502-505`: UnreachablePattern, InvalidPattern, PatternTypeMismatch, GuardNotBoolean
+- `NL506`: ImpossiblePattern
 
 ### Operator Errors (600-699)
 - `NL601`: InvalidOperatorOverload, including operator overload declarations missing required `static`
@@ -164,15 +164,38 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 ### Compiler Diagnostics (900-999)
 
 Under the near-zero-warnings policy these are build-blocking **errors**, not warnings:
-- `NL901`: UnusedVariable
-- `NL902`: UnreachableCode
 - `NL903`: VisibilityConvention (promoted from warning to error)
-- `NL904`: ObsoleteUsage (promoted from warning to error)
 - `NL905`: PossibleNullAccess — flow-based; unguarded nullable dereference/index/call is an error. Emitted from semantic analysis (visible through `nlc check`, `nlc query diagnostics`, and LSP), not the linter.
 - `NL907`: Nullability — nullability mismatch (promoted from warning to error)
 - `NL923`: ReferenceLoadFailure — **advisory warning, never build-blocking** (the one deliberate exception to the errors-only policy in this range). Emitted when a reference assembly failed to load or be fully inspected AND the same analysis produced unresolved-name/type errors, so a broken reference can't masquerade as a plain "not found". Healthy compilations stay quiet even if a best-effort probe failed.
 
 **Removed:** `NL906` (UnnecessaryTypeAnnotation) is deleted — redundant type annotations are pure style, handled by the formatter rather than a diagnostic. The `NL906` slot is retired and not reused.
+
+**Retired, 2026-09-03 — twenty-three codes with no producer.** A code the catalog published but
+nothing in the compiler ever reported is a promise of a diagnostic that cannot arrive, and each one
+carried a "Read more" link to a page that could not be written. Each was retired naming the code
+that actually enforces the rule:
+
+| Retired | Enforced instead by |
+|---|---|
+| `NL205` AmbiguousType | `NL303` (undefined member) / `NL704` (namespace not found) |
+| `NL206` CannotResolveType | `NL201` — it never had a builder at all |
+| `NL302` UndefinedType | `NL201` for a written type, `NL301` for a name in expression position; `ErrorMessageBuilder.UndefinedType` was called only by its own tests |
+| `NL403` MissingRequiredParameter | `NL401` (wrong argument count) |
+| `NL404` DuplicateParameter | `NL306` (duplicate declaration) |
+| `NL406` RefOutMismatch | `NL202` (type mismatch) |
+| `NL408` MultipleParams | `NL407` (`params` not last) |
+| `NL603` ComparisonOperatorPair, `NL604` ConversionOperatorInvalid | nothing — no rule was ever written |
+| `NL804` InterfaceImplementationMissing | `NL325` (interface member not implemented) |
+| `NL805` DuckInterfaceMismatch | `NL202`, at the argument that does not satisfy the duck interface |
+| `NL901` UnusedVariable | `NL001` (linter, build-blocking) |
+| `NL902` UnreachableCode | `NL006` (linter, build-blocking) |
+| `NL904` ObsoleteUsage | nothing — N# has no obsolete-member rule |
+| `NL950-954`, `NL960-963` | the systems analyzer: `NSYS010`/`NSYS020`/`NSYS030`/`NSYS040`/`NSYS060` |
+
+`tests/native/error-docs-contract` now refuses a catalog code that has no page, and
+`DiagnosticCatalog.tests.nl` pins the partition at 70 compiler + 10 linter with the Performance and
+AOT categories asserted at ZERO, so a row cannot come back without a producer.
 
 ## Severity Policy
 
@@ -185,20 +208,20 @@ N# is **near-zero-warnings**. The single rule: correctness/safety/hygiene issues
 - **Strict null-flow:** an unguarded nullable dereference/index/call is an error (`NL905`). Narrowing via `if x != null`, `?.`, or `??` clears it. Null safety is flow-based, not syntactic.
 - **Unused-result enforcement:** a must-use or error-returning result must be used or explicitly discarded with `_ =`; silently dropping it is an error.
 - **Shadowing is a compiler error** (linter `NL020`): a local may not shadow a name in an enclosing scope.
-- **Definite-assignment hardening:** non-nullable fields and `out` parameters must be assigned on every path before use (`NL304`); gaps are errors.
+- **Definite-assignment hardening:** non-nullable fields must be assigned on every path before use (`NL304`); gaps are errors. **`out` PARAMETERS ARE NOT COVERED** — measured 2026-09-03 by probe: a function with an `out value: int` that assigns on only one branch checks clean. This line previously claimed they were; it was never true. Fields and locals are enforced, `out` parameters are a hole.
 
 ### Docs sync — affected NL codes
 
-Per-error docs pages live in-repo at `website/docs/errors/<code>.md` (sidebar category "Error
-Reference" in `website/sidebars.js`); `NL319`/`NL320` established the layout — new rich diagnostics
-should ship a page there in the same slice.
+Per-error docs pages live in-repo at `website/docs/errors/<code>.md`, and the sidebar's "Error
+Reference" category is AUTOGENERATED from that directory (`website/sidebars.js`), so a new page is
+reachable the moment it lands. `NL324` is the template; a new diagnostic ships its page in the same
+slice, and `tests/native/error-docs-contract` fails the build if it does not.
 
 Keep the `website/docs/errors/<code>.md` pages (published at `DiagnosticDocs.Base` + `<code>`) aligned with these changes:
 
 | Code | Source | Change | New severity |
 |------|--------|--------|--------------|
 | `NL903` VisibilityConvention | compiler | promoted | Error |
-| `NL904` ObsoleteUsage | compiler | promoted | Error |
 | `NL905` PossibleNullAccess | compiler | promoted + now flow-based | Error |
 | `NL907` Nullability | compiler | promoted | Error |
 | `NL906` UnnecessaryTypeAnnotation | compiler | **deleted** (folded into formatter) | — |

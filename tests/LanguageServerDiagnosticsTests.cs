@@ -2503,7 +2503,7 @@ func main() {
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
             d => d.Code == ErrorCode.UndefinedVariable && d.Message.Contains("greeting"));
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
-            d => d.Code == ErrorCode.UnusedVariable && d.Message.Contains("name"));
+            d => d.Code == ErrorCode.DefiniteAssignmentError && d.Message.Contains("name"));
 
         var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
         Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
@@ -2905,7 +2905,7 @@ func main() {
         foreach (ErrorCode code in System.Enum.GetValues<ErrorCode>())
         {
             var severity = code is ErrorCode.VisibilityConventionWarning
-                or ErrorCode.ObsoleteUsage
+                or ErrorCode.ReferenceLoadFailure
                 ? ErrorSeverity.Warning
                 : ErrorSeverity.Error;
 
