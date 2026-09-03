@@ -4032,10 +4032,11 @@ internal sealed class ColumnarIlEmitter
         var interfaceDefsInOrder = new List<ColumnarStructDef>(interfaces.Count);
         var interfaceMethodJobs = new List<(ColumnarStructDef Interface, ColumnarFunctionInput Method, MethodBuilder Builder,
             Type ReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
-        foreach (var iface in interfaces)
+        for (var i = 0; i < declarationPlan.TypeDefs.InterfaceCount; i++)
         {
-            var exactInterfaceName = program.ExactTypeNameForFile(iface.Name, iface.SourceFileId);
-            var interfaceTb = module.DefineType(exactInterfaceName, TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            var iface = interfaces[i];
+            var exactInterfaceName = declarationPlan.TypeDefs.InterfaceExactNames[i];
+            var interfaceTb = module.DefineType(exactInterfaceName, (TypeAttributes)declarationPlan.TypeDefs.InterfaceTypeAttributes[i]);
             Dictionary<string, Type>? interfaceTypeParams = null;
             if (iface.TypeParamNames is { Length: > 0 })
             {
@@ -4060,26 +4061,23 @@ internal sealed class ColumnarIlEmitter
         for (var s = 0; s < structs.Count; s++)
         {
             var st = structs[s];
-            var exactStructName = program.ExactStructTypeName(st);
+            var exactStructName = declarationPlan.TypeDefs.StructExactNames[s];
             // A RECORD is a reference type (class with `object` base + a public default ctor for object-init via
             // `newobj`); a struct is a `System.ValueType`-based value type. Fields are defined in the next pass
             // after every type name is in the registry, so field signatures can reference later-declared types.
-            var typeAttributes = st.IsReference ? TypeAttributes.Class : TypeAttributes.Sealed;
+            var typeAttributes = (TypeAttributes)declarationPlan.TypeDefs.StructTypeAttributes[s];
+            var exactEnclosingName = declarationPlan.TypeDefs.StructEnclosingExactNames[s];
             TypeBuilder tb;
-            if (st.EnclosingTypeName.Length == 0)
+            if (exactEnclosingName.Length == 0)
             {
-                typeAttributes |= TypeAttributes.Public;
                 tb = module.DefineType(exactStructName, typeAttributes,
                     st.IsReference ? typeof(object) : typeof(ValueType));
             }
             else
             {
-                var exactEnclosingName = program.ExactRelativeTypeNameForFile(
-                    st.EnclosingTypeName, st.SourceFileId);
                 if (!structRegistry.TryGetValue(exactEnclosingName, out var enclosingDef)
                     || enclosingDef.GenericParameters is { Count: > 0 })
                     return DeclineStatic("emit.declaration.nested-owner", "nested type owner could not be resolved for '" + exactStructName + "'", st.Name);
-                typeAttributes |= (TypeAttributes)st.NestedVisibilityAttributes;
                 tb = enclosingDef.Builder.DefineNestedType(st.Name, typeAttributes,
                     st.IsReference ? typeof(object) : typeof(ValueType));
             }

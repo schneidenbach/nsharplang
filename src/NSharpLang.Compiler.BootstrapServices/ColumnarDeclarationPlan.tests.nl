@@ -110,3 +110,93 @@ test "the declaration planner refuses a null program before it allocates a row" 
         ColumnarDeclarationPlanner.BuildAssemblyAndEnums(null, "Widgets")
     }
 }
+
+func DeclarationPlanTypeDefProgram(
+    source: string,
+    structs: IReadOnlyList<ColumnarStructInput>,
+    interfaces: IReadOnlyList<ColumnarInterfaceInput>
+): ColumnarProgramInput {
+    return ColumnarProgramInput.CreateSingleSource(
+        source,
+        new List<ColumnarFunctionInput>(),
+        new List<ColumnarEnumInput>(),
+        structs,
+        new List<ColumnarUnionInput>(),
+        interfaces,
+        null
+    )
+}
+
+func DeclarationPlanStructInput(name: string, isReference: bool): ColumnarStructInput {
+    return new ColumnarStructInput(
+        name,
+        new string[](0),
+        new string[](0),
+        new List<ColumnarFunctionInput>(),
+        new List<ColumnarConstructorInput>(),
+        new List<ColumnarPropertyInput>(),
+        isReference
+    )
+}
+
+func DeclarationPlanInterfaceInput(name: string): ColumnarInterfaceInput {
+    return new ColumnarInterfaceInput(
+        name,
+        new string[](0),
+        new string[](0),
+        new string[](0),
+        new string[][](0),
+        new string[][](0)
+    )
+}
+
+test "the typedef rows publish the interface word and BOTH halves of the nested-visibility asymmetry" {
+    // Public|Interface|Abstract == 1|32|128 == 161.
+    assert ColumnarDeclarationPlanner.InterfaceTypeAttribute() == 32
+    assert ColumnarDeclarationPlanner.InterfaceTypeAttributes() == 161
+
+    // A TOP-LEVEL type ORs Public; a NESTED one ORs its own visibility word INSTEAD, never both.
+    // Folding the two would flip the visibility of every nested type in the estate, so all four
+    // combinations are pinned rather than described.
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, 0) == 1
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, 0) == 257
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, true, 2) == 2
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, true, 2) == 258
+    // And a nested type never acquires Public by accident, whatever its visibility word.
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, true, 4) == 4
+}
+
+test "the typedef rows resolve every declared type name and select its attribute word" {
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanStructInput("Product", true))
+    structs.Add(DeclarationPlanStructInput("Point", false))
+    interfaces := new List<ColumnarInterfaceInput>()
+    interfaces.Add(DeclarationPlanInterfaceInput("Greeter"))
+
+    program := DeclarationPlanTypeDefProgram("namespace Demo\n", structs, interfaces)
+    rows := ColumnarDeclarationPlanner.BuildTypeDefs(program)
+
+    assert rows.InterfaceCount == 1
+    assert rows.InterfaceExactNames[0] == "Demo.Greeter"
+    assert rows.InterfaceTypeAttributes[0] == 161
+
+    assert rows.StructCount == 2
+    assert rows.StructExactNames[0] == "Demo.Product"
+    assert rows.StructTypeAttributes[0] == 1
+    assert rows.StructExactNames[1] == "Demo.Point"
+    assert rows.StructTypeAttributes[1] == 257
+    // A top-level type carries the EMPTY enclosing name, which is what the executor branches on.
+    assert rows.StructEnclosingExactNames[0].Length == 0
+    assert rows.StructEnclosingExactNames[1].Length == 0
+}
+
+test "the declaration plan carries its typedef table" {
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanStructInput("Product", true))
+    program := DeclarationPlanTypeDefProgram("namespace Demo\n", structs, new List<ColumnarInterfaceInput>())
+    plan := ColumnarDeclarationPlanner.BuildAssemblyAndEnums(program, "Widgets")
+
+    assert plan.TypeDefs.StructCount == 1
+    assert plan.TypeDefs.StructExactNames[0] == "Demo.Product"
+    assert plan.TypeDefs.InterfaceCount == 0
+}
