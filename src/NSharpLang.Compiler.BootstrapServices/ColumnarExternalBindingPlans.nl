@@ -237,6 +237,16 @@ class ColumnarExternalBindingPlans {
     }
 
     static func GetStaticMemberPlan(typeName: string, memberName: string): ColumnarExternalStaticMemberPlan {
+        // 023/1a -- THE ENUM ROWS ARE GONE. Eight of them stood here: four admitting a whole enum
+        // (`StringComparison`, `NullabilityState`, `JsonValueKind`, `BindingFlags`) and four admitting
+        // ONE member of one (`SearchOption.TopDirectoryOnly`, `NumberStyles.HexNumber`,
+        // `MethodAttributes.Public`, `CallingConventions.Standard`). All eight are subsumed by
+        // `ColumnarExternalStaticMemberPlanner.TryAppendExternalEnumMember`, which admits every public
+        // static literal field of any external enum whose backing fits int32. `Environment.SpecialFolder`
+        // stays below because it is a NESTED type (`System.Environment+SpecialFolder`) and the general
+        // owner resolution does not reach that spelling -- a separate question, recorded not widened.
+        // What remains here is the non-enum surface, which has no rule this general: a non-enum static's
+        // value type and its field-vs-property kind are not derivable from the owner alone.
         if (typeName == "ArrayPool" || typeName == "ByteArrayPool" || typeName == "System.Buffers.ArrayPool") && memberName == "Shared" {
             poolType := ClosedByteGenericType("System.Buffers.ArrayPool`1, System.Private.CoreLib")
             return StaticMemberFromTypes(ColumnarExternalStaticMemberKind.Property, poolType, memberName, poolType)
@@ -245,46 +255,6 @@ class ColumnarExternalBindingPlans {
         if (typeName == "MemoryPool" || typeName == "ByteMemoryPool" || typeName == "System.Buffers.MemoryPool") && memberName == "Shared" {
             poolType := ClosedByteGenericType("System.Buffers.MemoryPool`1, System.Memory")
             return StaticMemberFromTypes(ColumnarExternalStaticMemberKind.Property, poolType, memberName, poolType)
-        }
-
-        if MatchesOwner(typeName, "StringComparison", "System.StringComparison") {
-            return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.StringComparison", memberName, "System.StringComparison")
-        }
-
-        // The nullability read state a reflected member answers with. It is an ordinary CLR enum,
-        // so every member is a literal field on its own type.
-        if MatchesOwner(typeName, "NullabilityState", "System.Reflection.NullabilityState") {
-            return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.Reflection.NullabilityState", memberName, "System.Reflection.NullabilityState")
-        }
-
-        if MatchesOwner(typeName, "JsonValueKind", "System.Text.Json.JsonValueKind") {
-            return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.Text.Json.JsonValueKind", memberName, "System.Text.Json.JsonValueKind")
-        }
-
-        if MatchesOwner(typeName, "SearchOption", "System.IO.SearchOption") && memberName == "TopDirectoryOnly" {
-            return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.IO.SearchOption", memberName, "System.IO.SearchOption")
-        }
-
-        if MatchesOwner(typeName, "NumberStyles", "System.Globalization.NumberStyles") && memberName == "HexNumber" {
-            return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.Globalization.NumberStyles", memberName, "System.Globalization.NumberStyles")
-        }
-
-        if MatchesOwner(typeName, "MethodAttributes", "System.Reflection.MethodAttributes") && memberName == "Public" {
-            return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.Reflection.MethodAttributes", memberName, "System.Reflection.MethodAttributes")
-        }
-
-        // The binding mask. Every member is a literal field on its own type, and the whole enum is
-        // admitted rather than a chosen few: a mask is USED by combining its members, so admitting
-        // a subset would only move the decline. Without this row no expression mentioning a
-        // `BindingFlags` member can be typed at all, which is why the filtered-overload call rows
-        // below (`Type.GetMethods`, and `Type.GetProperty`'s two-argument form before it) are
-        // unreachable until it exists.
-        if MatchesOwner(typeName, "BindingFlags", "System.Reflection.BindingFlags") {
-            return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.Reflection.BindingFlags", memberName, "System.Reflection.BindingFlags")
-        }
-
-        if MatchesOwner(typeName, "CallingConventions", "System.Reflection.CallingConventions") && memberName == "Standard" {
-            return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.Reflection.CallingConventions", memberName, "System.Reflection.CallingConventions")
         }
 
         if MatchesOwner(typeName, "Environment.SpecialFolder", "System.Environment.SpecialFolder") && memberName == "UserProfile" {

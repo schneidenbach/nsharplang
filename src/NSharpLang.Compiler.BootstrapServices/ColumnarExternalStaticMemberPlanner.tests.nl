@@ -337,6 +337,71 @@ test "external static-member planner owns runtime enum and primitive literal fie
     ) == "UserProfile"
 }
 
+// 023/1a — EVERY PUBLIC STATIC LITERAL FIELD OF AN EXTERNAL ENUM IS A MEMBER PLAN.
+// `GetStaticMemberPlan` used to carry eight enum rows, four whole-type and four single-member. The
+// single-member ones produced a language nobody could state: `MethodAttributes.Public` bound and
+// `MethodAttributes.Static` declined. The rule is now general and lives here, next to the resolution
+// it depends on, because what makes it safe is the OWNER resolution — the same semantic resolution
+// direct-call selection uses, carrying the same alias, source-shadowing, import-order and
+// type-parameter fences as the identity-pinned path. The negatives below are the point of that
+// sentence: a wrong-case or misspelled owner must still resolve to nothing.
+test "external static-member planner owns every literal member of an external enum" {
+    // The member the old single-member row refused. It is a literal field like its admitted sibling.
+    staticTree := ExternalStaticMemberTree("MethodAttributes", "Static")
+    ExternalStampScope(staticTree, "import System.Reflection\n")
+    staticPlan := ExternalPlan(staticTree, ColumnarRangePlannerEmptyBindings())
+    assert staticPlan.ResultType == typeof(MethodAttributes)
+    assert staticPlan.FieldCount == 0
+    assert staticPlan.OperationCount == 1
+    assert staticPlan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert ExecutorRunV3ScalarPlan(staticPlan, typeof(MethodAttributes)) == "Static"
+
+    // The other single-member row's refused sibling.
+    varArgsTree := ExternalStaticMemberTree("CallingConventions", "VarArgs")
+    ExternalStampScope(varArgsTree, "import System.Reflection\n")
+    varArgsPlan := ExternalPlan(varArgsTree, ColumnarRangePlannerEmptyBindings())
+    assert varArgsPlan.ResultType == typeof(CallingConventions)
+    assert ExecutorRunV3ScalarPlan(varArgsPlan, typeof(CallingConventions)) == "VarArgs"
+
+    // An enum with no row of any kind, whose TYPE is not on `IsSupportedRuntimeTypeName` either:
+    // admitting a member does not require admitting its type. The type is reached through
+    // `Type.GetType` because `typeof` of an external enum does not emit (STATUS 2.1) -- which is
+    // itself the point: the member binds where the TYPE still cannot be spelled.
+    splitType := Type.GetType("System.StringSplitOptions")
+    if splitType == null {
+        throw new InvalidOperationException("StringSplitOptions runtime type was not found.")
+    }
+    splitTree := ExternalStaticMemberTree("StringSplitOptions", "RemoveEmptyEntries")
+    ExternalStampScope(splitTree, "import System\n")
+    splitPlan := ExternalPlan(splitTree, ColumnarRangePlannerEmptyBindings())
+    assert splitPlan.ResultType == splitType
+    assert ExecutorRunV3ScalarPlan(splitPlan, splitType) == "RemoveEmptyEntries"
+}
+
+test "external static-member planner refuses a misspelled or wrongly cased enum owner" {
+    // These negatives used to sit on the table's string compare. They belong to owner RESOLUTION, and
+    // the general rule must not have loosened them: an owner that does not resolve is not an enum.
+    wrongCase := ExternalStaticMemberTree("bindingFlags", "Public")
+    ExternalStampScope(wrongCase, "import System.Reflection\n")
+    ExternalAssertDeclines(wrongCase, ColumnarRangePlannerEmptyBindings())
+
+    misspelled := ExternalStaticMemberTree("NullabilityStates", "Nullable")
+    ExternalStampScope(misspelled, "import System.Reflection\n")
+    ExternalAssertDeclines(misspelled, ColumnarRangePlannerEmptyBindings())
+
+    // A member that is not on the enum at all.
+    absent := ExternalStaticMemberTree("MethodAttributes", "NotAMember")
+    ExternalStampScope(absent, "import System.Reflection\n")
+    ExternalAssertDeclines(absent, ColumnarRangePlannerEmptyBindings())
+
+    // A NON-enum owner is untouched by the rule and still needs its own row: `String` resolves, and
+    // `Empty` is a public static literal field on it, but its value type and member kind are not
+    // derivable from the owner, so the general rule must not claim it.
+    nonEnum := ExternalStaticMemberTree("String", "Empty")
+    ExternalStampScope(nonEnum, "import System\n")
+    ExternalAssertDeclines(nonEnum, ColumnarRangePlannerEmptyBindings())
+}
+
 test "external static-member planner owns closed pool properties and exact type aliases" {
     arrayTree := ExternalStaticMemberTree("ArrayPool", "Shared")
     ExternalStampScope(arrayTree, "import System.Buffers\n")
