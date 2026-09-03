@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Runtime.InteropServices
 import NSharpLang.Cli
 
 func ExternalCopyAsset(sourcePath: string, destinationPath: string) {
@@ -467,4 +468,54 @@ test "a prepared external type catalog answers every file from one retained scan
     missing := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
     assert catalog.TryGet(0, "NoSuchExternalOwnerName", out missing)
     assert missing.Status == ExternalAssemblyTypeLookupStatus.Missing
+}
+
+// THE METADATA PATH NO LONGER COMES FROM `Assembly.Location`. Under a single-file binary that reading
+// is the empty string, which would leave every common assembly uninspectable in silence. These blocks
+// pin the replacement AND pin that it answers the SAME FILE the old reading answered, so the
+// re-sourcing is a change of route and not a change of content.
+test "every common assembly resolves to a metadata file that exists" {
+    directories := ExternalAssemblyScan.CommonAssemblySearchDirectories(null)
+    assert directories.Length >= 1
+    names := ExternalAssemblyScan.CommonAssemblyNames()
+    index := 0
+    resolved := 0
+    while index < names.Length {
+        path := ExternalAssemblyScan.CommonAssemblyMetadataPath(directories, names[index])
+        if path.Length > 0 {
+            assert File.Exists(path)
+            resolved = resolved + 1
+        }
+
+        index = index + 1
+    }
+
+    // The whole common set is present in a framework-dependent host's runtime directory.
+    assert resolved == names.Length
+}
+
+test "the resolved metadata path is the same file the old Location reading answered" {
+    directories := ExternalAssemblyScan.CommonAssemblySearchDirectories(null)
+    loaded := Assembly.Load("System.Runtime")
+    expected := loaded.get_Location()
+    assert expected.Length > 0
+    actual := ExternalAssemblyScan.CommonAssemblyMetadataPath(directories, "System.Runtime")
+    assert actual == expected
+}
+
+test "the runtime directory is searched before any reference directory" {
+    references := new List<string>()
+    references.Add(Path.Combine("/tmp/nsharp-not-a-real-directory", "System.Runtime.dll"))
+    directories := ExternalAssemblyScan.CommonAssemblySearchDirectories(references)
+    runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
+    assert directories.Length == 2
+    assert directories[0] == runtimeDirectory
+    assert directories[1] == "/tmp/nsharp-not-a-real-directory"
+}
+
+test "a name no directory carries resolves to the empty string" {
+    directories := ExternalAssemblyScan.CommonAssemblySearchDirectories(null)
+    assert ExternalAssemblyScan.CommonAssemblyMetadataPath(directories, "NSharp.NotAnAssembly") == ""
+    empty := new string[](0)
+    assert ExternalAssemblyScan.CommonAssemblyMetadataPath(empty, "System.Runtime") == ""
 }
