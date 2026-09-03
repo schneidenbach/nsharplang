@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `a2d75f537` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 6 m 52 s, pushed — the IDE chips O1–O3 + the reload harness on top of task 023 slice 1; the toolset republished from `71bec2dcb`; this docs commit rides on top).
+**Tip:** `c79fe23bb` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 6 m 36 s, pushed — 022/3b-1 the base-chain override resolver + the `IsFamily` row, the constraints stream's docs, 023/1e the constant-conversion owner, the fourth visual-verification record, the corpus-pin fix-up; this docs commit rides on top).
 
 ### Queue state (`tasks/README.md`)
 
@@ -253,22 +253,22 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `71bec2dcb` (re-measure at your tip; never inherit)
+### Baselines at `c79fe23bb` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 595 (596 − 2 collapsed Range duplicates + 1 new, D2) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,502** measured in the gate at `a2d75f537` (7,482 at `71bec2dcb` + 20 IDE chips) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,508** measured in the gate at `c79fe23bb` (7,502 at `a2d75f537` + 6 constant-conversion contracts, 023/1e) |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
-| `ColumnarIlEmitter.cs` | 20,784 lines / 19,768 non-blank |
+| `ColumnarIlEmitter.cs` | 20,737 lines / 19,724 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1 and 1e each shrank it) |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:5b72f3c669441a59` (after 2d-ii lowered both emitter-side C# files again; audit-observed) |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:5b4f2699b0cb2027` (after 3b-1 and 1e shrank `ColumnarIlEmitter.cs` to 20,737; audit-observed) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
 | packaged SDK 0.1.0 in both feeds | packed from `94ff758b5` on 2026-09-02 21:15 (Sdk nupkg md5 `50a51430…`, BootstrapServices.dll md5 `8fe8c779…` staging == installed; `NO_COLOR` marker present; the estate 7,441/7,441 through the packaged SDK with a fresh emit in-log; the spelled probe `new NullabilityInfoContext()` / `new Random()` / `new InvalidOperationException(string, Exception)` — declining under the previous package — builds and runs). Carries the general construction rule (022/3a-i), the escape family and colour policy, `where` on types, the attribute blobs. Earlier: packed from `385b7e8d1` (md5 `e55c25e1…`) |
-| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **7 m 22 s** at `71bec2dcb` (6 m 58 s at `d9c943a75` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
+| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **6 m 36 s** at `c79fe23bb` (7 m 22 s at `71bec2dcb` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
 
 ### The verification bar (every B-arc slice; the accumulated standard)
 
@@ -1072,6 +1072,11 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
   `IReadOnlyCollection<T>` declines; a cross-assembly read of a STATIC EXPRESSION-BODIED PROPERTY declines while a static
   method call succeeds; `List<string!>!` is not assignable to `List<string>` across the boundary; `file` is a reserved
   keyword (beside `partial` and `record`).
+
+- **A slice that adds a `tests/native/<project>/project.yml` moves the compile-time corpus pin.** Gate r13 went red on
+  `CompileTimeBench.tests.nl`'s "the corpus is the N project.yml projects" assertion after 022/3b-1 added
+  `external-abstract-override`; the pin is 71 at `c79fe23bb`. A brief that adds a native project says so and moves the pin
+  in the same commit (2026-09-03).
 
 ## 3. Architecture facts
 
