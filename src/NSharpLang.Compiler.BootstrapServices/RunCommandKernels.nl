@@ -48,6 +48,12 @@ class RunCommandKernels {
                 continue
             }
 
+            // A colour flag is an option, not the file to run.
+            if DiagnosticColorPolicy.IsColorOption(args[i]) {
+                i = i + 1
+                continue
+            }
+
             return args[i]
         }
 
@@ -55,7 +61,7 @@ class RunCommandKernels {
     }
 
     static func GetHelpText(): string {
-        return "N# Run\n" + "\n" + "Usage: nlc run [file.nl]\n" + "\n" + "Build and run either the current project or a single N# source file.\n" + "\n" + "Options:\n" + "  --backend <mode>   Compilation backend: il\n" + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n" + "                     repeatable, and accepts comma-separated lists\n" + "  --help, -h         Show this help text\n" + "\n" + "Conditional compilation:\n" + "  DEBUG is defined automatically when running (a debug build).\n" + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n" + "\n" + "Examples:\n" + "  nlc run\n" + "  nlc run --backend il\n" + "  nlc run Program.nl\n" + "  nlc run --define FEATURE_X\n" + "\n" + "Exit codes:\n" + "  0  Program ran successfully\n" + "  1  Build or execution failed"
+        return "N# Run\n" + "\n" + "Usage: nlc run [file.nl]\n" + "\n" + "Build and run either the current project or a single N# source file.\n" + "\n" + "Options:\n" + "  --backend <mode>   Compilation backend: il\n" + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n" + "                     repeatable, and accepts comma-separated lists\n" + "  --color=<when>     Colour diagnostics: auto (default), always, never\n" + "  --help, -h         Show this help text\n" + "\n" + "Conditional compilation:\n" + "  DEBUG is defined automatically when running (a debug build).\n" + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n" + "\n" + "Examples:\n" + "  nlc run\n" + "  nlc run --backend il\n" + "  nlc run Program.nl\n" + "  nlc run --define FEATURE_X\n" + "\n" + "Exit codes:\n" + "  0  Program ran successfully\n" + "  1  Build or execution failed"
     }
 
     static func GetFileNotFoundMessage(sourceFile: string): string {

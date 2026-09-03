@@ -1177,6 +1177,106 @@ class ColumnarParserRecovery {
         Report(ErrorCode.InvalidLiteral, message, token.Line, token.Column, explanation, "Write a single character like `'a'`, or use a string literal like \"a\" when you need text.", suggestions, MaxInt(1, token.Value.Length))
     }
 
+    // A BACKSLASH THAT STARTS NO ESCAPE USED TO BE SILENT, AND THAT IS HOW THE COMPILER SHIPPED THE
+    // LITERAL CHARACTERS OF `\x1b[1;31m` ON EVERY COLOURED DIAGNOSTIC LINE. The tolerant decoder passes
+    // an unrecognised escape through as text, so the literal was valid, idempotent, wrong code that no
+    // gate could see. `\x`, `\u`, `\U` and `\e` are escapes now; this is the other half — the ones that
+    // still are not are REFUSED at the position of the backslash rather than reinterpreted as text.
+    //
+    // ONE report per literal, not one per escape: a path written with single backslashes would otherwise
+    // bury the file in identical sentences, and the fix for the first is the fix for all of them.
+    func ReportUnrecognisedEscapeIfNeeded(token: Token) {
+        value := token.Value
+        // A raw literal has no escapes at all, so a backslash in one is ordinary text. The test is on the
+        // TOKEN TYPE, not on the value: `Lexer.ReadTripleQuoteString` does not keep the delimiters, so the
+        // shape classifiers see a bare body and would answer false for every raw literal.
+        if token.Type == TokenType.TripleQuoteStringLiteral || token.Type == TokenType.InterpolatedRawStringLiteral {
+            return
+        }
+
+        index := 0
+        while index < value.Length {
+            if value[index] != '\\' {
+                index = index + 1
+                continue
+            }
+
+            text := ""
+            nextIndex := 0
+            if StringLiteralDecoder.TryReadEscape(value, index, out text, out nextIndex) {
+                index = nextIndex
+                continue
+            }
+
+            ReportUnrecognisedEscape(token, value, index)
+            return
+        }
+    }
+
+    func ReportUnrecognisedEscape(token: Token, value: string, index: int) {
+        following := ""
+        if index + 1 < value.Length {
+            following = value.Substring(index + 1, 1)
+        }
+
+        spelling := "\\" + following
+        message := "Unrecognised escape sequence"
+        if following != "" {
+            message = "Unrecognised escape sequence `" + spelling + "`"
+        }
+
+        explanation := "`" + spelling + "` is not an escape sequence in N#, so I cannot tell what character you meant here."
+        if following == "" {
+            explanation = "This literal ends with a backslash, so there is no escape sequence for me to read."
+        }
+
+        suggestions := new List<string>()
+        hint := UnrecognisedEscapeHint(following, suggestions)
+
+        // The marker covers the backslash and the character that follows it — the two characters the
+        // author has to change — rather than the whole literal.
+        markerLength := 1
+        if following != "" {
+            markerLength = 2
+        }
+
+        Report(ErrorCode.InvalidLiteral, message, token.Line, token.Column + index, explanation, hint, suggestions, markerLength)
+    }
+
+    // The NEAREST VALID escapes, chosen by what was actually written: a wrong-width hex escape is a
+    // different mistake from an unknown letter, and telling someone "N# has no `\u`" when they wrote
+    // `\u041` would be a lie.
+    func UnrecognisedEscapeHint(following: string, suggestions: List<string>): string {
+        if following == "u" {
+            suggestions.Add("Write `\\uHHHH` with exactly four hex digits")
+            suggestions.Add("Use `\\xH` to `\\xHHHH` when you have fewer digits")
+            suggestions.Add("Use `\\UHHHHHHHH` for a code point above U+FFFF")
+            return "`\\u` needs EXACTLY four hex digits, as in `\\u001b`."
+        }
+
+        if following == "U" {
+            suggestions.Add("Write `\\UHHHHHHHH` with exactly eight hex digits")
+            suggestions.Add("Use `\\uHHHH` for a code point in the basic plane")
+            return "`\\U` needs EXACTLY eight hex digits and a real code point, as in `\\U0001F600` — a lone surrogate and anything above U+10FFFF are refused."
+        }
+
+        if following == "x" {
+            suggestions.Add("Write `\\xH` to `\\xHHHH` with one to four hex digits")
+            suggestions.Add("Use `\\e` when you mean the escape character")
+            return "`\\x` needs one to four HEX digits after it, as in `\\x1b`."
+        }
+
+        if following == "" {
+            suggestions.Add("Add the character the backslash is escaping")
+            suggestions.Add("Write `\\\\` for a literal backslash")
+            return "Add the character you meant to escape, or write `\\\\` for a literal backslash."
+        }
+
+        suggestions.Add("Write `\\\\" + following + "` for a literal backslash followed by `" + following + "`")
+        suggestions.Add("Use a triple-quoted `\"\"\"...\"\"\"` string, where no backslash is an escape")
+        return "N# knows `\\0 \\a \\b \\e \\f \\n \\r \\t \\v \\' \\\" \\\\`, plus `\\xH..HHHH`, `\\uHHHH` and `\\UHHHHHHHH`."
+    }
+
     func StartsWithInterpolatedPrefix(value: string): bool {
         if value.Length < 2 {
             return false
@@ -2434,6 +2534,12 @@ class ColumnarParserRecovery {
                 baseIndex = baseIndex + 1
             }
         }
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 2/3/4/6: materialize the ClassDeclaration (Parser.cs :973). Line/Column anchor the class
         // keyword (Parser.cs :933-934). TypeParameters + BaseClass + Interfaces are the tranche-6 materialized
@@ -2442,12 +2548,12 @@ class ColumnarParserRecovery {
         // tranche-3 populated list. A malformed type-param or base list DECLINES materialization (no-stub).
         // FULLY QUALIFIED (`NSharpLang.Compiler.Ast.ClassDeclaration`): a test-helper `class ClassDeclaration` in
         // NSharpLang.Compiler collides under the tests-enabled build.
-        canMaterialize := attrsOk && paramsOk && baseListOk
+        canMaterialize := attrsOk && paramsOk && baseListOk && constraintsOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryParams, modifiers, attributes, classToken.Line, classToken.Column))
+                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryParams, modifiers, attributes, classToken.Line, classToken.Column, constraints))
             } else {
-                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, null, modifiers, attributes, classToken.Line, classToken.Column))
+                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, null, modifiers, attributes, classToken.Line, classToken.Column, constraints))
             }
         }
     }
@@ -2477,6 +2583,12 @@ class ColumnarParserRecovery {
         interfaces := ParseBaseTypeList()
         // interface list (Parser.cs :998)
         baseListOk := BaseListMaterializable
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the StructDeclaration (Parser.cs :1010). Stage N+1c tranche 11
         // threads `isRefStruct` from the two `ref struct` dispatch arms (Parser.cs :221-225 top level / :1443-
@@ -2484,12 +2596,12 @@ class ColumnarParserRecovery {
         // tranche-6 materialized values; Modifiers/Attributes/PrimaryConstructorParameters the tranche-4
         // values. A malformed type-param or interface list DECLINES materialization (no-stub). Members is the
         // tranche-3 populated list.
-        canMaterialize := attrsOk && paramsOk && baseListOk
+        canMaterialize := attrsOk && paramsOk && baseListOk && constraintsOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, primaryParams, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct))
+                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, primaryParams, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct, constraints))
             } else {
-                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, null, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct))
+                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, null, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct, constraints))
             }
         }
     }
@@ -2526,6 +2638,12 @@ class ColumnarParserRecovery {
         interfaces := ParseBaseTypeList()
         // interface list (Parser.cs :1043)
         baseListOk := BaseListMaterializable
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the RecordDeclaration (Parser.cs :1055). IsStruct reflects the
         // consumed `record struct`. TypeParameters + Interfaces are the tranche-6 materialized values;
@@ -2533,12 +2651,12 @@ class ColumnarParserRecovery {
         // (or null when absent) — THE UNLOCK for the public-positional-record real-corpus files. A malformed
         // type-param or interface list DECLINES materialization (no-stub). Members is the tranche-3 populated
         // list.
-        canMaterialize := attrsOk && paramsOk && baseListOk
+        canMaterialize := attrsOk && paramsOk && baseListOk && constraintsOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, primaryParams, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column))
+                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, primaryParams, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column, constraints))
             } else {
-                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, null, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column))
+                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, null, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column, constraints))
             }
         }
     }
@@ -2617,15 +2735,21 @@ class ColumnarParserRecovery {
         baseInterfaces := ParseBaseTypeList()
         // base interface list (Parser.cs :1150)
         baseListOk := BaseListMaterializable
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the InterfaceDeclaration (Parser.cs :1150-return). Line/Column = the
         // first-token position (`duck` if present, else `interface`). TypeParameters + BaseInterfaces are the
         // tranche-6 materialized values; Modifiers/Attributes the tranche-4 values. A malformed type-param or
         // base-interface list DECLINES materialization (no-stub). Members is the tranche-3 populated list.
         // Interfaces have no primary-ctor params.
-        canMaterialize := attrsOk && baseListOk
+        canMaterialize := attrsOk && baseListOk && constraintsOk
         if canMaterialize {
-            AddDeclaration(new InterfaceDeclaration(name, typeParams, baseInterfaces, members, modifiers, isDuck, attributes, interfaceLine, interfaceColumn))
+            AddDeclaration(new InterfaceDeclaration(name, typeParams, baseInterfaces, members, modifiers, isDuck, attributes, interfaceLine, interfaceColumn, constraints))
         }
     }
 
@@ -2644,6 +2768,12 @@ class ColumnarParserRecovery {
         }
         typeParams := ParseTypeParameters()
         // Parser.cs :1188
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         cases := ParseUnionBody(unionDiagnosticSpan, unionLine)
         bodyOk := TypeBodyMaterializable
         // N+1c tranche 6: materialize the UnionDeclaration (Parser.cs :1247). TypeParameters is the tranche-6
@@ -2651,8 +2781,8 @@ class ColumnarParserRecovery {
         // multi-line payload type clears TypeBodyMaterializable → decline). Modifiers/Attributes the threaded
         // tranche-4 values (an argument-bearing attribute clears attrsOk → decline). AddDeclaration routes it to
         // an enclosing type's Members when nested, else the top level.
-        if attrsOk && bodyOk {
-            AddDeclaration(new UnionDeclaration(name, typeParams, cases, modifiers, attributes, unionLine, unionColumn))
+        if attrsOk && bodyOk && constraintsOk {
+            AddDeclaration(new UnionDeclaration(name, typeParams, cases, modifiers, attributes, unionLine, unionColumn, constraints))
         }
     }
 
@@ -7165,6 +7295,7 @@ class ColumnarParserRecovery {
         if Check(TokenType.CharLiteral) {
             token := Advance()
             ReportMalformedCharLiteralIfNeeded(token)
+            ReportUnrecognisedEscapeIfNeeded(token)
             // Tranche 7: `new CharLiteralExpression(token.Value, line, column)` (Parser.cs :4658) — the node
             // is built regardless of the malformed diagnostic, byte-exact.
             charResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
@@ -7174,6 +7305,7 @@ class ColumnarParserRecovery {
         if Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) {
             token := Advance()
             ReportMalformedStringLiteralIfNeeded(token)
+            ReportUnrecognisedEscapeIfNeeded(token)
             if token.Type == TokenType.StringLiteral && StartsWithInterpolatedPrefix(token.Value) {
                 return ParseInterpolatedString(token, line, column, false)
             }

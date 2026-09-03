@@ -63,6 +63,167 @@ class StringLiteralDecoder {
         return tokenText[0] == '"' && tokenText[1] == '"' && tokenText[2] == '"' && tokenText[tokenText.Length - 1] == '"' && tokenText[tokenText.Length - 2] == '"' && tokenText[tokenText.Length - 3] == '"'
     }
 
+    // THE ONE ESCAPE TABLE. Reads the escape whose backslash sits at `backslashIndex` and answers its
+    // decoded text plus the index just past it, or `false` when N# admits no such escape. Both entry
+    // points below route through this, so the strict and tolerant decoders can no longer disagree about
+    // WHICH escapes exist — only about what to do with one that does not.
+    static func TryReadEscape(body: string, backslashIndex: int, out text: string, out nextIndex: int): bool {
+        text = ""
+        nextIndex = backslashIndex
+        if backslashIndex + 1 >= body.Length {
+            return false
+        }
+
+        next := body[backslashIndex + 1]
+        nextIndex = backslashIndex + 2
+
+        if next == '\'' {
+            text = "'"
+            return true
+        }
+        if next == '"' {
+            text = "\""
+            return true
+        }
+        if next == '\\' {
+            text = "\\"
+            return true
+        }
+        if next == '0' {
+            text = ((char)0).ToString()
+            return true
+        }
+        if next == 'a' {
+            text = ((char)7).ToString()
+            return true
+        }
+        if next == 'b' {
+            text = ((char)8).ToString()
+            return true
+        }
+        if next == 't' {
+            text = ((char)9).ToString()
+            return true
+        }
+        if next == 'n' {
+            text = ((char)10).ToString()
+            return true
+        }
+        if next == 'v' {
+            text = ((char)11).ToString()
+            return true
+        }
+        if next == 'f' {
+            text = ((char)12).ToString()
+            return true
+        }
+        if next == 'r' {
+            text = ((char)13).ToString()
+            return true
+        }
+        // `\e` is C# 13's escape escape, and the reason this family was opened: an N# program had no way
+        // to spell ESC at all, so the compiler's own colour kernel shipped the literal characters.
+        if next == 'e' {
+            text = ((char)27).ToString()
+            return true
+        }
+
+        // `\x` takes ONE to FOUR hex digits, greedily — C#'s rule, and the only variable-length escape.
+        if next == 'x' {
+            value := 0
+            digits := 0
+            scan := backslashIndex + 2
+            while digits < 4 && scan < body.Length && IsAsciiHexDigit(body[scan]) {
+                value = value * 16 + HexDigitValue(body[scan])
+                digits = digits + 1
+                scan = scan + 1
+            }
+            if digits == 0 {
+                return false
+            }
+            text = ((char)value).ToString()
+            nextIndex = scan
+            return true
+        }
+
+        // `\u` takes EXACTLY four hex digits and `\U` exactly eight; a short run is not a shorter escape,
+        // it is not an escape at all.
+        if next == 'u' {
+            value := 0
+            if !TryReadFixedHex(body, backslashIndex + 2, 4, out value) {
+                return false
+            }
+            text = ((char)value).ToString()
+            nextIndex = backslashIndex + 6
+            return true
+        }
+
+        if next == 'U' {
+            value := 0
+            if !TryReadFixedHex(body, backslashIndex + 2, 8, out value) {
+                return false
+            }
+            // A scalar VALUE, so the surrogate range is not spellable and anything past the last plane is
+            // not a character; everything above the BMP arrives as its surrogate pair.
+            if value > 1114111 || (value >= 55296 && value <= 57343) {
+                return false
+            }
+            if value > 65535 {
+                shifted := value - 65536
+                high := 55296 + (shifted / 1024)
+                low := 56320 + (shifted % 1024)
+                text = ((char)high).ToString() + ((char)low).ToString()
+            } else {
+                text = ((char)value).ToString()
+            }
+            nextIndex = backslashIndex + 10
+            return true
+        }
+
+        nextIndex = backslashIndex
+        return false
+    }
+
+    static func TryReadFixedHex(body: string, start: int, length: int, out value: int): bool {
+        value = 0
+        if start + length > body.Length {
+            return false
+        }
+
+        index := 0
+        while index < length {
+            ch := body[start + index]
+            if !IsAsciiHexDigit(ch) {
+                value = 0
+                return false
+            }
+
+            value = value * 16 + HexDigitValue(ch)
+            index = index + 1
+        }
+
+        return true
+    }
+
+    // ASCII-only, deliberately: `char.IsDigit` admits every Unicode decimal digit, and a Devanagari five
+    // is not a hex digit in any language's escape.
+    static func IsAsciiHexDigit(ch: char): bool {
+        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
+    }
+
+    static func HexDigitValue(ch: char): int {
+        if ch >= '0' && ch <= '9' {
+            return (int)ch - 48
+        }
+        if ch >= 'a' && ch <= 'f' {
+            return (int)ch - 87
+        }
+        return (int)ch - 55
+    }
+
+    // The STRICT entry point: every escape in the body must be one the table owns, or the whole body is
+    // refused. The columnar char planner needs this — a character literal that does not decode is not a
+    // character.
     static func TryDecodeBody(body: string, out decoded: string): bool {
         decoded = ""
         if body.IndexOf('\\') < 0 {
@@ -80,39 +241,14 @@ class StringLiteralDecoder {
                 continue
             }
 
-            if i + 1 >= body.Length {
+            text := ""
+            nextIndex := 0
+            if !TryReadEscape(body, i, out text, out nextIndex) {
                 return false
             }
 
-            i = i + 1
-            next := body[i]
-            if next == '\'' {
-                builder.Append('\'')
-            } else if next == '"' {
-                builder.Append('"')
-            } else if next == '\\' {
-                builder.Append('\\')
-            } else if next == '0' {
-                builder.Append('\0')
-            } else if next == 'a' {
-                builder.Append('\a')
-            } else if next == 'b' {
-                builder.Append('\b')
-            } else if next == 'f' {
-                builder.Append('\f')
-            } else if next == 'n' {
-                builder.Append('\n')
-            } else if next == 'r' {
-                builder.Append('\r')
-            } else if next == 't' {
-                builder.Append('\t')
-            } else if next == 'v' {
-                builder.Append('\v')
-            } else {
-                return false
-            }
-
-            i = i + 1
+            builder.Append(text)
+            i = nextIndex
         }
 
         decoded = builder.ToString()
@@ -120,7 +256,7 @@ class StringLiteralDecoder {
     }
 
     // No-out scalar seam for columnar expression planners. -1 means the body does not decode to
-    // exactly one character; every admitted escape remains owned by TryDecodeBody above.
+    // exactly one character; every admitted escape remains owned by TryReadEscape above.
     static func DecodeCharacterBody(body: string): int {
         decoded := ""
         if !TryDecodeBody(body, out decoded) {
@@ -132,92 +268,37 @@ class StringLiteralDecoder {
         return (int)decoded[0]
     }
 
+    // The TOLERANT entry point, for the lexer's already-scanned token text. It reads the SAME table, so
+    // the two decoders agree on every body the strict one admits; where they still differ is only what
+    // happens to an escape the table does not own, and that is now a DIAGNOSTIC rather than a silent
+    // pass-through — see the unrecognised-escape check in the analyzer.
     static func DecodeBody(body: string): string {
         if body.IndexOf('\\') < 0 {
             return body
         }
 
-        result := ""
+        builder := new StringBuilder(body.Length)
         i := 0
         while i < body.Length {
             ch := body[i]
-            if ch != '\\' || i + 1 >= body.Length {
-                result = result + body.Substring(i, 1)
+            if ch != '\\' {
+                builder.Append(ch)
                 i = i + 1
                 continue
             }
 
-            next := body[i + 1]
-            if next == '\'' {
-                result = result + '\''
-                i = i + 2
+            text := ""
+            nextIndex := 0
+            if TryReadEscape(body, i, out text, out nextIndex) {
+                builder.Append(text)
+                i = nextIndex
                 continue
             }
 
-            if next == '"' {
-                result = result + '"'
-                i = i + 2
-                continue
-            }
-
-            if next == '\\' {
-                result = result + '\\'
-                i = i + 2
-                continue
-            }
-
-            if next == '0' {
-                result = result + '\0'
-                i = i + 2
-                continue
-            }
-
-            if next == 'a' {
-                result = result + '\a'
-                i = i + 2
-                continue
-            }
-
-            if next == 'b' {
-                result = result + '\b'
-                i = i + 2
-                continue
-            }
-
-            if next == 'f' {
-                result = result + '\f'
-                i = i + 2
-                continue
-            }
-
-            if next == 'n' {
-                result = result + '\n'
-                i = i + 2
-                continue
-            }
-
-            if next == 'r' {
-                result = result + '\r'
-                i = i + 2
-                continue
-            }
-
-            if next == 't' {
-                result = result + '\t'
-                i = i + 2
-                continue
-            }
-
-            if next == 'v' {
-                result = result + '\v'
-                i = i + 2
-                continue
-            }
-
-            result = result + body.Substring(i, 1)
+            builder.Append(ch)
             i = i + 1
         }
 
-        return result
+        return builder.ToString()
     }
 }

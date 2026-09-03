@@ -1159,3 +1159,60 @@ test "a generic constraint clause survives a format, and deleting one would chan
     assert FstIdempotent(two)
     assert FstReparseErrorsAfterFormat(special) == 0
 }
+
+test "chip: a `where` on a TYPE declaration survives a format, on all five keywords" {
+    // The sibling of the function-constraint row above, and the same defect one level out: the clause
+    // did not parse on a type at all, so there was nothing for the formatter to keep. Now that it
+    // parses, an arm that failed to write it back would DELETE it — silently, and in a way that
+    // changes what the program means, which is the exact shape this file was written to catch.
+    //
+    // The clause is written where the author wrote it: after the base/interface list, before the body.
+    klass := "class Box<T> where T: struct {\n    Value: T\n}"
+    assert FstFormat(klass) == "class Box<T> where T: struct {|    Value: T|}", FstFormat(klass)
+
+    strukt := "struct Pair<T> where T: struct {\n    A: T\n}"
+    assert FstFormat(strukt) == "struct Pair<T> where T: struct {|    A: T|}", FstFormat(strukt)
+
+    rec := "record Holder<T> where T: class {\n    Item: T\n}"
+    assert FstFormat(rec) == "record Holder<T> where T: class {|    Item: T|}", FstFormat(rec)
+
+    iface := "interface Repo<T> where T: class {\n    func Get(): T\n}"
+    assert FstFormat(iface) == "interface Repo<T> where T: class {|    func Get(): T|}", FstFormat(iface)
+
+    // A union's clause sits between its type parameters and its cases, because a union has no base list.
+    onion := "union Maybe<T> where T: class {\n    None\n}"
+    assert FstFormat(onion) == "union Maybe<T> where T: class {|    None|}", FstFormat(onion)
+
+    assert FstIdempotent(klass)
+    assert FstIdempotent(strukt)
+    assert FstIdempotent(rec)
+    assert FstIdempotent(iface)
+    assert FstIdempotent(onion)
+    assert FstReparseErrorsAfterFormat(klass) == 0
+    assert FstReparseErrorsAfterFormat(onion) == 0
+}
+
+test "chip: the type clause keeps its position AFTER the base list, and an unconstrained type grows nothing" {
+    // `class C<T>(a: int) : Base, IFoo where T: struct` — every optional piece at once, in order.
+    full := "class Node<T>(a: int): Base, IFoo where T: struct {\n    V: T\n}"
+    assert FstFormat(full) == "class Node<T>(a: int): Base, IFoo where T: struct {|    V: T|}", FstFormat(full)
+
+    // The documented multi-constraint header, and two clauses for two parameters.
+    service := "class Service<T> where T: class, IDisposable, new() {\n    V: int\n}"
+    assert FstFormat(service) == "class Service<T> where T: class, IDisposable, new() {|    V: int|}", FstFormat(service)
+
+    two := "class Map<K, V> where K: class where V: struct {\n    N: int\n}"
+    assert FstFormat(two) == "class Map<K, V> where K: class where V: struct {|    N: int|}", FstFormat(two)
+
+    // A NULL Constraints writes nothing — the reason the parser must not substitute an empty list,
+    // which would round-trip as a bare `where` and stop parsing.
+    none := "class Box<T> {\n    Value: T\n}"
+    assert FstFormat(none) == "class Box<T> {|    Value: T|}", FstFormat(none)
+
+    assert FstIdempotent(full)
+    assert FstIdempotent(service)
+    assert FstIdempotent(two)
+    assert FstReparseErrorsAfterFormat(full) == 0
+    assert FstReparseErrorsAfterFormat(service) == 0
+    assert FstReparseErrorsAfterFormat(two) == 0
+}

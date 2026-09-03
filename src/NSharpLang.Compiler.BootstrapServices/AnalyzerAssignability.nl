@@ -411,6 +411,32 @@ class AnalyzerAssignability {
             return AnalyzerConversionFacts.IsReflectionAssignableFrom(targetClrType, sourceClrType)
         }
 
+        // THE BUILT-IN SPELLINGS HAD NO SUBTYPE ARM AT ALL, AND THAT MADE EVERY GENERIC-INTERFACE
+        // CONSTRAINT ON A PRIMITIVE A FALSE REPORT. `string` and `int` arrive as `SimpleTypeInfo`,
+        // which is neither a class, a struct, a record, an interface nor a reflected type, so the
+        // walk above fell straight through to `false` and `where T: IComparable<T>` — the shape
+        // `website/docs/functions.md` and `types.md` both publish — answered "`string` does not
+        // implement `IComparable<string>`". The arms above cover a SOURCE-DECLARED type's own
+        // interface list; nothing covered a built-in whose interfaces only the CLR knows.
+        //
+        // ACCEPTANCE-ONLY, like the bridge in `IsAssignable`: a CLR refusal falls through to the
+        // `false` below rather than being returned, so no later judgement is pre-empted.
+        //
+        // THE TARGET MUST BE AN INTERFACE, and that restriction is the measured defect's exact shape
+        // rather than caution for its own sake. What was missing is a built-in's INTERFACE LIST,
+        // which only the CLR holds; its base-class chain is a different question that the arms above
+        // and `IsAssignable`'s own numeric and boxing rules already answer. Widening this to class
+        // targets would make `IsSubtypeOf(int, object)` newly true — a contract in
+        // `AnalyzerAssignability.tests.nl` pins it false — and would put boxing into a predicate that
+        // several callers read as nominal subtyping. One defect, one arm.
+        bridgeTarget := clrTypeConversion.TryConvertTypeInfoToClrType(target)
+        if bridgeTarget != null && bridgeTarget.get_IsInterface() {
+            bridgeSource := clrTypeConversion.TryConvertTypeInfoToClrType(effectiveSource)
+            if bridgeSource != null && AnalyzerConversionFacts.IsReflectionAssignableFrom(bridgeTarget, bridgeSource) {
+                return true
+            }
+        }
+
         return false
     }
 

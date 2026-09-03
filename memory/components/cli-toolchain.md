@@ -728,6 +728,27 @@ and `nlc build --perf-report` emit. `tests/native/systems-analysis-census` is th
 it spawns the real CLI and pins whole rows *by index*, including blocks whose file names are chosen
 to disagree with disk order.
 
+## Diagnostic Colour
+
+`nlc build` and `nlc run` write human-readable diagnostics to standard error and colour them with
+ANSI SGR sequences. Whether a run colours is decided by `DiagnosticColorPolicy`, in this precedence:
+
+| # | Signal | Effect |
+|---|---|---|
+| 1 | `--color=always` / `--color` / `--color=yes` / `--color=force` | colour, whatever the rest says |
+| 1 | `--color=never` / `--no-color` / `--color=no` / `--color=none` | no colour, whatever the rest says |
+| 2 | `NO_COLOR` set and non-empty | no colour |
+| 3 | `FORCE_COLOR` set and not `0` | colour, even into a pipe or file |
+| 4 | *(default)* | colour when standard error is a terminal, plain when it is redirected |
+
+`--color=auto`, and any `--color=<value>` that is not listed, fall back to row 4 rather than failing
+the run. When several colour flags appear, the last one wins. An empty `NO_COLOR` is treated as
+unset, per the [no-color.org](https://no-color.org) convention.
+
+The machine-readable surfaces never colour, under any setting: `nlc check` and every `--json` output
+are plain, and so is the diagnostic text embedded in a project-reference build failure's exception
+message.
+
 ## JSON Schema Discipline
 
 All `nlc check`, `nlc fix`, `nlc lint`, and `nlc tree --json` commands output JSON with a versioned envelope:

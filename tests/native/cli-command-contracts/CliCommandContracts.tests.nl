@@ -2171,3 +2171,167 @@ test "the test-method name nlc test reports is PascalCased INVARIANTLY, never wi
     document.Dispose()
     Directory.Delete(directory, true)
 }
+
+// ═══ COLOURED DIAGNOSTICS, READ AS BYTES ══════════════════════════════════════════════════════
+//
+// THE DEFECT THESE ROWS EXIST FOR: `nlc build` and `nlc run` wrote the LITERAL CHARACTERS
+// `\` `x` `1` `b` `[` `1` `;` `3` `1` `m` on every coloured line, because N#'s escape table had no
+// `\x` and the tolerant decoder passed the unrecognised escape through as text. Every gate was
+// green while it did so — a rendered-string assertion cannot tell ESC from a backslash and an `x`,
+// which is exactly why these rows read CODE UNITS and never compare display text.
+//
+// EVERY SEQUENCE BELOW IS BUILT FROM `(char)27`, NEVER FROM A `\x1b` LITERAL. This file is compiled
+// by the SDK PACKAGE's compiler, not this tree's, so a literal here would decode with the packaged
+// escape table and the contract would assert the defect it is meant to catch. The same reasoning is
+// why `CompilerError.nl` spells ESC the same way.
+//
+// THE SILENCE CLAIMS ARE NOT VACUOUS, and the pairing is deliberate: every "no colour" row has a
+// neighbour that forces colour out of the SAME command in the same file, so a run that had stopped
+// colouring altogether would fail the pair rather than passing both halves.
+
+func Esc(): string {
+    return ((char)27).ToString()
+}
+
+func EscapeCount(text: string): int {
+    count := 0
+    i := 0
+    while i < text.Length {
+        if (int)text[i] == 27 {
+            count = count + 1
+        }
+
+        i = i + 1
+    }
+
+    return count
+}
+
+// The four characters the defect wrote where one ESC belonged.
+func LiteralEscapeCount(text: string): int {
+    count := 0
+    i := 0
+    while i + 3 < text.Length {
+        if text[i] == '\\' && text[i + 1] == 'x' && text[i + 2] == '1' && text[i + 3] == 'b' {
+            count = count + 1
+        }
+
+        i = i + 1
+    }
+
+    return count
+}
+
+func WriteFailingProject(directory: string, name: string) {
+    WriteProjectYml(directory, "name: " + name + "\n" + "version: 0.1.0\n" + "outputType: exe\n" + "targetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(directory, "Program.nl"), "func main() {\n    x := undefinedThing\n    print x\n}\n")
+}
+
+test "nlc build --color=always writes a REAL escape byte, and never the literal characters" {
+    directory := NewTempDirectory("nsharp-color")
+    try {
+        WriteFailingProject(directory, "ColorContract")
+        run := NlcIn(directory, "build --color=always")
+
+        assert run.ExitCode == 1
+
+        // The diagnostic is there at all.
+        assert run.Stderr.Contains("NAMING ERROR")
+
+        // THE BYTE. Code unit 27, not a backslash followed by an `x`.
+        assert EscapeCount(run.Stderr) > 0
+        assert LiteralEscapeCount(run.Stderr) == 0
+
+        // A real SGR sequence: ESC, then `[`, then the parameters the Elm renderer emits.
+        assert run.Stderr.Contains(Esc() + "[2m")
+        assert run.Stderr.Contains(Esc() + "[1;36m")
+        assert run.Stderr.Contains(Esc() + "[0m")
+
+        // Every escape introduces a sequence — no bare ESC is left stranded at the end.
+        assert run.Stderr.IndexOf(Esc()) >= 0
+        assert run.Stderr.Contains(Esc() + "[")
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "a REDIRECTED nlc build is plain by default, and the same command forced is not" {
+    directory := NewTempDirectory("nsharp-color")
+    try {
+        WriteFailingProject(directory, "ColorContract")
+
+        // This test's own stderr IS redirected — `RunProcess` sets RedirectStandardError — so the
+        // default is the redirected one, and that is the whole point: a build teed into a log file
+        // or piped through grep must not carry SGR sequences.
+        plain := NlcIn(directory, "build")
+        assert plain.ExitCode == 1
+        assert plain.Stderr.Contains("NAMING ERROR")
+        assert EscapeCount(plain.Stderr) == 0
+        assert LiteralEscapeCount(plain.Stderr) == 0
+
+        // The neighbour that makes the silence a fact rather than a broken command.
+        forced := NlcIn(directory, "build --color=always")
+        assert EscapeCount(forced.Stderr) > 0
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "--color=never wins over an earlier --color=always, because the LAST flag is the one meant" {
+    directory := NewTempDirectory("nsharp-color")
+    try {
+        WriteFailingProject(directory, "ColorContract")
+
+        assert EscapeCount(NlcIn(directory, "build --color=always --color=never").Stderr) == 0
+        assert EscapeCount(NlcIn(directory, "build --color=never --color=always").Stderr) > 0
+
+        // `--no-color` is the same answer spelled the way people type it.
+        assert EscapeCount(NlcIn(directory, "build --color=always --no-color").Stderr) == 0
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "a colour flag is an option, not the source file to build or run" {
+    directory := NewTempDirectory("nsharp-color")
+    try {
+        WriteFailingProject(directory, "ColorContract")
+
+        // Before the flag existed, `build --color=always` answered `File not found: --color=always`
+        // because an unrecognised argument is read as the single file to compile.
+        run := NlcIn(directory, "build --color=always")
+        assert !run.Stderr.Contains("File not found")
+        assert !run.Stdout.Contains("File not found")
+
+        runRun := NlcIn(directory, "run --color=never")
+        assert !runRun.Stderr.Contains("File not found")
+        assert !runRun.Stdout.Contains("File not found")
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "the JSON surface stays plain while the human surface beside it is forced to colour" {
+    directory := NewTempDirectory("nsharp-color")
+    try {
+        WriteFailingProject(directory, "ColorContract")
+
+        // `nlc check` is the machine-readable surface and must never colour, whatever is asked.
+        checkRun := NlcIn(directory, "check")
+        assert EscapeCount(checkRun.Stdout) == 0
+        assert EscapeCount(checkRun.Stderr) == 0
+        assert LiteralEscapeCount(checkRun.Stdout) == 0
+
+        // It really did produce the report — a silent command would pass the rows above for free.
+        document := JsonDocument.Parse(checkRun.Stdout)
+        root := document.RootElement
+        assert TextOf(root.GetProperty("command")) == "check"
+        assert !root.GetProperty("ok").GetBoolean()
+        document.Dispose()
+
+        // And colour IS reachable from this directory in this run.
+        assert EscapeCount(NlcIn(directory, "build --color=always").Stderr) > 0
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}

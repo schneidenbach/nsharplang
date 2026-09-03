@@ -160,7 +160,7 @@ internal static class CompilationReferenceResolver
                     CompilationReferenceResolverKernels.GetProjectReferenceBuildFailedMessage(
                         CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot),
                         CompilationReferenceResolverKernels.GetCompilerDiagnosticsText(
-                            result.Errors.Select(error => error.Format()).ToArray())));
+                            result.Errors.Select(error => error.Format(false)).ToArray())));
             }
 
             if (CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))

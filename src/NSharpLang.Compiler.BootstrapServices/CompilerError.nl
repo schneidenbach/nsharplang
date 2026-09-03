@@ -214,9 +214,9 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
         builder := new StringBuilder()
         severityText := GetElmSeverityText()
 
-        cyan := "\x1b[1;36m"
-        reset := "\x1b[0m"
-        dim := "\x1b[2m"
+        cyan := Csi("1;36m")
+        reset := Csi("0m")
+        dim := Csi("2m")
 
         headerLine := new string('-', 50)
         displayFileName := FileName ?? "code"
@@ -294,6 +294,15 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
         return builder.ToString()
     }
 
+    // ESC is built from its CODE POINT, not from a `\x1b` literal, and that is deliberate: this file is
+    // compiled by whichever N# compiler the SDK package holds, so a literal here would decode with the
+    // escape table of THAT compiler rather than this tree's. The colour of the compiler's own diagnostics
+    // must not depend on which compiler compiled the compiler. `\x1b` is a real escape in N# now (see
+    // `StringLiteralDecoder`) — user code should spell it that way; a bootstrap kernel should not.
+    static func Csi(finalBytes: string): string {
+        return ((char)27).ToString() + "[" + finalBytes
+    }
+
     func GetElmSeverityText(): string {
         if Severity == ErrorSeverity.Warning {
             return "WARNING"
@@ -329,12 +338,12 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
             severityText = "warning"
         }
 
-        red := "\x1b[1;31m"
-        yellow := "\x1b[1;33m"
-        cyan := "\x1b[1;36m"
-        green := "\x1b[1;32m"
-        bold := "\x1b[1m"
-        reset := "\x1b[0m"
+        red := Csi("1;31m")
+        yellow := Csi("1;33m")
+        cyan := Csi("1;36m")
+        green := Csi("1;32m")
+        bold := Csi("1m")
+        reset := Csi("0m")
 
         severityColor := red
         if Severity == ErrorSeverity.Warning {

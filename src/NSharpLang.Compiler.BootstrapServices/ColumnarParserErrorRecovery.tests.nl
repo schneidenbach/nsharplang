@@ -1495,3 +1495,76 @@ test "020 slice 16: the three malformed table rows agree with the sorted entry p
     assert PeCensus("test \"d\" with (a) 9 { }") == PeSortedCensus("test \"d\" with (a) 9 { }")
     assert PeCensus("test \"d\" with (a) [ 9 ] { }") == PeSortedCensus("test \"d\" with (a) [ 9 ] { }")
 }
+
+// ── NL105: a backslash that starts no escape ────────────────────────────────────────────────────
+//
+// THE DEFECT THIS CLOSES: an unrecognised escape was passed through as literal text, silently, so
+// `"\x1b[1;31m"` was ten characters of garbage that every gate accepted — and it shipped, on every
+// coloured diagnostic line the compiler wrote. `\x`, `\u`, `\U` and `\e` are escapes now; a
+// backslash that still starts none of them is refused HERE, at the backslash, rather than
+// reinterpreted.
+//
+// The marker is TWO characters — the backslash and what follows it — because those are the two the
+// author has to change. `PeUnderlined` proves that against the snippet rather than trusting the
+// arithmetic.
+
+test "NL105 refuses an unrecognised escape at the backslash, not at the literal" {
+    source := "func test() {\n    name := \"a\\qb\"\n}\n"
+    assert PeCensus(source) == "NL105@2:15+2;", PeCensus(source)
+    assert PeUnderlined(source, 0) == "\\q", PeUnderlined(source, 0)
+    assert PeRow(source, 0) == "NL105@2:15+2|Unrecognised escape sequence `\\\\q`|    name := \"a\\\\qb\"|`\\\\q` is not an escape sequence in N#, so I cannot tell what character you meant here.|N# knows `\\\\0 \\\\a \\\\b \\\\e \\\\f \\\\n \\\\r \\\\t \\\\v \\\\' \\\\\" \\\\\\\\`, plus `\\\\xH..HHHH`, `\\\\uHHHH` and `\\\\UHHHHHHHH`.|{Write `\\\\\\\\q` for a literal backslash followed by `q`}{Use a triple-quoted `\"\"\"...\"\"\"` string, where no backslash is an escape}|https://docs.n-sharp.dev/errors/NL105", PeRow(source, 0)
+}
+
+test "NL105 names the WIDTH for a hex escape, because a short run is a different mistake" {
+    // `\u041` is three digits where four are required. Telling this author "N# has no `\u`" would
+    // be a lie, so the hint is about the width and the neighbouring escapes that take fewer digits.
+    shortU := "func test() {\n    name := \"\\u041\"\n}\n"
+    assert PeCensus(shortU) == "NL105@2:14+2;", PeCensus(shortU)
+    assert PeRow(shortU, 0) == "NL105@2:14+2|Unrecognised escape sequence `\\\\u`|    name := \"\\\\u041\"|`\\\\u` is not an escape sequence in N#, so I cannot tell what character you meant here.|`\\\\u` needs EXACTLY four hex digits, as in `\\\\u001b`.|{Write `\\\\uHHHH` with exactly four hex digits}{Use `\\\\xH` to `\\\\xHHHH` when you have fewer digits}{Use `\\\\UHHHHHHHH` for a code point above U+FFFF}|https://docs.n-sharp.dev/errors/NL105", PeRow(shortU, 0)
+
+    bareX := "func test() {\n    name := \"\\x\"\n}\n"
+    assert PeCensus(bareX) == "NL105@2:14+2;", PeCensus(bareX)
+    assert PeRow(bareX, 0) == "NL105@2:14+2|Unrecognised escape sequence `\\\\x`|    name := \"\\\\x\"|`\\\\x` is not an escape sequence in N#, so I cannot tell what character you meant here.|`\\\\x` needs one to four HEX digits after it, as in `\\\\x1b`.|{Write `\\\\xH` to `\\\\xHHHH` with one to four hex digits}{Use `\\\\e` when you mean the escape character}|https://docs.n-sharp.dev/errors/NL105", PeRow(bareX, 0)
+
+    // `\U` past the last plane is a real code-point refusal, not a width one.
+    bigU := "func test() {\n    name := \"\\U00110000\"\n}\n"
+    assert PeCensus(bigU) == "NL105@2:14+2;", PeCensus(bigU)
+    assert PeRow(bigU, 0) == "NL105@2:14+2|Unrecognised escape sequence `\\\\U`|    name := \"\\\\U00110000\"|`\\\\U` is not an escape sequence in N#, so I cannot tell what character you meant here.|`\\\\U` needs EXACTLY eight hex digits and a real code point, as in `\\\\U0001F600` — a lone surrogate and anything above U+10FFFF are refused.|{Write `\\\\UHHHHHHHH` with exactly eight hex digits}{Use `\\\\uHHHH` for a code point in the basic plane}|https://docs.n-sharp.dev/errors/NL105", PeRow(bigU, 0)
+}
+
+test "NL105 reports ONCE per literal, however many bad escapes it holds" {
+    // A Windows path written with single backslashes would otherwise bury the file in identical
+    // sentences, and the fix for the first is the fix for all of them.
+    //
+    // THE COLUMN IS THE FINDING. `C:\temp` reports at the `\q`, column 21, NOT at the `\t` in
+    // column 16 — because `\t` IS a valid escape and that path has already silently become
+    // `C:<tab>emp`. The diagnostic cannot save this author from the tab; it can only refuse the
+    // escape that does not exist. That is the argument for the doubled backslash in the hint.
+    source := "func test() {\n    name := \"C:\\temp\\qux\\zap\"\n}\n"
+    assert PeCensus(source) == "NL105@2:21+2;", PeCensus(source)
+}
+
+test "every escape the table owns passes NL105 in one literal, and a raw literal is exempt" {
+    // The whole family in a single string: nothing is reported.
+    all := "func test() {\n    name := \"\\0\\a\\b\\e\\f\\n\\r\\t\\v\\'\\\"\\\\\\x1b\\x4\\u0041\\U0001F600\"\n}\n"
+    assert PeCensus(all) == "", PeCensus(all)
+
+    // A raw literal has no escapes at all, so a lone backslash in one is ordinary text. The check
+    // keys on the TOKEN TYPE: the lexer does not keep the `\"\"\"` delimiters, so a value-shape test
+    // would answer false for every raw literal and report on all of them.
+    raw := "func test() {\n    name := \"\"\"a \\q b\"\"\"\n}\n"
+    assert PeCensus(raw) == "", PeCensus(raw)
+}
+
+test "NL105 reaches a CHAR literal too, which is the other caller of the escape table" {
+    source := "func test() {\n    c := '\\q'\n}\n"
+    assert PeCensus(source) == "NL105@2:11+2;", PeCensus(source)
+    assert PeUnderlined(source, 0) == "\\q", PeUnderlined(source, 0)
+}
+
+test "an unterminated literal still reports its OWN diagnostic first, not an escape one" {
+    // `ReportMalformedStringLiteralIfNeeded` runs first and the escape check must not displace it:
+    // the author's problem is the missing quote, not the backslash.
+    source := "func test() {\n    name := \"Ada\\q\n}\n"
+    assert PeCensus(source).StartsWith("NL105@2:13"), PeCensus(source)
+}

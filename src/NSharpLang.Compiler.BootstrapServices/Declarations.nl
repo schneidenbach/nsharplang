@@ -98,8 +98,9 @@ class ClassDeclaration: Declaration {
     PrimaryConstructorParameters: List<Parameter>?
     Modifiers: Modifiers
     Attributes: List<AttributeNode>
+    Constraints: List<GenericConstraint>?
 
-    constructor(Name: string, TypeParameters: List<TypeParameter>?, BaseClass: TypeReference?, Interfaces: List<TypeReference>, Members: List<Declaration>, PrimaryConstructorParameters: List<Parameter>?, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, BaseClass: TypeReference?, Interfaces: List<TypeReference>, Members: List<Declaration>, PrimaryConstructorParameters: List<Parameter>?, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
         this.Name = Name
         this.TypeParameters = TypeParameters
         this.BaseClass = BaseClass
@@ -108,6 +109,7 @@ class ClassDeclaration: Declaration {
         this.PrimaryConstructorParameters = PrimaryConstructorParameters
         this.Modifiers = Modifiers
         this.Attributes = Attributes
+        this.Constraints = Constraints
     }
 }
 
@@ -121,8 +123,9 @@ class StructDeclaration: Declaration {
     Modifiers: Modifiers
     Attributes: List<AttributeNode>
     IsRefStruct: bool
+    Constraints: List<GenericConstraint>?
 
-    constructor(Name: string, TypeParameters: List<TypeParameter>?, Interfaces: List<TypeReference>, Members: List<Declaration>, PrimaryConstructorParameters: List<Parameter>?, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int, IsRefStruct: bool = false): base(Line, Column) {
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, Interfaces: List<TypeReference>, Members: List<Declaration>, PrimaryConstructorParameters: List<Parameter>?, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int, IsRefStruct: bool = false, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
         this.Name = Name
         this.TypeParameters = TypeParameters
         this.Interfaces = Interfaces
@@ -131,6 +134,7 @@ class StructDeclaration: Declaration {
         this.Modifiers = Modifiers
         this.Attributes = Attributes
         this.IsRefStruct = IsRefStruct
+        this.Constraints = Constraints
     }
 }
 
@@ -144,8 +148,9 @@ class RecordDeclaration: Declaration {
     IsStruct: bool
     Modifiers: Modifiers
     Attributes: List<AttributeNode>
+    Constraints: List<GenericConstraint>?
 
-    constructor(Name: string, TypeParameters: List<TypeParameter>?, Interfaces: List<TypeReference>, Members: List<Declaration>, PrimaryConstructorParameters: List<Parameter>?, IsStruct: bool, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, Interfaces: List<TypeReference>, Members: List<Declaration>, PrimaryConstructorParameters: List<Parameter>?, IsStruct: bool, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
         this.Name = Name
         this.TypeParameters = TypeParameters
         this.Interfaces = Interfaces
@@ -154,6 +159,7 @@ class RecordDeclaration: Declaration {
         this.IsStruct = IsStruct
         this.Modifiers = Modifiers
         this.Attributes = Attributes
+        this.Constraints = Constraints
     }
 }
 
@@ -181,8 +187,9 @@ class InterfaceDeclaration: Declaration {
     Modifiers: Modifiers
     IsDuckInterface: bool
     Attributes: List<AttributeNode>
+    Constraints: List<GenericConstraint>?
 
-    constructor(Name: string, TypeParameters: List<TypeParameter>?, BaseInterfaces: List<TypeReference>, Members: List<Declaration>, Modifiers: Modifiers, IsDuckInterface: bool, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, BaseInterfaces: List<TypeReference>, Members: List<Declaration>, Modifiers: Modifiers, IsDuckInterface: bool, Attributes: List<AttributeNode>, Line: int, Column: int, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
         this.Name = Name
         this.TypeParameters = TypeParameters
         this.BaseInterfaces = BaseInterfaces
@@ -190,6 +197,7 @@ class InterfaceDeclaration: Declaration {
         this.Modifiers = Modifiers
         this.IsDuckInterface = IsDuckInterface
         this.Attributes = Attributes
+        this.Constraints = Constraints
     }
 }
 
@@ -200,13 +208,15 @@ class UnionDeclaration: Declaration {
     Cases: List<UnionCase>
     Modifiers: Modifiers
     Attributes: List<AttributeNode>
+    Constraints: List<GenericConstraint>?
 
-    constructor(Name: string, TypeParameters: List<TypeParameter>?, Cases: List<UnionCase>, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, Cases: List<UnionCase>, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
         this.Name = Name
         this.TypeParameters = TypeParameters
         this.Cases = Cases
         this.Modifiers = Modifiers
         this.Attributes = Attributes
+        this.Constraints = Constraints
     }
 }
 

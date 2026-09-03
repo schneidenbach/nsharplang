@@ -482,6 +482,7 @@ class Formatter {
         }
 
         AppendBaseList(bases, builder)
+        walk.AppendGenericConstraints(classDeclaration.Constraints, builder)
         AppendMemberBody(classDeclaration.Members, builder)
     }
 
@@ -496,6 +497,7 @@ class Formatter {
         walk.AppendTypeParameters(structDeclaration.TypeParameters, builder)
         AppendPrimaryConstructorParameters(structDeclaration.PrimaryConstructorParameters, structDeclaration.Line, builder)
         AppendBaseList(structDeclaration.Interfaces, builder)
+        walk.AppendGenericConstraints(structDeclaration.Constraints, builder)
         AppendMemberBody(structDeclaration.Members, builder)
     }
 
@@ -517,6 +519,7 @@ class Formatter {
         walk.AppendTypeParameters(recordDeclaration.TypeParameters, builder)
         AppendPrimaryConstructorParameters(recordDeclaration.PrimaryConstructorParameters, recordDeclaration.Line, builder)
         AppendBaseList(recordDeclaration.Interfaces, builder)
+        walk.AppendGenericConstraints(recordDeclaration.Constraints, builder)
         AppendMemberBody(recordDeclaration.Members, builder)
     }
 
@@ -561,6 +564,7 @@ class Formatter {
         builder.Append(interfaceDeclaration.Name)
         walk.AppendTypeParameters(interfaceDeclaration.TypeParameters, builder)
         AppendBaseList(interfaceDeclaration.BaseInterfaces, builder)
+        walk.AppendGenericConstraints(interfaceDeclaration.Constraints, builder)
         AppendMemberBody(interfaceDeclaration.Members, builder)
     }
 
@@ -574,6 +578,7 @@ class Formatter {
         builder.Append("union ")
         builder.Append(unionDeclaration.Name)
         walk.AppendTypeParameters(unionDeclaration.TypeParameters, builder)
+        walk.AppendGenericConstraints(unionDeclaration.Constraints, builder)
         builder.AppendLine(" {")
 
         state.Push()
