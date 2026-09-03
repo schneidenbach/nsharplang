@@ -85,10 +85,16 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
 
 ### Active slices (2026-09-03; worktrees at `/private/tmp/nsharp-agent-wt/<stream>`, WIP committed before every pause)
 
-- `stream/022-s3b2-load-surface` — task 022 3b-2 REDONE from the recorded design after the worktree loss: the 93-line
-  load surface out of `Analyzer.cs` into `AnalyzerMetadataLoadSurface.nl`, the two C# `[Fact]`s migrated onto real on-disk
-  fixtures (the shared-framework and reference-pack `System.Runtime.dll`) and the C# test file deleted; then 3b-3
-  construct/dispose and 3b-4 the three orchestration decisions.
+- `stream/022-s3b2-load-surface` — 3b-2 LANDED `ccdf6ff06` (merged `5a4d61e97`): the 93-line load surface is
+  `AnalyzerMetadataLoadSurface.nl` (228 lines: `LoadByPath`/`LoadByName`/`Register`, the three dedupe predicates,
+  `AddSearchDirectory`, both `RecordFailure` doors; the context held from `Attach` to `Detach`), `Analyzer.cs` 2,798 → 2,726,
+  the two C# `[Fact]`s passed unchanged against the moved surface before their 159-line file was deleted (row REMOVED), the
+  fixtures are the two `System.Runtime.dll`s that already ship with one identity at two paths (the deleted header's claim
+  that a throwaway-library kernel was needed was false; `LoadFromAssemblyPath` throws on an already-loaded identity, so the
+  context probe is load-bearing and contracted), the 100-project differential byte-identical, the sweep 114/114 SAME once
+  `NSharpLang.Runtime.dll` was pinned (byte-different between worktrees only by CodeView path LENGTH, which the normaliser
+  does not neutralise). 3b-3 (construct/dispose) and 3b-4 (the three orchestration decisions + the resolver to N#) in
+  Phase 1; slice 3b's "`MetadataLoadContext` matches zero code lines" is not yet discharged.
 - LANDED `1ad0d1f02` + `a4c8336d0` (merged `8f0ef3138`): the language server exits on stdin EOF (0.02–0.03 s, was ≥ 20 s),
   on client death (0.13 s, was ≥ 25 s) and on the `exit` notification, through a stdin pump into a `Pipe` and one
   event-driven watch, `Program.cs` 157 → 155 lines; `tests/native/lsp-lifetime` proves all three through a shell vehicle
