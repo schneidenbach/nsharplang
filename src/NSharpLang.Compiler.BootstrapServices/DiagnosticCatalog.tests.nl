@@ -11,16 +11,21 @@ import System.Collections.Generic
 // nine of the 99 descriptors, and only two of the four BUILDERS that produce them.
 //
 // THE SAMPLE IS REPLACED BY THE CROSS. Every descriptor the catalog publishes is walked, and the
-// four builders are asserted as a PARTITION: 80 compiler + 5 performance + 4 AOT + 10 linter, no
-// row belonging to two builders and no row belonging to none. A rule added to
-// `AddLinterRuleDescriptors` and forgotten in the partition guard now FAILS a contract instead of
-// passing unnoticed — which is the property the deleted file's duplicate census could not have,
-// because a census only sees the rows that are already there.
+// builders are asserted as a PARTITION: 70 compiler + 10 linter, no row belonging to two builders
+// and no row belonging to none. A rule added to `AddLinterRuleDescriptors` and forgotten in the
+// partition guard now FAILS a contract instead of passing unnoticed — which is the property the
+// deleted file's duplicate census could not have, because a census only sees the rows that are
+// already there.
 //
-// AND IT REACHES AN ARM THE C# NEVER DID. `DocsUrlFor` has two: a stored `DocsUrl` and the
-// synthesized fallback. Only the four AOT descriptors carry a stored URL, and the deleted file
-// asserted the fallback on a code that is not in the catalog at all — so the arm that RETURNS the
-// stored value was never executed by any test. It is asserted here on all four.
+// THE PERFORMANCE AND AOT BUILDERS ARE GONE, AND THEIR ABSENCE IS PINNED. `NL950`-`NL954` and
+// `NL960`-`NL963` were published for years with no producer anywhere in the compiler; the systems
+// analyzer enforces those rules for real, as `NSYS010`/`NSYS020`/`NSYS030`/`NSYS040`/`NSYS060`.
+// Both category counts are asserted at ZERO here so a row cannot creep back without a producer.
+//
+// AND `DocsUrlFor` NOW HAS ONE ARM. The four AOT descriptors were the only rows that ever carried
+// a stored `DocsUrl`; with them retired, no descriptor stores one, so the stored-URL branch was
+// deleted rather than left as an unreachable line. What is asserted is that EVERY published code -
+// compiler and lint alike - answers from `DiagnosticDocs`.
 func DctAllDescriptors(): List<DiagnosticDescriptor> {
     descriptors := new List<DiagnosticDescriptor>()
     for descriptorValue in DiagnosticCatalog.Descriptors {
@@ -100,25 +105,6 @@ func DctLinterRuleCodes(): List<string> {
     return codes
 }
 
-func DctPerformanceCodes(): List<string> {
-    codes := new List<string>()
-    codes.Add("NL950")
-    codes.Add("NL951")
-    codes.Add("NL952")
-    codes.Add("NL953")
-    codes.Add("NL954")
-    return codes
-}
-
-func DctAotCodes(): List<string> {
-    codes := new List<string>()
-    codes.Add("NL960")
-    codes.Add("NL961")
-    codes.Add("NL962")
-    codes.Add("NL963")
-    return codes
-}
-
 func DctIsDigits(value: string): bool {
     if value.Length == 0 {
         return false
@@ -152,31 +138,33 @@ test "NL109 is a build-blocking compiler SYNTAX error" {
 
 // ── the docs URL, on BOTH its arms ────────────────────────────────────────────────────────────
 
-test "DocsUrlFor SYNTHESIZES a public docs URL for a code with no stored one" {
+test "DocsUrlFor SYNTHESIZES a public docs URL, and it is the ONLY thing it does" {
     assert DiagnosticCatalog.DocsUrlFor("NL9999") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL9999"
-    // The fallback is not reserved for codes outside the catalog: every compiler and lint row is
-    // registered WITHOUT a DocsUrl, so they take the same arm.
+    // The synthesis is not reserved for codes outside the catalog: every compiler and lint row is
+    // registered WITHOUT a DocsUrl, so they take the same one arm.
     assert DiagnosticCatalog.DocsUrlFor("NL001") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL001"
     assert DiagnosticCatalog.DocsUrlFor("NL109") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL109"
-    assert DiagnosticCatalog.DocsUrlFor("NL951") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL951"
+    assert DiagnosticCatalog.DocsUrlFor("NL903") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL903"
 }
 
-test "DocsUrlFor RETURNS THE STORED URL where one exists — the arm no C# test reached" {
-    for code in DctAotCodes() {
-        descriptor := DctFind(code)
-        assert descriptor != null
-        if descriptor != null {
-            assert descriptor.DocsUrl == "https://schneidenbach.github.io/nsharplang/docs/errors/" + code
-            assert DiagnosticCatalog.DocsUrlFor(code) == "https://schneidenbach.github.io/nsharplang/docs/errors/" + code
+test "NO descriptor stores a docs URL, so the deleted stored-URL arm cannot come back unnoticed" {
+    stored := 0
+    for descriptor in DctAllDescriptors() {
+        if descriptor.DocsUrl != null {
+            stored = stored + 1
         }
+
+        assert DiagnosticCatalog.DocsUrlFor(descriptor.Code) == DiagnosticDocs.UrlFor(descriptor.Code)
     }
+
+    assert stored == 0
 }
 
 // ── the whole catalog, as a partition ─────────────────────────────────────────────────────────
 
-test "EVERY code is distinct, and the catalog is exactly its four builders" {
+test "EVERY code is distinct, and the catalog is exactly its two builders" {
     codes := DctCodes()
-    assert codes.Count == 101
+    assert codes.Count == 80
 
     duplicates := 0
     outer := 0
@@ -195,18 +183,21 @@ test "EVERY code is distinct, and the catalog is exactly its four builders" {
 
     assert duplicates == 0
 
-    // The four builders, counted where they are OBSERVABLE: the linter rows are the ones sourced
-    // to the linter, the performance and AOT rows are the ones in their own categories, and the
-    // rest are the compiler's. 82 + 5 + 4 + 10 = 101, so nothing is uncounted or double-counted.
+    // The builders, counted where they are OBSERVABLE: the linter rows are the ones sourced to the
+    // linter, the rest are the compiler's. 70 + 10 = 80, so nothing is uncounted or double-counted.
+    //
+    // The performance and AOT categories are asserted at ZERO, not omitted. A row in either one is
+    // a row for a rule this compiler does not produce - that is exactly how NL950-954 and NL960-963
+    // survived for years - so the partition refuses one until a producer exists.
     linterRows := DctCountBySource(DiagnosticSource.Linter)
     performanceRows := DctCountByCategory(DiagnosticCategory.Performance)
     aotRows := DctCountByCategory(DiagnosticCategory.Aot)
-    compilerRows := DctCountBySource(DiagnosticSource.Compiler) - performanceRows - aotRows
+    compilerRows := DctCountBySource(DiagnosticSource.Compiler)
     assert linterRows == 10
-    assert performanceRows == 5
-    assert aotRows == 4
-    assert compilerRows == 82
-    assert compilerRows + performanceRows + aotRows + linterRows == codes.Count
+    assert performanceRows == 0
+    assert aotRows == 0
+    assert compilerRows == 70
+    assert compilerRows + linterRows == codes.Count
 }
 
 test "EVERY code is well formed: 'NL' and at least three digits, and never a migration code" {
@@ -327,64 +318,6 @@ test "each lint rule's TITLE and CATEGORY are the ones the catalog publishes" {
     if unusedVariableDescriptor != null {
         assert unusedVariableDescriptor.Category == DiagnosticCategory.Hygiene
     }
-}
-
-// ── the performance rows ──────────────────────────────────────────────────────────────────────
-
-test "the FIVE performance diagnostics are registered, advisory, and explained" {
-    titles := new List<string>()
-    titles.Add("Allocation here")
-    titles.Add("Boxing here")
-    titles.Add("Virtual dispatch not devirtualized")
-    titles.Add("Closure allocation")
-    titles.Add("Delegate allocation")
-
-    severities := new List<DiagnosticSeverity>()
-    severities.Add(DiagnosticSeverity.Info)
-    severities.Add(DiagnosticSeverity.Warning)
-    severities.Add(DiagnosticSeverity.Info)
-    severities.Add(DiagnosticSeverity.Warning)
-    severities.Add(DiagnosticSeverity.Warning)
-
-    codes := DctPerformanceCodes()
-    i := 0
-    while i < codes.Count {
-        descriptor := DiagnosticCatalog.EmptyDescriptor()
-        assert DiagnosticCatalog.TryGetDescriptor(codes[i], out descriptor)
-        assert descriptor.Title == titles[i]
-        assert descriptor.Category == DiagnosticCategory.Performance
-        assert descriptor.Source == DiagnosticSource.Compiler
-        assert descriptor.DefaultSeverity == severities[i]
-        assert !descriptor.BlocksBuildByDefault
-        assert !String.IsNullOrWhiteSpace(descriptor.Explanation)
-        i = i + 1
-    }
-}
-
-// ── the AOT rows, which the C# never named at all ─────────────────────────────────────────────
-
-test "the FOUR AOT diagnostics are advisory, explained, and the only rows with a stored docs URL" {
-    for code in DctAotCodes() {
-        descriptor := DctFind(code)
-        assert descriptor != null
-        if descriptor != null {
-            assert descriptor.Category == DiagnosticCategory.Aot
-            assert descriptor.Source == DiagnosticSource.Compiler
-            assert descriptor.DefaultSeverity == DiagnosticSeverity.Info
-            assert !descriptor.BlocksBuildByDefault
-            assert descriptor.IsConfigurable
-            assert !String.IsNullOrWhiteSpace(descriptor.Explanation)
-        }
-    }
-
-    stored := 0
-    for descriptor in DctAllDescriptors() {
-        if descriptor.DocsUrl != null {
-            stored = stored + 1
-        }
-    }
-
-    assert stored == 4
 }
 
 // ── the misses ────────────────────────────────────────────────────────────────────────────────

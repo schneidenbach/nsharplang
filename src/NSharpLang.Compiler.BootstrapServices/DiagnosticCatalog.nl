@@ -40,15 +40,10 @@ class DiagnosticCatalog {
         return fallback
     }
 
+    // NO descriptor stores a URL any more. The four AOT rows were the only ones that ever did, and
+    // they were retired with the rest of the unproduced codes, so the catalog answers this question
+    // the same way for every code it publishes: from `DiagnosticDocs`, the one host in the product.
     static func DocsUrlFor(code: string): string {
-        descriptor := EmptyDescriptor()
-        if TryGetDescriptor(code, out descriptor) {
-            docsUrl := descriptor.DocsUrl
-            if docsUrl != null && HasNonWhiteSpaceText(docsUrl) {
-                return docsUrl
-            }
-        }
-
         return DiagnosticDocs.UrlFor(code)
     }
 
@@ -72,8 +67,6 @@ class DiagnosticCatalog {
     static func BuildDescriptors(): List<DiagnosticDescriptor> {
         descriptors := new List<DiagnosticDescriptor>()
         AddCompilerDescriptors(descriptors)
-        AddPerformanceDescriptors(descriptors)
-        AddAotDescriptors(descriptors)
         AddLinterRuleDescriptors(descriptors)
         return descriptors
     }
@@ -125,7 +118,6 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.TypeMismatch)
         AddCompiler(descriptors, ErrorCode.CannotInferType)
         AddCompiler(descriptors, ErrorCode.InvalidCast)
-        AddCompiler(descriptors, ErrorCode.AmbiguousType)
         AddCompiler(descriptors, ErrorCode.CannotResolveType)
         AddCompiler(descriptors, ErrorCode.InvalidTypeArgument)
         AddCompiler(descriptors, ErrorCode.GenericConstraintViolation)
@@ -158,12 +150,8 @@ class DiagnosticCatalog {
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
-        AddCompiler(descriptors, ErrorCode.MissingRequiredParameter)
-        AddCompiler(descriptors, ErrorCode.DuplicateParameter)
         AddCompiler(descriptors, ErrorCode.InvalidParameter)
-        AddCompiler(descriptors, ErrorCode.RefOutMismatch)
         AddCompiler(descriptors, ErrorCode.ParamsNotLast)
-        AddCompiler(descriptors, ErrorCode.MultipleParams)
         AddCompiler(descriptors, ErrorCode.RequiredParameterAfterOptional)
         AddCompiler(descriptors, ErrorCode.InvalidDefaultParameterValue)
         AddCompiler(descriptors, ErrorCode.MethodGroupUsedAsValue)
@@ -178,8 +166,6 @@ class DiagnosticCatalog {
 
         AddCompiler(descriptors, ErrorCode.InvalidOperatorOverload)
         AddCompiler(descriptors, ErrorCode.OperatorParameterCount)
-        AddCompiler(descriptors, ErrorCode.ComparisonOperatorPair)
-        AddCompiler(descriptors, ErrorCode.ConversionOperatorInvalid)
 
         AddCompiler(descriptors, ErrorCode.ImportNotFound)
         AddCompiler(descriptors, ErrorCode.ImportCollision)
@@ -189,14 +175,9 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.MultipleInheritance)
         AddCompiler(descriptors, ErrorCode.SealedInheritance)
         AddCompiler(descriptors, ErrorCode.AbstractInstantiation)
-        AddCompiler(descriptors, ErrorCode.InterfaceImplementationMissing)
-        AddCompiler(descriptors, ErrorCode.DuckInterfaceMismatch)
         AddCompiler(descriptors, ErrorCode.ConstructorError)
 
-        AddCompiler(descriptors, ErrorCode.UnusedVariable)
-        AddCompiler(descriptors, ErrorCode.UnreachableCode)
         AddCompiler(descriptors, ErrorCode.VisibilityConventionWarning)
-        AddCompiler(descriptors, ErrorCode.ObsoleteUsage)
         AddCompiler(descriptors, ErrorCode.PossibleNullAccess)
         AddCompiler(descriptors, ErrorCode.NullabilityWarning)
         AddCompiler(descriptors, ErrorCode.ReferenceLoadFailure)
@@ -234,7 +215,7 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Pattern
         }
 
-        if value >= Convert.ToInt32(ErrorCode.InvalidOperatorOverload) && value <= Convert.ToInt32(ErrorCode.ConversionOperatorInvalid) {
+        if value >= Convert.ToInt32(ErrorCode.InvalidOperatorOverload) && value <= Convert.ToInt32(ErrorCode.OperatorParameterCount) {
             return DiagnosticCategory.Operator
         }
 
@@ -250,11 +231,7 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Nullability
         }
 
-        if code == ErrorCode.UnusedVariable || code == ErrorCode.UnreachableCode {
-            return DiagnosticCategory.Hygiene
-        }
-
-        if code == ErrorCode.VisibilityConventionWarning || code == ErrorCode.ObsoleteUsage {
+        if code == ErrorCode.VisibilityConventionWarning {
             return DiagnosticCategory.Style
         }
 
@@ -276,37 +253,6 @@ class DiagnosticCatalog {
 
     static func Linter(code: string, title: string, category: DiagnosticCategory, severity: DiagnosticSeverity, blocksBuild: bool): DiagnosticDescriptor {
         return new DiagnosticDescriptor(code, title, DiagnosticSource.Linter, category, severity, blocksBuild)
-    }
-
-    static func AddPerformanceDescriptors(descriptors: List<DiagnosticDescriptor>) {
-        AddDescriptor(descriptors, Performance(ErrorCode.AllocationHere, "Allocation here", DiagnosticSeverity.Info, "Allocates here because the value escapes its enclosing scope, so it cannot live on the stack."))
-
-        AddDescriptor(descriptors, Performance(ErrorCode.BoxingHere, "Boxing here", DiagnosticSeverity.Warning, "Boxes here because a value type is used through an interface or object, forcing a heap allocation."))
-
-        AddDescriptor(descriptors, Performance(ErrorCode.VirtualDispatchNotDevirtualized, "Virtual dispatch not devirtualized", DiagnosticSeverity.Info, "Uses callvirt here because the receiver type is not proven exact, so the call cannot be devirtualized or inlined."))
-
-        AddDescriptor(descriptors, Performance(ErrorCode.ClosureAllocation, "Closure allocation", DiagnosticSeverity.Warning, "Allocates a closure here because the lambda captures variables from its enclosing scope."))
-
-        AddDescriptor(descriptors, Performance(ErrorCode.DelegateAllocation, "Delegate allocation", DiagnosticSeverity.Warning, "Allocates a delegate here because a method group or lambda is converted to a delegate instance."))
-    }
-
-    static func Performance(code: ErrorCode, title: string, severity: DiagnosticSeverity, explanation: string): DiagnosticDescriptor {
-        return new DiagnosticDescriptor(FormatDiagnosticCode(code), title, DiagnosticSource.Compiler, DiagnosticCategory.Performance, severity, false, true, null, explanation)
-    }
-
-    static func AddAotDescriptors(descriptors: List<DiagnosticDescriptor>) {
-        AddDescriptor(descriptors, Aot(ErrorCode.AotReflectionUse, "Reflection blocks AOT", "Uses runtime reflection here. The trimmer cannot see which members are accessed reflectively, so they may be removed, and Native AOT cannot resolve them ahead of time."))
-
-        AddDescriptor(descriptors, Aot(ErrorCode.AotDynamicCode, "Dynamic code blocks AOT", "Generates or invokes code at runtime here (e.g. Reflection.Emit, Activator.CreateInstance, or dynamic dispatch). Native AOT has no JIT, so dynamically generated code cannot run."))
-
-        AddDescriptor(descriptors, Aot(ErrorCode.AotMakeGenericType, "Runtime generic instantiation blocks AOT", "Constructs a generic type or method at runtime here (MakeGenericType / MakeGenericMethod). Native AOT only instantiates the generic combinations it can see at compile time."))
-
-        AddDescriptor(descriptors, Aot(ErrorCode.AotExpressionTree, "Expression tree blocks AOT", "Builds or compiles a LINQ expression tree here. Compiling an expression tree emits IL at runtime, which Native AOT cannot do."))
-    }
-
-    static func Aot(code: ErrorCode, title: string, explanation: string): DiagnosticDescriptor {
-        codeText := FormatDiagnosticCode(code)
-        return new DiagnosticDescriptor(codeText, title, DiagnosticSource.Compiler, DiagnosticCategory.Aot, DiagnosticSeverity.Info, false, true, DiagnosticDocs.UrlFor(codeText), explanation)
     }
 
     static func FormatDiagnosticCode(code: ErrorCode): string {
@@ -340,23 +286,6 @@ class DiagnosticCatalog {
         }
 
         return title.ToString()
-    }
-
-    static func HasNonWhiteSpaceText(value: string?): bool {
-        if value == null {
-            return false
-        }
-
-        i := 0
-        while i < value.Length {
-            if !char.IsWhiteSpace(value[i]) {
-                return true
-            }
-
-            i = i + 1
-        }
-
-        return false
     }
 
     static func EmptyDescriptor(): DiagnosticDescriptor {

@@ -107,7 +107,7 @@ test "a rule code is matched case-insensitively, and an unknown code falls back 
 
     // Not in the config's own table: the answer comes from the catalog, and for a code that is in
     // neither the answer is the catalog's own fallback.
-    assert config.GetSeverity("NL951") == DiagnosticSeverity.Warning
+    assert config.GetSeverity("NL923") == DiagnosticSeverity.Warning
     assert config.GetSeverity("NL109") == DiagnosticSeverity.Error
     assert config.GetSeverity("NL9999") == DiagnosticSeverity.Warning
 }

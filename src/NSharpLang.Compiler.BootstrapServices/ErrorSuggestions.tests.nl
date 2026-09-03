@@ -15,8 +15,8 @@ namespace NSharpLang.Compiler
 //
 // THE THREE THINGS IT IS EASY TO GET WRONG:
 //
-// (1) FOUR CODES ANSWER ONLY WHEN THEY ARE GIVEN CONTEXT. `UndefinedVariable`, `UndefinedFunction`
-// and `DuckInterfaceMismatch` answer NULL without it, and `ShadowedDeclaration` answers a DIFFERENT
+// (1) THREE CODES ANSWER ONLY WHEN THEY ARE GIVEN CONTEXT. `UndefinedVariable` and
+// `UndefinedFunction` answer NULL without it, and `ShadowedDeclaration` answers a DIFFERENT
 // sentence. A caller that forgets to pass context silently loses the help line.
 //
 // (2) THE TABLE IS A FALL-THROUGH CHAIN, NOT A SWITCH. `UndefinedVariable` with no context does not
@@ -96,22 +96,18 @@ test "the context-free suggestion table answers every code it names" {
     assert ErrorSuggestionText(ErrorCode.ImportCollision) == "Use 'import ... as Alias' to resolve naming conflicts"
     assert ErrorSuggestionText(ErrorCode.CircularImport) == "Reorganize imports to avoid cycles. Move shared types to a separate file that both files can import"
     assert ErrorSuggestionText(ErrorCode.InvalidOperatorOverload) == "Operators must be public static and have correct parameter types"
-    assert ErrorSuggestionText(ErrorCode.ComparisonOperatorPair) == "Define both operators in the pair (== with !=, < with >, <= with >=)"
     assert ErrorSuggestionText(ErrorCode.UnreachableStatement) == "Remove unreachable code or restructure control flow"
     assert ErrorSuggestionText(ErrorCode.InvalidExpressionStatement) == "Use the value by assigning it, printing it, passing it to a call, or remove the expression"
 }
 
 // NOT IN THE DELETED FILE AT ALL: the four codes whose answer DEPENDS on what they are given, and
 // the fall-through that leaves three of them null when they are given nothing.
-test "four codes answer only when they are given context or additional info" {
+test "three codes answer only when they are given context" {
     assert ErrorSuggestionText(ErrorCode.UndefinedVariable) == "<null>"
     assert ErrorSuggestionTextWithContext(ErrorCode.UndefinedVariable, "counter") == "Variable 'counter' is not defined in current scope"
 
     assert ErrorSuggestionText(ErrorCode.UndefinedFunction) == "<null>"
     assert ErrorSuggestionTextWithContext(ErrorCode.UndefinedFunction, "Hi") == "Function 'Hi' is not defined in current scope"
-
-    assert ErrorSuggestionText(ErrorCode.DuckInterfaceMismatch) == "<null>"
-    assert ErrorSuggestionTextWithInfo(ErrorCode.DuckInterfaceMismatch, "Draw()") == "Implement missing method: Draw()"
 
     // `ShadowedDeclaration` answers in BOTH cases, but with different sentences — the only code in
     // the table that does.
@@ -123,10 +119,10 @@ test "four codes answer only when they are given context or additional info" {
 test "an unmapped code has no suggestion at all" {
     assert ErrorSuggestionText(ErrorCode.UnexpectedToken) == "<null>"
     assert ErrorSuggestionText(ErrorCode.InvalidSyntax) == "<null>"
-    assert ErrorSuggestionText(ErrorCode.UnusedVariable) == "<null>"
+    assert ErrorSuggestionText(ErrorCode.SealedInheritance) == "<null>"
     assert ErrorSuggestionText(ErrorCode.PossibleNullAccess) == "<null>"
     assert ErrorSuggestionText(ErrorCode.NoMatchingOverload) == "<null>"
-    assert ErrorSuggestionText(ErrorCode.AotExpressionTree) == "<null>"
+    assert ErrorSuggestionText(ErrorCode.ReferenceLoadFailure) == "<null>"
     assert ErrorSuggestionTextWithContext(ErrorCode.UnexpectedToken, "anything") == "<null>"
 }
 

@@ -300,21 +300,21 @@ N# is near-zero-warnings: every active lint rule is a build-blocking **error**. 
 | NL016 | error | Redundant null check on an always-non-null expression |
 | NL020 | error | Shadowed variable |
 
-Compiler safety diagnostics are likewise build-blocking errors: `NL905` (possible null access, flow-based), `NL903` (visibility convention), `NL904` (obsolete usage), and `NL907` (nullability).
+Compiler safety diagnostics are likewise build-blocking errors: `NL905` (possible null access, flow-based), `NL903` (visibility convention), and `NL907` (nullability).
 
 Pure-style rules that used to emit `info`/`warning` diagnostics — `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014`/`NL906` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block) — have been removed and folded into `nlc format`.
 
-### Performance Diagnostics (NL950–NL999)
+### Allocation, boxing and AOT diagnostics
 
-Advisory diagnostics emitted by the optimizer to explain allocation and dispatch decisions. They never block builds.
+These are reported by the **systems analyzer**, under the `NSYS` codes, and only where a systems
+policy asks for them — `[hot]`, `alloc(none)`, a `[boundary]`, or an `aotTarget`. `NSYS010`
+(allocation), `NSYS020` (boxing), `NSYS030` (delegate or closure construction), `NSYS040` (runtime
+dispatch) and `NSYS060` (AOT/trim safety) are the codes to look for; see
+[Systems Programming](./systems.md).
 
-| Code | Severity | Description |
-|------|----------|-------------|
-| NL950 | info | Allocation here — the value escapes its scope and cannot live on the stack |
-| NL951 | warning | Boxing here — a value type is used through an interface or object |
-| NL952 | info | Virtual dispatch not devirtualized — receiver type is not proven exact |
-| NL953 | warning | Closure allocation — the lambda captures enclosing variables |
-| NL954 | warning | Delegate allocation — a method group or lambda is converted to a delegate |
+An earlier `NL950`–`NL954` / `NL960`–`NL963` band was documented here as "emitted by the optimizer".
+Nothing ever emitted it. Those rows were retired from the catalog rather than left as documentation
+for output no compiler produced.
 
 ## Inline Lint Suppression
 
