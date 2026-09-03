@@ -33,11 +33,156 @@ class CompletionEngineKernels {
         return new CompletionReceiverClassification(true, receiver)
     }
 
-    static func AddGroupedCompletionItemsByKind(items: List<CompletionItem>, completions: Dictionary<string, List<CompletionItem>>) {
-        if items.Count == 0 {
+    // ── ONE ROW PER NAME, IN ONE ORDER, SAID ONCE ──────────────────────────────────────────────
+    //
+    // WHAT A `string` RECEIVER USED TO ANSWER: 107 rows, 27 of them names repeated — `Split`
+    // eleven times, `IndexOf` ten, `LastIndexOf` nine — because `GetMethods` hands back one
+    // `MethodInfo` per OVERLOAD and every one became its own item with the same label. In an
+    // editor that is a list you cannot read; the same 107 collapse to 39.
+    //
+    // ONE ROW PER MEMBER NAME, WITH THE COUNT IN THE DETAIL, is what Roslyn shows in VS Code and
+    // what TypeScript shows, and it is the only shape that satisfies the extension suite's
+    // duplicate-label check. The alternative — a row per overload with distinct labels — asks a
+    // completion list to do signature help's job at the moment the user has typed a dot and no
+    // arguments, so there is nothing yet to tell the overloads apart with.
+    //
+    // AND THE RULE WAS ALREADY HERE, SPELLED IN C# IN ONE PLACE ONLY. `PlaygroundCompiler` had
+    // `DeduplicateCompletions`: group by label, keep the first, order by a kind rank then the
+    // label. The playground has been ordering its lists that way all along while the CLI and the
+    // editor showed reflection order — a third spelling of a shared decision, and the wrong two
+    // were the ones a developer looks at. This is that rule, moved to its owner, with the count
+    // the C# threw away when it kept only the first row.
+    static func CompletionKindSortRank(kind: string): int {
+        if kind == "keyword" {
+            return 0
+        }
+        if kind == "variable" || kind == "parameter" {
+            return 1
+        }
+        if kind == "function" || kind == "method" {
+            return 2
+        }
+        if kind == "property" || kind == "field" {
+            return 3
+        }
+        if kind == "class" || kind == "record" || kind == "struct" || kind == "interface" || kind == "enum" || kind == "union" || kind == "type" {
+            return 4
+        }
+
+        return 9
+    }
+
+    // Collapse by name, then order by kind rank and name. The FIRST row of a name survives and
+    // carries the count of the whole set, so the surviving signature is the one the receiver
+    // offered first — the same row the playground's `.First()` kept, now able to say how many it
+    // stands for. An already-collapsed row keeps its count, because the counts are SUMMED rather
+    // than reset; running this twice is the same as running it once, which is what lets the CLI
+    // group and the editor flatten through the same function.
+    //
+    // NOT EVERY REPEATED NAME IS AN OVERLOAD, AND BOTH WAYS THAT GOES WRONG WERE MEASURED RATHER
+    // THAN PREDICTED. An identifier position offers `async` as a KEYWORD and again as a MODIFIER,
+    // and it offers `Add` twice with the identical signature, because the declared-type table lists
+    // top-level functions beside the functions table. Counting either merge would have told the
+    // reader that their own one-line `Add` has an overload — a claim about their program, not a
+    // display quirk. So a merge raises the count only when the two rows are the SAME KIND and carry
+    // a signature the name has not shown yet; every other duplicate still collapses to one row,
+    // because the reader must see the name once, but contributes nothing to the count.
+    static func CollapseCompletionOverloads(items: List<CompletionItem>): List<CompletionItem> {
+        collapsed := new List<CompletionItem>()
+        indexByName := new Dictionary<string, int>(StringComparer.Ordinal)
+        seenSignatures := new HashSet<string>()
+
+        i := 0
+        while i < items.Count {
+            item := items[i]
+            signature := CompletionItemSignatureKey(item)
+            existingIndex := 0
+            if indexByName.TryGetValue(item.Name, out existingIndex) {
+                existing := collapsed[existingIndex]
+                if existing.Kind == item.Kind && !seenSignatures.Contains(signature) {
+                    seenSignatures.Add(signature)
+                    collapsed[existingIndex] = new CompletionItem(existing.Name, existing.Kind, existing.Type, existing.Parameters, existing.Documentation, existing.IsStatic, existing.Overloads + item.Overloads)
+                }
+            } else {
+                seenSignatures.Add(signature)
+                indexByName.Add(item.Name, collapsed.Count)
+                collapsed.Add(item)
+            }
+
+            i = i + 1
+        }
+
+        return OrderCompletionItems(collapsed)
+    }
+
+    // What makes two rows the same declaration to a reader: the name, the word it is offered under,
+    // and the signature drawn beside it. Two rows equal in all three are one member listed twice.
+    static func CompletionItemSignatureKey(item: CompletionItem): string {
+        return item.Name + "\n" + item.Kind + "\n" + (item.Parameters ?? "") + "\n" + (item.Type ?? "")
+    }
+
+    // A STABLE insertion sort on (kind rank, name), and the stability is a contract: two rows that
+    // compare equal keep the order the receiver produced them in, which is what makes the answer
+    // reproducible rather than dependent on a sort's internals.
+    static func OrderCompletionItems(items: List<CompletionItem>): List<CompletionItem> {
+        ordered := new List<CompletionItem>()
+
+        i := 0
+        while i < items.Count {
+            item := items[i]
+            position := ordered.Count
+            j := 0
+            while j < ordered.Count {
+                if CompareCompletionItems(item, ordered[j]) < 0 {
+                    position = j
+                    j = ordered.Count
+                } else {
+                    j = j + 1
+                }
+            }
+
+            ordered.Insert(position, item)
+            i = i + 1
+        }
+
+        return ordered
+    }
+
+    static func CompareCompletionItems(left: CompletionItem, right: CompletionItem): int {
+        rankDifference := CompletionKindSortRank(left.Kind) - CompletionKindSortRank(right.Kind)
+        if rankDifference != 0 {
+            return rankDifference
+        }
+
+        return string.Compare(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)
+    }
+
+    // THE GROUPS AS ONE LIST, FOR THE TWO SURFACES THAT DRAW A LIST RATHER THAN A TABLE. The
+    // editor and the playground both want a flat, ordered, duplicate-free answer, and asking the
+    // same function for it is what keeps them from drifting apart the way they had.
+    static func FlattenCompletionGroups(completions: Dictionary<string, List<CompletionItem>>): List<CompletionItem> {
+        flattened := new List<CompletionItem>()
+        for pair in completions {
+            group := pair.Value
+            index := 0
+            while index < group.Count {
+                flattened.Add(group[index])
+                index = index + 1
+            }
+        }
+
+        return CollapseCompletionOverloads(flattened)
+    }
+
+    static func AddGroupedCompletionItemsByKind(rawItems: List<CompletionItem>, completions: Dictionary<string, List<CompletionItem>>) {
+        if rawItems.Count == 0 {
             return
         }
 
+        // Collapsed and ordered BEFORE grouping, so the groups arrive in kind-rank order and each
+        // one is alphabetical inside — the JSON's group order and the editor's row order are then
+        // the same order, computed once.
+        items := CollapseCompletionOverloads(rawItems)
         order := new List<string>()
         groups := new Dictionary<string, List<CompletionItem>>(StringComparer.Ordinal)
 
@@ -71,6 +216,13 @@ class CompletionEngineKernels {
     }
 
     static func BuildMemberItemsFromRows(names: string[], kinds: string[], typeTexts: string[], isStaticValues: bool[]): List<CompletionItem> {
+        return BuildMemberItemsFromRows(names, kinds, typeTexts, isStaticValues, new int[](0))
+    }
+
+    // THE SAME ROWS, PLUS HOW MANY DECLARATIONS EACH ONE STANDS FOR. A count array shorter than the
+    // rows — or absent entirely — means one declaration each, which is what every producer but the
+    // reflected one has to say.
+    static func BuildMemberItemsFromRows(names: string[], kinds: string[], typeTexts: string[], isStaticValues: bool[], overloads: int[]): List<CompletionItem> {
         items := new List<CompletionItem>()
         count := names.Length
         if kinds.Length < count {
@@ -92,7 +244,12 @@ class CompletionEngineKernels {
                 typeText = typeTexts[i]
             }
 
-            items.Add(new CompletionItem(names[i], kinds[i], typeText, null, null, isStaticValues[i]))
+            overloadCount := 1
+            if i < overloads.Length && overloads[i] > 1 {
+                overloadCount = overloads[i]
+            }
+
+            items.Add(new CompletionItem(names[i], kinds[i], typeText, null, null, isStaticValues[i], overloadCount))
             i = i + 1
         }
 

@@ -9,6 +9,7 @@ class CompletionItem {
     parametersValue: string?
     documentationValue: string?
     isStaticValue: bool
+    overloadsValue: int
 
     Name: string => nameValue
     Kind: string => kindValue
@@ -17,13 +18,20 @@ class CompletionItem {
     Documentation: string? => documentationValue
     IsStatic: bool => isStaticValue
 
-    constructor(Name: string, Kind: string, Type: string?, Parameters: string?, Documentation: string?, IsStatic: bool) {
+    // HOW MANY DECLARATIONS WEAR THIS NAME. One, for everything that is not an overload set — so a
+    // caller that never thought about overloads gets the honest answer without asking. A collapsed
+    // row carries the count of the rows it stands for, which is the only place the information a
+    // reader lost when the duplicates went can still be said.
+    Overloads: int => overloadsValue
+
+    constructor(Name: string, Kind: string, Type: string?, Parameters: string?, Documentation: string?, IsStatic: bool, Overloads: int = 1) {
         nameValue = Name
         kindValue = Kind
         typeValue = Type
         parametersValue = Parameters
         documentationValue = Documentation
         isStaticValue = IsStatic
+        overloadsValue = Overloads
     }
 }
 

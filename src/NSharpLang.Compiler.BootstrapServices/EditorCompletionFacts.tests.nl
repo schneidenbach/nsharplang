@@ -86,3 +86,24 @@ test "NO RANK CAN OVERFLOW THE PAD, so the ordering never degrades at the tail" 
     assert String.Compare(EditorCompletionFacts.MemberSortText(9999), EditorCompletionFacts.MemberSortText(10000), StringComparison.Ordinal) < 0
     assert String.Compare(EditorCompletionFacts.MemberSortText(10000), EditorCompletionFacts.MemberSortText(2147483647), StringComparison.Ordinal) < 0
 }
+
+test "the collapsed row says how many declarations it stands for" {
+    single := new CompletionItem("Trim", "method", "string", "()", null, false)
+    assert EditorCompletionFacts.OverloadSuffix(single) == ""
+    assert EditorCompletionFacts.MemberDetailText(single) == "(): string"
+
+    pair := new CompletionItem("ToUpper", "method", "string", "()", null, false, 2)
+    assert EditorCompletionFacts.OverloadSuffix(pair) == " (+1 overload)"
+    assert EditorCompletionFacts.MemberDetailText(pair) == "(): string (+1 overload)"
+
+    // ELEVEN `Split` DECLARATIONS, ONE ROW: the count is the whole reason the row can afford to be
+    // one, and hover's own wording is reused so the two surfaces say it the same way.
+    many := new CompletionItem("Split", "method", "string[]", "(separator char)", null, false, 11)
+    assert EditorCompletionFacts.OverloadSuffix(many) == " (+10 overloads)"
+    assert EditorCompletionFacts.MemberDetailText(many) == "(separator char): string[] (+10 overloads)"
+
+    // The three thinner details carry it too, including the one that falls back to the kind word.
+    assert EditorCompletionFacts.MemberDetailText(new CompletionItem("Split", "method", null, "(x int)", null, false, 3)) == "(x int) (+2 overloads)"
+    assert EditorCompletionFacts.MemberDetailText(new CompletionItem("Length", "property", "int", null, null, false, 1)) == "int"
+    assert EditorCompletionFacts.MemberDetailText(new CompletionItem("Odd", "union", null, null, null, false, 4)) == "union (+3 overloads)"
+}

@@ -147,7 +147,7 @@ public sealed class PlaygroundCompiler
             Context: context,
             Receiver: receiver,
             ReceiverType: receiverType,
-            Items: DeduplicateCompletions(items),
+            Items: items,
             Diagnostics: diagnostics,
             Summary: summary);
     }
@@ -385,36 +385,21 @@ public sealed class PlaygroundCompiler
         }
     }
 
+    /// <summary>
+    /// One row per member name, kind-rank then name, from the N# owner the CLI and the editor ask.
+    /// The 200-row cap stays here: it is the playground's own budget, not a rule about completions.
+    /// </summary>
     private static IReadOnlyList<PlaygroundCompletionItem> FlattenCompletions(CompletionResult result)
-        => result.Completions
-            .SelectMany(group => group.Value)
+        => CompletionEngineKernels.FlattenCompletionGroups(result.Completions)
             .Select(item => new PlaygroundCompletionItem(
                 Label: item.Name,
                 Kind: item.Kind,
-                Detail: string.Join(" ", new[] { item.Parameters, item.Type }.Where(value => !string.IsNullOrWhiteSpace(value))),
+                Detail: string.Join(" ", new[] { item.Parameters, item.Type }.Where(value => !string.IsNullOrWhiteSpace(value)))
+                    + EditorCompletionFacts.OverloadSuffix(item),
                 Documentation: item.Documentation,
                 InsertText: item.Name))
-            .ToArray();
-
-    private static IReadOnlyList<PlaygroundCompletionItem> DeduplicateCompletions(IEnumerable<PlaygroundCompletionItem> items)
-        => items
-            .GroupBy(item => item.Label, StringComparer.Ordinal)
-            .Select(group => group.First())
-            .OrderBy(item => CompletionSortRank(item.Kind))
-            .ThenBy(item => item.Label, StringComparer.OrdinalIgnoreCase)
             .Take(200)
             .ToArray();
-
-    private static int CompletionSortRank(string kind)
-        => kind switch
-        {
-            "keyword" => 0,
-            "variable" or "parameter" => 1,
-            "function" or "method" => 2,
-            "property" or "field" => 3,
-            "class" or "record" or "struct" or "interface" or "enum" or "union" or "type" => 4,
-            _ => 9
-        };
 
     private static PlaygroundCheckResponse BuildCheckResponse(
         string fileName,

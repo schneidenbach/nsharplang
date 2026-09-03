@@ -364,13 +364,30 @@ class CompletionReflectionFacts {
         isStaticValues := new List<bool>()
 
         // EVERY REFLECTED MEMBER IS READ THROUGH THE LOOP'S OWN BINDING, never through an index.
+        //
+        // ONE ROW PER NAME, AND THIS IS THE ONLY PLACE THAT CAN COUNT THEM. `GetMethods` hands back
+        // one `MethodInfo` per OVERLOAD — `string` answers eleven `Split`s and ten `IndexOf`s — and
+        // a completion row carries no parameter list to tell them apart with, so nothing downstream
+        // could ever reconstruct the number. It is counted here, where the `MethodInfo`s are, and
+        // travels on the row as `Overloads`; the first overload's return type is the one shown,
+        // which is the row the reader would have seen first anyway.
+        overloads := new List<int>()
+        indexByName := new Dictionary<string, int>(StringComparer.Ordinal)
         methods := clrType.GetMethods(flags)
         for method in methods {
             if IsOfferableMethod(method) {
-                names.Add(method.get_Name())
-                kinds.Add("method")
-                typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(method.get_ReturnType()))
-                isStaticValues.Add(method.get_IsStatic())
+                methodName := method.get_Name()
+                existingIndex := 0
+                if indexByName.TryGetValue(methodName, out existingIndex) {
+                    overloads[existingIndex] = overloads[existingIndex] + 1
+                } else {
+                    indexByName.Add(methodName, names.Count)
+                    names.Add(methodName)
+                    kinds.Add("method")
+                    typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(method.get_ReturnType()))
+                    isStaticValues.Add(method.get_IsStatic())
+                    overloads.Add(1)
+                }
             }
         }
 
@@ -381,6 +398,7 @@ class CompletionReflectionFacts {
                 kinds.Add("property")
                 typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(property.get_PropertyType()))
                 isStaticValues.Add(PropertyIsStatic(property))
+                overloads.Add(1)
             }
         }
 
@@ -391,10 +409,11 @@ class CompletionReflectionFacts {
                 kinds.Add("field")
                 typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(field.get_FieldType()))
                 isStaticValues.Add(field.get_IsStatic())
+                overloads.Add(1)
             }
         }
 
-        return CompletionEngineKernels.BuildMemberItemsFromRows(names.ToArray(), kinds.ToArray(), typeTexts.ToArray(), isStaticValues.ToArray())
+        return CompletionEngineKernels.BuildMemberItemsFromRows(names.ToArray(), kinds.ToArray(), typeTexts.ToArray(), isStaticValues.ToArray(), overloads.ToArray())
     }
 
     // A METHOD A CALLER COULD ACTUALLY WRITE. The CLR compiles a property into a pair of ordinary

@@ -233,3 +233,205 @@ test "the declared types of the file are offered in source order and unnameable 
     assert items[0].Kind == "class"
     assert items[1].Kind == "interface"
 }
+
+// ── THE OVERLOAD COLLAPSE AND THE ONE ORDER (O1) ────────────────────────────────────────────────
+//
+// A `string` receiver answered 107 rows under 39 names because `GetMethods` hands back one entry
+// per overload. These blocks pin the collapse, the count it owes the reader, and the order — which
+// is not a new rule but the one `PlaygroundCompiler.DeduplicateCompletions` had been applying in C#
+// while the CLI and the editor showed reflection order.
+func CekItem(name: string, kind: string): CompletionItem {
+    return new CompletionItem(name, kind, null, null, null, false)
+}
+
+func CekNames(items: List<CompletionItem>): string {
+    names := ""
+    index := 0
+    while index < items.Count {
+        if names.Length > 0 {
+            names = names + ","
+        }
+
+        names = names + items[index].Name
+        index = index + 1
+    }
+
+    return names
+}
+
+test "the kind rank is the playground's, moved to its owner" {
+    assert CompletionEngineKernels.CompletionKindSortRank("keyword") == 0
+    assert CompletionEngineKernels.CompletionKindSortRank("variable") == 1
+    assert CompletionEngineKernels.CompletionKindSortRank("parameter") == 1
+    assert CompletionEngineKernels.CompletionKindSortRank("function") == 2
+    assert CompletionEngineKernels.CompletionKindSortRank("method") == 2
+    assert CompletionEngineKernels.CompletionKindSortRank("property") == 3
+    assert CompletionEngineKernels.CompletionKindSortRank("field") == 3
+    assert CompletionEngineKernels.CompletionKindSortRank("record") == 4
+    assert CompletionEngineKernels.CompletionKindSortRank("type") == 4
+    assert CompletionEngineKernels.CompletionKindSortRank("modifier") == 9
+    assert CompletionEngineKernels.CompletionKindSortRank("snippet") == 9
+}
+
+test "overloads collapse to one row that counts them, and the first row is the survivor" {
+    items := new List<CompletionItem>()
+    items.Add(new CompletionItem("Split", "method", "string[]", "(separator char)", null, false))
+    items.Add(new CompletionItem("Split", "method", "string[]", "(separator string)", null, false))
+    items.Add(new CompletionItem("Split", "method", "string[]", "(separator char[])", null, false))
+    items.Add(CekItem("Length", "property"))
+
+    collapsed := CompletionEngineKernels.CollapseCompletionOverloads(items)
+    assert CekNames(collapsed) == "Split,Length"
+
+    // THE SURVIVOR IS THE FIRST ROW, so the signature shown is the one the receiver offered first.
+    assert collapsed[0].Parameters == "(separator char)"
+    assert collapsed[0].Overloads == 3
+    assert collapsed[1].Overloads == 1
+
+    // IDEMPOTENT: the counts are summed, not reset, so grouping and then flattening cannot inflate
+    // or lose them — which is what lets the CLI and the editor run the same function.
+    twice := CompletionEngineKernels.CollapseCompletionOverloads(collapsed)
+    assert CekNames(twice) == "Split,Length"
+    assert twice[0].Overloads == 3
+}
+
+test "a name that appears under two KINDS collapses without being called an overload" {
+    // An identifier position really does offer these: `Add` is both a function and a row in the
+    // declared-type table, and `async` is both a keyword and a modifier. The reader must still see
+    // one row each — but telling them `Add` has an overload would be a claim about their program.
+    items := new List<CompletionItem>()
+    items.Add(CekItem("Add", "function"))
+    items.Add(CekItem("Add", "type"))
+    items.Add(CekItem("async", "keyword"))
+    items.Add(CekItem("async", "modifier"))
+
+    collapsed := CompletionEngineKernels.CollapseCompletionOverloads(items)
+    assert CekNames(collapsed) == "async,Add"
+    assert collapsed[0].Overloads == 1
+    assert collapsed[1].Overloads == 1
+
+    // The FIRST row still wins, so `Add` keeps the kind the functions table gave it.
+    assert collapsed[1].Kind == "function"
+    assert collapsed[0].Kind == "keyword"
+}
+
+test "the SAME declaration listed twice is one row and one declaration" {
+    // The identifier position really does offer `Add` twice with the identical signature: the
+    // declared-type table lists top-level functions beside the functions table. Same kind, same
+    // everything — so it is one listing repeated, not an overload set.
+    items := new List<CompletionItem>()
+    items.Add(new CompletionItem("Add", "function", "int", "(a int, b int)", null, false))
+    items.Add(new CompletionItem("Add", "function", "int", "(a int, b int)", null, false))
+
+    collapsed := CompletionEngineKernels.CollapseCompletionOverloads(items)
+    assert collapsed.Count == 1
+    assert collapsed[0].Overloads == 1
+
+    // Change one field of the signature and it becomes what it now looks like: two declarations.
+    distinct := new List<CompletionItem>()
+    distinct.Add(new CompletionItem("Add", "function", "int", "(a int, b int)", null, false))
+    distinct.Add(new CompletionItem("Add", "function", "int", "(a int, b int, c int)", null, false))
+    assert CompletionEngineKernels.CollapseCompletionOverloads(distinct)[0].Overloads == 2
+}
+
+test "a row can be built already carrying its declaration count" {
+    names := new string[](2)
+    names[0] = "Split"
+    names[1] = "Length"
+    kinds := new string[](2)
+    kinds[0] = "method"
+    kinds[1] = "property"
+    typeTexts := new string[](2)
+    typeTexts[0] = "string[]"
+    typeTexts[1] = "int"
+    isStatic := new bool[](2)
+    isStatic[0] = false
+    isStatic[1] = false
+
+    // NO COUNTS AT ALL: one declaration each, which is what every producer but the reflected one says.
+    plain := CompletionEngineKernels.BuildMemberItemsFromRows(names, kinds, typeTexts, isStatic)
+    assert plain.Count == 2
+    assert plain[0].Overloads == 1
+    assert plain[1].Overloads == 1
+
+    counts := new int[](2)
+    counts[0] = 11
+    counts[1] = 1
+    counted := CompletionEngineKernels.BuildMemberItemsFromRows(names, kinds, typeTexts, isStatic, counts)
+    assert counted[0].Overloads == 11
+    assert counted[1].Overloads == 1
+
+    // A SHORT COUNT ARRAY IS NOT A FAULT, it is "one each" for the rows it does not reach — the
+    // reflected builder is the only caller that fills it, and it fills it completely.
+    short := new int[](1)
+    short[0] = 4
+    shortened := CompletionEngineKernels.BuildMemberItemsFromRows(names, kinds, typeTexts, isStatic, short)
+    assert shortened[0].Overloads == 4
+    assert shortened[1].Overloads == 1
+}
+
+test "the order is kind rank first, then the name, and it is stable inside a tie" {
+    items := new List<CompletionItem>()
+    items.Add(CekItem("zeta", "property"))
+    items.Add(CekItem("Beta", "method"))
+    items.Add(CekItem("alpha", "method"))
+    items.Add(CekItem("Widget", "record"))
+    items.Add(CekItem("count", "variable"))
+    items.Add(CekItem("if", "keyword"))
+
+    // keyword(0), variable(1), method(2), property(3), type(4) — and alphabetical, case-insensitively,
+    // inside each run, which is why `alpha` precedes `Beta`.
+    assert CekNames(CompletionEngineKernels.OrderCompletionItems(items)) == "if,count,alpha,Beta,zeta,Widget"
+}
+
+test "the grouped answer arrives collapsed, in rank order, with each group alphabetical" {
+    items := new List<CompletionItem>()
+    items.Add(CekItem("summary", "property"))
+    items.Add(new CompletionItem("Trim", "method", "string", "()", null, false))
+    items.Add(new CompletionItem("Trim", "method", "string", "(trimChar char)", null, false))
+    items.Add(CekItem("Contains", "method"))
+
+    completions := new Dictionary<string, List<CompletionItem>>()
+    CompletionEngineKernels.AddGroupedCompletionItemsByKind(items, completions)
+
+    // METHODS BEFORE PROPERTIES even though a property was produced first: the group order follows
+    // the kind rank now, not the order the receiver happened to reflect its members in.
+    assert CekGroupOrder(completions) == "methods,properties"
+    assert CekNames(completions["methods"]) == "Contains,Trim"
+    assert CekNames(completions["properties"]) == "summary"
+    assert completions["methods"][1].Overloads == 2
+}
+
+test "flattening the groups gives one ordered, duplicate-free list" {
+    completions := new Dictionary<string, List<CompletionItem>>()
+    methods := new List<CompletionItem>()
+    methods.Add(new CompletionItem("Trim", "method", "string", "()", null, false))
+    methods.Add(new CompletionItem("Trim", "method", "string", "(trimChar char)", null, false))
+    methods.Add(CekItem("Contains", "method"))
+    properties := new List<CompletionItem>()
+    properties.Add(CekItem("Length", "property"))
+    properties.Add(CekItem("Chars", "property"))
+    completions["properties"] = properties
+    completions["methods"] = methods
+
+    // THE DICTIONARY HANDS THE PROPERTIES OVER FIRST AND THE ANSWER IS STILL METHODS-FIRST: the
+    // flatten re-derives the order rather than inheriting whatever order the groups were built in,
+    // which is what makes the editor's list independent of how the receiver was reflected.
+    flattened := CompletionEngineKernels.FlattenCompletionGroups(completions)
+    assert CekNames(flattened) == "Contains,Trim,Chars,Length"
+    assert flattened[1].Overloads == 2
+    assert flattened[0].Overloads == 1
+}
+
+func CekGroupOrder(completions: Dictionary<string, List<CompletionItem>>): string {
+    order := ""
+    for pair in completions {
+        if order.Length > 0 {
+            order = order + ","
+        }
+
+        order = order + pair.Key
+    }
+
+    return order
+}

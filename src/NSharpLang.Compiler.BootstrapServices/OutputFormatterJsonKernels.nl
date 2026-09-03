@@ -994,6 +994,14 @@ class OutputFormatterJsonKernels {
         }
 
         payload["isStatic"] = item.IsStatic
+
+        // ADDITIVE, AND ONLY WHEN IT SAYS SOMETHING. One row stands for every overload of a name,
+        // so a reader who needs to know that `Split` has eleven has to be told; a name with one
+        // declaration carries no key at all, which is why `schemaVersion` does not move.
+        if item.Overloads > 1 {
+            payload["overloads"] = item.Overloads
+        }
+
         return payload
     }
 

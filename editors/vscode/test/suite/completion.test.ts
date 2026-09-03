@@ -1,16 +1,8 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
-    waitForLanguageServer,
-    openDocumentAndWaitForLsp,
-    getCompletions,
-    positionOf,
-    closeAllEditors,
-    completionLabel,
-    assertCompletionContains,
-    assertCompletionExcludes,
-    createTempNlFile,
-    getDiagnostics
+    waitForLanguageServer, openDocumentAndWaitForLsp, getCompletions, positionOf, closeAllEditors,
+    completionLabel, assertCompletionContains, assertCompletionExcludes, createTempNlFile, getDiagnostics
 } from './helpers';
 
 /**
@@ -34,11 +26,7 @@ suite('Completions', () => {
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
         const completions = await getCompletions(doc, new vscode.Position(0, 0));
-
-        assert.ok(completions.items.length > 0,
-            'Expected completions at top level');
-
-        // Core N# keywords should be present
+        assert.ok(completions.items.length > 0, 'Expected completions at top level');
         assertCompletionContains(completions, 'func', vscode.CompletionItemKind.Keyword);
         assertCompletionContains(completions, 'class', vscode.CompletionItemKind.Keyword);
     });
@@ -48,8 +36,6 @@ suite('Completions', () => {
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
         const completions = await getCompletions(doc, new vscode.Position(0, 0));
-
-        // Primitive types should be available as keywords
         assertCompletionContains(completions, 'int', vscode.CompletionItemKind.Keyword);
         assertCompletionContains(completions, 'string', vscode.CompletionItemKind.Keyword);
         assertCompletionContains(completions, 'bool', vscode.CompletionItemKind.Keyword);
@@ -61,14 +47,8 @@ suite('Completions', () => {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
-        // Position inside Main function, before "message := greet..."
-        const pos = positionOf(doc, 'message := greet', { at: 'start' });
-        const completions = await getCompletions(doc, pos);
-
-        assert.ok(completions.items.length > 0,
-            'Expected completions inside function body');
-
-        // Local functions should be available
+        const completions = await getCompletions(doc, positionOf(doc, 'message := greet', { at: 'start' }));
+        assert.ok(completions.items.length > 0, 'Expected completions inside function body');
         assertCompletionContains(completions, 'greet', vscode.CompletionItemKind.Function);
         assertCompletionContains(completions, 'add', vscode.CompletionItemKind.Function);
     });
@@ -84,6 +64,8 @@ namespace SimpleTest
 func CompMemberTest() {
     vehicle := new Vehicle("Ford", "Focus", 2020)
     tc := vehicle.
+    name := "Spencer"
+    upper := name.
 }
 `, '_comp_member.nl');
 
@@ -101,6 +83,20 @@ func CompMemberTest() {
                 `Duplicate member labels: ${labels.join(', ')}`);
             assert.ok(!labels.some(l => l.startsWith('get_') || l.startsWith('set_')),
                 `Property accessors leaked into the member list: ${labels.join(', ')}`);
+
+            // THE SAME CHECK ON A BCL RECEIVER, WHICH IS WHERE THE OVERLOADS ARE. `string` reflects
+            // 105 methods under 39 names — `Split` eleven, `IndexOf` ten — and each one used to be
+            // its own row wearing the same label. The May headless suite has had a duplicate-label
+            // check since, but nothing in the product gate ever ran it, which is why this survived.
+            const bcl = await getCompletions(doc, positionOf(doc, 'upper := name.', { at: 'end' }));
+            assertCompletionContains(bcl, 'Split', vscode.CompletionItemKind.Method);
+            assertCompletionContains(bcl, 'Length', vscode.CompletionItemKind.Property);
+            const bclLabels = bcl.items.map(i => completionLabel(i));
+            assert.strictEqual(bclLabels.length, new Set(bclLabels).size,
+                `Duplicate BCL member labels: ${bclLabels.join(', ')}`);
+            const split = bcl.items.find(i => completionLabel(i) === 'Split');
+            assert.ok(split && /\(\+\d+ overloads?\)$/.exec(String(split.detail ?? '')) !== null,
+                `Expected Split to carry its overload count, got: ${String(split?.detail)}`);
         } finally {
             await closeAllEditors();
             cleanup();
@@ -122,11 +118,9 @@ func Main() {
 
         try {
             await getDiagnostics(doc);
-            // Position on the blank line after "print mySpecialVar"
+            // The blank line after "print mySpecialVar".
             const pos = positionOf(doc, 'print mySpecialVar', { at: 'end' });
-            const lineAfter = new vscode.Position(pos.line + 1, 4);
-            const completions = await getCompletions(doc, lineAfter);
-
+            const completions = await getCompletions(doc, new vscode.Position(pos.line + 1, 4));
             assertCompletionContains(completions, 'mySpecialVar', vscode.CompletionItemKind.Variable);
         } finally {
             await closeAllEditors();
@@ -142,7 +136,6 @@ func Main() {
 
         const completions = await getCompletions(doc, new vscode.Position(0, 0));
         const withoutKind = completions.items.filter(i => i.kind === undefined);
-
         assert.ok(withoutKind.length === 0,
             `${withoutKind.length} completion items have no kind set: ${withoutKind.map(i => completionLabel(i)).join(', ')}`);
     });
@@ -152,7 +145,6 @@ func Main() {
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
         const completions = await getCompletions(doc, new vscode.Position(0, 0));
-
         assert.ok(completions.items.length >= 5,
             `Expected at least 5 completions, got ${completions.items.length}`);
         assert.ok(completions.items.length < 5000,

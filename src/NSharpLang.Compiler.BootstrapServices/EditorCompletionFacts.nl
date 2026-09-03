@@ -16,11 +16,16 @@ namespace NSharpLang.Compiler.CodeIntelligence
 // each of the thirteen completion kinds lands in. A kind nobody has taught this table answers Text
 // (1), the protocol's own "no particular icon", rather than guessing.
 //
-// THE ORDER IS THE OWNER'S ORDER, PRESERVED, NOT A NEW ONE. `AddGroupedCompletionItemsByKind`
-// already grouped the items — methods, then properties, then fields for a reflected receiver — and
-// an editor that re-sorted them alphabetically would silently discard that. So the sort key is the
-// item's POSITION in the owner's answer, zero-padded so it compares as a string the way it counts
-// as a number, which is what an LSP `sortText` is.
+// THE ORDER IS THE OWNER'S ORDER, PRESERVED, NOT A NEW ONE — and since the overload collapse the
+// owner's order is worth preserving. `CompletionEngineKernels.CollapseCompletionOverloads` sorts by
+// kind rank and then by name before the items are ever grouped, so the list arrives methods-then-
+// properties with each run alphabetical; an editor that re-sorted them would be recomputing what it
+// was handed. So the sort key is still the item's POSITION in the owner's answer, zero-padded so it
+// compares as a string the way it counts as a number, which is what an LSP `sortText` is.
+//
+// (It said the same sentence before the collapse, when the position it preserved was REFLECTION
+// order — `GetMethods` order, with every overload its own row. The sentence was right and the order
+// behind it was not; fixing the order is what made the sentence true.)
 class EditorCompletionFacts {
 
     // The protocol slot for one N# completion kind.
@@ -74,18 +79,34 @@ class EditorCompletionFacts {
         typeText := item.Type
 
         if parameters != null && typeText != null {
-            return (parameters ?? "") + ": " + (typeText ?? "")
+            return (parameters ?? "") + ": " + (typeText ?? "") + OverloadSuffix(item)
         }
 
         if parameters != null {
-            return parameters ?? ""
+            return (parameters ?? "") + OverloadSuffix(item)
         }
 
         if typeText != null {
-            return typeText ?? ""
+            return (typeText ?? "") + OverloadSuffix(item)
         }
 
-        return item.Kind
+        return item.Kind + OverloadSuffix(item)
+    }
+
+    // WHAT THE COLLAPSE OWES THE READER. One row now stands for every overload of a name, and the
+    // count is the one thing that row would otherwise not say — so it goes in the grey text, in
+    // hover's own words (`(+2 overloads)`), and a name with a single declaration says nothing extra.
+    static func OverloadSuffix(item: CompletionItem): string {
+        hidden := item.Overloads - 1
+        if hidden < 1 {
+            return ""
+        }
+
+        if hidden == 1 {
+            return " (+1 overload)"
+        }
+
+        return " (+" + hidden.ToString() + " overloads)"
     }
 
     // The item's place in the owner's answer, as a string that sorts like the number it is.

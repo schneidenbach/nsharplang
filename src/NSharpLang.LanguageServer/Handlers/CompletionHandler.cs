@@ -211,24 +211,22 @@ public class CompletionHandler : CompletionHandlerBase
     }
 
     /// <summary>
-    /// The owner's grouped answer as LSP items, in the owner's own order.
+    /// The owner's grouped answer as LSP items, in the owner's own order — one row per member name,
+    /// flattened and ordered by the same N# owner the CLI and the playground ask.
     /// </summary>
     private static List<CompletionItem> BuildMemberCompletionItems(CodeIntel.CompletionResult result)
     {
         var items = new List<CompletionItem>();
-        foreach (var group in result.Completions.Values)
+        foreach (var member in CodeIntel.CompletionEngineKernels.FlattenCompletionGroups(result.Completions))
         {
-            foreach (var member in group)
+            items.Add(new CompletionItem
             {
-                items.Add(new CompletionItem
-                {
-                    Label = member.Name,
-                    Kind = (CompletionItemKind)CodeIntel.EditorCompletionFacts.LspCompletionItemKind(member.Kind),
-                    Detail = CodeIntel.EditorCompletionFacts.MemberDetailText(member),
-                    InsertText = member.Name,
-                    SortText = CodeIntel.EditorCompletionFacts.MemberSortText(items.Count)
-                });
-            }
+                Label = member.Name,
+                Kind = (CompletionItemKind)CodeIntel.EditorCompletionFacts.LspCompletionItemKind(member.Kind),
+                Detail = CodeIntel.EditorCompletionFacts.MemberDetailText(member),
+                InsertText = member.Name,
+                SortText = CodeIntel.EditorCompletionFacts.MemberSortText(items.Count)
+            });
         }
 
         return items;
