@@ -191,40 +191,81 @@ The 123-vs-124 opcode-union discrepancy stays an OPEN ITEM in the §4.12 row unt
 
 ---
 
-## 5. The corpus census — PENDING (harness built, corpus swept, dump stopped at the pause)
+## 5. The corpus census — MEASURED (one number still pending)
 
-- **Harness rebuilt** (F7): the B-arc's method-body key comparator was in NEITHER `~/nl98keep/harness`
-  nor `~/nl97keep/harness` nor any live worktree. `~/nl98keep/harness/nl89-ilcompare.py` +
-  `nl98_ilnorm.py` are WHOLE-PE comparators and cannot serve this A/B: two writers never agree on heap,
-  blob and row order. The rebuilt dumper is
-  `/private/tmp/nsharp-agent-wt/probes/023-s2/harness/nl23_bodykey.py`, front-ended by `ilspycmd -il`
-  (**zero C# written for the harness**), which already resolves every token operand to
-  `[Scope]Namespace.Type::Member(sig)`.
-  - KEY = `<declaring type path>::<normalised .method header>`.
-  - VALUE = the opcode sequence with short/long encodings folded (`ldarg.0`/`ldarg.s 0`/`ldarg 0` ->
-    `ldarg 0`; `ldc.i4.8`/`ldc.i4.s 8` -> `ldc.i4 8`; `br.s` -> `br`; `leave.s` -> `leave`) and branch
-    operands rewritten from BYTE OFFSETS to TARGET INSTRUCTION ORDINALS — exactly the encodings a
-    byte-level writer and `ILGenerator` legitimately disagree on.
-  - `.maxstack`, the `.locals init` type list and the exception-region structure are compared but
-    reported SEPARATELY, so a maxstack change can never pass silently as "no IL diff".
-  - `--scope exact | scopeless`; `scopeless` IS the contract-equivalence mapping of the 2026-09-02
-    universe-A decode, and it is not assumed — the dumper reports any full type name seen under two
-    distinct scopes.
-  - **NON-VACUITY PROVEN**: `selftest` perturbs one instruction and the comparator reports exactly that
-    one key (`SELFTEST PASS ... ops_diff=1`).
-  - Two parser defects found and fixed while building it, both recorded in the file's own header: comments
-    were stripped BEFORE the `// end of method` / `// end of class` terminators were read (folding a whole
-    assembly into one method), and the class NAME was taken from the joined header rather than its first
-    line (yielding the BASE type, `<Module>.System.Object`).
-- **Corpus swept, baseline arm**: `ARM=base TARGETS=72 BUILT=48 ASSEMBLIES=174`, of which 49 are
-  N#-emitted after the third-party deny list (`Microsoft.*`, `Swashbuckle.*`, `xunit.*`, `System.*`,
-  `YamlDotNet`, `MetadataLoadContext`) and de-duplication by assembly basename — a referenced project's
-  output is copied into the referring project's `bin`, and counting both inflates the denominator.
-  `.tests.nl` projects go through `nlc test`; everything else through `nlc build`.
-- **PENDING on resume**: the body denominator, and the two-marker census —
-  marker DOOR (`ldc.i4 24301; pop` at `ColumnarIlEmitter.cs`'s door site) and marker ALL
-  (`ldc.i4 49374; pop` inside `ColumnarCodePlanExecutor.Execute`), giving door-claimed bodies,
-  plan-executed bodies, and by subtraction the synthesized ones. Both are throwaway scratch mutations.
+Corpus: every `project.yml` under `examples/`, `tests/` and `templates/` at tip `90723258a`
+(**72 targets**), built into a fresh `git archive` copy — `.tests.nl` projects through `nlc test`,
+the rest through `nlc build`. Baseline arm **BUILT=49**; marker arm **BUILT=48**, and the single
+difference is `tests/native/ownership-audit`, which correctly FAILED because the exact-match growth
+ratchet refused the one C# line the scratch marker added to `ColumnarIlEmitter.cs`. **The instrument
+caught its own mutation** — a better liveness check than any control I had planned.
+
+After the third-party deny list and de-duplication: **48 N#-emitted assemblies, 2,542 keys,
+2,531 non-empty method bodies**, and the two arms' key sets are IDENTICAL (base-only 0, marker-only 0).
+
+### 5.1 The two-marker census
+
+```
+PLAN-ROW EXECUTED (ALL marker, ldc.i4 49374 inside ColumnarCodePlanExecutor.Execute)
+                                     = 2276 / 2531 = 89.9%
+DOOR-CLAIMED (DOOR marker, ldc.i4 24301 at ColumnarIlEmitter's ordinary-body door)
+                                     =  494 / 2531 = 19.5%
+NEITHER MARKER (no plan row anywhere in the body)
+                                     =  255 / 2531 = 10.1%
+DOOR NOT IN ALL (must be 0)          =    0
+```
+
+### 5.2 THE READING THAT LOOKED LIKE A RESULT AND IS NOT ONE, AND THE NUMBER STILL OWED
+
+The obvious reading of `ALL − DOOR = 1,782` is "synthesized bodies", and it is WRONG: iterator, async
+and record members are nothing like 70% of a corpus. Measured instead of assumed, on an ordinary
+property getter that carries the ALL marker and not the DOOR marker:
+
+```
+AutoDiscovery.Services.ProductService::get_Count
+  MARKER  ldc.i4 49374 | pop | ldarg 0 | ldfld ...products | callvirt ...get_Count() | ret
+  BASE                        ldarg 0 | ldfld ...products | callvirt ...get_Count() | ret
+```
+
+The cause: **`Execute` has 14 callers in N# that are FRAGMENT-granular, not whole-body** —
+`ColumnarScalarLiteralPlanner:22`, `ColumnarDirectCallPlanner:37`, `ColumnarInstanceMemberPlanner:81`,
+`ColumnarPrimitiveBinaryPlanner:44`, `ColumnarConditionalPlanner:55`, `ColumnarRangeIndexPlanner:167`,
+`ColumnarExternalStaticMemberPlanner:26`, `ColumnarUnaryLiteralPlanner:19`, `ColumnarConstructionPlanner:190`,
+`ColumnarNameOfPlanner:17`, `ColumnarBoundIdentifierPlanner:119`, `ColumnarBooleanLiteralPlanner:13`,
+`ColumnarTypeOfPlanner:41` (STATUS §3.2's "14 `Execute(` sites"). They emit an EXPRESSION's rows onto
+the host's own `_il` mid-body. The C# host's 18 `Execute` sites are the whole-body ones.
+
+So the honest reading of the measured numbers is:
+
+- **89.9% of corpus method bodies already contain at least one plan-row-executed fragment**, and only
+  **10.1% contain none at all**. That is a far better starting position than the inherited
+  door-marker figure suggested, and it is the number that makes fork (B) cheap: the rows are already
+  the emitter's working vocabulary almost everywhere.
+- **19.5% are door-claimed**, i.e. planned end to end as ONE method-body plan (schema v4).
+- **The bodies WHOLLY described by rows are the door-claimed plus the whole-body synthesized ones, and
+  that number is still owed.** The two markers cannot separate a fragment mark from a whole-body mark.
+  The discriminator is the SCHEMA, and it is one marker away: `ExecuteMethodBody` runs only for schema
+  v4, and `ColumnarRecordValueMemberPlanner` (3), `ColumnarIteratorPlanner` (14) and
+  `ColumnarAsyncEntryPointPlanner` (1) all build through `PrepareMethodBody`, so a marker inside
+  `ExecuteMethodBody` counts exactly the wholly-row-described bodies. One CLI rebuild and one sweep.
+
+**None of this moves the §4 fork verdict**, which is decided by the static census in §4.2 and not by
+the corpus rate; the corpus numbers size it, and they size it more favourably than expected.
+
+### 5.3 Two harness defects found by measuring, both fixed
+
+1. **The third-party deny list never fired.** The sweep collects assemblies under a FLATTENED name
+   (`examples_14-minimal-api_bin_Debug_net10.0_YamlDotNet.dll`), so testing it against `Microsoft.` /
+   `xunit.` / `Swashbuckle.` matched nothing and **~11,700 third-party bodies entered the denominator**
+   (14,255 instead of 2,531 -- YamlDotNet 2,046, MetadataLoadContext 1,991, Microsoft.OpenApi 1,842,
+   Microsoft.Build.Framework 1,590, xunit.execution 1,385 ...). The filter now reads the TRUE basename.
+   The first census run reported 16.0%/3.5% on the polluted denominator; those figures are void.
+2. **Repo-relative `dll:` deps break in the tree copy** (B15's recorded gotcha, re-hit): 23 of the 72
+   projects -- every `analyzer-*`, `query-*`, `playground-*`, `doc-query`, `completion-engine`,
+   `parser-literal-facts` -- name `../../../src/NSharpLang.Cli/bin/Debug/net10.0/*.dll`, which a
+   `git archive` copy does not contain. `sweep.sh` now links the real output directory into the copy;
+   S2.1's baseline re-measure runs with the link and will cover more than 49 of 72.
+
 
 ---
 
