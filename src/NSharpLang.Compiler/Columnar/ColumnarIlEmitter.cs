@@ -4191,10 +4191,7 @@ internal sealed class ColumnarIlEmitter
                         return false;
                 }
                 var hasDefaultBody = iface.MethodBodies[m] != null;
-                var methodAttributes = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig
-                    | MethodAttributes.NewSlot;
-                if (!hasDefaultBody)
-                    methodAttributes |= MethodAttributes.Abstract;
+                var methodAttributes = (MethodAttributes)declarationPlan.Methods.InterfaceMethodAttributeWords[i][m];
                 var abstractMethod = interfaceDef.Builder.DefineMethod(
                     iface.MethodNames[m],
                     methodAttributes,
@@ -4380,8 +4377,9 @@ internal sealed class ColumnarIlEmitter
             // ldfld`) is identical to a value type's (ldfld works on both a managed pointer and an object ref), and
             // the instance CALL branches on IsReference (ldloc + callvirt for a ref receiver vs ldloca + call for a
             // value receiver) — see TryEmitInstanceCall. Slice-1a methods READ fields (no field WRITE in a body yet).
-            foreach (var m in structs[s].Methods)
+            for (var mi = 0; mi < structs[s].Methods.Count; mi++)
             {
+                var m = structs[s].Methods[mi];
                 if (m.IsStatic)
                 {
                     Type sReturn;
@@ -4420,9 +4418,7 @@ internal sealed class ColumnarIlEmitter
                         overloads = new List<ColumnarStaticMethodDef>();
                         def.StaticMethods[m.Name] = overloads;
                     }
-                    var staticMethodAttributes = MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig;
-                    if (m.Name.StartsWith("op_", StringComparison.Ordinal))
-                        staticMethodAttributes |= MethodAttributes.SpecialName;
+                    var staticMethodAttributes = (MethodAttributes)declarationPlan.Methods.StructMethodAttributeWords[s][mi];
                     var sSignatureReturn = sAsyncWrappedReturn ?? sReturn;
                     if (m.IsBodylessNativeImport)
                     {
@@ -4496,7 +4492,7 @@ internal sealed class ColumnarIlEmitter
                 // interface, or one of its inherited interfaces) gets Virtual|Final|NewSlot +
                 // DefineMethodOverride for every matching slot — the legacy emitter's DeclareMethod rule
                 // (implementing methods are FORCED virtual-final).
-                var methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig;
+                var methodAttributes = (MethodAttributes)declarationPlan.Methods.StructMethodAttributeWords[s][mi];
                 List<MethodInfo>? overriddenInterfaceMethods = null;
                 List<MethodInfo>? overriddenExternalInterfaceMethods = null;
                 MethodInfo? overriddenObjectMethod = null;
@@ -5106,7 +5102,7 @@ internal sealed class ColumnarIlEmitter
             ColumnarSemanticTypeResolution? typeResolution = null;
             if (fn.TypeParamNames.Length > 0)
             {
-                methods[f] = type.DefineMethod(fn.Name, MethodAttributes.Public | MethodAttributes.Static);
+                methods[f] = type.DefineMethod(fn.Name, (MethodAttributes)declarationPlan.Methods.FunctionAttributeWords[f]);
                 var gpBuilders = methods[f].DefineGenericParameters(fn.TypeParamNames);
                 typeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                 fnTypeParams = new Type[gpBuilders.Length];
@@ -5221,7 +5217,7 @@ internal sealed class ColumnarIlEmitter
             else
             {
                 methods[f] = type.DefineMethod(
-                    fn.Name, MethodAttributes.Public | MethodAttributes.Static, asyncWrappedReturn ?? returnType, paramTypes);
+                    fn.Name, (MethodAttributes)declarationPlan.Methods.FunctionAttributeWords[f], asyncWrappedReturn ?? returnType, paramTypes);
             }
             if (!DefineMethodParameterMetadata(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums))
                 return false;

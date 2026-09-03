@@ -77,7 +77,46 @@ class ColumnarFieldRows {
     }
 }
 
+// The METHOD family. `MethodAttributes` (ECMA-335 II.23.1.10) as integers: Public 6, Static 16,
+// Final 32, Virtual 64, HideBySig 128, NewSlot 256, Abstract 1024, SpecialName 2048, PinvokeImpl 8192.
+//
+// ONLY THE BASE WORD IS PLANNED. An IMPLEMENTING method is widened to Virtual|Final|NewSlot by
+// matching its signature against every interface the type implements, which needs the live registry
+// and the resolved signature -- S2.2's work, not this slice's. The host ORs those bits onto the
+// planned base, so the two halves stay separable and neither guesses at the other.
+class ColumnarMethodRows {
+    StructCount: int
+    StructMethodAttributeWords: int[][]
+    StructMethodIsVoidReturn: bool[][]
+    InterfaceCount: int
+    InterfaceMethodAttributeWords: int[][]
+    FunctionCount: int
+    FunctionAttributeWords: int[]
+    FunctionIsVoidReturn: bool[]
+
+    constructor(
+        structCount: int,
+        structMethodAttributeWords: int[][],
+        structMethodIsVoidReturn: bool[][],
+        interfaceCount: int,
+        interfaceMethodAttributeWords: int[][],
+        functionCount: int,
+        functionAttributeWords: int[],
+        functionIsVoidReturn: bool[]
+    ) {
+        StructCount = structCount
+        StructMethodAttributeWords = structMethodAttributeWords
+        StructMethodIsVoidReturn = structMethodIsVoidReturn
+        InterfaceCount = interfaceCount
+        InterfaceMethodAttributeWords = interfaceMethodAttributeWords
+        FunctionCount = functionCount
+        FunctionAttributeWords = functionAttributeWords
+        FunctionIsVoidReturn = functionIsVoidReturn
+    }
+}
+
 class ColumnarDeclarationPlan {
+    Methods: ColumnarMethodRows
     Fields: ColumnarFieldRows
     TypeDefs: ColumnarTypeDefRows
     AssemblyName: string
@@ -91,6 +130,7 @@ class ColumnarDeclarationPlan {
     EnumMemberStringValues: string[][]
 
     constructor(
+        methods: ColumnarMethodRows,
         fields: ColumnarFieldRows,
         typeDefs: ColumnarTypeDefRows,
         assemblyName: string,
@@ -103,6 +143,7 @@ class ColumnarDeclarationPlan {
         enumMemberValues: int[][],
         enumMemberStringValues: string[][]
     ) {
+        Methods = methods
         Fields = fields
         TypeDefs = typeDefs
         AssemblyName = assemblyName
@@ -178,6 +219,157 @@ class ColumnarDeclarationPlanner {
             return input.MemberStringValues[index]
         }
         return input.MemberNames[index]
+    }
+
+    static func StaticMethodAttribute(): int {
+        return 16
+    }
+
+    static func VirtualMethodAttribute(): int {
+        return 64
+    }
+
+    static func HideBySigMethodAttribute(): int {
+        return 128
+    }
+
+    static func NewSlotMethodAttribute(): int {
+        return 256
+    }
+
+    static func AbstractMethodAttribute(): int {
+        return 1024
+    }
+
+    static func SpecialNameMethodAttribute(): int {
+        return 2048
+    }
+
+    // `Public` is 6 for a method exactly as it is for a field -- one accessibility encoding, two
+    // member kinds -- so the field constant is reused rather than duplicated under a second name.
+    // A STATIC method: Public|Static|HideBySig = 150.
+    //
+    // THE OPERATOR TEST IS A NAME-PREFIX RULE THAT DECIDES METADATA. A method whose name begins
+    // `op_` is marked SpecialName (2198), which is what makes the CLR and every consumer treat it as
+    // an operator rather than an ordinary static method. Nothing else in the declaration says so.
+    static func StaticMethodAttributes(isOperatorName: bool): int {
+        bits := PublicFieldAttribute() | StaticMethodAttribute() | HideBySigMethodAttribute()
+        if isOperatorName {
+            return bits | SpecialNameMethodAttribute()
+        }
+        return bits
+    }
+
+    static func IsOperatorMethodName(name: string): bool {
+        return name != null && name.StartsWith("op_", StringComparison.Ordinal)
+    }
+
+    // An INSTANCE method: Public|HideBySig = 134, before any implementing-interface widening.
+    static func InstanceMethodAttributes(): int {
+        return PublicFieldAttribute() | HideBySigMethodAttribute()
+    }
+
+    // An INTERFACE member: Public|Virtual|HideBySig|NewSlot = 454, plus Abstract (1478) unless the
+    // interface supplies a default body.
+    static func InterfaceMethodAttributes(hasDefaultBody: bool): int {
+        bits := PublicFieldAttribute() | VirtualMethodAttribute() | HideBySigMethodAttribute() | NewSlotMethodAttribute()
+        if hasDefaultBody {
+            return bits
+        }
+        return bits | AbstractMethodAttribute()
+    }
+
+    // A FREE FUNCTION is Public|Static = 22 and carries NO HideBySig -- free functions do not
+    // overload, so there is no signature to hide by. The difference from a static METHOD (150) is
+    // deliberate and is pinned.
+    static func FreeFunctionAttributes(): int {
+        return PublicFieldAttribute() | StaticMethodAttribute()
+    }
+
+    // `this` occupies argument 0 of an instance method, so user parameter ordinals shift by one; a
+    // static method's do not. One rule, two call sites, and getting it backwards would misread every
+    // argument in every body.
+    static func ParameterOrdinalShift(isInstance: bool): int {
+        if isInstance {
+            return 1
+        }
+        return 0
+    }
+
+    static func ParameterOrdinalFor(index: int, isInstance: bool): int {
+        return index + ParameterOrdinalShift(isInstance)
+    }
+
+    // The only return canonical with no type to resolve.
+    static func IsVoidReturnCanonical(returnCanonical: string): bool {
+        return returnCanonical == "void"
+    }
+
+    static func BuildMethods(program: ColumnarProgramInput): ColumnarMethodRows {
+        structs := program.Structs
+        structCount := structs.Count
+        structWords := new int[][](structCount)
+        structVoids := new bool[][](structCount)
+        index := 0
+        while index < structCount {
+            methods := structs[index].Methods
+            methodCount := methods.Count
+            words := new int[](methodCount)
+            voids := new bool[](methodCount)
+            member := 0
+            while member < methodCount {
+                method := methods[member]
+                if method.IsStatic {
+                    words[member] = StaticMethodAttributes(IsOperatorMethodName(method.Name))
+                } else {
+                    words[member] = InstanceMethodAttributes()
+                }
+                voids[member] = IsVoidReturnCanonical(method.ReturnCanonical)
+                member = member + 1
+            }
+            structWords[index] = words
+            structVoids[index] = voids
+            index = index + 1
+        }
+
+        interfaces := program.Interfaces
+        interfaceCount := interfaces.Count
+        interfaceWords := new int[][](interfaceCount)
+        index = 0
+        while index < interfaceCount {
+            iface := interfaces[index]
+            memberCount := iface.MethodNames.Length
+            words := new int[](memberCount)
+            member := 0
+            while member < memberCount {
+                words[member] = InterfaceMethodAttributes(iface.MethodBodies[member] != null)
+                member = member + 1
+            }
+            interfaceWords[index] = words
+            index = index + 1
+        }
+
+        functions := program.Functions
+        functionCount := functions.Count
+        functionWords := new int[](functionCount)
+        functionVoids := new bool[](functionCount)
+        index = 0
+        while index < functionCount {
+            functionWords[index] = FreeFunctionAttributes()
+            functionVoids[index] = IsVoidReturnCanonical(functions[index].ReturnCanonical)
+            index = index + 1
+        }
+
+        return new ColumnarMethodRows(
+            structCount,
+            structWords,
+            structVoids,
+            interfaceCount,
+            interfaceWords,
+            functionCount,
+            functionWords,
+            functionVoids
+        )
     }
 
     static func PublicFieldAttribute(): int {
@@ -349,6 +541,7 @@ class ColumnarDeclarationPlanner {
         }
 
         return new ColumnarDeclarationPlan(
+            BuildMethods(program),
             BuildFields(program),
             BuildTypeDefs(program),
             assemblyName,

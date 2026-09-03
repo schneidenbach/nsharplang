@@ -296,3 +296,109 @@ test "the field rows carry a word, a static flag and a nullable flag for every f
     assert !rows.FieldIsNullable[0][0]
     assert rows.FieldIsNullable[0][1]
 }
+
+// A one-node body table: the method rows this slice plans never look inside a body, so the smallest
+// well-formed table is the honest fixture.
+func DeclarationPlanEmptyBody(): ColumnarNodeTable {
+    zero := new int[](1)
+    return new ColumnarNodeTable(zero, zero, zero, zero, zero, new int[](0), zero, zero)
+}
+
+func DeclarationPlanMethodInput(name: string, returnCanonical: string, isStatic: bool): ColumnarFunctionInput {
+    return new ColumnarFunctionInput(
+        name,
+        returnCanonical,
+        new string[](0),
+        new string[](0),
+        DeclarationPlanEmptyBody(),
+        0,
+        isStatic
+    )
+}
+
+func DeclarationPlanMethodStruct(name: string, methods: List<ColumnarFunctionInput>): ColumnarStructInput {
+    return new ColumnarStructInput(
+        name,
+        new string[](0),
+        new string[](0),
+        methods,
+        new List<ColumnarConstructorInput>(),
+        new List<ColumnarPropertyInput>(),
+        true
+    )
+}
+
+test "the method rows publish every base MethodAttributes word, and a free function is NOT a static method" {
+    assert ColumnarDeclarationPlanner.StaticMethodAttribute() == 16
+    assert ColumnarDeclarationPlanner.VirtualMethodAttribute() == 64
+    assert ColumnarDeclarationPlanner.HideBySigMethodAttribute() == 128
+    assert ColumnarDeclarationPlanner.NewSlotMethodAttribute() == 256
+    assert ColumnarDeclarationPlanner.AbstractMethodAttribute() == 1024
+    assert ColumnarDeclarationPlanner.SpecialNameMethodAttribute() == 2048
+
+    // Public|Static|HideBySig, and +SpecialName for an operator.
+    assert ColumnarDeclarationPlanner.StaticMethodAttributes(false) == 150
+    assert ColumnarDeclarationPlanner.StaticMethodAttributes(true) == 2198
+    // Public|HideBySig, before any implementing-interface widening the host still applies.
+    assert ColumnarDeclarationPlanner.InstanceMethodAttributes() == 134
+    // Public|Virtual|HideBySig|NewSlot, +Abstract when the interface supplies no default body.
+    assert ColumnarDeclarationPlanner.InterfaceMethodAttributes(true) == 454
+    assert ColumnarDeclarationPlanner.InterfaceMethodAttributes(false) == 1478
+
+    // A FREE FUNCTION carries NO HideBySig: free functions do not overload, so there is no signature
+    // to hide by. This is the one word that is NOT the static-method word, and confusing them would
+    // change metadata on every free function in the estate.
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes() == 22
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes() != ColumnarDeclarationPlanner.StaticMethodAttributes(false)
+}
+
+test "the operator rule is a name prefix that decides metadata, and it is ordinal and case-sensitive" {
+    assert ColumnarDeclarationPlanner.IsOperatorMethodName("op_Addition")
+    assert ColumnarDeclarationPlanner.IsOperatorMethodName("op_")
+    assert !ColumnarDeclarationPlanner.IsOperatorMethodName("Op_Addition")
+    assert !ColumnarDeclarationPlanner.IsOperatorMethodName("operator")
+    assert !ColumnarDeclarationPlanner.IsOperatorMethodName("Add")
+    assert !ColumnarDeclarationPlanner.IsOperatorMethodName(null)
+}
+
+test "this occupies argument zero, so an instance method's parameter ordinals shift by one" {
+    assert ColumnarDeclarationPlanner.ParameterOrdinalShift(true) == 1
+    assert ColumnarDeclarationPlanner.ParameterOrdinalShift(false) == 0
+    assert ColumnarDeclarationPlanner.ParameterOrdinalFor(0, true) == 1
+    assert ColumnarDeclarationPlanner.ParameterOrdinalFor(2, true) == 3
+    assert ColumnarDeclarationPlanner.ParameterOrdinalFor(0, false) == 0
+    assert ColumnarDeclarationPlanner.ParameterOrdinalFor(2, false) == 2
+
+    assert ColumnarDeclarationPlanner.IsVoidReturnCanonical("void")
+    assert !ColumnarDeclarationPlanner.IsVoidReturnCanonical("Void")
+    assert !ColumnarDeclarationPlanner.IsVoidReturnCanonical("int")
+}
+
+test "the method rows carry a word per struct method, per interface member and per free function" {
+    methods := new List<ColumnarFunctionInput>()
+    methods.Add(DeclarationPlanMethodInput("Area", "int", false))
+    methods.Add(DeclarationPlanMethodInput("Make", "int", true))
+    methods.Add(DeclarationPlanMethodInput("op_Addition", "int", true))
+    methods.Add(DeclarationPlanMethodInput("Reset", "void", false))
+
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanMethodStruct("Shape", methods))
+    interfaces := new List<ColumnarInterfaceInput>()
+    interfaces.Add(DeclarationPlanInterfaceInput("Greeter"))
+
+    program := DeclarationPlanTypeDefProgram("namespace Demo\n", structs, interfaces)
+    rows := ColumnarDeclarationPlanner.BuildMethods(program)
+
+    assert rows.StructCount == 1
+    assert rows.StructMethodAttributeWords[0][0] == 134
+    assert rows.StructMethodAttributeWords[0][1] == 150
+    // The operator is static AND SpecialName, decided from its name alone.
+    assert rows.StructMethodAttributeWords[0][2] == 2198
+    assert !rows.StructMethodIsVoidReturn[0][0]
+    assert rows.StructMethodIsVoidReturn[0][3]
+
+    // The probe interface declares no members, so its row is an empty word list, not a missing one.
+    assert rows.InterfaceCount == 1
+    assert rows.InterfaceMethodAttributeWords[0].Length == 0
+    assert rows.FunctionCount == 0
+}
