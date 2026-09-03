@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `3ba9d6b13` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 6 m 33 s, pushed — every "Read more" link now points at the published site through one constant (`DiagnosticDocs.Base`), with its ratchet repin and the two diagnostics goldens that the first gate caught still on the dead host; this docs commit rides on top).
+**Tip:** `5f0cae400` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 132 steps, `GATE EXIT 0`, 7 m 17 s, pushed — the language-server lifetime fix and the reload script's proof line on top of the docs-URL constant; the fifth visual round is pending the user).
 
 ### Queue state (`tasks/README.md`)
 
@@ -187,7 +187,7 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `3ba9d6b13` (re-measure at your tip; never inherit)
+### Baselines at `5f0cae400` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
@@ -197,12 +197,12 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20,737 lines / 19,724 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1 and 1e each shrank it) |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:ad178a5b1f1491c3` (after the docs-URL constant's fingerprint-only repin of `tests/CheckCommandTests.cs`; audit-observed) |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:c84392a028a8c371` (after the lifetime fix shrank `Program.cs` and the reload script reached its ceiling; audit-observed) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
 | packaged SDK 0.1.0 in both feeds | packed from `94ff758b5` on 2026-09-02 21:15 (Sdk nupkg md5 `50a51430…`, BootstrapServices.dll md5 `8fe8c779…` staging == installed; `NO_COLOR` marker present; the estate 7,441/7,441 through the packaged SDK with a fresh emit in-log; the spelled probe `new NullabilityInfoContext()` / `new Random()` / `new InvalidOperationException(string, Exception)` — declining under the previous package — builds and runs). Carries the general construction rule (022/3a-i), the escape family and colour policy, `where` on types, the attribute blobs. Earlier: packed from `385b7e8d1` (md5 `e55c25e1…`) |
-| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **6 m 33 s** at `3ba9d6b13` (6 m 36 s at `c79fe23bb` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
+| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 132 steps (the `lsp-lifetime` native project joined), `GATE EXIT 0`, **7 m 17 s** at `5f0cae400` (6 m 33 s at `3ba9d6b13` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
 
 ### The verification bar (every B-arc slice; the accumulated standard)
 
