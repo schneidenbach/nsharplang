@@ -136,8 +136,75 @@ Each sub-slice: IL differential over the corpus (nothing may move — every admi
 corpus never used), estate, 103-project `check --json` differential, the MATRIX before/after in place
 of a corpus decline census, format, repin last.
 
-## 6. Coordination note
+## 6. Coordination note — SUPERSEDED BY §7, READ THAT FIRST
 
-`ColumnarIlEmitter.cs` is being edited continuously by the 023-s2 stream. Everything in §2 and §5 is in
-the N# planners; the only C# this slice needs is deletions at the call sites of the list functions, and
-§2's census found the admission logic is already entirely N#-side. Rebase often.
+~~Everything in §2 and §5 is in the N# planners; the only C# this slice needs is deletions at the call
+sites of the list functions, and §2's census found the admission logic is already entirely N#-side.~~
+**That was wrong**, and §7 is the read-only sweep that says so. `ColumnarIlEmitter.cs` is being edited
+continuously by the 023-s2 stream, and 2f's C# surface is far larger than one line of this decode
+claimed. Rebase often.
+
+---
+
+# 7. THE C# SWEEP — nineteen closed lists, and my §6 was wrong
+
+A read-only sweep of `src/NSharpLang.Compiler/` was run in parallel with §1–§6 and landed after they
+were written. It overturns this decode's own coordination note.
+
+**Only `Columnar/ColumnarIlEmitter.cs` carries closed type-name lists** — `Analyzer.cs`,
+`MultiFileCompiler.cs`, `ColumnarProgramInputBuilder.cs`, `ColumnarDeclineTrace.cs`,
+`Performance/SystemsAnalyzer.cs` and `CodeIntelligence/*` are clean. But that one file carries
+**nineteen**, all LIVE, none dead:
+
+| line | member | entries | gates |
+|---|---|---|---|
+| 13591 | `TryEmitStaticCall` | ~25 types / 63 arms / **866 lines** | static-receiver admission + member binding |
+| 17195 | `TryEmitInstanceCall` | 26 `typeof` heads / ~1,048 lines | instance-receiver admission |
+| 10710 | the `case 15:` `new` chain | 13 types | external CONSTRUCTION |
+| 9344 | `TryResolveBclExceptionType` | 17 (its own comment says "WHITELISTED") | catch / throw / new / declaration |
+| 2961–3041 | `TryResolveType`'s `canonical ==` chain | 18 | declaration-position admission |
+| 3514 | `TryResolveBuiltin` | 19 | primitives AND cast targets |
+| 20561 | `TryGetNewExpressionResultType` | 12 | preflight result type of `new` |
+| 10289 | the struct-receiver chain | 10 | member binding on external structs |
+| 9370 / 9420 | `TryGetSupportedBclReadable/WritableProperty` | 7 / 1 | property read / write |
+| 2775 | `TryResolveLoadedExternalType` | 7 aliases | AspNet type resolution |
+| 647 | `TryGetSupportedDelegateSignature` | 11 heads | delegate-type admission |
+| 506–553 | six collection predicates | 8 generic defs | indexer / `.Count` / `foreach` |
+| 13003 / 20142 | `IsSupportedMatchValueType` / `IsSupportedInterpolationEqualityType` | 8 / 10 | `match` scrutinee / interpolation operand |
+| 14903 | `TryEmitReferenceConversion` | 7 pairs | reference conversion |
+| 9261 | `ResolveTestFrameworkType` | 2 assembly names | test-attribute resolution |
+
+**THE MOST ACTIONABLE FINDING IS AN ASYMMETRY, NOT A COUNT.** Three of these were never wired to a
+catalog while their siblings were:
+
+- `TryEmitInstanceCall` **starts** with `TryEmitPlannedExternalCall` → `GetInstanceCallPlan`, so its
+  closed chain is a FALLBACK behind the catalog — the healthy shape.
+- `TryEmitStaticCall` never routes through `GetStaticCallPlan` **even though that plan function exists
+  and is already reached from `TryGetPlannedExternalCall` at `:16352`**. The 866-line closed chain sits
+  IN FRONT of a catalog that is already built.
+- The `case 15:` construction chain has no escape at all: `ColumnarConstructionPlanner` — the N#
+  construction catalog 022/3a generalised — is called from six other `.nl` planners and **zero times
+  from `ColumnarIlEmitter.cs`**.
+
+So the largest single win in 2f is not deleting rows. It is putting `TryEmitStaticCall` and the `new`
+chain BEHIND the catalogs that already exist, exactly as the instance path already is.
+
+**A count correction:** the brief says `IsSupportedRuntimeTypeName` has 32 rows; the sweep counts 37.
+Re-measure before quoting either.
+
+## 8. What §7 changes about the plan
+
+§5's sub-slices stand, but they are no longer N#-only and the C# is not "call-site deletions":
+
+- **2f-b** (`IsSupportedType`'s external arms) is unchanged and still N#-side.
+- **NEW 2f-b2 — route `TryEmitStaticCall` through `GetStaticCallPlan`**, the way `TryEmitInstanceCall`
+  already routes. This is the biggest surface in the census and the change is an ORDERING one: catalog
+  first, closed chain as fallback. It is C#, it is inside `ColumnarIlEmitter.cs`, and it collides
+  directly with the 023-s2 stream — so it is sequenced LAST among the C# steps and rebased immediately
+  before it lands.
+- **NEW 2f-b3 — give the `case 15:` construction chain a `ColumnarConstructionPlanner` fallback.** Same
+  shape, smaller surface.
+- **2f-c/2f-d** unchanged. **2f-e** remains the gated estate-side step.
+
+The corpus still cannot measure any of this (§1); the matrix instrument extends to construction and
+static-call shapes the same way it extends to `typeof`.
