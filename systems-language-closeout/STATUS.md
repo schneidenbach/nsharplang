@@ -45,7 +45,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 | 019 | complete — `DocQuery.cs` deleted at `dc2c4ae20`; box checked |
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64` (12 slices); **box deliberately unchecked** — the emitter retires via 015-E on Reflection.Emit (the `MetadataBuilder` writer is shelved), the external type universe via task 022; visual IDE verification discharged 2026-09-02 (D1–D3 fixed, D4 open) |
-| 022 | filed `0d472bdd4`; slice 1 measured (`871b6dafc`); slice 2: 2a–2d landed, 2h measured universe A unreachable through `PersistedAssemblyBuilder`, 2e (ref-pack coring) in progress; 3a/3b/4 independent; 5 waits for 023 — §4.11 |
+| 022 | filed `0d472bdd4`; slice 1 measured (`871b6dafc`); slice 2 closed at 2e (2a–2e landed; 2h measured universe A unreachable through `PersistedAssemblyBuilder`; the Cecil rewrite load-bearing until 023/3); slice 3a COMPLETE (`857c71712` the general construction rule, `83961914c` the three reflection-invoked constructors become `new` after the republish — `ConstructorInfo::Invoke` 0 by set diff); 3b in Phase 1; 4 next; 5 waits for 023 — §4.11 |
 | 023 | filed 2026-09-02 (the ECMA-335 writer as the second executor; N#-spelled; slice 1 = the spelling-gap decode) — supersedes the Reflection.Emit route for 015-E |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
@@ -113,11 +113,14 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
   (the survivors: `Assembly.Load` proven live by mutation, the doc-index root off `Assembly.Location`; the Cecil rewrite
   recorded load-bearing). NOW 3a as the GENERAL construction rule: the `typeof`-keyed allow-list in
   `ColumnarConstructionPlanner` deleted, candidates scored with the ordinary call resolver's `ArgumentsScoreWithFacts`;
-  3a-i LANDED `857c71712` (merged `94ff758b5`): the twelve-type chain, `IsApprovedExceptionType` and `Types2/3/4`
-  deleted; every public instance constructor a candidate, scored like methods, unique best wins, ties decline loudly;
-  the two predicted conversions were already general; zero corpus rows moved (no project had a construction the list
-  declined). 3a-ii (the three `ConstructorInfo.Invoke` sites) waits for a toolset republish, since the estate compiles
-  with the packaged SDK's allow-list.
+  3a COMPLETE: 3a-i `857c71712` (the twelve-type chain, `IsApprovedExceptionType` and `Types2/3/4` deleted; every
+  public instance constructor a candidate, scored like methods, unique best wins, ties decline loudly; the two
+  predicted conversions were already general; zero corpus rows moved) and, after the toolset republish from
+  `94ff758b5`, 3a-ii `83961914c` (the three `ConstructorInfo.Invoke` sites are `new`; `CreateMetadataLoadContext`,
+  `SetObject`, `CreateNullabilityContext` deleted; `ConstructorInfo::Invoke` 0 by SET DIFF on a tests-excluded estate
+  dll — the distinct-member count rose 263 → 265 because three constructors replaced one `Invoke`, so a bare count would
+  have read as a regression; a census must say which build it read, since `dotnet test` leaves a tests-included dll in
+  `bin`). 3b (the `MetadataLoadContext` quarantine out of `Analyzer.cs`) in Phase 1.
 - Type constraints reach metadata for all five type keywords (`19f2911b6` class/struct/record, `ae8f4bdb1` interface +
   union — a union is two owners: the base's builders are read back in the emit pass and every case is constrained from
   its own map; the type-load proof is a `columnar-emit-facts` contract); both C# files shrank under the ratchet. 2b
@@ -235,7 +238,7 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
-| packaged SDK 0.1.0 in both feeds | packed from `385b7e8d1` (Sdk nupkg md5 `e55c25e1…`), carrying the incremental-emit stamp and the retained external-type scan; **measured through the shipped package on a loaded box: the compiler's own product build 29.6 s wall (was 133–160 s), no-op rebuild 0.93 s (was 132.8 s), tests-included build 46.0 s (was 273–307 s); estate restore+emit+test 76 s, 7,305/7,305** |
+| packaged SDK 0.1.0 in both feeds | packed from `94ff758b5` on 2026-09-02 21:15 (Sdk nupkg md5 `50a51430…`, BootstrapServices.dll md5 `8fe8c779…` staging == installed; `NO_COLOR` marker present; the estate 7,441/7,441 through the packaged SDK with a fresh emit in-log; the spelled probe `new NullabilityInfoContext()` / `new Random()` / `new InvalidOperationException(string, Exception)` — declining under the previous package — builds and runs). Carries the general construction rule (022/3a-i), the escape family and colour policy, `where` on types, the attribute blobs. Earlier: packed from `385b7e8d1` (md5 `e55c25e1…`) |
 | gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **7 m 33 s** at `94ff758b5` (6 m 33 s at `c9da157fc` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
 
 ### The verification bar (every B-arc slice; the accumulated standard)
