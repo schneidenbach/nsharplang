@@ -1142,19 +1142,180 @@ func BenchBaselineRefusal(baseline: BenchBaseline): string {
     return ""
 }
 
-// The gate's own verdict, so that the whole diagnosis is one string: `"ok"` when every run exited
-// zero and the median is inside the tolerance, and otherwise a message carrying the three wall
-// times, the median, the baseline, the tolerance and the CLI commit under test.
-func BenchGateVerdict(
+// ─── THE MACHINE THE MEDIAN WAS TAKEN ON ──────────────────────────────────────────────────────
+
+// WHY A TIMING GATE READS THE LOAD BEFORE IT JUDGES.
+//
+// The baseline this gate compares against was measured on an IDLE machine — its `machine` field
+// says so in words — so a median taken while the box is busy measures the BOX, not the compiler.
+// Measured: five product gates in two days went red at one-minute load averages of 4.4 to 8.1 on
+// this 10-core M4, with medians of 11,941 / 12,319 / 13,241 / 15,623 / 17,010 ms against an
+// 11,802 ms limit (1.52x to 2.16x the baseline), while the same code measured 6-7 s on a quiet
+// box; a sixth run at load 5.18 reproduced it at 12,401 ms. Reporting that as a regression is a
+// lie about the code, and five people paid for it with a red sweep each.
+//
+// So the block reads the one-minute load average FIRST — the way the systems throughput gate does
+// (`benchmarks/native-comparison/runner/Program.nl` prints `load average { … }, 10 cores` before
+// it judges) — and REFUSES TO JUDGE the median above a threshold instead of failing.
+//
+// THE CORRECTNESS HALF IS NOT SKIPPED WITH IT. The exit code must still match the baseline, the
+// CLI's own failure banner must still be on stdout, and a placeholder baseline is still refused.
+// Those are facts about the build; load does not move them, so load cannot excuse them.
+class BenchMachineLoad {
+    LoadThousandths: long
+    Cores: int
+
+    constructor(loadThousandths: long, cores: int) {
+        LoadThousandths = loadThousandths
+        Cores = cores
+    }
+}
+
+// The load a caller has not measured, and the load a platform refused to answer: both -1.
+func BenchUnknownLoad(): BenchMachineLoad {
+    return new BenchMachineLoad(-1, -1)
+}
+
+func BenchLoadAverageMarker(): string {
+    return "load average"
+}
+
+func BenchIsLoadSeparator(c: char): bool {
+    return c == ' ' || c == '\t' || c == ',' || c == '{' || c == '}'
+}
+
+func BenchFirstLoadToken(text: string, start: int): string {
+    i := start
+    while i < text.Length && BenchIsLoadSeparator(text[i]) {
+        i = i + 1
+    }
+
+    from := i
+    while i < text.Length && !BenchIsLoadSeparator(text[i]) {
+        i = i + 1
+    }
+
+    if i <= from {
+        return ""
+    }
+
+    return text.Substring(from, i - from)
+}
+
+// The one-minute load average in THOUSANDTHS, from either shape a platform answers with:
+// `sysctl -n vm.loadavg` -> `{ 4.17 4.42 4.62 }`; `uptime` -> `13:04  up  3:46, 1 user, load
+// averages: 4.17 4.42 4.62` on macOS and `… load average: 0.52, 0.58, 0.59` on Linux. `-1` for
+// anything else — a load that cannot be READ is not a load of zero.
+//
+// Thousandths rather than a `double` because this estate has no float parse or format at all; the
+// same `BenchParseFixed3` that reads the baseline's `toleranceFactor` reads a load figure exactly.
+//
+// THE MARKER CUT IS NOT OPTIONAL. An uptime line carries numbers BEFORE the load figures — the
+// clock, the uptime, the user count — and the first parseable token of
+// `13:04  up  3:46, 1 user, load averages: 4.17 …` is the `1` of "1 user". A reader that took the
+// first number in the line would report a machine at load 4.17 as idle at 1.0.
+func BenchOneMinuteLoadThousandths(text: string): long {
+    marker := text.IndexOf(BenchLoadAverageMarker(), StringComparison.OrdinalIgnoreCase)
+    if marker >= 0 {
+        tail := text.Substring(marker)
+        colon := tail.IndexOf(":", StringComparison.Ordinal)
+        if colon < 0 {
+            return -1
+        }
+
+        return BenchParseFixed3(BenchFirstLoadToken(tail, colon + 1))
+    }
+
+    if text.Trim().StartsWith("{") {
+        return BenchParseFixed3(BenchFirstLoadToken(text, 0))
+    }
+
+    return -1
+}
+
+// THE THRESHOLD IS A FIFTH OF THE LOGICAL CORES — 2.0 on the 10-core machine the baseline was
+// taken on — so that it travels to a machine of another size instead of pinning one box's number.
+//
+// Where it comes from: the measured inflation on this machine is about `1 + 0.13 x load` (six runs
+// at loads 4.4-8.1 landed at 1.52x-2.16x the baseline), so load alone reaches the x1.5 tolerance at
+// about 3.9 and the gate has no margin left by then. At 2.0 load spends ~1.25x, half of the
+// tolerance's headroom, and leaves the other half to catch an actual regression. `2000` when the
+// platform did not answer with a core count, because 10 cores is what the baseline says.
+func BenchLoadThresholdThousandths(cores: int): long {
+    if cores <= 0 {
+        return 2000
+    }
+
+    return cores * 200
+}
+
+// A load that could not be READ refuses judgement too: a timing gate must not judge a machine it
+// cannot compare to its baseline. That is only safe because `BenchReadMachineLoad` is pinned by a
+// LIVE contract on macOS and Linux — a reader that stops answering turns THAT test red instead of
+// switching this gate off in silence.
+func BenchLoadRefusesTimingJudgement(load: BenchMachineLoad): bool {
+    if load.LoadThousandths < 0 {
+        return true
+    }
+
+    return load.LoadThousandths >= BenchLoadThresholdThousandths(load.Cores)
+}
+
+func BenchLoadText(thousandths: long): string {
+    if thousandths < 0 {
+        return "unknown"
+    }
+
+    return BenchFormatFixed3(thousandths)
+}
+
+// `git rev-parse HEAD` cannot answer in a tree that has no git metadata, and the product gate's
+// isolated copy is exactly that tree: `tests/scripts/test-all.sh` rsyncs the repository with
+// `--exclude='.git/'`, nothing in the copy stamps the commit, and every red gate's message
+// therefore said `cliCommit=unknown`. "unknown" reads as a broken gate; the reason reads as the
+// fact it is, and says where the commit actually lives.
+func BenchCliCommitUnavailableReason(hasGitMetadata: bool, isolatedGateCopy: bool): string {
+    if isolatedGateCopy {
+        return "unavailable (isolated gate copy - tests/scripts/test-all.sh copies the tree without .git, so no commit is recorded in it; read the commit in the tree the gate was launched from)"
+    }
+
+    if !hasGitMetadata {
+        return "unavailable (this tree carries no .git metadata)"
+    }
+
+    return "unavailable (git rev-parse HEAD failed in this tree)"
+}
+
+// ─── THE GATE'S VERDICT ───────────────────────────────────────────────────────────────────────
+
+// Every number the gate has, in one line, on every path: the three wall clocks, the exit codes,
+// the median against the baseline and its limit, the CLI commit under test, the stage the baseline
+// covers, and the machine the median was taken on.
+func BenchGateDetail(
+    wallMs: long[],
+    exitCodes: int[],
+    count: int,
+    medianWallMs: long,
+    baseline: BenchBaseline,
+    cliCommit: string,
+    load: BenchMachineLoad
+): string {
+    return "runs=[" + BenchLongListText(wallMs, count) + "] ms" + " exitCodes=[" + BenchIntListText(exitCodes, count) + "]" + " expectedExitCode=" + BenchIntText(baseline.ExpectedExitCode) + " median=" + BenchLongText(medianWallMs) + "ms" + " baseline=" + BenchLongText(baseline.MedianWallMs) + "ms" + " tolerance=x" + BenchFormatFixed3(baseline.ToleranceThousandths) + " limit=" + BenchLongText(BenchGateLimitMs(baseline)) + "ms" + " cliCommit=" + cliCommit + " baselineCliCommit=" + baseline.CliCommit + " baselineMachine=" + baseline.Machine + " stage=" + baseline.Stage + " load=" + BenchLoadText(load.LoadThousandths) + " cores=" + BenchCountText(load.Cores) + " loadThreshold=" + BenchFormatFixed3(BenchLoadThresholdThousandths(load.Cores))
+}
+
+// The half of the gate the machine's load cannot excuse: every run exited as the baseline pins,
+// and a baselined FAILURE carried the CLI's own banner. `"ok"` when both hold.
+func BenchGateCorrectnessVerdict(
     wallMs: long[],
     exitCodes: int[],
     failureBanners: bool[],
     count: int,
     medianWallMs: long,
     baseline: BenchBaseline,
-    cliCommit: string
+    cliCommit: string,
+    load: BenchMachineLoad
 ): string {
-    detail := "runs=[" + BenchLongListText(wallMs, count) + "] ms" + " exitCodes=[" + BenchIntListText(exitCodes, count) + "]" + " expectedExitCode=" + BenchIntText(baseline.ExpectedExitCode) + " median=" + BenchLongText(medianWallMs) + "ms" + " baseline=" + BenchLongText(baseline.MedianWallMs) + "ms" + " tolerance=x" + BenchFormatFixed3(baseline.ToleranceThousandths) + " limit=" + BenchLongText(BenchGateLimitMs(baseline)) + "ms" + " cliCommit=" + cliCommit + " baselineCliCommit=" + baseline.CliCommit + " baselineMachine=" + baseline.Machine + " stage=" + baseline.Stage
+    detail := BenchGateDetail(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
 
     i := 0
     while i < count {
@@ -1179,11 +1340,92 @@ func BenchGateVerdict(
         }
     }
 
+    return "ok"
+}
+
+// The half that only means something on a machine comparable to the baseline's.
+func BenchGateTimingVerdict(
+    wallMs: long[],
+    exitCodes: int[],
+    count: int,
+    medianWallMs: long,
+    baseline: BenchBaseline,
+    cliCommit: string,
+    load: BenchMachineLoad
+): string {
     if medianWallMs > BenchGateLimitMs(baseline) {
-        return "compile-time gate: nlc build on " + baseline.Project + " regressed; " + detail
+        return "compile-time gate: nlc build on " + baseline.Project + " regressed; " + BenchGateDetail(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
     }
 
     return "ok"
+}
+
+// The gate's own verdict, so that the whole diagnosis is one string: `"ok"` when every run exited
+// zero and the median is inside the tolerance, and otherwise a message carrying the three wall
+// times, the median, the baseline, the tolerance and the CLI commit under test. This form JUDGES
+// unconditionally and states the load as `unknown`; `BenchGateOutcome` is the form the live gate
+// calls, which knows what the machine was doing.
+func BenchGateVerdict(
+    wallMs: long[],
+    exitCodes: int[],
+    failureBanners: bool[],
+    count: int,
+    medianWallMs: long,
+    baseline: BenchBaseline,
+    cliCommit: string
+): string {
+    load := BenchUnknownLoad()
+    correctness := BenchGateCorrectnessVerdict(wallMs, exitCodes, failureBanners, count, medianWallMs, baseline, cliCommit, load)
+    if correctness != "ok" {
+        return correctness
+    }
+
+    return BenchGateTimingVerdict(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
+}
+
+func BenchSkippedByLoadPrefix(): string {
+    return "skipped-by-load:"
+}
+
+// The two outcomes the gate block says NOTHING about: a judged pass, and a timing judgement it
+// honestly declined to make. Every other outcome is an assertion failure carrying its numbers.
+func BenchGateOutcomeIsSilent(outcome: string): bool {
+    return outcome == "ok" || outcome.StartsWith(BenchSkippedByLoadPrefix())
+}
+
+// The live gate's outcome: the correctness half always, the timing half only on a machine this
+// median can be compared to the baseline on.
+func BenchGateOutcome(
+    wallMs: long[],
+    exitCodes: int[],
+    failureBanners: bool[],
+    count: int,
+    medianWallMs: long,
+    baseline: BenchBaseline,
+    cliCommit: string,
+    load: BenchMachineLoad
+): string {
+    correctness := BenchGateCorrectnessVerdict(wallMs, exitCodes, failureBanners, count, medianWallMs, baseline, cliCommit, load)
+    if correctness != "ok" {
+        return correctness
+    }
+
+    if BenchLoadRefusesTimingJudgement(load) {
+        return BenchSkippedByLoadPrefix() + " the compile-time gate did NOT judge the median: the one-minute load average is " + BenchLoadText(load.LoadThousandths) + " on " + BenchCountText(load.Cores) + " logical cores, at or above the " + BenchFormatFixed3(BenchLoadThresholdThousandths(load.Cores)) + " this gate needs to compare a median against a baseline measured on an IDLE machine." + " The exit codes and the CLI's failure banner WERE checked and are as baselined; only the" + " timing is unjudged. Re-run on a quiet machine to judge it: dotnet <Cli.dll> test --project" + " tests/native/compile-time-bench. " + BenchGateDetail(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
+    }
+
+    return BenchGateTimingVerdict(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
+}
+
+// The line the gate leaves behind at `artifacts/compile-time/last-gate-run.txt`. `"ok"` on its own
+// would say nothing, so a judged pass carries the same detail every other outcome does: a reader
+// of a GREEN gate must be able to see whether the timing was judged, and on what machine.
+func BenchGateRecordLine(outcome: string, detailText: string): string {
+    if outcome == "ok" {
+        return "ok " + detailText
+    }
+
+    return outcome
 }
 
 // The banner `BuildCommandKernels.GetFailedElapsedMessage` writes to STDOUT when a build fails.

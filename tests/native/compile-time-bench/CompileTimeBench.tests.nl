@@ -578,6 +578,177 @@ test "compile-time bench: an unchanged directory listing DIFFS to nothing, and a
     assert difference.IndexOf("+ written.txt|", StringComparison.Ordinal) == 0
 }
 
+// ─── THE MACHINE THE MEDIAN WAS TAKEN ON ──────────────────────────────────────────────────────
+
+test "compile-time bench: the one-minute load average is read from the sysctl shape and from a REAL uptime line, macOS and Linux" {
+    // The first two are verbatim captures from this machine: `sysctl -n vm.loadavg` and
+    // `/usr/bin/uptime`. The third is the Linux shape, which says `load average` singular and
+    // separates with commas.
+    assert BenchOneMinuteLoadThousandths("{ 4.17 4.42 4.62 }") == 4170
+    assert BenchOneMinuteLoadThousandths("13:04  up  3:46, 1 user, load averages: 5.18 4.43 4.57") == 5180
+    assert BenchOneMinuteLoadThousandths(" 13:02:41 up 3 days,  4:11,  2 users,  load average: 0.52, 0.58, 0.59") == 520
+    assert BenchOneMinuteLoadThousandths("LOAD AVERAGE: 12") == 12000
+}
+
+test "compile-time bench: the numbers BEFORE the load figures on an uptime line are never mistaken for the load" {
+    // The trap this parser exists to avoid: the first parseable number in a real uptime line is
+    // the `1` of "1 user", which would report a machine at 5.18 as idle.
+    assert BenchOneMinuteLoadThousandths("13:04  up  3:46, 1 user, load averages: 5.18 4.43 4.57") != 1000
+    assert BenchFirstLoadToken("{ 4.17 4.42 4.62 }", 0) == "4.17"
+    assert BenchFirstLoadToken(": 0.52, 0.58", 1) == "0.52"
+    assert BenchFirstLoadToken("   ", 0) == ""
+}
+
+test "compile-time bench: a line in neither shape reports the load as UNREADABLE, which is -1 and never 0" {
+    assert BenchOneMinuteLoadThousandths("") == -1
+    assert BenchOneMinuteLoadThousandths("no load here") == -1
+    assert BenchOneMinuteLoadThousandths("load averages") == -1
+    assert BenchOneMinuteLoadThousandths("{ }") == -1
+    assert BenchOneMinuteLoadThousandths("load average: sixteen") == -1
+}
+
+test "compile-time bench: the load threshold is a fifth of the logical cores, and 2 when the platform did not answer" {
+    assert BenchLoadThresholdThousandths(10) == 2000
+    assert BenchLoadThresholdThousandths(8) == 1600
+    assert BenchLoadThresholdThousandths(64) == 12800
+    assert BenchLoadThresholdThousandths(0) == 2000
+    assert BenchLoadThresholdThousandths(-1) == 2000
+}
+
+test "compile-time bench: the gate judges just UNDER the threshold, refuses AT it, and refuses an unreadable load too" {
+    justUnder := new BenchMachineLoad(1999, 10)
+    exactly := new BenchMachineLoad(2000, 10)
+    measured := new BenchMachineLoad(5180, 10)
+    quiet := new BenchMachineLoad(1200, 10)
+    assert !BenchLoadRefusesTimingJudgement(justUnder)
+    assert BenchLoadRefusesTimingJudgement(exactly)
+    assert BenchLoadRefusesTimingJudgement(measured)
+    assert !BenchLoadRefusesTimingJudgement(quiet)
+    assert BenchLoadRefusesTimingJudgement(BenchUnknownLoad())
+}
+
+test "compile-time bench: a load renders as a decimal and an unreadable one as `unknown`, never as a number" {
+    assert BenchLoadText(5180) == "5.18"
+    assert BenchLoadText(2000) == "2"
+    assert BenchLoadText(-1) == "unknown"
+}
+
+// THE LIVE READER. Without this contract a typo in `BenchLoadAverageText` would switch the timing
+// gate off in silence, because an unreadable load skips: a broken reader must turn THIS red.
+test "compile-time bench: this platform answers with a POSITIVE load average and a positive core count" {
+    if OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() {
+        load := BenchReadMachineLoad()
+        assert load.LoadThousandths > 0, "the platform did not answer with a readable one-minute load average: '" + BenchLoadAverageText() + "'"
+        assert load.Cores > 0
+    }
+}
+
+// ─── THE GATE'S TWO HALVES ────────────────────────────────────────────────────────────────────
+
+test "compile-time bench: a median past the tolerance on a LOADED machine is SKIPPED-BY-LOAD rather than a regression, and the skip carries every number" {
+    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
+    wallMs := BenchTestLongs(200000, 190000, 210000)
+    exitCodes := BenchTestExitCodes(1, 1, 1)
+    banners := BenchTestBanners(true, true, true)
+    loaded := new BenchMachineLoad(5180, 10)
+    outcome := BenchGateOutcome(wallMs, exitCodes, banners, 3, 200000, baseline, "deadbeef", loaded)
+    assert outcome.StartsWith(BenchSkippedByLoadPrefix())
+    assert BenchGateOutcomeIsSilent(outcome)
+    assert outcome.IndexOf("did NOT judge the median", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("runs=[200000, 190000, 210000] ms", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("median=200000ms", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("baseline=120000ms", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("limit=180000ms", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("load=5.18", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("cores=10", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("loadThreshold=2", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("cliCommit=deadbeef", StringComparison.Ordinal) > 0
+}
+
+test "compile-time bench: the SAME median on a QUIET machine is still a regression, and its message states the load it was judged at" {
+    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
+    wallMs := BenchTestLongs(200000, 190000, 210000)
+    exitCodes := BenchTestExitCodes(1, 1, 1)
+    banners := BenchTestBanners(true, true, true)
+    quiet := new BenchMachineLoad(1200, 10)
+    outcome := BenchGateOutcome(wallMs, exitCodes, banners, 3, 200000, baseline, "deadbeef", quiet)
+    assert outcome.IndexOf("regressed", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("load=1.2 cores=10 loadThreshold=2", StringComparison.Ordinal) > 0
+    assert !BenchGateOutcomeIsSilent(outcome)
+}
+
+test "compile-time bench: a quiet machine inside the tolerance is `ok`, and `ok` and a load skip are the ONLY silent outcomes" {
+    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
+    wallMs := BenchTestLongs(118000, 130000, 121000)
+    exitCodes := BenchTestExitCodes(1, 1, 1)
+    banners := BenchTestBanners(true, true, true)
+    quiet := new BenchMachineLoad(1200, 10)
+    assert BenchGateOutcome(wallMs, exitCodes, banners, 3, 121000, baseline, "deadbeef", quiet) == "ok"
+    assert BenchGateOutcomeIsSilent("ok")
+    assert !BenchGateOutcomeIsSilent("compile-time gate: nlc build on x regressed; runs=[]")
+    assert !BenchGateOutcomeIsSilent("")
+}
+
+test "compile-time bench: a LOADED machine excuses neither a wrong exit code nor a missing failure banner — the correctness half never skips" {
+    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
+    wallMs := BenchTestLongs(200000, 190000, 210000)
+    loaded := new BenchMachineLoad(5180, 10)
+
+    wrongExit := BenchGateOutcome(wallMs, BenchTestExitCodes(1, 0, 1), BenchTestBanners(true, false, true), 3, 200000, baseline, "deadbeef", loaded)
+    assert wrongExit.IndexOf("exited 0 on run 2 but the baseline pins 1", StringComparison.Ordinal) > 0
+    assert !BenchGateOutcomeIsSilent(wrongExit)
+
+    noBanner := BenchGateOutcome(wallMs, BenchTestExitCodes(1, 1, 1), BenchTestBanners(true, false, true), 3, 200000, baseline, "deadbeef", loaded)
+    assert noBanner.IndexOf("did NOT carry the CLI's own 'Build failed in ' banner", StringComparison.Ordinal) > 0
+    assert !BenchGateOutcomeIsSilent(noBanner)
+}
+
+test "compile-time bench: the record a JUDGED and PASSING gate leaves behind still carries its numbers, because `ok` alone says nothing" {
+    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
+    wallMs := BenchTestLongs(118000, 130000, 121000)
+    exitCodes := BenchTestExitCodes(1, 1, 1)
+    quiet := new BenchMachineLoad(1200, 10)
+    detail := BenchGateDetail(wallMs, exitCodes, 3, 121000, baseline, "deadbeef", quiet)
+    assert BenchGateRecordLine("ok", detail).StartsWith("ok runs=[118000, 130000, 121000] ms")
+    assert BenchGateRecordLine("ok", detail).IndexOf("load=1.2", StringComparison.Ordinal) > 0
+    assert BenchGateRecordLine("skipped-by-load: x", detail) == "skipped-by-load: x"
+}
+
+test "compile-time bench: the gate's own verdict form judges unconditionally and states the load as unknown" {
+    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
+    wallMs := BenchTestLongs(200000, 190000, 210000)
+    exitCodes := BenchTestExitCodes(1, 1, 1)
+    banners := BenchTestBanners(true, true, true)
+    verdict := BenchGateVerdict(wallMs, exitCodes, banners, 3, 200000, baseline, "deadbeef")
+    assert verdict.IndexOf("regressed", StringComparison.Ordinal) > 0
+    assert verdict.IndexOf("load=unknown cores=unknown loadThreshold=2", StringComparison.Ordinal) > 0
+}
+
+// ─── THE COMMIT UNDER TEST ────────────────────────────────────────────────────────────────────
+
+test "compile-time bench: a tree with no git metadata says WHY the CLI commit is unavailable instead of the bare word `unknown`" {
+    isolated := BenchCliCommitUnavailableReason(false, true)
+    noMetadata := BenchCliCommitUnavailableReason(false, false)
+    failed := BenchCliCommitUnavailableReason(true, false)
+    assert isolated.IndexOf("isolated gate copy", StringComparison.Ordinal) >= 0
+    assert isolated.IndexOf("without .git", StringComparison.Ordinal) > 0
+    assert noMetadata.IndexOf("no .git metadata", StringComparison.Ordinal) > 0
+    assert failed.IndexOf("git rev-parse HEAD failed", StringComparison.Ordinal) > 0
+    assert isolated != "unknown"
+    assert noMetadata != "unknown"
+    assert failed != "unknown"
+}
+
+test "compile-time bench: the CLI commit is the real 40-character sha wherever git metadata exists, and a reason where it does not" {
+    root := BenchRepositoryRoot()
+    commit := BenchReadCliCommit(root)
+    if BenchHasGitMetadata(root) {
+        assert commit.Length == 40, "expected a 40-character sha, got '" + commit + "'"
+    } else {
+        assert commit.StartsWith("unavailable"), "expected a reason, got '" + commit + "'"
+    }
+}
+
 // ─── THE GATE ─────────────────────────────────────────────────────────────────────────────────
 
 func BenchGateSkipRequested(): bool {
@@ -591,8 +762,11 @@ test "compile-time gate: nlc build on src/NSharpLang.Compiler.BootstrapServices 
     // JSON document, so ANY line this block writes to stdout or stderr lands ahead of the envelope
     // and makes it unparseable. A fully green run then reads as "native N# test JSON did not prove a
     // nonempty successful run" and the gate goes red on 51 passing tests. Nothing is lost by the
-    // silence: every number a red gate needs is already inside `BenchGateVerdict`'s string, which
+    // silence: every number a red gate needs is already inside `BenchGateOutcome`'s string, which
     // the runner reports as the assertion's `errorMessage`, and a green run needs no line at all.
+    // A run the machine's load made unjudgeable is silent too, and leaves its numbers in
+    // `artifacts/compile-time/last-gate-run.txt` so that a GREEN gate can still be asked what it
+    // did.
     if !BenchGateSkipRequested() {
         repositoryRoot := BenchRepositoryRoot()
         baseline := BenchParseBaseline(File.ReadAllText(BenchTestBaselinePath()))
@@ -603,6 +777,11 @@ test "compile-time gate: nlc build on src/NSharpLang.Compiler.BootstrapServices 
         assert File.Exists(cliDll), "compile-time gate: the CLI under test was not found at " + cliDll + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug"
 
         projectDirectory := BenchAbsoluteProjectPath(repositoryRoot, baseline.Project)
+
+        // BEFORE the runs, so the figure describes the machine these medians were taken on rather
+        // than the machine after three builds of the compiler have loaded it.
+        load := BenchReadMachineLoad()
+
         wallMs := new long[](3)
         exitCodes := new int[](3)
         banners := new bool[](3)
@@ -616,7 +795,12 @@ test "compile-time gate: nlc build on src/NSharpLang.Compiler.BootstrapServices 
         }
 
         median := BenchMedian(wallMs, 3)
-        verdict := BenchGateVerdict(wallMs, exitCodes, banners, 3, median, baseline, BenchReadCliCommit(repositoryRoot))
-        assert verdict == "ok", verdict
+        cliCommit := BenchReadCliCommit(repositoryRoot)
+        outcome := BenchGateOutcome(wallMs, exitCodes, banners, 3, median, baseline, cliCommit, load)
+
+        // The one place a GREEN gate can still say what it did: a skipped timing judgement nobody
+        // can see is the failure mode being removed, and the block may not print.
+        BenchWriteGateRecord(repositoryRoot, BenchGateRecordLine(outcome, BenchGateDetail(wallMs, exitCodes, 3, median, baseline, cliCommit, load)))
+        assert BenchGateOutcomeIsSilent(outcome), outcome
     }
 }

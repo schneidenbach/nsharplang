@@ -960,6 +960,26 @@ project name (`src/NSharpLang.Sdk/Sdk/Sdk.targets`). So the gated number is the 
 those diagnostics are fixed and `nlc build` exits 0 on this project, the gate fails on purpose
 ("re-measure the baseline") and the re-measured baseline then covers analysis and emit too.
 
+The gate refuses to judge a LOADED machine. The baseline is measured on an idle box (its `machine`
+field says so), so a median taken while the machine is busy measures the machine, not the compiler:
+five product gates in two days went red at one-minute load averages of 4.4–8.1 on this 10-core M4,
+with medians of 11,941–17,010 ms against the 11,802 ms limit, while the same code measured 6–7 s on
+a quiet box. So the block reads the one-minute load average BEFORE its three runs — `sysctl -n
+vm.loadavg` on macOS (the systems throughput gate's own source, so the two gates agree), falling
+back to `/usr/bin/uptime`, which is also the Linux reader — and compares it with a threshold of
+**0.2 × logical cores** (2.0 on a 10-core box; 2.0 when the platform gives no core count). At or
+above it, the timing judgement is not made: the block passes and records SKIPPED-BY-LOAD with every
+number. An UNREADABLE load skips too — a gate must not judge a machine it cannot compare — and a
+live contract asserts the platform answers with a positive load, so a broken reader turns that test
+red instead of switching the gate off in silence. (Consequence to know: inside a full product gate
+the box is loaded by the gate's own Step 3a, so the timing judgement usually IS skipped there; and
+in a container `uptime` reports the host's load. The timing number is meant to be taken on a quiet
+box, which is what the re-baseline recipe below already requires.)
+
+The correctness half never skips: every run must still exit with the baselined code, a baselined
+failure must still carry the CLI's `Build failed in` banner, and a placeholder baseline is still
+refused. Load does not move those, so load cannot excuse them.
+
 Skipping and re-baselining:
 
 ```bash
@@ -967,9 +987,16 @@ SYSTEMS_BENCH=skip VSCODE_TESTS=skip ./scripts/test-all.sh --commit   # the gate
 ```
 
 A native test must write nothing to stdout or stderr: Step 3a captures both streams into one file
-and `json.load`s the whole thing, so a single printed line turns 51 passed tests into a red step.
+and `json.load`s the whole thing, so a single printed line turns 66 passed tests into a red step.
 The gate block's numbers therefore appear only in its failure message (`runs=[…] exitCodes=[…]
-median= baseline= tolerance= limit= cliCommit= stage=`); a green block is silent.
+median= baseline= tolerance= limit= cliCommit= stage= load= cores= loadThreshold=`); a green block is
+silent. Because a skipped timing judgement is green and therefore silent too, every run — judged,
+skipped or failed — also writes that one line to `artifacts/compile-time/last-gate-run.txt`
+(gitignored, and discarded with the gate's isolated copy), so a reader of a GREEN gate can still ask
+what it did. `cliCommit` is the real 40-character sha wherever the tree has `.git`; in the product
+gate's isolated copy it reads `unavailable (isolated gate copy — …)`, because
+`tests/scripts/test-all.sh` rsyncs the tree with `--exclude='.git/'` and nothing stamps the commit
+into the build.
 
 `SYSTEMS_BENCH` is the same switch the native-comparison throughput step uses. It is NOT part of the
 step-cache salt (`env_names` in the two gate scripts is ratchet-pinned), so a cached Step 3a from a
