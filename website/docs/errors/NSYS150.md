@@ -14,8 +14,7 @@ with no way to expire.
 The systems analyzer only runs when the project asks for it, and a sidecar is only read when the
 project lists it. Here is the project that produced the diagnostic below:
 
-```yaml
-# FILE project.yml
+```yaml title="project.yml"
 name: PacketCore
 version: 1.0.0
 outputType: library

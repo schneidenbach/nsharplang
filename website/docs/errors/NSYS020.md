@@ -14,8 +14,7 @@ not, so it says *may box* and asks you to keep the value concrete.
 The systems analyzer only runs when the project asks for it. Without the `language.profile:
 systems` block, none of this is reported:
 
-```yaml
-# FILE project.yml
+```yaml title="project.yml"
 name: PacketCore
 version: 1.0.0
 outputType: library
