@@ -168,6 +168,14 @@ class LinterWalkState {
             return
         }
 
+        // A finding whose sentence would carry the parser's `<error>` placeholder is a cascade off a
+        // syntax error that has already been reported, and is not made. See
+        // `DiagnosticPlaceholderGuard`; this is the linter's one door, as the sink's three are the
+        // analyzer's.
+        if DiagnosticPlaceholderGuard.TextCarriesPlaceholder(message) || DiagnosticPlaceholderGuard.TextCarriesPlaceholder(suggestion) {
+            return
+        }
+
         span := DiagnosticSpanResolver.Resolve(SourceLine(line), column, length)
         diagnostics.Add(new Diagnostic(code, message, new Location(line, span.Column, filePath), severity, suggestion, span.Length))
     }

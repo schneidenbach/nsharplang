@@ -209,9 +209,10 @@ class AnalyzerPatternReachability {
 // three entry points are one mutually recursive function with three argument shapes.
 class AnalyzerParserErrorPlaceholders {
 
-    // The name the recovery parser mints for a token it could not read.
+    // The name the recovery parser mints for a token it could not read. One spelling, shared with the
+    // guard that keeps it out of user-facing sentences, so the walk and the guard cannot disagree.
     static func PlaceholderName(): string {
-        return "<error>"
+        return DiagnosticPlaceholderGuard.PlaceholderName()
     }
 
     static func ContainsInExpression(expression: Expression): bool {

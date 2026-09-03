@@ -531,10 +531,11 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/fixtures/systems-vectorization/opt-out-probe joined; this harness's own project.yml is excluded by BenchSelfProjectPath);
 // 71 since 022/3b-1 added tests/native/external-abstract-override; 72 since the language server's
 // lifetime contract added tests/native/lsp-lifetime; 73 since the error-docs slice added
-// tests/native/error-docs-contract.
-test "compile-time bench: the corpus is the 73 project.yml projects under examples, tests and templates" {
+// tests/native/error-docs-contract; 74 since the diagnostic-honesty slice added
+// tests/native/diagnostic-honesty.
+test "compile-time bench: the corpus is the 74 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 73
+    assert projects.Count == 74
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "templates/nsharp-console")
     assert BenchListContains(projects, "tests/native/ownership-audit")
