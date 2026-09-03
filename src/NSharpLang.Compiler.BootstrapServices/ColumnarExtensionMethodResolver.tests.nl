@@ -248,3 +248,45 @@ test "runtime optional-fill selection binds a single trailing optional and ignor
     exactArity := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(typeof(object), "ToString", new Type[](0), facts, false)
     assert !exactArity.IsSelected, "An exact-arity call must not be claimed by the optional-fill fallback."
 }
+
+// THE ATTRIBUTE TESTS MUST NOT DEPEND ON TYPE IDENTITY. `IsDefined(attributeType, ...)` compares the
+// attribute's type OBJECT, which is refused outright over a `MetadataLoadContext` and would have been
+// swallowed by the `catch`es these owners used to carry -- producing an empty extension index in
+// silence rather than an error. These blocks pin the full-name reading on both receivers.
+test "the extension-host test reads the attribute by full name, not by type identity" {
+    hostType := RequiredExtensionFixtureType("System.Linq.Enumerable, System.Linq")
+    assert ColumnarExtensionMethodResolver.HasExtensionAttribute(hostType)
+    assert ColumnarExtensionMethodResolver.IsStaticExtensionHost(hostType)
+
+    // A sealed non-static class carries no ExtensionAttribute and is not a host.
+    assert !ColumnarExtensionMethodResolver.HasExtensionAttribute(typeof(string))
+    assert !ColumnarExtensionMethodResolver.IsStaticExtensionHost(typeof(string))
+}
+
+test "an extension method and a params tail are both recognised by full name" {
+    hostType := RequiredExtensionFixtureType("System.Linq.Enumerable, System.Linq")
+    methods := hostType.GetMethods()
+    sawExtension := false
+    index := 0
+    while index < methods.Length {
+        candidate := methods[index]
+        if candidate.get_Name() == "Count" && ColumnarExtensionMethodResolver.IsExtensionMethodCandidate(candidate) {
+            sawExtension = true
+        }
+
+        index = index + 1
+    }
+
+    assert sawExtension
+
+    // `string.Concat(params string[])` is the params shape the excluded-shape test has to see.
+    concat := typeof(string).GetMethod("Concat", ConcatParamsSignature())
+    assert concat != null
+    assert ColumnarExtensionMethodResolver.HasExcludedParameterShape(concat.GetParameters())
+}
+
+func ConcatParamsSignature(): Type[] {
+    signature := new Type[](1)
+    signature[0] = typeof(string[])
+    return signature
+}

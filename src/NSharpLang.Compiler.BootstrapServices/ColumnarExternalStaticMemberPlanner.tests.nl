@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.IO
+import System.Reflection
 import System.Reflection.Emit
 import System.Text.Json
 
@@ -1278,4 +1279,73 @@ test "the external static-member root sequence declines bad inputs while Plan st
     assert throws InvalidOperationException {
         ColumnarExternalStaticMemberPlanner.Plan(null, tree.Source, tree.Root, ColumnarRangePlannerEmptyBindings(), new ColumnarCodePlan())
     }
+}
+
+// WHY THE LITERAL IS READ FROM METADATA. `TryAppendLiteralField` used to call `GetValue(null)`, which
+// needs a live field and throws over a `MetadataLoadContext`; the whole external catalog is moving to
+// that universe, so the literal reading had to move with it. These two blocks pin both halves: the
+// substitute answers where the live reading throws, and the two agree everywhere the planner reaches.
+func ExternalMetadataFieldOrNull(scan: ExternalAssemblyScanResult, typeName: string, fieldName: string): FieldInfo {
+    index := 0
+    while index < scan.Entries.Length {
+        entry := scan.Entries[index]
+        metadataAssembly := entry.MetadataAssembly
+        if metadataAssembly != null {
+            candidate := metadataAssembly.GetType(typeName)
+            if candidate != null {
+                found := candidate.GetField(fieldName)
+                if found != null {
+                    return found
+                }
+            }
+        }
+
+        index = index + 1
+    }
+
+    return null
+}
+
+// The live read is attempted in ITS OWN function, not in a `try` nested inside the test's `try`: the
+// columnar door does not claim a `try` statement as a block child of another `try`'s block, and
+// declines the whole body at `emit.statement.block-child` (node kind 49) when one is written there.
+func ExternalLiveFieldReadThrows(field: FieldInfo): bool {
+    try {
+        live := field.GetValue(null)
+        return live == null
+    } catch {
+        return true
+    }
+}
+
+test "a literal field read from the metadata universe answers where the live read throws" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        field := ExternalMetadataFieldOrNull(scan, "System.Int32", "MaxValue")
+        assert field != null
+        assert field.get_IsLiteral()
+        raw := field.GetRawConstantValue()
+        assert raw != null
+        assert Convert.ToInt32(raw) == 2147483647
+
+        // The live reading is exactly what the metadata universe refuses, and refusing it is the point.
+        assert ExternalLiveFieldReadThrows(field)
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "the metadata and live readings agree on every literal shape the planner reaches" {
+    intField := typeof(int).GetField("MaxValue")
+    assert intField != null
+    assert Convert.ToInt32(intField.GetRawConstantValue()) == Convert.ToInt32(intField.GetValue(null))
+
+    // A BYTE-backed enum is the shape where the two readings differ in TYPE and must still agree in
+    // VALUE: the live read boxes the enum, the metadata read boxes the underlying byte, and
+    // `Convert.ToInt32` is what the planner puts between them.
+    enumField := typeof(JsonValueKind).GetField("Object")
+    assert enumField != null
+    assert enumField.get_IsLiteral()
+    assert Convert.ToInt32(enumField.GetRawConstantValue()) == Convert.ToInt32(enumField.GetValue(null))
+    assert Convert.ToInt32(enumField.GetRawConstantValue()) == 1
 }

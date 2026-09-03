@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Runtime.InteropServices
 
 enum ExternalAssemblyTypeLookupStatus {
     Missing,
@@ -121,6 +122,7 @@ class ExternalAssemblyScan {
 
     static func OpenWithReferences(referenceAssemblyPaths: IReadOnlyList<string>?): ExternalAssemblyScanResult {
         entries := new List<ExternalAssemblyCatalogEntry>()
+        searchDirectories := CommonAssemblySearchDirectories(referenceAssemblyPaths)
         commonNames := CommonAssemblyNames()
         commonIndex := 0
         while commonIndex < commonNames.Length {
@@ -129,7 +131,7 @@ class ExternalAssemblyScan {
                 runtimeAssembly := Assembly.Load(name)
                 identityName := runtimeAssembly.GetName()
                 identity := identityName.get_FullName()
-                metadataPath := runtimeAssembly.get_Location()
+                metadataPath := CommonAssemblyMetadataPath(searchDirectories, name)
                 AddSemanticEntry(entries, identityName, identity, metadataPath, runtimeAssembly)
             } catch {
                 entries.Add(new ExternalAssemblyCatalogEntry(null, "unresolved-common:" + name, "", null, false))
@@ -221,6 +223,62 @@ class ExternalAssemblyScan {
         }
 
         return new ExternalAssemblyScanResult(entries.ToArray(), context)
+    }
+
+    // WHERE A COMMON ASSEMBLY'S METADATA IS, FOUND ON DISK RATHER THAN READ OFF A LOADED ASSEMBLY.
+    // `runtimeAssembly.get_Location()` answers the EMPTY STRING under a single-file binary -- measured,
+    // not assumed -- and an entry with an empty metadata path is not inspectable, so the metadata
+    // context would quietly be handed nothing and every common assembly would drop out of binding with
+    // no error anywhere. The path is therefore resolved from DIRECTORIES.
+    //
+    // The runtime directory comes FIRST deliberately. It is the directory `get_Location()` used to
+    // answer out of, so for a framework-dependent host every one of the 27 common names resolves to the
+    // byte-identical file the old reading returned, and the change moves nothing. The project's own
+    // resolved reference directories come after, as the answer for a name the runtime directory does
+    // not carry -- never as an override of one it does, because a reference-pack facade and a runtime
+    // implementation of the same name do not carry the same types.
+    static func CommonAssemblySearchDirectories(referenceAssemblyPaths: IReadOnlyList<string>?): string[] {
+        directories := new List<string>()
+        seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
+        if runtimeDirectory != null && runtimeDirectory.Length > 0 {
+            AddUniquePath(directories, seen, runtimeDirectory)
+        }
+
+        if referenceAssemblyPaths != null {
+            pathIndex := 0
+            while pathIndex < referenceAssemblyPaths.Count {
+                path := referenceAssemblyPaths[pathIndex]
+                if path != null && path.Length > 0 {
+                    directory := Path.GetDirectoryName(path) ?? ""
+                    if directory.Length > 0 {
+                        AddUniquePath(directories, seen, directory)
+                    }
+                }
+
+                pathIndex = pathIndex + 1
+            }
+        }
+
+        return directories.ToArray()
+    }
+
+    // First directory that carries `<name>.dll` wins. An empty answer marks the entry uninspectable,
+    // exactly as an empty `Location` did -- the difference is that it can now only happen when the file
+    // is genuinely absent, not because the host is single-file.
+    static func CommonAssemblyMetadataPath(searchDirectories: string[], name: string): string {
+        fileName := name + ".dll"
+        index := 0
+        while index < searchDirectories.Length {
+            candidate := Path.Combine(searchDirectories[index], fileName)
+            if File.Exists(candidate) {
+                return candidate
+            }
+
+            index = index + 1
+        }
+
+        return ""
     }
 
     // Existing project.yml DLL references can be relative to the project root. Selection and path

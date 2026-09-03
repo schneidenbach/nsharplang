@@ -197,8 +197,14 @@ class ColumnarExternalStaticMemberPlanner {
         return false
     }
 
+    // THE LITERAL IS READ FROM METADATA, NOT FROM A LIVE FIELD. The caller has already established
+    // `field.get_IsLiteral()`, and a literal's value lives in the Constant table, so
+    // `GetRawConstantValue()` answers it -- while `GetValue(null)` needs the declaring type loaded for
+    // execution and throws over a `MetadataLoadContext`. The two agree on every shape reached here: for
+    // an enum literal both hand back the boxed UNDERLYING integer, which is what `Convert.ToInt32` reads,
+    // and for the numeric literals below the value is recomputed from the member name and type anyway.
     static func TryAppendLiteralField(plan: ColumnarCodePlan, field: FieldInfo, fieldType: Type, memberName: string): bool {
-        value := field.GetValue(null)
+        value := field.GetRawConstantValue()
         if value == null {
             return false
         }

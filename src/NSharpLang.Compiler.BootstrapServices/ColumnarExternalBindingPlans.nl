@@ -662,6 +662,13 @@ class ColumnarExternalBindingPlans {
             return VirtualCall(receiver, memberName, One("System.Object"), "System.Object")
         }
 
+        // `GetRawConstantValue` is the METADATA reading of a literal field, and the only one that works
+        // over a `MetadataLoadContext`: `GetValue` throws there (`The requested operation cannot be used
+        // on objects loaded by a MetadataLoadContext.`) because it wants a live field to read.
+        if receiver == "System.Reflection.FieldInfo" && memberName == "GetRawConstantValue" && count == 0 {
+            return VirtualCall(receiver, memberName, Empty(), "System.Object")
+        }
+
         if receiver == "System.Reflection.PropertyInfo" && memberName == "GetGetMethod" && count == 0 {
             return VirtualCall(receiver, memberName, Empty(), "System.Reflection.MethodInfo")
         }

@@ -202,7 +202,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         selected: MethodInfo? = null
         selectedParameters := new Type[](0)
         selectedReturnType := typeof(object)
-        paramArrayAttributeType := RequiredParamArrayAttributeType()
         builderBound := closedArguments.Length > 0
         if builderBound {
             ValidateBuilderBoundCandidates(candidates)
@@ -217,15 +216,15 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     throw new InvalidOperationException("Runtime method parameters cannot be null.")
                 }
 
-                if IsIntrinsicExcludedShape(candidate, parameters, paramArrayAttributeType) {
-                    if ExcludedShapeCanOwnArity(candidate, parameters, argumentTypes.Length, paramArrayAttributeType) {
+                if IsIntrinsicExcludedShape(candidate, parameters) {
+                    if ExcludedShapeCanOwnArity(candidate, parameters, argumentTypes.Length) {
                         hadExcludedShape = true
                     }
                 } else {
                     parameterTypes := ResolveParameterTypes(candidate, candidateLookupType, parameters, closedArguments)
                     returnType := ResolveReturnType(candidate, candidateLookupType, closedArguments)
                     if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType) {
-                        if ExcludedShapeCanOwnArity(candidate, parameters, argumentTypes.Length, paramArrayAttributeType) {
+                        if ExcludedShapeCanOwnArity(candidate, parameters, argumentTypes.Length) {
                             hadExcludedShape = true
                         }
                     } else if HasOptionalExpansion(parameters, argumentTypes.Length) {
@@ -377,7 +376,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return returnType
     }
 
-    static func IsIntrinsicExcludedShape(method: MethodInfo, parameters: ParameterInfo[], paramArrayAttributeType: Type): bool {
+    static func IsIntrinsicExcludedShape(method: MethodInfo, parameters: ParameterInfo[]): bool {
         if method.get_IsGenericMethod() || method.get_IsGenericMethodDefinition() || IsVarArgs(method) {
             return true
         }
@@ -385,7 +384,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         index := 0
         while index < parameters.Length {
             parameter := parameters[index]
-            if parameter == null || IsParamsParameter(parameter, paramArrayAttributeType) {
+            if parameter == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
                 return true
             }
 
@@ -416,12 +415,8 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() || signatureType.get_IsGenericParameter()
     }
 
-    static func IsParamsParameter(parameter: ParameterInfo, paramArrayAttributeType: Type): bool {
-        return parameter.IsDefined(paramArrayAttributeType, false)
-    }
-
-    static func ExcludedShapeCanOwnArity(method: MethodInfo, parameters: ParameterInfo[], argumentCount: int, paramArrayAttributeType: Type): bool {
-        if HasParamsParameter(parameters, paramArrayAttributeType) {
+    static func ExcludedShapeCanOwnArity(method: MethodInfo, parameters: ParameterInfo[], argumentCount: int): bool {
+        if HasParamsParameter(parameters) {
             return argumentCount >= parameters.Length - 1
         }
 
@@ -436,11 +431,11 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return argumentCount == parameters.Length
     }
 
-    static func HasParamsParameter(parameters: ParameterInfo[], paramArrayAttributeType: Type): bool {
+    static func HasParamsParameter(parameters: ParameterInfo[]): bool {
         index := 0
         while index < parameters.Length {
             parameter := parameters[index]
-            if parameter != null && IsParamsParameter(parameter, paramArrayAttributeType) {
+            if parameter != null && ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
                 return true
             }
 
@@ -448,15 +443,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         return false
-    }
-
-    static func RequiredParamArrayAttributeType(): Type {
-        attributeType := Type.GetType("System.ParamArrayAttribute")
-        if attributeType == null {
-            throw new InvalidOperationException("System.ParamArrayAttribute could not be resolved.")
-        }
-
-        return attributeType
     }
 
     static func HasOptionalExpansion(parameters: ParameterInfo[], argumentCount: int): bool {
@@ -550,7 +536,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         candidates := CandidatesOrEmpty(lookupType)
-        paramArrayAttributeType := RequiredParamArrayAttributeType()
         argumentCount := argumentTypes.Length
         bestScore := -1
         bestParameterCount := 0
@@ -563,7 +548,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             candidate := candidates[index]
             if candidate != null && IsPublicCandidateForLookup(candidate, lookupType, memberName, expectedStatic) {
                 parameters := candidate.GetParameters()
-                if parameters != null && !IsIntrinsicExcludedShape(candidate, parameters, paramArrayAttributeType) && parameters.Length > argumentCount {
+                if parameters != null && !IsIntrinsicExcludedShape(candidate, parameters) && parameters.Length > argumentCount {
                     parameterTypes := ResolveParameterTypes(candidate, lookupType, parameters, closedArguments)
                     returnType := ResolveReturnType(candidate, lookupType, closedArguments)
                     if !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType) && OptionalTailFillable(parameters, parameterTypes, argumentCount) && CanDispatch(candidate, lookupType, expectedStatic) {
