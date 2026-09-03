@@ -317,6 +317,7 @@ class AnalyzerConstruction {
         } else {
             state.ConstructedType = typeResolverValue.ResolveDeclaredType(node.Type)
             ReportBareGenericConstructionIfNeeded(state, node)
+            ReportConstructionConstraintViolationsIfNeeded(state, node)
             ResolveUnionCaseConstruction(state, node)
         }
 
@@ -339,6 +340,49 @@ class AnalyzerConstruction {
         }
 
         diagnosticsValue.Report(ErrorCode.InvalidTypeArgument, "Generic type '" + bareTypeReference.Name + "' requires " + requiredCount.ToString() + " type argument(s)", bareTypeReference.Line, bareTypeReference.Column, "Specify them explicitly: 'new " + bareTypeReference.Name + "<...>(...)'", bareTypeReference.Name.Length)
+    }
+
+    // `new Box<string>()` UNDER `class Box<T> where T : struct` WAS ACCEPTED IN SILENCE. NL208 was
+    // reported at call sites and nowhere else, so a type argument that violated its own declaration's
+    // `where` clause reached the emitter unchallenged. The predicates and the sentence are shared with
+    // the call-site reporter (`AnalyzerGenericConstraintChecks`); only the suggestion differs, because
+    // nothing is being passed here.
+    func ReportConstructionConstraintViolationsIfNeeded(state: ConstructionState, node: NewExpression) {
+        generic := state.ConstructedType as GenericTypeInfo
+        if generic == null {
+            return
+        }
+
+        definition := generic.GenericDefinition
+        if definition == null {
+            return
+        }
+
+        constraints := AnalyzerGenericConstraintChecks.ConstraintsOf(definition)
+        if constraints.Length == 0 {
+            return
+        }
+
+        substitution := declarationContextValue.CreateGenericSubstitution(definition, generic.TypeArguments)
+        // Anchored on the written type reference, the way the bare-generic report above is, so the
+        // marker sits under `Box<string>` rather than under the whole `new` expression.
+        line := node.Line
+        column := node.Column
+        genericReference := node.Type as GenericTypeReference
+        if genericReference != null {
+            line = genericReference.Line
+            column = genericReference.Column
+        }
+
+        AnalyzerGenericConstraintChecks.ReportTypeArgumentViolations(constraints, substitution, generic.Name, typeResolverValue, assignabilityValue, diagnosticsValue, line, column, MaxSpanLength(generic.Name))
+    }
+
+    static func MaxSpanLength(name: string): int {
+        if name.Length < 1 {
+            return 1
+        }
+
+        return name.Length
     }
 
     // A QUALIFIED NAME MAY BE A UNION CASE (`new Result.Success<int> { ... }`), and the union it names

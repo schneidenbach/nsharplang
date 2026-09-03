@@ -2335,3 +2335,69 @@ test "the JSON surface stays plain while the human surface beside it is forced t
         Directory.Delete(directory, true)
     }
 }
+
+// ═══ NL208 AT A TYPE-ARGUMENT SITE, THROUGH THE SHIPPED CLI ═══════════════════════════════════
+//
+// `new Box<string>()` under `class Box<T> where T : struct` was ACCEPTED IN SILENCE for as long as
+// generic types have existed. NL208 was reported at CALL sites and nowhere else, because the
+// predicates and the sentence lived inside the call validator where only a `CallExpression` could
+// reach them — the same class of hole the arity check closed when a wrong type-argument COUNT used
+// to produce an unloadable assembly.
+//
+// These rows drive the real `nlc check`, so they prove the diagnostic reaches a USER rather than
+// that a predicate returns true. Every violation is paired with the SATISFYING argument, because a
+// checker that refused everything would pass the violation rows on its own.
+
+func WriteConstraintProject(directory: string, source: string) {
+    WriteProjectYml(directory, "name: ConstraintContract\n" + "version: 0.1.0\n" + "outputType: exe\n" + "targetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
+}
+
+func ConstraintCheckOutput(source: string): string {
+    directory := NewTempDirectory("nsharp-constraint")
+    // The value is captured and returned AFTER the handler: a `return` inside a `try` with a
+    // `finally` is not a returning path here and reports NL305 at the signature.
+    output := ""
+    try {
+        WriteConstraintProject(directory, source)
+        run := NlcIn(directory, "check")
+        output = run.Stdout
+    } finally {
+        Directory.Delete(directory, true)
+    }
+
+    return output
+}
+
+test "nlc check reports NL208 when a type argument violates its declaration's `struct` constraint" {
+    violation := ConstraintCheckOutput("class Box<T> where T : struct {\n    Value: T\n}\n\nfunc main() {\n    b := new Box<string>()\n    ok := b != null\n    print ok\n}\n")
+    assert violation.Contains("NL208"), violation
+    assert violation.Contains("is not a non-nullable value type"), violation
+    assert violation.Contains("of \\u0060Box\\u0060"), violation
+
+    satisfied := ConstraintCheckOutput("class Box<T> where T : struct {\n    Value: T\n}\n\nfunc main() {\n    b := new Box<int>()\n    ok := b != null\n    print ok\n}\n")
+    assert !satisfied.Contains("NL208"), satisfied
+}
+
+test "nlc check reports NL208 for a violated `class` constraint, and accepts a reference type" {
+    violation := ConstraintCheckOutput("class Ref<T> where T : class {\n    Value: T\n}\n\nfunc main() {\n    b := new Ref<int>()\n    ok := b != null\n    print ok\n}\n")
+    assert violation.Contains("NL208"), violation
+    assert violation.Contains("is a value type, but type parameter"), violation
+
+    satisfied := ConstraintCheckOutput("class Ref<T> where T : class {\n    Value: T\n}\n\nfunc main() {\n    b := new Ref<string>()\n    ok := b != null\n    print ok\n}\n")
+    assert !satisfied.Contains("NL208"), satisfied
+}
+
+test "nlc check reports NL208 for a violated INTERFACE constraint, and accepts an implementor" {
+    violation := ConstraintCheckOutput("interface Marker {\n    func Mark(): int\n}\n\nclass Bounded<T> where T : Marker {\n    Count: int\n}\n\nfunc main() {\n    b := new Bounded<int>()\n    ok := b != null\n    print ok\n}\n")
+    assert violation.Contains("NL208"), violation
+    assert violation.Contains("does not implement"), violation
+
+    satisfied := ConstraintCheckOutput("interface Marker {\n    func Mark(): int\n}\n\nclass Impl: Marker {\n    func Mark(): int {\n        return 1\n    }\n}\n\nclass Bounded<T> where T : Marker {\n    Count: int\n}\n\nfunc main() {\n    b := new Bounded<Impl>()\n    ok := b != null\n    print ok\n}\n")
+    assert !satisfied.Contains("NL208"), satisfied
+}
+
+test "an UNCONSTRAINED generic type accepts every argument, so the checker is not merely refusing" {
+    output := ConstraintCheckOutput("class Any<T> {\n    Value: T\n}\n\nfunc main() {\n    a := new Any<string>()\n    b := new Any<int>()\n    ok := a != null && b != null\n    print ok\n}\n")
+    assert !output.Contains("NL208"), output
+}

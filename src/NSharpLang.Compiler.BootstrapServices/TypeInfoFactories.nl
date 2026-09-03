@@ -16,24 +16,24 @@ class NominalTypeInfoFactory {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
         nestedTypes := GetNestedTypeArray(declaration)
-        return new ClassTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), HasModifier(declaration, 128), GetOptionalTypeReference(declaration, "BaseClass"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, nestedTypes, HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers))
+        return new ClassTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), HasModifier(declaration, 128), GetOptionalTypeReference(declaration, "BaseClass"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, nestedTypes, HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers), GetGenericConstraintArray(declaration))
     }
 
     static func FromStructDeclaration(declaration: object): StructTypeInfo {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
-        return new StructTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration))
+        return new StructTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration), GetGenericConstraintArray(declaration))
     }
 
     static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
-        return new RecordTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration))
+        return new RecordTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration), GetGenericConstraintArray(declaration))
     }
 
     static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
         declaredMembers := GetDeclaredMemberArray(declaration)
-        return new InterfaceTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"), GetTypeReferenceArray(declaration, "BaseInterfaces"), GetTypeParameterArray(declaration), declaredMembers, GetNestedTypeArray(declaration))
+        return new InterfaceTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"), GetTypeReferenceArray(declaration, "BaseInterfaces"), GetTypeParameterArray(declaration), declaredMembers, GetNestedTypeArray(declaration), GetGenericConstraintArray(declaration))
     }
 
     static func HasModifier(declaration: object, flag: int): bool {
@@ -748,7 +748,7 @@ class UnionTypeInfoFactory {
         typeParameters := CreateTypeParameterList(typeParametersValue)
         cases := CreateUnionCaseList(TypeInfoFactoryReflection.GetRequiredList(declaration, "Cases"))
 
-        return new UnionTypeInfo(new UnionDeclarationInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), typeParameters, cases, TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column")))
+        return new UnionTypeInfo(new UnionDeclarationInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), typeParameters, cases, TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), NominalTypeInfoFactory.GetGenericConstraintArray(declaration)))
     }
 
     static func CreateTypeParameterList(value: object?): List<TypeParameter>? {

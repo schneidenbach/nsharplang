@@ -684,7 +684,7 @@ test "every value type satisfies new(), and a record CLASS with primary paramete
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0)
     )
-    assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(structType)
+    assert AnalyzerGenericConstraintChecks.HasParameterlessConstructor(structType)
 
     recordStruct := new RecordTypeInfo(
         "PtS",
@@ -704,7 +704,7 @@ test "every value type satisfies new(), and a record CLASS with primary paramete
         1
     )
     // A record STRUCT keeps its implicit constructor whatever it declares.
-    assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(recordStruct)
+    assert AnalyzerGenericConstraintChecks.HasParameterlessConstructor(recordStruct)
 
     recordClass := new RecordTypeInfo(
         "Pt",
@@ -723,7 +723,7 @@ test "every value type satisfies new(), and a record CLASS with primary paramete
         1,
         1
     )
-    assert !AnalyzerSyntheticCallValidator.HasParameterlessConstructor(recordClass)
+    assert !AnalyzerGenericConstraintChecks.HasParameterlessConstructor(recordClass)
 
     emptyRecordClass := new RecordTypeInfo(
         "Empty",
@@ -736,7 +736,7 @@ test "every value type satisfies new(), and a record CLASS with primary paramete
         new DeclaredMemberInfo[](0),
         new NestedTypeInfo[](0)
     )
-    assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(emptyRecordClass)
+    assert AnalyzerGenericConstraintChecks.HasParameterlessConstructor(emptyRecordClass)
 }
 
 test "a CLASS answers from its own recorded flag, and an unknown type is assumed to satisfy" {
@@ -753,7 +753,7 @@ test "a CLASS answers from its own recorded flag, and an unknown type is assumed
         new NestedTypeInfo[](0),
         true
     )
-    assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(withCtor)
+    assert AnalyzerGenericConstraintChecks.HasParameterlessConstructor(withCtor)
 
     withoutCtor := new ClassTypeInfo(
         "NoCtor",
@@ -768,23 +768,23 @@ test "a CLASS answers from its own recorded flag, and an unknown type is assumed
         new NestedTypeInfo[](0),
         false
     )
-    assert !AnalyzerSyntheticCallValidator.HasParameterlessConstructor(withoutCtor)
+    assert !AnalyzerGenericConstraintChecks.HasParameterlessConstructor(withoutCtor)
 
     // A type the analyzer could not resolve must not add a constraint report on top of the
     // resolution failure the user already has.
-    assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(BuiltInTypes.Unknown)
-    assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(new SimpleTypeInfo("T"))
+    assert AnalyzerGenericConstraintChecks.HasParameterlessConstructor(BuiltInTypes.Unknown)
+    assert AnalyzerGenericConstraintChecks.HasParameterlessConstructor(new SimpleTypeInfo("T"))
 }
 
 test "a CLR value type satisfies new() even with no declared constructor; a CLR class must declare one" {
-    assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(
+    assert AnalyzerGenericConstraintChecks.HasParameterlessConstructor(
         new ReflectionTypeInfo(typeof(int))
     )
-    assert AnalyzerSyntheticCallValidator.HasParameterlessConstructor(
+    assert AnalyzerGenericConstraintChecks.HasParameterlessConstructor(
         new ReflectionTypeInfo(typeof(object))
     )
     // `string` has no public parameterless constructor.
-    assert !AnalyzerSyntheticCallValidator.HasParameterlessConstructor(
+    assert !AnalyzerGenericConstraintChecks.HasParameterlessConstructor(
         new ReflectionTypeInfo(typeof(string))
     )
 }

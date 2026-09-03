@@ -205,7 +205,14 @@ class ClassTypeInfo: TypeInfo {
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
     HasParameterlessConstructor: bool => hasParameterlessConstructorValue
 
-    constructor(name: string, line: int, column: int, isSealed: bool, baseClass: TypeReference?, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], hasParameterlessConstructor: bool) {
+    constraintsValue: GenericConstraint[]
+
+    // The declaration's `where` clauses, in written order. Empty when it has none, never null, so a
+    // caller never has to distinguish "no clause" from "not carried".
+    Constraints: GenericConstraint[] => constraintsValue
+
+    constructor(name: string, line: int, column: int, isSealed: bool, baseClass: TypeReference?, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], hasParameterlessConstructor: bool, constraints: GenericConstraint[]? = null) {
+        constraintsValue = constraints ?? new GenericConstraint[](0)
         nameValue = name
         lineValue = line
         columnValue = column
@@ -243,7 +250,14 @@ class StructTypeInfo: TypeInfo {
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
-    constructor(name: string, line: int, column: int, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[]) {
+    constraintsValue: GenericConstraint[]
+
+    // The declaration's `where` clauses, in written order. Empty when it has none, never null, so a
+    // caller never has to distinguish "no clause" from "not carried".
+    Constraints: GenericConstraint[] => constraintsValue
+
+    constructor(name: string, line: int, column: int, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], constraints: GenericConstraint[]? = null) {
+        constraintsValue = constraints ?? new GenericConstraint[](0)
         nameValue = name
         lineValue = line
         columnValue = column
@@ -280,7 +294,14 @@ class RecordTypeInfo: TypeInfo {
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
-    constructor(name: string, line: int, column: int, isStruct: bool, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[]) {
+    constraintsValue: GenericConstraint[]
+
+    // The declaration's `where` clauses, in written order. Empty when it has none, never null, so a
+    // caller never has to distinguish "no clause" from "not carried".
+    Constraints: GenericConstraint[] => constraintsValue
+
+    constructor(name: string, line: int, column: int, isStruct: bool, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], constraints: GenericConstraint[]? = null) {
+        constraintsValue = constraints ?? new GenericConstraint[](0)
         nameValue = name
         lineValue = line
         columnValue = column
@@ -316,7 +337,14 @@ class InterfaceTypeInfo: TypeInfo {
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
-    constructor(name: string, line: int, column: int, isDuckInterface: bool, baseInterfaces: TypeReference[], typeParameters: TypeParameter[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[]) {
+    constraintsValue: GenericConstraint[]
+
+    // The declaration's `where` clauses, in written order. Empty when it has none, never null, so a
+    // caller never has to distinguish "no clause" from "not carried".
+    Constraints: GenericConstraint[] => constraintsValue
+
+    constructor(name: string, line: int, column: int, isDuckInterface: bool, baseInterfaces: TypeReference[], typeParameters: TypeParameter[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], constraints: GenericConstraint[]? = null) {
+        constraintsValue = constraints ?? new GenericConstraint[](0)
         nameValue = name
         lineValue = line
         columnValue = column
@@ -755,13 +783,16 @@ class UnionDeclarationInfo {
     Cases: List<UnionCase>
     Line: int
     Column: int
+    // The `where` clauses, as on every other declaration's TypeInfo. Empty when there are none.
+    Constraints: GenericConstraint[]
 
-    constructor(name: string, typeParameters: List<TypeParameter>?, cases: List<UnionCase>, line: int = 0, column: int = 0) {
+    constructor(name: string, typeParameters: List<TypeParameter>?, cases: List<UnionCase>, line: int = 0, column: int = 0, constraints: GenericConstraint[]? = null) {
         Name = name
         TypeParameters = typeParameters
         Cases = cases
         Line = line
         Column = column
+        Constraints = constraints ?? new GenericConstraint[](0)
     }
 }
 
