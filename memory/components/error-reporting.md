@@ -122,7 +122,7 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 ### Semantic Errors (300-399)
 - `NL301`: UndefinedVariable
 - `NL303`: UndefinedMember
-- `NL304`: DefiniteAssignmentError — covers both constructor fields and locals. A local declared without an initializer (`let x: int`) that is read before it is definitely assigned on every path that reaches the read is an error; the squiggle underlines the offending READ of the variable.
+- `NL304`: DefiniteAssignmentError — covers constructor fields, locals AND `out` parameters. A local declared without an initializer (`let x: int`) that is read before it is definitely assigned on every path that reaches the read is an error; the squiggle underlines the offending READ of the variable. An `out` parameter is checked at every EXIT rather than at a read: each `return`, and falling off the end of the body (where the squiggle goes on the parameter that was never filled). A path that `throw`s owes nothing. The caller's half was always modelled — an `out` ARGUMENT marks its target assigned after the call — and the callee's half landed on the soundness arc.
 - `NL305`: MissingReturn
 - `NL306`: DuplicateDeclaration
 - `NL307-310`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired
