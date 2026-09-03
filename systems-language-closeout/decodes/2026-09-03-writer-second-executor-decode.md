@@ -153,7 +153,7 @@ or ordinal aliases the executor already folds (`Ldarg_0..3`, `Ldarg_S`, `Ldarga_
 
 **The genuinely new opcode constants are SIX: `Bge`, `Constrained`, `Ldftn`, `Ldobj`, `Stobj`, `Stind_Ref`.**
 
-### 4.3 Verdict
+### 4.3 Verdict — (B), ACCEPTED by the coordinator 2026-09-03
 
 **(B).** A plan-recording sink over eight members, six new opcode constants and no new operand kind is
 bounded and mechanical; it makes the plan rows TOTAL, which is the precondition the task's own sentence
@@ -165,6 +165,29 @@ The sink is not new C#: it is a TYPE CHANGE on one field (`ColumnarIlEmitter.cs:
 Under the growth ratchet that is a same-size edit, not growth. The recorded rows are then executed by
 EITHER the Reflection.Emit executor (replaying onto a real `ILGenerator`, which must be byte-identical to
 today) or the writer.
+
+
+### 4.4 The sink's contract (coordinator ruling, 2026-09-03 — binding on the slice that cuts it)
+
+1. **THE SINK IS N#-OWNED.** The recording type lives beside `ColumnarCodePlan` in `BootstrapServices`
+   and produces EXACTLY the rows the executor already consumes -- the same schema, the same operand
+   kinds, with the six new opcode constants (`Bge`, `Constrained`, `Ldftn`, `Ldobj`, `Stobj`,
+   `Stind_Ref`) added to the plan's own vocabulary. It is not an adapter and not a shim: a recorded
+   body and a planner-produced body are the same artefact by construction, which is the only reading
+   under which "the writer is a SECOND executor over the SAME plan rows" is true.
+2. **THE C# CHANGE IS A TYPE CHANGE, AND ITS SIZE IS DECLARED.** One field
+   (`ColumnarIlEmitter.cs:64`, `private readonly ILGenerator _il;`) plus the six local receivers
+   (`il` 17, `ctorIl` 17, `setterIl` 4, `getterIl` 3, `lambdaIl` 2, `cctorIl` 1). The call sites do not
+   change shape. The commit states the before/after line and marker counts for the exact-match growth
+   ratchet; a same-size edit is not growth, and this must be shown, not asserted.
+3. **EVERY RECORDED BODY GOES THROUGH `ValidateMethodBodyStack`, exactly like a planner-produced one.**
+   maxstack and the exception-region semantics then come from ONE place for BOTH producers -- which is
+   the whole point of §3 -- rather than from two implementations that agree by luck.
+4. **A BODY THE VALIDATOR REFUSES IS A LOCATED FINDING, NEVER A SILENT SKIP.** The recording path has no
+   quiet fallback: a refusal names the member and the rule it broke. A sink that silently declines to
+   record is the failure mode that would make every downstream parity number meaningless.
+
+The 123-vs-124 opcode-union discrepancy stays an OPEN ITEM in the §4.12 row until it is attributed.
 
 ---
 
