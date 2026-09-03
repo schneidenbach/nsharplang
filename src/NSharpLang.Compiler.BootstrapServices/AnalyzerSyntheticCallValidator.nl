@@ -323,7 +323,17 @@ class AnalyzerSyntheticCallValidator {
             }
 
             argumentRow := argType as SoaRowTypeInfo
-            if BuiltInTypes.IsUnknown(expectedType) || BuiltInTypes.IsUnknown(argType) || argumentRow != null || assignability.IsAssignable(expectedType, argType) {
+            // 023/1e — THIS BINDER-FED POSITION CAN SUPPLY THE CONSTANT AFTER ALL.
+            // The Phase-1 census flagged it as one of three that might have discarded the expression by
+            // the time they ask; it has not — `call.Arguments[currentArgument].Value` is the argument's
+            // own expression, so the constant conversions reach an argument position (`Take(0)` onto an
+            // external enum parameter, `Take(65)` onto a `byte` one) exactly as they reach a typed local.
+            argumentConstant := ConstantOperandFacts.None()
+            if currentArgument < call.Arguments.Count {
+                argumentConstant = ConstantOperandFacts.FromExpression(call.Arguments[currentArgument].Value)
+            }
+
+            if BuiltInTypes.IsUnknown(expectedType) || BuiltInTypes.IsUnknown(argType) || argumentRow != null || assignability.IsAssignableWithConstant(expectedType, argType, argumentConstant) {
                 continue
             }
 

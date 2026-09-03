@@ -790,7 +790,10 @@ class AnalyzerVariableDeclaration {
     // ON BOTH ROUTES: it is computed once, above the branch, so the route production actually calls
     // cannot be the one that says less. Both are the same report in the same position.
     func ReportIfNotAssignable(declaration: VariableDeclarationStatement, declaredType: TypeInfo, inferredType: TypeInfo, initializer: Expression) {
-        if assignabilityValue.IsAssignable(declaredType, inferredType) {
+        // 023/1e — the typed local is the first of the constant-conversion positions: it HAS the
+        // initialiser, so it asks the constant-aware form. `f: AssemblyFlags = 0` (§10.2.4) and
+        // `v: byte = 65` (§10.2.11) are the two shapes this admits; `t: TypeAttributes = 1` is not.
+        if assignabilityValue.IsAssignableWithConstant(declaredType, inferredType, ConstantOperandFacts.FromExpression(initializer)) {
             return
         }
 

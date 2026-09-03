@@ -420,7 +420,10 @@ class AnalyzerAssignment {
 
         writeTargetsValue.ReportReadonlyFieldAssignmentIfNeeded(assignment.Target, assignment.Line, assignment.Column, state.ExpressionTypes)
 
-        if !assignabilityValue.IsAssignable(targetType, valueType) {
+        // 023/1e — the assignment position HAS `assignment.Value`, so it asks the constant-aware form.
+        // This is the position `b[0] = 65` reaches: an element store is an assignment whose target is an
+        // index expression, and the constant conversion onto the element type is decided here.
+        if !assignabilityValue.IsAssignableWithConstant(targetType, valueType, ConstantOperandFacts.FromExpression(assignment.Value)) {
             ReportAssignmentTypeMismatch(assignment, targetType, valueType)
         } else if ReportInvalidCompoundAssignmentIfNeeded(assignment, targetType, valueType) {
             state.ResultType = BuiltInTypes.Unknown
