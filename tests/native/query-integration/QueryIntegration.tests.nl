@@ -1910,6 +1910,74 @@ test "IDE D2: a project-declared member still hovers to its declaration and carr
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
 
+// ─── CHIP A: `query type` AT A METADATA METHOD RENDERS THE SIGNATURE, NOT THE PLACEHOLDER ────
+// ONE OWNER, TWO COMMANDS, AND THE IDENTITY IS THE CONTRACT. A hover's whole line is
+// `kind + " " + name + ": " + signature`; `query type` carries those same three facts as separate
+// fields. At a METHOD position they must therefore reconstruct each other exactly — and before this
+// chip the third field read the analyzer's `ToArray(...)` DIAGNOSTIC placeholder, which names no
+// type at all. The placeholder is untouched; what moved is that this seam asks the signature
+// renderer, so the two commands can no longer drift apart without failing here.
+//
+// The helper returns the MISMATCH text rather than throwing, so a break prints BOTH renderings.
+func D2TypeAgreesWithHover(snapshot: object, needle: string, member: string): string {
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, needle)
+    col := FindColumnInFile(programPath, line, member)
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, col)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing for '" + member + "'.")
+    }
+
+    typeResult := QueryGetTypeAtPosition(snapshot, "Program.nl", line, col)
+    if typeResult == null {
+        throw new InvalidOperationException("The production type query answered nothing for '" + member + "'.")
+    }
+
+    signature := QueryText(hover, "Signature")
+    reconstructed := QueryText(typeResult, "Kind") + " " + QueryText(typeResult, "Name") + ": " + QueryText(typeResult, "ResolvedType")
+    if signature != reconstructed {
+        return "MISMATCH hover '" + signature + "' vs type '" + reconstructed + "'"
+    }
+
+    return QueryText(typeResult, "ResolvedType")
+}
+
+test "chip A: at a metadata METHOD position `query type` renders the signature and reconstructs the hover line exactly" {
+    snapshot := D2HoverProject()
+
+    // One overload: the whole signature is pinned, and it is the same text hover prints.
+    assert D2TypeAgreesWithHover(snapshot, "later := DateTime.Now.AddDays", "AddDays") == "DateTime AddDays(double value)"
+
+    // A constructed generic read off the DEFINITION: the type-argument override has to survive the
+    // second command too, or `query type` would answer `T[]` where hover answers `Reading[]`.
+    assert D2TypeAgreesWithHover(snapshot, "all := readings.ToArray", "ToArray") == "Reading[] ToArray()"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "chip A: a metadata PROPERTY still answers with its TYPE, so only the method kind moved" {
+    snapshot := D2HoverProject()
+
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+
+    // THE NON-REGRESSION THAT MATTERS MOST. `resolvedType` is a TYPE everywhere except at a method,
+    // and a property's answer is untouched: hover says `property Now: DateTime { get; }` while
+    // `query type` says `DateTime`, and those are two different questions with two right answers.
+    nowLine := FindLineInFile(programPath, "stamp := DateTime.Now")
+    nowColumn := FindColumnInFile(programPath, nowLine, "Now")
+    nowType := QueryGetTypeAtPosition(snapshot, "Program.nl", nowLine, nowColumn)
+    if nowType == null {
+        throw new InvalidOperationException("The production type query answered nothing for 'Now'.")
+    }
+
+    assert QueryText(nowType, "ResolvedType") == "DateTime"
+    assert QueryText(nowType, "Kind") == "struct"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
 test "IDE D1: a member inside an interpolated-string hole hovers to its DECLARED type, not to `string`" {
     projectRoot := QueryTempRoot()
     QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())

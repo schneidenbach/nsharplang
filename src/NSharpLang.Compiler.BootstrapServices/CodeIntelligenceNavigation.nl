@@ -346,6 +346,18 @@ class CodeIntelligenceNavigation {
 
         resolvedType := NullabilityMetadataReflection.FormatTypeInfo(typeInfo)
         kind := CodeIntelligenceDisplayText.TypeInfoToKind(typeInfo)
+
+        // THE ONE KIND WHOSE `resolvedType` IS NOT A TYPE. `TypeInfoToKind` already answers
+        // `method` for both reflected method shapes — the single and the group — so the test is the
+        // kind the answer is about to carry rather than a second list of type tests that could
+        // drift from it. Every other kind keeps the type it always had.
+        if kind == "method" {
+            methodSignature := ReflectedMethodSignatureText(expr, semanticModel, snapshot, cu)
+            if methodSignature != null {
+                resolvedType = methodSignature ?? ""
+            }
+        }
+
         definition: LocationResult? = null
         if resolvedName != null {
             definition = FindDefinitionLocation(snapshot, resolvedName)
@@ -376,7 +388,15 @@ class CodeIntelligenceNavigation {
         semanticModel: SemanticModel? = null
         snapshot.SemanticModels.TryGetValue(unitMatch.FilePath, out semanticModel)
 
-        memberAccess := MemberAccessAtPosition(FindExpressionAtPositionRobust(cu, line, col))
+        return ReflectedMemberAtExpression(FindExpressionAtPositionRobust(cu, line, col), semanticModel, snapshot, cu)
+    }
+
+    // THE SAME QUESTION ASKED OF AN EXPRESSION THE CALLER ALREADY HAS. `TypeAtPosition` walks the
+    // AST once and then needs the member too, so the walk is handed over rather than repeated: the
+    // two commands answer about the SAME node by construction, which is what makes
+    // `hover.signature` and `query type`'s `kind`/`name`/`resolvedType` provably the same fact.
+    static func ReflectedMemberAtExpression(expr: Expression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): ReflectedMemberHandle? {
+        memberAccess := MemberAccessAtPosition(expr)
         if memberAccess == null {
             return null
         }
@@ -392,12 +412,32 @@ class CodeIntelligenceNavigation {
             return recorded
         }
 
-        receiverType := ReflectedReceiverTypeInfo(memberAccess, semanticModel, snapshot, cu)
+        receiverType := ReflectedReceiverTypeInfo(memberAccess, semanticModel, snapshot, currentUnit)
         if receiverType == null {
             return null
         }
 
         return CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForArity(receiverType, memberAccess.MemberName, -1)
+    }
+
+    // THE METHOD SIGNATURE `query type` PRINTS, WHICH IS HOVER'S SIGNATURE AND NOT A SECOND ONE.
+    // A method position has no type to name — the analyzer carries `ToArray(...)` there so a
+    // DIAGNOSTIC can say which member it means — and rendering that placeholder as a resolved type
+    // was defect A. The placeholder itself is not touched: it is the analyzer's own text and its
+    // messages are pinned on it. What changes is that this seam, which is the only place a
+    // placeholder reaches a USER as an answer, asks the signature renderer instead.
+    static func ReflectedMethodSignatureText(expr: Expression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): string? {
+        handle := ReflectedMemberAtExpression(expr, semanticModel, snapshot, currentUnit)
+        if handle == null {
+            return null
+        }
+
+        method := handle.Method
+        if method == null {
+            return null
+        }
+
+        return CodeIntelligenceSignatureKernels.GetReflectedMemberSignatureText(handle)
     }
 
     // A recorded `ReflectionMethodInfo` is one resolved method; a `ReflectionMethodGroupInfo` is the

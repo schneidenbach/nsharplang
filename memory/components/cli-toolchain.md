@@ -85,6 +85,8 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 
 `nlc query type` and `nlc query inspect` type results include `nullability` (`unknown`, `null`, `maybeNull`, `notNull`, or `oblivious`) so CLI automation and the LSP can reason about the same null-flow facts.
 
+At a position on a member that METADATA declares and the project does not — `list.ToArray()`, `DateTime.Now.AddDays(1)` — a `method` result's `resolvedType` carries the member's full **signature** (`WeatherForecast[] ToArray()`), rendered by the same N# owner `nlc query hover` uses, so the two commands answer the same fact and `hover`'s `signature` is exactly `kind + " " + name + ": " + resolvedType`. It previously carried the analyzer's internal diagnostic placeholder `ToArray(...)`, which names no type at all. Four surfaces move together because they share one builder: `nlc query type`, the `type` block of `nlc query inspect`, `nlc query inspect --summary`, and the `--text` rendering of each. This is **not** a schema change and `schemaVersion` stays `1`: no key is added, removed or retyped, and the only values that move are the ones that were a placeholder. Every other kind — a property, a field, a local, a type use — still answers with its TYPE and is untouched.
+
 ### Code Quality
 
 | Command | Purpose | Example |
