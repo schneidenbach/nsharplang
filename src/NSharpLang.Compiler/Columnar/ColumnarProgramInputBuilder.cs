@@ -407,12 +407,16 @@ internal static class ColumnarProgramInputBuilder
                 var outTypeParamTexts = new string[cap];
                 var outBaseNameTexts = new string[cap];
                 var outStructNameTexts = new string[1];
-                var outResult = new int[10];
+                var outWhereOwnerTexts = new string[cap];
+                var outWhereItemCodes = new int[cap];
+                var outWhereTypeTexts = new string[cap];
+                var outResult = new int[11];
                 var fieldCount = global::Program.ParseColumnarStructInfoInto(
                     source, ck, cs, cv, n, structIndex, isReference ? 1 : 0, isRecord ? 1 : 0, outFieldNameTexts, outFieldTypeTexts,
                     outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts,
                     outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
-                    outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outResult);
+                    outTypeParamTexts, outBaseNameTexts, outStructNameTexts,
+                    outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, outResult);
                 if (fieldCount < 0 || outResult[1] <= 0)
                 {
                     return DeclineAtToken(ColumnarParseDeclines.StructDeclaration, cs, cv, structIndex);
@@ -420,21 +424,12 @@ internal static class ColumnarProgramInputBuilder
 
                 var structName = outStructNameTexts[0];
 
-                var baseNameCount = outResult[8];
-                var baseNames = new string[baseNameCount];
-                for (var b = 0; b < baseNameCount; b++)
-                {
-                    var baseName = outBaseNameTexts[b];
-                    baseNames[b] = baseName;
-                }
-
+                var baseNames = ColumnarConstraintColumns.TrimTexts(outBaseNameTexts, outResult[8]);
                 var typeParamCount = outResult[7];
-                var typeParamNames = new string[typeParamCount];
-                for (var tp = 0; tp < typeParamCount; tp++)
-                {
-                    var typeParamName = outTypeParamTexts[tp];
-                    typeParamNames[tp] = typeParamName;
-                }
+                var typeParamNames = ColumnarConstraintColumns.TrimTexts(outTypeParamTexts, typeParamCount);
+                var whereRowCount = outResult[10];
+                var typeParamSpecials = ColumnarConstraintColumns.BuildSpecials(outWhereOwnerTexts, outWhereItemCodes, typeParamNames, whereRowCount);
+                var typeParamTypeConstraints = ColumnarConstraintColumns.BuildTypeConstraints(outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, typeParamNames, whereRowCount);
 
                 var fieldNames = new string[fieldCount];
                 var fieldTypes = new string[fieldCount];
@@ -502,7 +497,7 @@ internal static class ColumnarProgramInputBuilder
                     properties.Add(propInput);
                 }
 
-                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames, fieldReadonlyFlags, isRefStruct: isRefStruct, enclosingTypeName: declEnclosingTypeNames[declSlot] ?? "", visibilityModifierFlags: declVisibilityFlags[declSlot]));
+                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames, fieldReadonlyFlags, isRefStruct: isRefStruct, enclosingTypeName: declEnclosingTypeNames[declSlot] ?? "", visibilityModifierFlags: declVisibilityFlags[declSlot], typeParamSpecialConstraints: typeParamSpecials, typeParamTypeConstraints: typeParamTypeConstraints));
             }
             return true;
         }
