@@ -66,8 +66,8 @@ as 32, an unrecognised generic as 32, a span or memory as 16, an array or refere
 number in the message is that arithmetic, and the threshold is `above` 128 — a shape estimated at
 exactly 128 bytes is accepted.
 
-This is guidance, not a broken promise, so it is a **warning** even in `[hot]`. It is the one
-`NSYS` rule whose severity does not rise with the attribute.
+This is guidance, not a broken promise, so the rule prefers a **warning** even in `[hot]` — the
+severity does not rise with the attribute the way the allocation and surface rules' do.
 
 ## How to fix it
 

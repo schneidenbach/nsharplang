@@ -59,7 +59,7 @@ attribute.
 
 ## How to fix it
 
-Write the reason, and — for anything a caller outside this file can reach — the owner:
+Write the reason, and — on a public function — the owner as well:
 
 ```n#
 [allow(alloc, reason: "one-time lookup table built at startup", owner: "runtime-core")]
