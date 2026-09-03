@@ -115,7 +115,36 @@ class ColumnarMethodRows {
     }
 }
 
+// The PROPERTY family, jagged by declaring struct. A property is not a member the CLR emits directly:
+// it is a name plus a pair of ACCESSOR METHODS, so the row carries the accessor word, both accessor
+// names and the setter's `value` ordinal.
+class ColumnarPropertyRows {
+    StructCount: int
+    AccessorWords: int[][]
+    GetterNames: string[][]
+    SetterNames: string[][]
+    HasSetter: bool[][]
+    ValueOrdinals: int[][]
+
+    constructor(
+        structCount: int,
+        accessorWords: int[][],
+        getterNames: string[][],
+        setterNames: string[][],
+        hasSetter: bool[][],
+        valueOrdinals: int[][]
+    ) {
+        StructCount = structCount
+        AccessorWords = accessorWords
+        GetterNames = getterNames
+        SetterNames = setterNames
+        HasSetter = hasSetter
+        ValueOrdinals = valueOrdinals
+    }
+}
+
 class ColumnarDeclarationPlan {
+    Properties: ColumnarPropertyRows
     Methods: ColumnarMethodRows
     Fields: ColumnarFieldRows
     TypeDefs: ColumnarTypeDefRows
@@ -130,6 +159,7 @@ class ColumnarDeclarationPlan {
     EnumMemberStringValues: string[][]
 
     constructor(
+        properties: ColumnarPropertyRows,
         methods: ColumnarMethodRows,
         fields: ColumnarFieldRows,
         typeDefs: ColumnarTypeDefRows,
@@ -143,6 +173,7 @@ class ColumnarDeclarationPlan {
         enumMemberValues: int[][],
         enumMemberStringValues: string[][]
     ) {
+        Properties = properties
         Methods = methods
         Fields = fields
         TypeDefs = typeDefs
@@ -219,6 +250,82 @@ class ColumnarDeclarationPlanner {
             return input.MemberStringValues[index]
         }
         return input.MemberNames[index]
+    }
+
+    // A STATIC accessor: Public|Static|HideBySig|SpecialName = 2198. An INSTANCE accessor drops
+    // Static: 2182. `SpecialName` is what marks the method as an accessor rather than an ordinary
+    // method called `get_X`.
+    //
+    // 2198 is also what `StaticMethodAttributes(isOperator: true)` produces, because a static
+    // operator carries the same four flags. That is an AGREEMENT OF FLAGS, NOT A SHARED RULE -- an
+    // operator is SpecialName because its name begins `op_`, an accessor because it is an accessor --
+    // so the two are computed separately and must not be unified.
+    static func StaticAccessorAttributes(): int {
+        return PublicFieldAttribute() | StaticMethodAttribute() | HideBySigMethodAttribute() | SpecialNameMethodAttribute()
+    }
+
+    static func InstanceAccessorAttributes(): int {
+        return PublicFieldAttribute() | HideBySigMethodAttribute() | SpecialNameMethodAttribute()
+    }
+
+    // The CLR spells a property's accessors `get_<Name>` and `set_<Name>`. Four call sites built
+    // these by concatenation; the names are metadata, so they are planned.
+    static func PropertyGetterName(propertyName: string): string {
+        return "get_" + propertyName
+    }
+
+    static func PropertySetterName(propertyName: string): string {
+        return "set_" + propertyName
+    }
+
+    // A setter's `value` IS its parameter zero, so its ordinal is the ordinary parameter rule -- 0 on
+    // a static accessor, 1 on an instance one, because `this` takes argument zero there. The rule is
+    // REUSED from the method family rather than restated, so the two can never drift apart.
+    static func PropertyValueOrdinal(isStatic: bool): int {
+        return ParameterOrdinalFor(0, !isStatic)
+    }
+
+    static func BuildProperties(program: ColumnarProgramInput): ColumnarPropertyRows {
+        structs := program.Structs
+        count := structs.Count
+        words := new int[][](count)
+        getters := new string[][](count)
+        setters := new string[][](count)
+        hasSetters := new bool[][](count)
+        ordinals := new int[][](count)
+
+        index := 0
+        while index < count {
+            properties := structs[index].Properties
+            propertyCount := properties.Count
+            propertyWords := new int[](propertyCount)
+            propertyGetters := new string[](propertyCount)
+            propertySetters := new string[](propertyCount)
+            propertyHasSetters := new bool[](propertyCount)
+            propertyOrdinals := new int[](propertyCount)
+            member := 0
+            while member < propertyCount {
+                property := properties[member]
+                if property.IsStatic {
+                    propertyWords[member] = StaticAccessorAttributes()
+                } else {
+                    propertyWords[member] = InstanceAccessorAttributes()
+                }
+                propertyGetters[member] = PropertyGetterName(property.Name)
+                propertySetters[member] = PropertySetterName(property.Name)
+                propertyHasSetters[member] = property.Setter != null
+                propertyOrdinals[member] = PropertyValueOrdinal(property.IsStatic)
+                member = member + 1
+            }
+            words[index] = propertyWords
+            getters[index] = propertyGetters
+            setters[index] = propertySetters
+            hasSetters[index] = propertyHasSetters
+            ordinals[index] = propertyOrdinals
+            index = index + 1
+        }
+
+        return new ColumnarPropertyRows(count, words, getters, setters, hasSetters, ordinals)
     }
 
     static func StaticMethodAttribute(): int {
@@ -541,6 +648,7 @@ class ColumnarDeclarationPlanner {
         }
 
         return new ColumnarDeclarationPlan(
+            BuildProperties(program),
             BuildMethods(program),
             BuildFields(program),
             BuildTypeDefs(program),

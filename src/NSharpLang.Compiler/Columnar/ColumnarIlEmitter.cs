@@ -4636,8 +4636,9 @@ internal sealed class ColumnarIlEmitter
                 continue;
             var def = structDefsInOrder[s];
             var typeResolution = structTypeResolutions[s];
-            foreach (var prop in structs[s].Properties)
+            for (var pi = 0; pi < structs[s].Properties.Count; pi++)
             {
+                var prop = structs[s].Properties[pi];
                 if (!TryResolveMemberType(prop.TypeCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var propType) || !ColumnarTypeOfPlanner.IsSupportedType(propType))
                     return false;
                 if (prop.IsStatic)
@@ -4646,13 +4647,13 @@ internal sealed class ColumnarIlEmitter
                     // is arg 0 (no implicit `this`). The bodies are STATIC contexts (PASS 2 runs them with
                     // `_currentStruct` null), so a bare backing-field reference inside an accessor declines
                     // exactly where the N# pipeline reports NL103 — the backing access must be `TypeName.field`.
-                    var staticAccessorAttributes = MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig | MethodAttributes.SpecialName;
+                    var staticAccessorAttributes = (MethodAttributes)declarationPlan.Properties.AccessorWords[s][pi];
                     var staticAccessors = ColumnarPropertyDef.Define(
                         def.Builder,
-                        "get_" + prop.Name,
+                        declarationPlan.Properties.GetterNames[s][pi],
                         staticAccessorAttributes,
                         propType,
-                        prop.Setter != null ? "set_" + prop.Name : null,
+                        declarationPlan.Properties.HasSetter[s][pi] ? declarationPlan.Properties.SetterNames[s][pi] : null,
                         staticAccessorAttributes);
                     var staticGetter = staticAccessors.Getter;
                     structMethodJobs.Add((def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), true));
@@ -4664,7 +4665,7 @@ internal sealed class ColumnarIlEmitter
                         var exactStaticSetter = staticSetter!;
                         if (!DefineMethodParameterMetadata(exactStaticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums))
                             return false;
-                        var staticSetOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 0 };
+                        var staticSetOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = declarationPlan.Properties.ValueOrdinals[s][pi] };
                         var staticSetParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal) { ["value"] = propType };
                         structMethodJobs.Add((def, prop.Setter, exactStaticSetter, typeof(void), typeof(void), null, staticSetOrdinals, staticSetParamTypes, true));
                         staticProperty.SetSetMethod(exactStaticSetter);
@@ -4672,13 +4673,13 @@ internal sealed class ColumnarIlEmitter
                     def.StaticProperties[prop.Name] = staticAccessors;
                     continue;
                 }
-                var accessorAttributes = MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName;
+                var accessorAttributes = (MethodAttributes)declarationPlan.Properties.AccessorWords[s][pi];
                 var accessors = ColumnarPropertyDef.Define(
                     def.Builder,
-                    "get_" + prop.Name,
+                    declarationPlan.Properties.GetterNames[s][pi],
                     accessorAttributes,
                     propType,
-                    prop.Setter != null ? "set_" + prop.Name : null,
+                    declarationPlan.Properties.HasSetter[s][pi] ? declarationPlan.Properties.SetterNames[s][pi] : null,
                     accessorAttributes);
                 var getter = accessors.Getter;
                 structMethodJobs.Add((def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), false));
@@ -4690,9 +4691,8 @@ internal sealed class ColumnarIlEmitter
                     var exactSetter = setter!;
                     if (!DefineMethodParameterMetadata(exactSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums))
                         return false;
-                    // The setter's `value` parameter is arg 1 (arg 0 = this); its body assigns fields via the
-                    // reference-type field-write path. Emitted via structMethodJobs (a void method).
-                    var setOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 1 };
+                    // The body assigns fields via the reference-type field-write path (a void structMethodJob).
+                    var setOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = declarationPlan.Properties.ValueOrdinals[s][pi] };
                     var setParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal) { ["value"] = propType };
                     structMethodJobs.Add((def, prop.Setter, exactSetter, typeof(void), typeof(void), null, setOrdinals, setParamTypes, false));
                     property.SetSetMethod(exactSetter);

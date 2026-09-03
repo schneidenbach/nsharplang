@@ -402,3 +402,86 @@ test "the method rows carry a word per struct method, per interface member and p
     assert rows.InterfaceMethodAttributeWords[0].Length == 0
     assert rows.FunctionCount == 0
 }
+
+// TWO RETURNS RATHER THAN A NULLABLE LOCAL. `setter := (ColumnarFunctionInput?)null` declines at
+// `emit.local.initializer` -- a cast-of-null local initializer is off the columnar surface -- while
+// `null` in an ARGUMENT position for a nullable parameter is fine. Measured, not guessed: the estate
+// refused the first spelling.
+func DeclarationPlanPropertyInput(name: string, isStatic: bool, withSetter: bool): ColumnarPropertyInput {
+    if withSetter {
+        return new ColumnarPropertyInput(
+            name,
+            "int",
+            DeclarationPlanMethodInput("get_" + name, "int", isStatic),
+            DeclarationPlanMethodInput("set_" + name, "void", isStatic),
+            isStatic
+        )
+    }
+
+    return new ColumnarPropertyInput(
+        name,
+        "int",
+        DeclarationPlanMethodInput("get_" + name, "int", isStatic),
+        null,
+        isStatic
+    )
+}
+
+func DeclarationPlanPropertyStruct(name: string, properties: List<ColumnarPropertyInput>): ColumnarStructInput {
+    return new ColumnarStructInput(
+        name,
+        new string[](0),
+        new string[](0),
+        new List<ColumnarFunctionInput>(),
+        new List<ColumnarConstructorInput>(),
+        properties,
+        true
+    )
+}
+
+test "the accessor words carry SpecialName, and 2198 is an agreement of flags rather than a shared rule" {
+    // Public|Static|HideBySig|SpecialName, and the instance word drops Static.
+    assert ColumnarDeclarationPlanner.StaticAccessorAttributes() == 2198
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes() == 2182
+    // SpecialName is the whole difference from an ordinary method word: it is what marks the method
+    // as an accessor rather than a method that happens to be called `get_X`.
+    assert ColumnarDeclarationPlanner.StaticAccessorAttributes() - ColumnarDeclarationPlanner.SpecialNameMethodAttribute() == ColumnarDeclarationPlanner.StaticMethodAttributes(false)
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes() - ColumnarDeclarationPlanner.SpecialNameMethodAttribute() == ColumnarDeclarationPlanner.InstanceMethodAttributes()
+}
+
+test "a property is a name plus two accessor names, and the setter's value is parameter zero" {
+    assert ColumnarDeclarationPlanner.PropertyGetterName("Count") == "get_Count"
+    assert ColumnarDeclarationPlanner.PropertySetterName("Count") == "set_Count"
+
+    // A setter's `value` IS parameter zero, so its ordinal is the ordinary parameter rule: 0 on a
+    // static accessor, 1 on an instance one where `this` takes argument zero. The identity with the
+    // method family's rule is asserted so the two can never drift apart.
+    assert ColumnarDeclarationPlanner.PropertyValueOrdinal(true) == 0
+    assert ColumnarDeclarationPlanner.PropertyValueOrdinal(false) == 1
+    assert ColumnarDeclarationPlanner.PropertyValueOrdinal(true) == ColumnarDeclarationPlanner.ParameterOrdinalFor(0, false)
+    assert ColumnarDeclarationPlanner.PropertyValueOrdinal(false) == ColumnarDeclarationPlanner.ParameterOrdinalFor(0, true)
+}
+
+test "the property rows carry a word, both accessor names and the value ordinal for every property" {
+    properties := new List<ColumnarPropertyInput>()
+    properties.Add(DeclarationPlanPropertyInput("Total", true, false))
+    properties.Add(DeclarationPlanPropertyInput("Count", false, true))
+
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanPropertyStruct("Basket", properties))
+    program := DeclarationPlanTypeDefProgram("namespace Demo\n", structs, new List<ColumnarInterfaceInput>())
+    rows := ColumnarDeclarationPlanner.BuildProperties(program)
+
+    assert rows.StructCount == 1
+    assert rows.AccessorWords[0][0] == 2198
+    assert rows.AccessorWords[0][1] == 2182
+    assert rows.GetterNames[0][0] == "get_Total"
+    assert rows.GetterNames[0][1] == "get_Count"
+    // THE SETTER NAME IS PLANNED EVEN WHEN THERE IS NO SETTER; `HasSetter` is what the executor
+    // branches on, so a get-only property carries a usable name rather than a null the host must guard.
+    assert rows.SetterNames[0][0] == "set_Total"
+    assert !rows.HasSetter[0][0]
+    assert rows.HasSetter[0][1]
+    assert rows.ValueOrdinals[0][0] == 0
+    assert rows.ValueOrdinals[0][1] == 1
+}
