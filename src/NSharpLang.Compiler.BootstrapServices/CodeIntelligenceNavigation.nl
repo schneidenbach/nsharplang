@@ -88,6 +88,64 @@ class CodeIntelligenceNavigation {
         return null
     }
 
+    // THE CALL THE POSITION IS THE CALLEE OF, FOUND AT THE SAME COLUMN THE EXPRESSION WAS.
+    //
+    // The candidate-column walk above tries several columns and two coordinate bases, and the two
+    // questions must be answered by the SAME attempt or they can describe different nodes: a column
+    // that finds no expression must not be allowed to contribute a call, and a column that finds one
+    // must contribute ITS call and then stop. So the expression is asked first at each candidate and
+    // the call only where it answered.
+    static func FindEnclosingCallAtPositionRobust(cu: CompilationUnit, line: int, col: int): CallExpression? {
+        candidateColumns := CodeIntelligenceSourceDoor.NearbyColumns(col, 3)
+        index := 0
+        while index < candidateColumns.Length {
+            candidateColumn := candidateColumns[index]
+            zeroBased := AstNodeFinderCore.FindExpressionAtPosition(cu, line - 1, candidateColumn - 1) as Expression
+            if zeroBased != null {
+                return AstNodeFinderCore.FindCallExpressionAtPosition(cu, line - 1, candidateColumn - 1) as CallExpression
+            }
+
+            oneBased := AstNodeFinderCore.FindExpressionAtPosition(cu, line, candidateColumn) as Expression
+            if oneBased != null {
+                return AstNodeFinderCore.FindCallExpressionAtPosition(cu, line, candidateColumn) as CallExpression
+            }
+
+            index = index + 1
+        }
+
+        return null
+    }
+
+    // THE CALL'S ARGUMENT TYPES, POSITIONALLY, OR NULL WHERE THEY CANNOT BE TRUSTED TO BE.
+    //
+    // A NAMED ARGUMENT BREAKS THE CORRESPONDENCE the scorer depends on — `f(b: 1, a: "x")` writes
+    // its arguments in an order the parameter list does not share — so a call carrying one declines
+    // TYPE scoring entirely and is scored on arity alone. That is a narrowing of the evidence, not
+    // of the answer: arity still applies, because a named argument still fills a position.
+    //
+    // An argument whose type nothing can say is left NULL rather than guessed. It scores nothing
+    // and costs nothing, so a call with one unknown argument still ranks on the ones it knows.
+    static func CallArgumentTypeInfos(call: CallExpression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): TypeInfo?[]? {
+        if call == null {
+            return null
+        }
+
+        arguments := call.Arguments
+        types := new TypeInfo?[](arguments.Count)
+        index := 0
+        while index < arguments.Count {
+            argument := arguments[index]
+            if argument.Name != null {
+                return new TypeInfo?[](arguments.Count)
+            }
+
+            types[index] = CodeIntelligenceTypeResolution.TypeInfoFromExpression(argument.Value, semanticModel, snapshot.CompilationUnits, currentUnit)
+            index = index + 1
+        }
+
+        return types
+    }
+
     // ── Which declaration ───────────────────────────────────────────────
     static func TryResolveDefinitionViaBindings(snapshot: ProjectSnapshot, filePath: string, line: int, col: int): SymbolDeclaration? {
         bindings := snapshot.Bindings
@@ -352,7 +410,7 @@ class CodeIntelligenceNavigation {
         // kind the answer is about to carry rather than a second list of type tests that could
         // drift from it. Every other kind keeps the type it always had.
         if kind == "method" {
-            methodSignature := ReflectedMethodSignatureText(expr, semanticModel, snapshot, cu)
+            methodSignature := ReflectedMethodSignatureText(expr, FindEnclosingCallAtPositionRobust(cu, line, col), semanticModel, snapshot, cu)
             if methodSignature != null {
                 resolvedType = methodSignature ?? ""
             }
@@ -388,18 +446,20 @@ class CodeIntelligenceNavigation {
         semanticModel: SemanticModel? = null
         snapshot.SemanticModels.TryGetValue(unitMatch.FilePath, out semanticModel)
 
-        return ReflectedMemberAtExpression(FindExpressionAtPositionRobust(cu, line, col), semanticModel, snapshot, cu)
+        return ReflectedMemberAtExpression(FindExpressionAtPositionRobust(cu, line, col), FindEnclosingCallAtPositionRobust(cu, line, col), semanticModel, snapshot, cu)
     }
 
     // THE SAME QUESTION ASKED OF AN EXPRESSION THE CALLER ALREADY HAS. `TypeAtPosition` walks the
     // AST once and then needs the member too, so the walk is handed over rather than repeated: the
     // two commands answer about the SAME node by construction, which is what makes
     // `hover.signature` and `query type`'s `kind`/`name`/`resolvedType` provably the same fact.
-    static func ReflectedMemberAtExpression(expr: Expression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): ReflectedMemberHandle? {
+    static func ReflectedMemberAtExpression(expr: Expression?, enclosingCall: CallExpression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): ReflectedMemberHandle? {
         memberAccess := MemberAccessAtPosition(expr)
         if memberAccess == null {
             return null
         }
+
+        argumentTypes := CallArgumentTypeInfos(enclosingCall, semanticModel, snapshot, currentUnit)
 
         // THE ANALYZER'S OWN ANSWER OUTRANKS A FRESH METADATA LOOKUP, because it is the only one
         // that did real overload resolution. `AnalyzerExpressionTail` records every expression's
@@ -407,7 +467,7 @@ class CodeIntelligenceNavigation {
         // `Next(int, int)` from the three, and re-deriving that here from arity alone would be a
         // worse copy of work already done. The metadata lookup below is for the positions the
         // analyzer never reached.
-        recorded := RecordedReflectedMethod(semanticModel, memberAccess)
+        recorded := RecordedReflectedMethod(semanticModel, memberAccess, argumentTypes)
         if recorded != null {
             return recorded
         }
@@ -417,7 +477,7 @@ class CodeIntelligenceNavigation {
             return null
         }
 
-        return CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForArity(receiverType, memberAccess.MemberName, -1)
+        return CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForCall(receiverType, memberAccess.MemberName, argumentTypes)
     }
 
     // THE METHOD SIGNATURE `query type` PRINTS, WHICH IS HOVER'S SIGNATURE AND NOT A SECOND ONE.
@@ -426,8 +486,8 @@ class CodeIntelligenceNavigation {
     // was defect A. The placeholder itself is not touched: it is the analyzer's own text and its
     // messages are pinned on it. What changes is that this seam, which is the only place a
     // placeholder reaches a USER as an answer, asks the signature renderer instead.
-    static func ReflectedMethodSignatureText(expr: Expression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): string? {
-        handle := ReflectedMemberAtExpression(expr, semanticModel, snapshot, currentUnit)
+    static func ReflectedMethodSignatureText(expr: Expression?, enclosingCall: CallExpression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): string? {
+        handle := ReflectedMemberAtExpression(expr, enclosingCall, semanticModel, snapshot, currentUnit)
         if handle == null {
             return null
         }
@@ -441,10 +501,10 @@ class CodeIntelligenceNavigation {
     }
 
     // A recorded `ReflectionMethodInfo` is one resolved method; a `ReflectionMethodGroupInfo` is the
-    // set the analyzer could not narrow, and its first member is shown with the count beside it so
-    // the reader knows there are others. Neither carries a type override: the analyzer resolved
-    // these against its own closed types, so their signatures are already written in real types.
-    static func RecordedReflectedMethod(semanticModel: SemanticModel?, memberAccess: MemberAccessExpression): ReflectedMemberHandle? {
+    // set the analyzer could NOT narrow, and the call site is asked to narrow what it could not.
+    // Neither carries a type override: the analyzer resolved these against its own closed types, so
+    // their signatures are already written in real types.
+    static func RecordedReflectedMethod(semanticModel: SemanticModel?, memberAccess: MemberAccessExpression, argumentTypes: TypeInfo?[]?): ReflectedMemberHandle? {
         if semanticModel == null {
             return null
         }
@@ -464,8 +524,8 @@ class CodeIntelligenceNavigation {
         if group != null {
             methods := group.Methods
             if methods.Length > 0 {
-                first := methods[0]
-                return new ReflectedMemberHandle(null, null, first, first.get_Name(), CodeIntelligenceTypeResolution.DeclaringTypeText(first.get_DeclaringType()), null, methods.Length)
+                chosen := CodeIntelligenceTypeResolution.ChooseReflectedOverload(methods, argumentTypes)
+                return new ReflectedMemberHandle(null, null, chosen, chosen.get_Name(), CodeIntelligenceTypeResolution.DeclaringTypeText(chosen.get_DeclaringType()), null, CodeIntelligenceTypeResolution.VisibleOverloadCount(chosen, methods.Length, argumentTypes))
             }
         }
 

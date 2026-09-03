@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections
+import System.Collections.Generic
 
 
 // THE ONLY OWNER OF "WHICH EXPRESSION IS AT THIS POSITION". Task 021 slice 4 deleted the C#
@@ -22,18 +23,79 @@ class AstNodeFinderCore {
         visitor.VisitCompilationUnit(ast)
         return visitor.FoundExpression
     }
+
+    // THE CALL THE POSITION IS THE CALLEE OF — the second question this walk can already answer.
+    //
+    // "Which member is this" and "which CALL is this member the callee of" are different questions
+    // with the same walk behind them, and until now only the first had a door. Hover needs the
+    // second to choose an overload (`b.Append("x")` has twenty-six candidates and the argument
+    // decides), and SIGNATURE HELP needs exactly the same node for exactly the same reason, so it
+    // is one public entry point rather than two private ones.
+    //
+    // THE ANSWER IS THE INNERMOST CALL, and it is found by IDENTITY rather than by containment. The
+    // walk already computes, per call, the best match inside that call's CALLEE subtree; a call
+    // whose callee-side match IS the node the walk finally settled on is the call that node is the
+    // callee of. Recording candidates as the recursion unwinds puts the inner ones first, so the
+    // first identity hit is the innermost — `a.B(x).C(y)` answers `.C`'s call for `C` and `.B`'s
+    // for `B`. A position that landed ON a call node is its own answer.
+    static func FindCallExpressionAtPosition(ast: object, line: int, column: int): object? {
+        visitor := new AstPositionVisitor(line, column)
+        visitor.VisitCompilationUnit(ast)
+        return visitor.EnclosingCallExpression()
+    }
 }
 
 class AstPositionVisitor {
     targetLine: int
     targetColumn: int
     foundExpressionValue: object?
+    calleeOwnerCalls: List<object>
+    calleeOwnerTargets: List<object>
 
     FoundExpression: object? => foundExpressionValue
 
     constructor(line: int, column: int) {
         targetLine = line
         targetColumn = column
+        calleeOwnerCalls = new List<object>()
+        calleeOwnerTargets = new List<object>()
+    }
+
+    // THE RECORDED CALL WHOSE CALLEE IS THE FOUND NODE. The lists are parallel and in unwind order,
+    // so the first identity match is the innermost call — see the entry point's note.
+    func EnclosingCallExpression(): object? {
+        found := foundExpressionValue
+        if found == null {
+            return null
+        }
+
+        foundNode: object = found
+        if foundNode.GetType().Name == "CallExpression" {
+            return foundNode
+        }
+
+        index := 0
+        while index < calleeOwnerTargets.Count {
+            candidate: object = calleeOwnerTargets[index]
+            if Object.ReferenceEquals(candidate, foundNode) {
+                return calleeOwnerCalls[index]
+            }
+
+            index = index + 1
+        }
+
+        return null
+    }
+
+    // A call is recorded only when its CALLEE side produced a match at all; a call whose callee
+    // matched nothing can never be the answer, so the lists stay as short as the chain is deep.
+    func NoteCalleeOwner(call: object, calleeMatch: object?) {
+        if calleeMatch == null {
+            return
+        }
+
+        calleeOwnerCalls.Add(call)
+        calleeOwnerTargets.Add(calleeMatch)
     }
 
     func VisitCompilationUnit(unit: object) {
@@ -226,7 +288,9 @@ class AstPositionVisitor {
         }
 
         if typeName == "CallExpression" {
-            bestMatch := ChooseBestExpression(currentMatch, FindExpression(GetRequiredProperty(expression, "Callee")))
+            calleeMatch := FindExpression(GetRequiredProperty(expression, "Callee"))
+            NoteCalleeOwner(expression, calleeMatch)
+            bestMatch := ChooseBestExpression(currentMatch, calleeMatch)
 
             arguments := GetRequiredList(expression, "Arguments")
             index := 0

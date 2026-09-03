@@ -493,6 +493,8 @@ A metadata member also carries `documentation`: the first sentence of its .NET X
 
 **Cost.** The doc index is built on the **first hover that lands on a metadata member** and never before, so a session that only hovers project symbols pays nothing: a source-symbol hover stays at ~0.45 s. The first metadata hover costs ~1.35 s (~0.9 s to read the packs' ~354 XML files / ~73 MB / ~144 k members). It is then memoized on the `ProjectSnapshot`, so the language server and any other long-lived host pay it once per project and every later hover — of any member — is free. `nlc query hover` from a shell is a fresh process each time and cannot amortize it: the daemon protocol has no `hover` method, so hover always runs in-process.
 
+**Overloads.** Where the position is a call with arguments, hover shows the overload that call binds to and no count: the reader's own arguments chose one. `Random.Shared.Next(1, 7)` and `Random.Shared.Next(10)` are the same member and answer `int Next(int minValue, int maxValue)` and `int Next(int maxValue)` respectively. Away from a call site — a member named without calling it — one signature is shown with `(+N overloads)` beside it, because there is nothing to narrow with. The count also survives a call whose argument count fits no overload at all: nothing was chosen, and saying otherwise would trade a misleading signature for a misleading count. Arity is the gate and parameter-type identity ranks within it; the comparison is by type full name, which is the same string whether the type came from the compiler's `MetadataLoadContext` or from a live `typeof`.
+
 Exit code 0 on success, 1 with a structured `noSymbol` error envelope if there is no symbol at the given position.
 
 ### `nlc query doc` — .NET API Documentation

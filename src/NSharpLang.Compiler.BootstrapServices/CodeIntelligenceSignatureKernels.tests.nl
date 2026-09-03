@@ -110,3 +110,76 @@ test "the bare fallback is still there and is still a function of text alone" {
     assert CodeIntelligenceSignatureKernels.GetFallbackSignatureText("field", "Count", "int") == "field Count: int"
     assert CodeIntelligenceSignatureKernels.GetFallbackSignatureText("class", "Widget", null) == "class Widget"
 }
+
+// ─── CHIP C: THE CALL SITE CHOOSES THE OVERLOAD ──────────────────────────────────────────────
+// `ReflectedMemberOfType` above asks with NO call site and is the "away from a call" half of the
+// contract; these ask with one. The argument types are `TypeInfo`s exactly as the navigation layer
+// builds them from a `CallExpression`'s arguments.
+
+func SkCallHandle(receiver: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?): ReflectedMemberHandle? {
+    return CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForCall(receiver, memberName, argumentTypes)
+}
+
+func SkCallLine(receiver: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?): string {
+    handle := SkCallHandle(receiver, memberName, argumentTypes)
+    if handle == null {
+        return "<no member>"
+    }
+
+    line := CodeIntelligenceSignatureKernels.GetReflectedMemberLineText(handle)
+    if line == null {
+        return "<no signature>"
+    }
+
+    return line ?? ""
+}
+
+func SkArgs1(first: TypeInfo?): TypeInfo?[] {
+    args := new TypeInfo?[](1)
+    args[0] = first
+    return args
+}
+
+func SkArgs2(first: TypeInfo?, second: TypeInfo?): TypeInfo?[] {
+    args := new TypeInfo?[](2)
+    args[0] = first
+    args[1] = second
+    return args
+}
+
+test "chip C: arity is the gate, so a call reaches an overload that away from a call site loses" {
+    // `ToUpper()` written with no arguments is the nullary overload, and because the reader's own
+    // call chose it the `(+1 overload)` suffix goes away.
+    assert SkCallLine(new SimpleTypeInfo("string"), "ToUpper", new TypeInfo?[](0)) == "method ToUpper: string ToUpper()"
+
+    // The SAME member away from a call still shows one of two with the count — the contract above
+    // pins that, and this is the control that the difference is the call site and nothing else.
+    upperLine := SkLine(new SimpleTypeInfo("string"), "ToUpper")
+    assert upperLine.EndsWith(" (+1 overload)", StringComparison.Ordinal)
+}
+
+test "chip C: argument TYPES rank within an arity, which is what a count could never make honest" {
+    // `IndexOf` has ten overloads and four of them take two arguments. Arity alone leaves a
+    // one-in-four guess; the argument types settle it.
+    assert SkCallLine(new SimpleTypeInfo("string"), "IndexOf", SkArgs2(new SimpleTypeInfo("string"), new SimpleTypeInfo("int"))) == "method IndexOf: int IndexOf(string value, int startIndex)"
+    assert SkCallLine(new SimpleTypeInfo("string"), "IndexOf", SkArgs2(new SimpleTypeInfo("char"), new SimpleTypeInfo("int"))) == "method IndexOf: int IndexOf(char value, int startIndex)"
+
+    // One argument, and the type is the whole of the evidence.
+    assert SkCallLine(new SimpleTypeInfo("string"), "IndexOf", SkArgs1(new SimpleTypeInfo("string"))) == "method IndexOf: int IndexOf(string value)"
+    assert SkCallLine(new SimpleTypeInfo("string"), "IndexOf", SkArgs1(new SimpleTypeInfo("char"))) == "method IndexOf: int IndexOf(char value)"
+}
+
+test "chip C: an argument nothing can type costs nothing, and arity still decides" {
+    // A null entry is an argument whose type the resolver declined. It scores nothing rather than
+    // guessing, so the answer falls back to the arity gate — which here is still exactly right.
+    line := SkCallLine(new SimpleTypeInfo("string"), "Substring", SkArgs2(null, null))
+    assert line == "method Substring: string Substring(int startIndex, int length)"
+}
+
+test "chip C: a call no overload's arity fits is NOT narrowed, and the count stays" {
+    // THE HONESTY CASE. Three arguments reach no `ToUpper`, so nothing was chosen by the call and
+    // the reader is told there are others — trading a misleading signature for a misleading count
+    // would be no improvement at all.
+    line := SkCallLine(new SimpleTypeInfo("string"), "ToUpper", new TypeInfo?[](3))
+    assert line.EndsWith(" (+1 overload)", StringComparison.Ordinal)
+}

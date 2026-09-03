@@ -391,7 +391,7 @@ class CodeIntelligenceTypeResolution {
     }
 
     static func ReflectedMemberOfType(receiverType: TypeInfo, memberName: string): ReflectedMemberHandle? {
-        return ReflectedMemberOfTypeForArity(receiverType, memberName, -1)
+        return ReflectedMemberOfTypeForCall(receiverType, memberName, null)
     }
 
     // A CONSTRUCTED GENERIC IS RESOLVED ON ITS DEFINITION, AND THAT IS THE ONLY WAY TO GET THE RIGHT
@@ -402,12 +402,16 @@ class CodeIntelligenceTypeResolution {
     // states a wrong return type is worse than a hover that states nothing. Reading the member off
     // `List<>` instead leaves every type written as `T`, and the override maps `T` back to the
     // receiver's real argument on the way out.
-    static func ReflectedMemberOfTypeForArity(receiverType: TypeInfo, memberName: string, preferredArgumentCount: int): ReflectedMemberHandle? {
+    //
+    // `argumentTypes` IS NULL WHEN THERE IS NO CALL SITE AND IS THE CALL'S OWN ARGUMENT TYPES WHEN
+    // THERE IS. The distinction is not "how many arguments" — a call with zero arguments is still a
+    // call, and `Next()` means the nullary overload where a bare `Next` means the group.
+    static func ReflectedMemberOfTypeForCall(receiverType: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?): ReflectedMemberHandle? {
         genericType := UnwrapGenericReceiver(receiverType)
         if genericType != null {
             definition := CompletionReflectionFacts.KnownReceiverGenericDefinition(genericType.Name)
             if definition != null && definition.GetGenericArguments().Length == genericType.TypeArguments.Count {
-                return ReflectedMemberOfClrType(definition, memberName, preferredArgumentCount, BuildGenericArgumentOverride(definition, genericType))
+                return ReflectedMemberOfClrType(definition, memberName, argumentTypes, BuildGenericArgumentOverride(definition, genericType))
             }
         }
 
@@ -416,7 +420,7 @@ class CodeIntelligenceTypeResolution {
             return null
         }
 
-        return ReflectedMemberOfClrType(clrType, memberName, preferredArgumentCount, null)
+        return ReflectedMemberOfClrType(clrType, memberName, argumentTypes, null)
     }
 
     static func UnwrapGenericReceiver(receiverType: TypeInfo): GenericTypeInfo? {
@@ -460,7 +464,7 @@ class CodeIntelligenceTypeResolution {
     // universes fail differently: an ambiguous match throws, and a member read on a poisoned generic
     // instantiation throws `NotSupportedException`. A hover request that throws is a broken editor,
     // so every failure here is a DECLINE and the caller falls back to the bare rendering.
-    static func ReflectedMemberOfClrType(clrType: Type, memberName: string, preferredArgumentCount: int, typeOverride: AnalyzerReflectionTypeOverride?): ReflectedMemberHandle? {
+    static func ReflectedMemberOfClrType(clrType: Type, memberName: string, argumentTypes: TypeInfo?[]?, typeOverride: AnalyzerReflectionTypeOverride?): ReflectedMemberHandle? {
         // The flags are a LOCAL, not an inline `|`: an inline flag expression does not type as
         // `BindingFlags` at the call site and the instance call declines as unmodeled. That is
         // `AnalyzerIndexAccess.FindReflectedIndexerProperty`'s note, and it holds here too.
@@ -489,8 +493,9 @@ class CodeIntelligenceTypeResolution {
             }
 
             if matching.Count > 0 {
-                chosen := ChooseReflectedOverload(matching, preferredArgumentCount)
-                return new ReflectedMemberHandle(null, null, chosen, chosen.get_Name(), DeclaringTypeText(chosen.get_DeclaringType()), typeOverride, matching.Count)
+                candidates := matching.ToArray()
+                chosen := ChooseReflectedOverload(candidates, argumentTypes)
+                return new ReflectedMemberHandle(null, null, chosen, chosen.get_Name(), DeclaringTypeText(chosen.get_DeclaringType()), typeOverride, VisibleOverloadCount(chosen, candidates.Length, argumentTypes))
             }
         } catch {
             return null
@@ -499,25 +504,104 @@ class CodeIntelligenceTypeResolution {
         return null
     }
 
-    // THE OVERLOAD THE CALL SITE MEANT, TO THE EXTENT ARITY DECIDES IT. This is NOT overload
-    // resolution — argument TYPES are never looked at — and it does not need to be: where the
-    // analyzer resolved the call it has already recorded the winner and hover reads THAT, so this
-    // runs only where there is no recorded answer at all. Arity is strictly better than "whichever
-    // one metadata listed first", and the overload count travels with it either way.
-    static func ChooseReflectedOverload(matching: List<MethodInfo>, preferredArgumentCount: int): MethodInfo {
-        if preferredArgumentCount >= 0 {
-            index := 0
-            while index < matching.Count {
-                candidate := matching[index]
-                if candidate.GetParameters().Length == preferredArgumentCount {
-                    return candidate
-                }
-
-                index = index + 1
-            }
+    // THE OVERLOAD THE CALL SITE MEANT.
+    //
+    // AWAY FROM A CALL SITE THERE IS NOTHING TO GO ON and the first candidate is shown with the
+    // count beside it, which is what `(+N overloads)` is for. AT a call site there is: the reader
+    // wrote arguments, and showing them a signature their own call could not possibly bind to is
+    // worse than showing nothing. `b.Append("x")` showed `Append(char, int)` out of twenty-six and
+    // `text.IndexOf("l", StringComparison.Ordinal)` showed `IndexOf(char)` out of ten — both are
+    // one-argument-versus-two wrong, which no count makes honest.
+    //
+    // ARITY IS THE GATE AND TYPE IDENTITY RANKS WITHIN IT. A candidate the call could not call is
+    // never the answer, so a wrong arity scores zero however well its types read; among the
+    // right-arity candidates each parameter whose type IS the argument's type scores one more.
+    //
+    // THE COMPARISON IS BY FULL NAME, AND THAT IS A UNIVERSE DECISION RATHER THAN A SHORTCUT. A
+    // parameter's type comes from wherever the RECEIVER came from — the compiler's
+    // `MetadataLoadContext` for a project receiver, a live `typeof` for a known simple name — while
+    // an argument's type is resolved through `CompletionReflectionFacts`, which answers with live
+    // types. `Type.IsAssignableFrom` across those two universes answers FALSE rather than throwing,
+    // so a predicate built on it would silently degrade to arity and no test would ever say so.
+    // A full name is the same string in both universes. It buys identity and not widening, and
+    // widening is exactly what arity already covers: `AddDays(1)` has one one-argument overload and
+    // reaches `AddDays(double)` without anything having to know that `int` widens.
+    static func ChooseReflectedOverload(candidates: MethodInfo[], argumentTypes: TypeInfo?[]?): MethodInfo {
+        if argumentTypes == null {
+            return candidates[0]
         }
 
-        return matching[0]
+        best := candidates[0]
+        bestScore := -1
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            score := ScoreReflectedOverload(candidate, argumentTypes ?? new TypeInfo?[](0))
+            if score > bestScore {
+                bestScore = score
+                best = candidate
+            }
+
+            index = index + 1
+        }
+
+        return best
+    }
+
+    static func ScoreReflectedOverload(candidate: MethodInfo, argumentTypes: TypeInfo?[]): int {
+        parameters := candidate.GetParameters()
+        if parameters.Length != argumentTypes.Length {
+            return 0
+        }
+
+        score := 1
+        index := 0
+        while index < parameters.Length {
+            argumentType := argumentTypes[index]
+            if argumentType != null {
+                parameterTypeName := ReflectedParameterTypeName(parameters[index])
+                argumentTypeName := ReflectedArgumentTypeName(argumentType)
+                if parameterTypeName != null && argumentTypeName != null && parameterTypeName == argumentTypeName {
+                    score = score + 1
+                }
+            }
+
+            index = index + 1
+        }
+
+        return score
+    }
+
+    static func ReflectedParameterTypeName(parameter: ParameterInfo): string? {
+        parameterType := parameter.get_ParameterType()
+        return parameterType.get_FullName()
+    }
+
+    static func ReflectedArgumentTypeName(argumentType: TypeInfo): string? {
+        clrType := CompletionReflectionFacts.ResolveCompletionReflectionType(argumentType)
+        if clrType == null {
+            return null
+        }
+
+        return clrType.get_FullName()
+    }
+
+    // WHAT THE COUNT MEANS ONCE A CALL SITE HAS SPOKEN. `(+N overloads)` tells the reader there are
+    // others they might have meant; where their own arguments picked one, there are not, so the
+    // count collapses and the suffix disappears. It collapses ONLY when the chosen candidate takes
+    // exactly the arguments written — a call no candidate's arity fits was not narrowed at all, and
+    // claiming otherwise would trade a misleading signature for a misleading count.
+    static func VisibleOverloadCount(chosen: MethodInfo, candidateCount: int, argumentTypes: TypeInfo?[]?): int {
+        if argumentTypes == null {
+            return candidateCount
+        }
+
+        parameters := chosen.GetParameters()
+        if parameters.Length == argumentTypes.Length {
+            return 1
+        }
+
+        return candidateCount
     }
 
     // THE FULL NAME, AND THE SIMPLE NAME ONLY WHEN THERE IS NO FULL ONE. `System.String` is what

@@ -1877,10 +1877,11 @@ test "IDE D2: a static property, an instance method and a static-property-then-m
     // `.AddDays` — an instance method on the value that static property returned.
     assert D2HoverSignature(snapshot, "later := DateTime.Now.AddDays", "AddDays") == "method AddDays: DateTime AddDays(double value)|method|System.DateTime"
 
-    // `Random.Shared.Next` — a static property, then a method on its result.
-    nextLine := D2HoverSignature(snapshot, "roll := Random.Shared.Next", "Next")
-    assert nextLine.StartsWith("method Next: int Next(", StringComparison.Ordinal)
-    assert nextLine.EndsWith("|method|System.Random", StringComparison.Ordinal)
+    // `Random.Shared.Next` — a static property, then a method on its result. CHIP C TIGHTENED THIS
+    // PIN. It read `StartsWith("method Next: int Next(")` because the answer was the first of three
+    // overloads with a count beside it, and which one `GetMethods` lists first is not specified. The
+    // call site writes two arguments, so there is now exactly one right answer and it is pinned.
+    assert D2HoverSignature(snapshot, "roll := Random.Shared.Next", "Next") == "method Next: int Next(int minValue, int maxValue)|method|System.Random"
 
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
@@ -1906,6 +1907,67 @@ test "IDE D2: a project-declared member still hovers to its declaration and carr
     // THE NON-REGRESSION. A source receiver has no CLR type, so the reflected route declines and the
     // declaration route answers exactly as it always did — with a file and no declaring type.
     assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "field Label: string|field|"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+// ─── CHIP C: THE CALL SITE CHOOSES THE OVERLOAD, THROUGH THE REAL TYPE UNIVERSE ──────────────
+// The estate pins this against live `typeof`s. These run the real CLI pipeline, so every receiver
+// and every parameter type comes from the compiler's `MetadataLoadContext` while the ARGUMENT types
+// are resolved through `CompletionReflectionFacts`, which answers with live types. The two are
+// therefore compared ACROSS type universes, which is why the comparison is by full name: measured
+// on this machine, `Type.IsAssignableFrom` across an MLC type and a live type answers FALSE in both
+// directions and never throws, so a predicate built on it would silently degrade to arity and no
+// contract could see it. `FullName` is the same string in both.
+func CHoverProject(): object {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "namespace QueryTemp\n\nimport System\nimport System.Text\n\nfunc Main() {\n    text := \"hello world\"\n    at := text.IndexOf(\"l\", StringComparison.Ordinal)\n    builder := new StringBuilder()\n    builder.Append(\"x\")\n    roll := Random.Shared.Next(1, 7)\n    small := Random.Shared.Next(10)\n    upper := text.ToUpper()\n}\n"
+    )
+    return QueryLoadProject(projectRoot)
+}
+
+func CHoverSignature(snapshot: object, needle: string, member: string): string {
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, needle)
+    col := FindColumnInFile(programPath, line, member)
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, col)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing for '" + member + "'.")
+    }
+
+    return QueryText(hover, "Signature")
+}
+
+test "chip C: a call site with arguments hovers to the overload that binds, not to the first of many" {
+    snapshot := CHoverProject()
+
+    // TWENTY-SIX CANDIDATES, ONE ARGUMENT. This showed `Append(char value, int repeatCount)` — a
+    // two-argument signature for a one-argument call — with `(+25 overloads)` beside it.
+    assert CHoverSignature(snapshot, "builder.Append", "Append") == "method Append: StringBuilder Append(string? value)"
+
+    // TEN CANDIDATES, FOUR OF THEM TWO-ARGUMENT. Arity alone is a one-in-four guess here; the
+    // argument types settle it. This showed `IndexOf(char value)` before.
+    assert CHoverSignature(snapshot, "at := text.IndexOf", "IndexOf") == "method IndexOf: int IndexOf(string value, StringComparison comparisonType)"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "chip C: two call sites of ONE method answer with two different overloads" {
+    snapshot := CHoverProject()
+
+    // THE CLEAREST EVIDENCE THERE IS that the answer comes from the CALL and not from the member:
+    // the same `Random.Next`, hovered twice, answers differently because the calls differ.
+    assert CHoverSignature(snapshot, "roll := Random.Shared.Next", "Next") == "method Next: int Next(int minValue, int maxValue)"
+    assert CHoverSignature(snapshot, "small := Random.Shared.Next", "Next") == "method Next: int Next(int maxValue)"
+
+    // A NULLARY CALL IS A CALL. `ToUpper()` chose the no-argument overload, so the count that used
+    // to sit beside it is gone.
+    assert CHoverSignature(snapshot, "upper := text.ToUpper", "ToUpper") == "method ToUpper: string ToUpper()"
 
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
