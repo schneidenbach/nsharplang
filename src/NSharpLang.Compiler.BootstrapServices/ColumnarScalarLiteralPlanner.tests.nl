@@ -112,6 +112,20 @@ func ColumnarScalarPlannerAssertInt32(text: string, expected: int) {
     assert plan.Int32Values[plan.OperandIndices[0]] == expected
 }
 
+// A `uint` literal lands in the INT32 pool -- `uint` and `int` share one stack type and one
+// `ldc.i4` -- so only the RESULT TYPE separates it from an ordinary int literal. Asserting the pool
+// as well as the type is what makes that explicit.
+func ColumnarScalarPlannerAssertUInt32(text: string, expected: int) {
+    tree := ColumnarScalarPlannerTree(ColumnarExpressionNodeKind.IntLiteralExpression(), text)
+    plan := ColumnarScalarPlannerPlan(tree)
+    assert plan.ResultType == typeof(uint)
+    assert plan.OperationCount == 1
+    assert plan.Int32Count == 1
+    assert plan.Int64Count == 0
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
+    assert plan.Int32Values[plan.OperandIndices[0]] == expected
+}
+
 func ColumnarScalarPlannerAssertInt64(text: string, expected: long, resultType: Type) {
     tree := ColumnarScalarPlannerTree(ColumnarExpressionNodeKind.IntLiteralExpression(), text)
     plan := ColumnarScalarPlannerPlan(tree)
@@ -189,6 +203,18 @@ test "scalar literal planner owns exact integer families and bit patterns" {
     ColumnarScalarPlannerAssertInt64("7uL", 7L, typeof(ulong))
     ColumnarScalarPlannerAssertInt64("9223372036854775808Lu", long.MinValue, typeof(ulong))
     ColumnarScalarPlannerAssertInt64("18446744073709551615UL", -1L, typeof(ulong))
+
+    // THE `U` SUFFIX (ECMA-334 §6.4.5.3), BOTH HALVES OF THE RULE.
+    ColumnarScalarPlannerAssertUInt32("256U", 256)
+    ColumnarScalarPlannerAssertUInt32("0u", 0)
+    ColumnarScalarPlannerAssertUInt32("2147483647U", 2147483647)
+    // Past Int32 and still inside UInt32: the bit pattern is negative, the TYPE is still `uint`.
+    ColumnarScalarPlannerAssertUInt32("2147483648U", -2147483648)
+    ColumnarScalarPlannerAssertUInt32("4294967295u", -1)
+    ColumnarScalarPlannerAssertUInt32("0xFFFF_FFFFu", -1)
+    // Past UInt32: the SAME suffix names `ulong`, and that is a type change, not a rejection.
+    ColumnarScalarPlannerAssertInt64("4294967296U", 4294967296L, typeof(ulong))
+    ColumnarScalarPlannerAssertInt64("18446744073709551615u", -1L, typeof(ulong))
 }
 
 test "scalar literal planner owns invariant double and single families" {
@@ -455,12 +481,15 @@ test "scalar literal planner facades report the sealed exact type" {
 }
 
 test "scalar literal planner rejects excluded and malformed literal families without mutation" {
+    // `1U` STOOD HERE AND WAS THE DEFECT PINNED AS A WALL. What is malformed about a `U` literal is
+    // only a magnitude past `ulong`, which `18446744073709551616u` now covers on the same row as its
+    // `UL` twin.
     invalidIntegers := new string[](14)
     invalidIntegers[0] = ""
     invalidIntegers[1] = "2147483648"
     invalidIntegers[2] = "9223372036854775808L"
     invalidIntegers[3] = "18446744073709551616UL"
-    invalidIntegers[4] = "1U"
+    invalidIntegers[4] = "18446744073709551616u"
     invalidIntegers[5] = "1LL"
     invalidIntegers[6] = "1UU"
     invalidIntegers[7] = "1ULU"
@@ -621,7 +650,15 @@ test "scalar literal recursive append is atomic and enforces schema lifecycle" {
     plan.CompleteV3(resultType)
     ColumnarCodePlanExecutor.Validate(plan)
 
-    malformed := ColumnarScalarPlannerTree(ColumnarExpressionNodeKind.IntLiteralExpression(), "1U")
+    // THE ROLLBACK SAMPLE WAS `"1U"`, WHICH IS THE DEFECT PINNED AS A FACT A SECOND TIME (the first
+    // was `invalidIntegers[4]`). `1U` is a well-formed `uint` literal, so it can no longer stand for a
+    // malformed one. The replacement is a `U` literal past `ulong`, which is genuinely malformed AND
+    // exercises the new magnitude path -- kind 3, promoted to kind 2, then an overflowing body parse --
+    // so the atomicity property is now proven on the code this slice added rather than around it.
+    malformed := ColumnarScalarPlannerTree(
+        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        "18446744073709551616u"
+    )
     atomic := new ColumnarCodePlan()
     atomic.PrepareV3()
     atomic.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
