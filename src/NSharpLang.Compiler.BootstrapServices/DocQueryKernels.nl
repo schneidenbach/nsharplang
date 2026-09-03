@@ -1028,6 +1028,39 @@ class DocQueryKernels {
         return StripGenericArity(GetLastDocQuerySegment(value))
     }
 
+    // THE FIRST SENTENCE OF A SUMMARY, WHICH IS WHAT A HOVER HAS ROOM FOR.
+    //
+    // `nlc query doc` prints the whole summary because the reader asked for documentation; a hover
+    // is a tooltip over code the reader is in the middle of writing, and a five-sentence remark
+    // pushes the SIGNATURE — the thing they hovered for — off the top. The cut is conservative on
+    // purpose: only a period that ENDS a word (the next character is whitespace, or there is none)
+    // closes a sentence, so `List<T>` and `System.Console` inside a summary do not, and text with no
+    // such period is returned WHOLE rather than truncated at a guess.
+    static func GetDocSummarySentence(summary: string?): string? {
+        if summary == null {
+            return null
+        }
+
+        text := summary ?? ""
+        index := 0
+        while index < text.Length {
+            ch := text[index]
+            if ch == '.' || ch == '!' || ch == '?' {
+                if index + 1 >= text.Length {
+                    return text
+                }
+
+                if char.IsWhiteSpace(text[index + 1]) {
+                    return text.Substring(0, index + 1)
+                }
+            }
+
+            index = index + 1
+        }
+
+        return text
+    }
+
     static func FormatDocTextRaw(raw: string): string? {
         if string.IsNullOrWhiteSpace(raw) {
             return null

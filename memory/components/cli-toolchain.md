@@ -85,6 +85,8 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 
 `nlc query type` and `nlc query inspect` type results include `nullability` (`unknown`, `null`, `maybeNull`, `notNull`, or `oblivious`) so CLI automation and the LSP can reason about the same null-flow facts.
 
+At a position on a member that METADATA declares and the project does not — `list.ToArray()`, `DateTime.Now.AddDays(1)` — a `method` result's `resolvedType` carries the member's full **signature** (`WeatherForecast[] ToArray()`), rendered by the same N# owner `nlc query hover` uses, so the two commands answer the same fact and `hover`'s `signature` is exactly `kind + " " + name + ": " + resolvedType`. It previously carried the analyzer's internal diagnostic placeholder `ToArray(...)`, which names no type at all. Four surfaces move together because they share one builder: `nlc query type`, the `type` block of `nlc query inspect`, `nlc query inspect --summary`, and the `--text` rendering of each. This is **not** a schema change and `schemaVersion` stays `1`: no key is added, removed or retyped, and the only values that move are the ones that were a placeholder. Every other kind — a property, a field, a local, a type use — still answers with its TYPE and is untouched.
+
 ### Code Quality
 
 | Command | Purpose | Example |
@@ -475,6 +477,23 @@ A member that comes from METADATA rather than from the project — `summary.ToUp
 ```
 
 `declaringType` is an optional addition at `schemaVersion` 1: it is present only for metadata members, and `definedIn` remains a file path for project-declared symbols. One overload is rendered and the rest are counted. The language server shows the same two facts as `*Declaring Type:*` and `*Defined in:*`, because both surfaces are answered by the same owner.
+
+A metadata member also carries `documentation`: the first sentence of its .NET XML summary, read from the reference packs — the same source `nlc query doc` uses. This is the key the envelope already had (a project symbol's `documentation` is its doc comment), so nothing about the schema moves; what changed is that a metadata member now has something to put in it. The language server renders it under the signature, as it always has for source symbols.
+
+```json
+  "result": {
+    "signature": "method AddDays: DateTime AddDays(double value)",
+    "documentation": "Returns a new DateTime that adds the specified number of days to the value of this instance.",
+    "declaringType": "System.DateTime",
+    "kind": "method"
+  }
+```
+
+**Where the text comes from, and why it is not the assembly's own file.** The lookup is keyed on the ECMA-334 doc id (`M:System.DateTime.AddDays(System.Double)`), resolved against every `.xml` in the installed reference packs. It cannot be keyed on the declaring assembly: the compiler's external types are read out of the **shared framework**, which ships no `.xml` at all and whose facades type-forward, so `List<T>` reports `System.Private.CoreLib` and no `System.Private.CoreLib.xml` has ever existed. The packs are found by climbing from any loaded assembly path to the directory that holds both `packs` and `shared`; that path is used to locate the **dotnet root** and never to look for XML beside it. A machine with no reference packs, or a member the packs do not document, answers exactly as before — signature only. The feature can never subtract a line.
+
+**Cost.** The doc index is built on the **first hover that lands on a metadata member** and never before, so a session that only hovers project symbols pays nothing: a source-symbol hover stays at ~0.45 s. The first metadata hover costs ~1.35 s (~0.9 s to read the packs' ~354 XML files / ~73 MB / ~144 k members). It is then memoized on the `ProjectSnapshot`, so the language server and any other long-lived host pay it once per project and every later hover — of any member — is free. `nlc query hover` from a shell is a fresh process each time and cannot amortize it: the daemon protocol has no `hover` method, so hover always runs in-process.
+
+**Overloads.** Where the position is a call with arguments, hover shows the overload that call binds to and no count: the reader's own arguments chose one. `Random.Shared.Next(1, 7)` and `Random.Shared.Next(10)` are the same member and answer `int Next(int minValue, int maxValue)` and `int Next(int maxValue)` respectively. Away from a call site — a member named without calling it — one signature is shown with `(+N overloads)` beside it, because there is nothing to narrow with. The count also survives a call whose argument count fits no overload at all: nothing was chosen, and saying otherwise would trade a misleading signature for a misleading count. Arity is the gate and parameter-type identity ranks within it; the comparison is by type full name, which is the same string whether the type came from the compiler's `MetadataLoadContext` or from a live `typeof`.
 
 Exit code 0 on success, 1 with a structured `noSymbol` error envelope if there is no symbol at the given position.
 

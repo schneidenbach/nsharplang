@@ -1877,10 +1877,11 @@ test "IDE D2: a static property, an instance method and a static-property-then-m
     // `.AddDays` — an instance method on the value that static property returned.
     assert D2HoverSignature(snapshot, "later := DateTime.Now.AddDays", "AddDays") == "method AddDays: DateTime AddDays(double value)|method|System.DateTime"
 
-    // `Random.Shared.Next` — a static property, then a method on its result.
-    nextLine := D2HoverSignature(snapshot, "roll := Random.Shared.Next", "Next")
-    assert nextLine.StartsWith("method Next: int Next(", StringComparison.Ordinal)
-    assert nextLine.EndsWith("|method|System.Random", StringComparison.Ordinal)
+    // `Random.Shared.Next` — a static property, then a method on its result. CHIP C TIGHTENED THIS
+    // PIN. It read `StartsWith("method Next: int Next(")` because the answer was the first of three
+    // overloads with a count beside it, and which one `GetMethods` lists first is not specified. The
+    // call site writes two arguments, so there is now exactly one right answer and it is pinned.
+    assert D2HoverSignature(snapshot, "roll := Random.Shared.Next", "Next") == "method Next: int Next(int minValue, int maxValue)|method|System.Random"
 
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
@@ -1906,6 +1907,221 @@ test "IDE D2: a project-declared member still hovers to its declaration and carr
     // THE NON-REGRESSION. A source receiver has no CLR type, so the reflected route declines and the
     // declaration route answers exactly as it always did — with a file and no declaring type.
     assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "field Label: string|field|"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+// ─── CHIP C: THE CALL SITE CHOOSES THE OVERLOAD, THROUGH THE REAL TYPE UNIVERSE ──────────────
+// The estate pins this against live `typeof`s. These run the real CLI pipeline, so every receiver
+// and every parameter type comes from the compiler's `MetadataLoadContext` while the ARGUMENT types
+// are resolved through `CompletionReflectionFacts`, which answers with live types. The two are
+// therefore compared ACROSS type universes, which is why the comparison is by full name: measured
+// on this machine, `Type.IsAssignableFrom` across an MLC type and a live type answers FALSE in both
+// directions and never throws, so a predicate built on it would silently degrade to arity and no
+// contract could see it. `FullName` is the same string in both.
+func CHoverProject(): object {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "namespace QueryTemp\n\nimport System\nimport System.Text\n\nfunc Main() {\n    text := \"hello world\"\n    at := text.IndexOf(\"l\", StringComparison.Ordinal)\n    builder := new StringBuilder()\n    builder.Append(\"x\")\n    roll := Random.Shared.Next(1, 7)\n    small := Random.Shared.Next(10)\n    upper := text.ToUpper()\n}\n"
+    )
+    return QueryLoadProject(projectRoot)
+}
+
+func CHoverSignature(snapshot: object, needle: string, member: string): string {
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, needle)
+    col := FindColumnInFile(programPath, line, member)
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, col)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing for '" + member + "'.")
+    }
+
+    return QueryText(hover, "Signature")
+}
+
+test "chip C: a call site with arguments hovers to the overload that binds, not to the first of many" {
+    snapshot := CHoverProject()
+
+    // TWENTY-SIX CANDIDATES, ONE ARGUMENT. This showed `Append(char value, int repeatCount)` — a
+    // two-argument signature for a one-argument call — with `(+25 overloads)` beside it.
+    assert CHoverSignature(snapshot, "builder.Append", "Append") == "method Append: StringBuilder Append(string? value)"
+
+    // TEN CANDIDATES, FOUR OF THEM TWO-ARGUMENT. Arity alone is a one-in-four guess here; the
+    // argument types settle it. This showed `IndexOf(char value)` before.
+    assert CHoverSignature(snapshot, "at := text.IndexOf", "IndexOf") == "method IndexOf: int IndexOf(string value, StringComparison comparisonType)"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "chip C: two call sites of ONE method answer with two different overloads" {
+    snapshot := CHoverProject()
+
+    // THE CLEAREST EVIDENCE THERE IS that the answer comes from the CALL and not from the member:
+    // the same `Random.Next`, hovered twice, answers differently because the calls differ.
+    assert CHoverSignature(snapshot, "roll := Random.Shared.Next", "Next") == "method Next: int Next(int minValue, int maxValue)"
+    assert CHoverSignature(snapshot, "small := Random.Shared.Next", "Next") == "method Next: int Next(int maxValue)"
+
+    // A NULLARY CALL IS A CALL. `ToUpper()` chose the no-argument overload, so the count that used
+    // to sit beside it is gone.
+    assert CHoverSignature(snapshot, "upper := text.ToUpper", "ToUpper") == "method ToUpper: string ToUpper()"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+// ─── CHIP B: A METADATA MEMBER'S HOVER CARRIES ITS XML DOCUMENTATION ─────────────────────────
+// The May 2026 headless report showed a BCL hover with the API summary under the signature; the
+// shipped one declined it. The text is the .NET reference packs' XML — the same source
+// `nlc query doc` reads — and it reaches hover through the `documentation` key the envelope has
+// always had, so nothing about the schema moves.
+//
+// THE ASSERTIONS ARE SHAPE, NOT THE PACK'S EXACT PROSE. A doc sentence belongs to the installed
+// reference pack and a machine on a different patch level would fail a byte pin for no product
+// reason. What is pinned is what the FEATURE promises: a non-empty sentence, from the right member,
+// cut to ONE sentence.
+func D2HoverDocumentation(snapshot: object, needle: string, member: string): string {
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, needle)
+    col := FindColumnInFile(programPath, line, member)
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, col)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing for '" + member + "'.")
+    }
+
+    return QueryText(hover, "Documentation")
+}
+
+// ONE SENTENCE MEANS NO SENTENCE-ENDING PERIOD BEFORE THE LAST CHARACTER. A period inside `List<T>`
+// or `System.Console` is not one, which is exactly the distinction the kernel draws.
+func IsSingleDocSentence(text: string): bool {
+    if text.Length == 0 {
+        return false
+    }
+
+    index := 0
+    while index < text.Length - 1 {
+        if text[index] == '.' && text[index + 1] == ' ' {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
+test "chip B: a metadata member hovers with the reference packs' summary sentence under its signature" {
+    snapshot := D2HoverProject()
+
+    // An instance METHOD. The doc id carries its parameter list, so a wrong id answers nothing at
+    // all rather than the wrong text — which is why a non-empty answer is itself evidence.
+    addDays := D2HoverDocumentation(snapshot, "later := DateTime.Now.AddDays", "AddDays")
+    assert addDays.StartsWith("Returns a new DateTime", StringComparison.Ordinal)
+    assert IsSingleDocSentence(addDays)
+
+    // A PROPERTY on a type whose members the shared framework declares in `System.Private.CoreLib`
+    // and the reference packs document in `System.Runtime.xml`. It answers only because the lookup
+    // is keyed on the DOC ID rather than on the declaring assembly's own file.
+    length := D2HoverDocumentation(snapshot, "total := names.Length", "Length")
+    assert length.Contains("number of elements", StringComparison.Ordinal)
+    assert IsSingleDocSentence(length)
+
+    // A method on a CONSTRUCTED GENERIC, read off `List<>`: the doc id has to carry the arity
+    // marker `List`1` or the packs have nothing to answer with.
+    toArray := D2HoverDocumentation(snapshot, "all := readings.ToArray", "ToArray")
+    assert toArray.Contains("new array", StringComparison.Ordinal)
+    assert IsSingleDocSentence(toArray)
+
+    // A STATIC PROPERTY, proving the second and third lookups come from the SAME memoized index:
+    // three different members of three different declaring types all answer within one snapshot.
+    now := D2HoverDocumentation(snapshot, "stamp := DateTime.Now", "Now")
+    assert now.Contains("current date and time", StringComparison.Ordinal)
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "chip B: a project-declared member's documentation is unchanged, and a member with no docs still hovers" {
+    snapshot := D2HoverProject()
+
+    // THE NON-REGRESSION. A source symbol's `Documentation` is its DOC COMMENT and is not touched:
+    // this record's field has none, and the empty answer is the same one it gave before the chip.
+    assert D2HoverDocumentation(snapshot, "label := reading.Label", "Label") == ""
+
+    // AND THE SIGNATURE IS STILL THERE. A documentation lookup that finds nothing must subtract
+    // nothing — the feature can only ever add a line.
+    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "field Label: string|field|"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+// ─── CHIP A: `query type` AT A METADATA METHOD RENDERS THE SIGNATURE, NOT THE PLACEHOLDER ────
+// ONE OWNER, TWO COMMANDS, AND THE IDENTITY IS THE CONTRACT. A hover's whole line is
+// `kind + " " + name + ": " + signature`; `query type` carries those same three facts as separate
+// fields. At a METHOD position they must therefore reconstruct each other exactly — and before this
+// chip the third field read the analyzer's `ToArray(...)` DIAGNOSTIC placeholder, which names no
+// type at all. The placeholder is untouched; what moved is that this seam asks the signature
+// renderer, so the two commands can no longer drift apart without failing here.
+//
+// The helper returns the MISMATCH text rather than throwing, so a break prints BOTH renderings.
+func D2TypeAgreesWithHover(snapshot: object, needle: string, member: string): string {
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, needle)
+    col := FindColumnInFile(programPath, line, member)
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, col)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing for '" + member + "'.")
+    }
+
+    typeResult := QueryGetTypeAtPosition(snapshot, "Program.nl", line, col)
+    if typeResult == null {
+        throw new InvalidOperationException("The production type query answered nothing for '" + member + "'.")
+    }
+
+    signature := QueryText(hover, "Signature")
+    reconstructed := QueryText(typeResult, "Kind") + " " + QueryText(typeResult, "Name") + ": " + QueryText(typeResult, "ResolvedType")
+    if signature != reconstructed {
+        return "MISMATCH hover '" + signature + "' vs type '" + reconstructed + "'"
+    }
+
+    return QueryText(typeResult, "ResolvedType")
+}
+
+test "chip A: at a metadata METHOD position `query type` renders the signature and reconstructs the hover line exactly" {
+    snapshot := D2HoverProject()
+
+    // One overload: the whole signature is pinned, and it is the same text hover prints.
+    assert D2TypeAgreesWithHover(snapshot, "later := DateTime.Now.AddDays", "AddDays") == "DateTime AddDays(double value)"
+
+    // A constructed generic read off the DEFINITION: the type-argument override has to survive the
+    // second command too, or `query type` would answer `T[]` where hover answers `Reading[]`.
+    assert D2TypeAgreesWithHover(snapshot, "all := readings.ToArray", "ToArray") == "Reading[] ToArray()"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "chip A: a metadata PROPERTY still answers with its TYPE, so only the method kind moved" {
+    snapshot := D2HoverProject()
+
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+
+    // THE NON-REGRESSION THAT MATTERS MOST. `resolvedType` is a TYPE everywhere except at a method,
+    // and a property's answer is untouched: hover says `property Now: DateTime { get; }` while
+    // `query type` says `DateTime`, and those are two different questions with two right answers.
+    nowLine := FindLineInFile(programPath, "stamp := DateTime.Now")
+    nowColumn := FindColumnInFile(programPath, nowLine, "Now")
+    nowType := QueryGetTypeAtPosition(snapshot, "Program.nl", nowLine, nowColumn)
+    if nowType == null {
+        throw new InvalidOperationException("The production type query answered nothing for 'Now'.")
+    }
+
+    assert QueryText(nowType, "ResolvedType") == "DateTime"
+    assert QueryText(nowType, "Kind") == "struct"
 
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }

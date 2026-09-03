@@ -131,3 +131,31 @@ test "a query that names an unloadable assembly itself gets the assembly note, l
     assert DocQueryKernels.DescribeDocLookupMiss("Microsoft.AspNetCore.Httpish.Thing", docIds, owners, unloadable) == null
     assert DocQueryKernels.DescribeDocLookupMiss("Consoel", docIds, owners, unloadable) == null
 }
+
+// ─── THE HOVER SENTENCE ──────────────────────────────────────────────────────────────────────
+// A hover has room for one sentence and a `nlc query doc` answer has room for the whole summary,
+// which is why the cut lives in a kernel rather than in either renderer.
+
+test "a summary is cut at the first sentence-ending period and nowhere else" {
+    // The common shape: one sentence, ending the string. Nothing is removed.
+    assert DocQueryKernels.GetDocSummarySentence("Returns a non-negative random integer.") == "Returns a non-negative random integer."
+
+    // Two sentences: the second is dropped, the period is KEPT.
+    assert DocQueryKernels.GetDocSummarySentence("Copies the elements to a new array. The array is a shallow copy.") == "Copies the elements to a new array."
+
+    // A PERIOD INSIDE A NAME IS NOT A SENTENCE END, because the next character is not whitespace.
+    // This is the case that a naive `IndexOf('.')` gets wrong on most of the BCL.
+    assert DocQueryKernels.GetDocSummarySentence("Gets the System.Console output writer.") == "Gets the System.Console output writer."
+    assert DocQueryKernels.GetDocSummarySentence("Wraps List<T>.Add for the caller. See also Remove.") == "Wraps List<T>.Add for the caller."
+
+    // `!` and `?` end a sentence too.
+    assert DocQueryKernels.GetDocSummarySentence("Is the value set? Ask the parent.") == "Is the value set?"
+
+    // NO SENTENCE-ENDING PUNCTUATION AT ALL RETURNS THE WHOLE TEXT rather than truncating at a
+    // guess — a summary that does not punctuate is still the best answer available.
+    assert DocQueryKernels.GetDocSummarySentence("A cache of loaded assemblies") == "A cache of loaded assemblies"
+
+    // Null in, null out: a member with no documentation must reach hover as "no documentation".
+    assert DocQueryKernels.GetDocSummarySentence(null) == null
+    assert DocQueryKernels.GetDocSummarySentence("") == ""
+}

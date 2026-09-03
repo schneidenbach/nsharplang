@@ -467,6 +467,33 @@ class DocQuery {
         return null
     }
 
+    // ── the hover door ───────────────────────────────────────────────────────────────────────
+
+    // ONE MEMBER, ONE SUMMARY, AND NO ASSEMBLY LOADING AT ALL.
+    //
+    // `Lookup` above resolves a NAME, so it must index types first, and `LoadSystemAssemblies` is
+    // most of what `nlc query doc` costs. A hover already HAS the member — the analyzer handed it
+    // over — and needs nothing but the text, so this door skips the whole type half.
+    //
+    // THE DOC ID IS THE ONLY UNIVERSE-INDEPENDENT KEY THERE IS, which is why the GLOBAL index is
+    // the source of truth here and the per-assembly index is not consulted at all. A hover's
+    // members come from the analyzer's `MetadataLoadContext`, whose search path is the SHARED
+    // FRAMEWORK: it ships no `.xml` whatsoever, and its facades type-forward, so `List<T>` names
+    // `System.Private.CoreLib` as its declaring assembly and no reference pack has ever contained a
+    // `System.Private.CoreLib.xml`. Asked instead for `M:System.Collections.Generic.List`1.ToArray`,
+    // the packs answer out of `System.Collections.xml`, and which universe produced the member
+    // never enters into it — which is also what makes the CLI and the language server agree.
+    func SummaryForDocId(anyAssemblyLocation: string?, docId: string): string? {
+        typeIndex.SeedReferencePackDirectories(anyAssemblyLocation)
+        EnsureGlobalDocIndex()
+        if globalDocIndex.ContainsKey(docId) {
+            member := globalDocIndex[docId]
+            return FormatDocText(member.Element(XName.Get("summary")))
+        }
+
+        return null
+    }
+
     // ── the two indexes ──────────────────────────────────────────────────────────────────────
 
     // THE PER-ASSEMBLY INDEX FIRST, THE GLOBAL SWEEP SECOND. See the file note: an assembly's own
