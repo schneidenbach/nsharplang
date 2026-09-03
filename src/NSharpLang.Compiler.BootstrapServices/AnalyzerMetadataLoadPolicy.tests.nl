@@ -7,12 +7,16 @@ import System.IO
 
 // THE CONTRACT FOR EVERY DECISION THE ANALYZER'S METADATA-LOADING SURFACE MAKES.
 //
-// The C# these blocks replace is `tests/AnalyzerMetadataLoadContextTests.cs` — 189 lines carrying
+// The C# these blocks replace was `tests/AnalyzerMetadataLoadContextTests.cs` — 189 lines carrying
 // four `[Fact]`s and one `[Theory]` with seven `[InlineData]` rows, so ELEVEN xUnit cases and 22
 // assertions. Nine of the eleven were about version precedence and are restated here directly. The
 // other two drove a real `MetadataLoadContext` through private-field reflection to prove the two
-// dedupe rules; those rules are now named predicates and are asserted as such, which is a stronger
+// dedupe rules; those rules are named predicates here and are asserted as such, which is a stronger
 // statement than the C# made because it says what the rule IS rather than what one scenario did.
+//
+// THE FILE IS GONE (022/3b-2). Its last two `[Fact]`s now drive the real load surface end to end in
+// `AnalyzerMetadataLoadSurface.tests.nl`, over two on-disk copies of one assembly identity, so the
+// scenario coverage moved with the rule coverage rather than being dropped.
 //
 // Every block below pins an answer a user can see: which assembly a name resolves from, which
 // version's metadata a diagnostic is computed against, and whether a broken reference becomes an
