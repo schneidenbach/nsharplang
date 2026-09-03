@@ -82,6 +82,7 @@ class AnalyzerMatchExhaustiveness {
     // THE DISPATCH. Asked once per match, after every arm has been analysed, with the scrutinee's
     // type. The chain's order is behaviour — see the type note above.
     func Check(matchExpression: MatchExpression, valueType: TypeInfo) {
+        CheckArmReachability(matchExpression)
         anonymousUnionType := valueType as AnonymousUnionTypeInfo
         if anonymousUnionType != null {
             CheckAnonymousUnion(matchExpression, anonymousUnionType)
@@ -129,6 +130,67 @@ class AnalyzerMatchExhaustiveness {
                 return
             }
         }
+    }
+
+    // AN ARM WRITTEN AFTER A CATCH-ALL IS DEAD CODE, AND THE COMPILER NEVER MENTIONED IT.
+    //
+    //     match n {
+    //         _ => "any",
+    //         1 => "one"     // never runs, and `nlc check` said nothing
+    //     }
+    //
+    // NL502 has been in the catalog since the codes were written with nothing reporting it, so a
+    // reordering mistake — the commonest way to break a `match` — compiled to a program that quietly
+    // ignored an arm the author believed in.
+    //
+    // THE TEST IS SYNTACTIC AND TOTAL, WHICH IS WHY IT NEEDS NO TYPES AND CANNOT BE WRONG. An
+    // UNGUARDED undotted binding (`_`, or any plain name) matches every value of every type — it is
+    // the same predicate `Check`'s own catch-all tail uses to declare a match exhaustive, read here
+    // for the opposite purpose. A GUARD makes an arm conditional, so a guarded catch-all dominates
+    // nothing; a DOTTED name is a union case, not a binding.
+    //
+    // ONE REPORT PER DEAD ARM, anchored on the arm's own pattern and naming the line that already
+    // covers it — the same shape `csc` produces (CS8510, once per unreachable arm).
+    func CheckArmReachability(matchExpression: MatchExpression) {
+        dominatingLine := 0
+        dominatingText := ""
+        index := 0
+        while index < matchExpression.Cases.Count {
+            matchCase := matchExpression.Cases[index]
+            pattern := matchCase.Pattern
+            if dominatingLine > 0 {
+                message := "This arm can never be reached — the '" + dominatingText + "' arm on line " + dominatingLine.ToString() + " already matches every value"
+                suggestion := "Move this arm ABOVE the '" + dominatingText + "' arm on line " + dominatingLine.ToString() + ", or delete it. A catch-all belongs last."
+                diagnosticsValue.Report(ErrorCode.UnreachablePattern, message, pattern.Line, pattern.Column, suggestion, PatternSpanLength(pattern))
+            } else {
+                if matchCase.Guard == null {
+                    identifier := pattern as IdentifierPattern
+                    if identifier != null && (identifier.Name == "_" || !identifier.Name.Contains('.')) {
+                        dominatingLine = pattern.Line
+                        dominatingText = identifier.Name
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+    }
+
+    // How wide the squiggle under an arm's pattern is. Only the two written-name shapes can be
+    // measured from the node alone; everything else underlines one character rather than guessing a
+    // width the source may not have.
+    static func PatternSpanLength(pattern: Pattern): int {
+        identifier := pattern as IdentifierPattern
+        if identifier != null {
+            return Math.Max(1, identifier.Name.Length)
+        }
+
+        unionCase := pattern as UnionCasePattern
+        if unionCase != null {
+            return Math.Max(1, unionCase.CaseName.Length)
+        }
+
+        return 1
     }
 
     // A NULLABLE scrutinee has exactly two alternatives and the arms are read for both. A `null`

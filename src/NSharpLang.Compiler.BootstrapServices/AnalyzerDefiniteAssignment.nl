@@ -171,9 +171,50 @@ class AnalyzerDefiniteAssignment {
     // through the control-flow graph, intersecting at merge points (if/else,
     // switch) and treating loop bodies conservatively (they may run zero times).
     // The squiggle lands on the offending READ of the variable.
-    func CheckLocals(body: BlockStatement) {
+    func CheckLocals(body: BlockStatement, declaration: FunctionDeclaration?) {
         state := new DefiniteAssignmentState()
-        AnalyzeBlock(body, state)
+
+        // AN `out` PARAMETER ARRIVES UNASSIGNED AND MUST LEAVE ASSIGNED. It is seeded as a CANDIDATE,
+        // so reading it before writing it is the ordinary NL304 report, and as REQUIRED-AT-EXIT, so
+        // every `return` is held to it as well. A `ref` parameter is neither: its caller had to assign
+        // it before the call, so it arrives with a value.
+        anchorLine := body.Line
+        anchorColumn := body.Column
+        anchorLength := 1
+        if declaration != null {
+            anchorLine = declaration.Line
+            anchorColumn = declaration.Column
+            anchorLength = Math.Max(1, declaration.Name.Length)
+            for parameter in declaration.Parameters {
+                if parameter.Modifier == ParameterModifier.Out {
+                    state.Candidates.Add(parameter.Name)
+                    state.Assigned.Remove(parameter.Name)
+                    state.RequiredAtExit.Add(parameter.Name)
+                }
+            }
+        }
+
+        alwaysExits := AnalyzeBlock(body, state)
+        if state.RequiredAtExit.Count == 0 || alwaysExits {
+            return
+        }
+
+        // FALLING OFF THE END IS AN EXIT LIKE ANY OTHER. A function with an `out` parameter and no
+        // `return` at all reaches its caller with the slot still empty, so the last exit is checked
+        // too. There is no statement to point at, so the squiggle goes on the PARAMETER that was
+        // never filled — the one thing on the line the reader has to change.
+        if declaration != null {
+            for parameter in declaration.Parameters {
+                if parameter.Modifier == ParameterModifier.Out && !state.Assigned.Contains(parameter.Name) && parameter.Line > 0 {
+                    anchorLine = parameter.Line
+                    anchorColumn = parameter.Column
+                    anchorLength = Math.Max(1, parameter.Name.Length)
+                    break
+                }
+            }
+        }
+
+        AnalyzerOutParameterExits.ReportUnassigned(diagnosticsValue, state, anchorLine, anchorColumn, anchorLength, true)
     }
 
     // Returns true if the statement (and therefore the path through it) always
@@ -241,6 +282,13 @@ class AnalyzerDefiniteAssignment {
         if returnStmt != null {
             if returnStmt.Value != null {
                 AnalyzeExpression(returnStmt.Value, state)
+            }
+
+            // AN `out` PARAMETER IS CHECKED AT EVERY EXIT, and a `return` is one. The returned
+            // EXPRESSION is walked first, so `return value` on an unassigned `out` is told about the
+            // read before it is told about the exit.
+            if state.RequiredAtExit.Count > 0 {
+                AnalyzerOutParameterExits.ReportUnassigned(diagnosticsValue, state, returnStmt.Line, returnStmt.Column, 6, false)
             }
 
             return true
@@ -480,15 +528,18 @@ class AnalyzerDefiniteAssignment {
 
         // The try block may throw partway through, so its assignments are not
         // guaranteed to reach the catch/finally. Analyze reads, then discard.
-        AnalyzeBlock(tryStmt.TryBlock, state)
+        tryExits := AnalyzeBlock(tryStmt.TryBlock, state)
         state.Assigned.Clear()
         state.Assigned.UnionWith(before)
 
+        everyCatchExits := true
         for catchClause in tryStmt.CatchClauses {
             catchState := CopyNames(before)
             state.Assigned.Clear()
             state.Assigned.UnionWith(catchState)
-            AnalyzeBlock(catchClause.Block, state)
+            if !AnalyzeBlock(catchClause.Block, state) {
+                everyCatchExits = false
+            }
         }
 
         state.Assigned.Clear()
@@ -497,7 +548,24 @@ class AnalyzerDefiniteAssignment {
             AnalyzeBlock(tryStmt.FinallyBlock, state)
         }
 
-        return false
+        // A `try` WHOSE TRY BLOCK AND EVERY `catch` LEAVE THE FLOW LEAVES THE FLOW. This member
+        // returned a flat `false` until the `out` exit rule made the answer observable:
+        // `TryParseUnsignedIntegerMagnitude` in `NumericLiteralFacts.nl` returns from its `try` and
+        // from all THREE of its `catch` clauses, and was accused of falling off the end with its
+        // `out` parameter unassigned — the ONE false positive the 103-project differential found,
+        // in the compiler's own source.
+        //
+        // A HANDLERLESS `try` STILL ANSWERS `false`, AND THAT IS DELIBERATE. With no `catch` the
+        // only other authority on termination — `AnalyzerStatementTermination`, which owns `NL305` —
+        // holds that a `return` inside a `try` with a `finally` is not a returning path, and a
+        // pinned contract here says a try statement never itself always-exits. Narrowing the claim
+        // to the handled shape fixes the measured defect without making the two authorities
+        // disagree about a shape neither of them can see the same way.
+        //
+        // THE CHANGE ONLY EVER REMOVES REPORTS. A statement that always exits contributes NOTHING to
+        // a merge, so answering `true` can silence an intersection computed against a path that does
+        // not exist; it can never create a new accusation.
+        return tryExits && everyCatchExits && tryStmt.CatchClauses.Count > 0
     }
 
     // THE READ WALK, and it is pure recursion over the tree. It asks no type question, declares no
@@ -740,5 +808,53 @@ class AnalyzerDefiniteAssignment {
         }
 
         diagnosticsValue.Report(ErrorCode.DefiniteAssignmentError, "'" + name + "' is used here before it has been assigned a value on every path that " + "reaches this point", identifier.Line, identifier.Column, "Give '" + name + "' an initial value where you declare it, or assign it on every branch " + "before this use.", Math.Max(1, name.Length))
+    }
+}
+
+// THE `out` EXIT RULE'S SENTENCE, ON ITS OWN CLASS BECAUSE `AnalyzerDefiniteAssignment` IS AT THE
+// COLUMNAR FRONT END'S PER-CLASS MEMBER-FUNCTION CEILING. Adding ANY member function to that class
+// — this one included, measured — declines the whole class at `parse.struct` regardless of its name
+// or body. The owner is unchanged: this is one sentence and its formatting, called from the two
+// exits the walk knows about, with the sink handed in.
+class AnalyzerOutParameterExits {
+
+    // EVERY `out` PARAMETER THIS EXIT LEAVES EMPTY, named in sorted order so the sentence is stable
+    // however the declaration ordered them. A path that `throw`s never reaches an exit check at all,
+    // which is why a function that assigns on one branch and throws on the other is silent.
+    static func ReportUnassigned(diagnostics: AnalyzerDiagnosticSink, state: DefiniteAssignmentState, line: int, column: int, length: int, isEndOfBody: bool) {
+        missing := new List<string>()
+        for name in state.RequiredAtExit {
+            if !state.Assigned.Contains(name) {
+                missing.Add(name)
+            }
+        }
+
+        if missing.Count == 0 {
+            return
+        }
+
+        missing.Sort()
+        names := string.Join(", ", missing)
+        key := new ValueTuple<string, int, int>(names, line, column)
+        if !state.Reported.Add(key) {
+            return
+        }
+
+        // `where` IS A RESERVED WORD and cannot name a local: spelling this `where` declined the
+        // WHOLE class at `parse.struct`, reported at the class header with nothing said about the
+        // identifier — the reserved-word failure mode exactly.
+        exitText := "this `return`"
+        if isEndOfBody {
+            exitText = "the end of the body"
+        }
+
+        message := "'" + names + "' is an `out` parameter and is not assigned on every path that reaches " + exitText
+        suggestion := "Assign '" + names + "' before returning — every path out of the function must leave it with a value. A path that `throw`s does not have to."
+        if missing.Count > 1 {
+            message = missing.Count.ToString() + " `out` parameters are not assigned on every path that reaches " + exitText + ": " + names
+            suggestion = "Assign all " + missing.Count.ToString() + " before returning — every path out of the function must leave each one with a value. A path that `throw`s does not have to."
+        }
+
+        diagnostics.Report(ErrorCode.DefiniteAssignmentError, message, line, column, suggestion, length)
     }
 }

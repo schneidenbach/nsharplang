@@ -541,7 +541,7 @@ class AnalyzerFunctionBodies {
     func AdvanceBlockBodyRules(state: FunctionBodyState): FunctionBodyRequest? {
         body := state.Declaration.Body
         if body != null {
-            definiteAssignmentValue.CheckLocals(body)
+            definiteAssignmentValue.CheckLocals(body, state.Declaration)
         }
 
         state.Phase = 8
@@ -784,7 +784,7 @@ class AnalyzerFunctionBodies {
             return null
         }
 
-        definiteAssignmentValue.CheckLocals(body)
+        definiteAssignmentValue.CheckLocals(body, declaration)
         returnType := state.ReturnType
         if BuiltInTypes.Is(returnType, BuiltInTypes.Void) {
             return null

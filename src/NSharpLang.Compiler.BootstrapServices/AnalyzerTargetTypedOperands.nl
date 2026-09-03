@@ -74,9 +74,19 @@ class TargetTypedOperandState {
     ThenType: TypeInfo
     ElseType: TypeInfo
 
-    constructor(form: int, node: Expression?) {
+    reachabilityValue: AnalyzerPatternReachability?
+
+    // THE CONVERSION ORACLE, CARRIED RATHER THAN HELD, for the same reason `AnalyzerPassThroughOperands`
+    // carries it: `Analyzer.cs` REBUILDS `_patternReachability` whenever the metadata load context
+    // creates the well-known types, so an owner that held one would hold a stale one. It is optional
+    // because a walk driven without it — every hand-built contract in the estate — still answers every
+    // question about types; only the conversion REPORT needs an oracle.
+    Reachability: AnalyzerPatternReachability? => reachabilityValue
+
+    constructor(form: int, node: Expression?, reachability: AnalyzerPatternReachability?) {
         formValue = form
         nodeValue = node
+        reachabilityValue = reachability
         Phase = 0
         Pending = 0
         OperandType = BuiltInTypes.Unknown
@@ -136,8 +146,8 @@ class AnalyzerTargetTypedOperands {
     // THE ENTRY, AND IT DECIDES NOTHING. No form in this family can answer or report before its first
     // operand has been walked, so `Begin` names the form and stops. A node that is none of the four
     // answers `unknown` and takes no steps.
-    func Begin(expression: Expression): TargetTypedOperandState {
-        return new TargetTypedOperandState(FormOf(expression), expression)
+    func Begin(expression: Expression, patternReachability: AnalyzerPatternReachability? = null): TargetTypedOperandState {
+        return new TargetTypedOperandState(FormOf(expression), expression, patternReachability)
     }
 
     // WHICH OF THE FOUR THIS NODE IS, derived from the NODE rather than from anything carried, which
@@ -337,6 +347,14 @@ class AnalyzerTargetTypedOperands {
         if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(castNode.Expression, "cast") {
             state.ResultType = BuiltInTypes.Unknown
             return
+        }
+
+        // AND THE ONE QUESTION A CAST WAS NEVER ASKED: does any conversion exist at all? The escapes
+        // above are about a row VIEW leaving its table; this is about the assertion the cast makes.
+        // It is asked last, so a value that already escaped is not also told about its type.
+        reachability := state.Reachability
+        if reachability != null {
+            reachability.CheckCastExpression(castNode, state.OperandType, state.CastTargetType)
         }
 
         state.ResultType = state.CastTargetType

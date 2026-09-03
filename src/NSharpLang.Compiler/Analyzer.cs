@@ -1941,7 +1941,7 @@ public class Analyzer : IDisposable
             LambdaExpression lambda => DriveLambda(_lambdaAnalysis.BeginLambda(
                 lambda, _ambient.CurrentExpectedType, true, false)),
             CastExpression or CheckedExpression or UncheckedExpression or TernaryExpression
-                => DriveTargetTypedOperand(_targetTypedOperands.Begin(expr)),
+                => DriveTargetTypedOperand(_targetTypedOperands.Begin(expr, _patternReachability)),
             ArrayLiteralExpression => DriveArrayLiteral(_arrayLiteral.Begin(expr)),
             NewExpression => DriveConstruction(_construction.Begin(expr)),
             ThisExpression => _scopes.CurrentTypeScopeOrUnknown(),

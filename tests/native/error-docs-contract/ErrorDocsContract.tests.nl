@@ -164,11 +164,20 @@ func EdcDocumentedCodes(): List<string> {
 
 // ─── THE EXEMPTION LIST ───────────────────────────────────────────────────────────────────────
 //
-// THREE CODES ARE EXEMPT FROM THE PAGE REQUIREMENT, AND EACH ONE IS A HOLE IN THE LANGUAGE, NOT A
-// DOCUMENTATION GAP. The catalog publishes them, the rule each one names is a rule N# intends to
-// enforce, and NOTHING ENFORCES IT — measured by probe through the shipped CLI, not inferred. A
-// page for one of them would have to describe a diagnostic the reader can never see, so instead the
-// hole is written down here where a contract can hold it.
+// THE EXEMPTION LIST IS EMPTY, AND KEEPING IT EMPTY IS THE POINT.
+//
+// It once held SEVEN codes, and each one was a hole in the LANGUAGE rather than in the
+// documentation: the catalog published the code, the rule it named was a rule N# intends to
+// enforce, and nothing enforced it — measured by probe through the shipped CLI, not inferred. All
+// seven have been closed. NL803 (`new` on a type with no instances), NL802 (an unextendable base),
+// NL801 (more than one base class), NL806 (a constructor arity), NL307 (a base chain that closes on
+// itself), NL502 (an arm below a catch-all) and NL204 (a cast with no conversion) each have a
+// production reporter, contracts at the owner, and a page whose example this contract executes.
+//
+// SO CONTRACT A IS NOW UNCONDITIONAL: every code the product can print has a page, with no
+// exceptions carved out. A row may be added back only for a code whose rule NOTHING enforces, and
+// only with a probe program below that proves the silence — never to park a page somebody did not
+// want to write.
 //
 // A row is `code|defect|sentence`:
 //   code     - the exempt code, which must still be in the catalog.
@@ -179,12 +188,10 @@ func EdcDocumentedCodes(): List<string> {
 // THE EXEMPTION IS NOT A PARKING SPACE. `tests/native/error-docs-contract` fails if a row loses its
 // defect or its sentence, and fails if an exempt code leaves the catalog; the repro contract fails
 // the day one of these programs starts reporting its code, because at that point the rule exists and
-// the code owes the reader a page. Discharging one means writing the page and deleting the row.
+// the code owes the reader a page. Discharging one means writing the page and deleting the row —
+// which is what happened to all seven.
 func EdcExemptions(): List<string> {
     rows := new List<string>()
-    rows.Add("NL204|systems-language-closeout/STATUS.md|`v := 42` then `v as string` is accepted in silence; no conversion check runs on `as` or on a cast between unrelated types.")
-    rows.Add("NL307|systems-language-closeout/STATUS.md|Circular inheritance is not diagnosed; it reaches the emitter and fails there as an NL103 columnar decline, which names the backend rather than the cycle.")
-    rows.Add("NL502|systems-language-closeout/STATUS.md|A wildcard arm written before a live arm is accepted in silence; the live arm is dead code the compiler never mentions.")
     return rows
 }
 
@@ -408,9 +415,10 @@ test "the NSYS census is READ OUT OF THE SOURCE, so a new systems code cannot sk
 test "EVERY exemption names a code the catalog still publishes, a defect that exists, and a sentence" {
     assert EdcBrokenExemptions() == "", EdcBrokenExemptions()
 
-    // The list is small ON PURPOSE. It is the count of language rules N# publishes a code for and
-    // does not enforce; it may shrink, and it must never grow without a measured probe behind it.
-    assert EdcExemptions().Count == 3
+    // THE COUNT IS ZERO AND THAT IS THE CLAIM. It is the number of language rules N# publishes a
+    // code for and does not enforce. It reached zero on the soundness arc; it must never grow
+    // without a measured probe behind every row.
+    assert EdcExemptions().Count == 0
 }
 
 test "EVERY page carries the front matter the site and the tab title read" {
@@ -916,9 +924,6 @@ func EdbSplitMarks(marks: string): List<string> {
 // a page, which is exactly what this contract forces. A hole cannot be closed quietly.
 func EdbExemptPrograms(): List<string> {
     programs := new List<string>()
-    programs.Add("NL204|func Widen(): string {\n    v := 42\n    return v as string ?? \"\"\n}\n")
-    programs.Add("NL307|class A : B {\n}\n\nclass B : A {\n}\n")
-    programs.Add("NL502|func Classify(n: int): string {\n    return match n {\n        _ => \"any\",\n        1 => \"one\"\n    }\n}\n")
     return programs
 }
 

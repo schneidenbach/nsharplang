@@ -66,14 +66,16 @@ class TargetTypedStep {
 
 class TargetTypedHarness {
     Operands: AnalyzerTargetTypedOperands
+    Reachability: AnalyzerPatternReachability
     Ambient: AnalyzerAmbientContext
     Context: AnalyzerDeclarationContext
     Escape: AnalyzerSoaEscape
     Model: SemanticModel
     Errors: List<CompilerError>
 
-    constructor(operands: AnalyzerTargetTypedOperands, ambient: AnalyzerAmbientContext, context: AnalyzerDeclarationContext, escape: AnalyzerSoaEscape, model: SemanticModel, errors: List<CompilerError>) {
+    constructor(operands: AnalyzerTargetTypedOperands, reachability: AnalyzerPatternReachability, ambient: AnalyzerAmbientContext, context: AnalyzerDeclarationContext, escape: AnalyzerSoaEscape, model: SemanticModel, errors: List<CompilerError>) {
         Operands = operands
+        Reachability = reachability
         Ambient = ambient
         Context = context
         Escape = escape
@@ -107,7 +109,14 @@ func TargetTypedHarnessWith(sourceText: string?): TargetTypedHarness {
     ambient := new AnalyzerAmbientContext(diagnostics, spans, escape)
     conditions := new AnalyzerBooleanConditions(diagnostics, spans, escape)
     operands := new AnalyzerTargetTypedOperands(resolver, escape, ambient, conditions)
-    return new TargetTypedHarness(operands, ambient, context, escape, model, errors)
+    substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
+    facts := new AnalyzerAssignabilityFacts(context, null)
+    structural := new AnalyzerStructuralAssignability(resolver, probe)
+    clrConversion := new AnalyzerClrTypeConversion(context, null)
+    guard := new AnalyzerImplicitConversionGuard()
+    assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
+    reachability := new AnalyzerPatternReachability(diagnostics, spans, context, assignability)
+    return new TargetTypedHarness(operands, reachability, ambient, context, escape, model, errors)
 }
 
 func TargetTypedDefault(): TargetTypedHarness {
@@ -248,7 +257,7 @@ test "EVERY FORM ASKS ONLY FOR THE KINDS THIS WALK DEFINES" {
 
     index := 0
     while index < nodes.Count {
-        state := harness.Operands.Begin(nodes[index])
+        state := harness.Operands.Begin(nodes[index], harness.Reachability)
         steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
         stepIndex := 0
         while stepIndex < steps.Count {
@@ -262,25 +271,25 @@ test "EVERY FORM ASKS ONLY FOR THE KINDS THIS WALK DEFINES" {
 
 test "THE STEP COUNT IS THE FORM'S SHAPE — THREE FORMS ONE, A TERNARY THREE" {
     harness := TargetTypedDefault()
-    castState := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"))
+    castState := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"), harness.Reachability)
     castSteps := TargetTypedRun(harness, castState, TargetTypedOne(BuiltInTypes.String))
 
     assert castState.Form == 0
     assert castSteps.Count == 1
 
-    checkedState := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("v", 2, 15), 2, 5))
+    checkedState := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("v", 2, 15), 2, 5), harness.Reachability)
     checkedSteps := TargetTypedRun(harness, checkedState, TargetTypedOne(BuiltInTypes.Int))
 
     assert checkedState.Form == 1
     assert checkedSteps.Count == 1
 
-    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("v", 2, 17), 2, 5))
+    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("v", 2, 17), 2, 5), harness.Reachability)
     uncheckedSteps := TargetTypedRun(harness, uncheckedState, TargetTypedOne(BuiltInTypes.Int))
 
     assert uncheckedState.Form == 2
     assert uncheckedSteps.Count == 1
 
-    ternaryState := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    ternaryState := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
     ternarySteps := TargetTypedRun(harness, ternaryState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert ternaryState.Form == 3
@@ -292,7 +301,7 @@ test "THE STEP COUNT IS THE FORM'S SHAPE — THREE FORMS ONE, A TERNARY THREE" {
 
 test "A NODE THAT IS NONE OF THE FOUR TAKES NO STEPS AND ANSWERS unknown" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedIdentifier("v", 2, 5))
+    state := harness.Operands.Begin(TargetTypedIdentifier("v", 2, 5), harness.Reachability)
 
     steps := TargetTypedRun(harness, state, TargetTypedOne(BuiltInTypes.Int))
 
@@ -304,7 +313,7 @@ test "A NODE THAT IS NONE OF THE FOUR TAKES NO STEPS AND ANSWERS unknown" {
 
 test "A WALK THAT ASKED FOR NOTHING FOLDS IN NOTHING WHEN SUPPLIED ANYWAY" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedIdentifier("v", 2, 5))
+    state := harness.Operands.Begin(TargetTypedIdentifier("v", 2, 5), harness.Reachability)
 
     TargetTypedRun(harness, state, TargetTypedNone())
     harness.Operands.Supply(state, BuiltInTypes.String)
@@ -314,7 +323,7 @@ test "A WALK THAT ASKED FOR NOTHING FOLDS IN NOTHING WHEN SUPPLIED ANYWAY" {
 
 test "A FINISHED WALK KEEPS ANSWERING null AND ITS RESULT IS STABLE" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("v", 2, 15), 2, 5))
+    state := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("v", 2, 15), 2, 5), harness.Reachability)
 
     TargetTypedRun(harness, state, TargetTypedOne(BuiltInTypes.String))
 
@@ -326,14 +335,14 @@ test "A FINISHED WALK KEEPS ANSWERING null AND ITS RESULT IS STABLE" {
 
 test "THE ANSWER IS NOT SETTLED BEFORE THE STEPS" {
     harness := TargetTypedDefault()
-    castState := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"))
+    castState := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"), harness.Reachability)
     castSteps := TargetTypedRun(harness, castState, TargetTypedOne(BuiltInTypes.String))
 
     // The cast's answer is a written type that `Begin` could have decided — and does not.
     assert castSteps[0].ResultBefore == "unknown"
     assert TargetTypedTypeText(harness.Operands.Result(castState)) == "int"
 
-    ternaryState := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    ternaryState := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
     ternarySteps := TargetTypedRun(harness, ternaryState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert ternarySteps[0].ResultBefore == "unknown"
@@ -344,10 +353,10 @@ test "THE ANSWER IS NOT SETTLED BEFORE THE STEPS" {
 
 test "NO DIAGNOSTIC LANDS AT Begin" {
     harness := TargetTypedDefault()
-    harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("row", 2, 11), "int"))
-    harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("row", 2, 15), 2, 5))
-    harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("row", 2, 17), 2, 5))
-    harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("n", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("row", 2, 11), "int"), harness.Reachability)
+    harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("row", 2, 15), 2, 5), harness.Reachability)
+    harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("row", 2, 17), 2, 5), harness.Reachability)
+    harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("n", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
 
     assert harness.Errors.Count == 0
 }
@@ -356,9 +365,12 @@ test "NO DIAGNOSTIC LANDS AT Begin" {
 
 test "A CAST IS ITS WRITTEN TARGET TYPE AND NOT ITS OPERAND'S" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"))
+    state := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"), harness.Reachability)
 
-    steps := TargetTypedRun(harness, state, TargetTypedOne(BuiltInTypes.String))
+    // The operand is a `double`, not a `string`: this fixture is about WHICH type the walk answers,
+    // and the operand's type was incidental to it. `(int)someString` is a cast with no conversion,
+    // which `NL204` now reports — so the fixture is written as the legal program it always meant.
+    steps := TargetTypedRun(harness, state, TargetTypedOne(BuiltInTypes.Double))
 
     assert steps.Count == 1
     assert steps[0].NodeName == "v"
@@ -368,7 +380,7 @@ test "A CAST IS ITS WRITTEN TARGET TYPE AND NOT ITS OPERAND'S" {
 
 test "A CAST RESOLVES ITS WRITTEN TARGET BEFORE THE OPERAND STEP — WHICH IS THE OPPOSITE OF is" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("value", 2, 16), "int"))
+    state := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("value", 2, 16), "int"), harness.Reachability)
 
     // Nothing has been resolved yet — `Begin` decides nothing.
     assert harness.Model.LookupTypeReferenceAtPosition(2, 6) == null
@@ -387,33 +399,33 @@ test "A CAST RESOLVES ITS WRITTEN TARGET BEFORE THE OPERAND STEP — WHICH IS TH
 test "THE DOOR TABLE — A HARD CAST OVER default OR new() NAMES THE TARGET, EVERYTHING ELSE NAMES NOTHING" {
     harness := TargetTypedDefault()
 
-    hardDefault := harness.Operands.Begin(TargetTypedHardCast(TargetTypedDefaultNode(), "int"))
+    hardDefault := harness.Operands.Begin(TargetTypedHardCast(TargetTypedDefaultNode(), "int"), harness.Reachability)
     hardDefaultSteps := TargetTypedRun(harness, hardDefault, TargetTypedOne(BuiltInTypes.Int))
 
     assert hardDefaultSteps[0].Kind == 2
     assert hardDefaultSteps[0].ExpectedOperand == "int"
 
-    hardNew := harness.Operands.Begin(TargetTypedHardCast(TargetTypedBareNew(), "string"))
+    hardNew := harness.Operands.Begin(TargetTypedHardCast(TargetTypedBareNew(), "string"), harness.Reachability)
     hardNewSteps := TargetTypedRun(harness, hardNew, TargetTypedOne(BuiltInTypes.String))
 
     assert hardNewSteps[0].Kind == 2
     assert hardNewSteps[0].ExpectedOperand == "string"
 
     // A `new T()` is NOT a bare `new()` — it already knows what it creates.
-    hardTypedNew := harness.Operands.Begin(TargetTypedHardCast(TargetTypedTypedNew("string"), "string"))
+    hardTypedNew := harness.Operands.Begin(TargetTypedHardCast(TargetTypedTypedNew("string"), "string"), harness.Reachability)
     hardTypedNewSteps := TargetTypedRun(harness, hardTypedNew, TargetTypedOne(BuiltInTypes.String))
 
     assert hardTypedNewSteps[0].Kind == 1
     assert hardTypedNewSteps[0].ExpectedOperand == "<null>"
 
-    ordinary := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"))
+    ordinary := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"), harness.Reachability)
     ordinarySteps := TargetTypedRun(harness, ordinary, TargetTypedOne(BuiltInTypes.Long))
 
     assert ordinarySteps[0].Kind == 1
     assert ordinarySteps[0].ExpectedOperand == "<null>"
 
     // THE DECISIVE ROW: the same operand and the same written type, through the OTHER cast kind.
-    safeDefault := harness.Operands.Begin(TargetTypedSafeCast(TargetTypedDefaultNode(), "int"))
+    safeDefault := harness.Operands.Begin(TargetTypedSafeCast(TargetTypedDefaultNode(), "int"), harness.Reachability)
     safeDefaultSteps := TargetTypedRun(harness, safeDefault, TargetTypedOne(BuiltInTypes.Int))
 
     assert safeDefaultSteps[0].Kind == 1
@@ -423,7 +435,7 @@ test "THE DOOR TABLE — A HARD CAST OVER default OR new() NAMES THE TARGET, EVE
 
 test "A CAST OVER A ROW VIEW IS REFUSED AND ANSWERS unknown" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("row", 2, 11), "int"))
+    state := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("row", 2, 11), "int"), harness.Reachability)
 
     TargetTypedRun(harness, state, TargetTypedOne(TargetTypedRow("Points")))
 
@@ -439,7 +451,7 @@ test "A CAST STOPS AT THE FIRST REFUSAL AND ASKS BOTH QUESTIONS" {
     operand: Expression = column
 
     // A row-view answer fires the FIRST report and returns — the second is never asked.
-    rowState := harness.Operands.Begin(TargetTypedHardCast(operand, "int"))
+    rowState := harness.Operands.Begin(TargetTypedHardCast(operand, "int"), harness.Reachability)
     TargetTypedRun(harness, rowState, TargetTypedOne(TargetTypedRow("Points")))
 
     assert harness.Errors.Count == 1
@@ -447,7 +459,7 @@ test "A CAST STOPS AT THE FIRST REFUSAL AND ASKS BOTH QUESTIONS" {
 
     // The same operand with an ordinary answer reaches the SECOND report, which a `checked` never
     // asks at all.
-    columnState := harness.Operands.Begin(TargetTypedHardCast(operand, "int"))
+    columnState := harness.Operands.Begin(TargetTypedHardCast(operand, "int"), harness.Reachability)
     TargetTypedRun(harness, columnState, TargetTypedOne(BuiltInTypes.Int))
 
     assert harness.Errors.Count == 2
@@ -459,12 +471,12 @@ test "A CAST STOPS AT THE FIRST REFUSAL AND ASKS BOTH QUESTIONS" {
 
 test "checked AND unchecked ARE THEIR OPERAND, WHATEVER IT IS" {
     harness := TargetTypedDefault()
-    checkedState := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("v", 2, 15), 2, 5))
+    checkedState := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("v", 2, 15), 2, 5), harness.Reachability)
     TargetTypedRun(harness, checkedState, TargetTypedOne(BuiltInTypes.Long))
 
     assert TargetTypedTypeText(harness.Operands.Result(checkedState)) == "long"
 
-    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("v", 2, 17), 2, 5))
+    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("v", 2, 17), 2, 5), harness.Reachability)
     TargetTypedRun(harness, uncheckedState, TargetTypedOne(BuiltInTypes.Byte))
 
     assert TargetTypedTypeText(harness.Operands.Result(uncheckedState)) == "byte"
@@ -476,7 +488,7 @@ test "checked AND unchecked HAND THE SURROUNDING EXPECTED TYPE BACK TO THEIR OPE
 
     // With nothing in force, the operand is named nothing — which is not the same as being named
     // `unknown`, and is what makes a bare `default` inside a `checked` as undecidable as one outside.
-    emptyState := harness.Operands.Begin(new CheckedExpression(TargetTypedDefaultNode(), 2, 5))
+    emptyState := harness.Operands.Begin(new CheckedExpression(TargetTypedDefaultNode(), 2, 5), harness.Reachability)
     emptySteps := TargetTypedRun(harness, emptyState, TargetTypedOne(BuiltInTypes.Int))
 
     assert emptySteps[0].Kind == 2
@@ -485,14 +497,14 @@ test "checked AND unchecked HAND THE SURROUNDING EXPECTED TYPE BACK TO THEIR OPE
 
     // With a type in force, that same type is handed back down.
     saved := harness.Ambient.EnterExpectedType(BuiltInTypes.Byte)
-    heldState := harness.Operands.Begin(new CheckedExpression(TargetTypedDefaultNode(), 3, 5))
+    heldState := harness.Operands.Begin(new CheckedExpression(TargetTypedDefaultNode(), 3, 5), harness.Reachability)
     heldSteps := TargetTypedRun(harness, heldState, TargetTypedOne(BuiltInTypes.Byte))
 
     assert heldSteps[0].Kind == 2
     assert heldSteps[0].ExpectedOperand == "byte"
     assert heldSteps[0].AmbientBefore == "byte"
 
-    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedDefaultNode(), 4, 5))
+    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedDefaultNode(), 4, 5), harness.Reachability)
     uncheckedSteps := TargetTypedRun(harness, uncheckedState, TargetTypedOne(BuiltInTypes.Byte))
 
     assert uncheckedSteps[0].ExpectedOperand == "byte"
@@ -501,14 +513,14 @@ test "checked AND unchecked HAND THE SURROUNDING EXPECTED TYPE BACK TO THEIR OPE
 
 test "checked AND unchecked ASK ONE ESCAPE QUESTION AND THE WORDING IS THEIR OWN" {
     harness := TargetTypedDefault()
-    checkedState := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("row", 2, 15), 2, 5))
+    checkedState := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("row", 2, 15), 2, 5), harness.Reachability)
     TargetTypedRun(harness, checkedState, TargetTypedOne(TargetTypedRow("Points")))
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "SoA row views cannot be used in a checked expression; use the table and row index instead"
     assert TargetTypedTypeText(harness.Operands.Result(checkedState)) == "unknown"
 
-    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("row", 3, 17), 3, 5))
+    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("row", 3, 17), 3, 5), harness.Reachability)
     TargetTypedRun(harness, uncheckedState, TargetTypedOne(TargetTypedRow("Points")))
 
     assert harness.Errors.Count == 2
@@ -522,14 +534,14 @@ test "A DIRECT COLUMN VALUE INSIDE A checked IS NOT THIS ARM'S OBJECTION" {
     harness.Escape.RecordColumnMemberAccess(column)
     operand: Expression = column
 
-    checkedState := harness.Operands.Begin(new CheckedExpression(operand, 2, 5))
+    checkedState := harness.Operands.Begin(new CheckedExpression(operand, 2, 5), harness.Reachability)
     TargetTypedRun(harness, checkedState, TargetTypedOne(BuiltInTypes.Int))
 
     // A CAST over the same operand reports; a `checked` says nothing, because it never asks.
     assert harness.Errors.Count == 0
     assert TargetTypedTypeText(harness.Operands.Result(checkedState)) == "int"
 
-    uncheckedState := harness.Operands.Begin(new UncheckedExpression(operand, 3, 5))
+    uncheckedState := harness.Operands.Begin(new UncheckedExpression(operand, 3, 5), harness.Reachability)
     TargetTypedRun(harness, uncheckedState, TargetTypedOne(BuiltInTypes.Int))
 
     assert harness.Errors.Count == 0
@@ -541,7 +553,7 @@ test "A DIRECT COLUMN VALUE INSIDE A checked IS NOT THIS ARM'S OBJECTION" {
 test "A TERNARY WALKS ITS CONDITION UNDER bool AND BOTH ARMS UNDER ITS OWN EXPECTED TYPE" {
     harness := TargetTypedDefault()
     saved := harness.Ambient.EnterExpectedType(BuiltInTypes.Long)
-    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
 
     steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Long, BuiltInTypes.Long))
 
@@ -556,7 +568,7 @@ test "A TERNARY WALKS ITS CONDITION UNDER bool AND BOTH ARMS UNDER ITS OWN EXPEC
 
 test "A TERNARY WITH NOTHING IN FORCE NAMES NOTHING FOR ITS ARMS AND STILL NAMES bool FOR ITS CONDITION" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
 
     steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
@@ -567,7 +579,7 @@ test "A TERNARY WITH NOTHING IN FORCE NAMES NOTHING FOR ITS ARMS AND STILL NAMES
 
 test "THE CONDITION IS TOLD IT IS NOT A BOOLEAN BEFORE EITHER ARM IS WALKED" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("n", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("n", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
 
     steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Int, BuiltInTypes.Int, BuiltInTypes.Int))
 
@@ -578,7 +590,7 @@ test "THE CONDITION IS TOLD IT IS NOT A BOOLEAN BEFORE EITHER ARM IS WALKED" {
 
 test "AN unknown CONDITION IS NOT ACCUSED TWICE" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("n", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("n", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
 
     TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Unknown, BuiltInTypes.Int, BuiltInTypes.Int))
 
@@ -587,7 +599,7 @@ test "AN unknown CONDITION IS NOT ACCUSED TWICE" {
 
 test "A TERNARY IS THE COMMON TYPE OF ITS TWO ARMS, TAKEN IN SOURCE ORDER AND NOT AS A STEP" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
 
     steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Long))
 
@@ -599,7 +611,7 @@ test "A TERNARY IS THE COMMON TYPE OF ITS TWO ARMS, TAKEN IN SOURCE ORDER AND NO
 
 test "ALL FOUR OF A TERNARY'S ESCAPE REPORTS RUN AND NONE STOPS ANOTHER" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
 
     steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, TargetTypedRow("Points"), TargetTypedRow("Points")))
 
@@ -616,7 +628,7 @@ test "A TERNARY WHOSE ARM IS A DIRECT COLUMN VALUE IS REFUSED BY THE SECOND PAIR
     column := new MemberAccessExpression(TargetTypedIdentifier("points", 2, 16), "x", false, 2, 16)
     harness.Escape.RecordColumnMemberAccess(column)
     columnArm: Expression = column
-    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), columnArm, TargetTypedIdentifier("b", 2, 22)))
+    state := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), columnArm, TargetTypedIdentifier("b", 2, 22)), harness.Reachability)
 
     steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
@@ -628,13 +640,13 @@ test "A TERNARY WHOSE ARM IS A DIRECT COLUMN VALUE IS REFUSED BY THE SECOND PAIR
 
 test "A TERNARY THAT ESCAPES ANSWERS unknown WITHOUT TAKING A COMMON TYPE" {
     harness := TargetTypedDefault()
-    clean := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)))
+    clean := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20)), harness.Reachability)
     cleanSteps := TargetTypedRun(harness, clean, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert cleanSteps.Count == 3
     assert TargetTypedTypeText(harness.Operands.Result(clean)) == "int"
 
-    escaped := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 3, 9), TargetTypedIdentifier("a", 3, 16), TargetTypedIdentifier("b", 3, 20)))
+    escaped := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 3, 9), TargetTypedIdentifier("a", 3, 16), TargetTypedIdentifier("b", 3, 20)), harness.Reachability)
     escapedSteps := TargetTypedRun(harness, escaped, TargetTypedThree(BuiltInTypes.Bool, TargetTypedRow("Points"), BuiltInTypes.Int))
 
     assert escapedSteps.Count == 3
@@ -645,7 +657,7 @@ test "A TERNARY THAT ESCAPES ANSWERS unknown WITHOUT TAKING A COMMON TYPE" {
 test "A TERNARY ARM THAT IS ITSELF A ternary NESTS WITHOUT THE OUTER WALK NOTICING" {
     harness := TargetTypedDefault()
     inner := TargetTypedTernary(TargetTypedIdentifier("second", 2, 24), TargetTypedIdentifier("b", 2, 33), TargetTypedIdentifier("c", 2, 37))
-    outer := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("first", 2, 9), TargetTypedIdentifier("a", 2, 18), inner))
+    outer := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("first", 2, 9), TargetTypedIdentifier("a", 2, 18), inner), harness.Reachability)
 
     // The outer walk hands out its else step; the driver would answer it by walking the inner
     // ternary, which is a walk of its own with its own state.
@@ -654,7 +666,7 @@ test "A TERNARY ARM THAT IS ITSELF A ternary NESTS WITHOUT THE OUTER WALK NOTICI
     assert outerSteps.Count == 3
     assert outerSteps[2].NodeName == "TernaryExpression"
 
-    innerState := harness.Operands.Begin(inner)
+    innerState := harness.Operands.Begin(inner, harness.Reachability)
     innerSteps := TargetTypedRun(harness, innerState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert innerSteps.Count == 3
@@ -666,22 +678,25 @@ test "A TERNARY ARM THAT IS ITSELF A ternary NESTS WITHOUT THE OUTER WALK NOTICI
 test "THIS FAMILY RAISES NO DIAGNOSTIC OF ITS OWN — EVERY REPORT BELONGS TO A COLLABORATOR" {
     harness := TargetTypedDefault()
 
-    castState := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"))
-    TargetTypedRun(harness, castState, TargetTypedOne(BuiltInTypes.String))
-    checkedState := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("v", 3, 15), 3, 5))
+    castState := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "int"), harness.Reachability)
+    TargetTypedRun(harness, castState, TargetTypedOne(BuiltInTypes.Double))
+    checkedState := harness.Operands.Begin(new CheckedExpression(TargetTypedIdentifier("v", 3, 15), 3, 5), harness.Reachability)
     TargetTypedRun(harness, checkedState, TargetTypedOne(BuiltInTypes.String))
-    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("v", 4, 17), 4, 5))
+    uncheckedState := harness.Operands.Begin(new UncheckedExpression(TargetTypedIdentifier("v", 4, 17), 4, 5), harness.Reachability)
     TargetTypedRun(harness, uncheckedState, TargetTypedOne(BuiltInTypes.String))
-    ternaryState := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 5, 9), TargetTypedIdentifier("a", 5, 16), TargetTypedIdentifier("b", 5, 20)))
+    ternaryState := harness.Operands.Begin(TargetTypedTernary(TargetTypedIdentifier("flag", 5, 9), TargetTypedIdentifier("a", 5, 16), TargetTypedIdentifier("b", 5, 20)), harness.Reachability)
     TargetTypedRun(harness, ternaryState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Int))
 
-    // Four clean walks over four forms: nothing this family owns reports on its own account.
+    // Four clean walks over four forms: nothing this family owns reports on its own account. The
+    // conversion check the cast arm now performs is no exception — it is `AnalyzerPatternReachability`
+    // that owns the sentence, exactly as the SoA escapes and the ternary condition are owned by their
+    // collaborators. The cast here is `(int)someDouble`, which converts.
     assert harness.Errors.Count == 0
 }
 
 test "A CAST'S WRITTEN TARGET IS RESOLVED LENIENTLY — AN UNKNOWN TYPE IS NOT AN ERROR HERE" {
     harness := TargetTypedDefault()
-    state := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "NoSuchTypeAnywhere"))
+    state := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("v", 2, 11), "NoSuchTypeAnywhere"), harness.Reachability)
 
     TargetTypedRun(harness, state, TargetTypedOne(BuiltInTypes.Int))
 

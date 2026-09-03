@@ -427,6 +427,7 @@ class AnalyzerTypeDeclarations {
         DeclareTypeParameters(state)
         ValidateNoStaticMembersOnGenericType(state)
         ResolveDeclaredBases(state)
+        ValidateNoInheritanceCycle(state)
         ValidateSingleBaseClass(state)
         ValidateBaseClassEligibility(state)
         ValidateOverrideTargets(state)
@@ -1205,6 +1206,93 @@ class AnalyzerTypeDeclarations {
     func ReportOverridePropertyTargetFault(property: PropertyDeclaration, reason: string, suggestion: string) {
         span := spansValue.GetPropertyNameDiagnosticSpan(property)
         diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + property.Name + "' is declared 'override', but it " + reason, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // `class A : B` WITH `class B : A` BENEATH IT REACHED THE EMITTER AND DIED THERE as an `NL103`
+    // columnar decline carrying no code and no line. A base chain that closes on itself is not a type
+    // at all — there is no layout to compute, no constructor chain to run, and every walk in the
+    // analyzer that follows a base chain has to carry a depth guard because of it. The guards were
+    // there; the diagnostic was not.
+    //
+    // ONLY A CYCLE THROUGH THIS DECLARATION IS REPORTED HERE. A cycle further up the chain belongs to
+    // the declaration that closes it, which reports it when its own header is walked — so a class
+    // that merely inherits from a broken pair says nothing, and one diagnostic per participating
+    // declaration is what `csc` produces for the same program (CS0146, once per class, anchored on
+    // the class name).
+    //
+    // THE WALK STEPS THROUGH `TryGetSourceMemberShape`, not through `BaseClass` directly: a base
+    // reference resolves against the file that WROTE it, and a cross-file cycle would otherwise be
+    // resolved against the wrong import context.
+    func ValidateNoInheritanceCycle(state: TypeDeclarationState) {
+        if state.Form != 0 {
+            return
+        }
+
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration == null || classDeclaration.BaseClass == null {
+            return
+        }
+
+        declaredType := state.DeclaredType
+        if declaredType == null {
+            return
+        }
+
+        rootObject := declaredType as object
+        root := new HashSet<object>()
+        root.Add(rootObject)
+        seen := new HashSet<object>()
+        seen.Add(rootObject)
+        chain := classDeclaration.Name
+        current := DeclaredBaseTypeFor(state)
+        depth := 0
+        while current != null && depth < 24 {
+            step := current
+            if BuiltInTypes.IsUnknown(step) {
+                return
+            }
+
+            chain = chain + " -> " + InheritanceChainName(step)
+            stepObject := step as object
+            if root.Contains(stepObject) {
+                ReportInheritanceCycle(classDeclaration, chain)
+                return
+            }
+
+            // A REPEAT THAT IS NOT THIS DECLARATION is somebody else's cycle, and the walk stops
+            // rather than following it forever or reporting a class whose own header is fine.
+            if seen.Contains(stepObject) {
+                return
+            }
+
+            seen.Add(stepObject)
+            shape := new AnalyzerSourceMemberShape()
+            if !declarationContextValue.TryGetSourceMemberShape(step, null, out shape) {
+                return
+            }
+
+            current = shape.BaseType
+            depth = depth + 1
+        }
+    }
+
+    func ReportInheritanceCycle(classDeclaration: ClassDeclaration, chain: string) {
+        message := "'" + classDeclaration.Name + "' inherits from itself: " + chain
+        suggestion := "A base chain must end. Break the cycle — drop one of the `:` clauses, or make one of the links an `interface`, which may be implemented by anything on the chain."
+        span := spansValue.GetTypeNameDiagnosticSpan(classDeclaration.Name, classDeclaration.Line, classDeclaration.Column)
+        diagnosticsValue.Report(ErrorCode.CircularDependency, message, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // The name a chain link is printed under. A source shape answers its own declared name; anything
+    // else answers what it renders as, which for a reflection type is the CLR type name.
+    static func InheritanceChainName(candidate: TypeInfo): string {
+        boxed := candidate as object
+        rendered := boxed.ToString()
+        if rendered != null {
+            return rendered
+        }
+
+        return "?"
     }
 
     // `class Both : Left, Right` OVER TWO CLASSES REACHED THE EMITTER AND DIED THERE as an NL103
