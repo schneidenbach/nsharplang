@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `d9c943a75` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 6 m 58 s, pushed — the linter/analyzer chips A–E with NL324/NL325, task 022 slice 3a-ii, constraint enforcement at `new`, the enum-member admission 023/1a, two format fix-ups; this docs commit rides on top).
+**Tip:** `71bec2dcb` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 7 m 22 s, pushed — task 023 slice 1 complete: the writer's assembly and 37 catalog rows, the spelling-gap decode). Locally on top, awaiting the next gate: the IDE chips O1–O3 + the reload harness (`5aa330077`) and this docs commit.
 
 ### Queue state (`tasks/README.md`)
 
@@ -46,7 +46,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64` (12 slices); **box deliberately unchecked** — the emitter retires via 015-E on Reflection.Emit (the `MetadataBuilder` writer is shelved), the external type universe via task 022; visual IDE verification discharged 2026-09-02 (D1–D3 fixed, D4 open) |
 | 022 | filed `0d472bdd4`; slice 1 measured (`871b6dafc`); slice 2 closed at 2e (2a–2e landed; 2h measured universe A unreachable through `PersistedAssemblyBuilder`; the Cecil rewrite load-bearing until 023/3); slice 3a COMPLETE (`857c71712` the general construction rule, `83961914c` the three reflection-invoked constructors become `new` after the republish — `ConstructorInfo::Invoke` 0 by set diff); 3b in Phase 1; 4 next; 5 waits for 023 — §4.11 |
-| 023 | filed 2026-09-02 (the ECMA-335 writer as the second executor; N#-spelled; slice 1 = the spelling-gap decode) — supersedes the Reflection.Emit route for 015-E |
+| 023 | filed 2026-09-02; slice 1 COMPLETE (`92a319b49` enum members wholesale, `3dc04f9c1` the writer's assembly + 37 catalog rows, `b399c397a` the decode — the hello-world writer runs from the committed tree, `ilverify` green); 1e (the constant-conversion rules with the emit-coercion owner moved to N#) in Phase 1; slice 2 (the writer in BootstrapServices) waits for the republish after 1b — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -246,12 +246,12 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `d9c943a75` (re-measure at your tip; never inherit)
+### Baselines at `71bec2dcb` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 595 (596 − 2 collapsed Range duplicates + 1 new, D2) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,481** measured in the gate at `d9c943a75` (7,441 at `94ff758b5` + 32 linter/analyzer chips + 8 constraints 2b; 023/1a net zero) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,482** measured in the gate at `71bec2dcb` (7,481 at `d9c943a75` + 1 catalog-count pin, 023/1b); 7,501 locally with the IDE chips |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20,784 lines / 19,768 non-blank |
@@ -261,7 +261,7 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
 | packaged SDK 0.1.0 in both feeds | packed from `94ff758b5` on 2026-09-02 21:15 (Sdk nupkg md5 `50a51430…`, BootstrapServices.dll md5 `8fe8c779…` staging == installed; `NO_COLOR` marker present; the estate 7,441/7,441 through the packaged SDK with a fresh emit in-log; the spelled probe `new NullabilityInfoContext()` / `new Random()` / `new InvalidOperationException(string, Exception)` — declining under the previous package — builds and runs). Carries the general construction rule (022/3a-i), the escape family and colour policy, `where` on types, the attribute blobs. Earlier: packed from `385b7e8d1` (md5 `e55c25e1…`) |
-| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **6 m 58 s** at `d9c943a75` (7 m 33 s at `94ff758b5` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
+| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **7 m 22 s** at `71bec2dcb` (6 m 58 s at `d9c943a75` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
 
 ### The verification bar (every B-arc slice; the accumulated standard)
 
@@ -364,7 +364,7 @@ rule + wrapping + widening + reformat. IN PROGRESS: the formatter data-loss fami
 `"""` delimiters dropped by `Lexer.ReadTripleQuoteString`, `let` unspellable, digit separators dropped by `ReadNumber`;
 the parser's `CanStartExpression` missing `TripleQuoteStringLiteral` so `return """abc"""` reported NL305/NL312/NL006;
 `EndLine` under-reported for multi-line raw literals; 15 `AllocExpression` formatter declines; `--check` returning before
-its report on a decline). Wave-3 candidates, remaining: D4 NL002 anchor; `nlc query type` renders methods as a
+its report on a decline). Wave-3 candidates, remaining: **86 of 92 error codes ship a `docsUrl` that 404s** — `DiagnosticCatalog.nl:52` builds `https://docs.n-sharp.dev/errors/<code>` unconditionally and every diagnostic prints "Read more: …", while `website/docs/errors/` holds six pages (NL105, NL319, NL320, NL324, NL325, NL924); every shipped code needs a real page with a repro that produces it, and a contract that a code without a page cannot be added; the analyzer's twelve `InvalidOperationException` internal-invariant throw sites become NL924-class diagnostics; the `compile-time-bench` timing gate must be load-aware (it fails at the tip on any loaded box — median 13–17 s against an 11.8 s limit pinned to an idle-machine baseline — and cost three agents a red sweep each tonight; print the load like the throughput gate does and refuse to judge above a threshold rather than fail); `nlc query symbols` calls a bare `Name: Type` member a property while the AST, the factories and the metadata call it a field; the documented interface-property form `Id: Guid { get; }` does not parse; `IsSupportedRuntimeTypeName`'s 32-row closed list and `ColumnarTypeOfPlanner.IsSupportedType`'s closed list retired for "a catalog-resolvable type is supported" (2f); a fully-qualified static receiver does not bind without the import; `DateTime.TryParse(s, out d)` is static-member-unmodeled; a field write on a generic struct local and a union case's payload read decline at `emit.local.initializer`; D4 NL002 anchor (DONE); `nlc query type` renders methods as a
 `Name(...)` placeholder; hover declines XML doc summaries; call-site overload preference in hover; `"n=" + 1`
 primitive-binary `+`; then those found by the chips: `unsafe`/`alloc`/`allow` block bodies unwalked by the linter (NL001
 fail-open) · `TypePattern` type references untracked (false NL010) · `nlc tidy --fix` corrupts the mapping
