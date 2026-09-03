@@ -126,7 +126,7 @@ class ColumnarExternalStaticMemberPlanner {
         memberName := nodes.Text(source, node)
         selection := ColumnarExternalBindingPlans.GetStaticMemberPlan(ownerName, memberName)
         if !selection.IsSupported {
-            return false
+            return TryAppendExternalEnumMember(nodes, plan, ownerName, rootName, memberName, out resultType)
         }
 
         checkpoint := plan.CreateCheckpoint()
@@ -195,6 +195,74 @@ class ColumnarExternalStaticMemberPlanner {
 
         plan.Rollback(checkpoint)
         return false
+    }
+
+    // 023/1a -- EXTERNAL ENUM MEMBERS ARE ADMITTED WHOLESALE, AND THE HAND LIST IS GONE.
+    // `GetStaticMemberPlan` carried its enums two different ways: `BindingFlags`, `StringComparison`,
+    // `NullabilityState` and `JsonValueKind` admitted the WHOLE type, while `MethodAttributes`,
+    // `SearchOption`, `NumberStyles` and `CallingConventions` admitted ONE member each. The
+    // `BindingFlags` row already wrote down why the whole type is the only coherent answer -- "a mask
+    // is USED by combining its members, so admitting a subset would only move the decline" -- and the
+    // per-member rows were exactly that decline moved: `MethodAttributes.Public` bound and
+    // `MethodAttributes.Static` did not, for no reason a reader of the language could state.
+    //
+    // The rule is now the general one. The owner is resolved through the SAME semantic owner
+    // resolution direct-call selection uses, which carries the same alias, source-shadowing,
+    // import-order and type-parameter fences as the identity-pinned path above; if it resolves to an
+    // enum, every PUBLIC STATIC LITERAL field declared on it is a member plan. Nothing else about the
+    // static surface moves: a non-enum owner still needs its own row, because a non-enum static has no
+    // rule this general -- its value type and its field-vs-property kind are not derivable from the
+    // owner alone.
+    //
+    // The underlying-type fence is not decoration. `TryAppendLiteralField` encodes an enum literal as
+    // `ldc.i4` through `Convert.ToInt32`, which THROWS on a value outside int32 -- a compiler crash,
+    // not a decline. Enums backed by a type that always fits int32 are admitted; `uint`, `long` and
+    // `ulong` backings decline here and reach the ordinary owner, which is a decline the trace shows.
+    static func TryAppendExternalEnumMember(nodes: ColumnarNodeTable, plan: ColumnarCodePlan, ownerName: string, rootName: string, memberName: string, out resultType: Type): bool {
+        resultType = typeof(int)
+        scope := nodes.BindingScope
+        ownerType := typeof(object)
+        if nodes.HasAdditionalRootBinding(rootName) || scope == null {
+            return false
+        }
+
+        if !scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out ownerType) {
+            return false
+        }
+
+        if !ownerType.get_IsEnum() || !IsInt32RepresentableEnum(ownerType) {
+            return false
+        }
+
+        field := ownerType.GetField(memberName)
+        if field == null {
+            return false
+        }
+
+        if !field.get_IsStatic() || !field.get_IsLiteral() || !field.get_IsPublic() {
+            return false
+        }
+
+        fieldType := field.get_FieldType()
+        if field.get_DeclaringType() != ownerType || fieldType != ownerType {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        if !TryAppendLiteralField(plan, field, fieldType, memberName) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        resultType = fieldType
+        return true
+    }
+
+    // Every value of these backings fits int32 without loss, so `Convert.ToInt32` over the constant
+    // cannot throw. `uint` is excluded with the wider ones: its high-bit values do not fit.
+    static func IsInt32RepresentableEnum(enumType: Type): bool {
+        underlying := enumType.GetEnumUnderlyingType()
+        return underlying == typeof(int) || underlying == typeof(short) || underlying == typeof(ushort) || underlying == typeof(byte) || underlying == typeof(sbyte)
     }
 
     // THE LITERAL IS READ FROM METADATA, NOT FROM A LIVE FIELD. The caller has already established

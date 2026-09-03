@@ -280,40 +280,29 @@ test "external static selections accept short and fully qualified owner names" {
     assert shortProperty.DeclaringTypeName == qualifiedProperty.DeclaringTypeName
     assert shortProperty.ValueTypeName == qualifiedProperty.ValueTypeName
 
-    methodAttributes := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "MethodAttributes",
-        "Public"
-    )
-    qualifiedMethodAttributes := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.Reflection.MethodAttributes",
-        "Public"
-    )
-    assert methodAttributes.IsSupported
-    assert qualifiedMethodAttributes.IsSupported
-    assert methodAttributes.DeclaringTypeName == qualifiedMethodAttributes.DeclaringTypeName
-    assert methodAttributes.ValueTypeName == qualifiedMethodAttributes.ValueTypeName
+    // 023/1a — THE ENUM ROWS ARE NOT HERE ANY MORE, AND THIS TABLE MUST NOT GROW THEM BACK.
+    // `MethodAttributes.Public` and `CallingConventions.Standard` were single-member rows; the whole
+    // family now binds through `ColumnarExternalStaticMemberPlanner.TryAppendExternalEnumMember`, whose
+    // end-to-end contracts live in `tests/native/columnar-emit-facts`. What this table still owns is the
+    // NON-enum surface, which has no rule that general: a non-enum static's value type and its
+    // field-vs-property kind are not derivable from the owner alone. So the assertion here is the
+    // negative one — the enum rows are gone, in BOTH spellings, for the member that used to be admitted
+    // and for the siblings that never were.
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("MethodAttributes", "Public").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("System.Reflection.MethodAttributes", "Public").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("MethodAttributes", "Static").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("CallingConventions", "Standard").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("System.Reflection.CallingConventions", "Standard").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("BindingFlags", "Public").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("StringComparison", "Ordinal").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("JsonValueKind", "Object").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("NullabilityState", "Nullable").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("SearchOption", "TopDirectoryOnly").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("NumberStyles", "HexNumber").IsSupported
 
-    callingConvention := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "CallingConventions",
-        "Standard"
-    )
-    qualifiedCallingConvention := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.Reflection.CallingConventions",
-        "Standard"
-    )
-    assert callingConvention.IsSupported
-    assert qualifiedCallingConvention.IsSupported
-    assert callingConvention.DeclaringTypeName == qualifiedCallingConvention.DeclaringTypeName
-    assert callingConvention.ValueTypeName == qualifiedCallingConvention.ValueTypeName
-
-    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "MethodAttributes",
-        "Private"
-    ).IsSupported
-    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "CallingConventions",
-        "VarArgs"
-    ).IsSupported
+    // The nested enum stays a ROW, because the general owner resolution does not reach the
+    // `System.Environment+SpecialFolder` spelling. Recorded as a limit, not widened.
+    assert ColumnarExternalBindingPlans.GetStaticMemberPlan("Environment.SpecialFolder", "UserProfile").IsSupported
 }
 
 test "range code plans own exact runtime type identities" {
@@ -1477,36 +1466,9 @@ test "the attribute-data sequence identities are computed, not spelled" {
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(otherList)
 }
 
-test "the nullability read state is an ordinary enum static member plan" {
-    nullable := ColumnarExternalBindingPlans.GetStaticMemberPlan("NullabilityState", "Nullable")
-    assert nullable.IsSupported
-    assert nullable.Kind == ColumnarExternalStaticMemberKind.Field
-    assert nullable.DeclaringTypeName == "System.Reflection.NullabilityState, System.Private.CoreLib"
-    assert nullable.MemberName == "Nullable"
-    assert nullable.ValueTypeName == "System.Reflection.NullabilityState, System.Private.CoreLib"
-
-    qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.Reflection.NullabilityState",
-        "Unknown"
-    )
-    assert qualified.IsSupported
-    assert qualified.DeclaringTypeName == nullable.DeclaringTypeName
-    assert qualified.ValueTypeName == nullable.ValueTypeName
-    assert qualified.MemberName == "Unknown"
-
-    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "NullabilityState",
-        "NotNull"
-    ).IsSupported
-    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "nullabilityState",
-        "Nullable"
-    ).IsSupported
-    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "NullabilityStates",
-        "Nullable"
-    ).IsSupported
-}
+// 023/1a — the nullability read state's own static-member test is gone with the row it pinned.
+// `NullabilityState` is an ordinary enum and now binds through the general rule; the wrong-case and
+// misspelled-owner negatives it carried moved to the planner, which is where owner resolution lives.
 
 test "the reflected nullability capability adds no call plan of its own" {
     // Every member the port needs is an ordinary public method on an admitted receiver, so it
@@ -1546,67 +1508,13 @@ test "the reflected nullability capability adds no call plan of its own" {
     ).IsSupported
 }
 
-// The filtered method enumeration (task 017 slice 20 phase A). Re-finding a method on a generic
-// type DEFINITION by metadata token has to ask for the DECLARED methods — public and non-public,
-// static and instance — which is exactly what a binding mask says and what the unfiltered arm
-// cannot express. Two rows carry it, and BOTH are pure data: the call row here, and the mask enum's
-// own static-member row, without which no expression naming a `BindingFlags` member types at all.
-test "the binding mask's members are on the static member surface" {
-    // A mask is used by combining its members, so the whole enum is admitted, not a chosen few.
-    publicFlag := ColumnarExternalBindingPlans.GetStaticMemberPlan("BindingFlags", "Public")
-    assert publicFlag.IsSupported
-    assert publicFlag.Kind == ColumnarExternalStaticMemberKind.Field
-    assert publicFlag.DeclaringTypeName == "System.Reflection.BindingFlags, System.Private.CoreLib"
-    assert publicFlag.MemberName == "Public"
-    assert publicFlag.ValueTypeName == "System.Reflection.BindingFlags, System.Private.CoreLib"
+// 023/1a — THE FILTERED METHOD ENUMERATION NOW RESTS ON ONE ROW, NOT TWO.
+// Task 017 slice 20 phase A needed two rows for `Type.GetMethods(BindingFlags)`: the call row below,
+// and a static-member row for the mask enum "without which no expression naming a `BindingFlags`
+// member types at all". That second row is gone — `BindingFlags` is an enum and binds through
+// `ColumnarExternalStaticMemberPlanner.TryAppendExternalEnumMember` like every other one. The call row
+// is still pure data and still required; only the mask's own admission stopped being special.
 
-    qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.Reflection.BindingFlags",
-        "NonPublic"
-    )
-    assert qualified.IsSupported
-    assert qualified.DeclaringTypeName == publicFlag.DeclaringTypeName
-    assert qualified.ValueTypeName == publicFlag.ValueTypeName
-    assert qualified.MemberName == "NonPublic"
-
-    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlags",
-        "Instance"
-    ).IsSupported
-    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlags",
-        "Static"
-    ).IsSupported
-    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlags",
-        "DeclaredOnly"
-    ).IsSupported
-    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlags",
-        "FlattenHierarchy"
-    ).IsSupported
-
-    // The owner is spelled exactly, in both the short and the qualified form.
-    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "bindingFlags",
-        "Public"
-    ).IsSupported
-    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "BindingFlag",
-        "Public"
-    ).IsSupported
-    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "System.BindingFlags",
-        "Public"
-    ).IsSupported
-
-    // The mask is a DIFFERENT enum from its reflection neighbours: `Public` names a member of both
-    // it and MethodAttributes, and the two must never collapse onto one declaring identity.
-    assert ColumnarExternalBindingPlans.GetStaticMemberPlan(
-        "MethodAttributes",
-        "Public"
-    ).DeclaringTypeName != publicFlag.DeclaringTypeName
-}
 
 test "the filtered method enumeration is on the Type call surface" {
     bindingMask := new string[](1)
