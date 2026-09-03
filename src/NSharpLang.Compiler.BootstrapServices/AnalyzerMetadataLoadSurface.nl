@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Runtime.InteropServices
 
 
 // THE MECHANISM THAT PUTS AN ASSEMBLY IN FRONT OF THE ANALYZER.
@@ -69,42 +70,87 @@ class AnalyzerMetadataLoadSurface {
     failures: Dictionary<string, string>
 
     // The resolver's search directories. Written here, read by the resolver in place.
-    searchDirectories: List<string>
+    SearchDirectories: List<string>
 
     // The versions the project RESTORED, keyed by package name. Same seam as the directories: the
     // orchestration writes them, the resolver reads them when a cache fallback has to choose between
     // several extracted versions.
-    pinnedPackageVersions: Dictionary<string, string>
+    PinnedPackageVersions: Dictionary<string, string>
+
+    // The RESOLVER's own failure table, which is not the analyzer's: these describe a probe, the
+    // analyzer's describe the point the compiler actually needed the assembly, and
+    // `AnalyzerReferenceLoadReport` merges the two with the analyzer's winning.
+    ResolverFailures: Dictionary<string, string>
 
     constructor(loadedAssemblies: List<Assembly>, referenceLoadFailures: Dictionary<string, string>) {
         Context = null
         assemblies = loadedAssemblies
         failures = referenceLoadFailures
-        searchDirectories = new List<string>()
-        pinnedPackageVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        SearchDirectories = new List<string>()
+        PinnedPackageVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        ResolverFailures = new Dictionary<string, string>(StringComparer.Ordinal)
     }
 
     // A NEW RESOLVER IS BEING BUILT, which means a new load context is beginning. The directories
     // the previous context accumulated are not this one's, so the shared list is cleared and handed
     // to the resolver, which holds it and walks it.
     func BeginResolverDirectories(): List<string> {
-        searchDirectories.Clear()
-        return searchDirectories
+        SearchDirectories.Clear()
+        return SearchDirectories
     }
 
     func BeginResolverPinnedVersions(): Dictionary<string, string> {
-        pinnedPackageVersions.Clear()
-        return pinnedPackageVersions
+        PinnedPackageVersions.Clear()
+        return PinnedPackageVersions
+    }
+
+    func BeginResolverFailures(): Dictionary<string, string> {
+        ResolverFailures.Clear()
+        return ResolverFailures
     }
 
     // The last write wins, which is what a project that names one version twice means.
     func PinPackageVersion(packageName: string, version: string) {
-        pinnedPackageVersions[packageName] = version
+        PinnedPackageVersions[packageName] = version
     }
 
-    // The resolver is built first and the context is cored over it. The core assembly identity is a
-    // decision and lives in the policy owner; the construction is mechanism and lives here.
-    func Open(resolver: MetadataAssemblyResolver) {
+    // THE RESOLVER MUST BE ABLE TO ANSWER BEFORE THE CONTEXT EXISTS, which is why this is one door
+    // and not three. `new MetadataLoadContext(...)` binds its core assembly eagerly, so every search
+    // directory the core is findable in has to be in the resolver's list ALREADY -- a caller that
+    // built the context first and added directories afterwards would get a context with no core.
+    // The directories themselves are the shared framework, the host's own directory and the shared
+    // framework's version ladder; WHICH directories is the policy owner's answer, walking them is
+    // mechanism and is here.
+    func Open() {
+        resolver := new AnalyzerMetadataAssemblyResolver(
+            BeginResolverDirectories(),
+            BeginResolverPinnedVersions(),
+            BeginResolverFailures()
+        )
+
+        runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
+        AddSearchDirectory(runtimeDirectory)
+        AddSearchDirectory(AppContext.BaseDirectory)
+
+        sharedRoot := AnalyzerMetadataLoadPolicy.SharedRootFromRuntimeDirectory(runtimeDirectory)
+        if sharedRoot != null {
+            frameworkNames := AnalyzerMetadataLoadPolicy.SharedFrameworkDirectoryNames()
+            nameIndex := 0
+            while nameIndex < frameworkNames.Length {
+                frameworkPath := Path.Combine(sharedRoot, frameworkNames[nameIndex])
+                if Directory.Exists(frameworkPath) {
+                    versionDirectories := AnalyzerMetadataLoadPolicy.OrderVersionDirectoriesDescending(Directory.GetDirectories(frameworkPath))
+                    versionIndex := 0
+                    while versionIndex < versionDirectories.Length {
+                        AddSearchDirectory(versionDirectories[versionIndex])
+                        versionIndex = versionIndex + 1
+                    }
+                }
+
+                nameIndex = nameIndex + 1
+            }
+        }
+
         Context = new MetadataLoadContext(resolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
     }
 
@@ -137,8 +183,8 @@ class AnalyzerMetadataLoadSurface {
     }
 
     func AddSearchDirectory(directory: string) {
-        if AnalyzerMetadataLoadPolicy.ShouldAddSearchDirectory(directory, Directory.Exists(directory), searchDirectories) {
-            searchDirectories.Add(directory)
+        if AnalyzerMetadataLoadPolicy.ShouldAddSearchDirectory(directory, Directory.Exists(directory), SearchDirectories) {
+            SearchDirectories.Add(directory)
         }
     }
 
