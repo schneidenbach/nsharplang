@@ -6946,7 +6946,13 @@ internal sealed class ColumnarIlEmitter
                     var elementType = arrayType.GetElementType()!;
                     if (!EmitExpression(Child(target, 1), out var indexType) || indexType != typeof(int))
                         return false;
-                    if (!EmitExpression(Child(expr, 1), out var elementValueType) || elementValueType != elementType)
+                    // 023/1e — THROUGH THE SEAM, LIKE THE SPAN STORE TWENTY LINES ABOVE.
+                    // This was the ONE value-flow position of nineteen that called `EmitExpression` and
+                    // then demanded exact type equality, so `b[0] = 65` on a `byte[]` declined while
+                    // `v: byte = 65` and `Take(65)` into a `byte` parameter both worked. The rule was
+                    // never missing — this site just did not ask for it.
+                    if (!TryEmitAssignableValue(Child(expr, 1), elementType, out var elementValueType)
+                        || !TypesEquivalent(elementValueType, elementType))
                         return false;
                     if (!EmitArrayElementStore(elementType))
                         return false;
@@ -15309,11 +15315,18 @@ internal sealed class ColumnarIlEmitter
     // Small ints + uint load as i4 (uint over int.MaxValue wraps the bit pattern, the standard emit);
     // long/ulong load as i8. Suffixed literals, out-of-range values (the pipeline's NL202), and
     // non-literal nodes return false — the caller falls through to its normal exact-type path.
+    // 023/1e — THE DECISION MOVED TO N#; THIS KEEPS ONLY THE UNWRAPPING AND THE EMIT.
+    // What lived here was ECMA-334 §10.2.11 spelled as a C# table, MIRRORED in N# by
+    // `ColumnarMethodBodyPlanner` (which reasons about this function's behaviour to decide whether the
+    // N# door may claim a body) and by `ColumnarScalarLiteralPlanner`. One rule, three owners, two
+    // languages. `ConstantConversionFacts` is now the single answer, including the three caps that are
+    // deliberately TIGHTER than the spec (uint and positive long/ulong at int.MaxValue, negatives at the
+    // target's MaxValue magnitude) — carried verbatim so the move does not move the answer.
+    // A NEGATIVE literal arrives as unary minus (kind 11, "-") wrapping the bare literal; the value
+    // emits pre-negated, with no Neg opcode.
     private bool TryEmitIntLiteralAsType(int node, Type target, out Type type)
     {
         type = null!;
-        // A NEGATIVE literal arrives as unary minus (kind 11, "-") wrapping the bare literal —
-        // `s: short = -300`. Signed targets only; the value emits pre-negated (no Neg opcode).
         var negative = false;
         if (_nodes.Kind(node) == 11 && _nodes.ChildCount(node) == 1 && Text(node) == "-")
         {
@@ -15323,60 +15336,24 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(node) != 0 || _nodes.ValueStart(node) < 0)
             return false;
         var text = Text(node);
-        if (text.Length == 0 || text[^1] is 'u' or 'U' or 'l' or 'L' or 'm' or 'M')
-            return false; // a suffixed literal has its own fixed type.
-        if (!ulong.TryParse(text, out var value))
+        // §10.2.4 — the literal ZERO adopts any enum type. The analyzer admits it at the same positions;
+        // an enum's storage is its underlying integer, so zero is an `ldc.i4.0`.
+        if (target.IsEnum)
+        {
+            if (!ConstantConversionFacts.IsLiteralZero(text, negative))
+                return false;
+            _il.Emit(OpCodes.Ldc_I4_0);
+            type = target;
+            return true;
+        }
+        if (!ConstantConversionFacts.TryGetInRangeIntegralConstant(target, text, negative, out var value))
             return false;
-        if (negative)
-        {
-            if (target == typeof(byte) || target == typeof(ushort) || target == typeof(uint) || target == typeof(ulong))
-                return false; // no negative values on unsigned targets (the pipeline's NL202).
-            // Negative magnitudes cap at the MAXVALUE magnitude, not MinValue: the PIPELINE rejects
-            // `v: sbyte = -128` (and the other exact MinValues) with NL202 — its negation range check is
-            // off by one (known defect bundle #14) — and overflows on any unsuffixed literal beyond int
-            // range regardless of target (`l: long = -5000000000` → NL103 overflow — defect #13).
-            var min = target == typeof(sbyte) ? (ulong)sbyte.MaxValue
-                : target == typeof(short) ? (ulong)short.MaxValue
-                : (ulong)int.MaxValue;
-            if (value > min)
-                return false;
-            if (target == typeof(long))
-                _il.Emit(OpCodes.Ldc_I8, -(long)value);
-            else
-                _il.Emit(OpCodes.Ldc_I4, (int)(-(long)value));
-            type = target;
-            return true;
-        }
-        if (target == typeof(byte) || target == typeof(sbyte) || target == typeof(short)
-            || target == typeof(ushort) || target == typeof(uint))
-        {
-            // uint caps at int.MaxValue, NOT uint.MaxValue: the PIPELINE mis-evaluates uint locals
-            // initialized with literals above int.MaxValue (`u: uint = 4000000000; u / 2` returned the
-            // signed-division bit pattern 4147483648, and `print u / 2` dropped the line entirely —
-            // known defect bundle #12, probe-confirmed); columnar declines those so it never diverges.
-            var max = target == typeof(byte) ? (ulong)byte.MaxValue
-                : target == typeof(sbyte) ? (ulong)sbyte.MaxValue
-                : target == typeof(short) ? (ulong)short.MaxValue
-                : target == typeof(ushort) ? (ulong)ushort.MaxValue
-                : (ulong)int.MaxValue;
-            if (value > max)
-                return false;
+        if (ConstantConversionFacts.IsInt64ConstantTarget(target))
+            _il.Emit(OpCodes.Ldc_I8, value);
+        else
             _il.Emit(OpCodes.Ldc_I4, unchecked((int)value));
-            type = target;
-            return true;
-        }
-        if (target == typeof(long) || target == typeof(ulong))
-        {
-            // Positive magnitudes ALSO cap at int.MaxValue: the pipeline overflows on unsuffixed
-            // literals beyond int range whatever the target (known defect bundle #13) — suffixed
-            // literals (5000000000L) carry their own type and never reach this rule.
-            if (value > int.MaxValue)
-                return false;
-            _il.Emit(OpCodes.Ldc_I8, (long)value);
-            type = target;
-            return true;
-        }
-        return false;
+        type = target;
+        return true;
     }
 
     // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM or field of int/long/ulong: load, step by one, store —

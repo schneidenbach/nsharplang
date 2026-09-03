@@ -112,7 +112,49 @@ class AnalyzerAssignability {
         conversionGuard = guard
     }
 
+    // 023/1e — THE TWO-ARGUMENT FORM IS THE CONSTANT-FREE ONE, AND IT STAYS THE DEFAULT.
+    // `IsAssignable` has 45 call sites across 26 owners, and only about fifteen of them have the
+    // initialiser expression in hand when they ask. Threading a constant through all 45 would move 30
+    // call sites that have nothing to say; instead the constant-aware overload takes the fact and this
+    // form delegates with `None()`, so a position that cannot supply one keeps today's answer BY
+    // CONSTRUCTION rather than by care.
     func IsAssignable(target: TypeInfo, source: TypeInfo): bool {
+        return IsAssignableWithConstant(target, source, ConstantOperandFacts.None())
+    }
+
+    // The two implicit CONSTANT conversions (ECMA-334 §10.2.4 and §10.2.11) are decided first, because
+    // they are the only ones whose answer depends on the VALUE rather than on the two types. Everything
+    // below this point is the ordinary type-to-type question and is unchanged.
+    func IsAssignableWithConstant(target: TypeInfo, source: TypeInfo, constant: ConstantOperandFacts): bool {
+        if constant.HasIntegerLiteral && IsConstantConvertible(target, source, constant) {
+            return true
+        }
+
+        return IsAssignableCore(target, source)
+    }
+
+    // §10.2.4 — the literal ZERO converts to any enum type. An external enum is an `ExternalTypeInfo`
+    // carrying only a NAME, so the enum question can only be asked of the resolved CLR type, which is
+    // what `clrTypeConversion` is already here to answer.
+    // §10.2.11 — an in-range integer constant converts to the narrower integral target. The source must
+    // be the unsuffixed `int` a bare literal types as; a suffixed literal has its own fixed type and
+    // `ConstantConversionFacts` refuses it.
+    func IsConstantConvertible(target: TypeInfo, source: TypeInfo, constant: ConstantOperandFacts): bool {
+        resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
+        clrTarget := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget)
+        if clrTarget == null {
+            return false
+        }
+
+        if clrTarget.get_IsEnum() {
+            return ConstantConversionFacts.IsLiteralZero(constant.LiteralText, constant.IsNegative)
+        }
+
+        constantValue := 0L
+        return ConstantConversionFacts.TryGetInRangeIntegralConstant(clrTarget, constant.LiteralText, constant.IsNegative, out constantValue)
+    }
+
+    func IsAssignableCore(target: TypeInfo, source: TypeInfo): bool {
         resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
         resolvedSource := declarationContext.ResolveDeclaredAlias(source)
 
