@@ -879,31 +879,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private static bool TryFindObjectOverrideTarget(string name, Type returnType, Type[] paramTypes, out MethodInfo target)
-    {
-        target = null!;
-
-        if (name == "ToString" && returnType == typeof(string) && paramTypes.Length == 0)
-        {
-            target = typeof(object).GetMethod(nameof(ToString), Type.EmptyTypes)!;
-            return true;
-        }
-
-        if (name == "Equals" && returnType == typeof(bool) && paramTypes.Length == 1 && paramTypes[0] == typeof(object))
-        {
-            target = typeof(object).GetMethod(nameof(Equals), new[] { typeof(object) })!;
-            return true;
-        }
-
-        if (name == "GetHashCode" && returnType == typeof(int) && paramTypes.Length == 0)
-        {
-            target = typeof(object).GetMethod(nameof(GetHashCode), Type.EmptyTypes)!;
-            return true;
-        }
-
-        return false;
-    }
-
     private static bool TryFindPropertyOnChain(ColumnarStructDef def, string name, out ColumnarPropertyDef property)
         => TryFindPropertyOnChain(def, name, out _, out property);
 
@@ -4575,8 +4550,9 @@ internal sealed class ColumnarIlEmitter
                 }
                 if ((m.ModifierFlags & NSharpModifierOverride) != 0)
                 {
-                    if (!TryFindObjectOverrideTarget(m.Name, mSignatureReturn, mParamTypes, out overriddenObjectMethod))
-                        return false;
+                    if (!ColumnarOverrideTargetResolver.TryFindOverrideTarget(
+                            def.ExactBaseType, m.Name, mSignatureReturn, mParamTypes, out overriddenObjectMethod))
+                        return DeclineStatic("emit.declaration.override-target", "no overridable base member matches '" + m.Name + "' for '" + structs[s].Name + "'", structs[s].Name);
                     methodAttributes |= MethodAttributes.Virtual;
                     methodAttributes &= ~MethodAttributes.NewSlot;
                 }
