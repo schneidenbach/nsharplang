@@ -301,7 +301,20 @@ class CompletionDeclarationFacts {
     // The completion items a source-declared type offers, in declaration order. A member with no
     // completion shape is dropped, so this list can be shorter than the member list and can be
     // empty — and an empty list still means "declared", which is the whole point of the section.
+    //
+    // The two-argument form asks no visibility question and offers every declared member. It is
+    // the answer for a caller that cannot say which package is asking — a bare `TypeInfo` in a
+    // test, an editor buffer with no project behind it — and it is deliberately kept, because a
+    // filter with nothing to filter against would hide members rather than protect anyone.
     static func GetTypeMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>): List<CompletionItem> {
+        return GetTypeMemberItems(typeInfo, semanticModels, null, "")
+    }
+
+    // THE SAME LIST, MINUS WHAT THE ANALYZER WOULD REFUSE. `declaringNamespace` is where the
+    // receiver's type was written and `requestingNamespace` is where the caret is; a member that
+    // is not exported and does not share the caret's package is dropped, because offering it means
+    // offering an NL308. `CompletionVisibilityFacts` owns the predicate and its fail-open rule.
+    static func GetTypeMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, declaringNamespace: string?, requestingNamespace: string): List<CompletionItem> {
         items := new List<CompletionItem>()
         members := ResolveDeclaredMembers(typeInfo, semanticModels)
         if members == null {
@@ -310,9 +323,12 @@ class CompletionDeclarationFacts {
 
         index := 0
         while index < members.Length {
-            item := DeclaredMemberToCompletionItem(members[index], true)
-            if item != null {
-                items.Add(item)
+            member := members[index]
+            if CompletionVisibilityFacts.IsOfferableAcrossPackages(member.IsExported, declaringNamespace, requestingNamespace) {
+                item := DeclaredMemberToCompletionItem(member, true)
+                if item != null {
+                    items.Add(item)
+                }
             }
 
             index = index + 1

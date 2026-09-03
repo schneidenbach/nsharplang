@@ -35,7 +35,15 @@ func WriteQueryCompletionsFixture(): string {
     )
     File.WriteAllText(
         Path.Combine(fixtureRoot, "Models.nl"),
-        "namespace Regression.Models\n\npublic class Sensor {\n    Name: string = \"\"\n    Reading: double = 0\n}\n"
+        "namespace Regression.Models\n\npublic class Sensor {\n    Name: string = \"\"\n    Reading: double = 0\n    calibration: double = 0\n}\n"
+    )
+
+    // The SAME receiver, read from a file that shares the declaring package. It is the control for
+    // the visibility filter: `calibration` is unexported, and inside `Regression.Models` reading it
+    // compiles, so the completion must keep offering it here while dropping it in `Regression.App`.
+    File.WriteAllText(
+        Path.Combine(fixtureRoot, "Neighbour.nl"),
+        "namespace Regression.Models\n\nfunc Peek(sensor: Sensor): string {\n    return sensor.Name\n}\n"
     )
     File.WriteAllText(
         Path.Combine(fixtureRoot, "Program.nl"),
@@ -211,6 +219,18 @@ test "loading a multi-file project with imports completes and answers cross-file
     propertyNames := QueryCompletionGroupNames(completionAnswer, "properties")
     assert QueryCompletionNamesContain(propertyNames, "Name")
     assert QueryCompletionNamesContain(propertyNames, "Reading")
+
+    // THE VISIBILITY LEAK, END TO END. `calibration` is camelCase — unexported under N#'s Go-shaped
+    // rule — and `Program.nl` is in `Regression.App`, another package. Offering it here means
+    // offering an NL308: the analyzer refuses the read the moment the editor writes it.
+    assert !QueryCompletionNamesContain(propertyNames, "calibration")
+
+    // THE CONTROL, WITHOUT WHICH THE FILTER WOULD BE A REGRESSION. The same field, asked from a file
+    // that shares the declaring package, is still offered — because `nlc check` accepts that read.
+    neighbourAnswer := AskQueryCompletions(snapshot, "Neighbour.nl", 4, 19)
+    neighbourNames := QueryCompletionGroupNames(neighbourAnswer, "properties")
+    assert QueryCompletionNamesContain(neighbourNames, "Name")
+    assert QueryCompletionNamesContain(neighbourNames, "calibration")
 
     Directory.Delete(fixtureRoot, true)
 }

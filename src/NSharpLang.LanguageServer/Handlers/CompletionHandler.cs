@@ -203,13 +203,11 @@ public class CompletionHandler : CompletionHandlerBase
             return null;
         }
 
-        var semanticModels = _documentManager.GetAllDocuments()
-            .Select(state => state.SemanticModel)
-            .OfType<SemanticModel>()
-            .ToList();
-
+        var documents = _documentManager.GetAllDocuments().ToList();
         return CodeIntel.CompletionReceiverFacts.GetMemberAccessCompletions(
-            doc.CompilationUnit, doc.SemanticModel, null, line + 1, character + 1, semanticModels);
+            doc.CompilationUnit, doc.SemanticModel, null, line + 1, character + 1,
+            documents.Select(state => state.SemanticModel).OfType<SemanticModel>().ToList(),
+            documents.Select(state => state.CompilationUnit).OfType<CompilationUnit>().ToList());
     }
 
     /// <summary>

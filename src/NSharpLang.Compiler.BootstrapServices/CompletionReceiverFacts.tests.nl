@@ -107,6 +107,12 @@ func CrfNoModels(): List<SemanticModel> {
     return new List<SemanticModel>()
 }
 
+// No project files, so no package is knowable and the visibility filter fails open — which is what
+// these blocks want: they are about WHICH DOOR ANSWERS, not about who is allowed to see the answer.
+func CrfNoUnits(): List<CompilationUnit> {
+    return new List<CompilationUnit>()
+}
+
 func CrfItemNames(result: CompletionResult?, group: string): string {
     if result == null {
         return "<null>"
@@ -305,7 +311,7 @@ test "a source declaration answers before metadata, and an empty declaration doe
     declared: TypeInfo = CrfTypes.Class("Person", members)
 
     completions := new Dictionary<string, List<CompletionItem>>()
-    answered := CompletionReceiverFacts.ResolveMemberCompletions(declared, "person", CrfNoModels(), completions, CompletionMemberFilter.InstanceOnly)
+    answered := CompletionReceiverFacts.ResolveMemberCompletions(declared, "person", CrfNoModels(), completions, CompletionMemberFilter.InstanceOnly, CrfNoUnits(), "")
     assert answered != null
     assert answered.Context == CompletionContext.MemberAccess
     assert answered.Receiver == "person"
@@ -315,11 +321,11 @@ test "a source declaration answers before metadata, and an empty declaration doe
     // A DECLARED TYPE WITH NO MEMBERS IS NOT AN ANSWER. It has no metadata twin either, so both
     // doors are silent and the caller is told to try the next way of typing the receiver.
     emptyDeclared: TypeInfo = CrfTypes.Class("Hollow", CrfNoMembers())
-    assert CompletionReceiverFacts.ResolveMemberCompletions(emptyDeclared, "hollow", CrfNoModels(), new Dictionary<string, List<CompletionItem>>(), CompletionMemberFilter.InstanceOnly) == null
+    assert CompletionReceiverFacts.ResolveMemberCompletions(emptyDeclared, "hollow", CrfNoModels(), new Dictionary<string, List<CompletionItem>>(), CompletionMemberFilter.InstanceOnly, CrfNoUnits(), "") == null
 
     // A type no declaration explains falls through to metadata, and the answered type name is the
     // CLR FULL name rather than the display text the declaration door would have used.
-    reflected := CompletionReceiverFacts.ResolveMemberCompletions(BuiltInTypes.String, "\"abc\"", CrfNoModels(), new Dictionary<string, List<CompletionItem>>(), CompletionMemberFilter.InstanceOnly)
+    reflected := CompletionReceiverFacts.ResolveMemberCompletions(BuiltInTypes.String, "\"abc\"", CrfNoModels(), new Dictionary<string, List<CompletionItem>>(), CompletionMemberFilter.InstanceOnly, CrfNoUnits(), "")
     assert reflected != null
     assert reflected.ReceiverType == "System.String"
     assert reflected.Receiver == "\"abc\""

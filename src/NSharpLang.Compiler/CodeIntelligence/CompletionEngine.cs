@@ -57,12 +57,8 @@ public class CompletionEngine
         if (completionReceiver.IsMemberAccess)
         {
             return CompletionReceiverFacts.GetMemberAccessCompletions(
-                cu,
-                semanticModel,
-                completionReceiver.Receiver,
-                line,
-                col,
-                snapshot.SemanticModels.Values);
+                cu, semanticModel, completionReceiver.Receiver, line, col,
+                snapshot.SemanticModels.Values, snapshot.CompilationUnits.Values);
         }
 
         return CompletionEngineKernels.GetIdentifierCompletions(cu, semanticModel, includeKeywords, line, col);

@@ -245,7 +245,17 @@ class CompletionReceiverFacts {
     //
     // `semanticModels` is the project's model collection, needed only to resolve a source-declared
     // type by name; nothing else about a project snapshot is read here.
+    //
+    // `compilationUnits` is the project's PARSED FILES, and it crosses the boundary for one reason:
+    // a member's visibility is a question about PACKAGES, and only a file knows which namespace it
+    // wrote its declarations into. A caller with no project — a loose editor buffer, a test holding
+    // one `TypeInfo` — passes none, and the six-argument form below says exactly that.
     static func GetMemberAccessCompletions(unit: CompilationUnit, semanticModel: SemanticModel?, precomputedReceiver: string?, line: int, column: int, semanticModels: IEnumerable<SemanticModel>): CompletionResult {
+        return GetMemberAccessCompletions(unit, semanticModel, precomputedReceiver, line, column, semanticModels, new List<CompilationUnit>())
+    }
+
+    static func GetMemberAccessCompletions(unit: CompilationUnit, semanticModel: SemanticModel?, precomputedReceiver: string?, line: int, column: int, semanticModels: IEnumerable<SemanticModel>, compilationUnits: IEnumerable<CompilationUnit>): CompletionResult {
+        requestingNamespace := CompletionVisibilityFacts.UnitNamespaceName(unit)
         memberAccess := FindMemberAccessAtPosition(unit, line, column)
         receiver := precomputedReceiver
         if receiver == null && memberAccess != null {
@@ -261,7 +271,7 @@ class CompletionReceiverFacts {
                 displayReceiver := receiver ?? FormatReceiverExpression(receiverExpression) ?? "<expression>"
 
                 filter := CompletionReflectionFacts.GetMemberFilter(displayReceiver, receiverType)
-                expressionResult := ResolveMemberCompletions(receiverType, displayReceiver, semanticModels, completions, filter)
+                expressionResult := ResolveMemberCompletions(receiverType, displayReceiver, semanticModels, completions, filter, compilationUnits, requestingNamespace)
                 if expressionResult != null {
                     return expressionResult
                 }
@@ -280,7 +290,7 @@ class CompletionReceiverFacts {
 
             if typeInfo != null {
                 filter := CompletionReflectionFacts.GetMemberFilter(receiver, typeInfo)
-                identifierResult := ResolveMemberCompletions(typeInfo, receiver, semanticModels, completions, filter)
+                identifierResult := ResolveMemberCompletions(typeInfo, receiver, semanticModels, completions, filter, compilationUnits, requestingNamespace)
                 if identifierResult != null {
                     return identifierResult
                 }
@@ -289,7 +299,7 @@ class CompletionReceiverFacts {
 
         literalTypeInfo := CompletionReflectionFacts.ResolveLiteralReceiverType(receiver)
         if literalTypeInfo != null {
-            literalResult := ResolveMemberCompletions(literalTypeInfo, receiver, semanticModels, completions, CompletionMemberFilter.InstanceOnly)
+            literalResult := ResolveMemberCompletions(literalTypeInfo, receiver, semanticModels, completions, CompletionMemberFilter.InstanceOnly, compilationUnits, requestingNamespace)
             if literalResult != null {
                 return literalResult
             }
@@ -309,10 +319,11 @@ class CompletionReceiverFacts {
     // that has none, which is what a generic parameter and an array of one look like — when
     // metadata did. Null means BOTH doors were silent, which is what tells the caller to try the
     // next way of typing the receiver.
-    static func ResolveMemberCompletions(typeInfo: TypeInfo, receiver: string, semanticModels: IEnumerable<SemanticModel>, completions: Dictionary<string, List<CompletionItem>>, filter: CompletionMemberFilter): CompletionResult? {
+    static func ResolveMemberCompletions(typeInfo: TypeInfo, receiver: string, semanticModels: IEnumerable<SemanticModel>, completions: Dictionary<string, List<CompletionItem>>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string): CompletionResult? {
         typeName := CompletionTypeTextFacts.FormatTypeText(typeInfo)
 
-        declaredMembers := CompletionDeclarationFacts.GetTypeMemberItems(typeInfo, semanticModels)
+        declaringNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(typeInfo, typeName, compilationUnits)
+        declaredMembers := CompletionDeclarationFacts.GetTypeMemberItems(typeInfo, semanticModels, declaringNamespace, requestingNamespace)
         if declaredMembers.Count > 0 {
             CompletionEngineKernels.AddGroupedCompletionItemsByKind(declaredMembers, completions)
             return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions)
