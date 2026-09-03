@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `5f0cae400` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 132 steps, `GATE EXIT 0`, 7 m 17 s, pushed — the language-server lifetime fix and the reload script's proof line on top of the docs-URL constant; the fifth visual round is pending the user).
+**Tip:** `27a6d24f6` on `systems-language` (PR #190 against `main`; pushed 2026-09-03 12:57 on the strength of gate r18's 131 functional steps green at 7 m 41 s — estate 7,514 — with ONE step red: the compile-time TIMING gate at 11,941 ms against an 11,802 ms idle-machine limit while macOS was re-indexing after a reboot at load 4.5–5.5; the changes since the last fully green gate (task 022 3b-2, the load-surface move) do not touch the measured front end; the load-aware gate chip is in progress so this judgment is never needed again. Docs commits ride on top.)
 
 ### Queue state (`tasks/README.md`)
 
@@ -193,17 +193,17 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `5f0cae400` (re-measure at your tip; never inherit)
+### Baselines at `27a6d24f6` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 595 (596 − 2 collapsed Range duplicates + 1 new, D2) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,508** measured in the gate at `c79fe23bb` (7,502 at `a2d75f537` + 6 constant-conversion contracts, 023/1e) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,514** measured in gate r18 at `27a6d24f6` (7,508 at `c79fe23bb` + 6 load-surface contracts, 022/3b-2) |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
-| `ColumnarIlEmitter.cs` | 20,737 lines / 19,724 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1 and 1e each shrank it) |
+| `ColumnarIlEmitter.cs` | 20,737 lines / 19,724 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1 and 1e each shrank it); `Analyzer.cs` 2,726 (2,798 before 3b-2) |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:c84392a028a8c371` (after the lifetime fix shrank `Program.cs` and the reload script reached its ceiling; audit-observed) |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:21d283e7657c020d` (after 3b-2 removed the C# test file's row; audit-observed) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
