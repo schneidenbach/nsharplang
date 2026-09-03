@@ -386,6 +386,11 @@ public class Analyzer : IDisposable
     // surface writes into it throughout; the resolver's table arrives at the call because the
     // resolver is replaced when the load context is rebuilt.
     private readonly AnalyzerReferenceLoadReport _referenceLoadReport;
+    // THE MECHANISM THAT PUTS AN ASSEMBLY IN FRONT OF THE ANALYZER: load by path, load by name,
+    // register, dedupe, record the failure. Holds the registry, the failure table and the resolver's
+    // search directories by reference, and the load context itself from `LoadSystemAssemblies` until
+    // `Dispose`.
+    private readonly AnalyzerMetadataLoadSurface _metadataLoadSurface;
     private bool _disposed;
 
     public Analyzer()
@@ -502,6 +507,7 @@ public class Analyzer : IDisposable
         _expressionTail = new AnalyzerExpressionTail(
             _diagnostics, _spans, _nullFlow, _ambient, _soaDirectColumnCalls, _reflectionCallReporter);
         _referenceLoadReport = new AnalyzerReferenceLoadReport(_diagnostics, _referenceLoadFailures);
+        _metadataLoadSurface = new AnalyzerMetadataLoadSurface(_mlcAssemblies, _referenceLoadFailures);
     }
 
     private AnalyzerAttributeValidator CreateAttributeValidator()
@@ -2260,111 +2266,24 @@ public class Analyzer : IDisposable
         _scopes.Pop(_semanticModel);
     }
 
-    /// <summary>
-    /// Records a failed reference load into <see cref="_referenceLoadFailures"/>, first failure per
-    /// identity; the N#-owned AnalyzerReferenceLoadReport surfaces the table as NL923.
-    /// </summary>
     private void RecordReferenceLoadFailure(string identity, Exception exception)
-        => RecordReferenceLoadFailure(
-            identity,
-            AnalyzerReferenceLoadReport.ExceptionDetail(exception.GetType().Name, exception.Message));
+        => _metadataLoadSurface.RecordExceptionFailure(identity, exception);
 
     private void RecordReferenceLoadFailure(string identity, string detail)
-    {
-        if (AnalyzerMetadataLoadPolicy.ShouldRecordLoadFailure(_referenceLoadFailures.ContainsKey(identity)))
-            _referenceLoadFailures[identity] = detail;
-    }
+        => _metadataLoadSurface.RecordFailure(identity, detail);
 
-    /// <summary>
-    /// Load a .NET assembly by file path for type resolution (metadata-only via MLC). Best-effort:
-    /// a failed load is recorded for NL923 pairing instead of aborting the analysis.
-    /// </summary>
     public void LoadReferencedAssembly(string assemblyPath)
-    {
-        if (_mlc == null) return;
-        try
-        {
-            var fullPath = Path.GetFullPath(assemblyPath);
-            _metadataResolver?.AddSearchDirectory(Path.GetDirectoryName(fullPath)!);
+        => _metadataLoadSurface.LoadByPath(assemblyPath);
 
-            if (IsMetadataAssemblyPathAlreadyLoaded(fullPath))
-            {
-                return;
-            }
-
-            var assemblyName = AssemblyName.GetAssemblyName(fullPath);
-            if (IsMetadataAssemblyAlreadyLoaded(assemblyName))
-            {
-                return;
-            }
-
-            var alreadyLoaded = _mlc.GetAssemblies().FirstOrDefault(loadedAssembly =>
-                AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assemblyName));
-            if (alreadyLoaded != null)
-            {
-                RegisterMetadataAssembly(alreadyLoaded);
-                return;
-            }
-
-            var assembly = _mlc.LoadFromAssemblyPath(fullPath);
-            RegisterMetadataAssembly(assembly);
-        }
-        catch (Exception ex)
-        {
-            RecordReferenceLoadFailure(assemblyPath, ex);
-        }
-    }
-
-    /// <summary>
-    /// Load a .NET assembly by name (e.g., "System.Runtime") for type resolution (metadata-only via
-    /// MLC). Best-effort: a failed load is recorded for NL923 pairing instead of aborting.
-    /// </summary>
     public void LoadReferencedAssemblyByName(string assemblyName)
-    {
-        if (_mlc == null) return;
-        if (IsMetadataAssemblyAlreadyLoaded(assemblyName))
-        {
-            return;
-        }
-
-        try
-        {
-            var assembly = _mlc.LoadFromAssemblyName(assemblyName);
-            RegisterMetadataAssembly(assembly);
-        }
-        catch (Exception ex)
-        {
-            RecordReferenceLoadFailure(assemblyName, ex);
-        }
-    }
-
-    private void RegisterMetadataAssembly(Assembly assembly)
-    {
-        if (!IsMetadataAssemblyAlreadyLoaded(assembly.GetName()))
-            _mlcAssemblies.Add(assembly);
-    }
-
-    private bool IsMetadataAssemblyAlreadyLoaded(AssemblyName assemblyName)
-        => _mlcAssemblies.Any(loadedAssembly =>
-            AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assemblyName));
-
-    private bool IsMetadataAssemblyAlreadyLoaded(string assemblyName)
-        => _mlcAssemblies.Any(loadedAssembly =>
-            AnalyzerMetadataLoadPolicy.IsSameSimpleName(loadedAssembly.GetName().Name, assemblyName));
-
-    private bool IsMetadataAssemblyPathAlreadyLoaded(string assemblyPath)
-    {
-        var normalizedPath = Path.GetFullPath(assemblyPath);
-        return _mlcAssemblies.Any(loadedAssembly =>
-            AnalyzerMetadataLoadPolicy.IsSameAssemblyPath(Path.GetFullPath(loadedAssembly.Location), normalizedPath));
-    }
+        => _metadataLoadSurface.LoadByName(assemblyName);
 
     /// <summary>
     /// Load system assemblies that are commonly used (initializes MetadataLoadContext)
     /// </summary>
     public void LoadSystemAssemblies()
     {
-        _metadataResolver = new NSharpMetadataResolver();
+        _metadataResolver = new NSharpMetadataResolver(_metadataLoadSurface);
 
         var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
         _metadataResolver.AddSearchDirectory(runtimeDir);
@@ -2383,6 +2302,7 @@ public class Analyzer : IDisposable
         }
 
         _mlc = new MetadataLoadContext(_metadataResolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName());
+        _metadataLoadSurface.Attach(_mlc);
 
         foreach (var assemblyName in AnalyzerMetadataLoadPolicy.CommonAssemblyNames())
         {
@@ -2428,6 +2348,7 @@ public class Analyzer : IDisposable
     {
         if (!_disposed)
         {
+            _metadataLoadSurface.Detach();
             _mlc?.Dispose();
             _mlc = null;
             _wellKnownTypes = null;
@@ -2686,8 +2607,18 @@ public class Analyzer : IDisposable
     /// </summary>
     internal sealed class NSharpMetadataResolver : MetadataAssemblyResolver
     {
-        private readonly List<string> _searchDirectories = new();
+        // The N#-owned load surface, and the search-directory list it hands over when a new resolver
+        // is built. The list is READ here and WRITTEN there, so a directory added through either
+        // door is visible to both.
+        private readonly AnalyzerMetadataLoadSurface _loadSurface;
+        private readonly List<string> _searchDirectories;
         private readonly Dictionary<string, string> _pinnedPackageVersions = new(StringComparer.OrdinalIgnoreCase);
+
+        internal NSharpMetadataResolver(AnalyzerMetadataLoadSurface loadSurface)
+        {
+            _loadSurface = loadSurface;
+            _searchDirectories = loadSurface.BeginResolverDirectories();
+        }
 
         internal Dictionary<string, string> LoadFailures { get; } = new(StringComparer.Ordinal);
 
@@ -2698,10 +2629,7 @@ public class Analyzer : IDisposable
         }
 
         public void AddSearchDirectory(string directory)
-        {
-            if (AnalyzerMetadataLoadPolicy.ShouldAddSearchDirectory(directory, Directory.Exists(directory), _searchDirectories))
-                _searchDirectories.Add(directory);
-        }
+            => _loadSurface.AddSearchDirectory(directory);
 
         /// <summary>
         /// Records the package version a project restored. NuGet-cache fallback scans bind
