@@ -352,7 +352,7 @@ partial class Program
     {
         foreach (var error in result.Errors)
         {
-            Console.Error.WriteLine(error.Format());
+            Console.Error.WriteLine(error.Format(DiagnosticColorPolicy.ShouldColorizeStandardError()));
         }
     }
 

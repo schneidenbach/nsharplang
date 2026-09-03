@@ -134,6 +134,27 @@ nlc completion bash > /etc/bash_completion.d/nlc
 - `nlc publish --self-contained` is planned, not implemented. It exits 1 with guidance instead of producing an artifact that only appears self-contained.
 
 
+## Diagnostic Colour
+
+`nlc build` and `nlc run` write human-readable diagnostics to standard error and colour them with
+ANSI SGR sequences. Whether a run colours is decided by `DiagnosticColorPolicy`, in this precedence:
+
+| # | Signal | Effect |
+|---|---|---|
+| 1 | `--color=always` / `--color` / `--color=yes` / `--color=force` | colour, whatever the rest says |
+| 1 | `--color=never` / `--no-color` / `--color=no` / `--color=none` | no colour, whatever the rest says |
+| 2 | `NO_COLOR` set and non-empty | no colour |
+| 3 | `FORCE_COLOR` set and not `0` | colour, even into a pipe or file |
+| 4 | *(default)* | colour when standard error is a terminal, plain when it is redirected |
+
+`--color=auto`, and any `--color=<value>` that is not listed, fall back to row 4 rather than failing
+the run. When several colour flags appear, the last one wins. An empty `NO_COLOR` is treated as
+unset, per the [no-color.org](https://no-color.org) convention.
+
+The machine-readable surfaces never colour, under any setting: `nlc check` and every `--json` output
+are plain, and so is the diagnostic text embedded in a project-reference build failure's exception
+message.
+
 ## Exit Codes
 
 | Command Group | `0` | `1` |
