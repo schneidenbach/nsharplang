@@ -961,3 +961,172 @@ test "the three entry points are ONE mutually recursive walk: expression to patt
         new ParenthesizedExpression(new CheckedExpression(nested, 1, 1), 1, 1)
     )
 }
+
+// ---------------------------------------------------------------------------------------------
+// A CAST OR AN `as` BETWEEN TYPES WITH NO CONVERSION (`NL204`)
+//
+// `v := 42` then `v as string` was ACCEPTED IN SILENCE, and so was `(string)v`. NL204 had been in
+// the catalog since the codes were written with nothing reporting it, so the one construct whose
+// entire purpose is to assert a type asserted nothing at all.
+//
+// A CAST IS NOT A PATTERN TEST. `IsPatternPossible` answers "can this value BE that type", which is
+// the right question for `is` and for a match arm and the WRONG one for a cast: `(int)3.5` is a
+// legal conversion between two types no value belongs to both of. `IsCastPossible` therefore admits
+// everything the pattern rule admits PLUS the conversion families the pattern rule has no reason to
+// know about — the numeric domain, enums, user conversion operators — and, the arm an existing
+// contract in `AnalyzerTargetTypedOperands.tests.nl` caught, any BARE NAME nobody resolved.
+// ---------------------------------------------------------------------------------------------
+
+func ReachabilityHardCast(targetName: string, line: int, column: int): CastExpression {
+    return new CastExpression(new IdentifierExpression("value", line, column), new SimpleTypeReference(targetName), CastKind.Hard, line, column)
+}
+
+func ReachabilitySafeCast(targetName: string, line: int, column: int): CastExpression {
+    return new CastExpression(new IdentifierExpression("value", line, column), new SimpleTypeReference(targetName), CastKind.Safe, line, column)
+}
+
+func ReachabilityExternalName(name: string): TypeInfo {
+    named: TypeInfo = new ExternalTypeInfo(name)
+    return named
+}
+
+func ReachabilityConversionOperatorClass(name: string): TypeInfo {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = new DeclaredMemberInfo(
+        "op_Explicit",
+        name,
+        DeclaredMemberKind.Function,
+        "function",
+        null,
+        true,
+        false,
+        false,
+        true,
+        1,
+        new string[](0),
+        new TypeReference[](0),
+        new ParameterModifier[](0),
+        1,
+        false,
+        false,
+        null,
+        0,
+        new TypeParameter[](0),
+        new GenericConstraint[](0),
+        0,
+        false,
+        false,
+        false,
+        true,
+        "explicit",
+        true,
+        false,
+        1,
+        1
+    )
+    owner: TypeInfo = new ClassTypeInfo(name, 1, 1, false, null, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), members, new NestedTypeInfo[](0), true)
+    return owner
+}
+
+test "a HARD cast between types with no conversion is refused, naming both types" {
+    harness := ReachabilityDefault()
+    harness.Reachability.CheckCastExpression(ReachabilityHardCast("string", 7, 12), BuiltInTypes.Int, BuiltInTypes.String)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.InvalidCast
+    assert harness.Errors[0].Message == "'int' cannot be cast to 'string' — no conversion exists between them"
+    assert harness.Errors[0].Suggestion == "A cast only reinterprets a value that already IS a 'string'; it never converts one. If you meant to convert, call a conversion — `x.ToString()`, `Convert.ToString(x)`, `Convert.ToInt32(x)` or `Int32.Parse(text)`."
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 12
+}
+
+// THE TWO SPELLINGS GET TWO SENTENCES, because the reader wrote one of them and not the other.
+test "the `as` spelling is named as `as`" {
+    harness := ReachabilityDefault()
+    harness.Reachability.CheckCastExpression(ReachabilitySafeCast("string", 7, 12), BuiltInTypes.Int, BuiltInTypes.String)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "'int' cannot be converted to 'string' with `as` — no conversion exists between them"
+}
+
+test "the NUMERIC DOMAIN is mutually convertible, at every width and in both directions" {
+    harness := ReachabilityDefault()
+
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Double, BuiltInTypes.Int)
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Int, BuiltInTypes.Double)
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Int, BuiltInTypes.Byte)
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Int, BuiltInTypes.Char)
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Decimal, BuiltInTypes.Long)
+
+    // `bool` and `string` are deliberately NOT in it: neither converts to a number by a cast in any
+    // CLR language.
+    assert !harness.Reachability.IsCastPossible(BuiltInTypes.Int, BuiltInTypes.Bool)
+    assert !harness.Reachability.IsCastPossible(BuiltInTypes.Int, BuiltInTypes.String)
+    assert !harness.Reachability.IsCastPossible(BuiltInTypes.String, BuiltInTypes.Int)
+
+    assert AnalyzerPatternReachability.IsNumericDomain(BuiltInTypes.Char)
+    assert !AnalyzerPatternReachability.IsNumericDomain(BuiltInTypes.Bool)
+    assert !AnalyzerPatternReachability.IsNumericDomain(BuiltInTypes.String)
+    assert !AnalyzerPatternReachability.IsNumericDomain(ReachabilityClass("Widget", false))
+}
+
+test "an ENUM converts to and from its numeric domain, and to another enum" {
+    harness := ReachabilityDefault()
+    colour := ReachabilityEnum("Colour")
+    other := ReachabilityEnum("Weekday")
+
+    assert harness.Reachability.IsCastPossible(colour, BuiltInTypes.Int)
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Int, colour)
+    assert harness.Reachability.IsCastPossible(colour, other)
+    assert AnalyzerPatternReachability.IsEnumDomain(colour)
+    assert !AnalyzerPatternReachability.IsEnumDomain(BuiltInTypes.Int)
+}
+
+// AN UNRESOLVED NAME IS NOT A CONVERSION QUESTION, AND THIS ARM WAS FOUND BY AN EXISTING CONTRACT
+// RATHER THAN BY REVIEW. A cast resolves its written target LENIENTLY — `ResolveType`, not
+// `ResolveDeclaredType` — so `(NoSuchTypeAnywhere)v` yields a bare NAME, and the first draft of this
+// rule read that as a reference type and accused a correct-shaped cast. Measured through the shipped
+// CLI at the time: `NL204` fired and `NL201` did not, so the reader was told the one thing about the
+// line that was not true.
+test "a BARE NAME nobody resolved is admitted, in either position" {
+    harness := ReachabilityDefault()
+
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Int, ReachabilityExternalName("NoSuchTypeAnywhere"))
+    assert harness.Reachability.IsCastPossible(ReachabilityExternalName("NoSuchTypeAnywhere"), BuiltInTypes.Int)
+    assert AnalyzerPatternReachability.IsUnresolvedName(ReachabilityExternalName("NoSuchTypeAnywhere"))
+
+    // The eighteen names the language declares are NOT unresolved.
+    assert !AnalyzerPatternReachability.IsUnresolvedName(BuiltInTypes.Int)
+    assert !AnalyzerPatternReachability.IsUnresolvedName(BuiltInTypes.String)
+    assert !AnalyzerPatternReachability.IsUnresolvedName(BuiltInTypes.Never)
+    assert !AnalyzerPatternReachability.IsUnresolvedName(ReachabilityClass("Widget", false))
+}
+
+// A USER-DECLARED CONVERSION OPERATOR ADMITS THE PAIR. Pinned by CONTRACT and not by a source probe,
+// because no N# spelling reaches this arm today: `static func operator explicit(...)` is `NL103
+// "Invalid operator symbol 'explicit'"`, and the retired `NL604` records that the rule was never
+// written. The guard is on the AST flag the declaration model already carries, ahead of the syntax.
+test "a type that DECLARES a conversion operator is never accused of having no conversion" {
+    harness := ReachabilityDefault()
+    meters := ReachabilityConversionOperatorClass("Meters")
+
+    assert harness.Reachability.IsCastPossible(meters, BuiltInTypes.Double)
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Double, meters)
+    assert AnalyzerPatternReachability.DeclaresConversionOperator(meters)
+    assert !AnalyzerPatternReachability.DeclaresConversionOperator(ReachabilityClass("Widget", false))
+}
+
+test "everything the PATTERN rule admits, the cast rule admits too" {
+    harness := ReachabilityDefault()
+
+    // The unmodelled families, admitted first and for the same reason.
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Int, ReachabilityUnknown())
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Int, ReachabilityReflected(typeof(List<int>)))
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Int, ReachabilityGeneric("Box"))
+
+    // Boxing and unboxing through `object`, an interface on either side, and a real downcast.
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Int, BuiltInTypes.Object)
+    assert harness.Reachability.IsCastPossible(BuiltInTypes.Object, BuiltInTypes.String)
+    assert harness.Reachability.IsCastPossible(ReachabilityClass("Widget", false), ReachabilityInterface("Greeter"))
+    assert harness.Reachability.IsCastPossible(ReachabilityClass("Animal", false), ReachabilityDerivedClass("Dog", "Animal", false))
+}

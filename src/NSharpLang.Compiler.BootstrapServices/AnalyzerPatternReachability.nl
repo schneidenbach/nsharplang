@@ -76,6 +76,161 @@ class AnalyzerPatternReachability {
         diagnosticsValue.Report(ErrorCode.ImpossiblePattern, "This 'is " + targetText + "' check is always false — a '" + sourceText + "' is never a '" + targetText + "'", span.Line, span.Column, null, span.Length)
     }
 
+    // A CAST OR AN `as` BETWEEN TYPES WITH NO CONVERSION. `v := 42` then `v as string` was ACCEPTED
+    // IN SILENCE, and so was `(string)v` — NL204 had been in the catalog since the codes were
+    // written with nothing reporting it, so the one construct whose whole purpose is to assert a
+    // type asserted nothing at all.
+    //
+    // A CAST IS NOT A PATTERN TEST, AND THE EXTRA ADMISSIONS ARE WHAT SEPARATES THEM. `IsPatternPossible`
+    // answers "can this value BE that type", which is the right question for `is` and for a match
+    // arm and the WRONG one for a cast: `(int)3.5` is a legal conversion between two types no value
+    // ever belongs to both of. So the cast rule admits everything the pattern rule admits PLUS the
+    // three conversion families the pattern rule has no reason to know about — the numeric domain,
+    // enums, and any user-declared conversion operator.
+    func CheckCastExpression(castExpression: CastExpression, sourceType: TypeInfo, targetType: TypeInfo) {
+        if IsCastPossible(sourceType, targetType) {
+            return
+        }
+
+        sourceObject := sourceType as object
+        targetObject := targetType as object
+        sourceText := sourceObject.ToString()
+        targetText := targetObject.ToString()
+        verb := "cast to '" + targetText + "'"
+        if castExpression.Kind == CastKind.Safe {
+            verb = "converted to '" + targetText + "' with `as`"
+        }
+
+        message := "'" + sourceText + "' cannot be " + verb + " — no conversion exists between them"
+        suggestion := "A cast only reinterprets a value that already IS a '" + targetText + "'; it never converts one. If you meant to convert, call a conversion — `x.ToString()`, `Convert.ToString(x)`, `Convert.ToInt32(x)` or `Int32.Parse(text)`."
+        span := spansValue.GetExpressionDiagnosticSpan(castExpression)
+        diagnosticsValue.Report(ErrorCode.InvalidCast, message, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // TRUE MEANS "SOME CONVERSION EXISTS", and everything the analyzer does not fully model is
+    // admitted — the same conservatism `IsPatternPossible` opens with, for the same reason.
+    func IsCastPossible(sourceType: TypeInfo, targetType: TypeInfo): bool {
+        if IsPatternPossible(sourceType, targetType) {
+            return true
+        }
+
+        resolvedSource := declarationContextValue.ResolveDeclaredAlias(sourceType)
+        resolvedTarget := declarationContextValue.ResolveDeclaredAlias(targetType)
+
+        // AN UNRESOLVED NAME IS NOT A CONVERSION QUESTION, AND THIS IS THE ARM AN EXISTING CONTRACT
+        // CAUGHT. A cast resolves its written target LENIENTLY — `ResolveType`, not
+        // `ResolveDeclaredType` — so `(NoSuchTypeAnywhere)v` yields a bare `SimpleTypeInfo` carrying
+        // the unresolved NAME rather than `unknown`, and the first draft of this rule read that as a
+        // reference type and accused a correct-shaped cast of an impossible conversion. Measured
+        // through the shipped CLI: `NL204` fired and `NL201` did not, so the reader was told the one
+        // thing that was not true about the line. A bare NAME — an `ExternalTypeInfo`, or a
+        // `SimpleTypeInfo` whose name is not one of the language's own — is a name nobody resolved,
+        // and it is admitted.
+        if IsUnresolvedName(resolvedSource) || IsUnresolvedName(resolvedTarget) {
+            return true
+        }
+
+        // THE NUMERIC DOMAIN IS MUTUALLY CONVERTIBLE, in both directions and at every width — that is
+        // what an explicit numeric conversion IS. `char` is in it; `bool` deliberately is not, and
+        // neither is `string`.
+        if IsNumericDomain(resolvedSource) && IsNumericDomain(resolvedTarget) {
+            return true
+        }
+
+        // AN ENUM CONVERTS TO AND FROM ITS UNDERLYING DOMAIN AND TO ANY OTHER ENUM.
+        if IsEnumDomain(resolvedSource) && (IsEnumDomain(resolvedTarget) || IsNumericDomain(resolvedTarget)) {
+            return true
+        }
+
+        if IsEnumDomain(resolvedTarget) && IsNumericDomain(resolvedSource) {
+            return true
+        }
+
+        // A USER-DECLARED CONVERSION OPERATOR ON EITHER SIDE ADMITS THE PAIR. The analyzer does not
+        // apply user conversions implicitly, but an explicit cast is exactly how one is invoked, so a
+        // type that declares one must never be accused of having no conversion at all. MEASURED: no
+        // N# SPELLING reaches this arm today — `static func operator explicit(...)` is `NL103
+        // "Invalid operator symbol 'explicit'"`, and the retired `NL604` says the rule was never
+        // written — so the guard is on the AST flag the declaration model already carries, ahead of
+        // the syntax. It is pinned by contract rather than by a source probe for exactly that reason.
+        return DeclaresConversionOperator(resolvedSource) || DeclaresConversionOperator(resolvedTarget)
+    }
+
+    // The primitive names an explicit numeric conversion is defined over. `bool` is not one of them
+    // and neither is `string`: neither converts to a number by a cast in any CLR language.
+    static func IsNumericDomain(candidate: TypeInfo): bool {
+        simple := candidate as SimpleTypeInfo
+        if simple == null {
+            return false
+        }
+
+        name := simple.Name
+        return name == "byte" || name == "sbyte" || name == "short" || name == "ushort" || name == "int" || name == "uint" || name == "long" || name == "ulong" || name == "float" || name == "double" || name == "decimal" || name == "char"
+    }
+
+    // A `SimpleTypeInfo` CARRYING A NAME THE LANGUAGE DOES NOT DECLARE. The eighteen names are
+    // `BuiltInTypes`' own list; anything else in that shape came out of lenient resolution and names
+    // a type nobody found.
+    static func IsUnresolvedName(candidate: TypeInfo): bool {
+        // A NAME AND NOTHING ELSE. `ExternalTypeInfo` carries a written name the analyzer never
+        // resolved to a CLR type or a declaration; it is the shape a lenient cast target lands in,
+        // and it answers no question about conversions at all.
+        if (candidate as ExternalTypeInfo) != null {
+            return true
+        }
+
+        simple := candidate as SimpleTypeInfo
+        if simple == null {
+            return false
+        }
+
+        name := simple.Name
+        if name == "int" || name == "long" || name == "float" || name == "double" || name == "decimal" || name == "byte" || name == "sbyte" || name == "short" || name == "ushort" || name == "uint" || name == "ulong" || name == "char" {
+            return false
+        }
+
+        return name != "bool" && name != "string" && name != "void" && name != "object" && name != "null" && name != "never"
+    }
+
+    static func IsEnumDomain(candidate: TypeInfo): bool {
+        return (candidate as EnumTypeInfo) != null
+    }
+
+    // WHETHER A SOURCE-DECLARED TYPE WRITES `operator` CONVERSION OF ITS OWN. Reflection types never
+    // reach here — `IsPatternPossible` admits them outright — so this reads the declared members of
+    // the three source shapes that can carry one.
+    static func DeclaresConversionOperator(candidate: TypeInfo): bool {
+        classType := candidate as ClassTypeInfo
+        if classType != null {
+            return HasConversionOperator(classType.DeclaredMembers)
+        }
+
+        structType := candidate as StructTypeInfo
+        if structType != null {
+            return HasConversionOperator(structType.DeclaredMembers)
+        }
+
+        recordType := candidate as RecordTypeInfo
+        if recordType != null {
+            return HasConversionOperator(recordType.DeclaredMembers)
+        }
+
+        return false
+    }
+
+    static func HasConversionOperator(members: DeclaredMemberInfo[]): bool {
+        index := 0
+        while index < members.Length {
+            if members[index].IsConversionOperator {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
     // THE JUDGEMENT. True means "a value of `sourceType` might be a `targetType` at run time"; false
     // means the analyzer can PROVE it never is.
     func IsPatternPossible(sourceType: TypeInfo, targetType: TypeInfo): bool {

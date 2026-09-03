@@ -229,6 +229,12 @@ test "a union missing one case reports it, in DECLARATION order" {
 test "an unguarded wildcard makes a union exhaustive and stops the walk" {
     // The wildcard RETURNS rather than setting a flag, so the arms after it are never examined —
     // which is why a later malformed arm cannot change the verdict.
+    //
+    // AND THE LATER ARM IS EXACTLY WHAT `NL502` EXISTS TO NAME. This fixture's own subject is an arm
+    // written below a catch-all; before the reachability rule landed it asserted SILENCE about it,
+    // which was the hole. The claim it was making — that the union walk stops and says nothing about
+    // coverage — is now stated precisely: the ONE row is the unreachable arm, and there is no
+    // `NL501` beside it.
     harness := MatchExhaustivenessDefault()
     unionType := MatchUnionOf("Shape", MatchCaseList2(MatchUnionCase("Circle"), MatchUnionCase("Square")))
     matchExpression := MatchOf(MatchArms2(
@@ -239,7 +245,8 @@ test "an unguarded wildcard makes a union exhaustive and stops the walk" {
     harness.Exhaustiveness.Check(matchExpression, unionType)
 
     assert matchExpression.IsExhaustive
-    assert harness.Errors.Count == 0
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UnreachablePattern
 }
 
 test "an undotted binding arm covers a union exactly like the wildcard" {
@@ -873,20 +880,31 @@ test "a NAMED binding dominates as surely as `_`, and is named as it was written
     assert harness.Errors[0].Message == "This arm can never be reached — the 'other' arm on line 3 already matches every value"
 }
 
+// A LITERAL ARM IS THE NON-TOTAL ONE, AND SPELLING IT AS AN IDENTIFIER IS A DIFFERENT PROGRAM.
+// `1 => "one"` parses to a `LiteralPattern`; an `IdentifierPattern` NAMED "one" is a BINDING, which
+// matches every value. This fixture's first draft used the latter to stand for the former and
+// therefore built `one => ..., _ => ...` — two catch-alls, the second unreachable — and the rule
+// reported it. The rule was right; the fixture was a different program.
+func MatchLiteralAt(value: string, line: int, column: int): Pattern {
+    literal: Expression = new IntLiteralExpression(value, line, column)
+    pattern: Pattern = new LiteralPattern(literal, line, column)
+    return pattern
+}
+
 test "the legal orders stay SILENT" {
     // A catch-all LAST is the ordinary shape.
     last := MatchExhaustivenessDefault()
-    last.Exhaustiveness.Check(MatchOf(MatchArms2(MatchArmAt(MatchIdentAt("one", 3, 9)), MatchArmAt(MatchIdentAt("_", 4, 9)))), BuiltInTypes.Int)
+    last.Exhaustiveness.Check(MatchOf(MatchArms2(MatchArmAt(MatchLiteralAt("1", 3, 9)), MatchArmAt(MatchIdentAt("_", 4, 9)))), BuiltInTypes.Int)
     assert last.Errors.Count == 0
 
     // A GUARD makes an arm conditional, so a guarded catch-all dominates nothing.
     guarded := MatchExhaustivenessDefault()
-    guarded.Exhaustiveness.Check(MatchOf(MatchArms2(MatchGuardedArmAt(MatchIdentAt("big", 3, 9)), MatchArmAt(MatchIdentAt("one", 4, 9)))), BuiltInTypes.Int)
+    guarded.Exhaustiveness.Check(MatchOf(MatchArms2(MatchGuardedArmAt(MatchIdentAt("big", 3, 9)), MatchArmAt(MatchLiteralAt("1", 4, 9)))), BuiltInTypes.Int)
     assert guarded.Errors.Count == 0
 
     // A DOTTED name is a union case, not a binding, and covers only itself.
     dotted := MatchExhaustivenessDefault()
-    dotted.Exhaustiveness.Check(MatchOf(MatchArms2(MatchArmAt(MatchIdentAt("Result.Success", 3, 9)), MatchArmAt(MatchIdentAt("one", 4, 9)))), BuiltInTypes.Int)
+    dotted.Exhaustiveness.Check(MatchOf(MatchArms2(MatchArmAt(MatchIdentAt("Result.Success", 3, 9)), MatchArmAt(MatchLiteralAt("1", 4, 9)))), BuiltInTypes.Int)
     assert dotted.Errors.Count == 0
 
     // A single arm has nothing below it.

@@ -129,6 +129,16 @@ func MatchCaseOf(patternLine: int, patternColumn: int, guard: Expression?, armVa
     return new MatchCase(pattern, guard, armValue)
 }
 
+// THE SAME ARM UNDER A PATTERN THAT IS NOT A CATCH-ALL. Every fixture here is about the ARM JOIN —
+// what type two arms agree on — and the pattern each arm carried was incidental to that: both were
+// spelled `_`, which made the SECOND arm unreachable. `NL502` now says so, correctly, so the first
+// arm of a two-arm join is written with a DOTTED name, which is a union case rather than a binding
+// and covers only itself. The node type, the step sequence and every assertion below are unchanged.
+func MatchCaseNamed(patternName: string, patternLine: int, patternColumn: int, guard: Expression?, armValue: Expression): MatchCase {
+    pattern: Pattern = new IdentifierPattern(patternName, patternLine, patternColumn)
+    return new MatchCase(pattern, guard, armValue)
+}
+
 func MatchNodeOf(cases: List<MatchCase>): Expression {
     node: Expression = new MatchExpression(MatchNameNode("subject"), cases, 4, 1)
     return node
@@ -142,7 +152,7 @@ func MatchOneArm(guard: Expression?, armValue: Expression): Expression {
 
 func MatchTwoArms(firstValue: Expression, secondValue: Expression): Expression {
     cases := new List<MatchCase>()
-    cases.Add(MatchCaseOf(7, 3, null, firstValue))
+    cases.Add(MatchCaseNamed("Shape.Circle", 7, 3, null, firstValue))
     cases.Add(MatchCaseOf(8, 3, null, secondValue))
     return MatchNodeOf(cases)
 }
