@@ -913,3 +913,408 @@ test "the SAME shape refusal under `with` names `with` rather than the object in
 
     assert harness.Errors[0].Message == "SoA tables cannot use `with` collection initializer entries"
 }
+
+// ---- the uninstantiable forms (NL803) --------------------------------------------------------------
+//
+// `new Shape()` ON AN `abstract class Shape` WAS ACCEPTED IN SILENCE, AND HAD BEEN SINCE THE CODE WAS
+// WRITTEN. The catalog published NL803 and nothing reported it: `nlc check` answered `ok: true` on a
+// project that constructs a type with no direct instances. These contracts pin the rule's whole
+// surface — the three shapes that have no instance, the shapes that DO, and the two ways the rule
+// must not fire.
+
+func ConstructionAbstractClass(name: string): ClassTypeInfo {
+    return new ClassTypeInfo(name, 1, 1, false, null, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes(), true, null, true)
+}
+
+func ConstructionInterface(name: string): InterfaceTypeInfo {
+    return new InterfaceTypeInfo(name, 1, 1, false, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes())
+}
+
+// `typeof` of a STATIC class does not emit in this toolset — it is the `abstract sealed` SHAPE, not
+// the assembly — so the CLR type arrives through `Type.GetType`, which is the estate's door. The
+// names must be CORE-LIBRARY names: `System.Console` lives in its own assembly and `Type.GetType`
+// answers null for it without an assembly qualifier, so `System.Math` is the static class used here.
+func ConstructionClrType(metadataName: string): ReflectionTypeInfo {
+    resolved := Type.GetType(metadataName)
+    if resolved == null {
+        throw new InvalidOperationException("Could not resolve '" + metadataName + "'.")
+    }
+
+    return new ReflectionTypeInfo(resolved)
+}
+
+func ConstructionAbstractOpenHolder(): ClassTypeInfo {
+    typeParameters := new TypeParameter[](1)
+    typeParameters[0] = new TypeParameter("T")
+    return new ClassTypeInfo("Holder", 1, 1, false, null, ConstructionEmptyTypeReferences(), typeParameters, ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes(), true, null, true)
+}
+
+test "`new` on an ABSTRACT CLASS is refused, anchored on the written type name" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Shape", ConstructionAbstractClass("Shape"))
+    state := harness.Arm.Begin(ConstructionNewOf("Shape", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of abstract class 'Shape'"
+    // The squiggle sits under `Shape`, not under the whole `new` expression: the type reference is at
+    // (4,5) and the `new` keyword at (4,1).
+    assert harness.Errors[0].Line == 4
+    assert harness.Errors[0].Column == 5
+    assert harness.Errors[0].Length == 5
+}
+
+test "the abstract-class way out is a CONCRETE SUBCLASS, spelled so the reader can paste it" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Shape", ConstructionAbstractClass("Shape"))
+    state := harness.Arm.Begin(ConstructionNewOf("Shape", ConstructionNoArguments(), null))
+    ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert harness.Errors[0].Suggestion == "Construct a concrete subclass — `class ConcreteShape : Shape { ... }` — and write `new ConcreteShape()` here, or remove `abstract` from `Shape` if it is meant to be constructed directly."
+}
+
+test "`new` on an INTERFACE is refused and named as an interface" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Greeter", ConstructionInterface("Greeter"))
+    state := harness.Arm.Begin(ConstructionNewOf("Greeter", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of interface 'Greeter'"
+    assert harness.Errors[0].Suggestion == "Construct a class that implements it — `class MyGreeter : Greeter { ... }` — and write `new MyGreeter()` here."
+}
+
+test "`new` on an EXTERNAL abstract class is refused with the same sentence" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Stream", ConstructionClrType("System.IO.Stream"))
+    state := harness.Arm.Begin(ConstructionNewOf("Stream", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of abstract class 'Stream'"
+}
+
+// A STATIC CLASS IS `abstract sealed` IN METADATA AND THE READER NEVER WROTE EITHER WORD. Telling
+// them `Console` is abstract would be true of the metadata and useless to them, so the arm is split
+// and the suggestion is the member call they meant.
+test "`new` on an EXTERNAL STATIC class is refused as a static class, not as an abstract one" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Math", ConstructionClrType("System.Math"))
+    state := harness.Arm.Begin(ConstructionNewOf("Math", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of static class 'Math'"
+    assert harness.Errors[0].Suggestion == "`Math` is a static class and has no instances. Call its members directly, as `Math.Member(...)`."
+}
+
+test "`new` on an EXTERNAL INTERFACE is refused as an interface" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("IDisposable", ConstructionClrType("System.IDisposable"))
+    state := harness.Arm.Begin(ConstructionNewOf("IDisposable", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of interface 'IDisposable'"
+}
+
+// A CLOSED GENERIC IS OPENED FIRST: `Holder<string>` is instantiable exactly when `Holder<T>` is, and
+// the name the reader wrote is the one the report names.
+test "a CLOSED GENERIC over an abstract definition is refused, naming what was written" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Holder", ConstructionAbstractOpenHolder())
+    arguments := new List<TypeReference>()
+    arguments.Add(new SimpleTypeReference("string", 4, 12))
+    generic: TypeReference = new GenericTypeReference("Holder", arguments, 4, 5)
+    state := harness.Arm.Begin(new NewExpression(generic, ConstructionNoArguments(), null, 4, 1))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of abstract class 'Holder'"
+    assert harness.Errors[0].Column == 5
+}
+
+// ---- and the shapes the rule must leave alone ------------------------------------------------------
+
+test "a CONCRETE class is silent" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Circle", ConstructionPlainClass("Circle"))
+    state := harness.Arm.Begin(ConstructionNewOf("Circle", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == ""
+    assert trace.Answer == "class:Circle"
+}
+
+// AN ARRAY IS NOT AN INSTANCE OF ITS ELEMENT TYPE. `new Shape[](4)` makes four empty slots, which is
+// legal over any element type at all, so the written length ends the question before it is asked.
+test "a SIZED ARRAY over an abstract element type is silent" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Shape", ConstructionAbstractClass("Shape"))
+    state := harness.Arm.Begin(ConstructionSizedArray("Shape", ConstructionIntLiteral("4"), ConstructionNoArguments()))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == ""
+}
+
+test "an EXTERNAL CONCRETE class is silent" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("MemoryStream", ConstructionClrType("System.IO.MemoryStream"))
+    state := harness.Arm.Begin(ConstructionNewOf("MemoryStream", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == ""
+}
+
+// A TARGET-TYPED `new` HAS NO WRITTEN TYPE REFERENCE AND IS NOT THIS RULE'S BUSINESS: the type it
+// adopts came from a slot that some other declaration already vouched for.
+test "a TARGET-TYPED `new` is not put through this rule" {
+    harness := ConstructionArm()
+    saved := harness.Ambient.EnterExpectedType(ConstructionAbstractClass("Shape"))
+    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+    harness.Ambient.ExitExpectedType(saved)
+
+    assert trace.Codes == ""
+}
+
+// ---- the constructor arity rule (NL806) ------------------------------------------------------------
+//
+// `new Point(1, 2)` OVER `class Point { constructor(x: int) }` REACHED THE EMITTER AND DIED THERE as
+// an `NL103` decline naming a `return expression`. The plainest constructor mistake there is — the
+// wrong number of arguments — was answered by a sentence about the columnar backend, and NL806 had
+// been in the catalog the whole time with nothing reporting it.
+
+func ConstructionConstructorMember(owner: string, parameterNames: string[], parameterTypes: TypeReference[], requiredParameterCount: int, hasParamsParameter: bool): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(
+        ".ctor",
+        owner,
+        DeclaredMemberKind.Constructor,
+        "constructor",
+        null,
+        false,
+        false,
+        false,
+        true,
+        parameterNames.Length,
+        parameterNames,
+        parameterTypes,
+        new ParameterModifier[](0),
+        requiredParameterCount,
+        hasParamsParameter,
+        false,
+        null,
+        0,
+        ConstructionEmptyTypeParameters(),
+        new GenericConstraint[](0),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1
+    )
+}
+
+func ConstructionParameterNames(first: string): string[] {
+    names := new string[](1)
+    names[0] = first
+    return names
+}
+
+func ConstructionParameterNames2(first: string, second: string): string[] {
+    names := new string[](2)
+    names[0] = first
+    names[1] = second
+    return names
+}
+
+// A DERIVED VALUE DOES NOT WIDEN INTO A BASE-TYPED SLOT: a `SimpleTypeReference` written straight
+// into a `TypeReference[]` element declines at `emit.statement.block-child`. Each one is bound to a
+// `TypeReference`-typed local first, which is the estate's established idiom.
+func ConstructionParameterTypes(first: string): TypeReference[] {
+    types := new TypeReference[](1)
+    firstType: TypeReference = new SimpleTypeReference(first, 1, 1)
+    types[0] = firstType
+    return types
+}
+
+func ConstructionParameterTypes2(first: string, second: string): TypeReference[] {
+    types := new TypeReference[](2)
+    firstType: TypeReference = new SimpleTypeReference(first, 1, 1)
+    secondType: TypeReference = new SimpleTypeReference(second, 1, 1)
+    types[0] = firstType
+    types[1] = secondType
+    return types
+}
+
+func ConstructionClassWithConstructors(name: string, constructors: List<DeclaredMemberInfo>): ClassTypeInfo {
+    members := new DeclaredMemberInfo[](constructors.Count)
+    index := 0
+    while index < constructors.Count {
+        members[index] = constructors[index]
+        index = index + 1
+    }
+
+    return new ClassTypeInfo(name, 1, 1, false, null, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyParameters(), members, ConstructionEmptyNestedTypes(), constructors.Count == 0)
+}
+
+func ConstructionOneConstructor(member: DeclaredMemberInfo): List<DeclaredMemberInfo> {
+    members := new List<DeclaredMemberInfo>()
+    members.Add(member)
+    return members
+}
+
+func ConstructionArgumentsOf(count: int): List<Argument> {
+    args := ConstructionNoArguments()
+    index := 0
+    while index < count {
+        args.Add(ConstructionArgument(ConstructionIntLiteral("1")))
+        index = index + 1
+    }
+
+    return args
+}
+
+test "a call that fits NO declared constructor is refused, naming the one that exists" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Point", ConstructionClassWithConstructors("Point", ConstructionOneConstructor(ConstructionConstructorMember("Point", ConstructionParameterNames("x"), ConstructionParameterTypes("int"), 1, false))))
+    state := harness.Arm.Begin(ConstructionNewOf("Point", ConstructionArgumentsOf(2), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "806"
+    assert harness.Errors[0].Message == "'Point' has no constructor taking 2 arguments"
+    assert harness.Errors[0].Suggestion == "'Point' declares one constructor: `constructor(x: int)`. Match it, or add a constructor taking 2 arguments."
+    assert harness.Errors[0].Line == 4
+    assert harness.Errors[0].Column == 5
+    assert harness.Errors[0].Length == 5
+}
+
+test "a class that declares NO constructor has exactly one, taking nothing" {
+    refused := ConstructionArm()
+    refused.Scopes.DeclareNestedTypeIfAbsent("Empty", ConstructionPlainClass("Empty"))
+    refusedState := refused.Arm.Begin(ConstructionNewOf("Empty", ConstructionArgumentsOf(1), null))
+    refusedTrace := ConstructionDrive(refused, refusedState, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert refusedTrace.Codes == "806"
+    assert refused.Errors[0].Message == "'Empty' declares no constructor, so it takes no arguments — 1 argument passed"
+    assert refused.Errors[0].Suggestion == "Write `new Empty()`, or declare `constructor(...)` on 'Empty' if it is meant to take arguments."
+
+    // And the parameterless call it DOES have is silent.
+    accepted := ConstructionArm()
+    accepted.Scopes.DeclareNestedTypeIfAbsent("Empty", ConstructionPlainClass("Empty"))
+    acceptedState := accepted.Arm.Begin(ConstructionNewOf("Empty", ConstructionNoArguments(), null))
+    assert ConstructionDrive(accepted, acceptedState, ConstructionAnswers(BuiltInTypes.Int)).Codes == ""
+}
+
+test "OVERLOADS are checked as a set: a call fits if it fits ANY of them" {
+    constructors := new List<DeclaredMemberInfo>()
+    constructors.Add(ConstructionConstructorMember("Point", new string[](0), ConstructionEmptyTypeReferences(), 0, false))
+    constructors.Add(ConstructionConstructorMember("Point", ConstructionParameterNames2("x", "y"), ConstructionParameterTypes2("int", "int"), 2, false))
+
+    zero := ConstructionArm()
+    zero.Scopes.DeclareNestedTypeIfAbsent("Point", ConstructionClassWithConstructors("Point", constructors))
+    assert ConstructionDrive(zero, zero.Arm.Begin(ConstructionNewOf("Point", ConstructionNoArguments(), null)), ConstructionAnswers(BuiltInTypes.Int)).Codes == ""
+
+    two := ConstructionArm()
+    two.Scopes.DeclareNestedTypeIfAbsent("Point", ConstructionClassWithConstructors("Point", constructors))
+    assert ConstructionDrive(two, two.Arm.Begin(ConstructionNewOf("Point", ConstructionArgumentsOf(2), null)), ConstructionAnswers(BuiltInTypes.Int)).Codes == ""
+
+    // ONE argument fits neither, and the suggestion lists BOTH so the reader compares rather than hunts.
+    one := ConstructionArm()
+    one.Scopes.DeclareNestedTypeIfAbsent("Point", ConstructionClassWithConstructors("Point", constructors))
+    oneTrace := ConstructionDrive(one, one.Arm.Begin(ConstructionNewOf("Point", ConstructionArgumentsOf(1), null)), ConstructionAnswers(BuiltInTypes.Int))
+    assert oneTrace.Codes == "806"
+    assert one.Errors[0].Message == "'Point' has no constructor taking 1 argument"
+    assert one.Errors[0].Suggestion == "'Point' declares 2 constructors: `constructor()`, `constructor(x: int, y: int)`. Match one of them, or add a constructor taking 1 argument."
+}
+
+// A DEFAULTED PARAMETER IS A RANGE, NOT A COUNT, and `params` has no upper bound at all. Both are
+// read off the model the declaration factory already fills, so neither needs a second walk.
+test "the accepted range runs from REQUIRED to WRITTEN, and `params` removes the ceiling" {
+    defaulted := ConstructionOneConstructor(ConstructionConstructorMember("Greeting", ConstructionParameterNames("text"), ConstructionParameterTypes("string"), 0, false))
+    assert AnalyzerConstruction.AcceptsConstructorArity(defaulted, 0)
+    assert AnalyzerConstruction.AcceptsConstructorArity(defaulted, 1)
+    assert !AnalyzerConstruction.AcceptsConstructorArity(defaulted, 2)
+
+    variadic := ConstructionOneConstructor(ConstructionConstructorMember("Log", ConstructionParameterNames("parts"), ConstructionParameterTypes("string[]"), 1, true))
+    assert !AnalyzerConstruction.AcceptsConstructorArity(variadic, 0)
+    assert AnalyzerConstruction.AcceptsConstructorArity(variadic, 1)
+    assert AnalyzerConstruction.AcceptsConstructorArity(variadic, 9)
+
+    // An EMPTY set is the implicit parameterless constructor, not "anything goes".
+    empty := new List<DeclaredMemberInfo>()
+    assert AnalyzerConstruction.AcceptsConstructorArity(empty, 0)
+    assert !AnalyzerConstruction.AcceptsConstructorArity(empty, 1)
+
+    // The singular is not a truncated plural.
+    assert AnalyzerConstruction.ArgumentWord(0) == "0 arguments"
+    assert AnalyzerConstruction.ArgumentWord(1) == "1 argument"
+    assert AnalyzerConstruction.ArgumentWord(2) == "2 arguments"
+}
+
+// ---- and the five shapes the arity rule is not asked about -----------------------------------------
+
+test "a CLOSED GENERIC is opened, so its definition's constructors are the ones checked" {
+    open := ConstructionOpenBox()
+    closed := ConstructionClosedBox(BuiltInTypes.String)
+
+    // `Box<T>` as built by the harness declares one field and NO constructor, so exactly the
+    // parameterless call fits — through the wrapper, not around it.
+    refused := ConstructionArm()
+    refused.Scopes.DeclareNestedTypeIfAbsent("Box", open)
+    arguments := new List<TypeReference>()
+    arguments.Add(new SimpleTypeReference("string", 4, 12))
+    generic: TypeReference = new GenericTypeReference("Box", arguments, 4, 5)
+    refusedTrace := ConstructionDrive(refused, refused.Arm.Begin(new NewExpression(generic, ConstructionArgumentsOf(1), null, 4, 1)), ConstructionAnswers(BuiltInTypes.Int))
+    assert refusedTrace.Codes == "806"
+    assert refused.Errors[0].Message == "'Box' declares no constructor, so it takes no arguments — 1 argument passed"
+
+    // A wrapper with NO definition answers "cannot tell" and is left alone by construction.
+    assert ConstructionTypeName(closed) == "generic:Box<simple:string>"
+}
+
+test "a SIZED ARRAY calls no constructor and is not asked" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Point", ConstructionClassWithConstructors("Point", ConstructionOneConstructor(ConstructionConstructorMember("Point", ConstructionParameterNames("x"), ConstructionParameterTypes("int"), 1, false))))
+    state := harness.Arm.Begin(ConstructionSizedArray("Point", ConstructionIntLiteral("4"), ConstructionNoArguments()))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == ""
+}
+
+test "a UNION CASE owns its own arity and a SoA TABLE owns its capacity" {
+    unionHarness := ConstructionArm()
+    caseNames := new List<string>()
+    caseNames.Add("Success")
+    unionHarness.Scopes.DeclareNestedTypeIfAbsent("Result", ConstructionUnion("Result", caseNames, null))
+    unionTrace := ConstructionDrive(unionHarness, unionHarness.Arm.Begin(ConstructionQualifiedNew("Result.Success")), ConstructionAnswers(BuiltInTypes.Int))
+    assert unionTrace.Codes == ""
+
+    // The SoA table's ONE capacity argument is `NL321`'s, and adding this rule must not double it.
+    soaHarness := ConstructionArm()
+    soaHarness.Scopes.DeclareNestedTypeIfAbsent("Table", ConstructionSoaTable("Table"))
+    soaTrace := ConstructionDrive(soaHarness, soaHarness.Arm.Begin(ConstructionNewOf("Table", ConstructionCapacity(), null)), ConstructionAnswers(BuiltInTypes.Int))
+    assert soaTrace.Codes == ""
+}
+
+// AN EXTERNAL TYPE'S CONSTRUCTOR SET IS THE OVERLOAD RESOLVER'S, NOT THIS WALK'S, and a class with a
+// PRIMARY CONSTRUCTOR is silent on purpose: `ParameterDeclarationInfo` does not carry parameter
+// DEFAULTS, so its legal arity is a range this walk cannot compute, and reporting from half the model
+// would accuse correct programs.
+test "an EXTERNAL type and a PRIMARY-CONSTRUCTOR class are both left alone" {
+    externalHarness := ConstructionArm()
+    externalHarness.Scopes.DeclareNestedTypeIfAbsent("MemoryStream", ConstructionClrType("System.IO.MemoryStream"))
+    assert ConstructionDrive(externalHarness, externalHarness.Arm.Begin(ConstructionNewOf("MemoryStream", ConstructionArgumentsOf(3), null)), ConstructionAnswers(BuiltInTypes.Int)).Codes == ""
+
+    primaryParameters := new ParameterDeclarationInfo[](1)
+    primaryType: TypeReference = new SimpleTypeReference("int", 1, 1)
+    primaryParameters[0] = new ParameterDeclarationInfo("x", primaryType, 1, 1)
+    primaryHarness := ConstructionArm()
+    primaryHarness.Scopes.DeclareNestedTypeIfAbsent("Point", new ClassTypeInfo("Point", 1, 1, false, null, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), primaryParameters, ConstructionEmptyMembers(), ConstructionEmptyNestedTypes(), false))
+    assert ConstructionDrive(primaryHarness, primaryHarness.Arm.Begin(ConstructionNewOf("Point", ConstructionArgumentsOf(4), null)), ConstructionAnswers(BuiltInTypes.Int)).Codes == ""
+}

@@ -427,6 +427,8 @@ class AnalyzerTypeDeclarations {
         DeclareTypeParameters(state)
         ValidateNoStaticMembersOnGenericType(state)
         ResolveDeclaredBases(state)
+        ValidateSingleBaseClass(state)
+        ValidateBaseClassEligibility(state)
         ValidateOverrideTargets(state)
         ValidateAbstractMemberImplementations(state)
         ValidateInterfaceImplementations(state)
@@ -1203,6 +1205,212 @@ class AnalyzerTypeDeclarations {
     func ReportOverridePropertyTargetFault(property: PropertyDeclaration, reason: string, suggestion: string) {
         span := spansValue.GetPropertyNameDiagnosticSpan(property)
         diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + property.Name + "' is declared 'override', but it " + reason, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // `class Both : Left, Right` OVER TWO CLASSES REACHED THE EMITTER AND DIED THERE as an NL103
+    // columnar decline, which names the backend and not the mistake. NL801 has been in the catalog
+    // since the codes were written and nothing reported it. N# is a CLR language: a class has exactly
+    // one base and any number of interfaces, and that is a rule of the runtime, not a preference.
+    //
+    // THE PARSER CANNOT ANSWER THIS AND NEVER COULD. `: A, B, C` is split by POSITION — `[0]` to
+    // `BaseClass`, the rest to `Interfaces` — so "how many of these are classes" is a question only
+    // resolution can answer, and it is asked over BOTH slots as one written list. That is also why the
+    // count is what decides rather than the slot: `class X : IFoo, Base` names ONE base class in the
+    // wrong position and is not this rule's business.
+    //
+    // IT RUNS BEFORE THE SEALED RULE. A declaration with two bases has a shape problem, and being told
+    // that the second one is also sealed would be a second sentence about the same broken line.
+    func ValidateSingleBaseClass(state: TypeDeclarationState) {
+        if state.Form != 0 {
+            return
+        }
+
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration == null {
+            return
+        }
+
+        written := WrittenInterfaceReferences(state)
+        if written == null || written.Count < 2 {
+            return
+        }
+
+        firstName := ""
+        index := 0
+        while index < written.Count {
+            reference := written[index]
+            resolved := typeResolverValue.ResolveType(reference)
+            if IsBaseClassShape(resolved) {
+                name := BaseReferenceName(reference)
+                if firstName.Length > 0 {
+                    span := BaseReferenceSpan(reference, name, classDeclaration)
+                    message := "'" + classDeclaration.Name + "' declares more than one base class: '" + firstName + "' and '" + name + "'"
+                    suggestion := "A class has exactly one base class, followed by any number of interfaces. Keep '" + firstName + "' as the base and make '" + name + "' an `interface` that '" + classDeclaration.Name + "' implements, or hold one — give '" + classDeclaration.Name + "' a field `inner: " + name + "`."
+                    diagnosticsValue.Report(ErrorCode.MultipleInheritance, message, span.Line, span.Column, suggestion, span.Length)
+                    return
+                }
+
+                firstName = name
+            }
+
+            index = index + 1
+        }
+    }
+
+    // WHETHER A RESOLVED BASE-LIST ENTRY OCCUPIES THE ONE BASE-CLASS SLOT. Only a class does: an
+    // interface is free, a struct or an enum in a base list is a different fault with a different
+    // sentence, and an entry that did not resolve answers no — a count computed from a name nobody
+    // could find would report a program whose real problem is `NL201`.
+    static func IsBaseClassShape(candidate: TypeInfo?): bool {
+        if candidate == null || BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        opened := OpenGenericInstantiation(candidate)
+        if opened == null {
+            return false
+        }
+
+        if (opened as ClassTypeInfo) != null {
+            return true
+        }
+
+        reflectionType := opened as ReflectionTypeInfo
+        if reflectionType == null {
+            return false
+        }
+
+        clrType := reflectionType.Type
+        return clrType.get_IsClass() && !clrType.get_IsInterface() && !clrType.get_IsValueType()
+    }
+
+    // `class Derived : Base` WHERE `Base` IS `sealed` WAS ACCEPTED IN SILENCE AND THE WHOLE PROJECT
+    // CHECKED CLEAN. NL802 has been in the catalog since the codes were written and nothing reported
+    // it: `sealed` is a promise the declaration makes to every reader — "nothing extends this" — and
+    // the compiler was not keeping it. The CLR refuses the derivation outright, so what shipped was a
+    // program that could not load.
+    //
+    // THE REPORT IS ANCHORED ON THE BASE NAME, not on the deriving class's header: the base name is
+    // the word that has to change, and pointing at `Derived` would send the reader to the wrong line
+    // in a file where several classes share one base.
+    //
+    // IT RUNS BEFORE `ValidateOverrideTargets`, deliberately. A sealed base explains every override
+    // fault beneath it, so it must be the first thing said about the declaration.
+    func ValidateBaseClassEligibility(state: TypeDeclarationState) {
+        if state.Form != 0 {
+            return
+        }
+
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration == null {
+            return
+        }
+
+        declaredBase := classDeclaration.BaseClass
+        if declaredBase == null {
+            return
+        }
+
+        resolved := DeclaredBaseTypeFor(state)
+        if resolved == null || BuiltInTypes.IsUnknown(resolved) {
+            return
+        }
+
+        // THE BASE-CLASS SLOT IS A SYNTACTIC ACCIDENT AND MAY HOLD AN INTERFACE. The parser splits
+        // `: A, B, C` by position, so `class R : IDisposable` arrives with an interface here — and an
+        // interface is exactly what a class is allowed to write. The interface rules own it.
+        if IsInterfaceType(resolved) {
+            return
+        }
+
+        kind := UnextendableBaseKind(resolved)
+        if kind.Length == 0 {
+            return
+        }
+
+        baseName := BaseReferenceName(declaredBase)
+        span := BaseReferenceSpan(declaredBase, baseName, classDeclaration)
+        message := "Cannot inherit from '" + baseName + "' because it is a " + kind
+        diagnosticsValue.Report(ErrorCode.SealedInheritance, message, span.Line, span.Column, UnextendableBaseSuggestion(kind, baseName, classDeclaration.Name), span.Length)
+    }
+
+    // WHICH SHUT SHAPE THIS BASE IS, or "" for every type a class may extend. A closed generic is
+    // opened first: `Box<int>` is extendable exactly when `Box<T>` is.
+    static func UnextendableBaseKind(candidate: TypeInfo): string {
+        opened := OpenGenericInstantiation(candidate)
+        if opened == null {
+            return ""
+        }
+
+        classType := opened as ClassTypeInfo
+        if classType != null {
+            if classType.IsSealed {
+                return "sealed class"
+            }
+
+            return ""
+        }
+
+        reflectionType := opened as ReflectionTypeInfo
+        if reflectionType == null {
+            return ""
+        }
+
+        clrType := reflectionType.Type
+        // A struct, an enum or a delegate in the base slot is a different fault with a different
+        // sentence; every one of them is sealed in metadata, and calling them "a sealed class" would
+        // name the wrong thing. Only reference types answer here.
+        if clrType.get_IsInterface() || clrType.get_IsValueType() || !clrType.get_IsSealed() {
+            return ""
+        }
+
+        if clrType.get_IsAbstract() {
+            return "static class"
+        }
+
+        return "sealed class"
+    }
+
+    // THE WAY OUT, AND IT MUST COMPILE. A sealed base becomes a FIELD — composition is the answer the
+    // reader wants and the one the CLR allows — and a static base is not a base at all.
+    static func UnextendableBaseSuggestion(kind: string, baseName: string, derivedName: string): string {
+        if kind == "static class" {
+            return "A static class has no instances and cannot be a base. Call its members directly, as `" + baseName + ".Member(...)`."
+        }
+
+        return "Remove `sealed` from `" + baseName + "` if it is meant to be extended, or hold one instead of inheriting one — give `" + derivedName + "` a field `inner: " + baseName + "`."
+    }
+
+    // The written name of a base reference, in the two spellings a base clause can take.
+    static func BaseReferenceName(declaredBase: TypeReference): string {
+        simpleReference := declaredBase as SimpleTypeReference
+        if simpleReference != null {
+            return simpleReference.Name
+        }
+
+        genericReference := declaredBase as GenericTypeReference
+        if genericReference != null {
+            return genericReference.Name
+        }
+
+        return TypeReferenceFacts.GetDisplayName(declaredBase)
+    }
+
+    // Where the squiggle goes. A base reference the parser gave no position — every shape but the two
+    // named ones — falls back to the declaring class's own header rather than to line 0, so the
+    // diagnostic is always somewhere a reader can open.
+    static func BaseReferenceSpan(declaredBase: TypeReference, baseName: string, classDeclaration: ClassDeclaration): DiagnosticSpan {
+        simpleReference := declaredBase as SimpleTypeReference
+        if simpleReference != null && simpleReference.Line > 0 {
+            return new DiagnosticSpan(simpleReference.Line, simpleReference.Column, Math.Max(1, baseName.Length))
+        }
+
+        genericReference := declaredBase as GenericTypeReference
+        if genericReference != null && genericReference.Line > 0 {
+            return new DiagnosticSpan(genericReference.Line, genericReference.Column, Math.Max(1, baseName.Length))
+        }
+
+        return new DiagnosticSpan(classDeclaration.Line, classDeclaration.Column, Math.Max(1, classDeclaration.Name.Length))
     }
 
     // THE BASE THIS DECLARATION WRITES, or `null` for every form that writes none. A class with no
