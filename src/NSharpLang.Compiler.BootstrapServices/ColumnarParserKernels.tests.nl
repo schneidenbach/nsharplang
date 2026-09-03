@@ -152,6 +152,9 @@ class ColumnarStructDeclarationParseProbe {
     TypeParamTexts: string[]
     BaseNameTexts: string[]
     StructNameTexts: string[]
+    WhereOwnerTexts: string[]
+    WhereItemCodes: int[]
+    WhereTypeTexts: string[]
     Result: int[]
 
     constructor(source: string) {
@@ -187,7 +190,10 @@ class ColumnarStructDeclarationParseProbe {
         TypeParamTexts = new string[](capacity)
         BaseNameTexts = new string[](capacity)
         StructNameTexts = new string[](1)
-        Result = new int[](10)
+        WhereOwnerTexts = new string[](capacity)
+        WhereItemCodes = new int[](capacity)
+        WhereTypeTexts = new string[](capacity)
+        Result = new int[](11)
         structIndex := 0
         while structIndex < tokenCount && tokenKinds[structIndex] != 8 && tokenKinds[structIndex] != 9 && tokenKinds[structIndex] != 13 {
             structIndex = structIndex + 1
@@ -214,6 +220,9 @@ class ColumnarStructDeclarationParseProbe {
             TypeParamTexts,
             BaseNameTexts,
             StructNameTexts,
+            WhereOwnerTexts,
+            WhereItemCodes,
+            WhereTypeTexts,
             Result
         )
     }

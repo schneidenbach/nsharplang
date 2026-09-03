@@ -896,7 +896,8 @@ class StructDeclarationTable {
     TypeParamLengths: int[]
     BaseNameStarts: int[]
     BaseNameLengths: int[]
-    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitStarts: int[], fieldInitLengths: int[], methodFuncIndices: int[], methodStaticFlags: int[], methodModifierFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[]) {
+    Where: ParserDeclarationWhereTable
+    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitStarts: int[], fieldInitLengths: int[], methodFuncIndices: int[], methodStaticFlags: int[], methodModifierFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[], whereTable: ParserDeclarationWhereTable) {
         FieldNameStarts = fieldNameStarts
         FieldNameLengths = fieldNameLengths
         FieldTypeStarts = fieldTypeStarts
@@ -915,6 +916,7 @@ class StructDeclarationTable {
         TypeParamLengths = typeParamLengths
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
+        Where = whereTable
     }
 }
 
@@ -980,6 +982,110 @@ class ParserDeclarationTokenTable {
         Starts = starts
         ValueLengths = valueLengths
     }
+}
+
+// One flat constraint row on a TYPE declaration: the owner type-parameter's name span, the item code,
+// and — for a type item — the source span of the constraint type.
+//
+// The item codes are the SAME three sentinels the function-signature scan uses (-2 `class`, -3
+// `struct`, -4 `new()`); 0 means "a type, read TypeStarts/TypeLengths at this row". The one thing the
+// two scans do NOT share is how a constraint TYPE is captured, and that difference is forced: a
+// function signature parses its types into the shared NODE TABLE (it has one), while a declaration
+// core has no node table at all and captures its base/interface list as SOURCE SPANS through
+// `ParseDeclarationTypeSpanCore`. A constraint type is captured exactly like a base type, which is
+// the same fidelity the declaration already has for everything else it names.
+class ParserDeclarationWhereTable {
+    NameStarts: int[]
+    NameLengths: int[]
+    ItemCodes: int[]
+    TypeStarts: int[]
+    TypeLengths: int[]
+    constructor(nameStarts: int[], nameLengths: int[], itemCodes: int[], typeStarts: int[], typeLengths: int[]) {
+        NameStarts = nameStarts
+        NameLengths = nameLengths
+        ItemCodes = itemCodes
+        TypeStarts = typeStarts
+        TypeLengths = typeLengths
+    }
+}
+
+// `where T: Item, Item ... where U: Item ...` on a TYPE declaration. Answers the row count, or -1 on a
+// malformed clause; `nextIndex` is the first token after the last clause (equal to `start` when there
+// is no `where` at all, so a caller that has none pays one comparison).
+//
+// THE BRACE GATE IS WHY THIS EXISTS. Every declaration core ends its header scan with
+// `if tokens.Kinds[pos] != 129 { return -1 }` — it demands `{`. A `where` (kind 53) is not one, so a
+// constrained type declined the whole declaration to the recovery parser and never reached emit.
+func ParseDeclarationWhereClausesCore(tokens: ParserDeclarationTokenTable, count: int, start: int, whereItems: ParserDeclarationWhereTable, out nextIndex: int): int {
+    i := start
+    nextIndex = start
+    whereItemCount := 0
+    typeSpanResult := new ParserDeclarationResultTable(new int[](2))
+    while i < count && tokens.Kinds[i] == 53 {
+        i = i + 1
+        if i >= count || tokens.Kinds[i] != 0 {
+            return -1
+        }
+
+        whereNameStart := tokens.Starts[i]
+        whereNameLength := tokens.ValueLengths[i]
+        i = i + 1
+        if i >= count || tokens.Kinds[i] != 122 {
+            return -1
+        }
+
+        i = i + 1
+
+        moreItems := true
+        while moreItems {
+            itemCode := 0
+            typeStart := 0
+            typeLength := 0
+            if i < count && tokens.Kinds[i] == 8 {
+                itemCode = -2
+                i = i + 1
+            } else if i < count && tokens.Kinds[i] == 9 {
+                itemCode = -3
+                i = i + 1
+            } else if i < count && tokens.Kinds[i] == 41 {
+                if i + 2 >= count || tokens.Kinds[i + 1] != 127 || tokens.Kinds[i + 2] != 128 {
+                    return -1
+                }
+
+                itemCode = -4
+                i = i + 3
+            } else {
+                typeEnd := ParseDeclarationTypeSpanCore(tokens, count, i, typeSpanResult)
+                if typeEnd < 0 {
+                    return -1
+                }
+
+                typeStart = typeSpanResult.Values[0]
+                typeLength = typeSpanResult.Values[1]
+                i = typeEnd
+            }
+
+            if whereItemCount >= whereItems.ItemCodes.Length {
+                return -1
+            }
+
+            whereItems.NameStarts[whereItemCount] = whereNameStart
+            whereItems.NameLengths[whereItemCount] = whereNameLength
+            whereItems.ItemCodes[whereItemCount] = itemCode
+            whereItems.TypeStarts[whereItemCount] = typeStart
+            whereItems.TypeLengths[whereItemCount] = typeLength
+            whereItemCount = whereItemCount + 1
+
+            if i < count && tokens.Kinds[i] == 134 {
+                i = i + 1
+            } else {
+                moreItems = false
+            }
+        }
+    }
+
+    nextIndex = i
+    return whereItemCount
 }
 
 class ParserDeclarationKindStream {
@@ -1531,7 +1637,8 @@ class ColumnarStructScratchTable {
     TypeParamLengths: int[]
     BaseNameStarts: int[]
     BaseNameLengths: int[]
-    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldInitStarts: int[], fieldInitLengths: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[]) {
+    Where: ParserDeclarationWhereTable
+    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldInitStarts: int[], fieldInitLengths: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[], whereTable: ParserDeclarationWhereTable) {
         FieldNameStarts = fieldNameStarts
         FieldNameLengths = fieldNameLengths
         FieldTypeStarts = fieldTypeStarts
@@ -1542,10 +1649,14 @@ class ColumnarStructScratchTable {
         TypeParamLengths = typeParamLengths
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
+        Where = whereTable
     }
 }
 
 class ColumnarStructOutputTable {
+    WhereOwnerTexts: string[]
+    WhereItemCodes: int[]
+    WhereTypeTexts: string[]
     FieldNameTexts: string[]
     FieldTypeTexts: string[]
     FieldStaticFlags: int[]
@@ -1559,7 +1670,7 @@ class ColumnarStructOutputTable {
     TypeParamTexts: string[]
     BaseNameTexts: string[]
     StructNameTexts: string[]
-    constructor(fieldNameTexts: string[], fieldTypeTexts: string[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitTexts: string[], methodFuncIndices: int[], methodStaticFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamTexts: string[], baseNameTexts: string[], structNameTexts: string[]) {
+    constructor(fieldNameTexts: string[], fieldTypeTexts: string[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitTexts: string[], methodFuncIndices: int[], methodStaticFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamTexts: string[], baseNameTexts: string[], structNameTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[]) {
         FieldNameTexts = fieldNameTexts
         FieldTypeTexts = fieldTypeTexts
         FieldStaticFlags = fieldStaticFlags
@@ -1573,6 +1684,9 @@ class ColumnarStructOutputTable {
         TypeParamTexts = typeParamTexts
         BaseNameTexts = baseNameTexts
         StructNameTexts = structNameTexts
+        WhereOwnerTexts = whereOwnerTexts
+        WhereItemCodes = whereItemCodes
+        WhereTypeTexts = whereTypeTexts
     }
 }
 
@@ -10014,6 +10128,19 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
     result.Values[8] = baseNameCount
 
+    // Generic CONSTRAINTS `where T: …`, between the base/interface list and the body — the position the
+    // source puts them in, and the reason the gate below used to refuse the whole declaration.
+    whereNext := pos
+    whereItemCount := ParseDeclarationWhereClausesCore(tokens, count, pos, decl.Where, out whereNext)
+    if whereItemCount < 0 {
+        return -1
+    }
+
+    pos = whereNext
+    if result.Values.Length > 10 {
+        result.Values[10] = whereItemCount
+    }
+
     if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
@@ -11366,6 +11493,89 @@ func FunctionSignatureSourceSpansEqual(source: string, leftStart: int, leftLengt
     return true
 }
 
+// THE `where` CLAUSE SCAN, WRITTEN ONCE FOR EVERY DECLARATION THAT CAN CARRY ONE.
+//
+// `where T: Item, Item ... where U: Item ...`. Each item appends one flat row (owner name span + code);
+// the owner identifier is NOT validated against the declared type parameters here — the host resolves
+// the span against the declaration's type-parameter spans, because the kernel cannot compare source
+// text. A constraint TYPE parses as another root in the shared node table, exactly like a parameter
+// type; `new` must be followed directly by `(` `)` or the clause is malformed.
+//
+// Item codes: a type-tree root (>= 0), or a special sentinel — -2 `class`, -3 `struct`, -4 `new()`.
+//
+// This was inline in `ParseFunctionSignatureCore` while a function was the only declaration that could
+// carry a clause. It is called from there and from the struct/class/record, interface and union
+// declaration cores, each of which reaches it before the `{` gate that used to refuse a `where` token
+// outright. Answers the row count, or -1 on a malformed clause; `nextIndex` is the first token after
+// the last clause (equal to `start` when there is no `where` at all).
+func ParseWhereClausesCore(tokens: ParserTokenTable, count: int, start: int, st: ParserState, typeStack: ParserArgumentStack, nodes: ParserNodeTable, children: ParserChildIndexTable, whereItems: ParserFunctionWhereTable, out nextIndex: int): int {
+    i := start
+    nextIndex = start
+    whereItemCount := 0
+    while i < count && tokens.Kinds[i] == 53 {
+        i = i + 1
+        if i >= count || tokens.Kinds[i] != 0 {
+            return -1
+        }
+
+        whereNameStart := tokens.Starts[i]
+        whereNameLength := tokens.ValueLengths[i]
+        i = i + 1
+        if i >= count || tokens.Kinds[i] != 122 {
+            return -1
+        }
+
+        i = i + 1
+
+        moreItems := true
+        while moreItems {
+            itemCode := -1
+            if i < count && tokens.Kinds[i] == 8 {
+                itemCode = -2
+                i = i + 1
+            } else if i < count && tokens.Kinds[i] == 9 {
+                itemCode = -3
+                i = i + 1
+            } else if i < count && tokens.Kinds[i] == 41 {
+                if i + 2 >= count || tokens.Kinds[i + 1] != 127 || tokens.Kinds[i + 2] != 128 {
+                    return -1
+                }
+
+                itemCode = -4
+                i = i + 3
+            } else {
+                st.Pos = i
+                st.SplitGreaterDepth = 0
+                st.ArgStackTop = 0
+                itemCode = ParseUnionTypeReferenceNodeCore(tokens, count, st, typeStack, nodes, children, 0)
+                if itemCode < 0 {
+                    return -1
+                }
+
+                i = st.Pos
+            }
+
+            if whereItemCount >= whereItems.ItemCodes.Length {
+                return -1
+            }
+
+            whereItems.NameStarts[whereItemCount] = whereNameStart
+            whereItems.NameLengths[whereItemCount] = whereNameLength
+            whereItems.ItemCodes[whereItemCount] = itemCode
+            whereItemCount = whereItemCount + 1
+
+            if i < count && tokens.Kinds[i] == 134 {
+                i = i + 1
+            } else {
+                moreItems = false
+            }
+        }
+    }
+
+    nextIndex = i
+    return whereItemCount
+}
+
 func ParseFunctionSignatureCore(tokens: ParserTokenTable, count: int, funcIndex: int, typeStack: ParserArgumentStack, nodes: ParserNodeTable, children: ParserChildIndexTable, parameters: ParserFunctionParameterTable, typeParams: ParserFunctionTypeParameterTable, whereItems: ParserFunctionWhereTable, outResult: ParserResultTable): int {
     funcNameStart := -1
     funcNameLength := 0
@@ -11602,67 +11812,15 @@ func ParseFunctionSignatureCore(tokens: ParserTokenTable, count: int, funcIndex:
         i = i + 2
     }
 
-    // Generic CONSTRAINT clauses `where T: Item, Item ... where U: Item ...` (D-17b). Each item appends one flat row (owner name span + code); the
-    // owner identifier is NOT validated against the declared type parameters here — the host resolves the
-    // span against outTypeParamStarts/Lengths (the kernel cannot compare source text). A constraint TYPE
-    // parses as another root in the shared node table, exactly like a parameter type; `new` must be
-    // followed directly by `(` `)` or the signature is malformed.
-    whereItemCount := 0
-    while i < count && tokens.Kinds[i] == 53 {
-        i = i + 1
-        if i >= count || tokens.Kinds[i] != 0 {
-            return -1
-        }
-
-        whereNameStart := tokens.Starts[i]
-        whereNameLength := tokens.ValueLengths[i]
-        i = i + 1
-        if i >= count || tokens.Kinds[i] != 122 {
-            return -1
-        }
-
-        i = i + 1
-
-        moreItems := true
-        while moreItems {
-            itemCode := -1
-            if i < count && tokens.Kinds[i] == 8 {
-                itemCode = -2
-                i = i + 1
-            } else if i < count && tokens.Kinds[i] == 9 {
-                itemCode = -3
-                i = i + 1
-            } else if i < count && tokens.Kinds[i] == 41 {
-                if i + 2 >= count || tokens.Kinds[i + 1] != 127 || tokens.Kinds[i + 2] != 128 {
-                    return -1
-                }
-
-                itemCode = -4
-                i = i + 3
-            } else {
-                st.Pos = i
-                st.SplitGreaterDepth = 0
-                st.ArgStackTop = 0
-                itemCode = ParseUnionTypeReferenceNodeCore(tokens, count, st, typeStack, nodes, children, 0)
-                if itemCode < 0 {
-                    return -1
-                }
-
-                i = st.Pos
-            }
-
-            whereItems.NameStarts[whereItemCount] = whereNameStart
-            whereItems.NameLengths[whereItemCount] = whereNameLength
-            whereItems.ItemCodes[whereItemCount] = itemCode
-            whereItemCount = whereItemCount + 1
-
-            if i < count && tokens.Kinds[i] == 134 {
-                i = i + 1
-            } else {
-                moreItems = false
-            }
-        }
+    // Generic CONSTRAINT clauses (D-17b) — the scan is `ParseWhereClausesCore` below, shared with the
+    // three TYPE declaration cores so the grammar is written once.
+    whereNext := i
+    whereItemCount := ParseWhereClausesCore(tokens, count, i, st, typeStack, nodes, children, whereItems, out whereNext)
+    if whereItemCount < 0 {
+        return -1
     }
+
+    i = whereNext
 
     outResult.Values[0] = paramCount
     outResult.Values[1] = returnRoot
@@ -12840,17 +12998,18 @@ func ParseColumnarConstructorBodyNodesCore(source: string, tokens: ColumnarConst
     return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
-func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, isReference: int, isRecord: int, outFieldNameTexts: string[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamTexts: string[], outBaseNameTexts: string[], outStructNameTexts: string[], outResult: int[]): int {
+func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, isReference: int, isRecord: int, outFieldNameTexts: string[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamTexts: string[], outBaseNameTexts: string[], outStructNameTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[]): int {
     tokens := new ColumnarStructTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    scratch := new ColumnarStructScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    outputs := new ColumnarStructOutputTable(outFieldNameTexts, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags, outTypeParamTexts, outBaseNameTexts, outStructNameTexts)
+    whereScratch := new ParserDeclarationWhereTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    scratch := new ColumnarStructScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), whereScratch)
+    outputs := new ColumnarStructOutputTable(outFieldNameTexts, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags, outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts)
     result := new ColumnarStructResultTable(outResult)
     return ParseColumnarStructInfoCore(source, tokens, structIndex, isReference, isRecord, scratch, outputs, result)
 }
 
 func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTable, structIndex: int, isReference: int, _isRecord: int, scratch: ColumnarStructScratchTable, outputs: ColumnarStructOutputTable, result: ColumnarStructResultTable): int {
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    decl := new StructDeclarationTable(scratch.FieldNameStarts, scratch.FieldNameLengths, scratch.FieldTypeStarts, scratch.FieldTypeLengths, outputs.FieldStaticFlags, outputs.FieldInitKinds, scratch.FieldInitStarts, scratch.FieldInitLengths, outputs.MethodFuncIndices, outputs.MethodStaticFlags, outputs.MethodStaticFlags, outputs.CtorIndices, outputs.PropIndices, outputs.PropStaticFlags, scratch.TypeParamStarts, scratch.TypeParamLengths, scratch.BaseNameStarts, scratch.BaseNameLengths)
+    decl := new StructDeclarationTable(scratch.FieldNameStarts, scratch.FieldNameLengths, scratch.FieldTypeStarts, scratch.FieldTypeLengths, outputs.FieldStaticFlags, outputs.FieldInitKinds, scratch.FieldInitStarts, scratch.FieldInitLengths, outputs.MethodFuncIndices, outputs.MethodStaticFlags, outputs.MethodStaticFlags, outputs.CtorIndices, outputs.PropIndices, outputs.PropStaticFlags, scratch.TypeParamStarts, scratch.TypeParamLengths, scratch.BaseNameStarts, scratch.BaseNameLengths, scratch.Where)
     declarationResult := new ParserDeclarationResultTable(result.Values)
     fieldCount := ParseStructDeclarationCore(source, declarationTokens, tokens.Count, structIndex, decl, declarationResult)
     methodCount := result.Values[2]
@@ -12989,6 +13148,39 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
         }
 
         outputs.BaseNameTexts[i] = baseName
+        i = i + 1
+    }
+
+    // The constraint rows, rendered like the base list: the owner type-parameter NAME as a plain span
+    // and the constraint TYPE canonically, so the host compares owner names against the declared type
+    // parameters and hands the type texts straight to the input builder.
+    whereItemCount := 0
+    if result.Values.Length > 10 {
+        whereItemCount = result.Values[10]
+    }
+
+    if whereItemCount > outputs.WhereOwnerTexts.Length || whereItemCount > outputs.WhereItemCodes.Length || whereItemCount > outputs.WhereTypeTexts.Length {
+        return -1
+    }
+
+    i = 0
+    while i < whereItemCount {
+        ownerName := ParserDeclarationSpanText(source, scratch.Where.NameStarts[i], scratch.Where.NameLengths[i])
+        if ownerName == "" {
+            return -1
+        }
+
+        outputs.WhereOwnerTexts[i] = ownerName
+        outputs.WhereItemCodes[i] = scratch.Where.ItemCodes[i]
+        constraintText := ""
+        if scratch.Where.ItemCodes[i] == 0 {
+            constraintText = ParserDeclarationCanonicalTypeText(source, scratch.Where.TypeStarts[i], scratch.Where.TypeLengths[i])
+            if constraintText == "" {
+                return -1
+            }
+        }
+
+        outputs.WhereTypeTexts[i] = constraintText
         i = i + 1
     }
 

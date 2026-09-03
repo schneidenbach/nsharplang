@@ -179,11 +179,15 @@ class ColumnarStructInput {
     IsRecord: bool
     IsNewtype: bool
     TypeParamNames: string[]
+    // The generic-constraint columns, in the SAME shape a function input carries them: one special-flag
+    // word per type parameter, and one array of constraint type texts per type parameter.
+    TypeParamSpecialConstraints: int[]
+    TypeParamTypeConstraints: string[][]
     SourceFileId: int
     EnclosingTypeName: string
     NestedVisibilityAttributes: int
 
-    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0) {
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -209,6 +213,8 @@ class ColumnarStructInput {
         IsRecord = isRecord
         IsNewtype = isNewtype
         TypeParamNames = typeParamNames ?? new string[](0)
+        TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, TypeParamNames.Length)
+        TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, TypeParamNames.Length)
         SourceFileId = sourceFileId
         EnclosingTypeName = enclosingTypeName ?? ""
         NestedVisibilityAttributes = NestedVisibilityFor(name, visibilityModifierFlags)

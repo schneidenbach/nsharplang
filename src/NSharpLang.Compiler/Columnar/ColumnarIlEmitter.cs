@@ -4265,6 +4265,14 @@ internal sealed class ColumnarIlEmitter
                 typeGenericParams,
                 def.DeclaredTypeName);
             structTypeResolutions[s] = typeResolution;
+            if (typeGenericParams != null)
+            {
+                var typeGps = new GenericTypeParameterBuilder[st.TypeParamNames.Length];
+                for (var g = 0; g < typeGps.Length; g++)
+                    typeGps[g] = (GenericTypeParameterBuilder)typeGenericParams[st.TypeParamNames[g]];
+                if (!TryApplyGenericParameterConstraints(typeGps, st.TypeParamSpecialConstraints, st.TypeParamTypeConstraints, typeGenericParams, typeGps, typeResolution, out _, out _, out _))
+                    return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + st.Name + "' are not modeled", st.Name);
+            }
             var fields = def.Fields;
             var instanceFieldNames = new List<string>(st.FieldNames.Length);
             for (var fi = 0; fi < st.FieldNames.Length; fi++)
@@ -5141,92 +5149,8 @@ internal sealed class ColumnarIlEmitter
                 // parameters (`where T: U`). Modeled base targets: another type parameter, a user REFERENCE
                 // class/record TypeBuilder, or a baked BCL class. Interface constraints are emitted separately
                 // and carried into pass 2, where constrained interface calls need the closed slot metadata.
-                fnSpecialConstraints = new int[gpBuilders.Length];
-                fnBaseConstraints = new Type?[gpBuilders.Length];
-                var fnInterfaceConstraintLists = new List<Type>[gpBuilders.Length];
-                for (var g = 0; g < gpBuilders.Length; g++)
-                {
-                    var special = fn.TypeParamSpecialConstraints.Length > g ? fn.TypeParamSpecialConstraints[g] : 0;
-                    fnSpecialConstraints[g] = special;
-                    if (special != 0)
-                    {
-                        var gpAttrs = GenericParameterAttributes.None;
-                        if ((special & 1) != 0)
-                            gpAttrs |= GenericParameterAttributes.ReferenceTypeConstraint;
-                        if ((special & 2) != 0)
-                            gpAttrs |= GenericParameterAttributes.NotNullableValueTypeConstraint
-                                | GenericParameterAttributes.DefaultConstructorConstraint;
-                        else if ((special & 4) != 0)
-                            gpAttrs |= GenericParameterAttributes.DefaultConstructorConstraint;
-                        gpBuilders[g].SetGenericParameterAttributes(gpAttrs);
-                    }
-                    var typeConstraints = fn.TypeParamTypeConstraints.Length > g
-                        ? fn.TypeParamTypeConstraints[g]
-                        : System.Array.Empty<string>();
-                    foreach (var typeConstraint in typeConstraints)
-                    {
-                        if (!TryResolveTypeWithTypeParams(typeConstraint, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var constraintType))
-                            return false;
-                        if (!constraintType.IsGenericParameter
-                            && (TryResolveUserInterfaceDef(constraintType, typeResolution.Structs.Values, out _)
-                                || ColumnarBaseTypePlanner.IsRuntimeInterfaceType(constraintType)))
-                        {
-                            (fnInterfaceConstraintLists[g] ??= new List<Type>()).Add(constraintType);
-                            continue;
-                        }
-                        if (fnBaseConstraints[g] != null)
-                            return false;
-                        if (!constraintType.IsGenericParameter)
-                        {
-                            if (constraintType is TypeBuilder)
-                            {
-                                // A user type is admissible only with REFERENCE layout (a value struct cannot be a
-                                // base constraint); TypeBuilder.IsValueType answers structurally (base == ValueType).
-                                if (constraintType.IsValueType)
-                                    return false;
-                            }
-                            else if (constraintType.Assembly is AssemblyBuilder
-                                || constraintType.IsValueType || constraintType.IsSZArray || !constraintType.IsClass)
-                            {
-                                // Non-TypeBuilder emitted shapes (EnumBuilder, TypeBuilderInstantiation) and
-                                // non-class runtime types are not modeled constraint targets.
-                                return false;
-                            }
-                        }
-                        gpBuilders[g].SetBaseTypeConstraint(constraintType);
-                        fnBaseConstraints[g] = constraintType;
-                    }
-                    if (fnInterfaceConstraintLists[g] is { Count: > 0 } interfaceList)
-                        gpBuilders[g].SetInterfaceConstraints(interfaceList.ToArray());
-                }
-                fnInterfaceConstraints = new Type[gpBuilders.Length][];
-                for (var g = 0; g < gpBuilders.Length; g++)
-                {
-                    fnInterfaceConstraints[g] = fnInterfaceConstraintLists[g] is { Count: > 0 } interfaceList
-                        ? interfaceList.ToArray()
-                        : System.Array.Empty<Type>();
-                }
-                // CIRCULAR type-parameter constraints (`where T: T`, `where T: U where U: T`) emit metadata
-                // the CLR REJECTS at load (TypeLoadException — probe-proven over-accept). Walk each param's
-                // constraint chain; more steps than parameters means a cycle — decline.
-                for (var g = 0; g < gpBuilders.Length; g++)
-                {
-                    var steps = 0;
-                    var cursor = g;
-                    while (fnBaseConstraints[cursor] is { IsGenericParameter: true } next)
-                    {
-                        if (++steps > gpBuilders.Length)
-                            return false;
-                        var nextPos = -1;
-                        for (var q = 0; q < fnTypeParams.Length; q++)
-                        {
-                            if (ReferenceEquals(fnTypeParams[q], next)) { nextPos = q; break; }
-                        }
-                        if (nextPos < 0)
-                            return false; // a parameter from some other scope — not resolvable here.
-                        cursor = nextPos;
-                    }
-                }
+                if (!TryApplyGenericParameterConstraints(gpBuilders, fn.TypeParamSpecialConstraints, fn.TypeParamTypeConstraints, typeParamMap, fnTypeParams, typeResolution, out fnSpecialConstraints, out fnBaseConstraints, out fnInterfaceConstraints))
+                    return false;
             }
             else if (fn.TypeParamSpecialConstraints.Length > 0 || fn.TypeParamTypeConstraints.Length > 0)
             {
@@ -9126,6 +9050,82 @@ internal sealed class ColumnarIlEmitter
 
     private ColumnarStructDef? FindDefByType(Type type)
         => type is TypeBuilder builder ? FindDefByBuilder(builder) : null;
+
+    // THE ONE PLACE A `where` CLAUSE REACHES THE CLR, FOR EVERY GENERIC-PARAMETER OWNER — the method
+    // site and the type sites. It used to be inline in the FUNCTION arm and nowhere else, which is why a
+    // constrained TYPE emitted `attrs=None`. The RULES are `ColumnarGenericConstraintPlanner` (N#); this
+    // holds only the three CLR calls and the resolution they need.
+    //
+    // `IsGenericParameter` IS TESTED FIRST AND SEPARATELY: `Type.IsSZArray` throws on a bare type
+    // parameter under persisted emit, and C# evaluates every argument before the call.
+    private static bool TryApplyGenericParameterConstraints(
+        GenericTypeParameterBuilder[] gpBuilders,
+        int[] specialRows,
+        string[][] typeConstraintRows,
+        Dictionary<string, Type> typeParamMap,
+        Type[] ownerTypeParams,
+        ColumnarSemanticTypeResolution typeResolution,
+        out int[] specials,
+        out Type?[] baseConstraints,
+        out Type[][] interfaceConstraints)
+    {
+        specials = new int[gpBuilders.Length];
+        baseConstraints = new Type?[gpBuilders.Length];
+        interfaceConstraints = new Type[gpBuilders.Length][];
+        var baseParamIndices = new int[gpBuilders.Length];
+        var interfaceLists = new List<Type>[gpBuilders.Length];
+        for (var g = 0; g < gpBuilders.Length; g++)
+        {
+            baseParamIndices[g] = -1;
+            var special = specialRows.Length > g ? specialRows[g] : 0;
+            specials[g] = special;
+            var bits = ColumnarGenericConstraintPlanner.AttributeBitsFor(special);
+            if (bits != 0)
+                gpBuilders[g].SetGenericParameterAttributes((GenericParameterAttributes)bits);
+            var typeConstraints = typeConstraintRows.Length > g ? typeConstraintRows[g] : System.Array.Empty<string>();
+            foreach (var typeConstraint in typeConstraints)
+            {
+                if (!TryResolveTypeWithTypeParams(typeConstraint, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var constraintType))
+                    return false;
+                if (constraintType.IsGenericParameter)
+                {
+                    if (baseConstraints[g] != null)
+                        return false;
+                    var nextPos = -1;
+                    for (var q = 0; q < ownerTypeParams.Length; q++)
+                    {
+                        if (ReferenceEquals(ownerTypeParams[q], constraintType)) { nextPos = q; break; }
+                    }
+                    if (nextPos < 0)
+                        return false; // a parameter from some other scope — not resolvable here.
+                    gpBuilders[g].SetBaseTypeConstraint(constraintType);
+                    baseConstraints[g] = constraintType;
+                    baseParamIndices[g] = nextPos;
+                    continue;
+                }
+                if (TryResolveUserInterfaceDef(constraintType, typeResolution.Structs.Values, out _)
+                    || ColumnarBaseTypePlanner.IsRuntimeInterfaceType(constraintType))
+                {
+                    (interfaceLists[g] ??= new List<Type>()).Add(constraintType);
+                    continue;
+                }
+                if (baseConstraints[g] != null)
+                    return false;
+                if (!ColumnarGenericConstraintPlanner.IsAdmissibleBaseConstraint(
+                        false, constraintType is TypeBuilder, constraintType.IsValueType,
+                        constraintType.Assembly is AssemblyBuilder, IsSafeSzArrayType(constraintType), constraintType.IsClass))
+                    return false;
+                gpBuilders[g].SetBaseTypeConstraint(constraintType);
+                baseConstraints[g] = constraintType;
+            }
+            if (interfaceLists[g] is { Count: > 0 } list)
+                gpBuilders[g].SetInterfaceConstraints(list.ToArray());
+            interfaceConstraints[g] = interfaceLists[g] is { Count: > 0 } carried
+                ? carried.ToArray()
+                : System.Array.Empty<Type>();
+        }
+        return !ColumnarGenericConstraintPlanner.HasCircularConstraint(baseParamIndices);
+    }
 
     private static bool TryResolveUserInterfaceDef(
         Type interfaceType,
