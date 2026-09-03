@@ -300,3 +300,77 @@ test "NL701 PRINTS that rule — both halves of it — and no longer prints the 
     assert output.IndexOf("The '.nl' extension is optional", StringComparison.Ordinal) >= 0, output
     assert output.IndexOf("The path should be relative to your project root.", StringComparison.Ordinal) < 0, output
 }
+
+// ═══ NL321 AND NL702 — A SUGGESTION IS A SPELLING THE COMPILER ACCEPTS ════════════════════════
+//
+// The strongest thing a contract can say about a suggested fix is that it BUILDS, so these run the
+// suggested text itself. Both diagnostics used to fail that: NL321 offered `new T[] { ... }`, which
+// parses and then stops the build at NL103 `parse.function`; NL702 offered "add an alias and qualify
+// the symbol", which for a colliding FUNCTION stops at NL103 `emit.call.static-member-unmodeled`.
+//
+// The refused spellings are pinned as refused, not merely dropped, so that the day the backend
+// admits either one the contract fails and asks for the suggestion back.
+
+test "NL321 suggests the array literal, and the array literal COMPILES where `new T[] { ... }` still does not" {
+    reported := DhProbe.Check("nl321", "func Make(): int[] {\n    return new int[4](7)\n}\n")
+    assert DhCodeCount(reported, "NL321") == 1, reported
+    assert reported.IndexOf("write the elements as a list — 'values := [1, 2, 3]'.", StringComparison.Ordinal) >= 0, reported
+    assert reported.IndexOf("new T[] { ... }", StringComparison.Ordinal) < 0, reported
+
+    // THE SUGGESTED TEXT, RUN.
+    literal := DhProbe.Check("nl321-suggested-literal", "func Values(): int[] {\n    values := [1, 2, 3]\n    return values\n}\n")
+    assert DhDiagnosticCount(literal) == 0, literal
+
+    sized := DhProbe.Check("nl321-suggested-sized", "func Zeros(n: int): int[] {\n    return new int[n]\n}\n")
+    assert DhDiagnosticCount(sized) == 0, sized
+
+    // THE SPELLING THAT WAS SUGGESTED AND DOES NOT BUILD, pinned as not building.
+    refused := DhProbe.Check("nl321-old-suggestion", "func Values(): int[] {\n    return new int[] { 1, 2, 3 }\n}\n")
+    assert DhCodeCount(refused, "NL103") == 1, refused
+    assert refused.IndexOf("parse.function", StringComparison.Ordinal) >= 0, refused
+}
+
+func DhCollisionProbe(name: string, declarationA: string, declarationB: string, program: string): string {
+    companions := "// FILE text.nl\nnamespace Lib.Text\n\n" + declarationA
+    companions = companions + "// FILE money.nl\nnamespace Lib.Money\n\n" + declarationB
+    return DhProbe.Run(name, "check", program, companions)
+}
+
+func DhFormatText(): string {
+    return "func Format(value: int): string {\n    return value.ToString()\n}\n"
+}
+
+func DhFormatMoney(name: string): string {
+    return "func " + name + "(value: int): string {\n    return \"$\" + value.ToString()\n}\n"
+}
+
+func DhTagType(memberName: string): string {
+    return "class Tag {\n    " + memberName + ": string\n\n    constructor(value: string) {\n        " + memberName + " = value\n    }\n}\n"
+}
+
+test "NL702 on a colliding FUNCTION suggests a rename, and the rename COMPILES where the alias-qualified call still does not" {
+    collision := DhCollisionProbe("nl702-function", DhFormatText(), DhFormatMoney("Format"), "import \"./text.nl\"\nimport \"./money.nl\"\n\nfunc Describe(value: int): string {\n    return Format(value)\n}\n")
+    assert DhCodeCount(collision, "NL702") == 1, collision
+    assert collision.IndexOf("Rename one of the two 'Format' declarations", StringComparison.Ordinal) >= 0, collision
+
+    // THE SUGGESTED FIX, RUN.
+    renamed := DhCollisionProbe("nl702-renamed", DhFormatText(), DhFormatMoney("FormatMoney"), "import \"./text.nl\"\nimport \"./money.nl\"\n\nfunc Describe(value: int): string {\n    return Format(value)\n}\n\nfunc DescribePrice(value: int): string {\n    return FormatMoney(value)\n}\n")
+    assert DhDiagnosticCount(renamed) == 0, renamed
+
+    // THE FIX THAT WAS SUGGESTED AND DOES NOT BUILD, pinned as not building — the alias clears
+    // NL702 and the call through it then stops the build.
+    aliased := DhCollisionProbe("nl702-aliased-call", DhFormatText(), DhFormatMoney("Format"), "import \"./text.nl\"\nimport \"./money.nl\" as Money\n\nfunc Describe(value: int): string {\n    return Format(value)\n}\n\nfunc DescribePrice(value: int): string {\n    return Money.Format(value)\n}\n")
+    assert DhCodeCount(aliased, "NL702") == 0, aliased
+    assert DhCodeCount(aliased, "NL103") == 1, aliased
+    assert aliased.IndexOf("emit.call.static-member-unmodeled", StringComparison.Ordinal) >= 0, aliased
+}
+
+test "NL702 on a colliding TYPE keeps the alias, because an alias-qualified TYPE does compile" {
+    collision := DhCollisionProbe("nl702-type", DhTagType("Name"), DhTagType("Code"), "import \"./text.nl\"\nimport \"./money.nl\"\n\nfunc Make(name: string): Tag {\n    return new Tag(name)\n}\n")
+    assert DhCodeCount(collision, "NL702") == 1, collision
+    assert collision.IndexOf("write the type as `Alias.Tag`", StringComparison.Ordinal) >= 0, collision
+
+    // THE SUGGESTED FIX, RUN — the alias-qualified type in a signature AND at a `new`.
+    aliased := DhCollisionProbe("nl702-type-aliased", DhTagType("Name"), DhTagType("Code"), "import \"./text.nl\"\nimport \"./money.nl\" as Money\n\nfunc MakeText(name: string): Tag {\n    return new Tag(name)\n}\n\nfunc MakeMoney(code: string): Money.Tag {\n    return new Money.Tag(code)\n}\n")
+    assert DhDiagnosticCount(aliased) == 0, aliased
+}

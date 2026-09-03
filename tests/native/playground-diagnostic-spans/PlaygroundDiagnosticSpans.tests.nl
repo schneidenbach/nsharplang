@@ -1402,7 +1402,7 @@ test "020 s37 playground diagnostic spans: CheckProject FileImportCollision Pres
     assert PgCount(response) == 1
     assert PgCensus(response) == "NL702@2:8+5;"
     assert PgRow(response, 0) == "NL702|error|Imported symbol 'Shared' is defined by multiple file imports|Program.nl|2|8|5"
-    assert PgDetail(response, 0) == "import \"./B\"|The symbol 'Shared' is imported more than once, so N# cannot choose which definition to use.|Add an alias to one import, such as `import \"./B\" as Alias`, and qualify the symbol.|N# found 'Shared' in these file imports: \"./A\", \"./B\".\nUnaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit."
+    assert PgDetail(response, 0) == "import \"./B\"|The symbol 'Shared' is imported more than once, so N# cannot choose which definition to use.|Add an alias to one import, such as `import \"./B\" as Alias`, and write the type as `Alias.Shared`.|N# found 'Shared' in these file imports: \"./A\", \"./B\".\nUnaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit."
     assert PgRow(response, 1) == "<no-such-diagnostic>"
     other := PgCheck("import \"./A\"\nimport \"./B\"\n\nfunc main() {\n}")
     assert PgOk(other) == "False"

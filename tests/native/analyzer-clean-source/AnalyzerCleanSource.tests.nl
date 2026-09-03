@@ -8229,25 +8229,25 @@ test "020 s31 analyzer error codes: a sized array allocation that also passes co
     assert AcCensus(analysis) == "NL321:InvalidSizedArrayConstructorArguments@7:27+3;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcRow(analysis, 0) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "InvalidSizedArrayConstructorArguments") == 1
     assert AcCodeErrorCount(analysis, "InvalidSizedArrayConstructorArguments") == 1
-    assert AcCodeRow(analysis, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcCodeRow(analysis, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcCodeAnchor(analysis, "InvalidSizedArrayConstructorArguments") == "NL321@7:27+3"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL321:InvalidSizedArrayConstructorArguments@7:27+3;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcRow(rich, 0) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "InvalidSizedArrayConstructorArguments") == 1
     assert AcCodeErrorCount(rich, "InvalidSizedArrayConstructorArguments") == 1
-    assert AcCodeRow(rich, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcCodeRow(rich, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcCodeAnchor(rich, "InvalidSizedArrayConstructorArguments") == "NL321@7:27+3"
 }
 
@@ -8262,13 +8262,13 @@ test "020 s31 analyzer error codes: the sized-array rejection does not stop argu
     assert AcRow(analysis, 0) == "UndefinedVariable|I can't find 'missing' — it hasn't been declared in this scope|<null>|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
-    assert AcRow(analysis, 1) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcRow(analysis, 1) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcHint(analysis, 1) == "<null>"
     assert AcSuggestions(analysis, 1) == "<null>"
     assert AcRow(analysis, 2) == "<no-such-error>"
     assert AcCodeCount(analysis, "InvalidSizedArrayConstructorArguments") == 1
     assert AcCodeErrorCount(analysis, "InvalidSizedArrayConstructorArguments") == 1
-    assert AcCodeRow(analysis, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcCodeRow(analysis, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcCodeAnchor(analysis, "InvalidSizedArrayConstructorArguments") == "NL321@3:27+3"
     assert AcCodeCount(analysis, "UndefinedVariable") == 1
     assert AcCodeErrorCount(analysis, "UndefinedVariable") == 1
@@ -8281,13 +8281,13 @@ test "020 s31 analyzer error codes: the sized-array rejection does not stop argu
     assert AcRow(rich, 0) == "UndefinedVariable|Variable 'missing' not found|<null>|Error"
     assert AcHint(rich, 0) == "Make sure you've declared this variable before using it."
     assert AcSuggestions(rich, 0) == "<null>"
-    assert AcRow(rich, 1) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcRow(rich, 1) == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcHint(rich, 1) == "<null>"
     assert AcSuggestions(rich, 1) == "<null>"
     assert AcRow(rich, 2) == "<no-such-error>"
     assert AcCodeCount(rich, "InvalidSizedArrayConstructorArguments") == 1
     assert AcCodeErrorCount(rich, "InvalidSizedArrayConstructorArguments") == 1
-    assert AcCodeRow(rich, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.|Error"
+    assert AcCodeRow(rich, "InvalidSizedArrayConstructorArguments") == "InvalidSizedArrayConstructorArguments|Sized array allocation cannot also pass constructor arguments|Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.|Error"
     assert AcCodeAnchor(rich, "InvalidSizedArrayConstructorArguments") == "NL321@3:27+3"
     assert AcCodeCount(rich, "UndefinedVariable") == 1
     assert AcCodeErrorCount(rich, "UndefinedVariable") == 1
