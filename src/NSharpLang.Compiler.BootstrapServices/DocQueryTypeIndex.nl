@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Runtime.InteropServices
 
 
 // WHICH CLR TYPE A NAME MEANS, AND WHERE THE DOCUMENTATION FOR IT LIVES.
@@ -220,11 +221,21 @@ class DocQueryTypeIndex {
             return cachedDirectories
         }
 
-        locations := new string[](assemblies.Count)
+        // THE RUNTIME DIRECTORY IS ASKED FIRST, AND THAT IS WHAT MAKES ROOT DISCOVERY SURVIVE A
+        // SINGLE-FILE HOST. `FindDotNetRootCandidate` climbs the FIRST non-empty path it is given
+        // looking for a directory holding both `packs` and `shared`; every path here used to come from
+        // `Assembly.Location`, which is the EMPTY STRING under a single-file binary, so root discovery
+        // would have fallen back to `DOTNET_ROOT` alone and produced no directories wherever that is
+        // unset. `RuntimeEnvironment.GetRuntimeDirectory()` is where the host actually is, and it climbs
+        // to the same root. The indexed assemblies keep their turn AFTER it, because an assembly outside
+        // the shared framework — a package reference — knows a root the runtime directory does not.
+        // This is the same ordering the hover seed already uses (`CodeIntelligenceMemberDocs`).
+        locations := new string[](assemblies.Count + 1)
+        locations[0] = RuntimeEnvironment.GetRuntimeDirectory()
         assemblyIndex := 0
         while assemblyIndex < assemblies.Count {
             indexedAssembly := assemblies[assemblyIndex]
-            locations[assemblyIndex] = indexedAssembly.get_Location()
+            locations[assemblyIndex + 1] = indexedAssembly.get_Location()
             assemblyIndex = assemblyIndex + 1
         }
 
