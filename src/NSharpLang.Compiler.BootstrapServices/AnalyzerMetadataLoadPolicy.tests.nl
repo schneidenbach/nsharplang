@@ -169,12 +169,25 @@ test "the analyzer pre-loads exactly the table the columnar scan pre-loads — o
     assert JoinNames(AnalyzerMetadataLoadPolicy.CommonAssemblyNames()) == JoinNames(ExternalAssemblyScan.CommonAssemblyNames())
 }
 
-test "the table is the 27 names the drift used to be measured against, and it still opens with the core assembly" {
+test "the table is the 28 names the drift used to be measured against, and it still opens with the core assembly" {
     names := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
 
-    assert names.Length == 27
+    assert names.Length == 28
     assert names[0] == AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName()
     assert names[0] == "System.Runtime"
+
+    // 023/1b -- the ECMA-335 writer's own assembly. One entry opens BOTH the
+    // `System.Reflection.Metadata[.Ecma335]` and the `System.Reflection.PortableExecutable`
+    // namespaces, because `System.Reflection.Metadata.dll` carries both.
+    found := false
+    index := 0
+    while index < names.Length {
+        if names[index] == "System.Reflection.Metadata" {
+            found = true
+        }
+        index = index + 1
+    }
+    assert found
 }
 
 test "the name the analyzer's own copy was missing is IN the table — LINQ-to-XML by its implementation assembly" {

@@ -336,7 +336,8 @@ test "an un-admitted property of an admitted receiver still selects nothing" {
 
 test "the emit-side common assembly list carries the implementation assembly, not the facade" {
     names := ExternalAssemblyScan.CommonAssemblyNames()
-    assert names.Length == 27
+    // 28 since 023/1b added `System.Reflection.Metadata`, the ECMA-335 writer's own assembly.
+    assert names.Length == 28
 
     found := false
     facade := false

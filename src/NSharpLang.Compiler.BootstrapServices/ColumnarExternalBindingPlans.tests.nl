@@ -305,6 +305,58 @@ test "external static selections accept short and fully qualified owner names" {
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan("Environment.SpecialFolder", "UserProfile").IsSupported
 }
 
+// 023/1b -- THE ECMA-335 WRITER'S TYPES ARE ON THE ADMITTED-TYPE LIST, AND ONLY THE TWO KINDS THAT
+// HAVE TO BE. The list is a closed allow-list and is a defect of the same class as the construction
+// allow-list 022/3a-i replaced and the enum half of `GetStaticMemberPlan` that 023/1a deleted; the rule
+// it is to be replaced by is "a catalog-resolvable type is supported", after 022/3a's resolution helper
+// is shared. Until then these rows are named, and what is NOT named is the measurement that sized them.
+test "the metadata writer's classes and handles are admitted, and nothing else needed a row" {
+    // The classes the writer constructs or receives.
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.Ecma335.MetadataBuilder")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.Ecma335.MetadataRootBuilder")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.BlobBuilder")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.PortableExecutable.PEHeaderBuilder")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.PortableExecutable.ManagedPEBuilder")
+
+    // `PEBuilder` is admitted as the DECLARING type of `Serialize`, not as a type the writer names.
+    // This is the 015-B11 `get_Module` shape: a base-declared member is a SEPARATE admission from the
+    // receiving type's, and `ManagedPEBuilder.Serialize` is declared on the base.
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.PortableExecutable.PEBuilder")
+
+    // The handle family is admitted WHOLE, not the subset one program happens to touch: a writer that
+    // can declare a `TypeDefinitionHandle` and not a `MethodSpecificationHandle` is the per-member enum
+    // defect again, one table over.
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.EntityHandle")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.StringHandle")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.BlobHandle")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.GuidHandle")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.UserStringHandle")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.MethodDefinitionHandle")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.MethodSpecificationHandle")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.TypeSpecificationHandle")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.StandaloneSignatureHandle")
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.GenericParameterConstraintHandle")
+
+    // MEASURED, AND THE REASON THE ROW SET IS 37 AND NOT THE 27 THE PLAN ESTIMATED.
+    // An ENUM type needs no row: 023/1a made every external enum's members bind through the planner,
+    // and these three bind in `tests/native/columnar-emit-facts` with no row here.
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.TypeAttributes")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.AssemblyFlags")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.PortableExecutable.CorFlags")
+
+    // A STATIC-ONLY owner needs no row either: `MetadataTokens` resolves as a static call owner through
+    // the ordinary owner resolution, and only the handle types it RETURNS needed admitting.
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.Ecma335.MetadataTokens")
+
+    // And the surface did not grow past the writer: the encoder structs are deliberately absent. The
+    // writer encodes its signature and body blobs itself, byte by byte onto a `BlobBuilder`, because
+    // every SRM encoder entry point has exactly two overloads -- one taking `out` byref structs and one
+    // taking `Action<T>` -- and both are off the N# surface.
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.Ecma335.BlobEncoder")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.Ecma335.InstructionEncoder")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.Metadata.Ecma335.MethodBodyStreamEncoder")
+}
+
 test "range code plans own exact runtime type identities" {
     AssertRuntimeType("Index", "System.Index")
     AssertRuntimeType("Range", "System.Range")
