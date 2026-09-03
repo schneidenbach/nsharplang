@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `94ff758b5` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 7 m 33 s, pushed — the constraint slice 2d-ii, the visual re-verification record, task 022 slice 3a-i; this docs commit rides on top).
+**Tip:** `d9c943a75` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 6 m 58 s, pushed — the linter/analyzer chips A–E with NL324/NL325, task 022 slice 3a-ii, constraint enforcement at `new`, the enum-member admission 023/1a, two format fix-ups; this docs commit rides on top).
 
 ### Queue state (`tasks/README.md`)
 
@@ -150,6 +150,16 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
   signature help, overloads narrowed by argument types with arity as the fallback.
 - IDE re-verification DONE (above); next IDE batch on `stream/ide-chips-o1-o3`: O1 duplicate overload rows in
   completion, O2 the file-private member leak across files, O3 the doubled NSYS100, and the reload script's kill step.
+- `stream/023-s1-spelling-gap` — **the hello-world metadata writer works end to end in N#**: `hw_writer` builds through
+  the branch CLI, writes a 2,048-byte assembly through `MetadataBuilder` alone (byte-level blobs, token arithmetic from
+  declaration order, no `GetToken`, no implicit handle conversions), and that assembly runs on the shared framework and
+  passes `ilverify` — slice 1's terminal probe met on the real path. Four Phase-1 predictions overturned by execution
+  (an external struct receiver, an external struct in a plain local, a chained call on a call result all PASS); the
+  real gaps are closed allow-lists (external enum members per member — `023/1a` `92a319b49` admits them wholesale; the
+  32-row `IsSupportedRuntimeTypeName`; the retired construction list; the three-name override-target list found by 3b),
+  plus two constant-conversion rules (`1c` literal zero → enum, `1d` in-range constant → narrower integral) and two
+  filed gaps (a fully-qualified static receiver does not bind without the import; `DateTime.TryParse(s, out d)` is
+  static-member-unmodeled).
 - Surface gaps found writing the constraint contracts (queue): a field WRITE on a generic struct local declines at
   `emit.local.initializer`; reading a union case's payload field declines the same way. Neither is constraint-related.
 
@@ -224,12 +234,12 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `94ff758b5` (re-measure at your tip; never inherit)
+### Baselines at `d9c943a75` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 595 (596 − 2 collapsed Range duplicates + 1 new, D2) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,441** measured in the gate at `94ff758b5` (7,433 at `529ad23bf` + 6 task 022 slice 3a-i + 2 re-measured) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,481** measured in the gate at `d9c943a75` (7,441 at `94ff758b5` + 32 linter/analyzer chips + 8 constraints 2b; 023/1a net zero) |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20,784 lines / 19,768 non-blank |
@@ -239,7 +249,7 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
 | packaged SDK 0.1.0 in both feeds | packed from `94ff758b5` on 2026-09-02 21:15 (Sdk nupkg md5 `50a51430…`, BootstrapServices.dll md5 `8fe8c779…` staging == installed; `NO_COLOR` marker present; the estate 7,441/7,441 through the packaged SDK with a fresh emit in-log; the spelled probe `new NullabilityInfoContext()` / `new Random()` / `new InvalidOperationException(string, Exception)` — declining under the previous package — builds and runs). Carries the general construction rule (022/3a-i), the escape family and colour policy, `where` on types, the attribute blobs. Earlier: packed from `385b7e8d1` (md5 `e55c25e1…`) |
-| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **7 m 33 s** at `94ff758b5` (6 m 33 s at `c9da157fc` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
+| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **6 m 58 s** at `d9c943a75` (7 m 33 s at `94ff758b5` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
 
 ### The verification bar (every B-arc slice; the accumulated standard)
 
@@ -997,6 +1007,11 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
 - **`git stash` is REPO-WIDE, not worktree-local.** A bare `git stash pop` in one worktree took a sibling agent's
   stash off the shared stack and began applying its six files (the conflict preserved the entry). In a shared checkout
   use `git stash push -m <name>` and `git stash pop stash@{n}` by ref — or no stash at all (2026-09-02).
+
+- **Every agent runs the ROOT format check before committing, and evidence never carries `.nl`.** Two gates in a row
+  went red on Step 2b for a heredoc-authored `.tests.nl` nobody formatted, and the root check then flagged a
+  verification record's deliberately non-canonical before-probe — evidence under `artifacts/` keeps its bytes under a
+  `.txt` suffix (2026-09-02, the linter/analyzer + 023/1a batch).
 
 ## 3. Architecture facts
 
