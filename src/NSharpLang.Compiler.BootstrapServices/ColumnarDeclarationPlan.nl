@@ -53,7 +53,32 @@ class ColumnarTypeDefRows {
     }
 }
 
+// The FIELD family, jagged by declaring struct. `FieldAttributes` (ECMA-335 II.23.1.5) as integers:
+// Public 6, Static 16, InitOnly 32.
+class ColumnarFieldRows {
+    StructCount: int
+    FieldNames: string[][]
+    FieldAttributeWords: int[][]
+    FieldIsStatic: bool[][]
+    FieldIsNullable: bool[][]
+
+    constructor(
+        structCount: int,
+        fieldNames: string[][],
+        fieldAttributeWords: int[][],
+        fieldIsStatic: bool[][],
+        fieldIsNullable: bool[][]
+    ) {
+        StructCount = structCount
+        FieldNames = fieldNames
+        FieldAttributeWords = fieldAttributeWords
+        FieldIsStatic = fieldIsStatic
+        FieldIsNullable = fieldIsNullable
+    }
+}
+
 class ColumnarDeclarationPlan {
+    Fields: ColumnarFieldRows
     TypeDefs: ColumnarTypeDefRows
     AssemblyName: string
     ModuleName: string
@@ -66,6 +91,7 @@ class ColumnarDeclarationPlan {
     EnumMemberStringValues: string[][]
 
     constructor(
+        fields: ColumnarFieldRows,
         typeDefs: ColumnarTypeDefRows,
         assemblyName: string,
         moduleName: string,
@@ -77,6 +103,7 @@ class ColumnarDeclarationPlan {
         enumMemberValues: int[][],
         enumMemberStringValues: string[][]
     ) {
+        Fields = fields
         TypeDefs = typeDefs
         AssemblyName = assemblyName
         ModuleName = moduleName
@@ -151,6 +178,84 @@ class ColumnarDeclarationPlanner {
             return input.MemberStringValues[index]
         }
         return input.MemberNames[index]
+    }
+
+    static func PublicFieldAttribute(): int {
+        return 6
+    }
+
+    static func StaticFieldAttribute(): int {
+        return 16
+    }
+
+    static func InitOnlyFieldAttribute(): int {
+        return 32
+    }
+
+    // Public 6; +Static 16 for a static field; +InitOnly 32 for a readonly one. Four words in all:
+    // instance 6, readonly instance 38, static 22, readonly static 54.
+    static func FieldAttributesFor(isStatic: bool, isReadonly: bool): int {
+        bits := PublicFieldAttribute()
+        if isStatic {
+            bits = bits | StaticFieldAttribute()
+        }
+
+        if isReadonly {
+            bits = bits | InitOnlyFieldAttribute()
+        }
+
+        return bits
+    }
+
+    // THE READONLY FLAG IS BOUNDS-GUARDED AND THAT GUARD IS THE COMPUTATION. `FieldReadonlyFlags` may
+    // be SHORTER than `FieldNames` -- a field past its end is simply not readonly -- and reading it
+    // unguarded would throw on a shape the emitter accepts today.
+    static func FieldIsReadonlyAt(input: ColumnarStructInput, index: int): bool {
+        if index < input.FieldReadonlyFlags.Length {
+            return input.FieldReadonlyFlags[index]
+        }
+        return false
+    }
+
+    // A NULLABLE FIELD is one whose CANONICAL type text ends in `?`. The emitter records those names
+    // on the type definition, so this decides stored state and is planner work.
+    static func FieldIsNullableAt(input: ColumnarStructInput, index: int): bool {
+        return input.FieldTypeCanonicals[index].EndsWith("?", StringComparison.Ordinal)
+    }
+
+    static func BuildFields(program: ColumnarProgramInput): ColumnarFieldRows {
+        structs := program.Structs
+        count := structs.Count
+        names := new string[][](count)
+        words := new int[][](count)
+        statics := new bool[][](count)
+        nullables := new bool[][](count)
+
+        index := 0
+        while index < count {
+            input := structs[index]
+            fieldCount := input.FieldNames.Length
+            fieldNames := new string[](fieldCount)
+            fieldWords := new int[](fieldCount)
+            fieldStatics := new bool[](fieldCount)
+            fieldNullables := new bool[](fieldCount)
+            field := 0
+            while field < fieldCount {
+                fieldNames[field] = input.FieldNames[field]
+                isStatic := input.FieldStaticFlags[field]
+                fieldStatics[field] = isStatic
+                fieldWords[field] = FieldAttributesFor(isStatic, FieldIsReadonlyAt(input, field))
+                fieldNullables[field] = FieldIsNullableAt(input, field)
+                field = field + 1
+            }
+            names[index] = fieldNames
+            words[index] = fieldWords
+            statics[index] = fieldStatics
+            nullables[index] = fieldNullables
+            index = index + 1
+        }
+
+        return new ColumnarFieldRows(count, names, words, statics, nullables)
     }
 
     static func BuildTypeDefs(program: ColumnarProgramInput): ColumnarTypeDefRows {
@@ -244,6 +349,7 @@ class ColumnarDeclarationPlanner {
         }
 
         return new ColumnarDeclarationPlan(
+            BuildFields(program),
             BuildTypeDefs(program),
             assemblyName,
             assemblyName,

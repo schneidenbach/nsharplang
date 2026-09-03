@@ -4242,6 +4242,7 @@ internal sealed class ColumnarIlEmitter
             if (!TryApplyDeclaredTypeConstraints(st.TypeParamNames, typeGenericParams, st.TypeParamSpecialConstraints, st.TypeParamTypeConstraints, typeResolution))
                 return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + st.Name + "' are not modeled", st.Name);
             var fields = def.Fields;
+            var fieldRows = declarationPlan.Fields;
             var instanceFieldNames = new List<string>(st.FieldNames.Length);
             for (var fi = 0; fi < st.FieldNames.Length; fi++)
             {
@@ -4256,17 +4257,14 @@ internal sealed class ColumnarIlEmitter
                 // STATIC fields typed by a generic parameter decline: `static count: T` has no single CLR
                 // storage across instantiations the modelled surface can express (the legacy emitter's behavior for
                 // these shapes is unprobed — decline-safe).
-                if (st.FieldStaticFlags[fi] && fieldType is GenericTypeParameterBuilder)
+                if (fieldRows.FieldIsStatic[s][fi] && fieldType is GenericTypeParameterBuilder)
                     return false;
-                var isStaticField = st.FieldStaticFlags[fi];
-                var isReadonlyField = fi < st.FieldReadonlyFlags.Length && st.FieldReadonlyFlags[fi];
-                if (isStaticField)
+                var fieldName = fieldRows.FieldNames[s][fi];
+                var fieldAttributes = (FieldAttributes)fieldRows.FieldAttributeWords[s][fi];
+                if (fieldRows.FieldIsStatic[s][fi])
                 {
-                    var staticAttributes = FieldAttributes.Public | FieldAttributes.Static;
-                    if (isReadonlyField)
-                        staticAttributes |= FieldAttributes.InitOnly;
-                    var sfb = tb.DefineField(st.FieldNames[fi], fieldType, staticAttributes);
-                    def.StaticFields[st.FieldNames[fi]] = sfb;
+                    var sfb = tb.DefineField(fieldName, fieldType, fieldAttributes);
+                    def.StaticFields[fieldName] = sfb;
                     var initKind = st.FieldInitKinds[fi];
                     if (initKind >= 0)
                         pendingStaticFieldInits.Add((def, sfb, fieldType, initKind, st.FieldInitTexts[fi]));
@@ -4274,15 +4272,11 @@ internal sealed class ColumnarIlEmitter
                 }
                 // An INSTANCE field initializer is not modelled (the kernel declines it; defensive here).
                 if (st.FieldInitKinds[fi] >= 0)
-                    return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + st.FieldNames[fi] + "'", st.Name);
-                var instanceAttributes = FieldAttributes.Public;
-                if (isReadonlyField)
-                    instanceAttributes |= FieldAttributes.InitOnly;
-                var fb = tb.DefineField(st.FieldNames[fi], fieldType, instanceAttributes);
-                fields[st.FieldNames[fi]] = fb;
-                if (st.FieldTypeCanonicals[fi].EndsWith("?", StringComparison.Ordinal))
-                    def.NullableFields.Add(st.FieldNames[fi]);
-                instanceFieldNames.Add(st.FieldNames[fi]);
+                    return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + fieldName + "'", st.Name);
+                fields[fieldName] = tb.DefineField(fieldName, fieldType, fieldAttributes);
+                if (fieldRows.FieldIsNullable[s][fi])
+                    def.NullableFields.Add(fieldName);
+                instanceFieldNames.Add(fieldName);
             }
             def.SetFieldOrder(instanceFieldNames.ToArray());
         }
