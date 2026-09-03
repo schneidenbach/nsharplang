@@ -207,3 +207,66 @@ Slice 4 is terminal only at 4d: a green unit suite is explicitly NOT sufficient 
   inherits it will price the two-stage wall against the wrong package.
 - The `022` queue row in §1 still describes 3b-4a as "in flight (three WIP commits)". Both 3b-4a and
   3b-4b have since landed and slice 3b is terminal.
+
+---
+
+# 4a — the probe, MEASURED (2026-09-03, packaged SDK from `27a6d24f6`)
+
+Probe project outside the repository at `/private/tmp/nsharp-agent-wt/022-probes/editoruniverse`, built
+by the PACKAGED SDK and RUN against a real `MetadataLoadContext` cored on `System.Runtime` over the
+shared framework directory.
+
+## The republish question: OUTCOME 1. There is no boundary.
+
+`Type::get_IsPublic` and `Type::get_IsNested` BOTH compile and both read correctly over MLC types
+(`System.String` → `IsPublic=True IsNested=False`). §6's reading was right that the hand table is not
+the only route — the ordinary resolver serves them, as it does `Type::get_Namespace`. No row is
+needed, nothing is inert, and slice 4 proceeds end to end.
+
+Also green in the same build: `Assembly::GetType(string)`, `Assembly::GetExportedTypes`,
+`Type::MakeArrayType` over an MLC type (`System.String[]`), and the 1-argument `GetType` overload is
+CASE-SENSITIVE — `"system.string"` resolves to null — so retiring the C#'s explicit
+`ignoreCase: false` argument loses nothing.
+
+## THE DERIVATION THE DECODE PROPOSED IS FALSE, AND THE PROBE IS WHY WE KNOW
+
+§6 outcome 2 offered: "`GetExportedTypes()` returns only publicly reachable types, so `isPublic` is
+true by construction". **Measured: 138 of 1,498 exported types answer `IsPublic == false`, and the
+count of NESTED exported types is also exactly 138.** `Type.IsPublic` is true only for a TOP-LEVEL
+public type; a public NESTED type answers `IsNestedPublic` and reports `IsPublic == false`. Had the
+slice taken the derivation route it would have offered every public nested type as a top-level import.
+
+The coordinator's ruling — pin both facts by contract rather than assert them — is what caught this,
+and it caught it before a line of the owner was written.
+
+The second fact HOLDS: 0 of the 138 nested exported types have a `FullName` without `+`. It is now
+unnecessary, and it is recorded here rather than contracted, because the real properties are available.
+
+## THE FACADE ASYMMETRY, which decides how the owner is written
+
+| assembly | `GetExportedTypes()` |
+|---|---|
+| `System.Runtime` | **0** |
+| `System.Private.CoreLib` | 1,378 |
+| `System.Collections` | 28 |
+| `System.Console` | 8 |
+| `System.Text.Json` | 84 |
+
+`System.Runtime` is a pure facade of type forwarders and **a `MetadataLoadContext` does not follow
+those for `GetExportedTypes`** — but it DOES follow them for `GetType`: with `System.Runtime` and
+`System.Collections` as the only assemblies, `GetType("System.String")` still answers, and neither
+assembly exports `String`.
+
+So the two halves of the catalog reach the universe by different routes, and the owner must not be
+written as if one implies the other:
+
+- **full-name resolution** works through the facade and needs nothing else;
+- **the simple-name scan and the namespace set** see NOTHING through the facade and depend entirely on
+  `System.Private.CoreLib` being in the list — which it is, entry 25 of
+  `ExternalAssemblyScan.CommonAssemblyNames()`.
+
+A contract must pin that dependency, because "the editor's universe is the analyzer's list" is true
+only while CoreLib stays in that list, and nothing today says so.
+
+And the slice's whole point is visible in the same table: `System.Text.Json` contributes 84 exported
+types the editor cannot see at all today.
