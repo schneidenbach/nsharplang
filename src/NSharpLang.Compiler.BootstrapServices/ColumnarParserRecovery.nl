@@ -1177,6 +1177,106 @@ class ColumnarParserRecovery {
         Report(ErrorCode.InvalidLiteral, message, token.Line, token.Column, explanation, "Write a single character like `'a'`, or use a string literal like \"a\" when you need text.", suggestions, MaxInt(1, token.Value.Length))
     }
 
+    // A BACKSLASH THAT STARTS NO ESCAPE USED TO BE SILENT, AND THAT IS HOW THE COMPILER SHIPPED THE
+    // LITERAL CHARACTERS OF `\x1b[1;31m` ON EVERY COLOURED DIAGNOSTIC LINE. The tolerant decoder passes
+    // an unrecognised escape through as text, so the literal was valid, idempotent, wrong code that no
+    // gate could see. `\x`, `\u`, `\U` and `\e` are escapes now; this is the other half — the ones that
+    // still are not are REFUSED at the position of the backslash rather than reinterpreted as text.
+    //
+    // ONE report per literal, not one per escape: a path written with single backslashes would otherwise
+    // bury the file in identical sentences, and the fix for the first is the fix for all of them.
+    func ReportUnrecognisedEscapeIfNeeded(token: Token) {
+        value := token.Value
+        // A raw literal has no escapes at all, so a backslash in one is ordinary text. The test is on the
+        // TOKEN TYPE, not on the value: `Lexer.ReadTripleQuoteString` does not keep the delimiters, so the
+        // shape classifiers see a bare body and would answer false for every raw literal.
+        if token.Type == TokenType.TripleQuoteStringLiteral || token.Type == TokenType.InterpolatedRawStringLiteral {
+            return
+        }
+
+        index := 0
+        while index < value.Length {
+            if value[index] != '\\' {
+                index = index + 1
+                continue
+            }
+
+            text := ""
+            nextIndex := 0
+            if StringLiteralDecoder.TryReadEscape(value, index, out text, out nextIndex) {
+                index = nextIndex
+                continue
+            }
+
+            ReportUnrecognisedEscape(token, value, index)
+            return
+        }
+    }
+
+    func ReportUnrecognisedEscape(token: Token, value: string, index: int) {
+        following := ""
+        if index + 1 < value.Length {
+            following = value.Substring(index + 1, 1)
+        }
+
+        spelling := "\\" + following
+        message := "Unrecognised escape sequence"
+        if following != "" {
+            message = "Unrecognised escape sequence `" + spelling + "`"
+        }
+
+        explanation := "`" + spelling + "` is not an escape sequence in N#, so I cannot tell what character you meant here."
+        if following == "" {
+            explanation = "This literal ends with a backslash, so there is no escape sequence for me to read."
+        }
+
+        suggestions := new List<string>()
+        hint := UnrecognisedEscapeHint(following, suggestions)
+
+        // The marker covers the backslash and the character that follows it — the two characters the
+        // author has to change — rather than the whole literal.
+        markerLength := 1
+        if following != "" {
+            markerLength = 2
+        }
+
+        Report(ErrorCode.InvalidLiteral, message, token.Line, token.Column + index, explanation, hint, suggestions, markerLength)
+    }
+
+    // The NEAREST VALID escapes, chosen by what was actually written: a wrong-width hex escape is a
+    // different mistake from an unknown letter, and telling someone "N# has no `\u`" when they wrote
+    // `\u041` would be a lie.
+    func UnrecognisedEscapeHint(following: string, suggestions: List<string>): string {
+        if following == "u" {
+            suggestions.Add("Write `\\uHHHH` with exactly four hex digits")
+            suggestions.Add("Use `\\xH` to `\\xHHHH` when you have fewer digits")
+            suggestions.Add("Use `\\UHHHHHHHH` for a code point above U+FFFF")
+            return "`\\u` needs EXACTLY four hex digits, as in `\\u001b`."
+        }
+
+        if following == "U" {
+            suggestions.Add("Write `\\UHHHHHHHH` with exactly eight hex digits")
+            suggestions.Add("Use `\\uHHHH` for a code point in the basic plane")
+            return "`\\U` needs EXACTLY eight hex digits and a real code point, as in `\\U0001F600` — a lone surrogate and anything above U+10FFFF are refused."
+        }
+
+        if following == "x" {
+            suggestions.Add("Write `\\xH` to `\\xHHHH` with one to four hex digits")
+            suggestions.Add("Use `\\e` when you mean the escape character")
+            return "`\\x` needs one to four HEX digits after it, as in `\\x1b`."
+        }
+
+        if following == "" {
+            suggestions.Add("Add the character the backslash is escaping")
+            suggestions.Add("Write `\\\\` for a literal backslash")
+            return "Add the character you meant to escape, or write `\\\\` for a literal backslash."
+        }
+
+        suggestions.Add("Write `\\\\" + following + "` for a literal backslash followed by `" + following + "`")
+        suggestions.Add("Use a triple-quoted `\"\"\"...\"\"\"` string, where no backslash is an escape")
+        return "N# knows `\\0 \\a \\b \\e \\f \\n \\r \\t \\v \\' \\\" \\\\`, plus `\\xH..HHHH`, `\\uHHHH` and `\\UHHHHHHHH`."
+    }
+
     func StartsWithInterpolatedPrefix(value: string): bool {
         if value.Length < 2 {
             return false
@@ -7165,6 +7265,7 @@ class ColumnarParserRecovery {
         if Check(TokenType.CharLiteral) {
             token := Advance()
             ReportMalformedCharLiteralIfNeeded(token)
+            ReportUnrecognisedEscapeIfNeeded(token)
             // Tranche 7: `new CharLiteralExpression(token.Value, line, column)` (Parser.cs :4658) — the node
             // is built regardless of the malformed diagnostic, byte-exact.
             charResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), false)
@@ -7174,6 +7275,7 @@ class ColumnarParserRecovery {
         if Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) {
             token := Advance()
             ReportMalformedStringLiteralIfNeeded(token)
+            ReportUnrecognisedEscapeIfNeeded(token)
             if token.Type == TokenType.StringLiteral && StartsWithInterpolatedPrefix(token.Value) {
                 return ParseInterpolatedString(token, line, column, false)
             }

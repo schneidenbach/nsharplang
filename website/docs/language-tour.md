@@ -955,8 +955,11 @@ unit := "\u001b"           // and the same again
 grin := "\U0001F600"       // one code point, two UTF-16 code units
 ```
 
-A backslash followed by anything else is not an escape, so a Windows path or a regular expression must
-double its backslashes — `"C:\\temp"`, `"\\d+"` — or use a raw string, which has no escapes at all.
+A backslash followed by anything else is not an escape and is reported as
+[NL105](./errors/NL105.md), so a Windows path or a regular expression must double its backslashes —
+`"C:\\temp"`, `"\\d+"` — or use a raw string, which has no escapes at all. Note that `\t` in
+`"C:\temp"` *is* a valid escape and becomes a tab, so that path is silently wrong rather than
+rejected.
 
 ### Raw String Literals
 
