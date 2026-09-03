@@ -569,8 +569,6 @@ test "a type that defines its own equality keeps it — the overload is resolved
     assert DhDiagnosticCount(output) == 0, output
 }
 
-
-
 // ═══ NL002 — "I CAN'T FIND IT" WAS FALSE FOR EVERY ROW ════════════════════════════════════════
 //
 // NL002 said "I can't find 'StringBuilder' — it looks like a missing import". Run with the rule

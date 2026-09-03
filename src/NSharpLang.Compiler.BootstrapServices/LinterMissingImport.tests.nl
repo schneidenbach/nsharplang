@@ -864,8 +864,6 @@ test "NL002's bare-identifier span STOPS AT THE IDENTIFIER, and does not run the
     assert DiagnosticSpanContractCovers("StringBuilder.ToString()", 1, "StringBuilder.ToString")
 }
 
-
-
 // THE SENTENCE STOPPED CLAIMING THE COMPILER CANNOT FIND THE NAME, BECAUSE IT ALWAYS CAN. Measured on
 // the shipped CLI with the rule silenced, every row of this table resolves: `StringBuilder`, `Task`,
 // `CancellationToken`, `List<int>` and `Stack<int>` BUILD AND RUN with no import, and the rows that
