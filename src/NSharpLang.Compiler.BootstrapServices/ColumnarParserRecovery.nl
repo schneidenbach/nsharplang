@@ -8961,9 +8961,16 @@ class ColumnarParserRecovery {
             if Check(TokenType.Identifier) {
                 // type pattern `TypeName binding` (Parser.cs :3429)
                 bindingName := Advance().Value
-                // `new TypePattern(new SimpleTypeReference(name), bindingName, line, column)` (:3444) — the
-                // type reference carries NO position (the ctor's Line/Column defaults) and an invalid Span.
-                return new TypePattern(new SimpleTypeReference(patternName, 0, 0), bindingName, line, column)
+                // `new TypePattern(new SimpleTypeReference(name), bindingName, line, column)` (:3444).
+                // THE TYPE REFERENCE IS STAMPED AT THE PATTERN'S OWN POSITION, which is where the type
+                // name starts: `line`/`column` were captured before the first name segment was consumed,
+                // and a type pattern begins at its type. It used to be built at 0,0 — the ctor's
+                // defaults — and `SimpleTypeReference.NameSpan` derives its span from `Line`/`Column`
+                // plus the name's length, so an unstamped reference has no span at all. NL002 refuses to
+                // report without a position (a finding at 0:0 is one no user can act on), which is why a
+                // type named ONLY in a `match`/`switch` type pattern could never be reported as a
+                // missing import even after the lint walk started tracking it.
+                return new TypePattern(new SimpleTypeReference(patternName, line, column), bindingName, line, column)
             }
             // `new IdentifierPattern(name, line, column)` (Parser.cs :3448).
             return new IdentifierPattern(patternName, line, column)

@@ -1186,11 +1186,21 @@ class Golden {
     }
 
     // ---- N+1c tranche 9c: lambda / match+pattern / interpolated-string builders ----
-    // A position-FREE SimpleTypeReference (Line/Column 0, invalid Span) — Parser.cs builds the implicit lambda
-    // parameter type (:3676/:5520) and the TypePattern type (:3444) with the ctor's defaults, so neither
-    // carries a source position.
+    // A position-FREE SimpleTypeReference (Line/Column 0, invalid Span) — Parser.cs builds the implicit
+    // lambda parameter type (:3676/:5520) with the ctor's defaults, so it carries no source position.
+    // THE TYPE-PATTERN TYPE (:3444) USED TO SHARE THIS SHAPE AND NO LONGER DOES: it is now stamped at
+    // the pattern's own position, because NL002 drops any finding without one and a type named only in
+    // a `match`/`switch` type pattern could therefore never be reported as a missing import. Those rows
+    // use `StampedT` below.
     static func BareT(name: string): TypeReference {
         return new SimpleTypeReference(name, 0, 0)
+    }
+
+    // A SimpleTypeReference stamped with a source position but no explicit Span — the shape the
+    // recovery parser builds for a type pattern's type, whose `NameSpan` derives from Line/Column plus
+    // the name's length.
+    static func StampedT(name: string, line: int, column: int): TypeReference {
+        return new SimpleTypeReference(name, line, column)
     }
 
     static func NoParams(): List<Parameter> {
@@ -4347,11 +4357,14 @@ test "016 N+1c tranche 9c: an identifier pattern materializes IdentifierPattern 
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-// The TypePattern's SimpleTypeReference carries NO source position (Parser.cs :3444 uses the ctor defaults).
-test "016 N+1c tranche 9c: a type pattern (int n) materializes TypePattern with a position-free type (Parser.cs :3444)" {
+// The TypePattern's SimpleTypeReference is STAMPED at the pattern's own position (Parser.cs :3444). It
+// used to be built with the ctor's Line/Column defaults, and this contract pinned that as a fact; a
+// type reference with no position is one NL002 must drop, so a type named only in a type pattern could
+// never be reported as a missing import.
+test "016 N+1c tranche 9c: a type pattern (int n) materializes TypePattern with its type stamped at the pattern's position (Parser.cs :3444)" {
     actual := RunAst("enum E {\n    A = match x { int n => 2 }\n}\n")
     cases := Golden.NoCases()
-    Golden.AddCase(cases, Golden.PType(Golden.BareT("int"), "n", 2, 19), null, Golden.IntLit("2", 2, 28))
+    Golden.AddCase(cases, Golden.PType(Golden.StampedT("int", 2, 19), "n", 2, 19), null, Golden.IntLit("2", 2, 28))
     members := new List<EnumMember>()
     Golden.AddEMemV(members, "A", Golden.Match(Golden.Ident("x", 2, 15), cases, 2, 9), 2, 5)
     decls := new List<Declaration>()

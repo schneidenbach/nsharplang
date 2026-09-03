@@ -54,6 +54,7 @@ class DeclaredMemberInfo {
     lineValue: int
     columnValue: int
     declaredModifiersValue: int
+    hasBodyValue: bool
 
     Name: string => nameValue
     ContainingType: string => containingTypeValue
@@ -101,7 +102,17 @@ class DeclaredMemberInfo {
     // arithmetically for the same reason the factory above reads 16, 512, 2048 and 4096 that way.
     IsOverridable: bool => (declaredModifiersValue & 32) == 32 || (declaredModifiersValue & 64) == 64 || ((declaredModifiersValue & 65536) == 65536 && (declaredModifiersValue & 128) != 128)
 
-    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0) {
+    // WHETHER THE MEMBER CARRIES CODE. A slot and a default implementation look identical in every
+    // other field this model has — same name, same kind, same modifiers — and only the presence of a
+    // BODY tells them apart. An interface member written `func Describe(): string { … }` is a DEFAULT
+    // IMPLEMENTATION that an implementer may inherit; one written `func Greet(): string` is a slot the
+    // implementer must fill. Without this bit the interface rule demanded both, and it accused
+    // `examples/06-classes-and-records/RecordsAndInterfaces.nl` — correct N# — of not implementing the
+    // very member its interface had already written out. Defaults to false so every existing caller
+    // keeps its spelling; only the production factory that reads a real declaration supplies it.
+    HasBody: bool => hasBodyValue
+
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false) {
         nameValue = name
         containingTypeValue = containingType
         kindValue = kind
@@ -133,6 +144,7 @@ class DeclaredMemberInfo {
         lineValue = line
         columnValue = column
         declaredModifiersValue = declaredModifiers
+        hasBodyValue = hasBody
     }
 }
 

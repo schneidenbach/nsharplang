@@ -189,7 +189,7 @@ class NominalTypeInfoFactory {
         kind := GetDeclaredMemberKind(typeName)
         typeParameters := GetTypeParameterArray(member)
         genericConstraints := GetGenericConstraintArray(member)
-        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16), HasOptionalModifier(member, 512), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member))
+        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16), HasOptionalModifier(member, 512), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member), HasMemberBody(member))
     }
 
     static func GetGenericConstraintArray(owner: object): GenericConstraint[] {
@@ -255,6 +255,27 @@ class NominalTypeInfoFactory {
     static func HasOptionalPropertyValue(owner: object, propertyName: string): bool {
         value := TypeInfoFactoryReflection.GetOptionalProperty(owner, propertyName)
         return value != null
+    }
+
+    // THE FOUR SLOTS A BODY CAN LIVE IN, ACROSS EVERY DECLARATION SHAPE. A function keeps its block in
+    // `Body` and its `=> expr` form in `ExpressionBody`; a property keeps `GetBody`/`SetBody` for the
+    // accessor form and `ExpressionBody` for the arrow form. Asking for all four by name is what makes
+    // one question — "does this member carry code?" — answerable without the caller knowing which
+    // declaration class it holds.
+    static func HasMemberBody(member: object): bool {
+        if HasOptionalPropertyValue(member, "Body") {
+            return true
+        }
+
+        if HasOptionalPropertyValue(member, "ExpressionBody") {
+            return true
+        }
+
+        if HasOptionalPropertyValue(member, "GetBody") {
+            return true
+        }
+
+        return HasOptionalPropertyValue(member, "SetBody")
     }
 
     static func IsExportedMember(member: object, name: string): bool {

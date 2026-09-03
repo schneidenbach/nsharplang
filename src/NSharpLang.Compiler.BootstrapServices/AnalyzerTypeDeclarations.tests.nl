@@ -1209,6 +1209,136 @@ func TypeDeclMemberInfo(name: string, modifierBits: int): DeclaredMemberInfo {
     )
 }
 
+// The property sibling of `TypeDeclMemberInfo`. A separate builder rather than a widened one, because
+// the existing five call sites spell the two-argument form and an N# caller cannot omit a defaulted
+// parameter of a free function.
+func TypeDeclPropertyMemberInfo(name: string, modifierBits: int): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(
+        name,
+        "Owner",
+        DeclaredMemberKind.Property,
+        "property",
+        null,
+        false,
+        false,
+        true,
+        true,
+        0,
+        new string[](0),
+        new TypeReference[](0),
+        new ParameterModifier[](0),
+        0,
+        false,
+        false,
+        null,
+        0,
+        new TypeParameter[](0),
+        new GenericConstraint[](0),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1,
+        modifierBits
+    )
+}
+
+func TypeDeclProperty(name: string, modifiers: Modifiers): PropertyDeclaration {
+    body: Expression = new StringLiteralExpression("\"v\"", 8, 20, false)
+    return new PropertyDeclaration(name, TypeDeclInt(), null, null, body, modifiers, PropertyModifier.None, TypeDeclNoAttributes(), 8, 5)
+}
+
+// A member that CARRIES A BODY — the `hasBody` trailing argument the interface rule reads. Built as a
+// separate helper for the same reason `TypeDeclPropertyMemberInfo` is: the existing call sites spell
+// the shorter form and an N# caller cannot omit a defaulted parameter of a FREE FUNCTION.
+func TypeDeclDefaultedMemberInfo(name: string, kind: DeclaredMemberKind): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(
+        name,
+        "Owner",
+        kind,
+        "member",
+        null,
+        false,
+        false,
+        false,
+        true,
+        0,
+        new string[](0),
+        new TypeReference[](0),
+        new ParameterModifier[](0),
+        0,
+        false,
+        false,
+        null,
+        0,
+        new TypeParameter[](0),
+        new GenericConstraint[](0),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1,
+        0,
+        true
+    )
+}
+
+func TypeDeclSourceInterface(name: string, members: DeclaredMemberInfo[]): TypeInfo {
+    owner: TypeInfo = new InterfaceTypeInfo(name, 1, 1, false, new TypeReference[](0), new TypeParameter[](0), members, new NestedTypeInfo[](0))
+    return owner
+}
+
+func TypeDeclClosedGeneric(name: string, definition: TypeInfo?): TypeInfo {
+    owner: TypeInfo = new GenericTypeInfo(name, new List<TypeInfo>(), definition)
+    return owner
+}
+
+func TypeDeclAbstractBits(): int {
+    return Convert.ToInt32(Modifiers.Abstract)
+}
+
+func TypeDeclMemberInfos2(first: DeclaredMemberInfo, second: DeclaredMemberInfo): DeclaredMemberInfo[] {
+    members := new DeclaredMemberInfo[](2)
+    members[0] = first
+    members[1] = second
+    return members
+}
+
+func TypeDeclNames(names: List<string>): string {
+    joined := ""
+    index := 0
+    while index < names.Count {
+        if index > 0 {
+            joined = joined + ","
+        }
+
+        joined = joined + names[index]
+        index = index + 1
+    }
+
+    return joined
+}
+
+func TypeDeclEmptyNames(): HashSet<string> {
+    return new HashSet<string>(StringComparer.Ordinal)
+}
+
+func TypeDeclNamesOf(name: string): HashSet<string> {
+    seen := new HashSet<string>(StringComparer.Ordinal)
+    seen.Add(name)
+    return seen
+}
+
 func TypeDeclMemberInfos(first: DeclaredMemberInfo): DeclaredMemberInfo[] {
     members := new DeclaredMemberInfo[](1)
     members[0] = first
@@ -1313,6 +1443,485 @@ test "AN `override` WITH NO SLOT TO TAKE IS `NL311`, AND THE REPORT NAMES WHICH 
     assert sealedHarness.Errors.Count == 1
     assert sealedHarness.Errors[0].Code == ErrorCode.InvalidModifier
     assert sealedHarness.Errors[0].Message == "'GetType' is declared 'override', but it is not marked 'virtual', 'abstract' or 'override'"
+}
+
+// ---------------------------------------------------------------------------------------------
+// A DECLARED INTERFACE THE TYPE DOES NOT IMPLEMENT (`NL325`)
+//
+// NOTHING EVER CHECKED THIS. `interface Greeter { func Greet(): string }` with
+// `class English : Greeter { }` was silent, and so were `class Resource : IDisposable { }`,
+// `struct Point : Greeter { }` and `record Person : Greeter { }`. A declared interface is a promise to
+// callers, and an unkept one is a type that cannot satisfy the calls its own declaration invites.
+//
+// TWO THINGS THIS RULE HAD TO GET RIGHT THAT THE ABSTRACT RULE DID NOT.
+//   (1) WHERE THE INTERFACES ARE IS A SYNTACTIC ACCIDENT. The parser splits a class's `: A, B, C` by
+//       POSITION — `[0]` to `BaseClass`, the rest to `Interfaces` — so `class R : IDisposable` carries
+//       its interface in the base-CLASS slot. Both slots are read and each kept only if it RESOLVES to
+//       an interface, which is the semantic question the parser could not answer.
+//   (2) A MEMBER WITH A BODY IS A DEFAULT IMPLEMENTATION. The first estate census caught this and
+//       nothing else: `examples/06-classes-and-records/RecordsAndInterfaces.nl` is correct N# and was
+//       accused of not implementing the very member its interface had written out.
+// ---------------------------------------------------------------------------------------------
+
+test "an interface is recognised through a reflection type, a source shape AND a closed generic" {
+    assert AnalyzerTypeDeclarations.IsInterfaceType(TypeDeclSourceInterface("Greeter", new DeclaredMemberInfo[](0)))
+    assert !AnalyzerTypeDeclarations.IsInterfaceType(TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0)))
+
+    disposableType := Type.GetType("System.IDisposable")
+    assert disposableType != null
+    if disposableType != null {
+        reflected: TypeInfo = new ReflectionTypeInfo(disposableType)
+        assert AnalyzerTypeDeclarations.IsInterfaceType(reflected)
+    }
+
+    exceptionType: TypeInfo = new ReflectionTypeInfo(typeof(Exception))
+    assert !AnalyzerTypeDeclarations.IsInterfaceType(exceptionType)
+
+    // A CLOSED GENERIC IS A WRAPPER and every question here is answered by NAME, which no type argument
+    // can change — so the wrapper is opened once and both callers work on what comes out.
+    closed := TypeDeclClosedGeneric("Greeter", TypeDeclSourceInterface("Greeter", new DeclaredMemberInfo[](0)))
+    assert AnalyzerTypeDeclarations.IsInterfaceType(closed)
+
+    // A wrapper with NO definition is not opened: it answers "cannot tell", never "not an interface
+    // and therefore fine".
+    opaque := TypeDeclClosedGeneric("Greeter", null)
+    assert !AnalyzerTypeDeclarations.IsInterfaceType(opaque)
+    assert AnalyzerTypeDeclarations.OpenGenericInstantiation(opaque) == null
+
+    plain := TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0))
+    assert AnalyzerTypeDeclarations.OpenGenericInstantiation(plain) == plain
+}
+
+test "A MEMBER WITH A BODY SUPPLIES ITSELF; A MEMBER WITHOUT ONE IS A SLOT" {
+    // The one line the first census found. A defaulted interface member requires nothing AND counts as
+    // supplied, so a second interface demanding the same name does not re-report it.
+    defaultedFunctions := TypeDeclEmptyNames()
+    defaultedMissing := new List<string>()
+    AnalyzerTypeDeclarations.RequireInterfaceMember(TypeDeclDefaultedMemberInfo("Describe", DeclaredMemberKind.Function), defaultedFunctions, TypeDeclEmptyNames(), defaultedMissing)
+    assert defaultedMissing.Count == 0
+    assert defaultedFunctions.Contains("Describe")
+
+    defaultedValues := TypeDeclEmptyNames()
+    valueMissing := new List<string>()
+    AnalyzerTypeDeclarations.RequireInterfaceMember(TypeDeclDefaultedMemberInfo("Name", DeclaredMemberKind.Property), TypeDeclEmptyNames(), defaultedValues, valueMissing)
+    assert valueMissing.Count == 0
+    assert defaultedValues.Contains("Name")
+
+    // NON-VACUITY: the same member WITHOUT a body is required.
+    slotMissing := new List<string>()
+    AnalyzerTypeDeclarations.RequireInterfaceMember(TypeDeclMemberInfo("Describe", 0), TypeDeclEmptyNames(), TypeDeclEmptyNames(), slotMissing)
+    assert TypeDeclNames(slotMissing) == "Describe"
+
+    // A name the implementer already supplies is not required.
+    suppliedMissing := new List<string>()
+    AnalyzerTypeDeclarations.RequireInterfaceMember(TypeDeclMemberInfo("Describe", 0), TypeDeclNamesOf("Describe"), TypeDeclEmptyNames(), suppliedMissing)
+    assert suppliedMissing.Count == 0
+
+    // The default is FALSE, so every one of the model's existing callers is unaffected.
+    assert !TypeDeclMemberInfo("Describe", 0).HasBody
+    assert TypeDeclDefaultedMemberInfo("Describe", DeclaredMemberKind.Function).HasBody
+}
+
+test "a CLR interface's requirements come from itself plus GetInterfaces, in one pass" {
+    disposableType := Type.GetType("System.IDisposable")
+    assert disposableType != null
+    if disposableType != null {
+        missing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedInterfaceRequirements(disposableType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), missing)
+        assert TypeDeclNames(missing) == "Dispose"
+
+        // Supplied by the implementer -> not required.
+        supplied := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedInterfaceRequirements(disposableType, TypeDeclNamesOf("Dispose"), TypeDeclEmptyNames(), supplied)
+        assert supplied.Count == 0
+    }
+
+    // `IEnumerable<T>` inherits the non-generic `IEnumerable`, and BOTH spell `GetEnumerator` — the
+    // name is demanded ONCE because the supplied set is written as the walk goes.
+    enumerableType := Type.GetType("System.Collections.Generic.IEnumerable`1")
+    assert enumerableType != null
+    if enumerableType != null {
+        enumerableMissing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedInterfaceRequirements(enumerableType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), enumerableMissing)
+        assert TypeDeclNames(enumerableMissing) == "GetEnumerator"
+    }
+}
+
+test "a base class SUPPLIES its concrete members and supplies none of its abstract ones" {
+    // The supply half of the same reflection pair. `MemoryStream` implements `Read`, so a
+    // `class X : MemoryStream, ISomething` demanding `Read` is already satisfied.
+    memoryStreamType := Type.GetType("System.IO.MemoryStream")
+    assert memoryStreamType != null
+    if memoryStreamType != null {
+        suppliedFunctions := TypeDeclEmptyNames()
+        suppliedValues := TypeDeclEmptyNames()
+        AnalyzerTypeDeclarations.CollectReflectedMemberNames(memoryStreamType, suppliedFunctions, suppliedValues)
+        assert suppliedFunctions.Contains("Read")
+        assert suppliedValues.Contains("Length")
+    }
+
+    // `Stream`'s ABSTRACT members supply nothing — a slot is not a body — or a
+    // `class X : Stream, ISomething` would look as if `Stream` had implemented them. `Flush` is the
+    // clean case: one declaration, abstract.
+    streamType := Type.GetType("System.IO.Stream")
+    assert streamType != null
+    if streamType != null {
+        streamFunctions := TypeDeclEmptyNames()
+        streamValues := TypeDeclEmptyNames()
+        AnalyzerTypeDeclarations.CollectReflectedMemberNames(streamType, streamFunctions, streamValues)
+        assert !streamFunctions.Contains("Flush")
+        assert !streamValues.Contains("Length")
+        assert !streamValues.Contains("Position")
+        assert streamFunctions.Contains("CopyTo")
+
+        // MEASURED, AND RECORDED AS A LIMITATION RATHER THAN ASSERTED AWAY: matching is by NAME, and
+        // `Stream.Read` has TWO overloads — `Read(byte[], int, int)` is abstract while
+        // `Read(Span<byte>)` is concrete. A name with any concrete overload therefore counts as
+        // SUPPLIED. That is the under-reporting direction, which is the safe one for a rule whose
+        // worst failure is the correct program it rejects; N# cannot spell overloads in a class body
+        // anyway (a class with overloaded methods does not parse), so no N# source shape can reach it.
+        assert streamFunctions.Contains("Read")
+    }
+}
+
+test "the supply set splits FUNCTIONS from VALUE MEMBERS, and fields count as values" {
+    // N# writes an interface's value member bare (`Id: int`, which the AST calls a FIELD) and an
+    // implementer may spell it bare or with an accessor. Splitting those into different slots would
+    // report correct programs, so fields and properties share one set.
+    members := new List<Declaration>()
+    members.Add(TypeDeclFunction("Greet", Modifiers.None))
+    members.Add(TypeDeclProperty("Name", Modifiers.None))
+    members.Add(TypeDeclField("Id", TypeDeclInt(), null, Modifiers.None))
+    suppliedFunctions := TypeDeclEmptyNames()
+    suppliedValues := TypeDeclEmptyNames()
+    AnalyzerTypeDeclarations.AddDeclaredMemberNames(members, suppliedFunctions, suppliedValues)
+    assert suppliedFunctions.Contains("Greet")
+    assert !suppliedFunctions.Contains("Name")
+    assert suppliedValues.Contains("Name")
+    assert suppliedValues.Contains("Id")
+}
+
+test "`NL325` NAMES EVERY MISSING MEMBER IN ONE DIAGNOSTIC, on the TYPE name" {
+    oneHarness := TypeDeclDefault()
+    oneMissing := new List<string>()
+    oneMissing.Add("Greet")
+    oneState := oneHarness.Declarations.BeginClass(TypeDeclClass("English", new List<Declaration>(), null, null, Modifiers.None), oneHarness.Assignability)
+    oneHarness.Declarations.ReportUnimplementedInterfaceMembers(oneState, oneMissing)
+    assert oneHarness.Errors.Count == 1
+    assert oneHarness.Errors[0].Code == ErrorCode.InterfaceMemberNotImplemented
+    assert oneHarness.Errors[0].Message == "'English' declares an interface but does not implement its member 'Greet'"
+    assert oneHarness.Errors[0].Suggestion == "Implement it in 'English', inherit it from a base class, or drop the interface from the declaration."
+    assert oneHarness.Errors[0].Length == 7
+
+    manyHarness := TypeDeclDefault()
+    manyMissing := new List<string>()
+    manyMissing.Add("Greet")
+    manyMissing.Add("Farewell")
+    manyState := manyHarness.Declarations.BeginClass(TypeDeclClass("English", new List<Declaration>(), null, null, Modifiers.None), manyHarness.Assignability)
+    manyHarness.Declarations.ReportUnimplementedInterfaceMembers(manyState, manyMissing)
+    assert manyHarness.Errors.Count == 1
+    assert manyHarness.Errors[0].Message == "'English' declares an interface but does not implement 2 of its members: 'Greet', 'Farewell'"
+    assert manyHarness.Errors[0].Suggestion == "Implement all 2 in 'English', inherit them from a base class, or drop the interface from the declaration."
+}
+
+test "a type that declares NO interface is never asked, whatever else is wrong with it" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclFunction("F", Modifiers.None))
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Plain", members, null, null, Modifiers.None), harness.Assignability), null)
+    assert harness.Errors.Count == 0
+
+    // An ABSTRACT class may leave an interface member to its subclasses, exactly as it may leave an
+    // abstract one.
+    abstractHarness := TypeDeclDefault()
+    abstractState := abstractHarness.Declarations.BeginClass(TypeDeclClass("PartialGreeter", new List<Declaration>(), null, null, Modifiers.Abstract), abstractHarness.Assignability)
+    assert abstractHarness.Declarations.IsAbstractDeclaration(abstractState)
+    TypeDeclRun(abstractHarness, abstractState, null)
+    assert abstractHarness.Errors.Count == 0
+}
+
+// ---------------------------------------------------------------------------------------------
+// AN INHERITED ABSTRACT MEMBER THAT NOBODY IMPLEMENTED (`NL324`)
+//
+// A CONCRETE CLASS WITH AN UNIMPLEMENTED ABSTRACT SLOT IS NOT A STYLE PROBLEM, IT IS THE CS0534 HOLE.
+// `abstract class Shape { abstract Area: double => … }` with `class Circle : Shape { }` beneath it
+// reported nothing and EMITTED. The method spelling was equally silent. Both are measured below at the
+// pieces, and end to end through `nlc check --json` in the commit message.
+//
+// The exemptions carry as much weight as the report: silence for a fully implemented class, for an
+// ABSTRACT derived class, for a class with no written base, for a concrete CLR base, and for an
+// intermediate concrete override that already discharged the obligation. And the walk abandons
+// entirely — reporting nothing at all — the moment any link in the chain cannot be opened, because a
+// missing set computed from half a chain is not a missing set.
+// ---------------------------------------------------------------------------------------------
+
+test "a first sighting that is ABSTRACT is missing; a first sighting that is not CLOSES the slot" {
+    // `RecordAbstractCandidate` is the whole rule in one step: nearest-first, first sighting wins.
+    missing := new List<string>()
+    seenFunctions := TypeDeclEmptyNames()
+    seenProperties := TypeDeclEmptyNames()
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", TypeDeclAbstractBits()), seenFunctions, seenProperties, missing)
+    assert TypeDeclNames(missing) == "Area"
+
+    // Seen already — an implementation in the derived type, or a nearer concrete override — is silent.
+    closed := new List<string>()
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", TypeDeclAbstractBits()), TypeDeclNamesOf("Area"), TypeDeclEmptyNames(), closed)
+    assert closed.Count == 0
+
+    // A non-abstract first sighting records the name WITHOUT requiring it: that is how an intermediate
+    // class that already overrode the member discharges the obligation for everything below it.
+    concrete := new List<string>()
+    concreteSeen := TypeDeclEmptyNames()
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", 0), concreteSeen, TypeDeclEmptyNames(), concrete)
+    assert concrete.Count == 0
+    assert concreteSeen.Contains("Area")
+
+    // A PROPERTY answers the property slot and a FUNCTION answers the function slot — a field named
+    // `Area` does not implement `abstract func Area()`, so the two name sets stay disjoint.
+    propertyMissing := new List<string>()
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclPropertyMemberInfo("Area", TypeDeclAbstractBits()), TypeDeclNamesOf("Area"), TypeDeclEmptyNames(), propertyMissing)
+    assert TypeDeclNames(propertyMissing) == "Area"
+}
+
+test "METADATA's abstract members come from ONE call, which already walks the CLR chain" {
+    // `Stream` is the canonical shape: abstract METHODS and abstract PROPERTIES on the same type. It is
+    // reached through `Type.GetType` rather than `typeof` because `typeof` of a non-core-library type
+    // does not emit as a static-call argument (the wall the estate hits everywhere).
+    streamType := Type.GetType("System.IO.Stream")
+    assert streamType != null
+    if streamType != null {
+        streamMissing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(streamType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), streamMissing)
+        assert streamMissing.Count == 10
+        assert streamMissing.Contains("Read")
+        assert streamMissing.Contains("Write")
+        assert streamMissing.Contains("Seek")
+        assert streamMissing.Contains("SetLength")
+        assert streamMissing.Contains("Flush")
+        assert streamMissing.Contains("CanRead")
+        assert streamMissing.Contains("CanWrite")
+        assert streamMissing.Contains("CanSeek")
+        assert streamMissing.Contains("Length")
+        assert streamMissing.Contains("Position")
+
+        // A name the derived type already declares is not required, whatever metadata says — one from
+        // the method half and one from the property half, so both subtractions are proven.
+        suppliedMissing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(streamType, TypeDeclNamesOf("Read"), TypeDeclNamesOf("Length"), suppliedMissing)
+        assert suppliedMissing.Count == 8
+        assert !suppliedMissing.Contains("Read")
+        assert !suppliedMissing.Contains("Length")
+    }
+
+    // A CONCRETE CLR base requires nothing, and this is the row that keeps the rule off every
+    // `class X : Exception` in the estate. `GetMethods` returns the MOST DERIVED implementation of each
+    // slot, so `MemoryStream`'s overrides come back non-abstract without any chain walk of our own.
+    memoryStreamType := Type.GetType("System.IO.MemoryStream")
+    assert memoryStreamType != null
+    if memoryStreamType != null {
+        concreteMissing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(memoryStreamType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), concreteMissing)
+        assert concreteMissing.Count == 0
+    }
+
+    exceptionMissing := new List<string>()
+    AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(typeof(Exception), TypeDeclEmptyNames(), TypeDeclEmptyNames(), exceptionMissing)
+    assert exceptionMissing.Count == 0
+
+    assert !AnalyzerTypeDeclarations.IsAbstractPropertyAccessor(null)
+}
+
+test "the chain walk answers CANNOT TELL rather than reporting from half a chain" {
+    harness := TypeDeclDefault()
+
+    // A base that is present and readable: the abstract member is required.
+    readable := TypeDeclSourceOwner("Shape", TypeDeclMemberInfos(TypeDeclMemberInfo("Area", TypeDeclAbstractBits())))
+    readableMissing := new List<string>()
+    assert harness.Declarations.CollectUnimplementedAbstractMembers(readable, TypeDeclEmptyNames(), TypeDeclEmptyNames(), readableMissing, 0)
+    assert TypeDeclNames(readableMissing) == "Area"
+
+    // An UNKNOWN link abandons the whole report — false, and the caller reports nothing.
+    unknownMissing := new List<string>()
+    assert !harness.Declarations.CollectUnimplementedAbstractMembers(BuiltInTypes.Unknown, TypeDeclEmptyNames(), TypeDeclEmptyNames(), unknownMissing, 0)
+
+    // So does a chain deeper than the cycle brake.
+    deepMissing := new List<string>()
+    assert !harness.Declarations.CollectUnimplementedAbstractMembers(readable, TypeDeclEmptyNames(), TypeDeclEmptyNames(), deepMissing, 25)
+
+    // A null candidate is the END of a chain, not a failure: `object` requires nothing.
+    endMissing := new List<string>()
+    assert harness.Declarations.CollectUnimplementedAbstractMembers(null, TypeDeclEmptyNames(), TypeDeclEmptyNames(), endMissing, 0)
+    assert endMissing.Count == 0
+}
+
+test "`NL324` NAMES EVERY MISSING MEMBER IN ONE DIAGNOSTIC, and the singular is not a truncated plural" {
+    oneHarness := TypeDeclDefault()
+    oneMissing := new List<string>()
+    oneMissing.Add("Area")
+    oneHarness.Declarations.ReportUnimplementedAbstractMembers(TypeDeclClass("Circle", new List<Declaration>(), null, null, Modifiers.None), oneMissing)
+    assert oneHarness.Errors.Count == 1
+    assert oneHarness.Errors[0].Code == ErrorCode.AbstractMemberNotImplemented
+    assert oneHarness.Errors[0].Message == "'Circle' does not implement inherited abstract member 'Area'"
+    assert oneHarness.Errors[0].Suggestion == "Implement it in 'Circle', or declare 'Circle' abstract so a subclass must."
+    assert oneHarness.Errors[0].Length == 6
+
+    manyHarness := TypeDeclDefault()
+    manyMissing := new List<string>()
+    manyMissing.Add("Area")
+    manyMissing.Add("Perimeter")
+    manyMissing.Add("Name")
+    manyHarness.Declarations.ReportUnimplementedAbstractMembers(TypeDeclClass("Circle", new List<Declaration>(), null, null, Modifiers.None), manyMissing)
+    assert manyHarness.Errors.Count == 1
+    assert manyHarness.Errors[0].Message == "'Circle' does not implement 3 inherited abstract members: 'Area', 'Perimeter', 'Name'"
+    assert manyHarness.Errors[0].Suggestion == "Implement all 3 in 'Circle', or declare 'Circle' abstract so a subclass must."
+}
+
+test "the four outright exemptions are checked before any chain is walked" {
+    // An ABSTRACT derived class may pass the obligation down, so it is never asked.
+    abstractHarness := TypeDeclDefault()
+    abstractMembers := new List<Declaration>()
+    TypeDeclRun(abstractHarness, abstractHarness.Declarations.BeginClass(TypeDeclClass("Partial", abstractMembers, null, null, Modifiers.Abstract), abstractHarness.Assignability), null)
+    assert abstractHarness.Errors.Count == 0
+
+    // A class with no written base inherits `object`, which is concrete.
+    rootHarness := TypeDeclDefault()
+    rootMembers := new List<Declaration>()
+    rootMembers.Add(TypeDeclFunction("F", Modifiers.None))
+    TypeDeclRun(rootHarness, rootHarness.Declarations.BeginClass(TypeDeclClass("Plain", rootMembers, null, null, Modifiers.None), rootHarness.Assignability), null)
+    assert rootHarness.Errors.Count == 0
+
+    // A STRUCT and a RECORD are not class forms and inherit no abstract slot.
+    structHarness := TypeDeclDefault()
+    structMembers := new List<Declaration>()
+    TypeDeclRun(structHarness, structHarness.Declarations.BeginStruct(TypeDeclStruct("Point", structMembers, null, null, Modifiers.None), structHarness.Assignability), null)
+    assert structHarness.Errors.Count == 0
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE PROPERTY HALF OF THE SAME RULE, AND THE FIELD THAT CAN NEVER TAKE PART IN INHERITANCE
+//
+// `ValidateOverrideTargets` walked `FunctionDeclaration` and `continue`d past everything else, so an
+// `override` PROPERTY was accepted with no check at all — and unlike the method hole, two of its
+// shapes COMPILED AND RAN: `class MyError : Exception { override NotThere: int => 5 }` emitted and
+// printed 5, overriding nothing. The property walk could not borrow either half of the method walk:
+// the source classifier matches `DeclaredMemberKind.Function` on purpose, and the reflection
+// classifier walks `GetMethods` while SKIPPING every `IsSpecialName`, which is exactly what a property
+// accessor is — so borrowing it would have answered "no base member" for every correct program.
+//
+// MEASURED, and it decided the third rule below: the parser chooses field or property from what
+// FOLLOWS the type, never from the modifiers. `virtual Label: string`, `abstract Label: string` and
+// `override Label: string` all build a `FieldDeclaration`; only `=> expr` and `{ get/set }` build a
+// `PropertyDeclaration`. The emitted metadata agrees — a bare `Auto: string` comes out a CLR FIELD and
+// only the accessor forms come out properties — and a CLR field can never be virtual, abstract or
+// overridden. So those three words on a bare member are meaningless and are now reported.
+// ---------------------------------------------------------------------------------------------
+
+test "a source shape's PROPERTY members answer the property question, and its functions do not" {
+    virtualProperty := TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclVirtualBits()))
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(virtualProperty, "Label") == 1
+
+    plainProperty := TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", 0))
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(plainProperty, "Label") == 2
+
+    sealedProperty := TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclSealedOverrideBits()))
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(sealedProperty, "Label") == 2
+
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(virtualProperty, "Other") == 0
+
+    // A base FUNCTION of the same name is not a property slot, and the two classifiers stay disjoint
+    // in both directions — this is the assertion that would fail if either borrowed the other.
+    virtualFunction := TypeDeclMemberInfos(TypeDeclMemberInfo("Label", TypeDeclVirtualBits()))
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(virtualFunction, "Label") == 0
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverrideTarget(virtualProperty, "Label") == 0
+}
+
+test "METADATA answers through GetProperties and the ACCESSORS, which GetMethods structurally cannot" {
+    // `Exception.Message` is `public override string Message { get; }` — virtual and not final.
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverridePropertyTarget(typeof(Exception), "Message") == 1
+    // `Exception.HResult` is a plain non-virtual property: present, but sealed shut.
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverridePropertyTarget(typeof(Exception), "HResult") == 2
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverridePropertyTarget(typeof(Exception), "NotThere") == 3
+
+    // NON-VACUITY, and the whole reason this function exists: the METHOD walk cannot see `Message` at
+    // all, because a property accessor is `IsSpecialName` and it skips those.
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverrideTarget(typeof(Exception), "Message") == 3
+
+    // `object` declares no properties, so the implicit root can never supply a property slot.
+    assert AnalyzerTypeDeclarations.ClassifyObjectOverridePropertyTarget("Message") == 3
+    assert AnalyzerTypeDeclarations.ClassifyObjectOverridePropertyTarget("ToString") == 3
+
+    assert !AnalyzerTypeDeclarations.IsOverridablePropertyAccessor(null)
+}
+
+test "the property walk climbs the base chain and refuses to guess on the same three shapes" {
+    harness := TypeDeclDefault()
+    virtualBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclVirtualBits())))
+    assert harness.Declarations.ClassifyOverridePropertyTarget(virtualBase, "Label", 0) == 1
+
+    plainBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", 0)))
+    assert harness.Declarations.ClassifyOverridePropertyTarget(plainBase, "Label", 0) == 2
+    assert harness.Declarations.ClassifyOverridePropertyTarget(plainBase, "Other", 0) == 3
+
+    // SILENCE IS THE DEFAULT here too: an unresolvable base and a depth past the cycle brake both
+    // answer "cannot tell", and a null candidate walks to the implicit root rather than giving up.
+    assert harness.Declarations.ClassifyOverridePropertyTarget(BuiltInTypes.Unknown, "Label", 0) == 0
+    assert harness.Declarations.ClassifyOverridePropertyTarget(plainBase, "Label", 25) == 0
+    assert harness.Declarations.ClassifyOverridePropertyTarget(null, "Label", 0) == 3
+}
+
+test "AN `override` PROPERTY WITH NO SLOT TO TAKE IS `NL311`, WITH THE METHOD RULE'S TWO SENTENCES" {
+    missingHarness := TypeDeclDefault()
+    missingMembers := new List<Declaration>()
+    missingMembers.Add(TypeDeclProperty("Label", Modifiers.Override))
+    TypeDeclRun(missingHarness, missingHarness.Declarations.BeginClass(TypeDeclClass("Dog", missingMembers, null, null, Modifiers.None), missingHarness.Assignability), null)
+
+    assert missingHarness.Errors.Count == 1
+    assert missingHarness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert missingHarness.Errors[0].Message == "'Label' is declared 'override', but it has no base member of that name"
+    assert missingHarness.Errors[0].Length == 5
+
+    // A property WITHOUT the modifier is never asked, and neither is a plain field beside it.
+    silentHarness := TypeDeclDefault()
+    silentMembers := new List<Declaration>()
+    silentMembers.Add(TypeDeclProperty("Label", Modifiers.None))
+    silentMembers.Add(TypeDeclField("Count", TypeDeclInt(), null, Modifiers.None))
+    TypeDeclRun(silentHarness, silentHarness.Declarations.BeginClass(TypeDeclClass("Dog", silentMembers, null, null, Modifiers.None), silentHarness.Assignability), null)
+    assert silentHarness.Errors.Count == 0
+}
+
+test "A FIELD DECLARED `override`, `virtual` OR `abstract` IS `NL311` — it can be none of them" {
+    overrideHarness := TypeDeclDefault()
+    overrideMembers := new List<Declaration>()
+    overrideMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Override))
+    TypeDeclRun(overrideHarness, overrideHarness.Declarations.BeginClass(TypeDeclClass("Dog", overrideMembers, null, null, Modifiers.None), overrideHarness.Assignability), null)
+    assert overrideHarness.Errors.Count == 1
+    assert overrideHarness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert overrideHarness.Errors[0].Message == "'Label' is declared 'override', but a field cannot be virtual, abstract or overridden"
+
+    virtualHarness := TypeDeclDefault()
+    virtualMembers := new List<Declaration>()
+    virtualMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Virtual))
+    TypeDeclRun(virtualHarness, virtualHarness.Declarations.BeginClass(TypeDeclClass("Dog", virtualMembers, null, null, Modifiers.None), virtualHarness.Assignability), null)
+    assert virtualHarness.Errors.Count == 1
+    assert virtualHarness.Errors[0].Message == "'Label' is declared 'virtual', but a field cannot be virtual, abstract or overridden"
+
+    abstractHarness := TypeDeclDefault()
+    abstractMembers := new List<Declaration>()
+    abstractMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Abstract))
+    TypeDeclRun(abstractHarness, abstractHarness.Declarations.BeginClass(TypeDeclClass("Dog", abstractMembers, null, null, Modifiers.None), abstractHarness.Assignability), null)
+    assert abstractHarness.Errors.Count == 1
+    assert abstractHarness.Errors[0].Message == "'Label' is declared 'abstract', but a field cannot be virtual, abstract or overridden"
+
+    // THE MODIFIERS A FIELD LEGITIMATELY CARRIES ARE UNTOUCHED. This is the row that keeps the rule
+    // from failing live files: `static`, `readonly` and `required` fields are the estate's own shapes.
+    plainHarness := TypeDeclDefault()
+    plainMembers := new List<Declaration>()
+    plainMembers.Add(TypeDeclField("Shared", TypeDeclInt(), TypeDeclIntLiteral(), Modifiers.Static))
+    plainMembers.Add(TypeDeclField("Fixed", TypeDeclInt(), TypeDeclIntLiteral(), Modifiers.Readonly))
+    plainMembers.Add(TypeDeclField("Needed", TypeDeclInt(), null, Modifiers.Required))
+    plainMembers.Add(TypeDeclField("Plain", TypeDeclInt(), null, Modifiers.None))
+    TypeDeclRun(plainHarness, plainHarness.Declarations.BeginClass(TypeDeclClass("Dog", plainMembers, null, null, Modifiers.None), plainHarness.Assignability), null)
+    assert plainHarness.Errors.Count == 0
 }
 
 test "THE RULE STAYS SILENT FOR EVERY CORRECT SPELLING IT CAN SEE" {

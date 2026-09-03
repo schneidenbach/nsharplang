@@ -10,7 +10,7 @@ class UnsafeAuditSurface {
     )]
     static func WrapHandle(raw: IntPtr): SafeDevice {
         unsafe {
-            marker := raw
+            _marker := raw
         }
         return new SafeDevice { Raw: raw }
     }

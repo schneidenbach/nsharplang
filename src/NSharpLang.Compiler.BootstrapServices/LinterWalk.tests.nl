@@ -654,13 +654,105 @@ test "an AWAIT FOREACH counts as an await, so its async function is not NL004" {
     assert LwkCodes(idle) == "NL004@7:1;"
 }
 
-test "a statement shape with no arm is walked no further" {
+test "the shapes NAMED bodyless are silent — and naming them is what makes the tail throw safe" {
+    // RETITLED AND RE-PINNED. This used to read "a statement shape with no arm is walked no further",
+    // which stated the FAIL-OPEN rule as a fact; that rule is what let `unsafe`/`alloc`/`allow` bodies
+    // go unwalked for every lint rule. These six shapes are silent because `IsBodylessStatement` NAMES
+    // them silent — they carry no binding, no expression and no nested body — not because nobody wrote
+    // their arm.
     state := LwkState()
     walk := new LinterWalk(state)
     walk.VisitStatement(new BreakStatement(4, 5))
     walk.VisitStatement(new ContinueStatement(5, 5))
     walk.VisitStatement(new EmptyStatement(6, 5))
+    walk.VisitStatement(new PreprocessorDirective("#if DEBUG", 7, 1))
+    walk.VisitStatement(new FileImport("helpers.nl", null, 8, 1))
+    walk.VisitStatement(new NamespaceImport("System.Text", null, 9, 1))
     assert state.Diagnostics.Count == 0
+
+    assert LinterWalk.IsBodylessStatement(new BreakStatement(4, 5))
+    assert LinterWalk.IsBodylessStatement(new ContinueStatement(5, 5))
+    assert LinterWalk.IsBodylessStatement(new EmptyStatement(6, 5))
+    assert LinterWalk.IsBodylessStatement(new PreprocessorDirective("#if DEBUG", 7, 1))
+    assert LinterWalk.IsBodylessStatement(new FileImport("helpers.nl", null, 8, 1))
+    assert LinterWalk.IsBodylessStatement(new NamespaceImport("System.Text", null, 9, 1))
+
+    // Non-vacuity, and the whole point of the list: a shape that is NOT named is not silently skipped.
+    assert !LinterWalk.IsBodylessStatement(new UnsafeBlockStatement(LwkEmptyBlock(4, 12), 4, 5))
+    assert !LinterWalk.IsBodylessStatement(LwkEmptyBlock(4, 5))
+}
+
+test "A STATEMENT KIND WITH NO ARM NOW THROWS — the walk cannot be switched off by a new node kind" {
+    // The future-subclass simulation, which is the only way to reach the tail now that every shipped
+    // `Statement` is either walked or named bodyless. Before this slice the walk RETURNED here, and a
+    // returning tail is how `off`, `unsafe`, `alloc` and `allow` each shipped with the linter blind
+    // inside them.
+    state := LwkState()
+    walk := new LinterWalk(state)
+    assert throws InvalidOperationException {
+        walk.VisitStatement(new LwkUnknownStatement(11, 7))
+    }
+}
+
+// ── the three body-carrying wrappers (`unsafe`, `alloc`, `allow`) ────────────────────────────────
+//
+// EACH OF THESE HAD NO ARM, AND A MISSING ARM DOES NOT WEAKEN ONE RULE — IT SWITCHES THE WHOLE LINTER
+// OFF FOR THE SUBTREE. Measured on the shipped CLI before the fix: a local read only inside such a
+// body was reported NL001 (an ERROR, so it blocked `nlc build` on correct source), a local declared
+// and never read INSIDE one was never reported at all, an import used only inside one was reported
+// NL010, and an empty catch block inside one was never NL011. Both directions are pinned below,
+// through the source-text census rather than a hand-built tree, because the defect was reachable from
+// ordinary source and no hand-built contract had caught it.
+
+test "a local read only inside an `unsafe` body is NOT NL001, and one unread INSIDE it IS" {
+    assert LnieCensus("\nfunc F() {\n    a := 1\n    unsafe {\n        print a\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    unsafe {\n        b := 2\n    }\n}\n") == "NL001@4:9+1;"
+}
+
+test "a local read only inside an `alloc` body is NOT NL001, and one unread INSIDE it IS" {
+    assert LnieCensus("\nfunc F() {\n    c := 3\n    alloc {\n        print c\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    alloc {\n        d := 4\n    }\n}\n") == "NL001@4:9+1;"
+}
+
+test "a local read only inside an `allow(...)` body is NOT NL001, and one unread INSIDE it IS" {
+    assert LnieCensus("\nfunc F() {\n    e := 5\n    allow(alloc, reason: \"probe\") {\n        print e\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    allow(alloc, reason: \"probe\") {\n        f := 6\n    }\n}\n") == "NL001@4:9+1;"
+}
+
+test "the blindness was never NL001-only: NL010 and NL011 were lost inside a wrapper body too" {
+    // An import used ONLY inside an `unsafe` body was reported unused, and an empty catch block inside
+    // one was never reported. Both are the same missing arm.
+    assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    unsafe {\n        sb := new StringBuilder()\n        print sb\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    unsafe {\n        try {\n            print 1\n        } catch ex: Exception {\n        }\n    }\n}\n") == "NL011@6:11+5;"
+}
+
+test "a wrapper body owns its scope, so a binding inside one does not leak past it" {
+    // The arm hands the body to `VisitStatement`, which reaches `VisitBlock` and pushes a scope — so
+    // the inner name is reported at the wrapper's close and is NOT visible to the statement after it.
+    state := LwkState()
+    walk := new LinterWalk(state)
+    inner := LwkStatements()
+    inner.Add(LwkVar("scoped", null, 5, 9))
+    body := LwkBlockOf(inner, 4, 12)
+    outer := LwkStatements()
+    outer.Add(new UnsafeBlockStatement(body, 4, 5))
+    outer.Add(LwkRead("scoped", 8, 5))
+    walk.VisitStatement(LwkBlockOf(outer, 3, 1))
+    assert LwkCodes(state) == "NL001@5:9;"
+}
+
+test "`alloc` and `allow` walk their bodies through the same arm shape as `unsafe`" {
+    allocState := LwkState()
+    allocWalk := new LinterWalk(allocState)
+    allocWalk.VisitStatement(new AllocBlockStatement(LwkBlock1(LwkVar("dead", null, 5, 9), 4, 12), 4, 5))
+    assert LwkCodes(allocState) == "NL001@5:9;"
+
+    allowState := LwkState()
+    allowWalk := new LinterWalk(allowState)
+    effects := new List<string>()
+    effects.Add("alloc")
+    allowWalk.VisitStatement(new AllowStatement(effects, "probe", null, LwkBlock1(LwkVar("dead", null, 5, 9), 4, 12), 4, 5))
+    assert LwkCodes(allowState) == "NL001@5:9;"
 }
 
 // ── the operand slots a read-walk must see (the `off` / pattern family) ──────────────────────────
@@ -859,4 +951,123 @@ test "a CAPTURED parameter read inside a nested function counts as read" {
     outer := LwkFunction("outer", LwkParams(["captured"]), LwkBlock1(innerStatement, 7, 30), null, false)
     walk.VisitFunction(outer)
     assert state.Diagnostics.Count == 0
+}
+
+// ── a type NAMED in a pattern, an `is`, an `as` (the written-type family) ───────────────────────
+//
+// A `TypeReference` IS NOT AN `Expression`, so `AstChildrenCore.Of` cannot hand one over and no walk
+// reaches it without an explicit arm. `typeof` had that arm; the other six type slots did not, and a
+// type written in one of them was invisible to BOTH import rules: NL010 reported the import that
+// supplies it as unused (an ERROR — it fails `nlc check` on correct source), and NL002 was never asked
+// whether the import was missing at all. Measured before the fix on four source-reachable positions:
+// `match x { Foo f => … }`, `switch x { case Foo f => … }`, `x is Foo` (with and without a binding) and
+// `x as Foo` each reported a false NL010, while `new Foo()` and `typeof(Foo)` — the two tracked
+// controls — did not.
+//
+// THE PATTERN'S TYPE REFERENCE ALSO HAD TO BE GIVEN A POSITION. The recovery parser built it at 0,0,
+// and NL002 refuses to report without one, so tracking the pattern alone fixed NL010 and left NL002
+// still silent there. Both halves are pinned below: the import present (silent) and the import absent
+// (NL002 under the type name, at the exact column the type is written).
+
+test "a type named ONLY in a `match` type pattern makes its import used, and needs one when absent" {
+    assert LnieCensus("\nimport System.Text\n\nfunc F(o: object): string {\n    return match o {\n        StringBuilder sb => \"sb\",\n        _ => \"x\"\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F(o: object): string {\n    return match o {\n        StringBuilder sb => \"sb\",\n        _ => \"x\"\n    }\n}\n") == "NL002@4:9+13;"
+}
+
+test "a type named ONLY in a `switch` case type pattern behaves identically" {
+    assert LnieCensus("\nimport System.Text\n\nfunc F(o: object): int {\n    switch o {\n        case StringBuilder sb => return 1\n        default => return 0\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F(o: object): int {\n    switch o {\n        case StringBuilder sb => return 1\n        default => return 0\n    }\n}\n") == "NL002@4:14+13;"
+}
+
+test "a type named ONLY in an `is` test makes its import used, and needs one when absent" {
+    assert LnieCensus("\nimport System.Text\n\nfunc F(o: object): bool {\n    return o is StringBuilder\n}\n") == ""
+    assert LnieCensus("\nfunc F(o: object): bool {\n    return o is StringBuilder\n}\n") == "NL002@3:17+13;"
+}
+
+test "a type named ONLY in an `as` cast makes its import used, and needs one when absent" {
+    assert LnieCensus("\nimport System.Text\n\nfunc F(o: object): int {\n    sb := o as StringBuilder\n    if sb != null {\n        return 1\n    }\n\n    return 0\n}\n") == ""
+    assert LnieCensus("\nfunc F(o: object): int {\n    sb := o as StringBuilder\n    if sb != null {\n        return 1\n    }\n\n    return 0\n}\n") == "NL002@3:16+13;"
+}
+
+test "a pattern's BINDING is still not a read — the widening credits the TYPE and nothing else" {
+    // Non-vacuity for the banner: `Foo f` mentions `Foo` and introduces `f`. If the binding were
+    // credited as a read, the unrelated `f` below would stop being NL001.
+    assert LnieCensus("\nimport System.Text\n\nfunc F(o: object): string {\n    f := 1\n    return match o {\n        StringBuilder f => \"sb\",\n        _ => \"x\"\n    }\n}\n") == "NL001@5:5+1;"
+}
+
+test "the three type slots no source spelling reaches today are tracked all the same" {
+    // `sizeof(T)` and `stackalloc T[n]` make the columnar parser decline the enclosing function, which
+    // suppresses the whole file's lint pass, and an explicit call type argument parses as a comparison
+    // — so none of the three can be reached from source right now. They are contracted through the walk
+    // directly, so that fixing either front end cannot silently reopen the hole for them.
+    sizeState := LwkState()
+    sizeWalk := new LinterWalk(sizeState)
+    sizeWalk.VisitExpression(new SizeOfExpression(LwkSimpleAt("StringBuilder", 4, 12), 4, 5))
+    assert LwkCodes(sizeState) == "NL002@4:12;"
+
+    stackState := LwkState()
+    stackWalk := new LinterWalk(stackState)
+    stackWalk.VisitExpression(new StackAllocExpression(LwkSimpleAt("StringBuilder", 5, 16), LwkId("count", 5, 31), 5, 5))
+    assert LwkCodes(stackState) == "NL002@5:16;"
+
+    callState := LwkState()
+    callWalk := new LinterWalk(callState)
+    typeArguments := new List<TypeReference>()
+    typeArguments.Add(LwkSimpleAt("StringBuilder", 6, 14))
+    arguments := new List<Argument>()
+    arguments.Add(new Argument(null, LwkId("value", 6, 29), ArgumentModifier.None))
+    callWalk.VisitExpression(new CallExpression(LwkId("Echo", 6, 9), arguments, typeArguments, 6, 9))
+    assert LwkCodes(callState) == "NL002@6:14;"
+}
+
+test "each type-slot arm still walks its operand — the type is IN ADDITION, never instead" {
+    // The arms return early, so the child walk has to be called explicitly in each one. A dropped
+    // `VisitChildExpressions` would turn every `(Foo)bar` and `bar is Foo` into a lost read of `bar`,
+    // which is the exact NL001 false positive this family exists to prevent.
+    state := LwkState()
+    walk := new LinterWalk(state)
+    statements := LwkStatements()
+    statements.Add(LwkVar("subject", null, 4, 5))
+    statements.Add(new ExpressionStatement(new IsExpression(LwkId("subject", 5, 5), LwkSimple("int"), null, 5, 5), 5, 5))
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+    assert state.Diagnostics.Count == 0
+
+    castState := LwkState()
+    castWalk := new LinterWalk(castState)
+    castStatements := LwkStatements()
+    castStatements.Add(LwkVar("subject", null, 4, 5))
+    castExpression: Expression = new CastExpression(LwkId("subject", 5, 12), LwkSimple("int"), CastKind.Safe, 5, 5)
+    castStatements.Add(new ExpressionStatement(castExpression, 5, 5))
+    castWalk.VisitStatement(LwkBlockOf(castStatements, 3, 1))
+    assert castState.Diagnostics.Count == 0
+}
+
+test "A PATTERN KIND WITH NO ARM NOW THROWS, and the two binding-only kinds are NAMED silent" {
+    assert LinterWalk.IsBindingOnlyPattern(new IdentifierPattern("bound", 4, 9))
+    assert LinterWalk.IsBindingOnlyPattern(new SlicePattern("rest", 4, 9))
+    assert !LinterWalk.IsBindingOnlyPattern(new TypePattern(LwkSimple("int"), "n", 4, 9))
+
+    state := LwkState()
+    walk := new LinterWalk(state)
+    walk.VisitPattern(new IdentifierPattern("bound", 4, 9))
+    walk.VisitPattern(new SlicePattern("rest", 5, 9))
+    assert state.Diagnostics.Count == 0
+
+    assert throws InvalidOperationException {
+        walk.VisitPattern(new LwkUnknownPattern(6, 9))
+    }
+}
+
+// A `Statement` subclass the walk has never heard of — the stand-in for the NEXT node kind someone
+// adds. It exists so the fail-safe tail can be asserted rather than described; every shipped
+// `Statement` is now either walked or named bodyless, so nothing else can reach that throw.
+class LwkUnknownStatement: Statement {
+    constructor(Line: int, Column: int): base(Line, Column) {
+    }
+}
+
+// The pattern sibling of `LwkUnknownStatement`, for the pattern arm's own fail-safe tail.
+class LwkUnknownPattern: Pattern {
+    constructor(Line: int, Column: int): base(Line, Column) {
+    }
 }

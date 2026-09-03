@@ -112,16 +112,24 @@ class LinterWalk {
 
     // ---- the statement arm ------------------------------------------------------------------------
 
-    // Every statement shape the walk understands. A shape with no arm here is walked no further —
-    // correct for `break`, `continue` and the empty statement, which carry no binding, no expression
-    // and no nested body.
+    // Every statement shape the walk understands, AND — SINCE THIS SLICE — EVERY SHAPE IT DOES NOT.
     //
-    // THAT RULE IS FAIL-OPEN, UNLIKE THE EXPRESSION WALK'S, and it has already cost one shipped
-    // feature: `OffStatement` carries a handle expression and had no arm, so a subscription read only
-    // by its `off` was reported NL001. `AstChildrenCore.Of` throws for an expression node it does not
-    // know; nothing here throws for a statement it does not know. `AllocBlockStatement`,
-    // `AllowStatement` and `UnsafeBlockStatement` each carry a `BlockStatement` body and still have no
-    // arm — measured, and left for the slice that owns those forms.
+    // THIS ARM USED TO BE FAIL-OPEN WHILE THE EXPRESSION ARM WAS FAIL-SAFE, AND THAT ASYMMETRY COST
+    // TWO SHIPPED FEATURES. `OffStatement` carries a handle expression and had no arm, so a
+    // subscription read only by its `off` was reported NL001. Then `AllocBlockStatement`,
+    // `AllowStatement` and `UnsafeBlockStatement` — each carrying a `BlockStatement` body — had no arm
+    // either, so THE LINTER WAS BLIND INSIDE EVERY `unsafe`, `alloc` AND `allow(…)` BODY FOR EVERY
+    // RULE IT HAS: a local read only in such a body was reported NL001, a local declared and never
+    // read inside one was never reported at all, an import used only inside one was reported NL010,
+    // and an empty catch block inside one was never NL011. A missing arm does not weaken one rule; it
+    // switches the whole linter off for that subtree.
+    //
+    // SO THE TAIL NOW THROWS, exactly as `AstChildrenCore.Of` throws for an expression node it does
+    // not know. A statement shape reaches the end of this walk only by being named in
+    // `IsBodylessStatement` as carrying no binding, no expression and no nested body; anything else
+    // is a new node kind whose arm has not been written, and the walk says so instead of silently
+    // skipping the subtree. That is what stops the next `Statement` subclass from re-opening this
+    // hole — the previous two were each found by a user, not by the walk.
     func VisitStatement(statement: Statement) {
         variableDeclaration := statement as VariableDeclarationStatement
         if variableDeclaration != null {
@@ -132,6 +140,33 @@ class LinterWalk {
         block := statement as BlockStatement
         if block != null {
             VisitBlock(block)
+            return
+        }
+
+        // THE THREE BODY-CARRYING WRAPPERS. `unsafe { … }`, `alloc { … }` and
+        // `allow(effect, reason: …) { … }` each wrap an ordinary `BlockStatement`, and the code inside
+        // one is ordinary code: its reads are reads, its declarations are declarations, and its own
+        // scope is the block's. Handing the body to `VisitStatement` reaches `VisitBlock`, which
+        // pushes and pops the scope — so a local declared inside the wrapper is reported at the
+        // wrapper's closing brace and does not leak past it.
+        //
+        // `AllowStatement`'s `Effects`, `Reason` and `Owner` are strings the parser already decoded,
+        // not expressions, so there is nothing in the header to walk.
+        unsafeBlock := statement as UnsafeBlockStatement
+        if unsafeBlock != null {
+            VisitStatement(unsafeBlock.Body)
+            return
+        }
+
+        allocBlock := statement as AllocBlockStatement
+        if allocBlock != null {
+            VisitStatement(allocBlock.Body)
+            return
+        }
+
+        allowStatement := statement as AllowStatement
+        if allowStatement != null {
+            VisitStatement(allowStatement.Body)
             return
         }
 
@@ -291,7 +326,47 @@ class LinterWalk {
             state.MarkVariableUsed(awaitForEach.VariableName, false)
             VisitStatement(awaitForEach.Body)
             state.PopScope()
+            return
         }
+
+        if IsBodylessStatement(statement) {
+            return
+        }
+
+        // The receiver must be object-typed for `GetType()` to emit.
+        node: object = statement
+        throw new InvalidOperationException("The lint walk has no arm for statement kind '" + node.GetType().Name + "' at line " + statement.Line.ToString() + ", column " + statement.Column.ToString() + ". Add an arm that walks its bindings and expressions, or name it in IsBodylessStatement if it carries none.")
+    }
+
+    // THE SHAPES THAT ARE WALKED NO FURTHER BECAUSE THERE IS NOTHING IN THEM TO WALK. Each carries no
+    // binding, no expression and no nested body, so reaching one is not a gap. This list is what makes
+    // the throw above safe to write: a shape is silent because it was NAMED silent, not because nobody
+    // wrote its arm.
+    //
+    // The three import/directive kinds are `Statement` subclasses that the parser keeps at file level;
+    // they are named here so that a file-level walk which ever reaches one does not trip the tail.
+    static func IsBodylessStatement(statement: Statement): bool {
+        if (statement as BreakStatement) != null {
+            return true
+        }
+
+        if (statement as ContinueStatement) != null {
+            return true
+        }
+
+        if (statement as EmptyStatement) != null {
+            return true
+        }
+
+        if (statement as PreprocessorDirective) != null {
+            return true
+        }
+
+        if (statement as FileImport) != null {
+            return true
+        }
+
+        return (statement as NamespaceImport) != null
     }
 
     // A declaration binds its name and then walks its initializer — unless the initializer carries a
@@ -458,6 +533,17 @@ class LinterWalk {
     // property pattern's binding and a slice pattern's binding all INTRODUCE a name; crediting one as
     // a read would silence a genuine NL001 against a different variable of that name, because
     // `LinterWalkState`'s used-name set is file-wide and deliberately coarser than the scope.
+    //
+    // WHAT A PATTERN *NAMES* IS A DIFFERENT QUESTION, AND THIS BANNER USED TO CONFLATE THE TWO. A type
+    // pattern writes a TYPE beside its binding, and that type is a written type reference exactly as a
+    // parameter's or a `typeof`'s is — but a `TypeReference` is not an `Expression`, so neither this
+    // walk nor `AstChildrenCore.Of` ever reached it. `match x { Foo f => … }`, `switch x { case Foo f
+    // => … }`, `x is Foo` and `x as Foo` therefore all reported a FALSE NL010 against the import that
+    // supplies `Foo` — an ERROR — and asked NL002 nothing. Every such slot now goes through
+    // `TrackTypeReference`, the one site that answers both rules.
+    //
+    // The tail throws for the same reason the statement arm's does: a pattern kind is silent only by
+    // being NAMED silent below, never by falling through.
     func VisitPattern(pattern: Pattern?) {
         if pattern == null {
             return
@@ -522,7 +608,36 @@ class LinterWalk {
         unionCasePattern := pattern as UnionCasePattern
         if unionCasePattern != null {
             VisitPropertyPatterns(unionCasePattern.Properties)
+            return
         }
+
+        // THE TYPE A PATTERN WRITES IS A TYPE REFERENCE, AND ITS BINDING STILL IS NOT. `Foo f` mentions
+        // `Foo` — an import usage and a possible missing import — and introduces `f`, which stays
+        // uncredited for the reason the banner gives.
+        typePattern := pattern as TypePattern
+        if typePattern != null {
+            state.TrackTypeReference(typePattern.Type)
+            return
+        }
+
+        if IsBindingOnlyPattern(pattern) {
+            return
+        }
+
+        // The receiver must be object-typed for `GetType()` to emit.
+        node: object = pattern
+        throw new InvalidOperationException("The lint walk has no arm for pattern kind '" + node.GetType().Name + "' at line " + pattern.Line.ToString() + ", column " + pattern.Column.ToString() + ". Add an arm that walks its type, its sub-patterns and its expressions, or name it in IsBindingOnlyPattern if it only introduces a name.")
+    }
+
+    // THE PATTERN KINDS THAT CARRY A BINDING AND NOTHING ELSE. `case bound =>` and a list pattern's
+    // `..rest` each introduce exactly one name and hold no type, no sub-pattern and no expression, so
+    // there is nothing here for any rule to see. Naming them is what lets the tail above throw.
+    static func IsBindingOnlyPattern(pattern: Pattern): bool {
+        if (pattern as IdentifierPattern) != null {
+            return true
+        }
+
+        return (pattern as SlicePattern) != null
     }
 
     // A property pattern's own sub-pattern. Its `Name` is the PROPERTY being matched and its
@@ -646,6 +761,58 @@ class LinterWalk {
             // NL010: `typeof`'s operand is a TypeReference, not an expression child, so the structural
             // walk never reaches it — track it explicitly.
             state.TrackTypeReference(typeOfExpression.Type)
+            return
+        }
+
+        // THE OTHER FIVE TYPE-REFERENCE SLOTS, FOR EXACTLY THE REASON THE `typeof` ARM GIVES ABOVE.
+        // `AstChildrenCore.Of` enumerates `Expression` children and a `TypeReference` is not one, so a
+        // written type in any of these positions was invisible to every rule until it was tracked here.
+        // Each arm still walks its children afterwards: the type is IN ADDITION to the operand, never
+        // instead of it — `(Foo)bar`, `bar is Foo` and `f<Foo>(bar)` all read `bar` as well.
+        //
+        // `x is Foo f` and `x as Foo` were measured reporting a false NL010 from ordinary source.
+        // `sizeof(T)`, `stackalloc T[n]` and an explicit call type argument are tracked on the same
+        // rule but could not be reached from source at the time of writing — the first two make the
+        // columnar parser decline the enclosing function, which suppresses the lint pass for the whole
+        // file, and an explicit call type argument parses as a comparison. They are contracted through
+        // the walk directly so that fixing either front end cannot silently reopen the hole.
+        castExpression := expression as CastExpression
+        if castExpression != null {
+            state.TrackTypeReference(castExpression.TargetType)
+            VisitChildExpressions(castExpression)
+            return
+        }
+
+        isExpression := expression as IsExpression
+        if isExpression != null {
+            state.TrackTypeReference(isExpression.Type)
+            VisitChildExpressions(isExpression)
+            return
+        }
+
+        sizeOfExpression := expression as SizeOfExpression
+        if sizeOfExpression != null {
+            state.TrackTypeReference(sizeOfExpression.Type)
+            return
+        }
+
+        stackAllocExpression := expression as StackAllocExpression
+        if stackAllocExpression != null {
+            state.TrackTypeReference(stackAllocExpression.ElementType)
+            VisitChildExpressions(stackAllocExpression)
+            return
+        }
+
+        callExpression := expression as CallExpression
+        if callExpression != null {
+            typeArguments := callExpression.TypeArguments
+            if typeArguments != null {
+                for typeArgument in typeArguments {
+                    state.TrackTypeReference(typeArgument)
+                }
+            }
+
+            VisitChildExpressions(callExpression)
             return
         }
 

@@ -428,6 +428,8 @@ class AnalyzerTypeDeclarations {
         ValidateNoStaticMembersOnGenericType(state)
         ResolveDeclaredBases(state)
         ValidateOverrideTargets(state)
+        ValidateAbstractMemberImplementations(state)
+        ValidateInterfaceImplementations(state)
         state.OwnerType = OwnerTypeFor(state)
         DeclareNestedTypesInCurrentScope(state.OwnerType)
         if state.Form == 3 {
@@ -1112,26 +1114,80 @@ class AnalyzerTypeDeclarations {
             return
         }
 
+        declaredBase := DeclaredBaseTypeFor(state)
         for member in members {
             function := member as FunctionDeclaration
-            if function == null {
+            if function != null {
+                if HasOverrideModifier(function.Modifiers) {
+                    verdict := ClassifyOverrideTarget(declaredBase, function.Name, 0)
+                    if verdict == 2 {
+                        ReportOverrideTargetFault(function, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base member 'virtual', or drop 'override' from this declaration.")
+                    }
+
+                    if verdict == 3 {
+                        ReportOverrideTargetFault(function, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new member.")
+                    }
+                }
+
                 continue
             }
 
-            if !HasOverrideModifier(function.Modifiers) {
+            property := member as PropertyDeclaration
+            if property != null {
+                if HasOverrideModifier(property.Modifiers) {
+                    propertyVerdict := ClassifyOverridePropertyTarget(declaredBase, property.Name, 0)
+                    if propertyVerdict == 2 {
+                        ReportOverridePropertyTargetFault(property, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base property 'virtual', or drop 'override' from this declaration.")
+                    }
+
+                    if propertyVerdict == 3 {
+                        ReportOverridePropertyTargetFault(property, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new property.")
+                    }
+                }
+
                 continue
             }
 
-            verdict := ClassifyOverrideTarget(DeclaredBaseTypeFor(state), function.Name, 0)
-            if verdict == 2 {
-                ReportOverrideTargetFault(function, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base member 'virtual', or drop 'override' from this declaration.")
-                continue
-            }
-
-            if verdict == 3 {
-                ReportOverrideTargetFault(function, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new member.")
+            field := member as FieldDeclaration
+            if field != null {
+                ValidateFieldInheritanceModifiers(field)
             }
         }
+    }
+
+    // A FIELD CANNOT TAKE PART IN INHERITANCE AT ALL, AND N# LETS ONE BE WRITTEN AS IF IT COULD.
+    //
+    // MEASURED, because the answer decides the rule: the parser chooses field or property from what
+    // FOLLOWS the type and never from the modifiers, so `virtual Label: string`, `abstract Label:
+    // string` and `override Label: string` all build a `FieldDeclaration`, while `Label: string => …`
+    // and `Label: string { get … }` build a `PropertyDeclaration`. The emitted metadata agrees: a bare
+    // `Auto: string` is a CLR FIELD and only the accessor forms are properties. A CLR field is never
+    // virtual, never abstract and can never be overridden, so all three words are meaningless there —
+    // and they were accepted in silence, which reads as a promise the runtime does not keep.
+    //
+    // The report is `NL311` for the same reason the override family is: the fault is the MODIFIER, not
+    // the name. The suggestion names the two ways out, because both are real: give the member an
+    // accessor and it becomes a property that CAN carry the word, or drop the word.
+    func ValidateFieldInheritanceModifiers(field: FieldDeclaration) {
+        modifierBits := Convert.ToInt32(field.Modifiers)
+        if (modifierBits & Convert.ToInt32(Modifiers.Override)) != 0 {
+            ReportFieldInheritanceModifierFault(field, "override")
+            return
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Abstract)) != 0 {
+            ReportFieldInheritanceModifierFault(field, "abstract")
+            return
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Virtual)) != 0 {
+            ReportFieldInheritanceModifierFault(field, "virtual")
+        }
+    }
+
+    func ReportFieldInheritanceModifierFault(field: FieldDeclaration, modifierName: string) {
+        span := spansValue.GetFieldNameDiagnosticSpan(field)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + field.Name + "' is declared '" + modifierName + "', but a field cannot be virtual, abstract or overridden", span.Line, span.Column, "Give it an accessor — '" + field.Name + ": <type> => <expression>' or a 'get'/'set' block — so it becomes a property, or drop '" + modifierName + "'.", span.Length)
     }
 
     // THE SQUIGGLE GOES ON THE MEMBER NAME, not on the `override` keyword and not on `func`. The name
@@ -1140,6 +1196,13 @@ class AnalyzerTypeDeclarations {
     func ReportOverrideTargetFault(function: FunctionDeclaration, reason: string, suggestion: string) {
         span := spansValue.GetFunctionNameDiagnosticSpan(function)
         diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + function.Name + "' is declared 'override', but it " + reason, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // The property sibling, on the same span rule and carrying the same two sentences — the fault a
+    // developer made is the same one whether the member is spelled with `func` or with an accessor.
+    func ReportOverridePropertyTargetFault(property: PropertyDeclaration, reason: string, suggestion: string) {
+        span := spansValue.GetPropertyNameDiagnosticSpan(property)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + property.Name + "' is declared 'override', but it " + reason, span.Line, span.Column, suggestion, span.Length)
     }
 
     // THE BASE THIS DECLARATION WRITES, or `null` for every form that writes none. A class with no
@@ -1271,6 +1334,822 @@ class AnalyzerTypeDeclarations {
     // `override func GetType()` is a real fault rather than a tolerated one.
     static func ClassifyObjectOverrideTarget(name: string): int {
         return ClassifyReflectionOverrideTarget(typeof(object), name)
+    }
+
+    // ---- a declared interface that the type does not implement ------------------------------------
+    //
+    // NOTHING EVER CHECKED THIS. `interface Greeter { func Greet(): string }` with
+    // `class English : Greeter { }` beneath it reported nothing at all, and neither did
+    // `class Resource : IDisposable { }` or `struct Point : Greeter { }`. A declared interface is a
+    // promise to callers; an unkept one is a type that cannot satisfy the calls its own declaration
+    // invites.
+    //
+    // WHERE THE INTERFACES ARE IS A SYNTACTIC ACCIDENT AND THIS RULE UNDOES IT. The parser splits a
+    // class's `: A, B, C` by POSITION — `[0]` to `BaseClass`, the rest to `Interfaces` — so a class
+    // whose only base entry is an interface carries it in the base-CLASS slot. Both slots are read
+    // here and each is kept only if it RESOLVES to an interface, which is the semantic question the
+    // parser could not answer. A struct and a record have no base-class slot at all, so for them the
+    // list is already pure.
+    //
+    // N# HAS ONLY IMPLICIT IMPLEMENTATION. There is no explicit-interface-implementation syntax in the
+    // grammar, in the parser or in the documentation, so a member satisfies an interface by NAME —
+    // there is no second, differently-spelled way to satisfy one that this walk could miss.
+    func ValidateInterfaceImplementations(state: TypeDeclarationState) {
+        if state.Form == 3 {
+            return
+        }
+
+        if IsAbstractDeclaration(state) {
+            return
+        }
+
+        declaredInterfaces := DeclaredInterfacesFor(state)
+        if declaredInterfaces.Count == 0 {
+            return
+        }
+
+        // WHAT THE TYPE SUPPLIES INCLUDES WHAT IT INHERITS. A base class that already implements the
+        // member discharges the obligation, so the supply set is this type's own members plus every
+        // member of its base-class chain — collected with the same tolerance for an unreadable link
+        // that the abstract walk uses, except that here an unreadable base means "cannot tell" for the
+        // whole type rather than a partial answer.
+        suppliedFunctions := new HashSet<string>(StringComparer.Ordinal)
+        suppliedValues := new HashSet<string>(StringComparer.Ordinal)
+        CollectSuppliedMemberNames(state, suppliedFunctions, suppliedValues)
+
+        baseType := DeclaredBaseTypeFor(state)
+        if baseType != null && !IsInterfaceType(baseType) {
+            if !CollectInheritedMemberNames(baseType, suppliedFunctions, suppliedValues, 0) {
+                return
+            }
+        }
+
+        missing := new List<string>()
+        index := 0
+        while index < declaredInterfaces.Count {
+            if !CollectUnimplementedInterfaceMembers(declaredInterfaces[index], suppliedFunctions, suppliedValues, missing, 0) {
+                return
+            }
+
+            index = index + 1
+        }
+
+        if missing.Count == 0 {
+            return
+        }
+
+        ReportUnimplementedInterfaceMembers(state, missing)
+    }
+
+    // THE DECLARED INTERFACES, RESOLVED AND FILTERED BY KIND. An entry that does not resolve, or that
+    // resolves to something that is not an interface, is dropped rather than guessed at — an
+    // unresolved name is `NL201`'s business and a base CLASS is the abstract walk's.
+    func DeclaredInterfacesFor(state: TypeDeclarationState): List<TypeInfo> {
+        resolved := new List<TypeInfo>()
+        written := WrittenInterfaceReferences(state)
+        if written == null {
+            return resolved
+        }
+
+        for reference in written {
+            candidate := typeResolverValue.ResolveType(reference)
+            if candidate != null && IsInterfaceType(candidate) {
+                resolved.Add(candidate)
+            }
+        }
+
+        return resolved
+    }
+
+    // The written list, including a class's base-CLASS slot — see the banner: the split is positional,
+    // so the slot may hold an interface and the filter above is what decides.
+    func WrittenInterfaceReferences(state: TypeDeclarationState): List<TypeReference>? {
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration != null {
+            written := new List<TypeReference>()
+            declaredBase := classDeclaration.BaseClass
+            if declaredBase != null {
+                written.Add(declaredBase)
+            }
+
+            for reference in classDeclaration.Interfaces {
+                written.Add(reference)
+            }
+
+            return written
+        }
+
+        structDeclaration := state.Declaration as StructDeclaration
+        if structDeclaration != null {
+            return structDeclaration.Interfaces
+        }
+
+        recordDeclaration := state.Declaration as RecordDeclaration
+        if recordDeclaration != null {
+            return recordDeclaration.Interfaces
+        }
+
+        return null
+    }
+
+    static func IsInterfaceType(candidate: TypeInfo): bool {
+        opened := OpenGenericInstantiation(candidate)
+        if opened == null {
+            return false
+        }
+
+        if (opened as InterfaceTypeInfo) != null {
+            return true
+        }
+
+        reflectionType := opened as ReflectionTypeInfo
+        if reflectionType != null {
+            return reflectionType.Type.get_IsInterface()
+        }
+
+        return false
+    }
+
+    // A CLOSED GENERIC IS A WRAPPER, AND THE MEMBER NAMES ARE ON THE DEFINITION. `IComparable<Version2>`
+    // resolves to a `GenericTypeInfo` whose `GenericDefinition` is the interface itself, and every
+    // question this family asks — is it an interface, what does it require — is answered by NAME, which
+    // no type argument can change. So the wrapper is opened once, here, and both callers work on what
+    // comes out. A wrapper with no definition is not opened and answers "cannot tell", which is why
+    // this returns null rather than the wrapper.
+    static func OpenGenericInstantiation(candidate: TypeInfo): TypeInfo? {
+        generic := candidate as GenericTypeInfo
+        if generic == null {
+            return candidate
+        }
+
+        return generic.GenericDefinition
+    }
+
+    // Whether the DECLARATION carries `abstract`. An abstract class may leave an interface member to
+    // its subclasses, exactly as it may leave an abstract member — and a struct or record can never be
+    // abstract, so the question only has a class answer.
+    func IsAbstractDeclaration(state: TypeDeclarationState): bool {
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration == null {
+            return false
+        }
+
+        return (Convert.ToInt32(classDeclaration.Modifiers) & Convert.ToInt32(Modifiers.Abstract)) != 0
+    }
+
+    // WHAT THIS TYPE ITSELF SUPPLIES. Functions go in one set and VALUE members — fields and properties
+    // together — in the other, because N# does not make the caller choose: an interface's value member
+    // is written bare (`Id: int`, which the AST calls a field) and an implementer may spell it bare or
+    // with an accessor. Splitting those two into different slots would report correct programs.
+    func CollectSuppliedMemberNames(state: TypeDeclarationState, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>) {
+        members := TypeMembers(state)
+        if members != null {
+            AddDeclaredMemberNames(members, suppliedFunctions, suppliedValues)
+        }
+
+        primaryParameters := PrimaryConstructorParameters(state)
+        if primaryParameters != null {
+            for parameter in primaryParameters {
+                suppliedValues.Add(parameter.Name)
+            }
+        }
+    }
+
+    // A record's positional parameters ARE its members, which is why they are counted above.
+    static func AddDeclaredMemberNames(members: List<Declaration>, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>) {
+        for member in members {
+            function := member as FunctionDeclaration
+            if function != null {
+                suppliedFunctions.Add(function.Name)
+                continue
+            }
+
+            property := member as PropertyDeclaration
+            if property != null {
+                suppliedValues.Add(property.Name)
+                continue
+            }
+
+            field := member as FieldDeclaration
+            if field != null {
+                suppliedValues.Add(field.Name)
+            }
+        }
+    }
+
+    // THE BASE-CLASS CHAIN'S CONTRIBUTION. Returns false for "cannot tell", which abandons the whole
+    // report — a supply set missing a link would accuse a type of not implementing what its base does.
+    func CollectInheritedMemberNames(candidate: TypeInfo?, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>, depth: int): bool {
+        if depth > 24 {
+            return false
+        }
+
+        if candidate == null {
+            return true
+        }
+
+        if BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            CollectReflectedMemberNames(reflectionType.Type, suppliedFunctions, suppliedValues)
+            return true
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return false
+        }
+
+        declaredMembers := shape.DeclaredMembers
+        index := 0
+        while index < declaredMembers.Length {
+            declared := declaredMembers[index]
+            if declared.Kind == DeclaredMemberKind.Function {
+                suppliedFunctions.Add(declared.Name)
+            } else {
+                if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field {
+                    suppliedValues.Add(declared.Name)
+                }
+            }
+
+            index = index + 1
+        }
+
+        if shape.BaseType == null && WritesUnresolvedBase(candidate) {
+            return false
+        }
+
+        return CollectInheritedMemberNames(shape.BaseType, suppliedFunctions, suppliedValues, depth + 1)
+    }
+
+    // One `GetMethods`/`GetProperties` pair settles a CLR base chain, the same way it does for the
+    // abstract walk. An abstract member of a CLR base supplies nothing — it is a slot, not a body — so
+    // it is excluded here or a `class X : Stream, IDisposable` would look as if `Stream` had implemented
+    // whatever names happened to match.
+    //
+    // MATCHING IS BY NAME, AND OVERLOADS ARE THE MEASURED LIMIT OF THAT. `Stream.Read` has two
+    // declarations — `Read(byte[], int, int)` is abstract, `Read(Span<byte>)` is concrete — so the name
+    // counts as SUPPLIED here even though one overload is a slot. That is the UNDER-reporting direction,
+    // deliberately: this family's worst failure is the correct program it rejects, not the fault it
+    // misses. It is also unreachable from N# source, which cannot spell overloads in a class body at
+    // all (a class with overloaded methods does not parse).
+    static func CollectReflectedMemberNames(clrType: Type, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>) {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        methods := clrType.GetMethods(flags)
+        index := 0
+        while index < methods.Length {
+            method := methods[index]
+            if !method.get_IsSpecialName() && !method.get_IsAbstract() {
+                suppliedFunctions.Add(method.get_Name())
+            }
+
+            index = index + 1
+        }
+
+        properties := clrType.GetProperties(flags)
+        propertyIndex := 0
+        while propertyIndex < properties.Length {
+            property := properties[propertyIndex]
+            if !IsAbstractPropertyAccessor(property.GetGetMethod(true)) && !IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
+                suppliedValues.Add(property.get_Name())
+            }
+
+            propertyIndex = propertyIndex + 1
+        }
+    }
+
+    // AN INTERFACE'S REQUIREMENTS, INCLUDING THE ONES IT INHERITS. `IEnumerable<T>` requires
+    // `IEnumerable`'s member too, so the base-interface list is walked as well; a name already supplied
+    // is recorded so two interfaces demanding the same member report it once.
+    func CollectUnimplementedInterfaceMembers(candidate: TypeInfo?, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>, missing: List<string>, depth: int): bool {
+        if depth > 24 {
+            return false
+        }
+
+        if candidate == null {
+            return true
+        }
+
+        if BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        opened := OpenGenericInstantiation(candidate)
+        if opened == null {
+            return false
+        }
+
+        reflectionType := opened as ReflectionTypeInfo
+        if reflectionType != null {
+            CollectReflectedInterfaceRequirements(reflectionType.Type, suppliedFunctions, suppliedValues, missing)
+            return true
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(opened, null, out shape) {
+            return false
+        }
+
+        declaredMembers := shape.DeclaredMembers
+        index := 0
+        while index < declaredMembers.Length {
+            RequireInterfaceMember(declaredMembers[index], suppliedFunctions, suppliedValues, missing)
+            index = index + 1
+        }
+
+        return CollectSourceBaseInterfaceRequirements(opened, suppliedFunctions, suppliedValues, missing, depth)
+    }
+
+    // A source interface's own `: A, B` list. Each is resolved and walked; one that does not resolve to
+    // an interface answers "cannot tell" for the whole report rather than being skipped, because a
+    // requirement that was not read is not a requirement that was met.
+    func CollectSourceBaseInterfaceRequirements(candidate: TypeInfo, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>, missing: List<string>, depth: int): bool {
+        interfaceType := candidate as InterfaceTypeInfo
+        if interfaceType == null {
+            return true
+        }
+
+        baseInterfaces := interfaceType.BaseInterfaces
+        index := 0
+        while index < baseInterfaces.Length {
+            resolved := typeResolverValue.ResolveType(baseInterfaces[index])
+            if resolved == null {
+                return false
+            }
+
+            if !CollectUnimplementedInterfaceMembers(resolved, suppliedFunctions, suppliedValues, missing, depth + 1) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    // A MEMBER WITH A BODY IS A DEFAULT IMPLEMENTATION AND REQUIRES NOTHING. Everything else is a slot
+    // the implementer must fill.
+    //
+    // THIS ONE LINE IS WHAT THE FIRST CENSUS FOUND. `examples/06-classes-and-records/RecordsAndInterfaces.nl`
+    // writes `interface IShape { func GetArea(): double; func Describe(): string { … } }` and a `Circle`
+    // that implements only `GetArea` — CORRECT N#, because `Describe` comes with its body. Without the
+    // body test the rule accused it, which is exactly the failure mode this family fears most: the
+    // correct program it rejects, not the fault it misses. The example is right and stays as written.
+    static func RequireInterfaceMember(declared: DeclaredMemberInfo, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>, missing: List<string>) {
+        if declared.HasBody {
+            if declared.Kind == DeclaredMemberKind.Function {
+                suppliedFunctions.Add(declared.Name)
+            } else {
+                suppliedValues.Add(declared.Name)
+            }
+
+            return
+        }
+
+        if declared.Kind == DeclaredMemberKind.Function {
+            if suppliedFunctions.Add(declared.Name) {
+                missing.Add(declared.Name)
+            }
+
+            return
+        }
+
+        if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field {
+            if suppliedValues.Add(declared.Name) {
+                missing.Add(declared.Name)
+            }
+        }
+    }
+
+    // A CLR INTERFACE'S REQUIREMENTS. `GetMethods` on an interface returns its own members only, so the
+    // inherited ones come from `GetInterfaces`, which flattens the whole set — one call, no walk.
+    // Property accessors are `IsSpecialName` and are excluded from the method half so a property is
+    // demanded once, under its own name, rather than twice as `get_X`/`set_X`.
+    static func CollectReflectedInterfaceRequirements(clrType: Type, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>, missing: List<string>) {
+        AddReflectedInterfaceMembers(clrType, suppliedFunctions, suppliedValues, missing)
+        inherited := clrType.GetInterfaces()
+        index := 0
+        while index < inherited.Length {
+            AddReflectedInterfaceMembers(inherited[index], suppliedFunctions, suppliedValues, missing)
+            index = index + 1
+        }
+    }
+
+    static func AddReflectedInterfaceMembers(clrType: Type, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>, missing: List<string>) {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        methods := clrType.GetMethods(flags)
+        index := 0
+        while index < methods.Length {
+            method := methods[index]
+            if !method.get_IsSpecialName() && method.get_IsAbstract() {
+                if suppliedFunctions.Add(method.get_Name()) {
+                    missing.Add(method.get_Name())
+                }
+            }
+
+            index = index + 1
+        }
+
+        properties := clrType.GetProperties(flags)
+        propertyIndex := 0
+        while propertyIndex < properties.Length {
+            property := properties[propertyIndex]
+            if IsAbstractPropertyAccessor(property.GetGetMethod(true)) || IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
+                if suppliedValues.Add(property.get_Name()) {
+                    missing.Add(property.get_Name())
+                }
+            }
+
+            propertyIndex = propertyIndex + 1
+        }
+    }
+
+    // The same one-diagnostic-with-a-list rule the abstract report uses, in the interface's words. The
+    // squiggle goes on the TYPE NAME for the same reason: the type is what is incomplete.
+    func ReportUnimplementedInterfaceMembers(state: TypeDeclarationState, missing: List<string>) {
+        typeName := DeclaredTypeNameFor(state)
+        names := ""
+        index := 0
+        while index < missing.Count {
+            if index > 0 {
+                names = names + ", "
+            }
+
+            names = names + "'" + missing[index] + "'"
+            index = index + 1
+        }
+
+        message := "'" + typeName + "' declares an interface but does not implement its member " + names
+        suggestion := "Implement it in '" + typeName + "', inherit it from a base class, or drop the interface from the declaration."
+        if missing.Count > 1 {
+            message = "'" + typeName + "' declares an interface but does not implement " + missing.Count.ToString() + " of its members: " + names
+            suggestion = "Implement all " + missing.Count.ToString() + " in '" + typeName + "', inherit them from a base class, or drop the interface from the declaration."
+        }
+
+        span := spansValue.GetTypeNameDiagnosticSpan(typeName, state.Declaration.Line, state.Declaration.Column)
+        diagnosticsValue.Report(ErrorCode.InterfaceMemberNotImplemented, message, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    func DeclaredTypeNameFor(state: TypeDeclarationState): string {
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration != null {
+            return classDeclaration.Name
+        }
+
+        structDeclaration := state.Declaration as StructDeclaration
+        if structDeclaration != null {
+            return structDeclaration.Name
+        }
+
+        recordDeclaration := state.Declaration as RecordDeclaration
+        if recordDeclaration != null {
+            return recordDeclaration.Name
+        }
+
+        return "<unknown>"
+    }
+
+    // ---- an inherited abstract member that nobody implemented -------------------------------------
+    //
+    // A CONCRETE CLASS MUST CARRY EVERY ABSTRACT MEMBER IT INHERITS, AND N# LET ONE OUT THE DOOR.
+    // `abstract class Shape { abstract Area: double => … }` with `class Circle : Shape { }` beneath it
+    // reported nothing at all and EMITTED — a concrete type with an unimplemented abstract slot, which
+    // is the CS0534 family and a language-correctness hole rather than a style rule. The method
+    // spelling was equally silent.
+    //
+    // THE REPORT IS ONE DIAGNOSTIC NAMING EVERY MISSING MEMBER, not one per member. A half-written
+    // subclass is a single mistake with a list attached, and three separate squiggles on the same class
+    // header would read as three unrelated problems.
+    //
+    // SILENCE REMAINS THE DEFAULT, and here it is stricter than in the override rule: if ANY link in
+    // the base chain cannot be opened, the whole check abandons rather than reporting the members it
+    // did manage to see — a missing set computed from half a chain is not a missing set. Four shapes
+    // are exempt outright: a type with no written base (it inherits `object`, which is concrete), an
+    // ABSTRACT derived class (it may pass the obligation down), any non-class form, and a base clause
+    // that did not resolve.
+    //
+    // MATCHING IS BY NAME AND KIND. A function answers a function and a property answers a property,
+    // because a field named `Area` does not implement `abstract func Area()` and silencing on it would
+    // be worse than the report. Overloads are not distinguished — a class with overloaded methods does
+    // not parse in N# today, so a name is a slot for every source shape this walk can read.
+    func ValidateAbstractMemberImplementations(state: TypeDeclarationState) {
+        if state.Form != 0 {
+            return
+        }
+
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration == null {
+            return
+        }
+
+        if (Convert.ToInt32(classDeclaration.Modifiers) & Convert.ToInt32(Modifiers.Abstract)) != 0 {
+            return
+        }
+
+        declaredBase := DeclaredBaseTypeFor(state)
+        if declaredBase == null {
+            return
+        }
+
+        // A CLASS'S FIRST BASE-LIST ENTRY IS NOT NECESSARILY A CLASS. The parser splits `: A, B, C`
+        // syntactically — `[0]` becomes `BaseClass` and the rest `Interfaces` — so `class R : IDisposable`
+        // arrives here with an INTERFACE in the base-class slot. Reporting it as an unimplemented
+        // ABSTRACT MEMBER would be the wrong sentence for the right fault; the interface rule below owns
+        // it, and this walk steps aside. (Measured: before this guard, `class Resource : IDisposable {}`
+        // answered NL324 "does not implement inherited abstract member 'Dispose'".)
+        if IsInterfaceType(declaredBase) {
+            return
+        }
+
+        seenFunctions := new HashSet<string>(StringComparer.Ordinal)
+        seenProperties := new HashSet<string>(StringComparer.Ordinal)
+        CollectDeclaredMemberNames(state, seenFunctions, seenProperties)
+
+        missing := new List<string>()
+        if !CollectUnimplementedAbstractMembers(declaredBase, seenFunctions, seenProperties, missing, 0) {
+            return
+        }
+
+        if missing.Count == 0 {
+            return
+        }
+
+        ReportUnimplementedAbstractMembers(classDeclaration, missing)
+    }
+
+    // WHAT THIS TYPE ITSELF BRINGS. Every function and property it declares counts, with or without
+    // `override`: a member that fills the slot fills it, and a missing `override` is the override
+    // rule's business rather than this one's.
+    func CollectDeclaredMemberNames(state: TypeDeclarationState, seenFunctions: HashSet<string>, seenProperties: HashSet<string>) {
+        members := TypeMembers(state)
+        if members == null {
+            return
+        }
+
+        for member in members {
+            function := member as FunctionDeclaration
+            if function != null {
+                seenFunctions.Add(function.Name)
+                continue
+            }
+
+            property := member as PropertyDeclaration
+            if property != null {
+                seenProperties.Add(property.Name)
+            }
+        }
+    }
+
+    // THE BASE CHAIN, NEAREST FIRST, SO A NEARER CONCRETE OVERRIDE CLOSES THE SLOT. A member name is
+    // recorded the first time the walk meets it, and only an ABSTRACT first sighting is a missing
+    // implementation — an intermediate class that already overrode it has discharged the obligation.
+    // Returns false for "cannot tell", which abandons the whole report.
+    func CollectUnimplementedAbstractMembers(candidate: TypeInfo?, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, missing: List<string>, depth: int): bool {
+        if depth > 24 {
+            return false
+        }
+
+        if candidate == null {
+            return true
+        }
+
+        if BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            CollectReflectedAbstractMembers(reflectionType.Type, seenFunctions, seenProperties, missing)
+            return true
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return false
+        }
+
+        declaredMembers := shape.DeclaredMembers
+        index := 0
+        while index < declaredMembers.Length {
+            declared := declaredMembers[index]
+            RecordAbstractCandidate(declared, seenFunctions, seenProperties, missing)
+            index = index + 1
+        }
+
+        if shape.BaseType == null && WritesUnresolvedBase(candidate) {
+            return false
+        }
+
+        return CollectUnimplementedAbstractMembers(shape.BaseType, seenFunctions, seenProperties, missing, depth + 1)
+    }
+
+    static func RecordAbstractCandidate(declared: DeclaredMemberInfo, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, missing: List<string>) {
+        isAbstract := (declared.DeclaredModifiers & Convert.ToInt32(Modifiers.Abstract)) != 0
+        if declared.Kind == DeclaredMemberKind.Function {
+            if seenFunctions.Add(declared.Name) && isAbstract {
+                missing.Add(declared.Name)
+            }
+
+            return
+        }
+
+        if declared.Kind == DeclaredMemberKind.Property {
+            if seenProperties.Add(declared.Name) && isAbstract {
+                missing.Add(declared.Name)
+            }
+        }
+    }
+
+    // METADATA'S HALF, AND ONE CALL SETTLES THE WHOLE REMAINING CHAIN. `GetMethods` and `GetProperties`
+    // already walk the CLR bases and already return the MOST DERIVED implementation of each virtual
+    // slot, so a member that some intermediate CLR class overrode comes back non-abstract and is
+    // correctly not required — the same property that lets the override rule ask them once.
+    static func CollectReflectedAbstractMembers(clrType: Type, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, missing: List<string>) {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        methods := clrType.GetMethods(flags)
+        index := 0
+        while index < methods.Length {
+            method := methods[index]
+            if !method.get_IsSpecialName() && method.get_IsAbstract() {
+                if seenFunctions.Add(method.get_Name()) {
+                    missing.Add(method.get_Name())
+                }
+            }
+
+            index = index + 1
+        }
+
+        properties := clrType.GetProperties(flags)
+        propertyIndex := 0
+        while propertyIndex < properties.Length {
+            property := properties[propertyIndex]
+            if IsAbstractPropertyAccessor(property.GetGetMethod(true)) || IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
+                if seenProperties.Add(property.get_Name()) {
+                    missing.Add(property.get_Name())
+                }
+            }
+
+            propertyIndex = propertyIndex + 1
+        }
+    }
+
+    static func IsAbstractPropertyAccessor(accessor: MethodInfo?): bool {
+        if accessor == null {
+            return false
+        }
+
+        return accessor.get_IsAbstract()
+    }
+
+    // THE SENTENCE COUNTS, because "does not implement 3 inherited abstract members" followed by the
+    // list is what a reader can act on, and the singular form must not read like a truncated plural.
+    // The squiggle goes on the CLASS NAME — the class is what is incomplete, and no one member is more
+    // to blame than the others.
+    func ReportUnimplementedAbstractMembers(classDeclaration: ClassDeclaration, missing: List<string>) {
+        names := ""
+        index := 0
+        while index < missing.Count {
+            if index > 0 {
+                names = names + ", "
+            }
+
+            names = names + "'" + missing[index] + "'"
+            index = index + 1
+        }
+
+        message := "'" + classDeclaration.Name + "' does not implement inherited abstract member " + names
+        suggestion := "Implement it in '" + classDeclaration.Name + "', or declare '" + classDeclaration.Name + "' abstract so a subclass must."
+        if missing.Count > 1 {
+            message = "'" + classDeclaration.Name + "' does not implement " + missing.Count.ToString() + " inherited abstract members: " + names
+            suggestion = "Implement all " + missing.Count.ToString() + " in '" + classDeclaration.Name + "', or declare '" + classDeclaration.Name + "' abstract so a subclass must."
+        }
+
+        span := spansValue.GetTypeNameDiagnosticSpan(classDeclaration.Name, classDeclaration.Line, classDeclaration.Column)
+        diagnosticsValue.Report(ErrorCode.AbstractMemberNotImplemented, message, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // ---- the property half of the same question -------------------------------------------------
+    //
+    // A PROPERTY OVERRIDE ASKS THE SAME QUESTION ABOUT A DIFFERENT SLOT, AND IT COULD NOT BORROW THE
+    // FUNCTION WALK FOR EITHER ANSWER. On the source side `ClassifyDeclaredOverrideTarget` matches
+    // `DeclaredMemberKind.Function` and its own comment refuses a property deliberately — a method slot
+    // is not a property slot. On the metadata side the refusal is subtler and would have been silent:
+    // `ClassifyReflectionOverrideTarget` walks `GetMethods` and skips every `IsSpecialName`, which is
+    // EXACTLY what a property accessor is, so a property override against a CLR base would have
+    // searched a surface that structurally cannot contain it and answered "no base member" for every
+    // correct program. Hence a separate pair, built to the same shape and the same verdict codes:
+    // 0 cannot tell · 1 an overridable base property · 2 one that is sealed shut · 3 none of that name.
+    //
+    // The conservatism is inherited unchanged: an unresolved base, an unopenable shape and a depth
+    // blow-out all answer "cannot tell", because a false `override` error on a correct program is worse
+    // than the missing one it replaces.
+    func ClassifyOverridePropertyTarget(candidate: TypeInfo?, name: string, depth: int): int {
+        if depth > 24 {
+            return 0
+        }
+
+        if candidate == null {
+            return ClassifyObjectOverridePropertyTarget(name)
+        }
+
+        if BuiltInTypes.IsUnknown(candidate) {
+            return 0
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            return ClassifyReflectionOverridePropertyTarget(reflectionType.Type, name)
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return 0
+        }
+
+        declaredVerdict := ClassifyDeclaredOverridePropertyTarget(shape.DeclaredMembers, name)
+        if declaredVerdict != 0 {
+            return declaredVerdict
+        }
+
+        if shape.BaseType == null && WritesUnresolvedBase(candidate) {
+            return 0
+        }
+
+        return ClassifyOverridePropertyTarget(shape.BaseType, name, depth + 1)
+    }
+
+    // A SOURCE SHAPE'S OWN PROPERTY MEMBERS. Only properties answer, for the mirror of the reason only
+    // functions answer above: a base FIELD of the same name is not a property slot either, and a bare
+    // `Name: Type` member is a field in this model and in the emitted metadata both.
+    static func ClassifyDeclaredOverridePropertyTarget(declaredMembers: DeclaredMemberInfo[], name: string): int {
+        index := 0
+        while index < declaredMembers.Length {
+            declared := declaredMembers[index]
+            if declared.Kind == DeclaredMemberKind.Property && declared.Name == name {
+                if declared.IsOverridable {
+                    return 1
+                }
+
+                return 2
+            }
+
+            index = index + 1
+        }
+
+        return 0
+    }
+
+    // METADATA'S ANSWER FOR A PROPERTY. `GetProperties` walks the CLR chain the way `GetMethods` does,
+    // and virtual-ness lives on the ACCESSORS rather than on the property: a property is overridable
+    // exactly when one of its accessors is virtual and not final. `GetGetMethod(true)`/`GetSetMethod(true)`
+    // take the non-public ones, because `protected virtual` is the shape most worth catching — the same
+    // reason `NonPublic` is in the method walk's flags.
+    static func ClassifyReflectionOverridePropertyTarget(clrType: Type, name: string): int {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        properties := clrType.GetProperties(flags)
+        found := false
+        index := 0
+        while index < properties.Length {
+            property := properties[index]
+            if property.get_Name() == name {
+                found = true
+                if IsOverridablePropertyAccessor(property.GetGetMethod(true)) {
+                    return 1
+                }
+
+                if IsOverridablePropertyAccessor(property.GetSetMethod(true)) {
+                    return 1
+                }
+            }
+
+            index = index + 1
+        }
+
+        if found {
+            return 2
+        }
+
+        return 3
+    }
+
+    // An accessor opens the slot when it is virtual and NOT final — a sealed override is closed, which
+    // is the same test the method walk makes and the reason `sealed override` cannot be overridden again.
+    static func IsOverridablePropertyAccessor(accessor: MethodInfo?): bool {
+        if accessor == null {
+            return false
+        }
+
+        return accessor.get_IsVirtual() && !accessor.get_IsFinal()
+    }
+
+    // THE IMPLICIT ROOT, FOR PROPERTIES. `object` declares no properties at all, so a source chain that
+    // names no further base has nothing a property can override — the answer is always 3, and it is
+    // asked through the same reflection walk rather than hard-coded so the two stay in step.
+    static func ClassifyObjectOverridePropertyTarget(name: string): int {
+        return ClassifyReflectionOverridePropertyTarget(typeof(object), name)
     }
 
     static func HasOverrideModifier(modifiers: Modifiers): bool {
