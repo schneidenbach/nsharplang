@@ -407,9 +407,6 @@ class AnalyzerSyntheticCallValidator {
         }
 
         functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
-        classFlag := Convert.ToInt32(SpecialConstraintKind.Class)
-        structFlag := Convert.ToInt32(SpecialConstraintKind.Struct)
-        newFlag := Convert.ToInt32(SpecialConstraintKind.New)
         index := 0
         while index < constraints.Count {
             constraint := constraints[index]
@@ -425,23 +422,11 @@ class AnalyzerSyntheticCallValidator {
             boundText := boundObject.ToString()
             specialValue := Convert.ToInt32(constraint.SpecialConstraints)
 
-            if (specialValue & classFlag) == classFlag {
-                if !AnalyzerConversionFacts.IsReferenceType(boundType) {
-                    diagnostics.Report(ErrorCode.GenericConstraintViolation, "`" + boundText + "` is a value type, but type parameter `" + constraint.TypeParameter + "` of `" + functionName + "` requires a reference type (the `class` constraint)", span.Line, span.Column, "Pass a class instance for `" + constraint.TypeParameter + "`, or relax the `class` constraint on `" + functionName + "`.", span.Length)
-                }
-            }
-
-            if (specialValue & structFlag) == structFlag {
-                boundNullable := boundType as NullableTypeInfo
-                if AnalyzerConversionFacts.IsReferenceType(boundType) || boundNullable != null {
-                    diagnostics.Report(ErrorCode.GenericConstraintViolation, "`" + boundText + "` is not a non-nullable value type, but type parameter `" + constraint.TypeParameter + "` of `" + functionName + "` requires one (the `struct` constraint)", span.Line, span.Column, "Pass a non-nullable value type for `" + constraint.TypeParameter + "`, or relax the `struct` constraint on `" + functionName + "`.", span.Length)
-                }
-            }
-
-            if (specialValue & newFlag) == newFlag {
-                if !HasParameterlessConstructor(boundType) {
-                    diagnostics.Report(ErrorCode.GenericConstraintViolation, "`" + boundText + "` has no parameterless constructor, but type parameter `" + constraint.TypeParameter + "` of `" + functionName + "` requires one (the `new()` constraint)", span.Line, span.Column, "Give `" + boundText + "` a parameterless constructor, or relax the `new()` constraint on `" + functionName + "`.", span.Length)
-                }
+            // The predicates and the sentence are `AnalyzerGenericConstraintChecks`, shared with the
+            // TYPE-argument reporter so a violation reads identically wherever it is written.
+            specialKind := AnalyzerGenericConstraintChecks.SpecialViolationKind(specialValue, boundType)
+            if specialKind != AnalyzerGenericConstraintChecks.ViolationNone() {
+                diagnostics.Report(ErrorCode.GenericConstraintViolation, AnalyzerGenericConstraintChecks.SpecialViolationMessage(specialKind, boundText, constraint.TypeParameter, functionName), span.Line, span.Column, AnalyzerGenericConstraintChecks.CallSuggestion(specialKind, boundText, constraint.TypeParameter, functionName), span.Length)
             }
 
             // The declaration's OWN resolved constraint types win when it recorded them; only a
@@ -476,50 +461,10 @@ class AnalyzerSyntheticCallValidator {
                 if !assignability.IsSubtypeOf(boundType, closedConstraintType) && !assignability.IsAssignable(closedConstraintType, boundType) {
                     closedObject := closedConstraintType as object
                     closedText := closedObject.ToString()
-                    diagnostics.Report(ErrorCode.GenericConstraintViolation, "`" + boundText + "` does not implement `" + closedText + "`, which type parameter `" + constraint.TypeParameter + "` of `" + functionName + "` requires", span.Line, span.Column, "Implement `" + closedText + "` on `" + boundText + "`, or relax the constraint on `" + functionName + "`.", span.Length)
+                    diagnostics.Report(ErrorCode.GenericConstraintViolation, AnalyzerGenericConstraintChecks.TypeConstraintMessage(boundText, closedText, constraint.TypeParameter, functionName), span.Line, span.Column, AnalyzerGenericConstraintChecks.CallTypeConstraintSuggestion(boundText, closedText, functionName), span.Length)
                 }
             }
         }
-    }
-
-    // Whether a type satisfies the `new()` constraint.
-    //
-    // Every value type has one implicitly, declared or not — that covers structs, record structs and
-    // every CLR value type. A record CLASS is the one that can lose it: a primary constructor with
-    // parameters suppresses the default constructor. An unknown type is assumed to satisfy: a
-    // constraint report about a type the analyzer could not resolve is noise on top of the
-    // resolution failure the user already has.
-    static func HasParameterlessConstructor(candidate: TypeInfo): bool {
-        structType := candidate as StructTypeInfo
-        if structType != null {
-            return true
-        }
-
-        classType := candidate as ClassTypeInfo
-        if classType != null {
-            return classType.HasParameterlessConstructor
-        }
-
-        recordType := candidate as RecordTypeInfo
-        if recordType != null {
-            if recordType.IsStruct {
-                return true
-            }
-
-            return recordType.PrimaryConstructorParameters.Length == 0
-        }
-
-        reflectionType := candidate as ReflectionTypeInfo
-        if reflectionType != null {
-            clrType := reflectionType.Type
-            if clrType.get_IsValueType() {
-                return true
-            }
-
-            return clrType.GetConstructor(new Type[](0)) != null
-        }
-
-        return true
     }
 
     // THE RETURN TYPE OF A CALL TO AN N#-DECLARED FUNCTION, closed over whatever the call inferred.
