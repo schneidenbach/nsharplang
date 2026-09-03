@@ -604,7 +604,12 @@ class AnalyzerConstruction {
         }
 
         if node.ConstructorArguments.Count != 0 {
-            diagnosticsValue.Report(ErrorCode.InvalidSizedArrayConstructorArguments, "Sized array allocation cannot also pass constructor arguments", node.Line, node.Column, "Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.", 3)
+            // THE SUGGESTED SPELLINGS ARE THE ONES THE COMPILER ACCEPTS. This used to offer
+            // `new T[] { ... }`, which parses and then stops the build at NL103
+            // `parse.function` — the columnar front end declines the whole enclosing function for it.
+            // A suggestion the compiler refuses is worse than none: it costs the reader the edit and
+            // then blames them for taking it. `[1, 2, 3]` is the array literal N# actually has.
+            diagnosticsValue.Report(ErrorCode.InvalidSizedArrayConstructorArguments, "Sized array allocation cannot also pass constructor arguments", node.Line, node.Column, "Use 'new T[n]' for a zero-initialized array, or write the elements as a list — 'values := [1, 2, 3]'.", 3)
         }
 
         state.Phase = 2
