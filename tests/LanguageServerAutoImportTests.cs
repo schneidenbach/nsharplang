@@ -31,7 +31,7 @@ public class LanguageServerAutoImportTests
                 {
                     lock (_lock)
                     {
-                        _typeResolver ??= new TypeResolver(NullLogger<TypeResolver>.Instance);
+                        _typeResolver ??= new TypeResolver(DocumentManager);
                     }
                 }
 

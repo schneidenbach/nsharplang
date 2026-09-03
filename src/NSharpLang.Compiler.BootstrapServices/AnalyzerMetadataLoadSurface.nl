@@ -182,6 +182,13 @@ class AnalyzerMetadataLoadSurface {
         return new AnalyzerWellKnownTypes(loadContext, core)
     }
 
+    // THE EDITOR'S TYPE UNIVERSE IS THIS ONE. The catalog holds the same registry by reference, so a
+    // package that joins during an analysis is offerable at the very next keystroke — see
+    // `EditorTypeCatalog`'s banner for why that makes its caches a correctness question.
+    func CreateEditorTypeCatalog(): EditorTypeCatalog {
+        return new EditorTypeCatalog(assemblies)
+    }
+
     func AddSearchDirectory(directory: string) {
         if AnalyzerMetadataLoadPolicy.ShouldAddSearchDirectory(directory, Directory.Exists(directory), SearchDirectories) {
             SearchDirectories.Add(directory)

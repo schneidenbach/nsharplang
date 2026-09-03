@@ -36,20 +36,12 @@ class EditorTypeCatalogFacts {
 
     // ── THE UNIVERSE ─────────────────────────────────────────────────────────────────────────
 
-    // THE ASSEMBLIES THE EDITOR REFLECTS OVER, named by the types that reach them. Metadata names
-    // and not `typeof`, for the same reason `CompletionReflectionFacts` gives: `typeof` OF A STATIC
-    // CLASS DOES NOT EMIT and an OPEN `typeof(List<>)` does not parse, so a name is the one uniform
-    // spelling. `System.Object` and `System.Collections.Generic.List`1` both resolve into
-    // `System.Private.CoreLib`, so these four names name THREE assemblies — measured, not assumed,
-    // and the caller de-duplicates.
-    static func EditorUniverseSeedTypeNames(): string[] {
-        names := new string[](4)
-        names[0] = "System.Object"
-        names[1] = "System.Console, System.Console"
-        names[2] = "System.Linq.Enumerable, System.Linq"
-        names[3] = "System.Collections.Generic.List`1"
-        return names
-    }
+    // THE SEED TYPE NAMES ARE GONE (022/4c). They named FOUR types reaching THREE assemblies of the
+    // language server's own process, and that was the editor's whole type universe -- which is why a
+    // type from a package the user depends on could not be offered or hovered. The editor now reads
+    // the ANALYZER's universe through `EditorTypeCatalog`: a metadata context over the common
+    // assemblies plus every reference the project declares. There is no seed list to extend, and the
+    // file's old header warning against adding a fifth name is answered by there being none.
 
     // ── THE ROSTER ───────────────────────────────────────────────────────────────────────────
 

@@ -45,7 +45,7 @@ public class LanguageServerFixture : IDisposable
                 {
                     if (_typeResolver == null)
                     {
-                        _typeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance);
+                        _typeResolver = new TypeResolver(new DocumentManager(NullLogger<DocumentManager>.Instance));
                     }
                 }
             }
