@@ -78,6 +78,6 @@ window opens, so a verification record can prove which build it looked at.
   from the fresh 529ad23bf server (1372 px wide, 256 colours).
 - `stale-385b7e8d1/`: screenshots and one formatted file taken before the editor restart was
   noticed; evidence for the harness finding only.
-- `format-probe/FormatProbe.before.nl`, `format-probe/FormatProbe.after-save.nl`,
+- `format-probe/FormatProbe.before.nl.txt`, `format-probe/FormatProbe.after-save.nl`,
   `format-probe/RawProbe.nl`: the format-on-save probe sources and the saved result.
 - `language-server.log`: the language server log from the 20:50 relaunch onward.
