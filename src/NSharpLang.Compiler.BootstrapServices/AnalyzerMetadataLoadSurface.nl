@@ -71,11 +71,17 @@ class AnalyzerMetadataLoadSurface {
     // The resolver's search directories. Written here, read by the resolver in place.
     searchDirectories: List<string>
 
+    // The versions the project RESTORED, keyed by package name. Same seam as the directories: the
+    // orchestration writes them, the resolver reads them when a cache fallback has to choose between
+    // several extracted versions.
+    pinnedPackageVersions: Dictionary<string, string>
+
     constructor(loadedAssemblies: List<Assembly>, referenceLoadFailures: Dictionary<string, string>) {
         Context = null
         assemblies = loadedAssemblies
         failures = referenceLoadFailures
         searchDirectories = new List<string>()
+        pinnedPackageVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     }
 
     // A NEW RESOLVER IS BEING BUILT, which means a new load context is beginning. The directories
@@ -84,6 +90,16 @@ class AnalyzerMetadataLoadSurface {
     func BeginResolverDirectories(): List<string> {
         searchDirectories.Clear()
         return searchDirectories
+    }
+
+    func BeginResolverPinnedVersions(): Dictionary<string, string> {
+        pinnedPackageVersions.Clear()
+        return pinnedPackageVersions
+    }
+
+    // The last write wins, which is what a project that names one version twice means.
+    func PinPackageVersion(packageName: string, version: string) {
+        pinnedPackageVersions[packageName] = version
     }
 
     // The resolver is built first and the context is cored over it. The core assembly identity is a
