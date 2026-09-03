@@ -1253,6 +1253,56 @@ func TypeDeclProperty(name: string, modifiers: Modifiers): PropertyDeclaration {
     return new PropertyDeclaration(name, TypeDeclInt(), null, null, body, modifiers, PropertyModifier.None, TypeDeclNoAttributes(), 8, 5)
 }
 
+// A member that CARRIES A BODY — the `hasBody` trailing argument the interface rule reads. Built as a
+// separate helper for the same reason `TypeDeclPropertyMemberInfo` is: the existing call sites spell
+// the shorter form and an N# caller cannot omit a defaulted parameter of a FREE FUNCTION.
+func TypeDeclDefaultedMemberInfo(name: string, kind: DeclaredMemberKind): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(
+        name,
+        "Owner",
+        kind,
+        "member",
+        null,
+        false,
+        false,
+        false,
+        true,
+        0,
+        new string[](0),
+        new TypeReference[](0),
+        new ParameterModifier[](0),
+        0,
+        false,
+        false,
+        null,
+        0,
+        new TypeParameter[](0),
+        new GenericConstraint[](0),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1,
+        0,
+        true
+    )
+}
+
+func TypeDeclSourceInterface(name: string, members: DeclaredMemberInfo[]): TypeInfo {
+    owner: TypeInfo = new InterfaceTypeInfo(name, 1, 1, false, new TypeReference[](0), new TypeParameter[](0), members, new NestedTypeInfo[](0))
+    return owner
+}
+
+func TypeDeclClosedGeneric(name: string, definition: TypeInfo?): TypeInfo {
+    owner: TypeInfo = new GenericTypeInfo(name, new List<TypeInfo>(), definition)
+    return owner
+}
+
 func TypeDeclAbstractBits(): int {
     return Convert.ToInt32(Modifiers.Abstract)
 }
@@ -1393,6 +1443,201 @@ test "AN `override` WITH NO SLOT TO TAKE IS `NL311`, AND THE REPORT NAMES WHICH 
     assert sealedHarness.Errors.Count == 1
     assert sealedHarness.Errors[0].Code == ErrorCode.InvalidModifier
     assert sealedHarness.Errors[0].Message == "'GetType' is declared 'override', but it is not marked 'virtual', 'abstract' or 'override'"
+}
+
+// ---------------------------------------------------------------------------------------------
+// A DECLARED INTERFACE THE TYPE DOES NOT IMPLEMENT (`NL325`)
+//
+// NOTHING EVER CHECKED THIS. `interface Greeter { func Greet(): string }` with
+// `class English : Greeter { }` was silent, and so were `class Resource : IDisposable { }`,
+// `struct Point : Greeter { }` and `record Person : Greeter { }`. A declared interface is a promise to
+// callers, and an unkept one is a type that cannot satisfy the calls its own declaration invites.
+//
+// TWO THINGS THIS RULE HAD TO GET RIGHT THAT THE ABSTRACT RULE DID NOT.
+//   (1) WHERE THE INTERFACES ARE IS A SYNTACTIC ACCIDENT. The parser splits a class's `: A, B, C` by
+//       POSITION — `[0]` to `BaseClass`, the rest to `Interfaces` — so `class R : IDisposable` carries
+//       its interface in the base-CLASS slot. Both slots are read and each kept only if it RESOLVES to
+//       an interface, which is the semantic question the parser could not answer.
+//   (2) A MEMBER WITH A BODY IS A DEFAULT IMPLEMENTATION. The first estate census caught this and
+//       nothing else: `examples/06-classes-and-records/RecordsAndInterfaces.nl` is correct N# and was
+//       accused of not implementing the very member its interface had written out.
+// ---------------------------------------------------------------------------------------------
+
+test "an interface is recognised through a reflection type, a source shape AND a closed generic" {
+    assert AnalyzerTypeDeclarations.IsInterfaceType(TypeDeclSourceInterface("Greeter", new DeclaredMemberInfo[](0)))
+    assert !AnalyzerTypeDeclarations.IsInterfaceType(TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0)))
+
+    disposableType := Type.GetType("System.IDisposable")
+    assert disposableType != null
+    if disposableType != null {
+        reflected: TypeInfo = new ReflectionTypeInfo(disposableType)
+        assert AnalyzerTypeDeclarations.IsInterfaceType(reflected)
+    }
+
+    exceptionType: TypeInfo = new ReflectionTypeInfo(typeof(Exception))
+    assert !AnalyzerTypeDeclarations.IsInterfaceType(exceptionType)
+
+    // A CLOSED GENERIC IS A WRAPPER and every question here is answered by NAME, which no type argument
+    // can change — so the wrapper is opened once and both callers work on what comes out.
+    closed := TypeDeclClosedGeneric("Greeter", TypeDeclSourceInterface("Greeter", new DeclaredMemberInfo[](0)))
+    assert AnalyzerTypeDeclarations.IsInterfaceType(closed)
+
+    // A wrapper with NO definition is not opened: it answers "cannot tell", never "not an interface
+    // and therefore fine".
+    opaque := TypeDeclClosedGeneric("Greeter", null)
+    assert !AnalyzerTypeDeclarations.IsInterfaceType(opaque)
+    assert AnalyzerTypeDeclarations.OpenGenericInstantiation(opaque) == null
+
+    plain := TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0))
+    assert AnalyzerTypeDeclarations.OpenGenericInstantiation(plain) == plain
+}
+
+test "A MEMBER WITH A BODY SUPPLIES ITSELF; A MEMBER WITHOUT ONE IS A SLOT" {
+    // The one line the first census found. A defaulted interface member requires nothing AND counts as
+    // supplied, so a second interface demanding the same name does not re-report it.
+    defaultedFunctions := TypeDeclEmptyNames()
+    defaultedMissing := new List<string>()
+    AnalyzerTypeDeclarations.RequireInterfaceMember(TypeDeclDefaultedMemberInfo("Describe", DeclaredMemberKind.Function), defaultedFunctions, TypeDeclEmptyNames(), defaultedMissing)
+    assert defaultedMissing.Count == 0
+    assert defaultedFunctions.Contains("Describe")
+
+    defaultedValues := TypeDeclEmptyNames()
+    valueMissing := new List<string>()
+    AnalyzerTypeDeclarations.RequireInterfaceMember(TypeDeclDefaultedMemberInfo("Name", DeclaredMemberKind.Property), TypeDeclEmptyNames(), defaultedValues, valueMissing)
+    assert valueMissing.Count == 0
+    assert defaultedValues.Contains("Name")
+
+    // NON-VACUITY: the same member WITHOUT a body is required.
+    slotMissing := new List<string>()
+    AnalyzerTypeDeclarations.RequireInterfaceMember(TypeDeclMemberInfo("Describe", 0), TypeDeclEmptyNames(), TypeDeclEmptyNames(), slotMissing)
+    assert TypeDeclNames(slotMissing) == "Describe"
+
+    // A name the implementer already supplies is not required.
+    suppliedMissing := new List<string>()
+    AnalyzerTypeDeclarations.RequireInterfaceMember(TypeDeclMemberInfo("Describe", 0), TypeDeclNamesOf("Describe"), TypeDeclEmptyNames(), suppliedMissing)
+    assert suppliedMissing.Count == 0
+
+    // The default is FALSE, so every one of the model's existing callers is unaffected.
+    assert !TypeDeclMemberInfo("Describe", 0).HasBody
+    assert TypeDeclDefaultedMemberInfo("Describe", DeclaredMemberKind.Function).HasBody
+}
+
+test "a CLR interface's requirements come from itself plus GetInterfaces, in one pass" {
+    disposableType := Type.GetType("System.IDisposable")
+    assert disposableType != null
+    if disposableType != null {
+        missing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedInterfaceRequirements(disposableType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), missing)
+        assert TypeDeclNames(missing) == "Dispose"
+
+        // Supplied by the implementer -> not required.
+        supplied := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedInterfaceRequirements(disposableType, TypeDeclNamesOf("Dispose"), TypeDeclEmptyNames(), supplied)
+        assert supplied.Count == 0
+    }
+
+    // `IEnumerable<T>` inherits the non-generic `IEnumerable`, and BOTH spell `GetEnumerator` — the
+    // name is demanded ONCE because the supplied set is written as the walk goes.
+    enumerableType := Type.GetType("System.Collections.Generic.IEnumerable`1")
+    assert enumerableType != null
+    if enumerableType != null {
+        enumerableMissing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedInterfaceRequirements(enumerableType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), enumerableMissing)
+        assert TypeDeclNames(enumerableMissing) == "GetEnumerator"
+    }
+}
+
+test "a base class SUPPLIES its concrete members and supplies none of its abstract ones" {
+    // The supply half of the same reflection pair. `MemoryStream` implements `Read`, so a
+    // `class X : MemoryStream, ISomething` demanding `Read` is already satisfied.
+    memoryStreamType := Type.GetType("System.IO.MemoryStream")
+    assert memoryStreamType != null
+    if memoryStreamType != null {
+        suppliedFunctions := TypeDeclEmptyNames()
+        suppliedValues := TypeDeclEmptyNames()
+        AnalyzerTypeDeclarations.CollectReflectedMemberNames(memoryStreamType, suppliedFunctions, suppliedValues)
+        assert suppliedFunctions.Contains("Read")
+        assert suppliedValues.Contains("Length")
+    }
+
+    // `Stream`'s ABSTRACT members supply nothing — a slot is not a body — or a
+    // `class X : Stream, ISomething` would look as if `Stream` had implemented them. `Flush` is the
+    // clean case: one declaration, abstract.
+    streamType := Type.GetType("System.IO.Stream")
+    assert streamType != null
+    if streamType != null {
+        streamFunctions := TypeDeclEmptyNames()
+        streamValues := TypeDeclEmptyNames()
+        AnalyzerTypeDeclarations.CollectReflectedMemberNames(streamType, streamFunctions, streamValues)
+        assert !streamFunctions.Contains("Flush")
+        assert !streamValues.Contains("Length")
+        assert !streamValues.Contains("Position")
+        assert streamFunctions.Contains("CopyTo")
+
+        // MEASURED, AND RECORDED AS A LIMITATION RATHER THAN ASSERTED AWAY: matching is by NAME, and
+        // `Stream.Read` has TWO overloads — `Read(byte[], int, int)` is abstract while
+        // `Read(Span<byte>)` is concrete. A name with any concrete overload therefore counts as
+        // SUPPLIED. That is the under-reporting direction, which is the safe one for a rule whose
+        // worst failure is the correct program it rejects; N# cannot spell overloads in a class body
+        // anyway (a class with overloaded methods does not parse), so no N# source shape can reach it.
+        assert streamFunctions.Contains("Read")
+    }
+}
+
+test "the supply set splits FUNCTIONS from VALUE MEMBERS, and fields count as values" {
+    // N# writes an interface's value member bare (`Id: int`, which the AST calls a FIELD) and an
+    // implementer may spell it bare or with an accessor. Splitting those into different slots would
+    // report correct programs, so fields and properties share one set.
+    members := new List<Declaration>()
+    members.Add(TypeDeclFunction("Greet", Modifiers.None))
+    members.Add(TypeDeclProperty("Name", Modifiers.None))
+    members.Add(TypeDeclField("Id", TypeDeclInt(), null, Modifiers.None))
+    suppliedFunctions := TypeDeclEmptyNames()
+    suppliedValues := TypeDeclEmptyNames()
+    AnalyzerTypeDeclarations.AddDeclaredMemberNames(members, suppliedFunctions, suppliedValues)
+    assert suppliedFunctions.Contains("Greet")
+    assert !suppliedFunctions.Contains("Name")
+    assert suppliedValues.Contains("Name")
+    assert suppliedValues.Contains("Id")
+}
+
+test "`NL325` NAMES EVERY MISSING MEMBER IN ONE DIAGNOSTIC, on the TYPE name" {
+    oneHarness := TypeDeclDefault()
+    oneMissing := new List<string>()
+    oneMissing.Add("Greet")
+    oneState := oneHarness.Declarations.BeginClass(TypeDeclClass("English", new List<Declaration>(), null, null, Modifiers.None), oneHarness.Assignability)
+    oneHarness.Declarations.ReportUnimplementedInterfaceMembers(oneState, oneMissing)
+    assert oneHarness.Errors.Count == 1
+    assert oneHarness.Errors[0].Code == ErrorCode.InterfaceMemberNotImplemented
+    assert oneHarness.Errors[0].Message == "'English' declares an interface but does not implement its member 'Greet'"
+    assert oneHarness.Errors[0].Suggestion == "Implement it in 'English', inherit it from a base class, or drop the interface from the declaration."
+    assert oneHarness.Errors[0].Length == 7
+
+    manyHarness := TypeDeclDefault()
+    manyMissing := new List<string>()
+    manyMissing.Add("Greet")
+    manyMissing.Add("Farewell")
+    manyState := manyHarness.Declarations.BeginClass(TypeDeclClass("English", new List<Declaration>(), null, null, Modifiers.None), manyHarness.Assignability)
+    manyHarness.Declarations.ReportUnimplementedInterfaceMembers(manyState, manyMissing)
+    assert manyHarness.Errors.Count == 1
+    assert manyHarness.Errors[0].Message == "'English' declares an interface but does not implement 2 of its members: 'Greet', 'Farewell'"
+    assert manyHarness.Errors[0].Suggestion == "Implement all 2 in 'English', inherit them from a base class, or drop the interface from the declaration."
+}
+
+test "a type that declares NO interface is never asked, whatever else is wrong with it" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclFunction("F", Modifiers.None))
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Plain", members, null, null, Modifiers.None), harness.Assignability), null)
+    assert harness.Errors.Count == 0
+
+    // An ABSTRACT class may leave an interface member to its subclasses, exactly as it may leave an
+    // abstract one.
+    abstractHarness := TypeDeclDefault()
+    abstractState := abstractHarness.Declarations.BeginClass(TypeDeclClass("PartialGreeter", new List<Declaration>(), null, null, Modifiers.Abstract), abstractHarness.Assignability)
+    assert abstractHarness.Declarations.IsAbstractDeclaration(abstractState)
+    TypeDeclRun(abstractHarness, abstractState, null)
+    assert abstractHarness.Errors.Count == 0
 }
 
 // ---------------------------------------------------------------------------------------------

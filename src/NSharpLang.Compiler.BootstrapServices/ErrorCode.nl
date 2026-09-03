@@ -43,6 +43,7 @@ enum ErrorCode {
     MemberWriteThroughValueCopy = 322,
     FeatureNotImplemented = 323,
     AbstractMemberNotImplemented = 324,
+    InterfaceMemberNotImplemented = 325,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     MissingRequiredParameter = 403,
