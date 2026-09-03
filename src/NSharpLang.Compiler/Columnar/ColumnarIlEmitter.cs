@@ -3960,34 +3960,33 @@ internal sealed class ColumnarIlEmitter
             && program.Tests is not { Count: > 0 })
             return DeclineStatic("emit.program.empty", "columnar program has no modeled declarations");
 
-        var assemblyIdentity = new AssemblyName(assemblyName);
+        // 023/2 S2.1(a): assembly, module and enums are ROWS (ColumnarDeclarationPlan) and this walk executes
+        // them; the resolved exact name and the composed TypeAttributes word moved to ColumnarDeclarationPlanner,
+        // since a second executor would otherwise recompute them. Row ORDER now carries what position used to.
+        var declarationPlan = ColumnarDeclarationPlanner.BuildAssemblyAndEnums(program, assemblyName);
+        var assemblyIdentity = new AssemblyName(declarationPlan.AssemblyName);
         if (assemblyVersion != null)
             assemblyIdentity.Version = assemblyVersion;
         var builder = new PersistedAssemblyBuilder(assemblyIdentity, typeof(object).Assembly);
-        var module = builder.DefineDynamicModule(assemblyName);
+        var module = builder.DefineDynamicModule(declarationPlan.ModuleName);
         program.PrepareExternalTypeBindings(referenceAssemblyPaths);
-
-        // PASS 0: define every user enum as a module-level i4-underlying enum type, BEFORE the Program type and the
-        // function signatures (pass 1) so a function can use an enum as a param/return/local type and resolve its
-        // members. Enums have no dependency on later user types, so bake them immediately; this keeps runtime generic
-        // instantiations such as List<Color> on normal closed-Type handles instead of fragile EnumBuilder handles.
         var enumRegistry = new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal);
-        for (var e = 0; e < enums.Count; e++)
+        for (var e = 0; e < declarationPlan.EnumCount; e++)
         {
-            var en = enums[e];
-            var exactEnumName = program.ExactTypeNameForFile(en.Name, en.SourceFileId);
-            if (en.IsStringBacked)
+            var exactEnumName = declarationPlan.EnumExactNames[e];
+            var memberNames = declarationPlan.EnumMemberNames[e];
+            var enumAttributes = (TypeAttributes)declarationPlan.EnumTypeAttributes[e];
+            if (declarationPlan.EnumIsStringBacked[e])
             {
                 var stringConstants = new Dictionary<string, string>(StringComparer.Ordinal);
-                var tb = module.DefineType(exactEnumName, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
-                for (var m = 0; m < en.MemberNames.Length; m++)
+                var tb = module.DefineType(exactEnumName, enumAttributes);
+                for (var m = 0; m < memberNames.Length; m++)
                 {
-                    var memberValue = m < en.MemberStringValues.Length ? en.MemberStringValues[m] : en.MemberNames[m];
-                    var field = tb.DefineField(en.MemberNames[m],
+                    var field = tb.DefineField(memberNames[m],
                         typeof(string),
                         FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
-                    field.SetConstant(memberValue);
-                    stringConstants[en.MemberNames[m]] = memberValue;
+                    field.SetConstant(declarationPlan.EnumMemberStringValues[e][m]);
+                    stringConstants[memberNames[m]] = declarationPlan.EnumMemberStringValues[e][m];
                 }
 
                 _ = tb.CreateType();
@@ -3998,12 +3997,12 @@ internal sealed class ColumnarIlEmitter
                 continue;
             }
 
-            var eb = module.DefineEnum(exactEnumName, TypeAttributes.Public, typeof(int));
+            var eb = module.DefineEnum(exactEnumName, enumAttributes, typeof(int));
             var constants = new Dictionary<string, int>(StringComparer.Ordinal);
-            for (var m = 0; m < en.MemberNames.Length; m++)
+            for (var m = 0; m < memberNames.Length; m++)
             {
-                eb.DefineLiteral(en.MemberNames[m], en.MemberValues[m]);
-                constants[en.MemberNames[m]] = en.MemberValues[m];
+                eb.DefineLiteral(memberNames[m], declarationPlan.EnumMemberValues[e][m]);
+                constants[memberNames[m]] = declarationPlan.EnumMemberValues[e][m];
             }
             var enumType = eb.CreateType();
             var enumDef = new ColumnarEnumDef(enumType, constants, declaredTypeName: exactEnumName);

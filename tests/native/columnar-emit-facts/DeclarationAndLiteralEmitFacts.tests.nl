@@ -1669,3 +1669,49 @@ test "the expression door claims the typeof root in every type family it resolve
     assert DoorTypeOfParenthesised() == typeof(int)
     assert DoorTypeOfComposedReceiver() == "Int32"
 }
+
+// THE `U` (uint) LITERAL SUFFIX, END TO END (ECMA-334 §6.4.5.3).
+//
+// The suffix did not emit AT ALL before this slice, at any magnitude, while `UL` and `L` did and while
+// `uint` arithmetic between two locals did — so the analyzer accepted `256U` and the emitter then
+// declined the whole assembly at `emit.local.initializer`, naming the LOCAL and never the literal. The
+// three positions below are the three the decline was measured in; the fourth is the magnitude half of
+// the rule, which is a TYPE CHANGE and not a rejection.
+//
+// THE ARGUMENT CONTRACTS CARRY THE TYPE CLAIM. `LiteralUSuffixTakesUInt` accepts `uint` and nothing
+// else, so a `256U` that emitted as `int` or as `ulong` would not bind it at all; likewise the `ulong`
+// helper for the past-UInt32 case. Asserting the VALUE alone would pass under the wrong type.
+func LiteralUSuffixTakesUInt(value: uint): long {
+    return Convert.ToInt64(value)
+}
+
+func LiteralUSuffixTakesULong(value: ulong): long {
+    return Convert.ToInt64(value)
+}
+
+func LiteralUSuffixUntypedLocal(): long {
+    literal := 256U
+    return Convert.ToInt64(literal)
+}
+
+func LiteralUSuffixTypedLocal(): long {
+    literal: uint = 4000000000U
+    return Convert.ToInt64(literal)
+}
+
+func LiteralUSuffixArgument(): long {
+    return LiteralUSuffixTakesUInt(256U)
+}
+
+// Past UInt32 the SAME suffix names `ulong`. It binds the `ulong` helper; it could not bind the `uint`
+// one, which is what makes this the negative for the out-of-range value rather than a second positive.
+func LiteralUSuffixPastUInt32(): long {
+    return LiteralUSuffixTakesULong(4294967296U)
+}
+
+test "the U literal suffix emits as uint in every position, and past UInt32 as ulong" {
+    assert LiteralUSuffixUntypedLocal() == 256L
+    assert LiteralUSuffixTypedLocal() == 4000000000L
+    assert LiteralUSuffixArgument() == 256L
+    assert LiteralUSuffixPastUInt32() == 4294967296L
+}

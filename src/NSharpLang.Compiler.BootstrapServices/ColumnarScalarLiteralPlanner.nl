@@ -114,6 +114,23 @@ class ColumnarScalarLiteralPlanner {
             return true
         }
 
+        if literalKind == 3 {
+            // `ldc.i4` carries the two's-complement bit pattern exactly as the UInt64 arm below
+            // carries it in `ldc.i8`; `uint` and `int` share one stack type, so the operand is the
+            // pattern and the RESULT TYPE is what distinguishes them.
+            uintBits := 0
+            if magnitude <= 2147483647UL {
+                uintBits = (int)magnitude
+            } else {
+                distanceFromUnsignedMaximum := 4294967295UL - magnitude
+                uintBits = -1 - (int)distanceFromUnsignedMaximum
+            }
+            uintIndex := plan.AddInt32(uintBits)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), uintIndex)
+            resultType = typeof(uint)
+            return true
+        }
+
         bits := (long)0
         if magnitude <= 9223372036854775807UL {
             bits = (long)magnitude
@@ -243,7 +260,19 @@ class ColumnarScalarLiteralPlanner {
         return constructor
     }
 
-    // kind 0 = unsuffixed Int32, 1 = signed Int64 (L), 2 = UInt64 (UL/LU).
+    // kind 0 = unsuffixed Int32, 1 = signed Int64 (L), 2 = UInt64 (UL/LU), 3 = UInt32 (U).
+    //
+    // KIND 3 IS DECIDED AFTER THE BODY IS PARSED, BECAUSE C# DECIDES IT BY MAGNITUDE.
+    // ECMA-334 §6.4.5.3: a lone `u`/`U` names the FIRST of `uint`, `ulong` whose range holds the
+    // value -- so `256U` is `uint` and `5000000000U` is `ulong`, and no suffix spelling
+    // distinguishes them. `AnalyzerLiteralExpressions` already states and applies that rule; this
+    // owner published only kinds 0/1/2 and dropped a bare `U` into its `else` as MALFORMED, so the
+    // analyzer accepted `256U` and the emitter then declined the whole assembly at
+    // `emit.local.initializer` naming the LOCAL. The rejection was contract-pinned as a wall
+    // (`invalidIntegers[4] = "1U"`) and, a second time, as the malformed sample of the rollback
+    // contract -- while `AnalyzerLiteralExpressions.tests.nl` asserts `1u` is `uint`. The two owners
+    // disagreed IN THEIR OWN CONTRACT SUITES, and neither suite could see the other, which is why no
+    // probe had ever contradicted the emitter.
     static func TryParseIntegerLiteral(text: string, out literalKind: int, out magnitude: ulong): bool {
         literalKind = 0
         magnitude = 0UL
@@ -283,10 +312,22 @@ class ColumnarScalarLiteralPlanner {
             literalKind = 1
         } else if suffixLength == 2 && hasLong && hasUnsigned {
             literalKind = 2
+        } else if suffixLength == 1 && hasUnsigned && !hasLong {
+            literalKind = 3
         } else {
             return false
         }
-        return TryParseIntegerBody(text, end, out magnitude)
+
+        if !TryParseIntegerBody(text, end, out magnitude) {
+            return false
+        }
+
+        // The magnitude-dependent half of §6.4.5.3. A `U` too large for `uint` is `ulong`, not an
+        // error -- the same literal, one kind further along.
+        if literalKind == 3 && magnitude > 4294967295UL {
+            literalKind = 2
+        }
+        return true
     }
 
     static func TryParseIntegerBody(text: string, end: int, out magnitude: ulong): bool {
