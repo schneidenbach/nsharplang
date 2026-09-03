@@ -1515,7 +1515,6 @@ test "the reflected nullability capability adds no call plan of its own" {
 // `ColumnarExternalStaticMemberPlanner.TryAppendExternalEnumMember` like every other one. The call row
 // is still pure data and still required; only the mask's own admission stopped being special.
 
-
 test "the filtered method enumeration is on the Type call surface" {
     bindingMask := new string[](1)
     bindingMask[0] = "System.Reflection.BindingFlags"
