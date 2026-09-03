@@ -44,6 +44,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [ ] [021 — Final compiler ownership audit](021-final-compiler-ownership-audit.md)
 - [ ] [022 — One external type universe, and a NativeAOT `nlc`](022-one-type-universe-native-aot.md)
 - [ ] [023 — The ECMA-335 metadata writer: the second executor over the plan rows](023-ecma335-metadata-writer.md)
+- [ ] [024 — Handoff 2026-09-03: in-flight streams and the next steps](024-handoff-2026-09-03.md) — a snapshot for the next coordinator; delete it once its streams have landed and STATUS.md §1 carries the rest
 
 The order is deliberate. If current code proves a dependency has changed, update the queue in a
 small documentation commit with concrete evidence before reordering; do not silently skip ahead.
