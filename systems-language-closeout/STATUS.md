@@ -115,6 +115,13 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
   the byte-level body encoder (zero catalog rows; slice 1's blanket refusal of the body layer corrected) → S2.5 the
   remaining bodies per the fork → S2.6 harness + `tests/native/metadata-writer` (+ the corpus pin). The Cecil
   corelib→contract rewrite stays load-bearing through slice 2.
+- `stream/compile-time-gate-load` — the compile-time timing gate skips honestly above a load threshold of 0.2 × logical
+  cores (2.0 on the 10-core M4; the five red gates had medians 1.5–2.2× baseline at loads 4.4–8.1, ≈ 1 + 0.13·L, so load
+  alone reaches the ×1.5 limit at L ≈ 3.9), the verdict string carries the numbers, a one-line record lands in
+  `artifacts/compile-time/last-gate-run.txt`, `cliCommit=unknown` becomes the honest reason (the gate copy has no `.git`),
+  the correctness half keeps running under load; the runner has no runtime skip (a static `Skip=` only), so the skip is a
+  silently passing block — inside a full gate the timing judgement will usually be skipped, and the number stays what
+  `memory/testing.md` §8 says: taken on a quiet box.
 - Type constraints reach metadata for all five type keywords (`19f2911b6`, `ae8f4bdb1`); NL208 at `new` sites (`0e382403c`);
   the declaration-position checks are blocked by the emitter door (§1 decode above) and their working attempt is preserved
   outside the tree.
