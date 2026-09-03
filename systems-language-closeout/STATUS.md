@@ -85,6 +85,18 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
 
 ### Active slices (2026-09-02)
 
+- `stream/023-s1-spelling-gap` — task 023 slice 1, the spelling gap. COMPLETE: the member table, the cause groups,
+  the refusal of the SRM encoder layer and every filed language gap with its probe are in
+  `decodes/2026-09-02-writer-spelling-gap-decode.md` (§4.12). **The hello-world metadata writer is N#, runs, and
+  its emitted assembly runs on the shared framework and passes `ilverify`.** Two language slices landed —
+  `023/1a` external enum members wholesale (merged at `d9c943a75`), `023/1b` the writer's assembly + 37 catalog
+  rows. FILED, NOT LANDED, each with its probe and its sizing: literal-zero -> external enum (§10.2.4),
+  in-range integer constant -> narrower integral target (§10.2.11), `DateTime.TryParse` unmodeled, the
+  fully-qualified static receiver, and `NL010`'s `System.IO` mis-attribution. **Slice 2 is unblocked**, and its
+  spelling is decided: byte-level blobs onto `BlobBuilder`, handles by value, `EntityHandle` by token, two-pass
+  row reservation, full arity everywhere — and it needs ONE toolset republish after `023/1b`, because the writer
+  lives in `BootstrapServices` and the catalog rows are inert there until then.
+
 - `stream/format-rawstring-reparse` — the formatter's data-loss family: attributes re-rendered (`[trusted(reason: …)]`
   became `[trusted(reason = …)]` on one line and `[aotSafe(mono-wasm)]` became `[aotSafe(mono - wasm)]` — the estate
   reformat did this to two proof programs and the batch gate caught it through `systems-proof-corpus` 42/44; the two
@@ -627,7 +639,8 @@ measured; ruled a defect and fixed on a concurrent branch — see §5).
   `Type.GetFields(BindingFlags)` (OVERTURNED — published, 019/2), `MetadataLoadContext.CoreAssembly`,
   `SearchOption.AllDirectories`, `System.Random`, `System.Text.Json.Nodes` construction, `JsonElement`
   enumeration and indexing, `ProcessStartInfo.RedirectStandardInput`, `System.Reflection.Metadata` in
-  every spelling (017/3, 7, 13, 14, 21, 22, 30, 32, 36, 37, 48, 62, 66; 019/5, 6; 020/10-2, 14, 16, 39,
+  every spelling (LIFTED by 023/1b -- the assembly is the 28th `CommonAssemblyNames` entry and the
+  writer's classes and 31 handle structs are admitted; the SRM ENCODER structs are refused by design) (017/3, 7, 13, 14, 21, 22, 30, 32, 36, 37, 48, 62, 66; 019/5, 6; 020/10-2, 14, 16, 39,
   40, 41, 42; 021/6, 9, 11). `Enum.Parse` and `System.Text.Json` cannot COEXIST in one compilation unit,
   and splitting into two `.tests.nl` does not isolate it — a native project compiles as ONE unit (020/39).
 - **The columnar surface binds the CULTURE-SENSITIVE overloads by default and says nothing.** A bare
@@ -662,6 +675,26 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
 - **There is NO process-wide slot in N#**: a mutable static FIELD declines the whole assembly at emit (re-probed 2026-09-02) and
   `AppDomain` is `emit.local.unsupported-type`, so any per-process memo must hang off a long-lived INSTANCE — `ProjectSnapshot`
   is the only one the LSP and the daemon both hold. Found by chips A/B/C (§4.10).
+- **Four recorded receiver walls are SUPERSEDED for these shapes (023/1, measured and RUN):** an instance
+  call on an external STRUCT receiver (`op := OpCodes.Ret; op.get_Name()`), an external struct in a PLAIN
+  local, a struct returned by value from a CALL into a local, and a CHAINED call on a call result
+  (`typeof(int).get_Name().ToUpperInvariant()`) all emit. The 2026-09-01 "no plan can describe a VALUE
+  receiver" verdict does not hold for them.
+- **A fully-qualified STATIC RECEIVER does not bind at all**: `System.Reflection.Metadata.Ecma335.MetadataTokens.X`
+  is `Variable 'System' not found`, while a fully-qualified `new` and a fully-qualified PARAMETER type both
+  reach emit. An import is mandatory for any static call, so an unscanned assembly cannot be reached by
+  qualifying around it (023/1).
+- **No user-defined implicit conversion is ever applied** -- not at a typed local (`i: Index = 3`) and not
+  at an argument (`Take(3)` where `Take(i: Index)`); the argument form is `NL402` naming the one overload.
+  Handle-style APIs must be spelled through an exact overload (023/1).
+- **The literal `0` does not convert to an external enum** and an in-range int literal does not STORE into a
+  `byte[]` element (`b[0] = 65` declines at `emit.statement.block-child`), though `v: byte = 65`,
+  `Convert.ToByte(65)` and an int literal passed to a `byte` PARAMETER all work. Two different C# rules
+  (ECMA-334 §10.2.4 and §10.2.11); both FILED with probes, neither landed (023/1).
+- **External ENUM MEMBERS are no longer an allow-list** (023/1a): every public static literal field of any
+  external enum whose backing fits int32 binds, in a local and in an argument position, with no row and
+  without its TYPE being on `IsSupportedRuntimeTypeName`. `SearchOption.AllDirectories` and every
+  `MethodAttributes`/`CallingConventions` member recorded above as declining now emit.
 - **`partial` is reserved as a LOCAL name**, and the failure surfaces only through `nlc format --check`
   ("Unexpected token 'partial' in expression") — the estate compiles it into something else. Found by D4 (§4.10).
 
@@ -2731,6 +2764,24 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 - **AN EXPLICIT HIDDEN ROOT IS HONOURED BY THE EXISTING STRUCTURE, WHICH IS A CONTRACT AND NOT A BRANCH.** `EnumerateFormatFiles` pushes the project root without testing it and filters only discovered children, and paths reaching the predicate are RELATIVE to that root — proven end to end: `--project .claude/worktrees/<name>` still discovers and reports that tree.
 - **A TREE-WIDE FORMAT CLAIM MUST BE MEASURED IN THE LIVE CHECKOUT.** The previous batch's clean root `--check` ran inside a `/private/tmp` worktree, which has no `.claude/worktrees` beneath it — true, and it did not generalise. `--check` writes nothing, so the honest measurement is to point it at the real tree rather than a copy.
 - **THE COLUMNAR BACKEND DECLINES A CALL THAT OMITS A DEFAULTED PARAMETER, AND THIS SLICE RE-LEARNED IT AS A BUILD FAILURE.** Adding `isRawBody` to `Decode` broke `ColumnarParserKernels.nl:8517` (`emit.local.initializer`). Every N# call site of both entry points is now written at FULL ARITY; the C# sites keep the default. Adding a defaulted parameter to an N# owner is a change to every N# caller.
+
+### 4.12 Task 023 — the ECMA-335 metadata writer
+
+| slice | commit | what moved | durable finding | numbers |
+|---|---|---|---|---|
+| 023/1 — the spelling gap (measurement + decode) | this commit (branch `stream/023-s1-spelling-gap` off `9c3a41ca9`) | ZERO product files. 48 probe projects OUTSIDE the repo, each a real `nlc check` + `nlc build` and, where marked, `nlc run`; the member table, the cause groups, the refusal of the SRM encoder layer and every filed gap with its probe are in `systems-language-closeout/decodes/2026-09-02-writer-spelling-gap-decode.md`. The hello-world writer (`…/probes/023/hw_writer`, 105 lines of N#) drives `MetadataBuilder` with ZERO `System.Reflection.Emit` | **THE WRITER IS SPELLABLE, AND FOUR OF THE SIX PREDICTED WALLS DO NOT EXIST.** An instance call on an external STRUCT receiver (`OpCodes.Ret` -> `op.get_Name()`), an external struct in a PLAIN LOCAL, one returned by value from a CALL, and a CHAINED call on a call result all PASS and RUN — so the 2026-09-01 decode's "no plan can describe a VALUE receiver" is superseded for these shapes. **The two walls that were real were closed ALLOW-LISTS, not language**, of exactly the class 022/3a-i had just retired for construction. **The plain-local shape had no precedent anywhere in the estate** — `ColumnarCodePlanExecutor.nl:218,228` only ever stores `il.DefineLabel()` into an ARRAY SLOT — so it was the probe that decided whether handles could be named at all | Surface enumerated from the ref pack with `ilspycmd` + the shipped XML doc IDs, **zero C# written** for probes or census: ~200 members over ~60 types for the encoder spelling, **~95 over ~20 for the byte-level spelling**. `MetadataBuilder`: 27 of its 44 `Add*` + 5 of its 10 `GetOrAdd*`. **THE HELLO-WORLD WRITER RUNS**: builds, writes a 2,048-byte `Emitted.dll`, that assembly runs under `dotnet` on the shared framework printing `hello from the N# metadata writer` with exit 0, and `ilverify` says "All Classes and Methods … Verified." |
+| 023/1b — the writer's assembly and types enter the catalog | this commit | `ExternalAssemblyScan.CommonAssemblyNames` 27 -> 28 with `System.Reflection.Metadata` (one entry, BOTH the `Metadata[.Ecma335]` and `PortableExecutable` namespaces), two pinned counts moved with it; `IsSupportedRuntimeTypeName` gains 6 classes + 31 handle structs behind `IsWriterMetadataTypeName`/`IsWriterMetadataHandleName`. 1 unit contract + 5 end-to-end contracts. ZERO C# | **THE SCAN ROW CANNOT BE WORKED AROUND BY QUALIFYING, AND THAT IS WHAT MAKES IT LOAD-BEARING.** A fully-qualified `new` (b02/b08) and a fully-qualified PARAMETER type (b09) both reach emit, but a fully-qualified STATIC RECEIVER does not bind at all — `System.Reflection.Metadata.Ecma335.MetadataTokens.X` answers `Variable 'System' not found` (b10/b11/b12) — so `MetadataTokens`, which every handle comes from, is unreachable without the row. **`IsSupportedRuntimeTypeName` stays a closed allow-list and that is recorded as a DEFECT** of the same class as the retired construction list and `ColumnarTypeOfPlanner.IsSupportedType`; the rule to come is "a catalog-resolvable type is supported", after 022/3a's helper is shared — not built here | **The row set is 37, not the 27 the plan estimated, and every difference is a measurement**: an ENUM type needs no row (023/1a made members bind; `TypeAttributes`/`AssemblyFlags`/`CorFlags` bind with none, and the contracts assert their ABSENCE); a STATIC-ONLY owner needs none (`MetadataTokens` resolves as a static-call owner, `CreateExecutableHeader()` binds as a CALL with only its RESULT type needing admission); **`PEBuilder` DOES need one as the DECLARING type of `Serialize`** — the 015-B11 `get_Module` shape; the handle family is admitted WHOLE. Flipped: b01, b03, b05, b07, c01, c03, c04 decline -> PASS. Still declining by design: c02b (omitted optional args), c03b (implicit handle conversion, NL402). Estate **7,482/7,482 Failed 0** = baseline 7,481 + 1. `columnar-emit-facts` **53/53**. Sweep **59/60**, 1,967 native tests |
+| 023/1a — external enum members are admitted wholesale | merged at `d9c943a75` (as `92a319b49` + the coordinator's format fix-ups `5961b66fa`, `d9c943a75`) | `GetStaticMemberPlan`'s EIGHT enum rows deleted — four whole-type (`BindingFlags`, `StringComparison`, `NullabilityState`, `JsonValueKind`) and four single-MEMBER (`MethodAttributes.Public`, `CallingConventions.Standard`, `SearchOption.TopDirectoryOnly`, `NumberStyles.HexNumber`) — replaced by `ColumnarExternalStaticMemberPlanner.TryAppendExternalEnumMember`: every PUBLIC STATIC LITERAL field of any external enum, resolved through the same semantic owner resolution direct-call selection uses. 2 unit + 4 end-to-end contracts. ZERO C# | **THE ROW THAT WAS RIGHT ALREADY SAID WHY THE OTHERS WERE WRONG.** The `BindingFlags` row's own comment — *"a mask is USED by combining its members, so admitting a subset would only move the decline"* — described exactly what the four per-member rows did: `MethodAttributes.Public` bound and `MethodAttributes.Static` declined the whole assembly at `emit.local.initializer`, naming the LOCAL and never the member. **The `\|` operator was never the defect** (`BindingFlags.Public \| BindingFlags.Static` passed throughout); a mis-read of `a08d` nearly filed it as one, and the bisect to a single member is what corrected it. Two fences are load-bearing and contracted: an int32-representable BACKING (`Convert.ToInt32` over a wider constant THROWS — a compiler crash, not a decline), and a NON-enum owner still needing its own row (`String.Empty` must not be claimed) | Probes flipped decline -> PASS and RUN: `MethodAttributes.Static` (16), `.Family` (10), the mask in an ARGUMENT (22) and in a LOCAL (22), `TypeAttributes.Public\|Abstract\|Sealed` (385). Unmoved: `BindingFlags` local and argument (24). **No previously admitted row moved** — a12 re-checks all five deleted-row enums after the deletion. `SearchOption.AllDirectories`, recorded in §2.1 as not modeled, now binds. Estate **7,441/7,441 Failed 0** = the baseline exactly (two table tests replaced by two planner tests). `columnar-emit-facts` **48/48**. **Missed the format gate** (§2.2's rule now covers `.tests.nl`); the coordinator formatted and fixed up |
+
+**Durable findings (023/1).**
+
+- **Enumerate an external API without writing C#.** The reference pack ships `System.Reflection.Metadata.xml`; its member IDs carry parameter types and mark byref with `@`, and `ilspycmd -t <type>` / `-l s|c|e` gives struct-vs-class and exact optional-parameter defaults. Between them the whole surface was censused with zero probe C#, which is what let a "zero new C#" slice measure a 60-type API at all.
+- **Measure a language feature on a type the catalog ALREADY admits.** The walls here are layered — assembly scan, then type admission, then member plan — so a direct probe of the target API answers only the outermost gate and hides the rest. Every language question in this slice was answered on `OpCode`, `Label`, `Index`, `MethodAttributes`, `Dictionary` and `List<int>` first; the direct probes then measured only the catalog.
+- **A decline that names a LOCAL is not a decline about that local.** `emit.local.initializer` named `f`, `a`, `q`, `md` and `b` across a dozen probes whose actual causes were four different tables. Bisecting to the single member (`MethodAttributes.Public` vs `.Static`) is what turned "enum `|` is broken" into "a per-member allow-list", and the first reading would have filed a language slice against an operator that was never wrong.
+- **The SRM encoder layer is REFUSED, not deferred, and the refusal is the architecture.** Every signature entry point has exactly two overloads — one `out` byref struct, one `Action<T>` — and `IsUnsupportedSignatureType` (`:414`) plus the lambda door refuse both. Writing ECMA-335 II.23.2 blobs byte by byte onto `BlobBuilder` drops 14 struct types and ~90 members, and removes struct-receiver chaining from the writer entirely. A writer should own its own encoding.
+- **`out` on an external call is a CATALOG question, not a blanket byref refusal.** `Dictionary.TryGetValue(k, out v)` passes; `DateTime.TryParse(s, out d)` is `emit.call.static-member-unmodeled`. The ordinary resolver refuses byref signatures, so every working `out` today is a hand-written row — which is the same allow-list shape twice more.
+- **The implicit handle conversion is a design constraint, not a blocker.** All 28 handle structs publish `op_Implicit` to `EntityHandle` and N# applies none of them (`NL402`, naming the one overload). The spelling-around — `MetadataTokens.EntityHandle(<token>)` over a token computed from the writer's own declaration order — is the two-pass row reservation a from-scratch writer needs anyway, so the constraint costs nothing it was not already paying.
+- **C#'s two constant-conversion rules are different rules and must not be folded.** §10.2.4 converts only the literal ZERO to an enum; §10.2.11 converts any in-range integer constant to a narrower integral type. Folding them would make N# laxer than C# and silently accept `AssemblyFlags = 7`. Both are FILED with their probes and their sizing: the typed-local gate is `IsAssignable(TypeInfo, TypeInfo)` with **45 call sites and no literal in scope**, the argument position is a second owner, and the typed-local emit coercion is in `ColumnarIlEmitter.cs` — C#, which this task forbids adding to.
 
 ## 5. Remediations, corrections, do-not-relitigate verdicts
 
