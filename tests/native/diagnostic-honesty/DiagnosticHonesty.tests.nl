@@ -452,3 +452,45 @@ test "an import nothing mentions at all is STILL NL010, so the widening did not 
     output := DhProbe.Check("nl010-live", "import System.Text\n\nfunc Run() {\n    print(\"body\")\n}\n")
     assert DhCodeCount(output, "NL010") == 1, output
 }
+
+// ═══ NL011 — EVERY OPTION THE SUGGESTION NAMES ACTUALLY CLEARS IT ═════════════════════════════
+//
+// The old text invited the reader to "add a comment explaining why it's safe to ignore". A comment
+// is not a statement, so the reader took the advice, re-ran, and got the same error. Each option the
+// new text names is run here, and so is the one it removed.
+func DhCatch(name: string, body: string): string {
+    return DhProbe.Run(name, "check", "import System\n\nfunc ParseCount(text: string): int {\n    try {\n        return int.Parse(text)\n    } catch (error: FormatException) {\n" + body + "    }\n\n    return 0\n}\n", "")
+}
+
+test "NL011's suggestion names four fixes and a suppression, and every one of them clears it" {
+    reported := DhCatch("nl011-empty", "")
+    assert DhCodeCount(reported, "NL011") == 1, reported
+    assert reported.IndexOf("Log it, handle it, return a fallback, or wrap it in a `throw new ...`.", StringComparison.Ordinal) >= 0, reported
+    assert reported.IndexOf("nlc:ignore NL011", StringComparison.Ordinal) >= 0, reported
+
+    logged := DhCatch("nl011-logged", "        print(\"bad number\")\n")
+    assert DhDiagnosticCount(logged) == 0, logged
+
+    // These two END the function, so they are written without the template's trailing `return 0` —
+    // which would otherwise be unreachable and report NL312 instead.
+    fallback := DhProbe.Check("nl011-fallback", "import System\n\nfunc ParseCount(text: string): int {\n    try {\n        return int.Parse(text)\n    } catch (error: FormatException) {\n        return -1\n    }\n}\n")
+    assert DhDiagnosticCount(fallback) == 0, fallback
+
+    wrapped := DhProbe.Check("nl011-wrapped", "import System\n\nfunc ParseCount(text: string): int {\n    try {\n        return int.Parse(text)\n    } catch (error: FormatException) {\n        throw new InvalidOperationException(\"bad\", error)\n    }\n}\n")
+    assert DhDiagnosticCount(wrapped) == 0, wrapped
+
+    suppressed := DhProbe.Check("nl011-suppressed", "import System\n\nfunc ParseCount(text: string): int {\n    try {\n        return int.Parse(text)\n    // nlc:ignore NL011\n    } catch (error: FormatException) {\n    }\n\n    return 0\n}\n")
+    assert DhDiagnosticCount(suppressed) == 0, suppressed
+}
+
+test "the option the suggestion no longer names is the one that does not work, and it still does not" {
+    commented := DhCatch("nl011-comment-only", "        // not a number; zero is fine\n")
+    assert DhCodeCount(commented, "NL011") == 1, commented
+    assert commented.IndexOf("add a comment explaining why it's safe to ignore", StringComparison.Ordinal) < 0, commented
+}
+
+test "a bare `throw` is not an N# re-throw form, which is why the suggestion says `throw new ...`" {
+    bare := DhCatch("nl011-bare-throw", "        throw\n")
+    assert DhCodeCount(bare, "NL102") == 1, bare
+    assert bare.IndexOf("Expected an exception expression after 'throw'", StringComparison.Ordinal) >= 0, bare
+}

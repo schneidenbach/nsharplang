@@ -678,7 +678,13 @@ class LinterWalkState {
     // than the brace, which is why the block's own line is read back out of the source.
     func ReportEmptyCatchBlock(blockLine: int, blockColumn: int) {
         span := LinterBlockOwnerSpanResolver.Resolve(blockLine, blockColumn, SourceLine(blockLine))
-        AddDiagnostic("NL011", "This catch block is empty — exceptions will be silently swallowed", span.Line, span.Column, config.GetSeverity("NL011"), "Log the error, handle it, or add a comment explaining why it's safe to ignore", span.Length)
+        // EVERY OPTION NAMED HERE CLEARS THE RULE, WHICH THE OLD TEXT'S THIRD ONE DID NOT. It invited
+        // "add a comment explaining why it's safe to ignore", and a comment is not a statement: the
+        // reader took the advice, re-ran, and got the same error. Measured on the shipped CLI: a
+        // `print`, a `return -1` and a `throw new InvalidOperationException("bad", error)` each clear
+        // it, `// nlc:ignore NL011` on the line above the `catch` clears it, and a bare `throw` does
+        // not even parse — N# has no re-throw form, so the suggestion does not offer one.
+        AddDiagnostic("NL011", "This catch block is empty — exceptions will be silently swallowed", span.Line, span.Column, config.GetSeverity("NL011"), "Log it, handle it, return a fallback, or wrap it in a `throw new ...`. If ignoring it is deliberate, put `// nlc:ignore NL011` on the line above the `catch` — a comment alone does not clear this.", span.Length)
     }
 
     // Every identifier an interpolated string's holes read is a genuine use of that variable.
