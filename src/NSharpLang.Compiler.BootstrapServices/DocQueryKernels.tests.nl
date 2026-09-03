@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
+import System.Runtime.InteropServices
 
 
 // CONTRACTS FOR WHAT A FAILED DOC LOOKUP SAYS ABOUT UNLOADABLE REFERENCE-PACK ASSEMBLIES.
@@ -158,4 +159,32 @@ test "a summary is cut at the first sentence-ending period and nowhere else" {
     // Null in, null out: a member with no documentation must reach hover as "no documentation".
     assert DocQueryKernels.GetDocSummarySentence(null) == null
     assert DocQueryKernels.GetDocSummarySentence("") == ""
+}
+
+// ROOT DISCOVERY MUST NOT DEPEND ON `Assembly.Location`. `GetReferencePackDirectories` climbs the FIRST
+// non-empty path it is given; every path used to come from `Assembly.Location`, which is the empty
+// string under a single-file host, so discovery would have fallen back to `DOTNET_ROOT` alone and
+// produced nothing wherever that is unset. `DocQueryTypeIndex` now offers the runtime directory first.
+// These blocks pin that the runtime directory IS a viable seed and that an all-empty seed is not.
+test "the runtime directory climbs to a dotnet root that carries reference packs" {
+    runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
+    assert !string.IsNullOrWhiteSpace(runtimeDirectory)
+    seeds := new string[](1)
+    seeds[0] = runtimeDirectory
+    directories := DocQueryKernels.GetReferencePackDirectories(seeds, null)
+    assert directories.Length > 0
+}
+
+test "an all-empty seed discovers nothing without DOTNET_ROOT, which is the single-file failure" {
+    seeds := new string[](2)
+    seeds[0] = ""
+    seeds[1] = ""
+    assert DocQueryKernels.GetReferencePackDirectories(seeds, null).Length == 0
+
+    // The same empty seed WITH a root still works, which is why the old reading degraded quietly
+    // rather than failing: on a machine with DOTNET_ROOT set nothing looked wrong.
+    runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
+    root := DocQueryKernels.FindDotNetRootCandidate(runtimeDirectory)
+    assert root != null
+    assert DocQueryKernels.GetReferencePackDirectories(seeds, root).Length > 0
 }
