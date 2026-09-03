@@ -148,7 +148,7 @@ class AnalyzerDiagnosticSink {
             reported := errorsValue[index]
             if reported.Severity == ErrorSeverity.Error {
                 code := reported.Code
-                if code == ErrorCode.TypeNotFound || code == ErrorCode.CannotResolveType || code == ErrorCode.UndefinedType || code == ErrorCode.UndefinedVariable {
+                if code == ErrorCode.TypeNotFound || code == ErrorCode.UndefinedVariable {
                     return true
                 }
             }

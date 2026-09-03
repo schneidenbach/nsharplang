@@ -118,12 +118,10 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.TypeMismatch)
         AddCompiler(descriptors, ErrorCode.CannotInferType)
         AddCompiler(descriptors, ErrorCode.InvalidCast)
-        AddCompiler(descriptors, ErrorCode.CannotResolveType)
         AddCompiler(descriptors, ErrorCode.InvalidTypeArgument)
         AddCompiler(descriptors, ErrorCode.GenericConstraintViolation)
 
         AddCompiler(descriptors, ErrorCode.UndefinedVariable)
-        AddCompiler(descriptors, ErrorCode.UndefinedType)
         AddCompiler(descriptors, ErrorCode.UndefinedMember)
         AddCompiler(descriptors, ErrorCode.DefiniteAssignmentError)
         AddCompiler(descriptors, ErrorCode.MissingReturn)

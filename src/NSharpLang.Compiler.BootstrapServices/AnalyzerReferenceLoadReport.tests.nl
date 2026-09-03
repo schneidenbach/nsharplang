@@ -124,11 +124,9 @@ test "an empty resolver table is the same as no resolver at all" {
 
 // ---- (2) which diagnostics unlock the report ---------------------------------------------------
 
-test "all four unresolved codes unlock the report" {
+test "both unresolved codes unlock the report" {
     codes := new List<ErrorCode>()
     codes.Add(ErrorCode.TypeNotFound)
-    codes.Add(ErrorCode.CannotResolveType)
-    codes.Add(ErrorCode.UndefinedType)
     codes.Add(ErrorCode.UndefinedVariable)
     index := 0
     while index < codes.Count {

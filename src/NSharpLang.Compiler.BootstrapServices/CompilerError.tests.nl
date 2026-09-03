@@ -329,7 +329,6 @@ test "the elm severity table names all seven headings" {
     assert CompilerErrorSeverityHeading(ErrorCode.TypeMismatch, ErrorSeverity.Error) == "TYPE MISMATCH"
     assert CompilerErrorSeverityHeading(ErrorCode.TypeNotFound, ErrorSeverity.Error) == "TYPE MISMATCH"
     assert CompilerErrorSeverityHeading(ErrorCode.UndefinedVariable, ErrorSeverity.Error) == "NAMING ERROR"
-    assert CompilerErrorSeverityHeading(ErrorCode.UndefinedType, ErrorSeverity.Error) == "NAMING ERROR"
     assert CompilerErrorSeverityHeading(ErrorCode.UndefinedMember, ErrorSeverity.Error) == "NAMING ERROR"
     assert CompilerErrorSeverityHeading(ErrorCode.NonExhaustiveMatch, ErrorSeverity.Error) == "INCOMPLETE PATTERN MATCH"
     assert CompilerErrorSeverityHeading(ErrorCode.WrongArgumentCount, ErrorSeverity.Error) == "FUNCTION CALL ERROR"

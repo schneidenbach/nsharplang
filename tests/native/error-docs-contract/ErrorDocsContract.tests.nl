@@ -455,6 +455,13 @@ test "there is exactly ONE documentation host, and it is the published site" {
 // Fenced blocks rather than a fixture tree, deliberately: a directory of `.nl` files under the
 // repository would be walked by the root `nlc format --check`, by the compile-time corpus and by
 // every estate scan, and the examples are DELIBERATELY malformed. The page is the fixture.
+//
+// TWO-FILE EXAMPLES, one rule. Some rules only exist ACROSS files — `NL308` is a visibility rule and
+// a single file cannot state it. So: a block whose FIRST LINE is `// FILE Lib.nl` is written as
+// `Lib.nl` beside the next marked block's `Program.nl`. The header is an ordinary comment inside the
+// file that is written, so it occupies line 1 and every `// ERROR` line number counts from it —
+// what the page shows is byte-for-byte what ran, with nothing synthesised in between. A block headed
+// `// FILE Program.nl` is just the program, named for symmetry.
 class EdbProbe {
     static func CliPath(): string {
         root := EdcPaths.RepositoryRoot()
@@ -466,9 +473,10 @@ class EdbProbe {
         return Path.Combine(Path.GetTempPath(), "nsharp-error-docs-repro")
     }
 
-    // Write `source` as a one-file project and return what `nlc check --text` printed. `library`
-    // so an example never has to invent a `main` it would then have to explain.
-    static func Check(name: string, source: string): string {
+    // Write `source` as a project and return what `nlc check --text` printed. `library` so an
+    // example never has to invent a `main` it would then have to explain. A non-empty `library` is
+    // written beside it as `Lib.nl`.
+    static func Check(name: string, source: string, library: string): string {
         directory := Path.Combine(EdbProbe.WorkspaceRoot(), name)
         if Directory.Exists(directory) {
             Directory.Delete(directory, true)
@@ -477,6 +485,10 @@ class EdbProbe {
         Directory.CreateDirectory(directory)
         File.WriteAllText(Path.Combine(directory, "project.yml"), "name: ErrorDocsRepro\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n")
         File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
+        if library.Length > 0 {
+            File.WriteAllText(Path.Combine(directory, "Lib.nl"), library)
+        }
+
         arguments := "\"" + EdbProbe.CliPath() + "\" check --project \"" + directory + "\" --text"
 
         // `DotnetRunner` in the compiler assembly does exactly this and cannot be called: a
@@ -577,11 +589,13 @@ func EdbHeaderLine(header: string): int {
 class EdbExample {
     Page: string
     Source: string
+    Library: string
     Marks: string
 
-    constructor(page: string, source: string, marks: string) {
+    constructor(page: string, source: string, library: string, marks: string) {
         Page = page
         Source = source
+        Library = library
         Marks = marks
     }
 }
@@ -593,6 +607,7 @@ func EdbExamplesOnPage(pageCode: string, examples: List<EdbExample>) {
     lines := text.Split('\n')
     inBlock := false
     block := new List<string>()
+    pendingLibrary := ""
     i := 0
     while i < lines.Length {
         line := lines[i]
@@ -617,8 +632,15 @@ func EdbExamplesOnPage(pageCode: string, examples: List<EdbExample>) {
                     j = j + 1
                 }
 
-                if marks.Length > 0 {
-                    examples.Add(new EdbExample(pageCode, EdcJoinLines(block), marks))
+                blockText := EdcJoinLines(block)
+                if block.Count > 0 && block[0].StartsWith("// FILE Lib.nl", StringComparison.Ordinal) {
+                    // The companion file for the NEXT marked block on this page.
+                    pendingLibrary = blockText
+                } else {
+                    if marks.Length > 0 {
+                        examples.Add(new EdbExample(pageCode, blockText, pendingLibrary, marks))
+                        pendingLibrary = ""
+                    }
                 }
 
                 block = new List<string>()
@@ -687,7 +709,7 @@ func EdbBrokenExamples(): string {
         label := example.Page + "#" + (i + 1).ToString()
         marks := EdbSplitMarks(example.Marks)
         reported := new List<string>()
-        headers := EdbHeaders(EdbProbe.Check("page" + i.ToString(), example.Source))
+        headers := EdbHeaders(EdbProbe.Check("page" + i.ToString(), example.Source, example.Library))
         j := 0
         while j < headers.Count {
             header := headers[j]
@@ -761,7 +783,7 @@ func EdbExemptionsThatNowReport(): string {
         separator := row.IndexOf("|", StringComparison.Ordinal)
         code := row.Substring(0, separator)
         source := row.Substring(separator + 1)
-        headers := EdbHeaders(EdbProbe.Check("exempt" + i.ToString(), source))
+        headers := EdbHeaders(EdbProbe.Check("exempt" + i.ToString(), source, ""))
         j := 0
         while j < headers.Count {
             if EdbHeaderCode(headers[j]) == code {
