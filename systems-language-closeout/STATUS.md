@@ -160,8 +160,15 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
   type forwarding defeats per-assembly lookup); call-site hover shows the WRONG overload today (`Append("x")` →
   `Append(char, int)`: the arity loop is dead in production) → one `FindCallExpressionAtPosition` entry point shared with
   signature help, overloads narrowed by argument types with arity as the fallback.
-- IDE re-verification DONE (above); next IDE batch on `stream/ide-chips-o1-o3`: O1 duplicate overload rows in
-  completion, O2 the file-private member leak across files, O3 the doubled NSYS100, and the reload script's kill step.
+- IDE re-verification, FOURTH ROUND at `a2d75f537` — ALL PASS (record `artifacts/ide-verification/2026-09-02c/README.md`,
+  8 screenshots, branch `verify/ide-2026-09-02c` `de762cf45`, merged `bc9ba1a4f`): one completion row per member name with
+  the overload count in the detail (`String[] (+10 overloads)`), no duplicate labels; `service.` from another namespace no
+  longer offers the camelCase field while the same-namespace control does; exactly one NSYS100 naming what is absent
+  ("[trusted] is missing the review metadata and [memory(safe)]"); hover and the D4 quick fix unchanged. Two findings:
+  the reload script's proof line prints the LOWEST `LanguageServer.dll` pid (`pgrep … | head -n 1`), which on this machine
+  is a stale August orphan — FAIL as a proof (use `pgrep -n`, or the child of the newest Code Helper); and FOURTEEN
+  orphaned `LanguageServer.dll` processes (ppid 1, July–September) outlive their windows — the server does not exit when
+  its extension host goes away, a product defect (the server must exit on client disconnect / parent death).
 - `stream/023-s1-spelling-gap` — **the hello-world metadata writer works end to end in N#**: `hw_writer` builds through
   the branch CLI, writes a 2,048-byte assembly through `MetadataBuilder` alone (byte-level blobs, token arithmetic from
   declaration order, no `GetToken`, no implicit handle conversions), and that assembly runs on the shared framework and
