@@ -155,9 +155,14 @@ class ColumnarTypeEquivalenceFacts {
         }
     }
 
-    // Two enum types are the same enum when their runtime handles agree. `TypeHandle` throws for an
-    // `EnumBuilder`/`TypeBuilder`, and there the enum's declared name inside its own module is the
-    // identity: a source enum cannot be declared twice under one name in one module.
+    // Two enum types are the same enum when their runtime handles agree. `TypeHandle` is refused by
+    // more surfaces than the original `NotSupportedException` clause caught: an `EnumBuilder`/
+    // `TypeBuilder` refuses it, and a type loaded through a `MetadataLoadContext` refuses it too, with
+    // `InvalidOperationException: The requested operation cannot be used on objects loaded by a
+    // MetadataLoadContext.` The narrow clause would therefore have let that throw ESCAPE the moment the
+    // external catalog became metadata-sourced. The fallback below is the real answer in every refusing
+    // case: the enum's declared name inside its own module is the identity, because a source enum
+    // cannot be declared twice under one name in one module.
     static func IsSameEnumType(a: Type, b: Type): bool {
         if !ColumnarTypeOfPlanner.IsEnumType(a) || !ColumnarTypeOfPlanner.IsEnumType(b) {
             return false
@@ -166,7 +171,7 @@ class ColumnarTypeEquivalenceFacts {
         handlesMatch := false
         try {
             handlesMatch = a.get_TypeHandle().Equals(b.get_TypeHandle())
-        } catch ex: NotSupportedException {
+        } catch {
             handlesMatch = false
         }
 

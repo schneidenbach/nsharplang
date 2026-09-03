@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections
 import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler
@@ -104,23 +105,19 @@ class ColumnarExtensionMethodSelection {
 // trailing-optional filling on generic candidates all decline. Anything outside the admitted
 // surface leaves the call to its later owner.
 class ColumnarExtensionMethodResolver {
-    static func ExtensionAttributeType(): Type? {
-        return Type.GetType("System.Runtime.CompilerServices.ExtensionAttribute")
-    }
 
-    static func ParamArrayAttributeType(): Type? {
-        return Type.GetType("System.ParamArrayAttribute")
-    }
-
+    // ATTRIBUTES ARE MATCHED BY FULL NAME, NEVER BY TYPE IDENTITY, and the two `Type.GetType` lookups
+    // that used to supply the identities are gone with the identities. `IsDefined(attributeType, ...)`
+    // cannot answer over a `MetadataLoadContext` at all -- it throws
+    // `The requested operation cannot be used on objects loaded by a MetadataLoadContext. Use
+    // CustomAttributeData instead.` -- and every one of these call sites swallowed that throw in a
+    // `catch` returning false, so a metadata-sourced catalog would have produced an EMPTY extension
+    // index in silence. The analyzer already learned this rule (`AnalyzerOverloadScoring`'s
+    // `HasExtensionAttribute`/`IsParamsParameter`, whose comment states it); the columnar side now
+    // shares those owners instead of keeping a second, identity-based copy.
     static func BuildIndex(scan: ExternalAssemblyScanResult): ColumnarExtensionMethodIndex {
         index := new ColumnarExtensionMethodIndex()
         if scan == null || scan.Entries == null {
-            return index
-        }
-
-        extensionAttribute := ExtensionAttributeType()
-        paramArrayAttribute := ParamArrayAttributeType()
-        if extensionAttribute == null || paramArrayAttribute == null {
             return index
         }
 
@@ -128,7 +125,7 @@ class ColumnarExtensionMethodResolver {
         while entryIndex < scan.Entries.Length {
             entry := scan.Entries[entryIndex]
             if entry != null && entry.RuntimeAssembly != null {
-                AddAssembly(index, entry.RuntimeAssembly, extensionAttribute, paramArrayAttribute)
+                AddAssembly(index, entry.RuntimeAssembly)
             }
 
             entryIndex = entryIndex + 1
@@ -137,27 +134,27 @@ class ColumnarExtensionMethodResolver {
         return index
     }
 
-    static func AddAssembly(index: ColumnarExtensionMethodIndex, assembly: Assembly, extensionAttribute: Type, paramArrayAttribute: Type) {
+    static func AddAssembly(index: ColumnarExtensionMethodIndex, assembly: Assembly) {
         types := ExportedTypesOrEmpty(assembly)
         typeIndex := 0
         while typeIndex < types.Length {
             candidateType := types[typeIndex]
-            if IsStaticExtensionHost(candidateType, extensionAttribute) {
-                AddType(index, candidateType, extensionAttribute, paramArrayAttribute)
+            if IsStaticExtensionHost(candidateType) {
+                AddType(index, candidateType)
             }
 
             typeIndex = typeIndex + 1
         }
     }
 
-    static func AddType(index: ColumnarExtensionMethodIndex, hostType: Type, extensionAttribute: Type, paramArrayAttribute: Type) {
+    static func AddType(index: ColumnarExtensionMethodIndex, hostType: Type) {
         methods := MethodsOrEmpty(hostType)
         methodIndex := 0
         while methodIndex < methods.Length {
             method := methods[methodIndex]
-            if IsExtensionMethodCandidate(method, extensionAttribute) {
+            if IsExtensionMethodCandidate(method) {
                 parameters := method.GetParameters()
-                if parameters != null && parameters.Length >= 1 && !HasExcludedParameterShape(parameters, paramArrayAttribute) {
+                if parameters != null && parameters.Length >= 1 && !HasExcludedParameterShape(parameters) {
                     parameterTypes := ParameterTypesOrNull(parameters)
                     returnType := method.get_ReturnType()
                     if parameterTypes != null && returnType != null && IsSupportedReceiverParameter(parameterTypes[0]) {
@@ -170,11 +167,49 @@ class ColumnarExtensionMethodResolver {
         }
     }
 
-    static func IsStaticExtensionHost(candidateType: Type, extensionAttribute: Type): bool {
-        return candidateType != null && candidateType.get_IsClass() && candidateType.get_IsSealed() && candidateType.get_IsAbstract() && !candidateType.get_IsGenericType() && SafeIsDefined(candidateType, extensionAttribute)
+    static func IsStaticExtensionHost(candidateType: Type): bool {
+        return candidateType != null && candidateType.get_IsClass() && candidateType.get_IsSealed() && candidateType.get_IsAbstract() && !candidateType.get_IsGenericType() && HasExtensionAttribute(candidateType)
     }
 
-    static func IsExtensionMethodCandidate(method: MethodInfo, extensionAttribute: Type): bool {
+    // The scan is spelled HERE rather than shared with `AnalyzerOverloadScoring`'s identical one: a
+    // static call into that class from a `NSharpLang.Compiler.Columnar` owner declines at
+    // `emit.return.expression` whatever the argument type, so the columnar surface cannot reach it.
+    // The count goes through `object` for the recorded reason -- a generic `IList<T>` does not cast to
+    // the non-generic `IList` on this surface, but an `object` does.
+    static func HasAttributeNamed(attributes: IList<CustomAttributeData>, fullName: string): bool {
+        count := AttributeSequenceCount(attributes)
+        index := 0
+        while index < count {
+            attribute := attributes.get_Item(index)
+            attributeType := attribute.get_AttributeType()
+            if attributeType.FullName == fullName {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func AttributeSequenceCount(sequence: object): int {
+        list := (IList)sequence
+        return list.Count
+    }
+
+    static func HasExtensionAttribute(candidateType: Type): bool {
+        return HasAttributeNamed(candidateType.GetCustomAttributesData(), "System.Runtime.CompilerServices.ExtensionAttribute")
+    }
+
+    static func MethodHasExtensionAttribute(method: MethodInfo): bool {
+        return HasAttributeNamed(method.GetCustomAttributesData(), "System.Runtime.CompilerServices.ExtensionAttribute")
+    }
+
+    static func IsParamsParameter(parameter: ParameterInfo): bool {
+        return HasAttributeNamed(parameter.GetCustomAttributesData(), "System.ParamArrayAttribute")
+    }
+
+    static func IsExtensionMethodCandidate(method: MethodInfo): bool {
         if method == null || !method.get_IsStatic() || !method.get_IsPublic() {
             return false
         }
@@ -185,10 +220,10 @@ class ColumnarExtensionMethodResolver {
             return false
         }
 
-        return SafeIsDefined(method, extensionAttribute)
+        return MethodHasExtensionAttribute(method)
     }
 
-    static func HasExcludedParameterShape(parameters: ParameterInfo[], paramArrayAttribute: Type): bool {
+    static func HasExcludedParameterShape(parameters: ParameterInfo[]): bool {
         index := 0
         while index < parameters.Length {
             parameter := parameters[index]
@@ -201,7 +236,7 @@ class ColumnarExtensionMethodResolver {
                 return true
             }
 
-            if SafeIsDefined(parameter, paramArrayAttribute) {
+            if IsParamsParameter(parameter) {
                 return true
             }
 
@@ -261,30 +296,6 @@ class ColumnarExtensionMethodResolver {
             return result
         } catch {
             return new MethodInfo[](0)
-        }
-    }
-
-    static func SafeIsDefined(candidateType: Type, attributeType: Type): bool {
-        try {
-            return candidateType.IsDefined(attributeType, false)
-        } catch {
-            return false
-        }
-    }
-
-    static func SafeIsDefined(method: MethodInfo, attributeType: Type): bool {
-        try {
-            return method.IsDefined(attributeType, false)
-        } catch {
-            return false
-        }
-    }
-
-    static func SafeIsDefined(parameter: ParameterInfo, attributeType: Type): bool {
-        try {
-            return parameter.IsDefined(attributeType, false)
-        } catch {
-            return false
         }
     }
 

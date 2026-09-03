@@ -146,3 +146,53 @@ test "enum identity is answered by the enum arm rather than the generic one" {
     assert !ColumnarTypeEquivalenceFacts.TypesEquivalent(typeof(TypeEquivalenceProbeEnum), typeof(int))
     assert !ColumnarTypeEquivalenceFacts.TypesEquivalent(typeof(int), typeof(TypeEquivalenceProbeEnum))
 }
+
+// A `TypeHandle` refusal is not one exception type. An `EnumBuilder`/`TypeBuilder` refuses with
+// `NotSupportedException`; a type loaded through a `MetadataLoadContext` refuses with
+// `InvalidOperationException`. The clause has to catch BOTH or the metadata universe escapes it, so
+// this block drives the metadata shape specifically -- the one the old clause did not cover.
+test "same-enum identity survives a metadata-universe TypeHandle refusal" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        metadataEnum := TypeEquivalenceMetadataTypeOrNull(scan, "System.StringComparison")
+        assert metadataEnum != null
+        assert metadataEnum.get_IsEnum()
+        assert TypeEquivalenceHandleIsRefused(metadataEnum)
+
+        // The refusal is caught and the declared-identity fallback answers, both ways round.
+        assert ColumnarTypeEquivalenceFacts.IsSameEnumType(metadataEnum, metadataEnum)
+
+        otherEnum := TypeEquivalenceMetadataTypeOrNull(scan, "System.DayOfWeek")
+        assert otherEnum != null
+        assert !ColumnarTypeEquivalenceFacts.IsSameEnumType(metadataEnum, otherEnum)
+    } finally {
+        scan.Dispose()
+    }
+}
+
+func TypeEquivalenceMetadataTypeOrNull(scan: ExternalAssemblyScanResult, fullName: string): Type {
+    index := 0
+    while index < scan.Entries.Length {
+        entry := scan.Entries[index]
+        metadataAssembly := entry.MetadataAssembly
+        if metadataAssembly != null {
+            candidate := metadataAssembly.GetType(fullName)
+            if candidate != null {
+                return candidate
+            }
+        }
+
+        index = index + 1
+    }
+
+    return null
+}
+
+func TypeEquivalenceHandleIsRefused(candidate: Type): bool {
+    try {
+        handle := candidate.get_TypeHandle()
+        return handle.Equals(handle) == false
+    } catch {
+        return true
+    }
+}
