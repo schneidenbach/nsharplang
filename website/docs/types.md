@@ -667,6 +667,18 @@ stringContainer := new Container<string>("hello")
 
 ### Generic Constraints
 
+A `where` clause constrains a type parameter, on a `class`, `struct`, `record`, `interface` or
+`union` alike, and on functions. It is written after the base and interface list and before the body:
+
+```n#
+class Node<T>(id: int): Base, IPrintable where T : struct {
+    Value: T
+}
+```
+
+The constraint reaches CLR metadata, so a constrained type is a constrained type to C# and every
+other .NET language, not only inside N#.
+
 ```n#
 // Class constraint
 class Repository<T> where T : class {
@@ -713,6 +725,38 @@ class Service<T> where T : class, IDisposable, new() {
     }
 }
 ```
+
+One clause per constrained parameter — a two-parameter type takes two:
+
+```n#
+class Map<K, V> where K : class where V : struct {
+    Count: int
+}
+```
+
+### What is checked, and where
+
+A type argument is checked against its declaration's constraints when you **construct** the type:
+
+```n#
+class Box<T> where T : struct {
+    Value: T
+}
+
+b := new Box<string>()   // ERROR NL208: `string` is not a non-nullable value type, but type
+                         // parameter `T` of `Box` requires one (the `struct` constraint)
+```
+
+Two current limits, both being worked on:
+
+- **A constraint naming a BCL interface does not emit yet.** `where T : IComparable<T>` and
+  `where T : class, IDisposable, new()` — the `Processor` and `Service` examples above — are
+  refused at build time, because the emitter's supported-type list does not yet admit those
+  interfaces as constraint targets. Constraints naming your own interfaces and classes
+  (`where T : IIdentifiable`, `where T : Shape`) do emit. The same limit applies to functions.
+- **Only construction sites are checked.** A violating type argument written in a field,
+  parameter, return type, local or base list is not yet reported; the constraint is still recorded
+  in metadata, and the same argument is reported when you construct it.
 
 ## Nullable Types
 
