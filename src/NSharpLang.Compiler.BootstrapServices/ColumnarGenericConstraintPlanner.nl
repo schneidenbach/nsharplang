@@ -27,6 +27,31 @@ class ColumnarGenericConstraintPlanner {
         return 16
     }
 
+    // THE TWO BOUNDS GUARDS AT THE `where` SITE, AND WHY THEY ARE NOT BELT-AND-BRACES.
+    //
+    // `ColumnarConstraintColumns.SpecialsOrEmpty` / `TypesOrEmpty` are named as if they normalise, and
+    // they DO -- but only for NULL. A non-null array SHORTER than the type-parameter count is returned
+    // UNCHANGED, `typeParamCount` unused, so an owner declaring three parameters can reach emit with a
+    // two-entry specials row. Reading it unguarded would throw on a shape the emitter accepts today,
+    // which is the same class of trap as the field family's readonly flags. The guards are therefore
+    // rules with contracts, not defensive noise at a call site.
+    //
+    // A parameter past the end has NO special constraint (0) and NO type constraints (an empty row) --
+    // never a missing row the caller must test for.
+    static func SpecialAt(specialRows: int[], index: int): int {
+        if specialRows != null && index < specialRows.Length {
+            return specialRows[index]
+        }
+        return 0
+    }
+
+    static func TypeConstraintsAt(typeConstraintRows: string[][], index: int): string[] {
+        if typeConstraintRows != null && index < typeConstraintRows.Length {
+            return typeConstraintRows[index]
+        }
+        return new string[](0)
+    }
+
     // `SpecialConstraintKind` (Class 1, Struct 2, New 4) to the CLR's attribute word.
     //
     // `struct` IMPLIES the default-constructor bit and the `new()` bit is then redundant — every value

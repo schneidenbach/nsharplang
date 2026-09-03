@@ -9046,11 +9046,11 @@ internal sealed class ColumnarIlEmitter
         for (var g = 0; g < gpBuilders.Length; g++)
         {
             baseParamIndices[g] = -1;
-            specials[g] = specialRows.Length > g ? specialRows[g] : 0;
+            specials[g] = ColumnarGenericConstraintPlanner.SpecialAt(specialRows, g);
             var bits = ColumnarGenericConstraintPlanner.AttributeBitsFor(specials[g]);
             if (bits != 0) gpBuilders[g].SetGenericParameterAttributes((GenericParameterAttributes)bits);
             var interfaces = new List<Type>();
-            foreach (var text in typeConstraintRows.Length > g ? typeConstraintRows[g] : System.Array.Empty<string>())
+            foreach (var text in ColumnarGenericConstraintPlanner.TypeConstraintsAt(typeConstraintRows, g))
             {
                 if (!TryResolveTypeWithTypeParams(text, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var ct))
                     return false;
