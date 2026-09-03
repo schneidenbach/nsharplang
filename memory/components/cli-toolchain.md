@@ -305,6 +305,7 @@ $ nlc query completions --file PersonService.nl --pos 15:15
   "completions": {
     "methods": [
       {"name": "Add", "kind": "method", "type": "void", "parameters": "(item T)"},
+      {"name": "IndexOf", "kind": "method", "type": "int", "overloads": 3},
       {"name": "Remove", "kind": "method", "type": "bool", "parameters": "(item T)"},
       {"name": "Count", ...}
     ]
@@ -313,6 +314,10 @@ $ nlc query completions --file PersonService.nl --pos 15:15
 ```
 
 Member access completion resolves the receiver expression semantically, including chained calls and properties such as `message.ToUpper().` or `factory.Create().`. CLI query results and LSP completion/hover use the analyzer's recorded expression types as the source of truth, so duplicate member names on unrelated receiver types do not collapse into name-only matches.
+
+**One row per member name, ordered.** A member access answers one row per NAME, not one per overload: `string` reflects 105 methods under 39 names, and eleven `Split` declarations are one row carrying `"overloads": 11`. The `overloads` key is additive and appears only when a name has more than one declaration, so `schemaVersion` stays at 1; the editor renders the same fact as `(+10 overloads)` in the item's detail. Rows are ordered by kind rank — keyword, variable, function/method, property/field, type, everything else — and then by name, case-insensitively, so the JSON's group order and the editor's row order are the same order. A name listed under two different kinds (`async` as both a keyword and a modifier) collapses to one row but is not counted as an overload.
+
+**Visibility is package-scoped, and the list obeys it.** N# spells visibility the way Go does — PascalCase (or a written `public`) exports, camelCase does not — and an unexported member stays readable from any file in the *same* namespace. A member access completion therefore offers an unexported member only when the caret shares the declaring package; asking from another package drops it, because the analyzer answers `NL308` on that read. When the declaring package cannot be established (no project behind the buffer, a receiver that is not source-declared, two files declaring the same simple name in different namespaces with nothing to tell them apart) the list fails open and offers everything, since a hidden legal member is a defect the developer cannot see past while an offered illegal one is explained by the very next diagnostic.
 
 Add `--include-keywords` to also get keywords, primitives, and modifiers.
 

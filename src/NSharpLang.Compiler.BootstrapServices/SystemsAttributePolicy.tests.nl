@@ -172,6 +172,11 @@ func SatColumn(sink: SystemsFindingSink, index: int): int {
     return finding.Column
 }
 
+func SatSuggestion(sink: SystemsFindingSink, index: int): string {
+    finding := SatAt(sink, index)
+    return finding.Suggestion ?? ""
+}
+
 func SatLength(sink: SystemsFindingSink, index: int): int {
     finding := SatAt(sink, index)
     return finding.Length
@@ -630,7 +635,7 @@ test "A [hot] FUNCTION WITH NEITHER MODIFIER IS SILENT" {
     assert SatCount(sink) == 0
 }
 
-test "A [trusted] WRAPPER MISSING ANY ONE FIELD GETS ONE METADATA FINDING, NOT THREE" {
+test "A [trusted] WRAPPER MISSING ANY ONE FIELD GETS ONE FINDING THAT NAMES THAT FIELD" {
     sink := SatSink("systems", "strict")
     policy := new SystemsAttributePolicy(sink)
     function := SatFunction("Copy", Modifiers.None, new List<AttributeNode>())
@@ -638,8 +643,35 @@ test "A [trusted] WRAPPER MISSING ANY ONE FIELD GETS ONE METADATA FINDING, NOT T
     assert SatCount(sink) == 1
     assert SatCode(sink, 0) == "NSYS100"
     assert SatEffect(sink, 0) == "memorySafety"
-    assert SatMessage(sink, 0) == "[trusted] requires reason, owner, and review metadata"
+
+    // IT NAMES WHAT IS ABSENT. The sentence used to read "requires reason, owner, and review
+    // metadata" whichever one was missing, so a reader had to diff their own attribute to find the
+    // single word to add.
+    assert SatMessage(sink, 0) == "[trusted] is missing the reason metadata"
     assert SatLength(sink, 0) == 4
+}
+
+test "THE MISSING-FIELD SENTENCE READS AS A LIST WHEN MORE THAN ONE IS ABSENT" {
+    one := SatSink("systems", "strict")
+    new SystemsAttributePolicy(one).ValidateTrustedFunction("why", "team", null, true, SatFunction("Copy", Modifiers.None, new List<AttributeNode>()), "attr.nl", "Owner.Copy", false, false)
+    assert SatMessage(one, 0) == "[trusted] is missing the review metadata"
+
+    two := SatSink("systems", "strict")
+    new SystemsAttributePolicy(two).ValidateTrustedFunction("why", null, null, true, SatFunction("Copy", Modifiers.None, new List<AttributeNode>()), "attr.nl", "Owner.Copy", false, false)
+    assert SatMessage(two, 0) == "[trusted] is missing the owner and review metadata"
+
+    three := SatSink("systems", "strict")
+    new SystemsAttributePolicy(three).ValidateTrustedFunction(null, null, null, true, SatFunction("Copy", Modifiers.None, new List<AttributeNode>()), "attr.nl", "Owner.Copy", false, false)
+    assert SatMessage(three, 0) == "[trusted] is missing the reason, owner, and review metadata"
+    assert SatSuggestion(three, 0) == "Write [trusted(reason: \"...\", owner: \"...\", review: \"...\")] on the wrapper."
+}
+
+test "A WRAPPER WITH COMPLETE METADATA AND NO [memory(safe)] IS TOLD ONLY THAT" {
+    sink := SatSink("systems", "strict")
+    new SystemsAttributePolicy(sink).ValidateTrustedFunction("why", "team", "2026-01-01", false, SatFunction("Copy", Modifiers.None, new List<AttributeNode>()), "attr.nl", "Owner.Copy", false, false)
+    assert SatCount(sink) == 1
+    assert SatMessage(sink, 0) == "[trusted] is missing [memory(safe)]"
+    assert SatSuggestion(sink, 0) == "Add [memory(safe)] after documenting the unsafe proof."
 }
 
 test "A BLANK FIELD IS A MISSING FIELD, AND expires IS NOT ONE OF THE THREE" {
@@ -654,15 +686,19 @@ test "A BLANK FIELD IS A MISSING FIELD, AND expires IS NOT ONE OF THE THREE" {
     assert SatCount(complete) == 0
 }
 
-test "THE TWO TRUSTED ARMS ARE INDEPENDENT AND BOTH FIRE AT ONE POSITION" {
+test "THE TWO TRUSTED CHECKS ARE INDEPENDENT AND THEIR FINDING IS SINGLE" {
     sink := SatSink("systems", "strict")
     policy := new SystemsAttributePolicy(sink)
     function := SatFunction("Copy", Modifiers.None, new List<AttributeNode>())
     policy.ValidateTrustedFunction(null, null, null, false, function, "attr.nl", "Owner.Copy", false, false)
-    assert SatCount(sink) == 2
-    assert SatMessage(sink, 0) == "[trusted] requires reason, owner, and review metadata"
-    assert SatMessage(sink, 1) == "[trusted] wrappers must declare [memory(safe)] for Systems N# v1"
-    assert SatLine(sink, 0) == SatLine(sink, 1)
+
+    // THIS BLOCK USED TO PIN THE DEFECT. It asserted TWO NSYS100s at one position with two
+    // sentences, which in the Problems panel is two rows the reader has to compare word by word to
+    // find out they are one unfinished proof with one edit between them. The checks are still two;
+    // the report is one, and it carries what the two rows carried between them.
+    assert SatCount(sink) == 1
+    assert SatMessage(sink, 0) == "[trusted] is missing the reason, owner, and review metadata and [memory(safe)]"
+    assert SatSuggestion(sink, 0) == "Write [trusted(reason: \"...\", owner: \"...\", review: \"...\")] and [memory(safe)] on the wrapper, after documenting the unsafe proof."
 }
 
 test "AN UNSAFE BLOCK IS SILENT ONLY INSIDE A TRUSTED MEMORY-SAFE WRAPPER" {
@@ -696,7 +732,11 @@ test "THE UNSAFE-BLOCK ARM IS A POLICY FINDING WHILE THE TRUSTED ARMS ARE NOT" {
     unwaived := SatSink("systems", "strict")
     policyUnwaived := new SystemsAttributePolicy(unwaived)
     policyUnwaived.ValidateTrustedFunction(null, null, null, false, function, "attr.nl", "Owner.Copy", false, false)
-    assert SatCount(unwaived) == 2
+
+    // The point of this line is that the trusted arm is NOT waivable — one finding survives a
+    // waiver that silences the unsafe-block arm entirely. It read `== 2` when the arm reported
+    // twice; the count is now 1 and the contract it carries is unchanged.
+    assert SatCount(unwaived) == 1
 }
 
 // A RAW LITERAL REACHES `Unquote` TOO, AND THE BOTH-ENDS GUARD IS WHAT SAVES IT.

@@ -389,28 +389,104 @@ class SystemsAttributePolicy {
 
     // A `[trusted]` WRAPPER IS AN AUDITED EXCEPTION AND MUST SAY SO. Three metadata fields make it
     // auditable — WHY, WHO, and WHEN IT WAS REVIEWED — and one attribute makes it checkable: a
-    // wrapper that has not declared `[memory(safe)]` has not finished the proof it is claiming. The
-    // two arms are INDEPENDENT: a wrapper missing both gets both findings at the same position,
-    // metadata first.
+    // wrapper that has not declared `[memory(safe)]` has not finished the proof it is claiming.
     //
-    // ONE MISSING FIELD IS ONE FINDING, NOT THREE. The sentence names all three because the fix is to
-    // write all three, and reporting per field would put three identical underlines on one
-    // declaration.
+    // ONE UNFINISHED PROOF IS ONE FINDING. This paragraph used to say the opposite — "the two arms
+    // are INDEPENDENT: a wrapper missing both gets both findings at the same position, metadata
+    // first" — and it was wrong in a way only a reader could see. The two findings carried the same
+    // code, the same severity, the same span and the same declaration, so the Problems panel showed
+    // NSYS100 twice on one line and left the reader to compare them word by word to discover they
+    // were two halves of one unfinished proof with one edit between them. Independence is a fact
+    // about the CHECKS; it was allowed to become the shape of the REPORT, which is a different
+    // question. The checks are still independent — the finding is not.
+    //
+    // AND THE SENTENCE NAMES WHAT IS ABSENT, NOT WHAT IS REQUIRED. It used to read "requires
+    // reason, owner, and review metadata" even when only `review:` was missing, so a reader had to
+    // diff their own attribute against the message to find the one word to add. Naming the missing
+    // fields is not the same as reporting one finding per field: there is still exactly one
+    // underline on the declaration, and the fix is still one edit.
     //
     // `expires` IS DELIBERATELY NOT PART OF THE RULE. It travels on the trusted-site record for the
     // report to show; a wrapper with no expiry is still audited.
     //
-    // BOTH ARMS PREFER `Error` and neither consults an allow set: `[trusted]` IS the waiver
+    // THE FINDING PREFERS `Error` and does not consult an allow set: `[trusted]` IS the waiver
     // mechanism, so waiving the rules that make a waiver auditable would leave nothing behind.
     func ValidateTrustedFunction(reason: string?, owner: string?, review: string?, memorySafe: bool, function: FunctionDeclaration, filePath: string, functionName: string, isHot: bool, isBoundary: bool) {
-        length := Math.Max(1, function.Name.Length)
-        if string.IsNullOrWhiteSpace(reason) || string.IsNullOrWhiteSpace(owner) || string.IsNullOrWhiteSpace(review) {
-            sinkValue.AddForFunction("NSYS100", "memorySafety", "[trusted] requires reason, owner, and review metadata", function.Line, function.Column, length, filePath, functionName, isHot, isBoundary, ErrorSeverity.Error, "Write [trusted(reason: \"...\", owner: \"...\", review: \"...\")] on the wrapper.")
+        missingMetadata := MissingTrustedMetadata(reason, owner, review)
+        if missingMetadata == "" && memorySafe {
+            return
         }
 
-        if !memorySafe {
-            sinkValue.AddForFunction("NSYS100", "memorySafety", "[trusted] wrappers must declare [memory(safe)] for Systems N# v1", function.Line, function.Column, length, filePath, functionName, isHot, isBoundary, ErrorSeverity.Error, "Add [memory(safe)] after documenting the unsafe proof.")
+        length := Math.Max(1, function.Name.Length)
+        sinkValue.AddForFunction("NSYS100", "memorySafety", TrustedProofMessage(missingMetadata, memorySafe), function.Line, function.Column, length, filePath, functionName, isHot, isBoundary, ErrorSeverity.Error, TrustedProofSuggestion(missingMetadata, memorySafe))
+    }
+
+    // Which of the three audit fields the wrapper did not write, in the order the attribute takes
+    // them, joined the way a sentence joins them. Empty means the metadata is complete.
+    static func MissingTrustedMetadata(reason: string?, owner: string?, review: string?): string {
+        missing := new List<string>()
+        if string.IsNullOrWhiteSpace(reason) {
+            missing.Add("reason")
         }
+
+        if string.IsNullOrWhiteSpace(owner) {
+            missing.Add("owner")
+        }
+
+        if string.IsNullOrWhiteSpace(review) {
+            missing.Add("review")
+        }
+
+        return JoinWithAnd(missing)
+    }
+
+    // `a`, `a and b`, `a, b, and c` — the serial comma included, because these are read as a list
+    // of things to write rather than as prose.
+    static func JoinWithAnd(values: List<string>): string {
+        if values.Count == 0 {
+            return ""
+        }
+
+        if values.Count == 1 {
+            return values[0]
+        }
+
+        if values.Count == 2 {
+            return values[0] + " and " + values[1]
+        }
+
+        text := ""
+        index := 0
+        while index < values.Count - 1 {
+            text = text + values[index] + ", "
+            index = index + 1
+        }
+
+        return text + "and " + values[values.Count - 1]
+    }
+
+    static func TrustedProofMessage(missingMetadata: string, memorySafe: bool): string {
+        if missingMetadata == "" {
+            return "[trusted] is missing [memory(safe)]"
+        }
+
+        if memorySafe {
+            return "[trusted] is missing the " + missingMetadata + " metadata"
+        }
+
+        return "[trusted] is missing the " + missingMetadata + " metadata and [memory(safe)]"
+    }
+
+    static func TrustedProofSuggestion(missingMetadata: string, memorySafe: bool): string {
+        if missingMetadata == "" {
+            return "Add [memory(safe)] after documenting the unsafe proof."
+        }
+
+        if memorySafe {
+            return "Write [trusted(reason: \"...\", owner: \"...\", review: \"...\")] on the wrapper."
+        }
+
+        return "Write [trusted(reason: \"...\", owner: \"...\", review: \"...\")] and [memory(safe)] on the wrapper, after documenting the unsafe proof."
     }
 
     // THE SAME SENTENCE FROM THE OTHER SIDE. `ValidateTrustedFunction` tells a wrapper it has not

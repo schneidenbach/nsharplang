@@ -752,3 +752,45 @@ class CrfEmpty {
     constructor() {
     }
 }
+
+test "eleven overloads of one name are one row that says eleven" {
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(string), CrfInstanceFlags())
+
+    // ONE ROW PER NAME. The eleven `Split` declarations, the ten `IndexOf`s and the nine
+    // `LastIndexOf`s used to be eleven, ten and nine rows wearing the same label.
+    split := CrfFind(items, "Split")
+    assert split != null
+    assert split.Kind == "method"
+    assert split.Overloads > 1
+
+    // THE COUNT IS COUNTED HERE BECAUSE NOWHERE ELSE CAN. A reflected row carries no parameter
+    // list, so a collapse downstream could only ever see identical rows and say "one".
+    indexOf := CrfFind(items, "IndexOf")
+    assert indexOf != null
+    assert indexOf.Overloads > 1
+
+    // A member with a single declaration says so, and a property is never an overload set.
+    length := CrfFind(items, "Length")
+    assert length != null
+    assert length.Kind == "property"
+    assert length.Overloads == 1
+
+    // And the list itself no longer repeats a name.
+    assert CrfDuplicateName(items) == ""
+}
+
+func CrfDuplicateName(items: List<CompletionItem>): string {
+    seen := new HashSet<string>()
+    index := 0
+    while index < items.Count {
+        name := items[index].Name
+        if seen.Contains(name) {
+            return name
+        }
+
+        seen.Add(name)
+        index = index + 1
+    }
+
+    return ""
+}
