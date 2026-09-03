@@ -49,6 +49,7 @@ class ProjectSnapshot {
     performanceFactsValue: PerformanceFactStore?
     systemsReportValue: SystemsReport
     indexValue: ProjectIndex?
+    documentationValue: DocQuery?
 
     ProjectRoot: string => projectRootValue
     CompilationUnits: IReadOnlyDictionary<string, CompilationUnit> => compilationUnitsValue
@@ -76,6 +77,35 @@ class ProjectSnapshot {
         sourceTextsValue = sourceTexts
         performanceFactsValue = performanceFacts
         systemsReportValue = systemsReport ?? ProjectSnapshotDefaults.EmptySystemsReport()
+        documentationValue = null
+    }
+
+    // THE ONE MEMO ON AN OTHERWISE FROZEN OBJECT, AND IT IS A MEMO RATHER THAN A TENTH READING.
+    //
+    // The nine values above are readings of one compilation. This is not: the .NET reference packs'
+    // XML documentation is a property of the INSTALLED TOOLCHAIN and says nothing about the project.
+    // It lives here for one reason — it is the only object both long-lived surfaces already hold,
+    // the language server's `DocumentManager` and the daemon's cache, and the index costs ~0.9 s and
+    // ~195 MB to build. Paid once per project it is invisible; paid per hover it would make hovering
+    // a BCL member three times slower than hovering a local, which is not a product.
+    //
+    // IT IS BUILT ON THE FIRST HOVER THAT NEEDS IT AND NEVER BEFORE. A session that never hovers a
+    // metadata member never pays either cost, which is why this is lazy rather than warmed at
+    // startup: the memory is real and most editing sessions do not want it.
+    //
+    // A RACE BUILDS TWO INDEXES AND LOSES ONE, WHICH IS WASTE AND NOT A BUG. Two concurrent hovers
+    // can both find the field null; each then reads its own instance and one assignment wins. There
+    // is no shared mutable state to tear, because a `DocQuery` is only ever written by its owner
+    // before the owner returns it.
+    func Documentation(): DocQuery {
+        existing := documentationValue
+        if existing != null {
+            return existing
+        }
+
+        created := new DocQuery()
+        documentationValue = created
+        return created
     }
 
     // The null-conditional `Index?.Bindings` the C# wrote, spelled as a call because a getter is an

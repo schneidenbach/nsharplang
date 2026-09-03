@@ -233,6 +233,27 @@ class DocQueryTypeIndex {
         return computed
     }
 
+    // THE SAME DIRECTORIES WHEN THERE IS NO INDEXED ASSEMBLY TO DERIVE THEM FROM.
+    //
+    // `nlc query doc` resolves a NAME, so by the time it wants documentation it has indexed
+    // assemblies and `GetReferencePackDirectories` reads their locations. A HOVER already has the
+    // member and indexes nothing, so it seeds the walk with one path instead. That path is used for
+    // exactly one thing — `FindDotNetRootCandidate` climbs it looking for a directory that holds
+    // both `packs` and `shared` — and never to look for XML beside it, which matters because the
+    // path a hover has IS the shared framework and the shared framework ships no `.xml` at all.
+    //
+    // A SEED AFTER THE DIRECTORIES ARE COMPUTED IS A NO-OP, not a recomputation: the cache is the
+    // whole point of the field and a second opinion about the dotnet root would be a worse one.
+    func SeedReferencePackDirectories(anyAssemblyLocation: string?) {
+        if referencePackDirectories != null {
+            return
+        }
+
+        locations := new string[](1)
+        locations[0] = anyAssemblyLocation ?? ""
+        referencePackDirectories = DocQueryKernels.GetReferencePackDirectories(locations, Environment.GetEnvironmentVariable("DOTNET_ROOT"))
+    }
+
     // WHICH ASSEMBLIES THE REFERENCE PACKS OFFER, by name, deduped ordinal-ignore-case in first-seen
     // order — the same file appears under several packs and the first pack found wins.
     func DiscoverReferencePackAssemblyNames(): string[] {

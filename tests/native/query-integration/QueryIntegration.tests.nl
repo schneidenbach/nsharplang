@@ -1910,6 +1910,92 @@ test "IDE D2: a project-declared member still hovers to its declaration and carr
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
 
+// ─── CHIP B: A METADATA MEMBER'S HOVER CARRIES ITS XML DOCUMENTATION ─────────────────────────
+// The May 2026 headless report showed a BCL hover with the API summary under the signature; the
+// shipped one declined it. The text is the .NET reference packs' XML — the same source
+// `nlc query doc` reads — and it reaches hover through the `documentation` key the envelope has
+// always had, so nothing about the schema moves.
+//
+// THE ASSERTIONS ARE SHAPE, NOT THE PACK'S EXACT PROSE. A doc sentence belongs to the installed
+// reference pack and a machine on a different patch level would fail a byte pin for no product
+// reason. What is pinned is what the FEATURE promises: a non-empty sentence, from the right member,
+// cut to ONE sentence.
+func D2HoverDocumentation(snapshot: object, needle: string, member: string): string {
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, needle)
+    col := FindColumnInFile(programPath, line, member)
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, col)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing for '" + member + "'.")
+    }
+
+    return QueryText(hover, "Documentation")
+}
+
+// ONE SENTENCE MEANS NO SENTENCE-ENDING PERIOD BEFORE THE LAST CHARACTER. A period inside `List<T>`
+// or `System.Console` is not one, which is exactly the distinction the kernel draws.
+func IsSingleDocSentence(text: string): bool {
+    if text.Length == 0 {
+        return false
+    }
+
+    index := 0
+    while index < text.Length - 1 {
+        if text[index] == '.' && text[index + 1] == ' ' {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
+test "chip B: a metadata member hovers with the reference packs' summary sentence under its signature" {
+    snapshot := D2HoverProject()
+
+    // An instance METHOD. The doc id carries its parameter list, so a wrong id answers nothing at
+    // all rather than the wrong text — which is why a non-empty answer is itself evidence.
+    addDays := D2HoverDocumentation(snapshot, "later := DateTime.Now.AddDays", "AddDays")
+    assert addDays.StartsWith("Returns a new DateTime", StringComparison.Ordinal)
+    assert IsSingleDocSentence(addDays)
+
+    // A PROPERTY on a type whose members the shared framework declares in `System.Private.CoreLib`
+    // and the reference packs document in `System.Runtime.xml`. It answers only because the lookup
+    // is keyed on the DOC ID rather than on the declaring assembly's own file.
+    length := D2HoverDocumentation(snapshot, "total := names.Length", "Length")
+    assert length.Contains("number of elements", StringComparison.Ordinal)
+    assert IsSingleDocSentence(length)
+
+    // A method on a CONSTRUCTED GENERIC, read off `List<>`: the doc id has to carry the arity
+    // marker `List`1` or the packs have nothing to answer with.
+    toArray := D2HoverDocumentation(snapshot, "all := readings.ToArray", "ToArray")
+    assert toArray.Contains("new array", StringComparison.Ordinal)
+    assert IsSingleDocSentence(toArray)
+
+    // A STATIC PROPERTY, proving the second and third lookups come from the SAME memoized index:
+    // three different members of three different declaring types all answer within one snapshot.
+    now := D2HoverDocumentation(snapshot, "stamp := DateTime.Now", "Now")
+    assert now.Contains("current date and time", StringComparison.Ordinal)
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "chip B: a project-declared member's documentation is unchanged, and a member with no docs still hovers" {
+    snapshot := D2HoverProject()
+
+    // THE NON-REGRESSION. A source symbol's `Documentation` is its DOC COMMENT and is not touched:
+    // this record's field has none, and the empty answer is the same one it gave before the chip.
+    assert D2HoverDocumentation(snapshot, "label := reading.Label", "Label") == ""
+
+    // AND THE SIGNATURE IS STILL THERE. A documentation lookup that finds nothing must subtract
+    // nothing — the feature can only ever add a line.
+    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "field Label: string|field|"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
 // ─── CHIP A: `query type` AT A METADATA METHOD RENDERS THE SIGNATURE, NOT THE PLACEHOLDER ────
 // ONE OWNER, TWO COMMANDS, AND THE IDENTITY IS THE CONTRACT. A hover's whole line is
 // `kind + " " + name + ": " + signature`; `query type` carries those same three facts as separate
