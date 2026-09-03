@@ -1191,7 +1191,7 @@ Structural knowledge the code does not state. Process lessons are in §2; per-sl
   interface target over a class carrying both an int arm and a mutual-cycle implicit conversion
   stack-overflows IDENTICALLY in both trees; the guard bounds `HasImplicitConversion` but nothing bounds
   the root's re-entry through the conversion's return type. Unreachable from the corpus and the suite.
-- `_referenceLoadFailures` is WRITE-DEAD, so half the NL923 pairing rule's input never arrives; the owner
+- `_referenceLoadFailures` is WRITE-DEAD, so half the NL923 pairing rule's input never arrives; the owner CORRECTED 2026-09-02 (022/3b Phase 1): NOT write-dead since `18f23579a` — `RecordReferenceLoadFailure` has six reachable call sites and `AnalyzerReferenceLoadReport` holds the same dictionary by reference and reads it in `Report`; the NL923 pairing rule works today; nothing to close.
   holds the table BY REFERENCE, so the rule starts working the moment the loading surface starts writing.
 - The MLC quarantine is TOTAL: zero references to the diagnostic sink, the span reader, `_errors`, any
   `Report`/`Warn`, the semantic model, the binding map, any driver, any dispatch, the scope stack, and zero

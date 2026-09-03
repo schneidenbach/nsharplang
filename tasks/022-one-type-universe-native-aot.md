@@ -144,8 +144,10 @@ decisions the previous audit could not move because they carry no literal: non-N
 load before NuGet ones, a test dependency contributes its package NAME where a normal one contributes
 a PATH, and `LoadReferencedAssembly`'s four-stage probe sequence.
 
-While here, close the recorded write-dead `_referenceLoadFailures`: the owner already holds the table
-by reference, so the NL923 pairing rule starts working the moment the loading surface writes to it.
+(The "write-dead `_referenceLoadFailures`" the audit recorded is stale since `18f23579a`: the loading surface
+writes it at six sites and `AnalyzerReferenceLoadReport` reads it — measured by 3b's decode on 2026-09-02; there is
+nothing to close here.) The differentials are re-measured at the tip — 45 projects with non-test sources and 18
+examples, row for row, base CLI vs slice CLI — not the 58/8 figures of the July tree.
 
 Terminal condition: `MetadataLoadContext` matches zero code lines in `src/**/*.cs`; the 58-project and
 8-project differentials are IDENTICAL; the two `[Fact]`s in
