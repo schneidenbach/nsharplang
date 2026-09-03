@@ -1112,26 +1112,80 @@ class AnalyzerTypeDeclarations {
             return
         }
 
+        declaredBase := DeclaredBaseTypeFor(state)
         for member in members {
             function := member as FunctionDeclaration
-            if function == null {
+            if function != null {
+                if HasOverrideModifier(function.Modifiers) {
+                    verdict := ClassifyOverrideTarget(declaredBase, function.Name, 0)
+                    if verdict == 2 {
+                        ReportOverrideTargetFault(function, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base member 'virtual', or drop 'override' from this declaration.")
+                    }
+
+                    if verdict == 3 {
+                        ReportOverrideTargetFault(function, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new member.")
+                    }
+                }
+
                 continue
             }
 
-            if !HasOverrideModifier(function.Modifiers) {
+            property := member as PropertyDeclaration
+            if property != null {
+                if HasOverrideModifier(property.Modifiers) {
+                    propertyVerdict := ClassifyOverridePropertyTarget(declaredBase, property.Name, 0)
+                    if propertyVerdict == 2 {
+                        ReportOverridePropertyTargetFault(property, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base property 'virtual', or drop 'override' from this declaration.")
+                    }
+
+                    if propertyVerdict == 3 {
+                        ReportOverridePropertyTargetFault(property, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new property.")
+                    }
+                }
+
                 continue
             }
 
-            verdict := ClassifyOverrideTarget(DeclaredBaseTypeFor(state), function.Name, 0)
-            if verdict == 2 {
-                ReportOverrideTargetFault(function, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base member 'virtual', or drop 'override' from this declaration.")
-                continue
-            }
-
-            if verdict == 3 {
-                ReportOverrideTargetFault(function, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new member.")
+            field := member as FieldDeclaration
+            if field != null {
+                ValidateFieldInheritanceModifiers(field)
             }
         }
+    }
+
+    // A FIELD CANNOT TAKE PART IN INHERITANCE AT ALL, AND N# LETS ONE BE WRITTEN AS IF IT COULD.
+    //
+    // MEASURED, because the answer decides the rule: the parser chooses field or property from what
+    // FOLLOWS the type and never from the modifiers, so `virtual Label: string`, `abstract Label:
+    // string` and `override Label: string` all build a `FieldDeclaration`, while `Label: string => …`
+    // and `Label: string { get … }` build a `PropertyDeclaration`. The emitted metadata agrees: a bare
+    // `Auto: string` is a CLR FIELD and only the accessor forms are properties. A CLR field is never
+    // virtual, never abstract and can never be overridden, so all three words are meaningless there —
+    // and they were accepted in silence, which reads as a promise the runtime does not keep.
+    //
+    // The report is `NL311` for the same reason the override family is: the fault is the MODIFIER, not
+    // the name. The suggestion names the two ways out, because both are real: give the member an
+    // accessor and it becomes a property that CAN carry the word, or drop the word.
+    func ValidateFieldInheritanceModifiers(field: FieldDeclaration) {
+        modifierBits := Convert.ToInt32(field.Modifiers)
+        if (modifierBits & Convert.ToInt32(Modifiers.Override)) != 0 {
+            ReportFieldInheritanceModifierFault(field, "override")
+            return
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Abstract)) != 0 {
+            ReportFieldInheritanceModifierFault(field, "abstract")
+            return
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Virtual)) != 0 {
+            ReportFieldInheritanceModifierFault(field, "virtual")
+        }
+    }
+
+    func ReportFieldInheritanceModifierFault(field: FieldDeclaration, modifierName: string) {
+        span := spansValue.GetFieldNameDiagnosticSpan(field)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + field.Name + "' is declared '" + modifierName + "', but a field cannot be virtual, abstract or overridden", span.Line, span.Column, "Give it an accessor — '" + field.Name + ": <type> => <expression>' or a 'get'/'set' block — so it becomes a property, or drop '" + modifierName + "'.", span.Length)
     }
 
     // THE SQUIGGLE GOES ON THE MEMBER NAME, not on the `override` keyword and not on `func`. The name
@@ -1140,6 +1194,13 @@ class AnalyzerTypeDeclarations {
     func ReportOverrideTargetFault(function: FunctionDeclaration, reason: string, suggestion: string) {
         span := spansValue.GetFunctionNameDiagnosticSpan(function)
         diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + function.Name + "' is declared 'override', but it " + reason, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // The property sibling, on the same span rule and carrying the same two sentences — the fault a
+    // developer made is the same one whether the member is spelled with `func` or with an accessor.
+    func ReportOverridePropertyTargetFault(property: PropertyDeclaration, reason: string, suggestion: string) {
+        span := spansValue.GetPropertyNameDiagnosticSpan(property)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + property.Name + "' is declared 'override', but it " + reason, span.Line, span.Column, suggestion, span.Length)
     }
 
     // THE BASE THIS DECLARATION WRITES, or `null` for every form that writes none. A class with no
@@ -1271,6 +1332,127 @@ class AnalyzerTypeDeclarations {
     // `override func GetType()` is a real fault rather than a tolerated one.
     static func ClassifyObjectOverrideTarget(name: string): int {
         return ClassifyReflectionOverrideTarget(typeof(object), name)
+    }
+
+    // ---- the property half of the same question -------------------------------------------------
+    //
+    // A PROPERTY OVERRIDE ASKS THE SAME QUESTION ABOUT A DIFFERENT SLOT, AND IT COULD NOT BORROW THE
+    // FUNCTION WALK FOR EITHER ANSWER. On the source side `ClassifyDeclaredOverrideTarget` matches
+    // `DeclaredMemberKind.Function` and its own comment refuses a property deliberately — a method slot
+    // is not a property slot. On the metadata side the refusal is subtler and would have been silent:
+    // `ClassifyReflectionOverrideTarget` walks `GetMethods` and skips every `IsSpecialName`, which is
+    // EXACTLY what a property accessor is, so a property override against a CLR base would have
+    // searched a surface that structurally cannot contain it and answered "no base member" for every
+    // correct program. Hence a separate pair, built to the same shape and the same verdict codes:
+    // 0 cannot tell · 1 an overridable base property · 2 one that is sealed shut · 3 none of that name.
+    //
+    // The conservatism is inherited unchanged: an unresolved base, an unopenable shape and a depth
+    // blow-out all answer "cannot tell", because a false `override` error on a correct program is worse
+    // than the missing one it replaces.
+    func ClassifyOverridePropertyTarget(candidate: TypeInfo?, name: string, depth: int): int {
+        if depth > 24 {
+            return 0
+        }
+
+        if candidate == null {
+            return ClassifyObjectOverridePropertyTarget(name)
+        }
+
+        if BuiltInTypes.IsUnknown(candidate) {
+            return 0
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            return ClassifyReflectionOverridePropertyTarget(reflectionType.Type, name)
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return 0
+        }
+
+        declaredVerdict := ClassifyDeclaredOverridePropertyTarget(shape.DeclaredMembers, name)
+        if declaredVerdict != 0 {
+            return declaredVerdict
+        }
+
+        if shape.BaseType == null && WritesUnresolvedBase(candidate) {
+            return 0
+        }
+
+        return ClassifyOverridePropertyTarget(shape.BaseType, name, depth + 1)
+    }
+
+    // A SOURCE SHAPE'S OWN PROPERTY MEMBERS. Only properties answer, for the mirror of the reason only
+    // functions answer above: a base FIELD of the same name is not a property slot either, and a bare
+    // `Name: Type` member is a field in this model and in the emitted metadata both.
+    static func ClassifyDeclaredOverridePropertyTarget(declaredMembers: DeclaredMemberInfo[], name: string): int {
+        index := 0
+        while index < declaredMembers.Length {
+            declared := declaredMembers[index]
+            if declared.Kind == DeclaredMemberKind.Property && declared.Name == name {
+                if declared.IsOverridable {
+                    return 1
+                }
+
+                return 2
+            }
+
+            index = index + 1
+        }
+
+        return 0
+    }
+
+    // METADATA'S ANSWER FOR A PROPERTY. `GetProperties` walks the CLR chain the way `GetMethods` does,
+    // and virtual-ness lives on the ACCESSORS rather than on the property: a property is overridable
+    // exactly when one of its accessors is virtual and not final. `GetGetMethod(true)`/`GetSetMethod(true)`
+    // take the non-public ones, because `protected virtual` is the shape most worth catching — the same
+    // reason `NonPublic` is in the method walk's flags.
+    static func ClassifyReflectionOverridePropertyTarget(clrType: Type, name: string): int {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        properties := clrType.GetProperties(flags)
+        found := false
+        index := 0
+        while index < properties.Length {
+            property := properties[index]
+            if property.get_Name() == name {
+                found = true
+                if IsOverridablePropertyAccessor(property.GetGetMethod(true)) {
+                    return 1
+                }
+
+                if IsOverridablePropertyAccessor(property.GetSetMethod(true)) {
+                    return 1
+                }
+            }
+
+            index = index + 1
+        }
+
+        if found {
+            return 2
+        }
+
+        return 3
+    }
+
+    // An accessor opens the slot when it is virtual and NOT final — a sealed override is closed, which
+    // is the same test the method walk makes and the reason `sealed override` cannot be overridden again.
+    static func IsOverridablePropertyAccessor(accessor: MethodInfo?): bool {
+        if accessor == null {
+            return false
+        }
+
+        return accessor.get_IsVirtual() && !accessor.get_IsFinal()
+    }
+
+    // THE IMPLICIT ROOT, FOR PROPERTIES. `object` declares no properties at all, so a source chain that
+    // names no further base has nothing a property can override — the answer is always 3, and it is
+    // asked through the same reflection walk rather than hard-coded so the two stay in step.
+    static func ClassifyObjectOverridePropertyTarget(name: string): int {
+        return ClassifyReflectionOverridePropertyTarget(typeof(object), name)
     }
 
     static func HasOverrideModifier(modifiers: Modifiers): bool {

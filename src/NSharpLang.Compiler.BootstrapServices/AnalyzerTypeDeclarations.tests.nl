@@ -1209,6 +1209,50 @@ func TypeDeclMemberInfo(name: string, modifierBits: int): DeclaredMemberInfo {
     )
 }
 
+// The property sibling of `TypeDeclMemberInfo`. A separate builder rather than a widened one, because
+// the existing five call sites spell the two-argument form and an N# caller cannot omit a defaulted
+// parameter of a free function.
+func TypeDeclPropertyMemberInfo(name: string, modifierBits: int): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(
+        name,
+        "Owner",
+        DeclaredMemberKind.Property,
+        "property",
+        null,
+        false,
+        false,
+        true,
+        true,
+        0,
+        new string[](0),
+        new TypeReference[](0),
+        new ParameterModifier[](0),
+        0,
+        false,
+        false,
+        null,
+        0,
+        new TypeParameter[](0),
+        new GenericConstraint[](0),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1,
+        modifierBits
+    )
+}
+
+func TypeDeclProperty(name: string, modifiers: Modifiers): PropertyDeclaration {
+    body: Expression = new StringLiteralExpression("\"v\"", 8, 20, false)
+    return new PropertyDeclaration(name, TypeDeclInt(), null, null, body, modifiers, PropertyModifier.None, TypeDeclNoAttributes(), 8, 5)
+}
+
 func TypeDeclMemberInfos(first: DeclaredMemberInfo): DeclaredMemberInfo[] {
     members := new DeclaredMemberInfo[](1)
     members[0] = first
@@ -1313,6 +1357,133 @@ test "AN `override` WITH NO SLOT TO TAKE IS `NL311`, AND THE REPORT NAMES WHICH 
     assert sealedHarness.Errors.Count == 1
     assert sealedHarness.Errors[0].Code == ErrorCode.InvalidModifier
     assert sealedHarness.Errors[0].Message == "'GetType' is declared 'override', but it is not marked 'virtual', 'abstract' or 'override'"
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE PROPERTY HALF OF THE SAME RULE, AND THE FIELD THAT CAN NEVER TAKE PART IN INHERITANCE
+//
+// `ValidateOverrideTargets` walked `FunctionDeclaration` and `continue`d past everything else, so an
+// `override` PROPERTY was accepted with no check at all — and unlike the method hole, two of its
+// shapes COMPILED AND RAN: `class MyError : Exception { override NotThere: int => 5 }` emitted and
+// printed 5, overriding nothing. The property walk could not borrow either half of the method walk:
+// the source classifier matches `DeclaredMemberKind.Function` on purpose, and the reflection
+// classifier walks `GetMethods` while SKIPPING every `IsSpecialName`, which is exactly what a property
+// accessor is — so borrowing it would have answered "no base member" for every correct program.
+//
+// MEASURED, and it decided the third rule below: the parser chooses field or property from what
+// FOLLOWS the type, never from the modifiers. `virtual Label: string`, `abstract Label: string` and
+// `override Label: string` all build a `FieldDeclaration`; only `=> expr` and `{ get/set }` build a
+// `PropertyDeclaration`. The emitted metadata agrees — a bare `Auto: string` comes out a CLR FIELD and
+// only the accessor forms come out properties — and a CLR field can never be virtual, abstract or
+// overridden. So those three words on a bare member are meaningless and are now reported.
+// ---------------------------------------------------------------------------------------------
+
+test "a source shape's PROPERTY members answer the property question, and its functions do not" {
+    virtualProperty := TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclVirtualBits()))
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(virtualProperty, "Label") == 1
+
+    plainProperty := TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", 0))
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(plainProperty, "Label") == 2
+
+    sealedProperty := TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclSealedOverrideBits()))
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(sealedProperty, "Label") == 2
+
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(virtualProperty, "Other") == 0
+
+    // A base FUNCTION of the same name is not a property slot, and the two classifiers stay disjoint
+    // in both directions — this is the assertion that would fail if either borrowed the other.
+    virtualFunction := TypeDeclMemberInfos(TypeDeclMemberInfo("Label", TypeDeclVirtualBits()))
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverridePropertyTarget(virtualFunction, "Label") == 0
+    assert AnalyzerTypeDeclarations.ClassifyDeclaredOverrideTarget(virtualProperty, "Label") == 0
+}
+
+test "METADATA answers through GetProperties and the ACCESSORS, which GetMethods structurally cannot" {
+    // `Exception.Message` is `public override string Message { get; }` — virtual and not final.
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverridePropertyTarget(typeof(Exception), "Message") == 1
+    // `Exception.HResult` is a plain non-virtual property: present, but sealed shut.
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverridePropertyTarget(typeof(Exception), "HResult") == 2
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverridePropertyTarget(typeof(Exception), "NotThere") == 3
+
+    // NON-VACUITY, and the whole reason this function exists: the METHOD walk cannot see `Message` at
+    // all, because a property accessor is `IsSpecialName` and it skips those.
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverrideTarget(typeof(Exception), "Message") == 3
+
+    // `object` declares no properties, so the implicit root can never supply a property slot.
+    assert AnalyzerTypeDeclarations.ClassifyObjectOverridePropertyTarget("Message") == 3
+    assert AnalyzerTypeDeclarations.ClassifyObjectOverridePropertyTarget("ToString") == 3
+
+    assert !AnalyzerTypeDeclarations.IsOverridablePropertyAccessor(null)
+}
+
+test "the property walk climbs the base chain and refuses to guess on the same three shapes" {
+    harness := TypeDeclDefault()
+    virtualBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclVirtualBits())))
+    assert harness.Declarations.ClassifyOverridePropertyTarget(virtualBase, "Label", 0) == 1
+
+    plainBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", 0)))
+    assert harness.Declarations.ClassifyOverridePropertyTarget(plainBase, "Label", 0) == 2
+    assert harness.Declarations.ClassifyOverridePropertyTarget(plainBase, "Other", 0) == 3
+
+    // SILENCE IS THE DEFAULT here too: an unresolvable base and a depth past the cycle brake both
+    // answer "cannot tell", and a null candidate walks to the implicit root rather than giving up.
+    assert harness.Declarations.ClassifyOverridePropertyTarget(BuiltInTypes.Unknown, "Label", 0) == 0
+    assert harness.Declarations.ClassifyOverridePropertyTarget(plainBase, "Label", 25) == 0
+    assert harness.Declarations.ClassifyOverridePropertyTarget(null, "Label", 0) == 3
+}
+
+test "AN `override` PROPERTY WITH NO SLOT TO TAKE IS `NL311`, WITH THE METHOD RULE'S TWO SENTENCES" {
+    missingHarness := TypeDeclDefault()
+    missingMembers := new List<Declaration>()
+    missingMembers.Add(TypeDeclProperty("Label", Modifiers.Override))
+    TypeDeclRun(missingHarness, missingHarness.Declarations.BeginClass(TypeDeclClass("Dog", missingMembers, null, null, Modifiers.None), missingHarness.Assignability), null)
+
+    assert missingHarness.Errors.Count == 1
+    assert missingHarness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert missingHarness.Errors[0].Message == "'Label' is declared 'override', but it has no base member of that name"
+    assert missingHarness.Errors[0].Length == 5
+
+    // A property WITHOUT the modifier is never asked, and neither is a plain field beside it.
+    silentHarness := TypeDeclDefault()
+    silentMembers := new List<Declaration>()
+    silentMembers.Add(TypeDeclProperty("Label", Modifiers.None))
+    silentMembers.Add(TypeDeclField("Count", TypeDeclInt(), null, Modifiers.None))
+    TypeDeclRun(silentHarness, silentHarness.Declarations.BeginClass(TypeDeclClass("Dog", silentMembers, null, null, Modifiers.None), silentHarness.Assignability), null)
+    assert silentHarness.Errors.Count == 0
+}
+
+test "A FIELD DECLARED `override`, `virtual` OR `abstract` IS `NL311` — it can be none of them" {
+    overrideHarness := TypeDeclDefault()
+    overrideMembers := new List<Declaration>()
+    overrideMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Override))
+    TypeDeclRun(overrideHarness, overrideHarness.Declarations.BeginClass(TypeDeclClass("Dog", overrideMembers, null, null, Modifiers.None), overrideHarness.Assignability), null)
+    assert overrideHarness.Errors.Count == 1
+    assert overrideHarness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert overrideHarness.Errors[0].Message == "'Label' is declared 'override', but a field cannot be virtual, abstract or overridden"
+
+    virtualHarness := TypeDeclDefault()
+    virtualMembers := new List<Declaration>()
+    virtualMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Virtual))
+    TypeDeclRun(virtualHarness, virtualHarness.Declarations.BeginClass(TypeDeclClass("Dog", virtualMembers, null, null, Modifiers.None), virtualHarness.Assignability), null)
+    assert virtualHarness.Errors.Count == 1
+    assert virtualHarness.Errors[0].Message == "'Label' is declared 'virtual', but a field cannot be virtual, abstract or overridden"
+
+    abstractHarness := TypeDeclDefault()
+    abstractMembers := new List<Declaration>()
+    abstractMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Abstract))
+    TypeDeclRun(abstractHarness, abstractHarness.Declarations.BeginClass(TypeDeclClass("Dog", abstractMembers, null, null, Modifiers.None), abstractHarness.Assignability), null)
+    assert abstractHarness.Errors.Count == 1
+    assert abstractHarness.Errors[0].Message == "'Label' is declared 'abstract', but a field cannot be virtual, abstract or overridden"
+
+    // THE MODIFIERS A FIELD LEGITIMATELY CARRIES ARE UNTOUCHED. This is the row that keeps the rule
+    // from failing live files: `static`, `readonly` and `required` fields are the estate's own shapes.
+    plainHarness := TypeDeclDefault()
+    plainMembers := new List<Declaration>()
+    plainMembers.Add(TypeDeclField("Shared", TypeDeclInt(), TypeDeclIntLiteral(), Modifiers.Static))
+    plainMembers.Add(TypeDeclField("Fixed", TypeDeclInt(), TypeDeclIntLiteral(), Modifiers.Readonly))
+    plainMembers.Add(TypeDeclField("Needed", TypeDeclInt(), null, Modifiers.Required))
+    plainMembers.Add(TypeDeclField("Plain", TypeDeclInt(), null, Modifiers.None))
+    TypeDeclRun(plainHarness, plainHarness.Declarations.BeginClass(TypeDeclClass("Dog", plainMembers, null, null, Modifiers.None), plainHarness.Assignability), null)
+    assert plainHarness.Errors.Count == 0
 }
 
 test "THE RULE STAYS SILENT FOR EVERY CORRECT SPELLING IT CAN SEE" {

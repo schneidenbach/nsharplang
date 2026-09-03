@@ -577,6 +577,26 @@ class AnalyzerDiagnosticSpans {
         return new DiagnosticSpan(function.Line, GetDeclarationNameColumn(function.Name, function.Line, function.Column), Math.Max(1, function.Name.Length))
     }
 
+    // A PROPERTY and a FIELD report on their NAME too, on the same fallback rule: a member whose name
+    // the parser could not read is measured as whatever token sits at its position, so a malformed
+    // declaration still gets a squiggle rather than a bare caret. Two members rather than one generic
+    // one because `PropertyDeclaration` and `FieldDeclaration` share no base that carries `Name`.
+    func GetPropertyNameDiagnosticSpan(property: PropertyDeclaration): DiagnosticSpan {
+        if string.IsNullOrWhiteSpace(property.Name) || property.Name == "<error>" {
+            return new DiagnosticSpan(property.Line, property.Column, GetTokenLength(property.Line, property.Column))
+        }
+
+        return new DiagnosticSpan(property.Line, GetDeclarationNameColumn(property.Name, property.Line, property.Column), Math.Max(1, property.Name.Length))
+    }
+
+    func GetFieldNameDiagnosticSpan(field: FieldDeclaration): DiagnosticSpan {
+        if string.IsNullOrWhiteSpace(field.Name) || field.Name == "<error>" {
+            return new DiagnosticSpan(field.Line, field.Column, GetTokenLength(field.Line, field.Column))
+        }
+
+        return new DiagnosticSpan(field.Line, GetDeclarationNameColumn(field.Name, field.Line, field.Column), Math.Max(1, field.Name.Length))
+    }
+
     // An ASSIGNMENT TARGET reports on the name being written to. Unlike the general expression span
     // this never widens to a stable PATH — an assignment diagnostic is about the member being
     // assigned, not about the receiver chain that reaches it.
