@@ -5,9 +5,11 @@
 Work in `/Users/spencer/repos/nsharplang` on the current `systems-language` branch.
 
 This task removes the compiler's dependence on loading assemblies into its own process, and on
-generating code to run in it. It is not a `MetadataReader` port and not a `MetadataBuilder` port.
-Both were named as prerequisites by earlier records and both were measured unnecessary — see
-`systems-language-closeout/decodes/2026-09-01-aot-type-model-decode.md` §0, §4, §6. Do not use this task to start either.
+generating code to run in it. It is not a `MetadataReader` port. It was also filed as "not a
+`MetadataBuilder` port" on the 2026-09-01 measurement that `PersistedAssemblyBuilder` suffices; slice 2's
+2h measurement withdrew that for one operation — closing an external generic over a builder-defined type
+(`systems-language-closeout/decodes/2026-09-02-universe-a-viability-decode.md`) — so the writer is now
+**task 023**, and this task's emit-side universe work (2f, 2g, slice 5) waits on it. Do not start the writer here.
 
 - Add no C# source, tests, helpers, bridges, callbacks, whitelists, or fallback logic.
 - Do not keep a runtime-loader path as a fallback beside the metadata path. A slice that routes
@@ -92,10 +94,22 @@ metadata context nothing. Retire
 `TryLoadExactRuntimeAssembly` unless slice 1 produced a red cell that requires them. Convert
 `ColumnarExternalStaticMemberPlanner.nl:201`'s `field.GetValue(null)` to `GetRawConstantValue()`.
 
-Terminal condition: `Assembly.Load`, `Assembly.LoadFrom` and `AppDomain.GetAssemblies` sites in
-production reach zero; an A/B over the corpus produces identical outcomes with **all** normalized IL
-digests identical; the `ExternalAssemblyScan` decline census is unchanged; the estate carries a
-contract pinning the single-universe catalog invariant.
+Terminal condition, RE-AIMED 2026-09-02 after 2h: 2a–2d landed with whole-PE and method-body
+`IL_DIFFS=0` (attribute blobs byte-identical; `GetRawConstantValue`; the two silent guards keyed on
+`FullName`; `metadataPath` off `Assembly.Location`). 2e closes the slice with the loader retirements that
+survive the universe question — `ExternalAssemblyScan.nl`'s `Assembly.Load` for path discovery if 2d made
+it dead, the two `DocQueryTypeIndex.nl` `Assembly.Location` reads re-sourced from the reference-pack
+directories — and records that `EmitIlAssembly.cs`'s Cecil corelib→contract rewrite is LOAD-BEARING until
+task 023 slice 3: coring the metadata context on the reference pack was measured incompatible with the
+emitter's generic surface (`new List<Point>()` over a user type is a `TypeSpec` closed by
+`MakeGenericType(runtime List<>, PointTypeBuilder)` with `MemberRef`s parented on it — unreachable from a
+metadata-cored builder), and a reference assembly cannot be loaded for execution
+(`BadImageFormatException`). Contract-assembly references without the rewrite are task 023's. The loader
+retirements that need the emit universe to be the metadata universe — `TryResolveExactRuntimeType`,
+the ASP.NET/Newtonsoft and test-framework ladders, `ExternalAssemblyCatalogEntry.RuntimeAssembly` —
+are task 023 slice 3's; they are not reachable through `PersistedAssemblyBuilder` (2h: `MakeGenericType`
+refuses a `TypeBuilder` whatever the builder's core; every hybrid writes a second corelib `AssemblyRef`
+and does not bind).
 
 ## Slice 3a — Admit `new` on a `nuget:`-sourced type
 
@@ -146,6 +160,10 @@ Code-enabled gate green, extension reinstalled. `TypeResolver.cs` line count rec
 
 ## Slice 5 — A NativeAOT `nlc`
 
+Waits for task 023 slice 3 (the emit path binding through the writer from the metadata universe);
+until then a native `nlc` cannot emit an arbitrary BCL call (slice 1: runtime member lookups return null
+under NativeAOT for members the binary does not statically call).
+
 Close the single-file residues: the `Assembly.Location` reads (11 N# sites), the `Type.GetType` sites
 (73 sites across 24 production `.nl` files plus the C# ones — all four probed shapes pass under NativeAOT,
 so this is a rooting audit, not a rewrite), the `CustomAttributeBuilder` sites if slice 2 has not already
@@ -165,9 +183,9 @@ present-tense architecture documentation are updated.
 
 ## Out of scope
 
-- The `MetadataBuilder` second executor. `PersistedAssemblyBuilder` is already a `MetadataBuilder`
-  client and already works under NativeAOT; a second writer buys dependency independence, not AOT
-  capability, and must not gate this task.
+- The `MetadataBuilder` second executor — it is task 023. The 2026-09-01 reading ("a second writer
+  buys dependency independence, not AOT capability") is withdrawn by 2h: without it the emit path cannot
+  leave the runtime universe, and the runtime universe cannot bind arbitrary BCL members under NativeAOT.
 - `015-E`'s ownership move for `TryEmitColumnarAssembly`. It is not gated on a metadata writer and is
   not gated on this task beyond slice 2 landing first, because slice 2 changes what it resolves
   external types from.

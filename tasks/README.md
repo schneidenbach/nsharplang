@@ -43,6 +43,7 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [x] [020 — Native N# test-runner capabilities](020-native-test-runner-capabilities.md)
 - [ ] [021 — Final compiler ownership audit](021-final-compiler-ownership-audit.md)
 - [ ] [022 — One external type universe, and a NativeAOT `nlc`](022-one-type-universe-native-aot.md)
+- [ ] [023 — The ECMA-335 metadata writer: the second executor over the plan rows](023-ecma335-metadata-writer.md)
 
 The order is deliberate. If current code proves a dependency has changed, update the queue in a
 small documentation commit with concrete evidence before reordering; do not silently skip ahead.

@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `ef0a5bf65` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 6 m 34 s, pushed; this docs commit rides on top).
+**Tip:** `c9da157fc` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 6 m 33 s, pushed — task 022 slices 2a–2d + 2h and the escape/`where` chips 1a–2c; this docs commit rides on top).
 
 ### Queue state (`tasks/README.md`)
 
@@ -45,7 +45,8 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 | 019 | complete — `DocQuery.cs` deleted at `dc2c4ae20`; box checked |
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64` (12 slices); **box deliberately unchecked** — the emitter retires via 015-E on Reflection.Emit (the `MetadataBuilder` writer is shelved), the external type universe via task 022; visual IDE verification discharged 2026-09-02 (D1–D3 fixed, D4 open) |
-| 022 | filed `0d472bdd4`; slice 1 (the AOT capability floor, measurement only) in progress on `stream/022-s1-aot-floor` — §4.11 |
+| 022 | filed `0d472bdd4`; slice 1 measured (`871b6dafc`); slice 2: 2a–2d landed, 2h measured universe A unreachable through `PersistedAssemblyBuilder`, 2e (ref-pack coring) in progress; 3a/3b/4 independent; 5 waits for 023 — §4.11 |
+| 023 | filed 2026-09-02 (the ECMA-335 writer as the second executor; N#-spelled; slice 1 = the spelling-gap decode) — supersedes the Reflection.Emit route for 015-E |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02 (D1–D4 FIXED and merged; visual re-verification in progress)
 
@@ -114,8 +115,21 @@ rows); the visual re-verification of D3 at `385b7e8d1` and of D1/D2 at `26592a95
   parse while `website/docs/types.md` promises it with five examples — parse + AST + formatter, NL208 at type use sites,
   the false NL208 on `where T : IComparable<T>` (the implements test never substitutes `T`), metadata emit through an N#
   constraint-resolution kernel shared with the method path (the emitter's 90-line C# block is deleted), docs.
+- `stream/chips-linter-analyzer` — the LINTER WALK is blind inside every `unsafe`/`alloc`/`allow` body for every rule
+  (`VisitStatement` has no arm for the three body-carrying kinds and skips silently; the analyzer walks them) → the arms
+  plus a closed tail (unknown statement kinds throw); type patterns, `is` and `as` do not credit their type's import
+  (false NL010) → routed through `TrackTypeReference`, which widens NL002 there (census-accounted); `override`
+  PROPERTIES unchecked (a missing base emits and runs) → the override check extended to properties on both sides; and a
+  NEW rule: a concrete class leaving an inherited abstract member unimplemented is silent for methods and properties and
+  the type runs (the CS0534 class) — new NL code, source and reflected bases, census.
+- `stream/chips-code-intelligence` — `nlc query type` renders a metadata method as `Name(...)` from two producers → hover's
+  signature renderer at the seam (value change, no schema bump, four commands move); XML doc summaries in hover from the
+  ref pack's global doc-id index built lazily on the first metadata-member hover (the shared framework ships no XML;
+  type forwarding defeats per-assembly lookup); call-site hover shows the WRONG overload today (`Append("x")` →
+  `Append(char, int)`: the arity loop is dead in production) → one `FindCallExpressionAtPosition` entry point shared with
+  signature help, overloads narrowed by argument types with arity as the fallback.
 - IDE re-verification (peer session, `verify/ide-2026-09-02b`, holding on the user's screen-takeover consent): D3
-  completion, format-on-save and D1/D2 hover at `7af97ac86`; D4 to follow at the next pushed tip.
+  completion, format-on-save, D1/D2 hover and D4 quick-fix anchoring, all at `ef0a5bf65`.
 
 ### `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED (record; numbers in §4.1)
 
@@ -157,8 +171,16 @@ proof in the bar ran green; the numbers are in §4.1 and the coordinator commits
 6. Wave 3 (below): D4, then the chip-found defects; the 15 filed chips are closed.
 
 Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the language"):
-- File task 022, shelve the `MetadataBuilder` writer, port 015-E on Reflection.Emit; the formatter wraps
-  gofmt-style (author-preserving).
+- File task 022; the formatter wraps gofmt-style (author-preserving). The 2026-09-02 morning ruling "shelve the
+  `MetadataBuilder` writer, port 015-E on Reflection.Emit" is WITHDRAWN the same evening by 022/2h's measurement
+  (`decodes/2026-09-02-universe-a-viability-decode.md`): `PersistedAssemblyBuilder` cannot reach one type universe —
+  `MakeGenericType` refuses a `TypeBuilder` argument whatever the builder's core, `MakeGenericSignatureType` reaches
+  no member, and every hybrid writes a second corelib `AssemblyRef` and does not bind. **Decided: task 023 — the
+  ECMA-335 writer as the SECOND executor over the same plan rows, spelled from N# (slice 1 is the spelling-gap decode
+  and the language slices it names), then the one universe through it, then Reflection.Emit and `ColumnarIlEmitter.cs`
+  deleted.** Task 022 slice 2 closes at 2e (ref-pack coring, the Cecil corelib→contract rewrite deleted) plus the
+  loader retirements that survive; its slices 3a/3b/4 (the analyzer's and editor's universe) are independent and
+  proceed; slice 5 (the native `nlc`) waits for 023 slice 3.
 - **`MEASUREMENT-VERDICT-2026-09.md` §7 → option (b), as a RE-AIM, not an abandonment.** `ColumnarIlEmitter.cs`
   is declared a reviewed mechanical host: non-growing under the ratchet, its user-facing sentences pinned by
   native contracts, the door keeping everything it has claimed. The ownership END STATE stands; what changes is
@@ -174,27 +196,28 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   4. **Task 022** slice 1 onward — IN PROGRESS (`stream/022-s1-aot-floor`; §4.11).
   5. **An incremental skip in the SDK build** — DONE (`Sdk.targets` stamp-keyed `Inputs`/`Outputs` on `EmitNSharpIlAssembly`;
      no-op product build 0.93 s through the shipped SDK; the commit gate 28 m 44 s → ~15 min).
-  6. Ownership resumes by the faster route: **015-E on Reflection.Emit** (the ~2,000-line declaration host), then
-     the B-arc's remaining door kinds as coverage — B17 (the composed receiver) is parked behind items 1–5.
+  6. Ownership resumes through **task 023, the ECMA-335 metadata writer** — SUPERSEDING the 2026-09-02 "015-E on
+     Reflection.Emit" re-aim (decided below, 2026-09-02 evening) — then the B-arc's remaining door kinds as coverage;
+     B17 (the composed receiver) stays parked.
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `ef0a5bf65` (re-measure at your tip; never inherit)
+### Baselines at `c9da157fc` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 595 (596 − 2 collapsed Range duplicates + 1 new, D2) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,359** measured in the gate at `ef0a5bf65` (7,335 at `0006d0d41` + 7 format-followups + 17 D4) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,413** measured in the gate at `c9da157fc` (7,359 at `ef0a5bf65` + 19 task 022 slice 2 + 35 escape/`where` chips) |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20,784 lines / 19,768 non-blank |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:819d6f5c4ed70cb7` (the union of the widening's `ff22308bc20ee46a` and D2's `3764b579fdba8a1f`, audit-observed) |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:2d28ecf4658f7ce1` (the audit-observed union after 022/2a's and the colour policy's fingerprint-only repins) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
 | packaged SDK 0.1.0 in both feeds | packed from `385b7e8d1` (Sdk nupkg md5 `e55c25e1…`), carrying the incremental-emit stamp and the retained external-type scan; **measured through the shipped package on a loaded box: the compiler's own product build 29.6 s wall (was 133–160 s), no-op rebuild 0.93 s (was 132.8 s), tests-included build 46.0 s (was 273–307 s); estate restore+emit+test 76 s, 7,305/7,305** |
-| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **6 m 34 s** at `ef0a5bf65` (6 m 35 s at `a1440ec95` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
+| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **6 m 33 s** at `c9da157fc` (6 m 34 s at `ef0a5bf65` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
 
 ### The verification bar (every B-arc slice; the accumulated standard)
 
