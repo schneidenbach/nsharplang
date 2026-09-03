@@ -648,7 +648,7 @@ class ExternalAssemblyScan {
     }
 
     static func CommonAssemblyNames(): string[] {
-        names := new string[](27)
+        names := new string[](28)
         names[0] = "System.Runtime"
         names[1] = "System.Console"
         names[2] = "System.Collections"
@@ -681,6 +681,15 @@ class ExternalAssemblyScan {
         // types live here. (`System.Xml.ReaderWriter` above is the same kind of facade and admits
         // nothing either — recorded rather than changed, because nothing depends on it.)
         names[26] = "System.Private.Xml.Linq"
+        // 023/1b -- THE METADATA WRITER'S OWN ASSEMBLY. `System.Reflection.Metadata.dll` ships in
+        // Microsoft.NETCore.App and carries BOTH the `System.Reflection.Metadata[.Ecma335]` and the
+        // `System.Reflection.PortableExecutable` namespaces, so one entry opens the whole ECMA-335
+        // writer surface. Without it `import System.Reflection.Metadata.Ecma335` is NL704 and
+        // `import System.Reflection.Metadata` types are NL201 -- and neither can be worked around by
+        // fully qualifying, because a fully-qualified STATIC RECEIVER does not bind at all
+        // (`System.Reflection.Metadata.Ecma335.MetadataTokens.X` answers "Variable 'System' not
+        // found"), which is what makes this entry load-bearing rather than a convenience.
+        names[27] = "System.Reflection.Metadata"
         return names
     }
 }

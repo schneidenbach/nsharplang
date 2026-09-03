@@ -158,9 +158,41 @@ class ColumnarExternalBindingPlans {
         return true
     }
 
+    // 023/1b -- THE ECMA-335 WRITER'S TYPES.
+    // THIS LIST IS A CLOSED ALLOW-LIST AND IS A DEFECT OF THE SAME CLASS AS TWO OTHERS. The
+    // construction allow-list `TrySelectRuntimeConstructor` was a chain of `targetType == typeof(X)`
+    // arms until 022/3a-i replaced it with a general rule; `ColumnarTypeOfPlanner.IsSupportedType` is
+    // the same shape and still stands; and 023/1a has just deleted the enum half of
+    // `GetStaticMemberPlan` for the same reason. The rule this list is to be replaced by is "a
+    // catalog-resolvable type is supported", after 022/3a's resolution helper is shared -- NOT here.
+    // Until then the writer's types are named, because naming them is what the surrounding slices need
+    // and inventing the general rule inside a measurement slice would be the shortcut this task exists
+    // to refuse.
+    //
+    // WHAT IS AND IS NOT HERE, MEASURED. Only two kinds of name are needed: the writer's CLASSES, and
+    // the metadata HANDLE structs. Enum types are NOT here -- 023/1a made every external enum's members
+    // bind through the planner, and `TypeAttributes`, `CorFlags` and `AssemblyFlags` bind with no row on
+    // this list. Static-only owners are NOT here either: `MetadataTokens` resolves as a static call
+    // owner through the ordinary owner resolution, and `PEHeaderBuilder.CreateExecutableHeader()` binds
+    // as a CALL with only its RESULT type unsupported. `PEBuilder` earns its row as the DECLARING type
+    // of `Serialize`, the 015-B11 `get_Module` shape: a base-declared member is a separate admission
+    // from the receiving type's.
+    static func IsWriterMetadataTypeName(name: string): bool {
+        return name == "System.Reflection.Metadata.Ecma335.MetadataBuilder" || name == "System.Reflection.Metadata.Ecma335.MetadataRootBuilder" || name == "System.Reflection.Metadata.BlobBuilder" || name == "System.Reflection.PortableExecutable.PEHeaderBuilder" || name == "System.Reflection.PortableExecutable.PEBuilder" || name == "System.Reflection.PortableExecutable.ManagedPEBuilder" || IsWriterMetadataHandleName(name)
+    }
+
+    // The handle structs. They are opaque values that only ever flow as arguments and returns -- the
+    // role `System.Reflection.Emit.Label` and `OpCode` already play on this list -- so the whole family
+    // is named rather than the subset one program happens to touch: a writer that can declare a
+    // `TypeDefinitionHandle` and not a `MethodSpecificationHandle` is the per-member enum defect again,
+    // one table over.
+    static func IsWriterMetadataHandleName(name: string): bool {
+        return name == "System.Reflection.Metadata.EntityHandle" || name == "System.Reflection.Metadata.StringHandle" || name == "System.Reflection.Metadata.BlobHandle" || name == "System.Reflection.Metadata.GuidHandle" || name == "System.Reflection.Metadata.UserStringHandle" || name == "System.Reflection.Metadata.DocumentNameBlobHandle" || name == "System.Reflection.Metadata.ModuleDefinitionHandle" || name == "System.Reflection.Metadata.AssemblyDefinitionHandle" || name == "System.Reflection.Metadata.AssemblyReferenceHandle" || name == "System.Reflection.Metadata.AssemblyFileHandle" || name == "System.Reflection.Metadata.ModuleReferenceHandle" || name == "System.Reflection.Metadata.TypeReferenceHandle" || name == "System.Reflection.Metadata.TypeDefinitionHandle" || name == "System.Reflection.Metadata.TypeSpecificationHandle" || name == "System.Reflection.Metadata.ExportedTypeHandle" || name == "System.Reflection.Metadata.FieldDefinitionHandle" || name == "System.Reflection.Metadata.MethodDefinitionHandle" || name == "System.Reflection.Metadata.MethodSpecificationHandle" || name == "System.Reflection.Metadata.MethodImplementationHandle" || name == "System.Reflection.Metadata.MemberReferenceHandle" || name == "System.Reflection.Metadata.ParameterHandle" || name == "System.Reflection.Metadata.PropertyDefinitionHandle" || name == "System.Reflection.Metadata.EventDefinitionHandle" || name == "System.Reflection.Metadata.InterfaceImplementationHandle" || name == "System.Reflection.Metadata.GenericParameterHandle" || name == "System.Reflection.Metadata.GenericParameterConstraintHandle" || name == "System.Reflection.Metadata.CustomAttributeHandle" || name == "System.Reflection.Metadata.DeclarativeSecurityAttributeHandle" || name == "System.Reflection.Metadata.ConstantHandle" || name == "System.Reflection.Metadata.ManifestResourceHandle" || name == "System.Reflection.Metadata.StandaloneSignatureHandle"
+    }
+
     static func IsSupportedRuntimeTypeName(runtimeTypeName: string?): bool {
         name := runtimeTypeName ?? ""
-        return name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Reflection.Module" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name) || IsXmlLinqTypeName(name)
+        return IsWriterMetadataTypeName(name) || name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Reflection.Module" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name) || IsXmlLinqTypeName(name)
     }
 
     // THE LINQ-TO-XML SURFACE, AS SEVEN NAMES. `XContainer` is on the list although no source line
