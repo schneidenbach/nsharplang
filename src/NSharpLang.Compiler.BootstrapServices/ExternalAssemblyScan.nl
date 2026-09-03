@@ -635,36 +635,16 @@ class ExternalAssemblyScan {
         return null
     }
 
+    // DIRECT CONSTRUCTION. This reflected until 022/3a: `GetConstructor` on both types, two `object[]`
+    // argument arrays and two `ConstructorInfo.Invoke` calls, written that way because `new` on an
+    // external type only emitted for the types on a hand-written allow-list and neither of these was on
+    // it. The construction planner now selects any public constructor by argument flow, so the
+    // reflection is gone -- and with it `ConstructorInfo::Invoke`, which a `MetadataLoadContext` refuses
+    // outright (`Cannot invoke a method on objects loaded by a MetadataLoadContext.`), i.e. the one
+    // remaining call shape that could not survive the universe this task is moving the catalog to.
     static func CreateMetadataLoadContext(paths: string[]): MetadataLoadContext {
-        resolverParameterTypes := new Type[](1)
-        resolverParameterTypes[0] = typeof(IEnumerable<string>)
-        resolverConstructor := typeof(PathAssemblyResolver).GetConstructor(resolverParameterTypes)
-
-        if resolverConstructor == null {
-            throw new InvalidOperationException("PathAssemblyResolver(IEnumerable<string>) was not found.")
-        }
-
-        resolverArguments := new object[](1)
-        SetObject(resolverArguments, 0, paths)
-        resolver := (PathAssemblyResolver)resolverConstructor.Invoke(resolverArguments)
-
-        contextParameterTypes := new Type[](2)
-        contextParameterTypes[0] = typeof(MetadataAssemblyResolver)
-        contextParameterTypes[1] = typeof(string)
-        contextConstructor := typeof(MetadataLoadContext).GetConstructor(contextParameterTypes)
-
-        if contextConstructor == null {
-            throw new InvalidOperationException("MetadataLoadContext(MetadataAssemblyResolver, string) was not found.")
-        }
-
-        contextArguments := new object[](2)
-        SetObject(contextArguments, 0, resolver)
-        SetObject(contextArguments, 1, "System.Runtime")
-        return (MetadataLoadContext)contextConstructor.Invoke(contextArguments)
-    }
-
-    static func SetObject(values: object[], index: int, value: object) {
-        values[index] = value
+        resolver := new PathAssemblyResolver(paths)
+        return new MetadataLoadContext(resolver, "System.Runtime")
     }
 
     static func CommonAssemblyNames(): string[] {

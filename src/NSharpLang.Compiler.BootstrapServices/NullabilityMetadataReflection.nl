@@ -199,14 +199,7 @@ class NullabilityMetadataReflection {
     // `NullabilityInfoContext` caches per instance, and the C# original built a fresh one per
     // request; keeping that exactly preserves the observed answers as well as the cost profile.
     static func CreateNullabilityContext(): NullabilityInfoContext {
-        parameterTypes := new Type[](0)
-        constructor := typeof(NullabilityInfoContext).GetConstructor(parameterTypes)
-        if constructor == null {
-            throw new InvalidOperationException("NullabilityInfoContext() was not found.")
-        }
-
-        arguments := new object?[](0)
-        return (NullabilityInfoContext)constructor.Invoke(arguments)
+        return new NullabilityInfoContext()
     }
 
     static func CreateNullabilityInfoForProperty(property: PropertyInfo): NullabilityInfo? {
