@@ -67,13 +67,10 @@ func MetadataLoadSurfaceReferencePackPath(simpleName: string): string {
     return ""
 }
 
-// A resolver that CAN serve the twin from the shared framework directory. That is deliberate:
-// the first block's whole question is whether a directory the resolver would happily answer from can
-// outrank the path the caller actually asked for. The surface cores the context itself (022/3b-3), so
-// what a caller hands over is a resolver and nothing else.
-func MetadataLoadSurfaceResolver(): MetadataAssemblyResolver {
-    return new PathAssemblyResolver(Directory.GetFiles(MetadataLoadSurfaceFrameworkDirectory(), "*.dll"))
-}
+// `Open` builds the resolver AND the context AND the search-directory ladder (022/3b-4b), so these
+// blocks open exactly what production opens. The shared framework directory is one of the
+// directories it registers, which is what makes the first block's question real: the resolver would
+// happily answer for the twin out of that directory, and the requested path must still win.
 
 func MetadataLoadSurfaceContextOf(surface: AnalyzerMetadataLoadSurface): MetadataLoadContext {
     loadContext := surface.Context
@@ -134,11 +131,11 @@ test "a search directory holding the same identity does not win over the request
     failures := new Dictionary<string, string>(StringComparer.Ordinal)
     surface := MetadataLoadSurfaceNew(assemblies, failures)
 
-    // The list the resolver would hold. Taking it here is what a resolver construction does.
-    directories := surface.BeginResolverDirectories()
-    surface.Open(MetadataLoadSurfaceResolver())
-    surface.AddSearchDirectory(frameworkDirectory)
-    assert MetadataLoadSurfaceHolds(directories, frameworkDirectory)
+    surface.Open()
+
+    // `Open` registered the shared framework directory itself; the resolver can serve the twin from
+    // there, and the block below asks for it by a path somewhere else entirely.
+    assert MetadataLoadSurfaceHolds(surface.SearchDirectories, frameworkDirectory)
 
     surface.LoadByPath(referencePath)
 
@@ -151,7 +148,7 @@ test "a search directory holding the same identity does not win over the request
 
     // The requested path's own directory joins the search list too -- that is stage 1 of the probe,
     // and it happens whether or not the load goes on to dedupe.
-    assert MetadataLoadSurfaceHolds(directories, Path.GetDirectoryName(referencePath) ?? "")
+    assert MetadataLoadSurfaceHolds(surface.SearchDirectories, Path.GetDirectoryName(referencePath) ?? "")
 }
 
 // ── migrated: LoadReferencedAssembly_AdoptsAlreadyLoadedIdentityInsteadOfThrowing
@@ -164,7 +161,7 @@ test "a second load of an already-loaded identity adopts the first copy instead 
     assemblies := new List<Assembly>()
     failures := new Dictionary<string, string>(StringComparer.Ordinal)
     surface := MetadataLoadSurfaceNew(assemblies, failures)
-    surface.Open(MetadataLoadSurfaceResolver())
+    surface.Open()
     context := MetadataLoadSurfaceContextOf(surface)
 
     // Staged the way the metadata RESOLVER stages one: straight into the load context, bypassing the
@@ -202,8 +199,8 @@ test "the same path loaded twice registers once and contributes its directory on
     assemblies := new List<Assembly>()
     failures := new Dictionary<string, string>(StringComparer.Ordinal)
     surface := MetadataLoadSurfaceNew(assemblies, failures)
-    directories := surface.BeginResolverDirectories()
-    surface.Open(MetadataLoadSurfaceResolver())
+    surface.Open()
+    openedDirectoryCount := surface.SearchDirectories.Count
 
     surface.LoadByPath(referencePath)
     surface.LoadByPath(referencePath)
@@ -211,7 +208,7 @@ test "the same path loaded twice registers once and contributes its directory on
 
     assert assemblies.Count == 1
     assert failures.Count == 0
-    assert directories.Count == 1
+    assert surface.SearchDirectories.Count == openedDirectoryCount + 1
 
     // The by-NAME door dedupes on the SIMPLE name, which is weaker on purpose: a caller asking for
     // a simple name is asking for whatever version this analysis already resolved.
@@ -228,7 +225,7 @@ test "a failed load is recorded rather than thrown and the first failure per ide
     assemblies := new List<Assembly>()
     failures := new Dictionary<string, string>(StringComparer.Ordinal)
     surface := MetadataLoadSurfaceNew(assemblies, failures)
-    surface.Open(MetadataLoadSurfaceResolver())
+    surface.Open()
 
     surface.LoadByPath(missingPath)
 
@@ -270,7 +267,7 @@ test "an unattached surface loads nothing, and Detach puts it back into that sta
     assert assemblies.Count == 0
     assert failures.Count == 0
 
-    surface.Open(MetadataLoadSurfaceResolver())
+    surface.Open()
     surface.LoadByName(MetadataLoadSurfaceTwinName())
     assert assemblies.Count == 1
 
@@ -293,7 +290,7 @@ test "the surface cores the context on the policy's core assembly and builds the
     // Before `Open` there is no context at all, and the bag cannot be built from one.
     assert surface.Context == null
 
-    surface.Open(MetadataLoadSurfaceResolver())
+    surface.Open()
     context := MetadataLoadSurfaceContextOf(surface)
 
     // THE CORE IDENTITY IS THE POLICY'S, NOT A LITERAL WRITTEN HERE. Every `int`, `string` and

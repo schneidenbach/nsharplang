@@ -2,11 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Text.Json;
 using System.Threading;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
@@ -29,8 +26,8 @@ public class Analyzer : IDisposable
     private readonly AnalyzerDeclarationContext _declarationContext = new();
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
     private string? _declarationContextFilePath;
-    // Metadata-based assembly inspection; the load context is opened and closed by the N# surface.
-    private NSharpMetadataResolver? _metadataResolver;
+    // Metadata-based assembly inspection; the resolver, the load context and the search directories
+    // are all the N#-owned surface's.
     private AnalyzerWellKnownTypes? _wellKnownTypes;
     // Rebuilt, not mutated, whenever _wellKnownTypes changes: the owner's own fields never change
     // after construction.
@@ -44,7 +41,6 @@ public class Analyzer : IDisposable
     private readonly Dictionary<string, string> _referenceLoadFailures = new(StringComparer.Ordinal);
 
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _restoredPackageVersionsByProject = new(StringComparer.Ordinal);
     // The analyzer's external (MetadataLoadContext) type probe. Constructed once and never
     // rebuilt: it owns the resolution cache, and that cache participates in the probe ORDER.
     private readonly AnalyzerExternalTypeProbe _externalTypeProbe;
@@ -368,7 +364,7 @@ public class Analyzer : IDisposable
     // and the two per-analysis collections it owns must survive the whole analysis — they are reset
     // through its own `BeginAnalysis`, from the same reset block. It is the one owner in the arc with
     // a driver that asks for an EFFECT: the assemblies a namespace import implies are loaded through
-    // the MetadataLoadContext, which is task 021's surface and stays here.
+    // the N#-owned metadata load surface, and this loop performs it.
     private readonly AnalyzerImports _imports;
     // WHAT IT MEANS TO DECLARE SOMETHING: a symbol (including the overload merge and the shadowing
     // ban), a type (including its canonical identity), a parameter with a default value, and a
@@ -390,6 +386,8 @@ public class Analyzer : IDisposable
     // search directories by reference, and the load context itself from `LoadSystemAssemblies` until
     // `Dispose`.
     private readonly AnalyzerMetadataLoadSurface _metadataLoadSurface;
+    // WHAT A PROJECT'S REFERENCES MEAN AND IN WHICH ORDER, plus the walk that performs them.
+    private readonly AnalyzerReferenceLoadOrchestration _referenceLoadOrchestration;
     private bool _disposed;
 
     public Analyzer()
@@ -507,6 +505,7 @@ public class Analyzer : IDisposable
             _diagnostics, _spans, _nullFlow, _ambient, _soaDirectColumnCalls, _reflectionCallReporter);
         _referenceLoadReport = new AnalyzerReferenceLoadReport(_diagnostics, _referenceLoadFailures);
         _metadataLoadSurface = new AnalyzerMetadataLoadSurface(_mlcAssemblies, _referenceLoadFailures);
+        _referenceLoadOrchestration = new AnalyzerReferenceLoadOrchestration(_metadataLoadSurface, _referencedPackageNames);
     }
 
     private AnalyzerAttributeValidator CreateAttributeValidator()
@@ -700,11 +699,6 @@ public class Analyzer : IDisposable
             _typeResolver,
             _wellKnownTypes);
 
-    private static string GetNuGetPackagesRoot()
-        => AnalyzerMetadataLoadPolicy.NuGetPackagesRoot(
-            Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-
     /// <summary>
     /// Sets the source texts used by the current project snapshot. This lets semantic
     /// declarations point at identifier spans even when a referenced file is only
@@ -844,7 +838,7 @@ public class Analyzer : IDisposable
 
         PopScope();
 
-        _referenceLoadReport.Report(_metadataResolver?.LoadFailures);
+        _referenceLoadReport.Report(_metadataLoadSurface.ResolverFailures);
 
         return new AnalysisResult(_errors, _semanticModel, _bindingMap);
     }
@@ -1354,7 +1348,7 @@ public class Analyzer : IDisposable
     /// <summary>
     /// The one step the N#-owned import walk cannot take for itself: loading the reference assemblies
     /// a written namespace implies. WHICH assemblies is the walk's own policy and arrives in the
-    /// request; loading them is the MetadataLoadContext surface, which stays here.
+    /// request; loading them is the N#-owned metadata load surface's.
     /// </summary>
     private void DriveImports(ImportWalkState state)
     {
@@ -1367,7 +1361,7 @@ public class Analyzer : IDisposable
                 case 1:
                     foreach (var assemblyName in step.AssemblyNames)
                     {
-                        LoadReferencedAssemblyByName(assemblyName);
+                        _metadataLoadSurface.LoadByName(assemblyName);
                     }
                     break;
             }
@@ -2265,46 +2259,17 @@ public class Analyzer : IDisposable
         _scopes.Pop(_semanticModel);
     }
 
-    private void RecordReferenceLoadFailure(string identity, Exception exception)
-        => _metadataLoadSurface.RecordExceptionFailure(identity, exception);
-
-    private void RecordReferenceLoadFailure(string identity, string detail)
-        => _metadataLoadSurface.RecordFailure(identity, detail);
-
-    public void LoadReferencedAssembly(string assemblyPath)
-        => _metadataLoadSurface.LoadByPath(assemblyPath);
-
-    public void LoadReferencedAssemblyByName(string assemblyName)
-        => _metadataLoadSurface.LoadByName(assemblyName);
-
     /// <summary>
-    /// Load system assemblies that are commonly used (initializes MetadataLoadContext)
+    /// Open the analyzer's external type universe and pre-load the assemblies every project uses.
+    /// The resolver, the load context and the common-assembly table are all the N# surface's.
     /// </summary>
     public void LoadSystemAssemblies()
     {
-        _metadataResolver = new NSharpMetadataResolver(_metadataLoadSurface);
-
-        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
-        _metadataResolver.AddSearchDirectory(runtimeDir);
-        _metadataResolver.AddSearchDirectory(AppContext.BaseDirectory);
-
-        var sharedRoot = AnalyzerMetadataLoadPolicy.SharedRootFromRuntimeDirectory(runtimeDir);
-        if (sharedRoot != null)
-        {
-            foreach (var fwDir in AnalyzerMetadataLoadPolicy.SharedFrameworkDirectoryNames())
-            {
-                var fwPath = Path.Combine(sharedRoot, fwDir);
-                if (!Directory.Exists(fwPath)) continue;
-                foreach (var versionDir in AnalyzerMetadataLoadPolicy.OrderVersionDirectoriesDescending(Directory.GetDirectories(fwPath)))
-                    _metadataResolver.AddSearchDirectory(versionDir);
-            }
-        }
-
-        _metadataLoadSurface.Open(_metadataResolver);
+        _metadataLoadSurface.Open();
 
         foreach (var assemblyName in AnalyzerMetadataLoadPolicy.CommonAssemblyNames())
         {
-            LoadReferencedAssemblyByName(assemblyName);
+            _metadataLoadSurface.LoadByName(assemblyName);
         }
 
         _wellKnownTypes = _metadataLoadSurface.CreateWellKnownTypes();
@@ -2382,339 +2347,11 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Load assemblies from project configuration (References and Dependencies)
+    /// Load the project's references. Every decision about WHICH reference means what, and in which
+    /// order, belongs to the N# orchestration owner; this entry point exists because the analyzer is
+    /// the thing that has a project.
     /// </summary>
     public void LoadFromProjectConfig(ProjectConfig config, string? projectDirectory = null)
-    {
-        projectDirectory ??= Environment.CurrentDirectory;
+        => _referenceLoadOrchestration.Load(config, projectDirectory ?? Environment.CurrentDirectory);
 
-        foreach (var (packageName, packageVersion) in GetRestoredPackageVersions(projectDirectory))
-        {
-            _metadataResolver?.PinPackageVersion(packageName, packageVersion);
-        }
-
-        if (config.Dependencies != null && config.Dependencies.Count > 0)
-        {
-            foreach (var reference in config.Dependencies.Where(r => r.Type != ReferenceType.NuGet))
-            {
-                LoadProjectReference(reference, projectDirectory, config.TargetFramework);
-            }
-
-            foreach (var reference in config.Dependencies.Where(r => r.Type == ReferenceType.NuGet))
-            {
-                if (!string.IsNullOrWhiteSpace(reference.Nuget))
-                {
-                    _referencedPackageNames.Add(reference.Nuget);
-                }
-
-                LoadProjectReference(reference, projectDirectory, config.TargetFramework);
-            }
-        }
-
-        if (config.TestDependencies != null && config.TestDependencies.Count > 0)
-        {
-            foreach (var dependency in config.TestDependencies.Where(r => r.Type == ReferenceType.NuGet))
-            {
-                if (!string.IsNullOrWhiteSpace(dependency.Nuget))
-                {
-                    _referencedPackageNames.Add(dependency.Nuget);
-                }
-
-                if (dependency.Nuget != null)
-                {
-                    LoadReferencedAssemblyByName(dependency.Nuget);
-                }
-            }
-        }
-
-        if (AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies(config.Sdk))
-        {
-            foreach (var assembly in AnalyzerMetadataLoadPolicy.AspNetCoreAssemblyNames())
-            {
-                LoadReferencedAssemblyByName(assembly);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Load a single project reference based on its type. The catch is the last-resort net for
-    /// failures the per-site recording cannot reach (a referenced project.yml that fails to parse,
-    /// IO faults while scanning the NuGet cache); the remaining references still load.
-    /// </summary>
-    private void LoadProjectReference(Reference reference, string projectDirectory, string targetFramework)
-    {
-        try
-        {
-            switch (reference.Type)
-            {
-                case ReferenceType.NuGet:
-                    LoadNuGetPackage(reference.Nuget!, reference.Version, targetFramework, projectDirectory);
-                    break;
-
-                case ReferenceType.Dll:
-                    LoadReferencedAssembly(AnalyzerMetadataLoadPolicy.ResolvedReferencePath(projectDirectory, reference.Dll!));
-                    break;
-
-                case ReferenceType.Project:
-                    LoadProjectReferenceFile(
-                        AnalyzerMetadataLoadPolicy.ResolvedReferencePath(projectDirectory, reference.Project!),
-                        targetFramework);
-                    break;
-
-                case ReferenceType.Framework:
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            RecordReferenceLoadFailure(
-                reference.Nuget ?? reference.Project ?? reference.Dll ?? "<unknown reference>",
-                ex);
-        }
-    }
-
-    /// <summary>
-    /// Load a NuGet package assembly
-    /// </summary>
-    private void LoadNuGetPackage(string packageName, string? version, string targetFramework, string projectDirectory)
-    {
-        var binPath = AnalyzerMetadataLoadPolicy.LocallyBuiltPackageAssemblyPath(projectDirectory, targetFramework, packageName);
-        if (File.Exists(binPath))
-        {
-            LoadReferencedAssembly(binPath);
-            return;
-        }
-
-        version ??= TryGetRestoredPackageVersion(projectDirectory, packageName);
-
-        var nugetCache = AnalyzerMetadataLoadPolicy.NuGetPackageCacheDirectory(
-            Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            packageName);
-
-        if (!Directory.Exists(nugetCache))
-        {
-            RecordReferenceLoadFailure(packageName, AnalyzerReferenceLoadReport.PackageMissingDetail(nugetCache));
-            return;
-        }
-
-        var versionDir = AnalyzerMetadataLoadPolicy.PackageVersionDirectory(
-            nugetCache, version, Directory.GetDirectories(nugetCache));
-
-        if (versionDir == null || !Directory.Exists(versionDir))
-        {
-            RecordReferenceLoadFailure(packageName, AnalyzerReferenceLoadReport.PackageVersionDeadEndDetail(version, nugetCache));
-            return;
-        }
-
-        foreach (var tfm in AnalyzerMetadataLoadPolicy.MetadataProbeTargetFrameworks(targetFramework))
-        {
-            var path = AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDir, tfm, packageName);
-            if (File.Exists(path))
-            {
-                LoadReferencedAssembly(path);
-                return;
-            }
-        }
-
-        RecordReferenceLoadFailure(
-            packageName,
-            AnalyzerReferenceLoadReport.PackageLibAssetMissingDetail(packageName, AnalyzerMetadataLoadPolicy.PackageLibRoot(versionDir)));
-    }
-
-    private string? TryGetRestoredPackageVersion(string projectDirectory, string packageName)
-        => GetRestoredPackageVersions(projectDirectory).TryGetValue(packageName, out var version)
-            ? version
-            : null;
-
-    /// <summary>
-    /// Reads the package versions the project restored from <c>obj/project.assets.json</c>,
-    /// keyed by package name. Returns an empty map when the project has no restore output.
-    /// </summary>
-    private IReadOnlyDictionary<string, string> GetRestoredPackageVersions(string projectDirectory)
-    {
-        if (_restoredPackageVersionsByProject.TryGetValue(projectDirectory, out var cached))
-        {
-            return cached;
-        }
-
-        var versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var assetsPath = AnalyzerMetadataLoadPolicy.RestoredPackageAssetsPath(projectDirectory);
-        if (File.Exists(assetsPath))
-        {
-            try
-            {
-                using var assets = JsonDocument.Parse(File.ReadAllText(assetsPath));
-                if (assets.RootElement.TryGetProperty(AnalyzerMetadataLoadPolicy.RestoredLibrariesPropertyName(), out var libraries) &&
-                    libraries.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var library in libraries.EnumerateObject())
-                    {
-                        var packageName = AnalyzerMetadataLoadPolicy.RestoredLibraryPackageName(library.Name);
-                        var packageVersion = AnalyzerMetadataLoadPolicy.RestoredLibraryPackageVersion(library.Name);
-                        if (packageName != null && packageVersion != null)
-                        {
-                            versions[packageName] = packageVersion;
-                        }
-                    }
-                }
-            }
-            catch (IOException)
-            {
-            }
-            catch (JsonException)
-            {
-            }
-        }
-
-        _restoredPackageVersionsByProject[projectDirectory] = versions;
-        return versions;
-    }
-
-    /// <summary>
-    /// Load a project reference (either .csproj or project.yml)
-    /// </summary>
-    private void LoadProjectReferenceFile(string projectPath, string targetFramework)
-    {
-        var projectDir = Path.GetDirectoryName(projectPath)!;
-
-        if (AnalyzerMetadataLoadPolicy.IsRecognizedProjectReference(projectPath))
-        {
-            var assemblyName = AnalyzerMetadataLoadPolicy.ProjectReferenceAssemblyName(
-                projectPath,
-                AnalyzerMetadataLoadPolicy.IsCSharpProjectReference(projectPath)
-                    ? string.Empty
-                    : ProjectFileParser.Parse(projectPath).EffectiveName);
-            LoadReferencedAssembly(
-                AnalyzerMetadataLoadPolicy.ProjectReferenceOutputPath(projectDir, targetFramework, assemblyName));
-        }
-        else
-        {
-            Console.Error.WriteLine(AnalyzerMetadataLoadPolicy.UnknownProjectReferenceWarning(projectPath));
-        }
-    }
-
-
-    /// <summary>
-    /// Custom MetadataAssemblyResolver that dynamically searches directories for assemblies.
-    /// Replaces the old AppDomain.AssemblyResolve-based AssemblyResolver.
-    /// </summary>
-    internal sealed class NSharpMetadataResolver : MetadataAssemblyResolver
-    {
-        // The N#-owned load surface, and the search-directory list it hands over when a new resolver
-        // is built. The list is READ here and WRITTEN there, so a directory added through either
-        // door is visible to both.
-        private readonly AnalyzerMetadataLoadSurface _loadSurface;
-        private readonly List<string> _searchDirectories;
-        private readonly Dictionary<string, string> _pinnedPackageVersions = new(StringComparer.OrdinalIgnoreCase);
-
-        internal NSharpMetadataResolver(AnalyzerMetadataLoadSurface loadSurface)
-        {
-            _loadSurface = loadSurface;
-            _searchDirectories = loadSurface.BeginResolverDirectories();
-        }
-
-        internal Dictionary<string, string> LoadFailures { get; } = new(StringComparer.Ordinal);
-
-        private void RecordLoadFailure(string path, Exception exception)
-        {
-            if (AnalyzerMetadataLoadPolicy.ShouldRecordLoadFailure(LoadFailures.ContainsKey(path)))
-                LoadFailures[path] = AnalyzerReferenceLoadReport.ExceptionDetail(exception.GetType().Name, exception.Message);
-        }
-
-        public void AddSearchDirectory(string directory)
-            => _loadSurface.AddSearchDirectory(directory);
-
-        /// <summary>
-        /// Records the package version a project restored. NuGet-cache fallback scans bind
-        /// the pinned version instead of the highest extracted one.
-        /// </summary>
-        public void PinPackageVersion(string packageName, string version)
-        {
-            _pinnedPackageVersions[packageName] = version;
-        }
-
-        public override Assembly? Resolve(MetadataLoadContext context, AssemblyName assemblyName)
-        {
-            var simpleName = assemblyName.Name;
-            if (simpleName == null) return null;
-
-            foreach (var loadedAssembly in context.GetAssemblies())
-            {
-                if (string.Equals(loadedAssembly.GetName().Name, simpleName, StringComparison.OrdinalIgnoreCase))
-                    return loadedAssembly;
-            }
-
-            foreach (var dir in _searchDirectories)
-            {
-                var dllPath = AnalyzerMetadataLoadPolicy.SearchDirectoryAssemblyPath(dir, simpleName);
-                if (File.Exists(dllPath))
-                {
-                    try { return context.LoadFromAssemblyPath(dllPath); }
-                    catch (Exception ex)
-                    {
-                        RecordLoadFailure(dllPath, ex);
-                        continue;
-                    }
-                }
-            }
-
-            var nugetRoot = Analyzer.GetNuGetPackagesRoot();
-
-            var nugetExact = Path.Combine(nugetRoot, simpleName.ToLowerInvariant());
-            var found = TryLoadFromNuGetPackageDir(context, nugetExact, simpleName);
-            if (found != null) return found;
-
-            if (Directory.Exists(nugetRoot))
-            {
-                    foreach (var pkgDir in Directory.GetDirectories(nugetRoot))
-                    {
-                        if (AnalyzerMetadataLoadPolicy.NuGetPackageDirectoryMatchesPrefix(Path.GetFileName(pkgDir), simpleName))
-                        {
-                            var result = TryLoadFromNuGetPackageDir(context, pkgDir, simpleName);
-                            if (result != null) return result;
-                        }
-                    }
-            }
-
-            return null;
-        }
-
-        private Assembly? TryLoadFromNuGetPackageDir(MetadataLoadContext context, string packageDir, string simpleName)
-        {
-            if (!Directory.Exists(packageDir)) return null;
-
-            var versionDir = PickPackageVersionDirectory(packageDir);
-            if (versionDir == null) return null;
-
-            foreach (var tfm in AnalyzerMetadataLoadPolicy.FallbackTargetFrameworks())
-            {
-                var dllPath = AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDir, tfm, simpleName);
-                if (File.Exists(dllPath))
-                {
-                    try { return context.LoadFromAssemblyPath(dllPath); }
-                    catch (Exception ex)
-                    {
-                        RecordLoadFailure(dllPath, ex);
-                        continue;
-                    }
-                }
-            }
-            return null;
-        }
-
-        private string? PickPackageVersionDirectory(string packageDir)
-        {
-            var packageName = Path.GetFileName(packageDir);
-            if (packageName != null &&
-                _pinnedPackageVersions.TryGetValue(packageName, out var pinnedVersion))
-            {
-                var pinnedDir = AnalyzerMetadataLoadPolicy.PinnedPackageVersionDirectory(packageDir, pinnedVersion);
-                if (pinnedDir != null && Directory.Exists(pinnedDir))
-                    return pinnedDir;
-            }
-
-            return AnalyzerMetadataLoadPolicy.PickHighestVersionDirectory(Directory.GetDirectories(packageDir));
-        }
-    }
 }
