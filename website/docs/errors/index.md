@@ -60,16 +60,16 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 
 | Code | Rule |
 |---|---|
-| `NL101` | A token the parser did not expect here. |
-| `NL102` | A token the parser required and did not find. |
-| `NL103` | A construct the compiler cannot represent or emit. |
-| `NL104` | The file ended while something was still open. |
+| [`NL101`](./NL101.md) | A token the parser did not expect here. |
+| [`NL102`](./NL102.md) | A token the parser required and did not find. |
+| [`NL103`](./NL103.md) | A construct the compiler cannot represent or emit. |
+| [`NL104`](./NL104.md) | The file ended while something was still open. |
 | [`NL105`](./NL105.md) | A literal the compiler cannot read as a literal. |
-| `NL106` | A `{` with no `}`. |
-| `NL107` | A `(` with no `)`. |
-| `NL108` | A `[` with no `]`. |
-| `NL109` | A reserved word used as a name. |
-| `NL110` | A preprocessor directive N# does not have. |
+| [`NL106`](./NL106.md) | A `{` with no `}`. |
+| [`NL107`](./NL107.md) | A `(` with no `)`. |
+| [`NL108`](./NL108.md) | A `[` with no `]`. |
+| [`NL109`](./NL109.md) | A reserved word used as a name. |
+| [`NL110`](./NL110.md) | A preprocessor directive N# does not have. |
 
 ## Types — `NL2xx`
 
@@ -215,7 +215,7 @@ promise could not be kept and no honest page could be written for them. They wer
 | `NL408` multiple `params` | `NL407` |
 | `NL603` comparison operator pair | nothing — the rule was never written |
 | `NL604` conversion operator invalid | nothing — the rule was never written |
-| `NL804` interface implementation missing | `NL325` |
+| `NL804` interface implementation missing | [`NL325`](./NL325.md) |
 | `NL805` duck interface mismatch | `NL202`, at the argument that does not satisfy the interface |
 | `NL901` unused variable | `NL001` |
 | `NL902` unreachable code | `NL006` |
