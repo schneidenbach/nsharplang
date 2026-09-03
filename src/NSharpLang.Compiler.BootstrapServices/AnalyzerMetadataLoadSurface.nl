@@ -23,12 +23,19 @@ import System.Reflection
 // taken and stale forever after. `searchDirectories` is the third, and the resolver reads it in
 // place: this owner writes the directories, the resolver walks them.
 //
-// THE LOAD CONTEXT ARRIVES, IT IS NOT CONSTRUCTED HERE. `Analyzer.LoadSystemAssemblies` builds the
-// resolver, then the context over it, then hands the context here; `Dispose` takes it away again.
-// So `context` is the one field that changes after construction, and it changes for a reason the
-// type's own lifetime cannot express: the analyzer holds ONE surface across a context that is built
-// and torn down. Every entry point therefore reads it into a local first and answers nothing when it
-// is absent — an unattached surface is a no-op, exactly as the C# `if (_mlc == null) return;` was.
+// THE LOAD CONTEXT IS BUILT AND TORN DOWN HERE (022/3b-3). `Analyzer.LoadSystemAssemblies` hands over
+// a resolver and nothing else; `Open` cores the context on the one identity
+// `AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName()` names, and `Close` disposes it. So `Context`
+// is the one field that changes after construction, and it changes for a reason the type's own
+// lifetime cannot express: the analyzer holds ONE surface across a context that is opened and closed.
+// Every entry point therefore reads it into a local first and answers nothing when it is absent — an
+// unopened surface is a no-op, exactly as the C# `if (_mlc == null) return;` was.
+//
+// THE WELL-KNOWN-TYPE BAG IS BUILT HERE TOO, and that is why the context does not have to leave. The
+// bag needs the context AND its core assembly, and the core assembly is the one thing a context can
+// fail to produce; asking for it in C# meant a `?? throw` in a file that is supposed to decide
+// nothing. `CreateWellKnownTypes` asks, refuses loudly when the answer is absent, and hands back the
+// built bag.
 //
 // LOADING BY PATH IS A FOUR-STAGE PROBE AND THE ORDER IS THE POLICY:
 //   1. the requested path's DIRECTORY joins the resolver's search list, so this assembly's
@@ -52,8 +59,8 @@ import System.Reflection
 // identity, and the analysis continues with one less assembly.
 class AnalyzerMetadataLoadSurface {
 
-    // The live load context, or null before `Attach` and after `Detach`.
-    context: MetadataLoadContext?
+    // The live load context, or null before `Open` and after `Close`.
+    Context: MetadataLoadContext?
 
     // The analyzer's registry of metadata assemblies, held by reference.
     assemblies: List<Assembly>
@@ -65,7 +72,7 @@ class AnalyzerMetadataLoadSurface {
     searchDirectories: List<string>
 
     constructor(loadedAssemblies: List<Assembly>, referenceLoadFailures: Dictionary<string, string>) {
-        context = null
+        Context = null
         assemblies = loadedAssemblies
         failures = referenceLoadFailures
         searchDirectories = new List<string>()
@@ -79,13 +86,38 @@ class AnalyzerMetadataLoadSurface {
         return searchDirectories
     }
 
-    func Attach(loadContext: MetadataLoadContext) {
-        context = loadContext
+    // The resolver is built first and the context is cored over it. The core assembly identity is a
+    // decision and lives in the policy owner; the construction is mechanism and lives here.
+    func Open(resolver: MetadataAssemblyResolver) {
+        Context = new MetadataLoadContext(resolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
     }
 
-    // The context is being disposed. Nothing may be loaded through it afterwards.
-    func Detach() {
-        context = null
+    // The analyzer is being disposed. The context is released and nothing may be loaded afterwards.
+    func Close() {
+        loadContext := Context
+        if loadContext != null {
+            loadContext.Dispose()
+        }
+
+        Context = null
+    }
+
+    // EVERY `int`, `string` and `object` A REFERENCED ASSEMBLY NAMES resolves through the context's
+    // core assembly, so a context that produced none cannot answer a single semantic question. The
+    // refusal is loud rather than a null bag, because a silent one degrades every later diagnostic
+    // into "type not found".
+    func CreateWellKnownTypes(): AnalyzerWellKnownTypes {
+        loadContext := Context
+        if loadContext == null {
+            throw new InvalidOperationException("MLC not opened")
+        }
+
+        core := loadContext.get_CoreAssembly()
+        if core == null {
+            throw new InvalidOperationException("MLC core assembly not loaded")
+        }
+
+        return new AnalyzerWellKnownTypes(loadContext, core)
     }
 
     func AddSearchDirectory(directory: string) {
@@ -176,7 +208,7 @@ class AnalyzerMetadataLoadSurface {
     }
 
     func LoadByPath(assemblyPath: string) {
-        loadContext := context
+        loadContext := Context
         if loadContext == null {
             return
         }
@@ -210,7 +242,7 @@ class AnalyzerMetadataLoadSurface {
     }
 
     func LoadByName(simpleName: string) {
-        loadContext := context
+        loadContext := Context
         if loadContext == null {
             return
         }
