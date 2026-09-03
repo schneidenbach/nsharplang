@@ -613,7 +613,7 @@ test "NL319 TAKES THE RICH SHAPE WHEN THE FILE HAS A SNIPPET" {
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.ControlTransferOutOfFinally
-    assert harness.Errors[0].DocsUrl == "https://docs.n-sharp.dev/errors/NL319"
+    assert harness.Errors[0].DocsUrl == "https://schneidenbach.github.io/nsharplang/docs/errors/NL319"
     assert harness.Errors[0].HumanExplanation != null
     assert harness.Errors[0].FileName == AmbientPath()
 }

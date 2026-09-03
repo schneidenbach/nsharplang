@@ -193,7 +193,7 @@ Per-error docs pages live in-repo at `website/docs/errors/<code>.md` (sidebar ca
 Reference" in `website/sidebars.js`); `NL319`/`NL320` established the layout — new rich diagnostics
 should ship a page there in the same slice.
 
-Keep the `docs.n-sharp.dev/errors/<code>` pages aligned with these changes:
+Keep the `website/docs/errors/<code>.md` pages (published at `DiagnosticDocs.Base` + `<code>`) aligned with these changes:
 
 | Code | Source | Change | New severity |
 |------|--------|--------|--------------|
@@ -238,7 +238,7 @@ return type to `void`.
 
 Suggestion: Add a `return` statement, or change the return type to `void`
 
-See: https://docs.n-sharp.dev/errors/NL305
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL305
 ```
 
 ## Testing

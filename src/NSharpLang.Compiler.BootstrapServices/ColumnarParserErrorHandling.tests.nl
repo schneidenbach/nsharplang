@@ -76,7 +76,7 @@ import NSharpLang.Compiler.Ast
 test "020 s25 error handling: an unterminated string literal is ONE NL105 over the 13 columns from the opening quote to end of line, and the recovered body is `var` as a bare identifier statement plus an assignment whose value is the unterminated text INCLUDING its opening quote (was ErrorHandlingTests.Parser_HandlesUnterminatedString)" {
     source := "func main() {\n    var s = \"unterminated\n}"
     assert PeCensus(source) == "NL105@2:13+13;"
-    assert PeRow(source, 0) == "NL105@2:13+13|Unterminated string literal|    var s = \"unterminated|This string starts with a quote but reaches the end of the line before a closing quote.|Add the closing quote on this line, or use a triple-quoted string for multi-line text.|{Add a closing quote}{Use triple quotes for multi-line strings}|https://docs.n-sharp.dev/errors/NL105"
+    assert PeRow(source, 0) == "NL105@2:13+13|Unterminated string literal|    var s = \"unterminated|This string starts with a quote but reaches the end of the line before a closing quote.|Add the closing quote on this line, or use a triple-quoted string for multi-line text.|{Add a closing quote}{Use triple quotes for multi-line strings}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -109,7 +109,7 @@ test "020 s25 error handling: an unterminated block comment SWALLOWS THE WHOLE F
 test "020 s25 error handling: a block left open at end of file is ONE NL106 anchored on the `if` KEYWORD two lines below the brace it is about, and the recovered body still carries all three statements including the if (was ErrorHandlingTests.Parser_HandlesMissingClosingBrace)" {
     source := "func main() {\n    var x = 5\n    if x > 0 {\n        print(x)\n    // Missing closing brace\n"
     assert PeCensus(source) == "NL106@3:5+2;"
-    assert PeRow(source, 0) == "NL106@3:5+2|Missing closing '}'|    if x > 0 {|The block that started on line 3 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://docs.n-sharp.dev/errors/NL106"
+    assert PeRow(source, 0) == "NL106@3:5+2|Missing closing '}'|    if x > 0 {|The block that started on line 3 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL106"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -130,7 +130,7 @@ test "020 s25 error handling: a block left open at end of file is ONE NL106 anch
 test "020 s25 error handling: a call left unclosed at end of line is ONE NL107 anchored on the CALLEE `add`, and the call still recovers both of its arguments (was ErrorHandlingTests.Parser_HandlesMissingClosingParen)" {
     source := "func main() {\n    var result = add(1, 2\n}"
     assert PeCensus(source) == "NL107@2:18+3;"
-    assert PeRow(source, 0) == "NL107@2:18+3|Missing closing ')'|    var result = add(1, 2|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://docs.n-sharp.dev/errors/NL107"
+    assert PeRow(source, 0) == "NL107@2:18+3|Missing closing ')'|    var result = add(1, 2|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL107"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -152,8 +152,8 @@ test "020 s25 error handling: a call left unclosed at end of line is ONE NL107 a
 test "020 s25 error handling: a trailing comma in an ARRAY literal and one in an ARGUMENT list report TWO separate NL101s, and each leaves a synthetic `<error>` IdentifierExpression in the list it terminated (was ErrorHandlingTests.Parser_HandlesTrailingComma)" {
     source := "func main() {\n    var arr = [1, 2, 3,]\n    var result = add(1, 2,)\n}"
     assert PeCensus(source) == "NL101@2:24+1;NL101@3:27+1;"
-    assert PeRow(source, 0) == "NL101@2:24+1|Unexpected token ']' in expression|    var arr = [1, 2, 3,]|I was parsing an expression and found ']', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101"
-    assert PeRow(source, 1) == "NL101@3:27+1|Unexpected token ')' in expression|    var result = add(1, 2,)|I was parsing an expression and found ')', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101"
+    assert PeRow(source, 0) == "NL101@2:24+1|Unexpected token ']' in expression|    var arr = [1, 2, 3,]|I was parsing an expression and found ']', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101"
+    assert PeRow(source, 1) == "NL101@3:27+1|Unexpected token ')' in expression|    var result = add(1, 2,)|I was parsing an expression and found ')', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -182,7 +182,7 @@ test "020 s25 error handling: a trailing comma in an ARRAY literal and one in an
 test "020 s25 error handling: an invalid infix operator SPLITS the statement — `var x = 5` completes, and `@ 3` becomes a synthetic `<error>` statement plus a bare `3`, for a body of FOUR statements from two source lines (was ErrorHandlingTests.Parser_HandlesInvalidOperator)" {
     source := "func main() {\n    var x = 5 @ 3  // @ is not a valid operator\n}"
     assert PeCensus(source) == "NL101@2:15+1;"
-    assert PeRow(source, 0) == "NL101@2:15+1|Unexpected token '@' in expression|    var x = 5 @ 3  // @ is not a valid operator|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101"
+    assert PeRow(source, 0) == "NL101@2:15+1|Unexpected token '@' in expression|    var x = 5 @ 3  // @ is not a valid operator|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -202,9 +202,9 @@ test "020 s25 error handling: an invalid infix operator SPLITS the statement —
 test "020 s25 error handling: a garbage token run reports THREE diagnostics — two NL101s and an NL106 anchored back on the function NAME at 1:6 — and the stray `{` opens a real BlockStatement that becomes the function's third statement (was ErrorHandlingTests.Parser_HandlesInvalidTokenSequence)" {
     source := "func main() {\n    var ] { = 5\n}"
     assert PeCensus(source) == "NL101@2:9+1;NL101@2:13+1;NL106@1:6+4;"
-    assert PeRow(source, 0) == "NL101@2:9+1|Unexpected token ']' in expression|    var ] { = 5|I was parsing an expression and found ']', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101"
-    assert PeRow(source, 1) == "NL101@2:13+1|Unexpected token '=' in expression|    var ] { = 5|I was parsing an expression and found '=', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101"
-    assert PeRow(source, 2) == "NL106@1:6+4|Missing closing '}'|func main() {|The block that started on line 1 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://docs.n-sharp.dev/errors/NL106"
+    assert PeRow(source, 0) == "NL101@2:9+1|Unexpected token ']' in expression|    var ] { = 5|I was parsing an expression and found ']', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101"
+    assert PeRow(source, 1) == "NL101@2:13+1|Unexpected token '=' in expression|    var ] { = 5|I was parsing an expression and found '=', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101"
+    assert PeRow(source, 2) == "NL106@1:6+4|Missing closing '}'|func main() {|The block that started on line 1 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL106"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -418,7 +418,7 @@ test "020 s25 error handling: a function with no body at all recovers as a Funct
 test "020 s25 error handling: a function declared without a parameter list is ONE NL102 anchored on the `{`, and the body still recovers — a parenthesised `print` argument becomes a PrintStatement over a PARENTHESIZED string, not a call (was ErrorHandlingTests.Parser_HandlesMissingFunctionParameters)" {
     source := "func main {\n    print(\"hello\")\n}"
     assert PeCensus(source) == "NL102@1:11+1;"
-    assert PeRow(source, 0) == "NL102@1:11+1|Expected '('. Expected '(', got '{'|func main {|I was expecting ( here, but I found '{' instead.|<null>|<null>|https://docs.n-sharp.dev/errors/NL102"
+    assert PeRow(source, 0) == "NL102@1:11+1|Expected '('. Expected '(', got '{'|func main {|I was expecting ( here, but I found '{' instead.|<null>|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -435,7 +435,7 @@ test "020 s25 error handling: a function declared without a parameter list is ON
 test "020 s25 error handling: a typed declaration with no initializer breaks into FOUR statements — `var`, `x`, a synthetic `<error>` for the colon, and `int` as a bare identifier (was ErrorHandlingTests.Parser_HandlesMissingVariableInitializer)" {
     source := "func main() {\n    var x: int\n}"
     assert PeCensus(source) == "NL101@2:10+1;"
-    assert PeRow(source, 0) == "NL101@2:10+1|Unexpected token ':' in expression|    var x: int|I was parsing an expression and found ':', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101"
+    assert PeRow(source, 0) == "NL101@2:10+1|Unexpected token ':' in expression|    var x: int|I was parsing an expression and found ':', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -469,7 +469,7 @@ test "020 s25 error handling: a function with no declared return type parses CLE
 test "020 s25 error handling: a binary operator with no right operand is ONE NL102 whose span covers THREE columns from the `+`, and the recovered BinaryExpression keeps a synthetic `<error>` identifier as its right operand (was ErrorHandlingTests.Parser_HandlesIncompleteBinaryExpression)" {
     source := "func main() {\n    var x = 5 +\n}"
     assert PeCensus(source) == "NL102@2:13+3;"
-    assert PeRow(source, 0) == "NL102@2:13+3|Expected expression after '+'|    var x = 5 +|The '+' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '+'}{Remove the trailing '+'}|https://docs.n-sharp.dev/errors/NL102"
+    assert PeRow(source, 0) == "NL102@2:13+3|Expected expression after '+'|    var x = 5 +|The '+' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '+'}{Remove the trailing '+'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -487,7 +487,7 @@ test "020 s25 error handling: a binary operator with no right operand is ONE NL1
 test "020 s25 error handling: an index access left unclosed reports NL101 on the CLOSING BRACE OF THE FUNCTION at 4:1 — a line the erroneous statement is not on — and recovers `arr[<error>]` as a real IndexAccessExpression (was ErrorHandlingTests.Parser_HandlesInvalidArrayAccess)" {
     source := "func main() {\n    var arr = [1, 2, 3]\n    var x = arr[\n}"
     assert PeCensus(source) == "NL101@4:1+1;"
-    assert PeRow(source, 0) == "NL101@4:1+1|Unexpected token '}' in expression|}|I was parsing an expression and found '}', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101"
+    assert PeRow(source, 0) == "NL101@4:1+1|Unexpected token '}' in expression|}|I was parsing an expression and found '}', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -511,7 +511,7 @@ test "020 s25 error handling: an index access left unclosed reports NL101 on the
 test "020 s25 error handling: a dot with no member name is ONE NL102 spanning three columns, and the MemberAccessExpression survives with `<error>` as its MemberName (was ErrorHandlingTests.Parser_HandlesInvalidMemberAccess)" {
     source := "func main() {\n    var x = obj.\n}"
     assert PeCensus(source) == "NL102@2:13+3;"
-    assert PeRow(source, 0) == "NL102@2:13+3|Expected member name. Got '}'|    var x = obj.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102"
+    assert PeRow(source, 0) == "NL102@2:13+3|Expected member name. Got '}'|    var x = obj.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -529,7 +529,7 @@ test "020 s25 error handling: a dot with no member name is ONE NL102 spanning th
 test "020 s25 error handling: a chain of malformed operators is ONE NL103 about the PREFIX `+`, not a cascade, and the recovered tree is a right-nested `5 + (<error> * 3)` (was ErrorHandlingTests.Parser_HandlesChainedErrors)" {
     source := "func main() {\n    var x = 5 + + * 3  // Multiple syntax errors\n}"
     assert PeCensus(source) == "NL103@2:17+3;"
-    assert PeRow(source, 0) == "NL103@2:17+3|Prefix '+' is not supported|    var x = 5 + + * 3  // Multiple syntax errors|A leading '+' does not change the value in N#, so it is not part of the expression grammar.|Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them.|{Remove the leading '+'}|https://docs.n-sharp.dev/errors/NL103"
+    assert PeRow(source, 0) == "NL103@2:17+3|Prefix '+' is not supported|    var x = 5 + + * 3  // Multiple syntax errors|A leading '+' does not change the value in N#, so it is not part of the expression grammar.|Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them.|{Remove the leading '+'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL103"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     statements2 := new List<Statement>()
@@ -548,8 +548,8 @@ test "020 s25 error handling: a chain of malformed operators is ONE NL103 about 
 test "020 s25 error handling: a `@@` inside a union body reports TWO NL102s one column apart and synthesises TWO `<error>` union CASES, while `Success`, `Failure` and the function after the union all survive intact (was ErrorHandlingTests.Parser_RecoversFromMalformedUnionAndParsesFollowingDeclaration)" {
     source := "\nunion Result {\n    Success {\n        value: int\n    }\n    @@\n    Failure {\n        error: string\n    }\n}\n\nfunc after() {\n    print(\"ok\")\n}"
     assert PeCensus(source) == "NL102@6:5+1;NL102@6:6+1;"
-    assert PeRow(source, 0) == "NL102@6:5+1|Expected union case name. Got '@'|    @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102"
-    assert PeRow(source, 1) == "NL102@6:6+1|Expected union case name. Got '@'|    @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102"
+    assert PeRow(source, 0) == "NL102@6:5+1|Expected union case name. Got '@'|    @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102"
+    assert PeRow(source, 1) == "NL102@6:6+1|Expected union case name. Got '@'|    @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102"
     actual := PsAst(source)
     declarations1 := new List<Declaration>()
     cases2 := new List<UnionCase>()

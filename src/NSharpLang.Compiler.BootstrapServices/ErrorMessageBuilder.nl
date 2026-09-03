@@ -26,7 +26,7 @@ class ErrorMessageBuilder {
             ExpectedType: expectedType,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL202"
+            DocsUrl: DiagnosticDocs.UrlFor("NL202")
         }
     }
 
@@ -51,7 +51,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestion: suggestion,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL202"
+            DocsUrl: DiagnosticDocs.UrlFor("NL202")
         }
     }
 
@@ -69,7 +69,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestion: "Change `" + functionName + "`'s return type or remove the returned value",
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL202"
+            DocsUrl: DiagnosticDocs.UrlFor("NL202")
         }
     }
 
@@ -87,7 +87,7 @@ class ErrorMessageBuilder {
             ExpectedType: expectedType,
             HumanExplanation: "This return value does not match `" + functionName + "`'s return type:",
             ContextualHint: contextualHint,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL202"
+            DocsUrl: DiagnosticDocs.UrlFor("NL202")
         }
     }
 
@@ -105,7 +105,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestions: OptionalNames(similarNames),
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL301"
+            DocsUrl: DiagnosticDocs.UrlFor("NL301")
         }
     }
 
@@ -123,7 +123,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestions: OptionalNames(similarNames),
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL412"
+            DocsUrl: DiagnosticDocs.UrlFor("NL412")
         }
     }
 
@@ -142,7 +142,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             RelatedInfo: relatedInfo,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL501"
+            DocsUrl: DiagnosticDocs.UrlFor("NL501")
         }
     }
 
@@ -160,7 +160,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestions: OptionalNames(similarTypes),
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL302"
+            DocsUrl: DiagnosticDocs.UrlFor("NL302")
         }
     }
 
@@ -179,7 +179,7 @@ class ErrorMessageBuilder {
             Length: length,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL401"
+            DocsUrl: DiagnosticDocs.UrlFor("NL401")
         }
     }
 
@@ -204,7 +204,7 @@ class ErrorMessageBuilder {
             Length: length,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL402"
+            DocsUrl: DiagnosticDocs.UrlFor("NL402")
         }
     }
 
@@ -219,7 +219,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestion: "If you meant to use the result, call `" + methodName + "(...)`. If you meant to pass the method itself, pass it to a parameter with a delegate type.",
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL411"
+            DocsUrl: DiagnosticDocs.UrlFor("NL411")
         }
     }
 
@@ -234,7 +234,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestion: "Use the value by assigning it, printing it, passing it to a call, or remove the expression. If you meant to call a method, add parentheses with the required arguments.",
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL313"
+            DocsUrl: DiagnosticDocs.UrlFor("NL313")
         }
     }
 
@@ -249,7 +249,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestion: "Use an assignment such as `i = i + 1`, an increment/decrement such as `i++`, a side-effecting call, or remove the iterator.",
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL313"
+            DocsUrl: DiagnosticDocs.UrlFor("NL313")
         }
     }
 
@@ -264,7 +264,7 @@ class ErrorMessageBuilder {
             Length: length,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL701"
+            DocsUrl: DiagnosticDocs.UrlFor("NL701")
         }
     }
 
@@ -279,7 +279,7 @@ class ErrorMessageBuilder {
             Length: length,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL703"
+            DocsUrl: DiagnosticDocs.UrlFor("NL703")
         }
     }
 
@@ -299,7 +299,7 @@ class ErrorMessageBuilder {
             Length: length,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL101"
+            DocsUrl: DiagnosticDocs.UrlFor("NL101")
         }
     }
 
@@ -316,7 +316,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestion: "Add a `return` statement, or change the return type to `void`",
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL305"
+            DocsUrl: DiagnosticDocs.UrlFor("NL305")
         }
     }
 
@@ -344,7 +344,7 @@ class ErrorMessageBuilder {
             ExpectedType: expectedType,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL202"
+            DocsUrl: DiagnosticDocs.UrlFor("NL202")
         }
     }
 
@@ -359,7 +359,7 @@ class ErrorMessageBuilder {
             Length: length,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL306"
+            DocsUrl: DiagnosticDocs.UrlFor("NL306")
         }
     }
 
@@ -380,7 +380,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestion: "Move the `" + keyword + "` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)",
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL319"
+            DocsUrl: DiagnosticDocs.UrlFor("NL319")
         }
     }
 
@@ -405,7 +405,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestion: suggestion,
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL320"
+            DocsUrl: DiagnosticDocs.UrlFor("NL320")
         }
     }
 
@@ -418,7 +418,7 @@ class ErrorMessageBuilder {
             HumanExplanation: "This assignment writes through " + receiverDescription + ", but `" + receiverTypeName + "` is a value type:",
             ContextualHint: "A value type is copied every time it is returned from a call, an indexer, or a\n" + "property. This write would land in that temporary copy and be thrown away with it —\n" + "the original value would never change.",
             Suggestion: "Copy the value into a local first, modify the local, then store the whole value back (e.g. `tmp := …` / `tmp." + memberName + " = …` / store `tmp`)",
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL322"
+            DocsUrl: DiagnosticDocs.UrlFor("NL322")
         }
     }
 
@@ -437,7 +437,7 @@ class ErrorMessageBuilder {
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
             Suggestions: OptionalNames(similarMembers),
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL303"
+            DocsUrl: DiagnosticDocs.UrlFor("NL303")
         }
     }
 

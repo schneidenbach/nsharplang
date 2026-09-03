@@ -153,12 +153,12 @@ test "NL109 is a build-blocking compiler SYNTAX error" {
 // ── the docs URL, on BOTH its arms ────────────────────────────────────────────────────────────
 
 test "DocsUrlFor SYNTHESIZES a public docs URL for a code with no stored one" {
-    assert DiagnosticCatalog.DocsUrlFor("NL9999") == "https://docs.n-sharp.dev/errors/NL9999"
+    assert DiagnosticCatalog.DocsUrlFor("NL9999") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL9999"
     // The fallback is not reserved for codes outside the catalog: every compiler and lint row is
     // registered WITHOUT a DocsUrl, so they take the same arm.
-    assert DiagnosticCatalog.DocsUrlFor("NL001") == "https://docs.n-sharp.dev/errors/NL001"
-    assert DiagnosticCatalog.DocsUrlFor("NL109") == "https://docs.n-sharp.dev/errors/NL109"
-    assert DiagnosticCatalog.DocsUrlFor("NL951") == "https://docs.n-sharp.dev/errors/NL951"
+    assert DiagnosticCatalog.DocsUrlFor("NL001") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL001"
+    assert DiagnosticCatalog.DocsUrlFor("NL109") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL109"
+    assert DiagnosticCatalog.DocsUrlFor("NL951") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL951"
 }
 
 test "DocsUrlFor RETURNS THE STORED URL where one exists — the arm no C# test reached" {
@@ -166,8 +166,8 @@ test "DocsUrlFor RETURNS THE STORED URL where one exists — the arm no C# test 
         descriptor := DctFind(code)
         assert descriptor != null
         if descriptor != null {
-            assert descriptor.DocsUrl == "https://docs.n-sharp.dev/errors/" + code
-            assert DiagnosticCatalog.DocsUrlFor(code) == "https://docs.n-sharp.dev/errors/" + code
+            assert descriptor.DocsUrl == "https://schneidenbach.github.io/nsharplang/docs/errors/" + code
+            assert DiagnosticCatalog.DocsUrlFor(code) == "https://schneidenbach.github.io/nsharplang/docs/errors/" + code
         }
     }
 }

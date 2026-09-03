@@ -49,7 +49,7 @@ class DiagnosticCatalog {
             }
         }
 
-        return "https://docs.n-sharp.dev/errors/" + code
+        return DiagnosticDocs.UrlFor(code)
     }
 
     static func BuildDescriptors(): List<DiagnosticDescriptor> {
@@ -289,7 +289,7 @@ class DiagnosticCatalog {
 
     static func Aot(code: ErrorCode, title: string, explanation: string): DiagnosticDescriptor {
         codeText := FormatDiagnosticCode(code)
-        return new DiagnosticDescriptor(codeText, title, DiagnosticSource.Compiler, DiagnosticCategory.Aot, DiagnosticSeverity.Info, false, true, "https://docs.n-sharp.dev/errors/" + codeText, explanation)
+        return new DiagnosticDescriptor(codeText, title, DiagnosticSource.Compiler, DiagnosticCategory.Aot, DiagnosticSeverity.Info, false, true, DiagnosticDocs.UrlFor(codeText), explanation)
     }
 
     static func FormatDiagnosticCode(code: ErrorCode): string {

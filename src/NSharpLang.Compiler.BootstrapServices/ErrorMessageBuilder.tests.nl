@@ -58,7 +58,7 @@ test "an elm-style type mismatch explains both types and links the docs" {
     assert formatted.Contains("But you said it should be:")
     assert formatted.Contains("int")
     assert formatted.Contains("int.Parse")
-    assert formatted.Contains("https://docs.n-sharp.dev/errors/NL202")
+    assert formatted.Contains("https://schneidenbach.github.io/nsharplang/docs/errors/NL202")
 
     // NOT IN THE DELETED FILE: the header rule and the gutter. The heading is padded to a fixed
     // fifty-dash rule with the FILE NAME on the right, and the snippet carries a `{Line}|     `
@@ -168,7 +168,7 @@ test "an elm-style undefined type lists the types it nearly matched" {
     // builder's even though both render the same NAMING ERROR heading.
     assert formatted.Contains("Check that the type is imported.")
     assert !ErrorMessageBuilder.UndefinedType("test.nl", 8, 15, "p: Persn", 5, "Persn", new List<string>()).Format(false).Contains("Did you mean one of these?")
-    assert ErrorBuilderDocsUrl(error) == "https://docs.n-sharp.dev/errors/NL302"
+    assert ErrorBuilderDocsUrl(error) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL302"
 }
 
 // Successor to ReturnValueRequiresReturnType_FormatForTooling_ExplainsImplicitVoid.
@@ -184,7 +184,7 @@ test "returning a value from an unannotated function explains the implicit void"
 
     // NOT IN THE DELETED FILE: the WHOLE payload, which pins the block order, the caret indent and
     // the fact that the suggestion survives as its own `help:` line beneath the hint.
-    assert ErrorBuilderText(formatted) == "NL202: Function 'Hi' returns int but has no return type\n\nFunction `Hi` has no return type annotation, so N# treats it as `void`:\n\n    return 42\n    ^^^^^^\n\nactual: int\nexpected: void\n\nThis code gives back a value of type `int` from a function that currently returns nothing.\nAdd `: int` after the parameter list if `Hi` should return this value, or remove the value if the function should stay void.\n\nhelp: Add `: int` to `Hi` or remove the returned value\n\ndocs: https://docs.n-sharp.dev/errors/NL202"
+    assert ErrorBuilderText(formatted) == "NL202: Function 'Hi' returns int but has no return type\n\nFunction `Hi` has no return type annotation, so N# treats it as `void`:\n\n    return 42\n    ^^^^^^\n\nactual: int\nexpected: void\n\nThis code gives back a value of type `int` from a function that currently returns nothing.\nAdd `: int` after the parameter list if `Hi` should return this value, or remove the value if the function should stay void.\n\nhelp: Add `: int` to `Hi` or remove the returned value\n\ndocs: https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
 
     // AND THE UNKNOWN-TYPE ARM, which the deleted file could not reach: when the analyser could not
     // name the returned type, the builder stops proposing a concrete annotation.
@@ -201,28 +201,28 @@ test "returning a value from an unannotated function explains the implicit void"
 test "every builder links the documentation page for the code it raises" {
     empty := new List<string>()
 
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UnexpectedToken("f.nl", 1, 1, "x", 1, "}", null)) == "https://docs.n-sharp.dev/errors/NL101"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.TypeMismatch("f.nl", 1, 1, "x", 1, "string", "int", "Type mismatch")) == "https://docs.n-sharp.dev/errors/NL202"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ReturnValueInVoidFunction("f.nl", 1, 1, "x", 1, "Hi", "int")) == "https://docs.n-sharp.dev/errors/NL202"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ReturnTypeMismatch("f.nl", 1, 1, "x", 1, "Hi", "string", "int")) == "https://docs.n-sharp.dev/errors/NL202"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.WrongArgumentType("f.nl", 1, 1, "x", 1, "Hi", 1, "p", "string", "int")) == "https://docs.n-sharp.dev/errors/NL202"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedVariable("f.nl", 1, 1, "x", 1, "v", empty)) == "https://docs.n-sharp.dev/errors/NL301"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedType("f.nl", 1, 1, "x", 1, "T", empty)) == "https://docs.n-sharp.dev/errors/NL302"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedMember("f.nl", 1, 1, "x", 1, "m", "T", empty)) == "https://docs.n-sharp.dev/errors/NL303"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.MissingReturn("f.nl", 1, 1, "x", 1, "int")) == "https://docs.n-sharp.dev/errors/NL305"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.DuplicateDeclaration("f.nl", 1, 1, "x", 1, "n", "function")) == "https://docs.n-sharp.dev/errors/NL306"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.InvalidExpressionStatement("f.nl", 1, 1, "x", 1, "a.B")) == "https://docs.n-sharp.dev/errors/NL313"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.InvalidForIteratorExpression("f.nl", 1, 1, "x", 1, "a.B")) == "https://docs.n-sharp.dev/errors/NL313"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ControlTransferOutOfFinally("f.nl", 1, 1, "x", 1, "return")) == "https://docs.n-sharp.dev/errors/NL319"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.LockRequiresReferenceType("f.nl", 1, 1, "x", 1, "int", false)) == "https://docs.n-sharp.dev/errors/NL320"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.MemberWriteThroughValueCopy("f.nl", 1, 1, "x", 1, "X", "P", "a call result")) == "https://docs.n-sharp.dev/errors/NL322"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.WrongArgumentCount("f.nl", 1, 1, "x", 1, "Hi", 2, 1)) == "https://docs.n-sharp.dev/errors/NL401"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.NoMatchingOverload("f.nl", 1, 1, "x", 1, "Hi", 1, empty, empty)) == "https://docs.n-sharp.dev/errors/NL402"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.MethodGroupUsedAsValue("f.nl", 1, 1, "x", 1, "Hi")) == "https://docs.n-sharp.dev/errors/NL411"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedFunction("f.nl", 1, 1, "x", 1, "Hi", empty)) == "https://docs.n-sharp.dev/errors/NL412"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.NonExhaustiveMatch("f.nl", 1, 1, "x", 1, empty)) == "https://docs.n-sharp.dev/errors/NL501"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ImportNotFound("f.nl", 1, 1, "x", 1, "a/b.nl")) == "https://docs.n-sharp.dev/errors/NL701"
-    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.CircularImport("f.nl", 1, 1, "x", 1, "a/b.nl")) == "https://docs.n-sharp.dev/errors/NL703"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UnexpectedToken("f.nl", 1, 1, "x", 1, "}", null)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL101"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.TypeMismatch("f.nl", 1, 1, "x", 1, "string", "int", "Type mismatch")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ReturnValueInVoidFunction("f.nl", 1, 1, "x", 1, "Hi", "int")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ReturnTypeMismatch("f.nl", 1, 1, "x", 1, "Hi", "string", "int")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.WrongArgumentType("f.nl", 1, 1, "x", 1, "Hi", 1, "p", "string", "int")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedVariable("f.nl", 1, 1, "x", 1, "v", empty)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL301"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedType("f.nl", 1, 1, "x", 1, "T", empty)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL302"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedMember("f.nl", 1, 1, "x", 1, "m", "T", empty)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL303"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.MissingReturn("f.nl", 1, 1, "x", 1, "int")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL305"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.DuplicateDeclaration("f.nl", 1, 1, "x", 1, "n", "function")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL306"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.InvalidExpressionStatement("f.nl", 1, 1, "x", 1, "a.B")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL313"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.InvalidForIteratorExpression("f.nl", 1, 1, "x", 1, "a.B")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL313"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ControlTransferOutOfFinally("f.nl", 1, 1, "x", 1, "return")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL319"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.LockRequiresReferenceType("f.nl", 1, 1, "x", 1, "int", false)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL320"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.MemberWriteThroughValueCopy("f.nl", 1, 1, "x", 1, "X", "P", "a call result")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL322"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.WrongArgumentCount("f.nl", 1, 1, "x", 1, "Hi", 2, 1)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL401"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.NoMatchingOverload("f.nl", 1, 1, "x", 1, "Hi", 1, empty, empty)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL402"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.MethodGroupUsedAsValue("f.nl", 1, 1, "x", 1, "Hi")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL411"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.UndefinedFunction("f.nl", 1, 1, "x", 1, "Hi", empty)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL412"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.NonExhaustiveMatch("f.nl", 1, 1, "x", 1, empty)) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL501"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.ImportNotFound("f.nl", 1, 1, "x", 1, "a/b.nl")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL701"
+    assert ErrorBuilderDocsUrl(ErrorMessageBuilder.CircularImport("f.nl", 1, 1, "x", 1, "a/b.nl")) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL703"
 }
 
 // ---- The NL202 headline belongs to the CALLER -----------------------------------------------------
@@ -248,7 +248,7 @@ test "the type-mismatch builder reports the caller's sentence, not a headline of
     assert described.ExpectedType == "int"
     assert described.HumanExplanation == "I am having trouble with this code on line 10:"
     assert described.ContextualHint != null
-    assert described.DocsUrl == "https://docs.n-sharp.dev/errors/NL202"
+    assert described.DocsUrl == "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
 
     // The renderers put the caller's sentence where the bare words used to go.
     assert described.FormatForTooling(true, false).Contains("NL202: Variable 'total' is typed as 'int', but the value is 'string'")

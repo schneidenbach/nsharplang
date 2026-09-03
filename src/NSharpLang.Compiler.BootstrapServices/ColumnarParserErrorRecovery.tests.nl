@@ -381,7 +381,7 @@ func PeMembers(source: string): string {
 test "020 slice 16: a reserved keyword as a FIELD name is refused with the keyword-specific NL109" {
     assert !PeParse("\nclass Counter {\n    base: int\n}").Success
     assert PeCensus("\nclass Counter {\n    base: int\n}") == "NL109@3:5+4;", PeCensus("\nclass Counter {\n    base: int\n}")
-    assert PeRow("\nclass Counter {\n    base: int\n}", 0) == "NL109@3:5+4|Expected field name. Got the reserved keyword 'base'|    base: int|'base' is a reserved keyword in N#, so it can't be used as a name here.|Choose a name that isn't a reserved keyword (for example 'baseValue' or '_base').|{Rename it to 'baseValue' or '_base'}{Pick any name that isn't a reserved N# keyword}|https://docs.n-sharp.dev/errors/NL109", PeRow("\nclass Counter {\n    base: int\n}", 0)
+    assert PeRow("\nclass Counter {\n    base: int\n}", 0) == "NL109@3:5+4|Expected field name. Got the reserved keyword 'base'|    base: int|'base' is a reserved keyword in N#, so it can't be used as a name here.|Choose a name that isn't a reserved keyword (for example 'baseValue' or '_base').|{Rename it to 'baseValue' or '_base'}{Pick any name that isn't a reserved N# keyword}|https://schneidenbach.github.io/nsharplang/docs/errors/NL109", PeRow("\nclass Counter {\n    base: int\n}", 0)
     assert PeDecls("\nclass Counter {\n    base: int\n}") == "ClassDeclaration[Counter/m1]", PeDecls("\nclass Counter {\n    base: int\n}")
     assert PeMembers("\nclass Counter {\n    base: int\n}") == "Counter{FieldDeclaration(<error>),}", PeMembers("\nclass Counter {\n    base: int\n}")
 }
@@ -396,7 +396,7 @@ test "020 slice 16: a reserved keyword as a FIELD name is refused with the keywo
 test "020 slice 16: a reserved keyword AFTER A DOT gets its own hint, not the rename hint" {
     assert !PeParse("\nfunc test() {\n    x := obj.base\n}").Success
     assert PeCensus("\nfunc test() {\n    x := obj.base\n}") == "NL109@3:14+4;", PeCensus("\nfunc test() {\n    x := obj.base\n}")
-    assert PeRow("\nfunc test() {\n    x := obj.base\n}", 0) == "NL109@3:14+4|Expected member name. Got the reserved keyword 'base'|    x := obj.base|'base' is a reserved keyword in N#, so it can't be used as a name here.|After a member access, the name must not be a reserved keyword. To reach a  member literally named 'base', access it through a differently-named alias.|{Rename it to 'baseValue' or '_base'}{Pick any name that isn't a reserved N# keyword}|https://docs.n-sharp.dev/errors/NL109", PeRow("\nfunc test() {\n    x := obj.base\n}", 0)
+    assert PeRow("\nfunc test() {\n    x := obj.base\n}", 0) == "NL109@3:14+4|Expected member name. Got the reserved keyword 'base'|    x := obj.base|'base' is a reserved keyword in N#, so it can't be used as a name here.|After a member access, the name must not be a reserved keyword. To reach a  member literally named 'base', access it through a differently-named alias.|{Rename it to 'baseValue' or '_base'}{Pick any name that isn't a reserved N# keyword}|https://schneidenbach.github.io/nsharplang/docs/errors/NL109", PeRow("\nfunc test() {\n    x := obj.base\n}", 0)
     assert PeStmts("\nfunc test() {\n    x := obj.base\n}") == "VariableDeclarationStatement(x);", PeStmts("\nfunc test() {\n    x := obj.base\n}")
 }
 
@@ -406,7 +406,7 @@ test "020 slice 16: a reserved keyword AFTER A DOT gets its own hint, not the re
 test "020 slice 16: a reserved keyword as a PARAMETER name is refused and the function keeps no body" {
     assert !PeParse("func test(base: int) {}").Success
     assert PeCensus("func test(base: int) {}") == "NL109@1:11+4;", PeCensus("func test(base: int) {}")
-    assert PeRow("func test(base: int) {}", 0) == "NL109@1:11+4|Expected parameter name. Got the reserved keyword 'base'|func test(base: int) {}|'base' is a reserved keyword in N#, so it can't be used as a name here.|Choose a name that isn't a reserved keyword (for example 'baseValue' or '_base').|{Rename it to 'baseValue' or '_base'}{Pick any name that isn't a reserved N# keyword}|https://docs.n-sharp.dev/errors/NL109", PeRow("func test(base: int) {}", 0)
+    assert PeRow("func test(base: int) {}", 0) == "NL109@1:11+4|Expected parameter name. Got the reserved keyword 'base'|func test(base: int) {}|'base' is a reserved keyword in N#, so it can't be used as a name here.|Choose a name that isn't a reserved keyword (for example 'baseValue' or '_base').|{Rename it to 'baseValue' or '_base'}{Pick any name that isn't a reserved N# keyword}|https://schneidenbach.github.io/nsharplang/docs/errors/NL109", PeRow("func test(base: int) {}", 0)
     assert PeDecls("func test(base: int) {}") == "FunctionDeclaration[test/s0]", PeDecls("func test(base: int) {}")
 }
 
@@ -435,14 +435,14 @@ test "020 slice 16: `value` and `method` are ILAsm-reserved but NOT N# keywords 
 test "020 slice 16: an incomplete member access on its own line underlines the one-character receiver" {
     assert !PeParse("\nfunc test() {\n    x.\n}").Success
     assert PeCensus("\nfunc test() {\n    x.\n}") == "NL102@3:5+1;", PeCensus("\nfunc test() {\n    x.\n}")
-    assert PeRow("\nfunc test() {\n    x.\n}", 0) == "NL102@3:5+1|Expected member name. Got '}'|    x.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test() {\n    x.\n}", 0)
+    assert PeRow("\nfunc test() {\n    x.\n}", 0) == "NL102@3:5+1|Expected member name. Got '}'|    x.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test() {\n    x.\n}", 0)
     assert PeStmts("\nfunc test() {\n    x.\n}") == "ExpressionStatement;", PeStmts("\nfunc test() {\n    x.\n}")
 }
 
 // Successor to Parser_ReportsError_IncompleteMemberAccessBeforeSameLineToken_PointsAtReceiver.
 test "020 slice 16: an incomplete member access before a same-line token underlines the whole receiver" {
     assert PeCensus("func test() { name. }") == "NL102@1:15+4;", PeCensus("func test() { name. }")
-    assert PeRow("func test() { name. }", 0) == "NL102@1:15+4|Expected member name. Got '}'|func test() { name. }|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() { name. }", 0)
+    assert PeRow("func test() { name. }", 0) == "NL102@1:15+4|Expected member name. Got '}'|func test() { name. }|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() { name. }", 0)
 }
 
 // Successor to Parser_ProvidesSuggestions_ForIncompleteMemberAccess, which asserted only that the
@@ -450,7 +450,7 @@ test "020 slice 16: an incomplete member access before a same-line token underli
 // span scales with the receiver.
 test "020 slice 16: a nine-character receiver gets a nine-character span" {
     assert PeCensus("func test() { employees. }") == "NL102@1:15+9;", PeCensus("func test() { employees. }")
-    assert PeRow("func test() { employees. }", 0) == "NL102@1:15+9|Expected member name. Got '}'|func test() { employees. }|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() { employees. }", 0)
+    assert PeRow("func test() { employees. }", 0) == "NL102@1:15+9|Expected member name. Got '}'|func test() { employees. }|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() { employees. }", 0)
 }
 
 // Successor to Parser_ProvidesSourceSnippet (`Assert.Contains("x.", error.SourceSnippet)`) and to
@@ -458,7 +458,7 @@ test "020 slice 16: a nine-character receiver gets a nine-character span" {
 // the word 'null' — a claim the whole-text row subsumes and strengthens.
 test "020 slice 16: the snippet is the offending SOURCE LINE, not the whole file" {
     assert PeCensus("func test() {\n    x.\n}") == "NL102@2:5+1;", PeCensus("func test() {\n    x.\n}")
-    assert PeRow("func test() {\n    x.\n}", 0) == "NL102@2:5+1|Expected member name. Got '}'|    x.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    x.\n}", 0)
+    assert PeRow("func test() {\n    x.\n}", 0) == "NL102@2:5+1|Expected member name. Got '}'|    x.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    x.\n}", 0)
 }
 
 // Successor to Parser_ProvidesSourceSnippet_PreservesCrLfSplitBehavior. The snippet is produced by
@@ -467,7 +467,7 @@ test "020 slice 16: the snippet is the offending SOURCE LINE, not the whole file
 // unchanged from the LF sibling above — so the CR does not move the column.
 test "020 slice 16: a CRLF source leaves the bare CR in the snippet" {
     assert PeCensus("func test() {\r\n    x.\r\n}") == "NL102@2:5+1;", PeCensus("func test() {\r\n    x.\r\n}")
-    assert PeRow("func test() {\r\n    x.\r\n}", 0) == "NL102@2:5+1|Expected member name. Got '}'|    x.\\r|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\r\n    x.\r\n}", 0)
+    assert PeRow("func test() {\r\n    x.\r\n}", 0) == "NL102@2:5+1|Expected member name. Got '}'|    x.\\r|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\r\n    x.\r\n}", 0)
 }
 
 // Successor to Parser_ErrorFormat_IsReadable, which asserted that `Format(useColors: false)`
@@ -481,8 +481,8 @@ test "020 slice 16: a CRLF source leaves the bare CR in the snippet" {
 test "020 slice 16: the parsed error renders WHOLE through the Elm-style terminal formatter" {
     error := PeParse("func test() { x. }").Errors[0]
     assert PeEsc(error.FileName) == "test.nl"
-    assert PeEsc(error.Format(false)) == "-- ERROR --------------------------------------------------  test.nl\\n\\nI see a dot (.) operator but no member name after it.\\n\\n1|     func test() { x. }\\n                    ^\\n\\nHint: After dot (.), I need to see a property or method name.\\n\\nDid you mean one of these?\\n\\n    Check if you forgot to finish this line\\n    Common members: Length, Count, ToString(), GetHashCode()\\n    If this is end of statement, remove the trailing '.'\\n\\nRead more: https://docs.n-sharp.dev/errors/NL102\\n", PeEsc(error.Format(false))
-    assert PeEsc(error.FormatForTooling(true, false)) == "NL102: Expected member name. Got '}'\\n\\nI see a dot (.) operator but no member name after it.\\n\\nfunc test() { x. }\\n              ^\\n\\nAfter dot (.), I need to see a property or method name.\\n\\ndid you mean:\\n- Check if you forgot to finish this line\\n- Common members: Length, Count, ToString(), GetHashCode()\\n- If this is end of statement, remove the trailing '.'\\n\\n\\ndocs: https://docs.n-sharp.dev/errors/NL102", PeEsc(error.FormatForTooling(true, false))
+    assert PeEsc(error.Format(false)) == "-- ERROR --------------------------------------------------  test.nl\\n\\nI see a dot (.) operator but no member name after it.\\n\\n1|     func test() { x. }\\n                    ^\\n\\nHint: After dot (.), I need to see a property or method name.\\n\\nDid you mean one of these?\\n\\n    Check if you forgot to finish this line\\n    Common members: Length, Count, ToString(), GetHashCode()\\n    If this is end of statement, remove the trailing '.'\\n\\nRead more: https://schneidenbach.github.io/nsharplang/docs/errors/NL102\\n", PeEsc(error.Format(false))
+    assert PeEsc(error.FormatForTooling(true, false)) == "NL102: Expected member name. Got '}'\\n\\nI see a dot (.) operator but no member name after it.\\n\\nfunc test() { x. }\\n              ^\\n\\nAfter dot (.), I need to see a property or method name.\\n\\ndid you mean:\\n- Check if you forgot to finish this line\\n- Common members: Length, Count, ToString(), GetHashCode()\\n- If this is end of statement, remove the trailing '.'\\n\\n\\ndocs: https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeEsc(error.FormatForTooling(true, false))
 }
 
 // Successor to Parser_ProvidesDocsUrl, which asserted the prefix and the `NL{code:D3}` anchor for
@@ -495,9 +495,9 @@ test "020 slice 16: the docs URL is composed from the code, and every corpus row
     error := PeParse("func test() { x. }").Errors[0]
     codeValue: int = (int)error.Code
     assert codeValue == 102
-    assert PeEsc(error.DocsUrl) == "https://docs.n-sharp.dev/errors/NL" + codeValue.ToString("D3")
+    assert PeEsc(error.DocsUrl) == "https://schneidenbach.github.io/nsharplang/docs/errors/NL" + codeValue.ToString("D3")
     assert PeCensus("func test() { x. }") == "NL102@1:15+1;", PeCensus("func test() { x. }")
-    assert PeRow("func test() { x. }", 0) == "NL102@1:15+1|Expected member name. Got '}'|func test() { x. }|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() { x. }", 0)
+    assert PeRow("func test() { x. }", 0) == "NL102@1:15+1|Expected member name. Got '}'|func test() { x. }|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() { x. }", 0)
 }
 
 // ══ MISSING DECLARATION NAMES — ALL EIGHT KEYWORDS, ONE AT A TIME ════════════════════════════
@@ -511,49 +511,49 @@ test "020 slice 16: the docs URL is composed from the code, and every corpus row
 
 test "020 slice 16: a `func` declaration with no name underlines the `func` keyword" {
     assert PeCensus("func () {\n}") == "NL102@1:1+4;", PeCensus("func () {\n}")
-    assert PeRow("func () {\n}", 0) == "NL102@1:1+4|Expected function name. Got '('|func () {|I was expecting an identifier here, but I found '(' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("func () {\n}", 0)
+    assert PeRow("func () {\n}", 0) == "NL102@1:1+4|Expected function name. Got '('|func () {|I was expecting an identifier here, but I found '(' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func () {\n}", 0)
     assert PeDecls("func () {\n}") == "FunctionDeclaration[<error>/s0]", PeDecls("func () {\n}")
 }
 
 test "020 slice 16: a `class` declaration with no name underlines the `class` keyword" {
     assert PeCensus("class {\n}") == "NL102@1:1+5;", PeCensus("class {\n}")
-    assert PeRow("class {\n}", 0) == "NL102@1:1+5|Expected class name. Got '{'|class {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("class {\n}", 0)
+    assert PeRow("class {\n}", 0) == "NL102@1:1+5|Expected class name. Got '{'|class {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("class {\n}", 0)
     assert PeDecls("class {\n}") == "ClassDeclaration[<error>/m0]", PeDecls("class {\n}")
 }
 
 test "020 slice 16: a `struct` declaration with no name underlines the `struct` keyword" {
     assert PeCensus("struct {\n}") == "NL102@1:1+6;", PeCensus("struct {\n}")
-    assert PeRow("struct {\n}", 0) == "NL102@1:1+6|Expected struct name. Got '{'|struct {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("struct {\n}", 0)
+    assert PeRow("struct {\n}", 0) == "NL102@1:1+6|Expected struct name. Got '{'|struct {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("struct {\n}", 0)
     assert PeDecls("struct {\n}") == "StructDeclaration[<error>/m0]", PeDecls("struct {\n}")
 }
 
 test "020 slice 16: a `record` declaration with no name underlines the `record` keyword" {
     assert PeCensus("record {\n}") == "NL102@1:1+6;", PeCensus("record {\n}")
-    assert PeRow("record {\n}", 0) == "NL102@1:1+6|Expected record name. Got '{'|record {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("record {\n}", 0)
+    assert PeRow("record {\n}", 0) == "NL102@1:1+6|Expected record name. Got '{'|record {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("record {\n}", 0)
     assert PeDecls("record {\n}") == "RecordDeclaration[]", PeDecls("record {\n}")
 }
 
 test "020 slice 16: a `interface` declaration with no name underlines the `interface` keyword" {
     assert PeCensus("interface {\n}") == "NL102@1:1+9;", PeCensus("interface {\n}")
-    assert PeRow("interface {\n}", 0) == "NL102@1:1+9|Expected interface name. Got '{'|interface {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("interface {\n}", 0)
+    assert PeRow("interface {\n}", 0) == "NL102@1:1+9|Expected interface name. Got '{'|interface {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("interface {\n}", 0)
     assert PeDecls("interface {\n}") == "InterfaceDeclaration[]", PeDecls("interface {\n}")
 }
 
 test "020 slice 16: a `union` declaration with no name underlines the `union` keyword" {
     assert PeCensus("union {\n}") == "NL102@1:1+5;", PeCensus("union {\n}")
-    assert PeRow("union {\n}", 0) == "NL102@1:1+5|Expected union name. Got '{'|union {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("union {\n}", 0)
+    assert PeRow("union {\n}", 0) == "NL102@1:1+5|Expected union name. Got '{'|union {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("union {\n}", 0)
     assert PeDecls("union {\n}") == "UnionDeclaration[]", PeDecls("union {\n}")
 }
 
 test "020 slice 16: a `enum` declaration with no name underlines the `enum` keyword" {
     assert PeCensus("enum {\n}") == "NL102@1:1+4;", PeCensus("enum {\n}")
-    assert PeRow("enum {\n}", 0) == "NL102@1:1+4|Expected enum name. Got '{'|enum {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("enum {\n}", 0)
+    assert PeRow("enum {\n}", 0) == "NL102@1:1+4|Expected enum name. Got '{'|enum {|I was expecting an identifier here, but I found '{' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("enum {\n}", 0)
     assert PeDecls("enum {\n}") == "EnumDeclaration[<error>]", PeDecls("enum {\n}")
 }
 
 test "020 slice 16: a `type` declaration with no name underlines the `type` keyword" {
     assert PeCensus("type = int") == "NL102@1:1+4;", PeCensus("type = int")
-    assert PeRow("type = int", 0) == "NL102@1:1+4|Expected type alias name. Got '='|type = int|I was expecting an identifier here, but I found '=' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("type = int", 0)
+    assert PeRow("type = int", 0) == "NL102@1:1+4|Expected type alias name. Got '='|type = int|I was expecting an identifier here, but I found '=' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("type = int", 0)
     assert PeDecls("type = int") == "TypeAliasDeclaration[]", PeDecls("type = int")
 }
 
@@ -568,7 +568,7 @@ test "020 slice 16: a `type` declaration with no name underlines the `type` keyw
 // Successor to Parser_MissingParameterName_PointsAtTypeToken.
 test "020 slice 16: a parameter list opening with `:` underlines the TYPE token, not the colon" {
     assert PeCensus("func main(: string) {\n}") == "NL102@1:13+6;", PeCensus("func main(: string) {\n}")
-    assert PeRow("func main(: string) {\n}", 0) == "NL102@1:13+6|Expected parameter name. Got ':'|func main(: string) {|I was expecting an identifier here, but I found ':' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("func main(: string) {\n}", 0)
+    assert PeRow("func main(: string) {\n}", 0) == "NL102@1:13+6|Expected parameter name. Got ':'|func main(: string) {|I was expecting an identifier here, but I found ':' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func main(: string) {\n}", 0)
     assert PeDecls("func main(: string) {\n}") == "FunctionDeclaration[main/s0]", PeDecls("func main(: string) {\n}")
 }
 
@@ -577,27 +577,27 @@ test "020 slice 16: a parameter list opening with `:` underlines the TYPE token,
 // `Message.Contains("Expected type name")` could not see.
 test "020 slice 16: a parameter with a colon and no type underlines the parameter NAME" {
     assert PeCensus("func main(name:) {\n}") == "NL102@1:11+4;", PeCensus("func main(name:) {\n}")
-    assert PeRow("func main(name:) {\n}", 0) == "NL102@1:11+4|Expected type name. Got ')'|func main(name:) {|Parameter 'name' needs a type after ':'.|Write this parameter as `name: Type`.|{Add a parameter type after ':'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func main(name:) {\n}", 0)
+    assert PeRow("func main(name:) {\n}", 0) == "NL102@1:11+4|Expected type name. Got ')'|func main(name:) {|Parameter 'name' needs a type after ':'.|Write this parameter as `name: Type`.|{Add a parameter type after ':'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func main(name:) {\n}", 0)
 }
 
 // Successor to Parser_TrailingParameterComma_PointsAtPreviousParameter. The 13-character span
 // covers `name: string,` — comma included — and the explanation is the comma-specific one.
 test "020 slice 16: a trailing parameter comma underlines the whole preceding parameter AND says so" {
     assert PeCensus("func main(name: string, ) {\n}") == "NL102@1:11+13;", PeCensus("func main(name: string, ) {\n}")
-    assert PeRow("func main(name: string, ) {\n}", 0) == "NL102@1:11+13|Expected parameter name. Got ')'|func main(name: string, ) {|Parameter lists need another parameter after a comma.|Add the missing parameter after the comma, or remove the trailing comma.|{Add a parameter after the comma}{Remove the trailing comma}|https://docs.n-sharp.dev/errors/NL102", PeRow("func main(name: string, ) {\n}", 0)
+    assert PeRow("func main(name: string, ) {\n}", 0) == "NL102@1:11+13|Expected parameter name. Got ')'|func main(name: string, ) {|Parameter lists need another parameter after a comma.|Add the missing parameter after the comma, or remove the trailing comma.|{Add a parameter after the comma}{Remove the trailing comma}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func main(name: string, ) {\n}", 0)
 }
 
 // Successor to the first `[InlineData]` row of Parser_MissingTypeParameterName_PointsAtGenericParameterList.
 test "020 slice 16: a trailing comma in a generic parameter list underlines `<T,>`" {
     assert PeCensus("func main<T,>() {\n}") == "NL102@1:10+4;", PeCensus("func main<T,>() {\n}")
-    assert PeRow("func main<T,>() {\n}", 0) == "NL102@1:10+4|Expected type parameter name. Got '>'|func main<T,>() {|Generic parameter lists need a type parameter name after each comma.|Write generic parameters as `<T>` or `<T, U>`.|{Add a type parameter name}{Remove the trailing comma if the list is complete}|https://docs.n-sharp.dev/errors/NL102", PeRow("func main<T,>() {\n}", 0)
+    assert PeRow("func main<T,>() {\n}", 0) == "NL102@1:10+4|Expected type parameter name. Got '>'|func main<T,>() {|Generic parameter lists need a type parameter name after each comma.|Write generic parameters as `<T>` or `<T, U>`.|{Add a type parameter name}{Remove the trailing comma if the list is complete}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func main<T,>() {\n}", 0)
 }
 
 // Successor to the second `[InlineData]` row. Same message and explanation as the trailing-comma
 // row, a two-character span, and `Box` still materializes with zero members.
 test "020 slice 16: an empty generic parameter list underlines `<>` and the class survives" {
     assert PeCensus("class Box<> {\n}") == "NL102@1:10+2;", PeCensus("class Box<> {\n}")
-    assert PeRow("class Box<> {\n}", 0) == "NL102@1:10+2|Expected type parameter name. Got '>'|class Box<> {|Generic parameter lists need a type parameter name after each comma.|Write generic parameters as `<T>` or `<T, U>`.|{Add a type parameter name}{Remove the trailing comma if the list is complete}|https://docs.n-sharp.dev/errors/NL102", PeRow("class Box<> {\n}", 0)
+    assert PeRow("class Box<> {\n}", 0) == "NL102@1:10+2|Expected type parameter name. Got '>'|class Box<> {|Generic parameter lists need a type parameter name after each comma.|Write generic parameters as `<T>` or `<T, U>`.|{Add a type parameter name}{Remove the trailing comma if the list is complete}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("class Box<> {\n}", 0)
     assert PeDecls("class Box<> {\n}") == "ClassDeclaration[Box/m0]", PeDecls("class Box<> {\n}")
 }
 
@@ -605,7 +605,7 @@ test "020 slice 16: an empty generic parameter list underlines `<>` and the clas
 // ('Field 'Name' needs a type after ':'), and the field still materializes as a member.
 test "020 slice 16: a field with a colon and no type underlines the field NAME" {
     assert PeCensus("class User {\n    Name:\n}") == "NL102@2:5+4;", PeCensus("class User {\n    Name:\n}")
-    assert PeRow("class User {\n    Name:\n}", 0) == "NL102@2:5+4|Expected type name. Got '}'|    Name:|Field 'Name' needs a type after ':'.|Write this field as `Name: Type`.|{Add a field type after ':'}|https://docs.n-sharp.dev/errors/NL102", PeRow("class User {\n    Name:\n}", 0)
+    assert PeRow("class User {\n    Name:\n}", 0) == "NL102@2:5+4|Expected type name. Got '}'|    Name:|Field 'Name' needs a type after ':'.|Write this field as `Name: Type`.|{Add a field type after ':'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("class User {\n    Name:\n}", 0)
     assert PeDecls("class User {\n    Name:\n}") == "ClassDeclaration[User/m1]", PeDecls("class User {\n    Name:\n}")
 }
 
@@ -613,7 +613,7 @@ test "020 slice 16: a field with a colon and no type underlines the field NAME" 
 // `List<>` and a generic-specific explanation that names `List`.
 test "020 slice 16: an empty generic argument list underlines the whole `List<>`" {
     assert PeCensus("class User {\n    Items: List<>\n}") == "NL102@2:12+6;", PeCensus("class User {\n    Items: List<>\n}")
-    assert PeRow("class User {\n    Items: List<>\n}", 0) == "NL102@2:12+6|Expected type name. Got '>'|    Items: List<>|Generic type 'List' needs a type argument between '<' and '>'.|Write this type as `List<T>` or remove the generic argument list.|{Add a type argument}{Remove the empty generic argument list}|https://docs.n-sharp.dev/errors/NL102", PeRow("class User {\n    Items: List<>\n}", 0)
+    assert PeRow("class User {\n    Items: List<>\n}", 0) == "NL102@2:12+6|Expected type name. Got '>'|    Items: List<>|Generic type 'List' needs a type argument between '<' and '>'.|Write this type as `List<T>` or remove the generic argument list.|{Add a type argument}{Remove the empty generic argument list}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("class User {\n    Items: List<>\n}", 0)
     assert PeDecls("class User {\n    Items: List<>\n}") == "ClassDeclaration[User/m1]", PeDecls("class User {\n    Items: List<>\n}")
 }
 
@@ -626,8 +626,8 @@ test "020 slice 16: an empty generic argument list underlines the whole `List<>`
 // field after it. A missing TYPE does not.
 test "020 slice 16: two malformed fields in a row report TWICE and both members survive" {
     assert PeCensus("class User {\n    Name:\n    Items: List<>\n}") == "NL102@2:5+4;NL102@3:12+6;", PeCensus("class User {\n    Name:\n    Items: List<>\n}")
-    assert PeRow("class User {\n    Name:\n    Items: List<>\n}", 0) == "NL102@2:5+4|Expected type name. Got 'Items'|    Name:|Field 'Name' needs a type after ':'.|Write this field as `Name: Type`.|{Add a field type after ':'}|https://docs.n-sharp.dev/errors/NL102", PeRow("class User {\n    Name:\n    Items: List<>\n}", 0)
-    assert PeRow("class User {\n    Name:\n    Items: List<>\n}", 1) == "NL102@3:12+6|Expected type name. Got '>'|    Items: List<>|Generic type 'List' needs a type argument between '<' and '>'.|Write this type as `List<T>` or remove the generic argument list.|{Add a type argument}{Remove the empty generic argument list}|https://docs.n-sharp.dev/errors/NL102", PeRow("class User {\n    Name:\n    Items: List<>\n}", 1)
+    assert PeRow("class User {\n    Name:\n    Items: List<>\n}", 0) == "NL102@2:5+4|Expected type name. Got 'Items'|    Name:|Field 'Name' needs a type after ':'.|Write this field as `Name: Type`.|{Add a field type after ':'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("class User {\n    Name:\n    Items: List<>\n}", 0)
+    assert PeRow("class User {\n    Name:\n    Items: List<>\n}", 1) == "NL102@3:12+6|Expected type name. Got '>'|    Items: List<>|Generic type 'List' needs a type argument between '<' and '>'.|Write this type as `List<T>` or remove the generic argument list.|{Add a type argument}{Remove the empty generic argument list}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("class User {\n    Name:\n    Items: List<>\n}", 1)
     assert PeMembers("class User {\n    Name:\n    Items: List<>\n}") == "User{FieldDeclaration(Name),FieldDeclaration(Items),}", PeMembers("class User {\n    Name:\n    Items: List<>\n}")
 }
 
@@ -636,7 +636,7 @@ test "020 slice 16: two malformed fields in a row report TWICE and both members 
 // file survive.
 test "020 slice 16: an object initializer member with no colon underlines the property name" {
     assert PeCensus("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}") == "NL102@5:24+4;", PeCensus("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}")
-    assert PeRow("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}", 0) == "NL102@5:24+4|Expected ':' after object initializer member 'Name'|    user := new User { Name }|Object initializer member 'Name' needs ':' before its value.|Write 'Name: value'.|{Add ':' after 'Name'}|https://docs.n-sharp.dev/errors/NL102", PeRow("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}", 0)
+    assert PeRow("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}", 0) == "NL102@5:24+4|Expected ':' after object initializer member 'Name'|    user := new User { Name }|Object initializer member 'Name' needs ':' before its value.|Write 'Name: value'.|{Add ':' after 'Name'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}", 0)
     assert PeDecls("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}") == "ClassDeclaration[User/m1]FunctionDeclaration[main/s1]", PeDecls("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}")
     assert PeStmts("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}") == "VariableDeclarationStatement(user);", PeStmts("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}")
 }
@@ -646,7 +646,7 @@ test "020 slice 16: an object initializer member with no colon underlines the pr
 // guess — it was unstated.
 test "020 slice 16: a bare `new` underlines the keyword and offers the target-typed route" {
     assert PeCensus("func main() {\n    value := new\n}") == "NL102@2:14+3;", PeCensus("func main() {\n    value := new\n}")
-    assert PeRow("func main() {\n    value := new\n}", 0) == "NL102@2:14+3|Expected type name. Got '}'|    value := new|The `new` expression needs a type name, `()`, or an initializer after it.|Write `new TypeName(...)`, `new()`, or `new { Name: value }`.|{Add a type name after `new`}{Use `new()` for target-typed construction}|https://docs.n-sharp.dev/errors/NL102", PeRow("func main() {\n    value := new\n}", 0)
+    assert PeRow("func main() {\n    value := new\n}", 0) == "NL102@2:14+3|Expected type name. Got '}'|    value := new|The `new` expression needs a type name, `()`, or an initializer after it.|Write `new TypeName(...)`, `new()`, or `new { Name: value }`.|{Add a type name after `new`}{Use `new()` for target-typed construction}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func main() {\n    value := new\n}", 0)
     assert PeStmts("func main() {\n    value := new\n}") == "VariableDeclarationStatement(value);", PeStmts("func main() {\n    value := new\n}")
 }
 
@@ -661,7 +661,7 @@ test "020 slice 16: a bare `new` underlines the keyword and offers the target-ty
 test "020 slice 16: `func greet(name string)` points at the parameter name and shows `name: Type`" {
     assert !PeParse("func greet(name string): string { return name }").Success
     assert PeCensus("func greet(name string): string { return name }") == "NL102@1:12+4;", PeCensus("func greet(name string): string { return name }")
-    assert PeRow("func greet(name string): string { return name }", 0) == "NL102@1:12+4|Expected ':' after parameter name. Got 'string'|func greet(name string): string { return name }|Parameter 'name' needs a ':' before its type.|Write this parameter as `name: Type`.|{Add ':' after 'name'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func greet(name string): string { return name }", 0)
+    assert PeRow("func greet(name string): string { return name }", 0) == "NL102@1:12+4|Expected ':' after parameter name. Got 'string'|func greet(name string): string { return name }|Parameter 'name' needs a ':' before its type.|Write this parameter as `name: Type`.|{Add ':' after 'name'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func greet(name string): string { return name }", 0)
     assert PeDecls("func greet(name string): string { return name }") == "FunctionDeclaration[greet/s1]", PeDecls("func greet(name string): string { return name }")
 }
 
@@ -670,7 +670,7 @@ test "020 slice 16: `func greet(name string)` points at the parameter name and s
 test "020 slice 16: `Name string` in a class body offers BOTH the `:` and the `:=` route" {
     assert !PeParse("class User {\n    Name string\n}").Success
     assert PeCensus("class User {\n    Name string\n}") == "NL102@2:5+4;", PeCensus("class User {\n    Name string\n}")
-    assert PeRow("class User {\n    Name string\n}", 0) == "NL102@2:5+4|Expected ':' or ':=' after field name. Got 'string'|    Name string|Field 'Name' needs a ':' before its type, or ':=' before an inferred initializer.|Write this field as `Name: Type` or `Name := value`.|{Add ':' after 'Name'}{Use ':=' after 'Name' if the type should be inferred}|https://docs.n-sharp.dev/errors/NL102", PeRow("class User {\n    Name string\n}", 0)
+    assert PeRow("class User {\n    Name string\n}", 0) == "NL102@2:5+4|Expected ':' or ':=' after field name. Got 'string'|    Name string|Field 'Name' needs a ':' before its type, or ':=' before an inferred initializer.|Write this field as `Name: Type` or `Name := value`.|{Add ':' after 'Name'}{Use ':=' after 'Name' if the type should be inferred}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("class User {\n    Name string\n}", 0)
 }
 
 // Successor to Parser_MissingFunctionReturnColon_PointsAtFunctionName. The span is the function
@@ -678,7 +678,7 @@ test "020 slice 16: `Name string` in a class body offers BOTH the `:` and the `:
 test "020 slice 16: `func answer() int` points at the function NAME and shows the return-type form" {
     assert !PeParse("func answer() int { return 1 }").Success
     assert PeCensus("func answer() int { return 1 }") == "NL102@1:6+6;", PeCensus("func answer() int { return 1 }")
-    assert PeRow("func answer() int { return 1 }", 0) == "NL102@1:6+6|Expected ':' before return type. Got 'int'|func answer() int { return 1 }|Function 'answer' needs a ':' before its return type.|Write the return type as `func name(...): Type { ... }`.|{Add ':' before 'int'}{Remove the return type if this function does not return a value}|https://docs.n-sharp.dev/errors/NL102", PeRow("func answer() int { return 1 }", 0)
+    assert PeRow("func answer() int { return 1 }", 0) == "NL102@1:6+6|Expected ':' before return type. Got 'int'|func answer() int { return 1 }|Function 'answer' needs a ':' before its return type.|Write the return type as `func name(...): Type { ... }`.|{Add ':' before 'int'}{Remove the return type if this function does not return a value}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func answer() int { return 1 }", 0)
     assert PeDecls("func answer() int { return 1 }") == "FunctionDeclaration[answer/s1]", PeDecls("func answer() int { return 1 }")
 }
 
@@ -692,7 +692,7 @@ test "020 slice 16: `func answer() int` points at the function NAME and shows th
 test "020 slice 16: the enum-backing-type refusal is the ONLY corpus row with no human explanation" {
     assert !PeParse("enum Status: decimal { Open }").Success
     assert PeCensus("enum Status: decimal { Open }") == "NL101@1:14+7;", PeCensus("enum Status: decimal { Open }")
-    assert PeRow("enum Status: decimal { Open }", 0) == "NL101@1:14+7|Unsupported enum backing type 'decimal'. Only 'int' and 'string' are supported.|enum Status: decimal { Open }|<null>|<null>|<null>|https://docs.n-sharp.dev/errors/NL101", PeRow("enum Status: decimal { Open }", 0)
+    assert PeRow("enum Status: decimal { Open }", 0) == "NL101@1:14+7|Unsupported enum backing type 'decimal'. Only 'int' and 'string' are supported.|enum Status: decimal { Open }|<null>|<null>|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101", PeRow("enum Status: decimal { Open }", 0)
     assert PeDecls("enum Status: decimal { Open }") == "EnumDeclaration[Status]", PeDecls("enum Status: decimal { Open }")
     assert PeParse("enum Status: decimal { Open }").Errors[0].HumanExplanation == null
     assert PeParse("enum Status: decimal { Open }").Errors[0].Suggestions == null
@@ -705,7 +705,7 @@ test "020 slice 16: the enum-backing-type refusal is the ONLY corpus row with no
 test "020 slice 16: a stray `]` in a class body is reported once and leaves an `<error>` field" {
     assert !PeParse("class Test { ] }").Success
     assert PeCensus("class Test { ] }") == "NL102@1:14+1;", PeCensus("class Test { ] }")
-    assert PeRow("class Test { ] }", 0) == "NL102@1:14+1|Expected field name. Got ']'|class Test { ] }|I was expecting an identifier here, but I found ']' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("class Test { ] }", 0)
+    assert PeRow("class Test { ] }", 0) == "NL102@1:14+1|Expected field name. Got ']'|class Test { ] }|I was expecting an identifier here, but I found ']' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("class Test { ] }", 0)
     assert PeSeverities("class Test { ] }") == "error;", PeSeverities("class Test { ] }")
     assert (int)PeParse("class Test { ] }").Errors[0].Code != 0
     assert PeMembers("class Test { ] }") == "Test{FieldDeclaration(<error>),}", PeMembers("class Test { ] }")
@@ -723,8 +723,8 @@ test "020 slice 16: a stray `]` in a class body is reported once and leaves an `
 test "020 slice 16: three dangling dots in three functions report exactly three diagnostics" {
     assert !PeParse("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}").Success
     assert PeCensus("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}") == "NL102@3:5+1;NL102@7:5+1;NL102@11:5+1;", PeCensus("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}")
-    assert PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}", 0) == "NL102@3:5+1|Expected member name. Got '}'|    x.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}", 0)
-    assert PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}", 2) == "NL102@11:5+1|Expected member name. Got '}'|    z.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}", 2)
+    assert PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}", 0) == "NL102@3:5+1|Expected member name. Got '}'|    x.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}", 0)
+    assert PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}", 2) == "NL102@11:5+1|Expected member name. Got '}'|    z.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}", 2)
     assert PeDecls("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}") == "FunctionDeclaration[test1/s1]FunctionDeclaration[test2/s1]FunctionDeclaration[test3/s1]", PeDecls("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    y.\n}\n\nfunc test3() {\n    z.\n}")
 }
 
@@ -734,9 +734,9 @@ test "020 slice 16: three dangling dots in three functions report exactly three 
 // shows the parser is resynchronising per statement rather than repeating one canned diagnostic.
 test "020 slice 16: three dangling dots in ONE function report three, each naming the NEXT token" {
     assert PeCensus("\nfunc test() {\n    x.\n    y.\n    z.\n}") == "NL102@3:5+1;NL102@4:5+1;NL102@5:5+1;", PeCensus("\nfunc test() {\n    x.\n    y.\n    z.\n}")
-    assert PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 0) == "NL102@3:5+1|Expected member name. Got 'y'|    x.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 0)
-    assert PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 1) == "NL102@4:5+1|Expected member name. Got 'z'|    y.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 1)
-    assert PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 2) == "NL102@5:5+1|Expected member name. Got '}'|    z.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 2)
+    assert PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 0) == "NL102@3:5+1|Expected member name. Got 'y'|    x.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 0)
+    assert PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 1) == "NL102@4:5+1|Expected member name. Got 'z'|    y.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 1)
+    assert PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 2) == "NL102@5:5+1|Expected member name. Got '}'|    z.|I see a dot (.) operator but no member name after it.|After dot (.), I need to see a property or method name.|{Check if you forgot to finish this line}{Common members: Length, Count, ToString(), GetHashCode()}{If this is end of statement, remove the trailing '.'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test() {\n    x.\n    y.\n    z.\n}", 2)
     assert PeSeverities("\nfunc test() {\n    x.\n    y.\n    z.\n}") == "error;error;error;", PeSeverities("\nfunc test() {\n    x.\n    y.\n    z.\n}")
     assert PeDecls("\nfunc test() {\n    x.\n    y.\n    z.\n}") == "FunctionDeclaration[test/s3]", PeDecls("\nfunc test() {\n    x.\n    y.\n    z.\n}")
 }
@@ -748,8 +748,8 @@ test "020 slice 16: three dangling dots in ONE function report three, each namin
 test "020 slice 16: a bad match arm and a bad initializer member report two DIFFERENT codes" {
     assert !PeParse("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}").Success
     assert PeCensus("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}") == "NL103@4:9+1;NL102@9:9+1;", PeCensus("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}")
-    assert PeRow("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}", 0) == "NL103@4:9+1|Invalid pattern. Got '@'|        @@ => 1,|I couldn't recognize this as a valid pattern for matching.|Patterns can be literals, identifiers, types, or destructuring patterns.|{Literal pattern: case 5 => ...}{Identifier pattern: case x => ...}{Type pattern: case int x => ...}{Object pattern: case { Name: \"John\" } => ...}|https://docs.n-sharp.dev/errors/NL103", PeRow("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}", 0)
-    assert PeRow("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}", 1) == "NL102@9:9+1|Expected property name. Got '@'|        @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}", 1)
+    assert PeRow("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}", 0) == "NL103@4:9+1|Invalid pattern. Got '@'|        @@ => 1,|I couldn't recognize this as a valid pattern for matching.|Patterns can be literals, identifiers, types, or destructuring patterns.|{Literal pattern: case 5 => ...}{Identifier pattern: case x => ...}{Type pattern: case int x => ...}{Object pattern: case { Name: \"John\" } => ...}|https://schneidenbach.github.io/nsharplang/docs/errors/NL103", PeRow("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}", 0)
+    assert PeRow("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}", 1) == "NL102@9:9+1|Expected property name. Got '@'|        @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}", 1)
     assert PeDecls("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}") == "FunctionDeclaration[test/s2]", PeDecls("\nfunc test() {\n    match value {\n        @@ => 1,\n        other => 2\n    }\n\n    new Person {\n        @@\n    }\n}")
 }
 
@@ -760,8 +760,8 @@ test "020 slice 16: a bad match arm and a bad initializer member report two DIFF
 test "020 slice 16: four errors across a 24-line file land on four distinct lines with full metadata" {
     assert !PeParse("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}").Success
     assert PeCensus("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}") == "NL102@5:5+1;NL102@11:15+1;NL107@17:13+9;NL102@23:5+1;", PeCensus("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}")
-    assert PeRow("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}", 1) == "NL102@11:15+1|Expected field name. Got '@'|    prop := 5 @@ 3  // Error on line 11 (invalid operator)|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}", 1)
-    assert PeRow("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}", 2) == "NL107@17:13+9|Missing closing ')'|    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://docs.n-sharp.dev/errors/NL107", PeRow("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}", 2)
+    assert PeRow("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}", 1) == "NL102@11:15+1|Expected field name. Got '@'|    prop := 5 @@ 3  // Error on line 11 (invalid operator)|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}", 1)
+    assert PeRow("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}", 2) == "NL107@17:13+9|Missing closing ')'|    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL107", PeRow("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}", 2)
     assert PeSeverities("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}") == "error;error;error;error;", PeSeverities("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}")
     assert PeDecls("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}") == "FunctionDeclaration[test1/s1]ClassDeclaration[Test/m2]FunctionDeclaration[test2/s1]FunctionDeclaration[test3/s1]", PeDecls("\n// Line 2\nfunc test1() {\n    // Line 4\n    x.   // Error on line 5\n}\n\n// Line 8\nclass Test {\n    // Line 10\n    prop := 5 @@ 3  // Error on line 11 (invalid operator)\n}\n\n// Line 14\nfunc test2() {\n    // Line 16\n    Console.WriteLine(\"test\"  // Error on line 17 (missing paren)\n}\n\n// Line 20\nfunc test3() {\n    // Line 22\n    y.   // Error on line 23\n}")
 }
@@ -772,7 +772,7 @@ test "020 slice 16: four errors across a 24-line file land on four distinct line
 test "020 slice 16: two `@` tokens in an expression report twice, one per character" {
     assert !PeParse("\nfunc test() {\n    x = 5 @@ 3\n}").Success
     assert PeCensus("\nfunc test() {\n    x = 5 @@ 3\n}") == "NL101@3:11+1;NL101@3:12+1;", PeCensus("\nfunc test() {\n    x = 5 @@ 3\n}")
-    assert PeRow("\nfunc test() {\n    x = 5 @@ 3\n}", 0) == "NL101@3:11+1|Unexpected token '@' in expression|    x = 5 @@ 3|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101", PeRow("\nfunc test() {\n    x = 5 @@ 3\n}", 0)
+    assert PeRow("\nfunc test() {\n    x = 5 @@ 3\n}", 0) == "NL101@3:11+1|Unexpected token '@' in expression|    x = 5 @@ 3|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101", PeRow("\nfunc test() {\n    x = 5 @@ 3\n}", 0)
     assert PeDecls("\nfunc test() {\n    x = 5 @@ 3\n}") == "FunctionDeclaration[test/s4]", PeDecls("\nfunc test() {\n    x = 5 @@ 3\n}")
     assert PeStmts("\nfunc test() {\n    x = 5 @@ 3\n}") == "ExpressionStatement;ExpressionStatement;ExpressionStatement;ExpressionStatement;", PeStmts("\nfunc test() {\n    x = 5 @@ 3\n}")
 }
@@ -785,8 +785,8 @@ test "020 slice 16: two `@` tokens in an expression report twice, one per charac
 // is only ONE top-level function. Nothing had written that down.
 test "020 slice 16: a dangling `+` before a new function is suppressed to exactly two diagnostics" {
     assert PeCensus("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}") == "NL102@3:13+3;NL106@2:6+4;", PeCensus("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}")
-    assert PeRow("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}", 0) == "NL102@3:13+3|Expected expression after '+'|    let x = 5 +|The '+' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '+'}{Remove the trailing '+'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}", 0)
-    assert PeRow("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}", 1) == "NL106@2:6+4|Missing closing '}'|func test() {|The block that started on line 2 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://docs.n-sharp.dev/errors/NL106", PeRow("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}", 1)
+    assert PeRow("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}", 0) == "NL102@3:13+3|Expected expression after '+'|    let x = 5 +|The '+' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '+'}{Remove the trailing '+'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}", 0)
+    assert PeRow("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}", 1) == "NL106@2:6+4|Missing closing '}'|func test() {|The block that started on line 2 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL106", PeRow("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}", 1)
     assert PeDecls("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}") == "FunctionDeclaration[test/s2]", PeDecls("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}")
     assert PeStmts("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}") == "VariableDeclarationStatement(x);LocalFunctionStatement;", PeStmts("\nfunc test() {\n    let x = 5 +\n\nfunc other() {\n    let y = 10\n}")
 }
@@ -812,7 +812,7 @@ test "020 slice 16: `ParseFileAst` returns RECORDING order, which is not positio
 test "020 slice 16: three bad initializers in one block report six diagnostics, two per `@@`" {
     assert !PeParse("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}").Success
     assert PeCensus("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}") == "NL101@3:18+1;NL101@3:19+1;NL101@4:18+1;NL101@4:19+1;NL101@5:18+1;NL101@5:19+1;", PeCensus("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}")
-    assert PeRow("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}", 0) == "NL101@3:18+1|Unexpected token '@' in expression|    let a: int = @@|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101", PeRow("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}", 0)
+    assert PeRow("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}", 0) == "NL101@3:18+1|Unexpected token '@' in expression|    let a: int = @@|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101", PeRow("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}", 0)
     assert PeSeverities("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}") == "error;error;error;error;error;error;", PeSeverities("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}")
     assert PeDecls("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}") == "FunctionDeclaration[test/s6]", PeDecls("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}")
     assert PeStmts("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}") == "VariableDeclarationStatement(a);ExpressionStatement;VariableDeclarationStatement(b);ExpressionStatement;VariableDeclarationStatement(c);ExpressionStatement;", PeStmts("\nfunc test() {\n    let a: int = @@\n    let b: int = @@\n    let c: int = @@\n}")
@@ -823,7 +823,7 @@ test "020 slice 16: three bad initializers in one block report six diagnostics, 
 test "020 slice 16: three different error KINDS in three functions report four diagnostics" {
     assert !PeParse("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}").Success
     assert PeCensus("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}") == "NL102@3:5+1;NL101@7:18+1;NL101@7:19+1;NL107@11:13+9;", PeCensus("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}")
-    assert PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}", 3) == "NL107@11:13+9|Missing closing ')'|    Console.WriteLine(\"hi\"|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://docs.n-sharp.dev/errors/NL107", PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}", 3)
+    assert PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}", 3) == "NL107@11:13+9|Missing closing ')'|    Console.WriteLine(\"hi\"|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL107", PeRow("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}", 3)
     assert PeDecls("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}") == "FunctionDeclaration[test1/s1]FunctionDeclaration[test2/s2]FunctionDeclaration[test3/s1]", PeDecls("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}")
     assert PeStmts("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}") == "ExpressionStatement;VariableDeclarationStatement(a);ExpressionStatement;ExpressionStatement;", PeStmts("\nfunc test1() {\n    x.\n}\n\nfunc test2() {\n    let a: int = @@\n}\n\nfunc test3() {\n    Console.WriteLine(\"hi\"\n}")
 }
@@ -842,7 +842,7 @@ test "020 slice 16: three different error KINDS in three functions report four d
 test "020 slice 16: stray tokens at the start of a file synthesize `<error>`-named CLASS declarations" {
     assert !PeParse("@@ invalid").Success
     assert PeCensus("@@ invalid") == "NL101@1:1+1;NL101@1:2+1;NL101@1:4+7;", PeCensus("@@ invalid")
-    assert PeRow("@@ invalid", 2) == "NL101@1:4+7|Unexpected token 'invalid'|@@ invalid|I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found 'invalid' instead.|Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.|<null>|https://docs.n-sharp.dev/errors/NL101", PeRow("@@ invalid", 2)
+    assert PeRow("@@ invalid", 2) == "NL101@1:4+7|Unexpected token 'invalid'|@@ invalid|I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found 'invalid' instead.|Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101", PeRow("@@ invalid", 2)
     assert PeDecls("@@ invalid") == "ClassDeclaration[<error>/m0]ClassDeclaration[<error>/m0]ClassDeclaration[<error>/m0]", PeDecls("@@ invalid")
 }
 
@@ -855,7 +855,7 @@ test "020 slice 16: stray tokens at the start of a file synthesize `<error>`-nam
 test "020 slice 16: `@@ ## !! %%` reports TWO diagnostics, because `##` lexes as a preprocessor directive" {
     assert !PeParse("@@ ## !! %%").Success
     assert PeCensus("@@ ## !! %%") == "NL101@1:1+1;NL101@1:2+1;", PeCensus("@@ ## !! %%")
-    assert PeRow("@@ ## !! %%", 0) == "NL101@1:1+1|Unexpected token '@'|@@ ## !! %%|I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '@' instead.|Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.|<null>|https://docs.n-sharp.dev/errors/NL101", PeRow("@@ ## !! %%", 0)
+    assert PeRow("@@ ## !! %%", 0) == "NL101@1:1+1|Unexpected token '@'|@@ ## !! %%|I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '@' instead.|Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101", PeRow("@@ ## !! %%", 0)
     assert PeDecls("@@ ## !! %%") == "ClassDeclaration[<error>/m0]ClassDeclaration[<error>/m0]PreprocessorDeclaration[]", PeDecls("@@ ## !! %%")
 }
 
@@ -864,7 +864,7 @@ test "020 slice 16: `@@ ## !! %%` reports TWO diagnostics, because `##` lexes as
 test "020 slice 16: an unclosed function at end of file reports the brace error at the function name" {
     assert !PeParse("\nfunc test() {\n    x = 5\n").Success
     assert PeCensus("\nfunc test() {\n    x = 5\n") == "NL106@2:6+4;", PeCensus("\nfunc test() {\n    x = 5\n")
-    assert PeRow("\nfunc test() {\n    x = 5\n", 0) == "NL106@2:6+4|Missing closing '}'|func test() {|The block that started on line 2 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://docs.n-sharp.dev/errors/NL106", PeRow("\nfunc test() {\n    x = 5\n", 0)
+    assert PeRow("\nfunc test() {\n    x = 5\n", 0) == "NL106@2:6+4|Missing closing '}'|func test() {|The block that started on line 2 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL106", PeRow("\nfunc test() {\n    x = 5\n", 0)
     assert PeDecls("\nfunc test() {\n    x = 5\n") == "FunctionDeclaration[test/s1]", PeDecls("\nfunc test() {\n    x = 5\n")
 }
 
@@ -898,7 +898,7 @@ test "020 slice 16: a parenthesized binary expression is not a named tuple and d
 test "020 slice 16: an error inside an interpolation hole IS reported, with a span inside the hole" {
     assert !PeParse("\nfunc test() {\n    x := $\"hello {1 +}\"\n}").Success
     assert PeCensus("\nfunc test() {\n    x := $\"hello {1 +}\"\n}") == "NL102@3:19+3;", PeCensus("\nfunc test() {\n    x := $\"hello {1 +}\"\n}")
-    assert PeRow("\nfunc test() {\n    x := $\"hello {1 +}\"\n}", 0) == "NL102@3:19+3|Expected expression after '+'|    x := $\"hello {1 +}\"|The '+' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '+'}{Remove the trailing '+'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test() {\n    x := $\"hello {1 +}\"\n}", 0)
+    assert PeRow("\nfunc test() {\n    x := $\"hello {1 +}\"\n}", 0) == "NL102@3:19+3|Expected expression after '+'|    x := $\"hello {1 +}\"|The '+' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '+'}{Remove the trailing '+'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test() {\n    x := $\"hello {1 +}\"\n}", 0)
     assert PeStmts("\nfunc test() {\n    x := $\"hello {1 +}\"\n}") == "VariableDeclarationStatement(x);", PeStmts("\nfunc test() {\n    x := $\"hello {1 +}\"\n}")
 }
 
@@ -916,7 +916,7 @@ test "020 slice 16: an error inside an interpolation hole IS reported, with a sp
 test "020 slice 16: three functions with bad initializers all survive, and report six diagnostics" {
     assert !PeParse("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}").Success
     assert PeCensus("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}") == "NL101@3:18+1;NL101@3:19+1;NL101@7:18+1;NL101@7:19+1;NL101@11:18+1;NL101@11:19+1;", PeCensus("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}")
-    assert PeRow("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}", 0) == "NL101@3:18+1|Unexpected token '@' in expression|    let x: int = @@|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101", PeRow("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}", 0)
+    assert PeRow("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}", 0) == "NL101@3:18+1|Unexpected token '@' in expression|    let x: int = @@|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101", PeRow("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}", 0)
     assert PeDecls("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}") == "FunctionDeclaration[test1/s2]FunctionDeclaration[test2/s2]FunctionDeclaration[test3/s2]", PeDecls("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}")
     assert PeStmts("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}") == "VariableDeclarationStatement(x);ExpressionStatement;VariableDeclarationStatement(y);ExpressionStatement;VariableDeclarationStatement(z);ExpressionStatement;", PeStmts("\nfunc test1() {\n    let x: int = @@\n}\n\nfunc test2() {\n    let y: int = @@\n}\n\nfunc test3() {\n    let z: int = @@\n}")
 }
@@ -937,7 +937,7 @@ test "020 slice 16: an error in the first function leaves the second function's 
 test "020 slice 16: an unclosed brace before a class reports the NEXT-DECLARATION variant of NL106" {
     assert !PeParse("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}").Success
     assert PeCensus("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}") == "NL106@2:6+6;", PeCensus("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}")
-    assert PeRow("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}", 0) == "NL106@2:6+6|Missing closing '}'|func broken() {|The block that started on line 2 appears to be missing its closing brace. I found 'class' on line 5, which looks like a new declaration.|Add a '}' before this declaration to close the previous block.|<null>|https://docs.n-sharp.dev/errors/NL106", PeRow("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}", 0)
+    assert PeRow("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}", 0) == "NL106@2:6+6|Missing closing '}'|func broken() {|The block that started on line 2 appears to be missing its closing brace. I found 'class' on line 5, which looks like a new declaration.|Add a '}' before this declaration to close the previous block.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL106", PeRow("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}", 0)
     assert PeDecls("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}") == "FunctionDeclaration[broken/s1]ClassDeclaration[MyClass/m1]", PeDecls("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}")
     assert PeStmts("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}") == "VariableDeclarationStatement(x);", PeStmts("\nfunc broken() {\n    let x = 5\n\nclass MyClass {\n    name: string\n}")
 }
@@ -948,7 +948,7 @@ test "020 slice 16: an unclosed brace before a class reports the NEXT-DECLARATIO
 test "020 slice 16: an unclosed brace before a struct names the struct in the explanation" {
     assert !PeParse("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}").Success
     assert PeCensus("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}") == "NL106@2:6+4;", PeCensus("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}")
-    assert PeRow("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}", 0) == "NL106@2:6+4|Missing closing '}'|func test() {|The block that started on line 2 appears to be missing its closing brace. I found 'struct' on line 5, which looks like a new declaration.|Add a '}' before this declaration to close the previous block.|<null>|https://docs.n-sharp.dev/errors/NL106", PeRow("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}", 0)
+    assert PeRow("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}", 0) == "NL106@2:6+4|Missing closing '}'|func test() {|The block that started on line 2 appears to be missing its closing brace. I found 'struct' on line 5, which looks like a new declaration.|Add a '}' before this declaration to close the previous block.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL106", PeRow("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}", 0)
     assert PeDecls("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}") == "FunctionDeclaration[test/s1]StructDeclaration[Point/m2]", PeDecls("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}")
     assert PeMembers("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}") == "Point{FieldDeclaration(x),FieldDeclaration(y),}", PeMembers("\nfunc test() {\n    let x = 5\n\nstruct Point {\n    x: int\n    y: int\n}")
 }
@@ -963,7 +963,7 @@ test "020 slice 16: an invalid operator inside a function does not consume the n
 // Successor to Parser_MissingFunctionClosingBrace_PointsAtFunctionName.
 test "020 slice 16: an unclosed function brace at end of file anchors NL106 on the function name" {
     assert PeCensus("func main() {\n    print \"hi\"") == "NL106@1:6+4;", PeCensus("func main() {\n    print \"hi\"")
-    assert PeRow("func main() {\n    print \"hi\"", 0) == "NL106@1:6+4|Missing closing '}'|func main() {|The block that started on line 1 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://docs.n-sharp.dev/errors/NL106", PeRow("func main() {\n    print \"hi\"", 0)
+    assert PeRow("func main() {\n    print \"hi\"", 0) == "NL106@1:6+4|Missing closing '}'|func main() {|The block that started on line 1 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL106", PeRow("func main() {\n    print \"hi\"", 0)
     assert PeDecls("func main() {\n    print \"hi\"") == "FunctionDeclaration[main/s1]", PeDecls("func main() {\n    print \"hi\"")
     assert PeStmts("func main() {\n    print \"hi\"") == "PrintStatement;", PeStmts("func main() {\n    print \"hi\"")
 }
@@ -973,7 +973,7 @@ test "020 slice 16: an unclosed function brace at end of file anchors NL106 on t
 // variants of one code, all three now separated by their whole text.
 test "020 slice 16: an unclosed TYPE brace says 'type body', not 'block'" {
     assert PeCensus("class User {\n    Name: string") == "NL106@1:7+4;", PeCensus("class User {\n    Name: string")
-    assert PeRow("class User {\n    Name: string", 0) == "NL106@1:7+4|Missing closing '}'|class User {|The type body that started on line 1 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this type declaration.|<null>|https://docs.n-sharp.dev/errors/NL106", PeRow("class User {\n    Name: string", 0)
+    assert PeRow("class User {\n    Name: string", 0) == "NL106@1:7+4|Missing closing '}'|class User {|The type body that started on line 1 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this type declaration.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL106", PeRow("class User {\n    Name: string", 0)
     assert PeDecls("class User {\n    Name: string") == "ClassDeclaration[User/m1]", PeDecls("class User {\n    Name: string")
     assert PeMembers("class User {\n    Name: string") == "User{FieldDeclaration(Name),}", PeMembers("class User {\n    Name: string")
 }
@@ -993,7 +993,7 @@ test "020 slice 16: an enum, a class and a function after a broken function all 
 // downstream walk over `Declarations` therefore sees six classes for a two-class file.
 test "020 slice 16: garbage between two class declarations manufactures FOUR `<error>` classes" {
     assert PeCensus("\nclass Person\n    Name: string\n@@@@\nclass Employee\n    Id: int\n") == "NL101@4:1+1;NL101@4:2+1;NL101@4:3+1;NL101@4:4+1;", PeCensus("\nclass Person\n    Name: string\n@@@@\nclass Employee\n    Id: int\n")
-    assert PeRow("\nclass Person\n    Name: string\n@@@@\nclass Employee\n    Id: int\n", 0) == "NL101@4:1+1|Unexpected token '@'|@@@@|I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '@' instead.|Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.|<null>|https://docs.n-sharp.dev/errors/NL101", PeRow("\nclass Person\n    Name: string\n@@@@\nclass Employee\n    Id: int\n", 0)
+    assert PeRow("\nclass Person\n    Name: string\n@@@@\nclass Employee\n    Id: int\n", 0) == "NL101@4:1+1|Unexpected token '@'|@@@@|I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '@' instead.|Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101", PeRow("\nclass Person\n    Name: string\n@@@@\nclass Employee\n    Id: int\n", 0)
     assert PeDecls("\nclass Person\n    Name: string\n@@@@\nclass Employee\n    Id: int\n") == "ClassDeclaration[Person/m1]ClassDeclaration[<error>/m0]ClassDeclaration[<error>/m0]ClassDeclaration[<error>/m0]ClassDeclaration[<error>/m0]ClassDeclaration[Employee/m1]", PeDecls("\nclass Person\n    Name: string\n@@@@\nclass Employee\n    Id: int\n")
 }
 
@@ -1003,8 +1003,8 @@ test "020 slice 16: garbage between two class declarations manufactures FOUR `<e
 // gets a body. The deleted assertion could not see that `Bar` was recovered as a bodiless shell.
 test "020 slice 16: a missing `)` in a parameter list recovers to the next function, which keeps no body" {
     assert PeCensus("\nfunc Foo(x int\nfunc Bar() int => 42\n") == "NL102@2:10+1;NL102@3:6+3;", PeCensus("\nfunc Foo(x int\nfunc Bar() int => 42\n")
-    assert PeRow("\nfunc Foo(x int\nfunc Bar() int => 42\n", 0) == "NL102@2:10+1|Expected ':' after parameter name. Got 'int'|func Foo(x int|Parameter 'x' needs a ':' before its type.|Write this parameter as `x: Type`.|{Add ':' after 'x'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc Foo(x int\nfunc Bar() int => 42\n", 0)
-    assert PeRow("\nfunc Foo(x int\nfunc Bar() int => 42\n", 1) == "NL102@3:6+3|Expected ':' before return type. Got 'int'|func Bar() int => 42|Function 'Bar' needs a ':' before its return type.|Write the return type as `func name(...): Type { ... }`.|{Add ':' before 'int'}{Remove the return type if this function does not return a value}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc Foo(x int\nfunc Bar() int => 42\n", 1)
+    assert PeRow("\nfunc Foo(x int\nfunc Bar() int => 42\n", 0) == "NL102@2:10+1|Expected ':' after parameter name. Got 'int'|func Foo(x int|Parameter 'x' needs a ':' before its type.|Write this parameter as `x: Type`.|{Add ':' after 'x'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc Foo(x int\nfunc Bar() int => 42\n", 0)
+    assert PeRow("\nfunc Foo(x int\nfunc Bar() int => 42\n", 1) == "NL102@3:6+3|Expected ':' before return type. Got 'int'|func Bar() int => 42|Function 'Bar' needs a ':' before its return type.|Write the return type as `func name(...): Type { ... }`.|{Add ':' before 'int'}{Remove the return type if this function does not return a value}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc Foo(x int\nfunc Bar() int => 42\n", 1)
     assert PeDecls("\nfunc Foo(x int\nfunc Bar() int => 42\n") == "FunctionDeclaration[Foo/nobody]FunctionDeclaration[Bar/nobody]", PeDecls("\nfunc Foo(x int\nfunc Bar() int => 42\n")
 }
 
@@ -1016,8 +1016,8 @@ test "020 slice 16: a missing `)` in a parameter list recovers to the next funct
 test "020 slice 16: a malformed field INITIALIZER swallows the field after it" {
     assert !PeParse("\nclass Foo {\n    Name: string = @@\n    Age: int\n}").Success
     assert PeCensus("\nclass Foo {\n    Name: string = @@\n    Age: int\n}") == "NL101@3:20+1;NL102@3:21+1;", PeCensus("\nclass Foo {\n    Name: string = @@\n    Age: int\n}")
-    assert PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int\n}", 0) == "NL101@3:20+1|Unexpected token '@' in expression|    Name: string = @@|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101", PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int\n}", 0)
-    assert PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int\n}", 1) == "NL102@3:21+1|Expected field name. Got '@'|    Name: string = @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int\n}", 1)
+    assert PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int\n}", 0) == "NL101@3:20+1|Unexpected token '@' in expression|    Name: string = @@|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101", PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int\n}", 0)
+    assert PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int\n}", 1) == "NL102@3:21+1|Expected field name. Got '@'|    Name: string = @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int\n}", 1)
     assert PeDecls("\nclass Foo {\n    Name: string = @@\n    Age: int\n}") == "ClassDeclaration[Foo/m2]", PeDecls("\nclass Foo {\n    Name: string = @@\n    Age: int\n}")
     assert PeMembers("\nclass Foo {\n    Name: string = @@\n    Age: int\n}") == "Foo{FieldDeclaration(Name),FieldDeclaration(<error>),}", PeMembers("\nclass Foo {\n    Name: string = @@\n    Age: int\n}")
 }
@@ -1028,7 +1028,7 @@ test "020 slice 16: a malformed field INITIALIZER swallows the field after it" {
 // and `Bar` keeps its field. The lower bound hid the swallow.
 test "020 slice 16: two malformed members report only twice, and the second class is untouched" {
     assert PeCensus("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}") == "NL101@3:20+1;NL102@3:21+1;", PeCensus("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}")
-    assert PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}", 1) == "NL102@3:21+1|Expected field name. Got '@'|    Name: string = @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://docs.n-sharp.dev/errors/NL102", PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}", 1)
+    assert PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}", 1) == "NL102@3:21+1|Expected field name. Got '@'|    Name: string = @@|I was expecting an identifier here, but I found '@' instead.|An identifier is a name for a variable, function, or type.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}", 1)
     assert PeDecls("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}") == "ClassDeclaration[Foo/m2]ClassDeclaration[Bar/m1]", PeDecls("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}")
     assert PeMembers("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}") == "Foo{FieldDeclaration(Name),FieldDeclaration(<error>),}Bar{FieldDeclaration(Value),}", PeMembers("\nclass Foo {\n    Name: string = @@\n    Age: int = @@\n}\n\nclass Bar {\n    Value: int\n}")
 }
@@ -1047,7 +1047,7 @@ test "020 slice 16: two malformed members report only twice, and the second clas
 // predicate did not have to account for — so the whole list is now stated, not one row of it.
 test "020 slice 16: a dangling `+` reports once and all three following declarations survive" {
     assert PeCensus("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}") == "NL102@3:14+3;NL101@5:14+1;NL101@5:15+1;", PeCensus("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}")
-    assert PeRow("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}", 0) == "NL102@3:14+3|Expected expression after '+'|    first := 1 +|The '+' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '+'}{Remove the trailing '+'}|https://docs.n-sharp.dev/errors/NL102", PeRow("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}", 0)
+    assert PeRow("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}", 0) == "NL102@3:14+3|Expected expression after '+'|    first := 1 +|The '+' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '+'}{Remove the trailing '+'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}", 0)
     assert PeDecls("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}") == "FunctionDeclaration[test/s4]", PeDecls("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}")
     assert PeStmts("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}") == "VariableDeclarationStatement(first);VariableDeclarationStatement(second);VariableDeclarationStatement(third);ExpressionStatement;", PeStmts("\nfunc test() {\n    first := 1 +\n    second := missingValue\n    third := @@\n}")
 }
@@ -1055,7 +1055,7 @@ test "020 slice 16: a dangling `+` reports once and all three following declarat
 // Successor to Parser_MissingInitializer_DoesNotSwallowFollowingStatement.
 test "020 slice 16: a `:=` with no initializer keeps the next statement AND the one after it" {
     assert PeCensus("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}") == "NL102@2:5+4;", PeCensus("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}")
-    assert PeRow("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}", 0) == "NL102@2:5+4|Expected an initializer expression after ':='|    name :=|This shorthand variable declaration needs an initializer expression after ':='.|Finish the expression before starting the next statement.|{Add an initializer expression after ':='}{Remove ':=' until the expression is ready}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}", 0)
+    assert PeRow("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}", 0) == "NL102@2:5+4|Expected an initializer expression after ':='|    name :=|This shorthand variable declaration needs an initializer expression after ':='.|Finish the expression before starting the next statement.|{Add an initializer expression after ':='}{Remove ':=' until the expression is ready}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}", 0)
     assert PeDecls("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}") == "FunctionDeclaration[test/s3]", PeDecls("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}")
     assert PeStmts("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}") == "VariableDeclarationStatement(name);VariableDeclarationStatement(greeting);PrintStatement;", PeStmts("func test() {\n    name :=\n        greeting := \"hi\"\n    print greeting\n}")
 }
@@ -1064,7 +1064,7 @@ test "020 slice 16: a `:=` with no initializer keeps the next statement AND the 
 // assignment target, five characters — not the `=`.
 test "020 slice 16: an `=` with no value uses the TARGET's span and keeps the following print" {
     assert PeCensus("func test() {\n    value := 1\n    value =\n    print value\n}") == "NL102@3:5+5;", PeCensus("func test() {\n    value := 1\n    value =\n    print value\n}")
-    assert PeRow("func test() {\n    value := 1\n    value =\n    print value\n}", 0) == "NL102@3:5+5|Expected expression after '='|    value =|The '=' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '='}{Remove the trailing '='}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    value := 1\n    value =\n    print value\n}", 0)
+    assert PeRow("func test() {\n    value := 1\n    value =\n    print value\n}", 0) == "NL102@3:5+5|Expected expression after '='|    value =|The '=' operator needs an expression on its right side.|Finish the expression after the operator, or remove the operator if the expression is already complete.|{Add an expression after '='}{Remove the trailing '='}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    value := 1\n    value =\n    print value\n}", 0)
     assert PeDecls("func test() {\n    value := 1\n    value =\n    print value\n}") == "FunctionDeclaration[test/s3]", PeDecls("func test() {\n    value := 1\n    value =\n    print value\n}")
     assert PeStmts("func test() {\n    value := 1\n    value =\n    print value\n}") == "VariableDeclarationStatement(value);ExpressionStatement;PrintStatement;", PeStmts("func test() {\n    value := 1\n    value =\n    print value\n}")
 }
@@ -1074,7 +1074,7 @@ test "020 slice 16: an `=` with no value uses the TARGET's span and keeps the fo
 // declaration — the parser keeps the broken statement rather than dropping it.
 test "020 slice 16: a bare `print` reports once and the next statement still parses" {
     assert PeCensus("func test() {\n    print\n        greeting := \"hi\"\n}") == "NL102@2:5+5;", PeCensus("func test() {\n    print\n        greeting := \"hi\"\n}")
-    assert PeRow("func test() {\n    print\n        greeting := \"hi\"\n}", 0) == "NL102@2:5+5|Expected an expression to print after 'print'|    print|This print statement needs an expression to print after 'print'.|Finish the expression before starting the next statement.|{Add an expression to print after 'print'}{Remove 'print' until the expression is ready}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    print\n        greeting := \"hi\"\n}", 0)
+    assert PeRow("func test() {\n    print\n        greeting := \"hi\"\n}", 0) == "NL102@2:5+5|Expected an expression to print after 'print'|    print|This print statement needs an expression to print after 'print'.|Finish the expression before starting the next statement.|{Add an expression to print after 'print'}{Remove 'print' until the expression is ready}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    print\n        greeting := \"hi\"\n}", 0)
     assert PeDecls("func test() {\n    print\n        greeting := \"hi\"\n}") == "FunctionDeclaration[test/s2]", PeDecls("func test() {\n    print\n        greeting := \"hi\"\n}")
     assert PeStmts("func test() {\n    print\n        greeting := \"hi\"\n}") == "PrintStatement;VariableDeclarationStatement(greeting);", PeStmts("func test() {\n    print\n        greeting := \"hi\"\n}")
 }
@@ -1083,7 +1083,7 @@ test "020 slice 16: a bare `print` reports once and the next statement still par
 // a ForeachStatement over `item` with a real BlockStatement body.
 test "020 slice 16: `foreach item items` underlines `foreach` and keeps the loop with its variable" {
     assert PeCensus("func test() {\n    foreach item items {\n        print item\n    }\n}") == "NL102@2:5+7;", PeCensus("func test() {\n    foreach item items {\n        print item\n    }\n}")
-    assert PeRow("func test() {\n    foreach item items {\n        print item\n    }\n}", 0) == "NL102@2:5+7|Expected 'in' between the loop variable and collection|    foreach item items {|This foreach statement needs the 'in' keyword between the loop variable and the collection.|Write `foreach item in ...`.|{Add 'in' after 'item'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    foreach item items {\n        print item\n    }\n}", 0)
+    assert PeRow("func test() {\n    foreach item items {\n        print item\n    }\n}", 0) == "NL102@2:5+7|Expected 'in' between the loop variable and collection|    foreach item items {|This foreach statement needs the 'in' keyword between the loop variable and the collection.|Write `foreach item in ...`.|{Add 'in' after 'item'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    foreach item items {\n        print item\n    }\n}", 0)
     assert PeDecls("func test() {\n    foreach item items {\n        print item\n    }\n}") == "FunctionDeclaration[test/s1]", PeDecls("func test() {\n    foreach item items {\n        print item\n    }\n}")
     assert PeStmts("func test() {\n    foreach item items {\n        print item\n    }\n}") == "ForeachStatement(item/BlockStatement);", PeStmts("func test() {\n    foreach item items {\n        print item\n    }\n}")
 }
@@ -1094,7 +1094,7 @@ test "020 slice 16: `foreach item items` underlines `foreach` and keeps the loop
 // `Message.Contains` shared.
 test "020 slice 16: `for item items` underlines `for` and recovers a ForStatement wrapping a foreach" {
     assert PeCensus("func test() {\n    for item items {\n        print item\n    }\n}") == "NL102@2:5+3;", PeCensus("func test() {\n    for item items {\n        print item\n    }\n}")
-    assert PeRow("func test() {\n    for item items {\n        print item\n    }\n}", 0) == "NL102@2:5+3|Expected 'in' between the loop variable and collection|    for item items {|This for-in statement needs the 'in' keyword between the loop variable and the collection.|Write `for item in ...`.|{Add 'in' after 'item'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    for item items {\n        print item\n    }\n}", 0)
+    assert PeRow("func test() {\n    for item items {\n        print item\n    }\n}", 0) == "NL102@2:5+3|Expected 'in' between the loop variable and collection|    for item items {|This for-in statement needs the 'in' keyword between the loop variable and the collection.|Write `for item in ...`.|{Add 'in' after 'item'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    for item items {\n        print item\n    }\n}", 0)
     assert PeDecls("func test() {\n    for item items {\n        print item\n    }\n}") == "FunctionDeclaration[test/s1]", PeDecls("func test() {\n    for item items {\n        print item\n    }\n}")
     assert PeStmts("func test() {\n    for item items {\n        print item\n    }\n}") == "ForStatement(ForeachStatement);", PeStmts("func test() {\n    for item items {\n        print item\n    }\n}")
 }
@@ -1102,7 +1102,7 @@ test "020 slice 16: `for item items` underlines `for` and recovers a ForStatemen
 // Successor to Parser_WhileMissingCondition_UnderlinesWhileKeywordAndContinues.
 test "020 slice 16: a `while` with no condition underlines `while` and keeps its block body" {
     assert PeCensus("func test() {\n    while {\n        print \"hi\"\n    }\n}") == "NL102@2:5+5;", PeCensus("func test() {\n    while {\n        print \"hi\"\n    }\n}")
-    assert PeRow("func test() {\n    while {\n        print \"hi\"\n    }\n}", 0) == "NL102@2:5+5|Expected a condition expression after 'while'|    while {|This while statement needs a condition expression after 'while'.|Finish the expression before starting the next statement.|{Add a condition expression after 'while'}{Remove 'while' until the expression is ready}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    while {\n        print \"hi\"\n    }\n}", 0)
+    assert PeRow("func test() {\n    while {\n        print \"hi\"\n    }\n}", 0) == "NL102@2:5+5|Expected a condition expression after 'while'|    while {|This while statement needs a condition expression after 'while'.|Finish the expression before starting the next statement.|{Add a condition expression after 'while'}{Remove 'while' until the expression is ready}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    while {\n        print \"hi\"\n    }\n}", 0)
     assert PeDecls("func test() {\n    while {\n        print \"hi\"\n    }\n}") == "FunctionDeclaration[test/s1]", PeDecls("func test() {\n    while {\n        print \"hi\"\n    }\n}")
     assert PeStmts("func test() {\n    while {\n        print \"hi\"\n    }\n}") == "WhileStatement(BlockStatement);", PeStmts("func test() {\n    while {\n        print \"hi\"\n    }\n}")
 }
@@ -1112,7 +1112,7 @@ test "020 slice 16: a `while` with no condition underlines `while` and keeps its
 // initializer member' versus 'Expected ':' after object initializer member'.
 test "020 slice 16: an object initializer member with no value uses the member's span and continues" {
     assert PeCensus("func test() {\n    user := new User { Name: }\n    print \"after\"\n}") == "NL102@2:24+4;", PeCensus("func test() {\n    user := new User { Name: }\n    print \"after\"\n}")
-    assert PeRow("func test() {\n    user := new User { Name: }\n    print \"after\"\n}", 0) == "NL102@2:24+4|Expected a value for object initializer member 'Name'|    user := new User { Name: }|Object initializer member 'Name' needs a value after ':'.|Write 'Name: value'.|{Add a value after 'Name:'}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    user := new User { Name: }\n    print \"after\"\n}", 0)
+    assert PeRow("func test() {\n    user := new User { Name: }\n    print \"after\"\n}", 0) == "NL102@2:24+4|Expected a value for object initializer member 'Name'|    user := new User { Name: }|Object initializer member 'Name' needs a value after ':'.|Write 'Name: value'.|{Add a value after 'Name:'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    user := new User { Name: }\n    print \"after\"\n}", 0)
     assert PeDecls("func test() {\n    user := new User { Name: }\n    print \"after\"\n}") == "FunctionDeclaration[test/s2]", PeDecls("func test() {\n    user := new User { Name: }\n    print \"after\"\n}")
     assert PeStmts("func test() {\n    user := new User { Name: }\n    print \"after\"\n}") == "VariableDeclarationStatement(user);PrintStatement;", PeStmts("func test() {\n    user := new User { Name: }\n    print \"after\"\n}")
 }
@@ -1124,13 +1124,13 @@ test "020 slice 16: an object initializer member with no value uses the member's
 // EmptyStatement. Nothing had stated what the parser substitutes for a missing body.
 test "020 slice 16: `if`, `for` and `while` with no body all underline their keyword \u2014 with three different recovered bodies" {
     assert PeCensus("func test() {\n    if true\n}") == "NL102@2:5+2;", PeCensus("func test() {\n    if true\n}")
-    assert PeRow("func test() {\n    if true\n}", 0) == "NL102@2:5+2|Expected statement body. Got '}'|    if true|This control-flow keyword needs a statement or block after its condition.|Add a block like `{ ... }`, or add a single statement after the keyword.|{Add a block body}{Add a statement body}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    if true\n}", 0)
+    assert PeRow("func test() {\n    if true\n}", 0) == "NL102@2:5+2|Expected statement body. Got '}'|    if true|This control-flow keyword needs a statement or block after its condition.|Add a block like `{ ... }`, or add a single statement after the keyword.|{Add a block body}{Add a statement body}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    if true\n}", 0)
     assert PeStmts("func test() {\n    if true\n}") == "IfStatement;", PeStmts("func test() {\n    if true\n}")
     assert PeCensus("func test() {\n    for item in items\n}") == "NL102@2:5+3;", PeCensus("func test() {\n    for item in items\n}")
-    assert PeRow("func test() {\n    for item in items\n}", 0) == "NL102@2:5+3|Expected statement body. Got '}'|    for item in items|This control-flow keyword needs a statement or block after its condition.|Add a block like `{ ... }`, or add a single statement after the keyword.|{Add a block body}{Add a statement body}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    for item in items\n}", 0)
+    assert PeRow("func test() {\n    for item in items\n}", 0) == "NL102@2:5+3|Expected statement body. Got '}'|    for item in items|This control-flow keyword needs a statement or block after its condition.|Add a block like `{ ... }`, or add a single statement after the keyword.|{Add a block body}{Add a statement body}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    for item in items\n}", 0)
     assert PeStmts("func test() {\n    for item in items\n}") == "ForStatement(ForeachStatement);", PeStmts("func test() {\n    for item in items\n}")
     assert PeCensus("func test() {\n    while true\n}") == "NL102@2:5+5;", PeCensus("func test() {\n    while true\n}")
-    assert PeRow("func test() {\n    while true\n}", 0) == "NL102@2:5+5|Expected statement body. Got '}'|    while true|This control-flow keyword needs a statement or block after its condition.|Add a block like `{ ... }`, or add a single statement after the keyword.|{Add a block body}{Add a statement body}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    while true\n}", 0)
+    assert PeRow("func test() {\n    while true\n}", 0) == "NL102@2:5+5|Expected statement body. Got '}'|    while true|This control-flow keyword needs a statement or block after its condition.|Add a block like `{ ... }`, or add a single statement after the keyword.|{Add a block body}{Add a statement body}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    while true\n}", 0)
     assert PeStmts("func test() {\n    while true\n}") == "WhileStatement(EmptyStatement);", PeStmts("func test() {\n    while true\n}")
 }
 
@@ -1139,21 +1139,21 @@ test "020 slice 16: `if`, `for` and `while` with no body all underline their key
 // expression grammar. That design decision was reachable only through this diagnostic's text.
 test "020 slice 16: a prefix `+` is refused by DESIGN, with the reason stated" {
     assert PeCensus("func test() {\n    + 1\n}") == "NL103@2:5+3;", PeCensus("func test() {\n    + 1\n}")
-    assert PeRow("func test() {\n    + 1\n}", 0) == "NL103@2:5+3|Prefix '+' is not supported|    + 1|A leading '+' does not change the value in N#, so it is not part of the expression grammar.|Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them.|{Remove the leading '+'}|https://docs.n-sharp.dev/errors/NL103", PeRow("func test() {\n    + 1\n}", 0)
+    assert PeRow("func test() {\n    + 1\n}", 0) == "NL103@2:5+3|Prefix '+' is not supported|    + 1|A leading '+' does not change the value in N#, so it is not part of the expression grammar.|Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them.|{Remove the leading '+'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL103", PeRow("func test() {\n    + 1\n}", 0)
     assert PeStmts("func test() {\n    + 1\n}") == "ExpressionStatement;", PeStmts("func test() {\n    + 1\n}")
 }
 
 // Successor to Parser_LeadingMemberAccess_UnderlinesVisibleMemberAccess.
 test "020 slice 16: a leading `.Name` underlines the whole member access" {
     assert PeCensus("func test() {\n    .Name\n}") == "NL102@2:5+5;", PeCensus("func test() {\n    .Name\n}")
-    assert PeRow("func test() {\n    .Name\n}", 0) == "NL102@2:5+5|Expected expression before '.'|    .Name|I see a dot (.) operator, but there is no receiver expression before it.|Put an expression before '.', or remove the member access.|{Add a receiver before '.'}{Remove the member access until the receiver is known}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    .Name\n}", 0)
+    assert PeRow("func test() {\n    .Name\n}", 0) == "NL102@2:5+5|Expected expression before '.'|    .Name|I see a dot (.) operator, but there is no receiver expression before it.|Put an expression before '.', or remove the member access.|{Add a receiver before '.'}{Remove the member access until the receiver is known}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    .Name\n}", 0)
     assert PeStmts("func test() {\n    .Name\n}") == "ExpressionStatement;", PeStmts("func test() {\n    .Name\n}")
 }
 
 // Successor to the first `[InlineData]` row of Parser_MissingUnaryKeywordOperand_UnderlinesKeyword.
 test "020 slice 16: a bare `await` underlines the keyword" {
     assert PeCensus("func test() {\n    value := await\n}") == "NL102@2:14+5;", PeCensus("func test() {\n    value := await\n}")
-    assert PeRow("func test() {\n    value := await\n}", 0) == "NL102@2:14+5|Expected an expression to await after 'await'|    value := await|This await expression needs an expression to await after 'await'.|Add an expression to await after 'await', or remove 'await'.|{Add an expression to await after 'await'}{Remove 'await' until the expression is ready}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    value := await\n}", 0)
+    assert PeRow("func test() {\n    value := await\n}", 0) == "NL102@2:14+5|Expected an expression to await after 'await'|    value := await|This await expression needs an expression to await after 'await'.|Add an expression to await after 'await', or remove 'await'.|{Add an expression to await after 'await'}{Remove 'await' until the expression is ready}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    value := await\n}", 0)
     assert PeStmts("func test() {\n    value := await\n}") == "VariableDeclarationStatement(value);", PeStmts("func test() {\n    value := await\n}")
 }
 
@@ -1161,14 +1161,14 @@ test "020 slice 16: a bare `await` underlines the keyword" {
 // different suggestion pairs, which the shared theory could not distinguish.
 test "020 slice 16: a bare `must` underlines the keyword and names the nullable-unwrap contract" {
     assert PeCensus("func test() {\n    value := must\n}") == "NL102@2:14+4;", PeCensus("func test() {\n    value := must\n}")
-    assert PeRow("func test() {\n    value := must\n}", 0) == "NL102@2:14+4|Expected a nullable expression to unwrap after 'must'|    value := must|This must expression needs a nullable expression to unwrap after 'must'.|Add a nullable expression to unwrap after 'must', or remove 'must'.|{Add a nullable expression to unwrap after 'must'}{Remove 'must' until the expression is ready}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    value := must\n}", 0)
+    assert PeRow("func test() {\n    value := must\n}", 0) == "NL102@2:14+4|Expected a nullable expression to unwrap after 'must'|    value := must|This must expression needs a nullable expression to unwrap after 'must'.|Add a nullable expression to unwrap after 'must', or remove 'must'.|{Add a nullable expression to unwrap after 'must'}{Remove 'must' until the expression is ready}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    value := must\n}", 0)
     assert PeStmts("func test() {\n    value := must\n}") == "VariableDeclarationStatement(value);", PeStmts("func test() {\n    value := must\n}")
 }
 
 // Successor to Parser_MissingLambdaBody_UnderlinesLambdaHeader.
 test "020 slice 16: a lambda with no body underlines the lambda HEADER, `x =>`" {
     assert PeCensus("func test() {\n    f := x =>\n}") == "NL102@2:10+4;", PeCensus("func test() {\n    f := x =>\n}")
-    assert PeRow("func test() {\n    f := x =>\n}", 0) == "NL102@2:10+4|Expected a lambda body expression after '=>'|    f := x =>|This lambda expression needs a lambda body expression after '=>'.|Finish the expression before starting the next statement.|{Add a lambda body expression after '=>'}{Remove '=>' until the expression is ready}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    f := x =>\n}", 0)
+    assert PeRow("func test() {\n    f := x =>\n}", 0) == "NL102@2:10+4|Expected a lambda body expression after '=>'|    f := x =>|This lambda expression needs a lambda body expression after '=>'.|Finish the expression before starting the next statement.|{Add a lambda body expression after '=>'}{Remove '=>' until the expression is ready}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    f := x =>\n}", 0)
     assert PeStmts("func test() {\n    f := x =>\n}") == "VariableDeclarationStatement(f);", PeStmts("func test() {\n    f := x =>\n}")
 }
 
@@ -1176,7 +1176,7 @@ test "020 slice 16: a lambda with no body underlines the lambda HEADER, `x =>`" 
 // `condition ? 1 :` — the visible expression, not the trailing colon.
 test "020 slice 16: a ternary with no else underlines the whole ternary so far" {
     assert PeCensus("func test() {\n    value := condition ? 1 :\n}") == "NL102@2:14+15;", PeCensus("func test() {\n    value := condition ? 1 :\n}")
-    assert PeRow("func test() {\n    value := condition ? 1 :\n}", 0) == "NL102@2:14+15|Expected an else expression after ':'|    value := condition ? 1 :|This ternary expression needs an else expression after ':'.|Finish the expression before starting the next statement.|{Add an else expression after ':'}{Remove ':' until the expression is ready}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    value := condition ? 1 :\n}", 0)
+    assert PeRow("func test() {\n    value := condition ? 1 :\n}", 0) == "NL102@2:14+15|Expected an else expression after ':'|    value := condition ? 1 :|This ternary expression needs an else expression after ':'.|Finish the expression before starting the next statement.|{Add an else expression after ':'}{Remove ':' until the expression is ready}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    value := condition ? 1 :\n}", 0)
     assert PeStmts("func test() {\n    value := condition ? 1 :\n}") == "VariableDeclarationStatement(value);", PeStmts("func test() {\n    value := condition ? 1 :\n}")
 }
 
@@ -1191,7 +1191,7 @@ test "020 slice 16: a ternary with no else underlines the whole ternary so far" 
 // `print name` statement still parses — the scanner stops at the line end, not at the file end.
 test "020 slice 16: an unterminated string underlines the opening quote and the text after it" {
     assert PeCensus("func test() {\n    name := \"Ada\n    print name\n}") == "NL105@2:13+4;", PeCensus("func test() {\n    name := \"Ada\n    print name\n}")
-    assert PeRow("func test() {\n    name := \"Ada\n    print name\n}", 0) == "NL105@2:13+4|Unterminated string literal|    name := \"Ada|This string starts with a quote but reaches the end of the line before a closing quote.|Add the closing quote on this line, or use a triple-quoted string for multi-line text.|{Add a closing quote}{Use triple quotes for multi-line strings}|https://docs.n-sharp.dev/errors/NL105", PeRow("func test() {\n    name := \"Ada\n    print name\n}", 0)
+    assert PeRow("func test() {\n    name := \"Ada\n    print name\n}", 0) == "NL105@2:13+4|Unterminated string literal|    name := \"Ada|This string starts with a quote but reaches the end of the line before a closing quote.|Add the closing quote on this line, or use a triple-quoted string for multi-line text.|{Add a closing quote}{Use triple quotes for multi-line strings}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow("func test() {\n    name := \"Ada\n    print name\n}", 0)
     assert PeStmts("func test() {\n    name := \"Ada\n    print name\n}") == "VariableDeclarationStatement(name);PrintStatement;", PeStmts("func test() {\n    name := \"Ada\n    print name\n}")
 }
 
@@ -1200,7 +1200,7 @@ test "020 slice 16: an unterminated string underlines the opening quote and the 
 // scanner ever treated it as a terminator this source would parse silently.
 test "020 slice 16: an escaped quote does NOT terminate the string, and the span grows by two" {
     assert PeCensus("func test() {\n    name := \"Ada\\\"\n}") == "NL105@2:13+6;", PeCensus("func test() {\n    name := \"Ada\\\"\n}")
-    assert PeRow("func test() {\n    name := \"Ada\\\"\n}", 0) == "NL105@2:13+6|Unterminated string literal|    name := \"Ada\\\\\"|This string starts with a quote but reaches the end of the line before a closing quote.|Add the closing quote on this line, or use a triple-quoted string for multi-line text.|{Add a closing quote}{Use triple quotes for multi-line strings}|https://docs.n-sharp.dev/errors/NL105", PeRow("func test() {\n    name := \"Ada\\\"\n}", 0)
+    assert PeRow("func test() {\n    name := \"Ada\\\"\n}", 0) == "NL105@2:13+6|Unterminated string literal|    name := \"Ada\\\\\"|This string starts with a quote but reaches the end of the line before a closing quote.|Add the closing quote on this line, or use a triple-quoted string for multi-line text.|{Add a closing quote}{Use triple quotes for multi-line strings}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow("func test() {\n    name := \"Ada\\\"\n}", 0)
     assert PeStmts("func test() {\n    name := \"Ada\\\"\n}") == "VariableDeclarationStatement(name);", PeStmts("func test() {\n    name := \"Ada\\\"\n}")
 }
 
@@ -1208,7 +1208,7 @@ test "020 slice 16: an escaped quote does NOT terminate the string, and the span
 // explanation and a different hint from the string arm, and a two-character span.
 test "020 slice 16: an unterminated character literal offers the double-quote route" {
     assert PeCensus("func test() {\n    letter := 'a\n}") == "NL105@2:15+2;", PeCensus("func test() {\n    letter := 'a\n}")
-    assert PeRow("func test() {\n    letter := 'a\n}", 0) == "NL105@2:15+2|Unterminated character literal|    letter := 'a|This character literal starts with a quote but does not have a closing quote.|Write a single character like `'a'`, or use a string literal like \"a\" when you need text.|{Add the closing quote}{Use double quotes for a string}|https://docs.n-sharp.dev/errors/NL105", PeRow("func test() {\n    letter := 'a\n}", 0)
+    assert PeRow("func test() {\n    letter := 'a\n}", 0) == "NL105@2:15+2|Unterminated character literal|    letter := 'a|This character literal starts with a quote but does not have a closing quote.|Write a single character like `'a'`, or use a string literal like \"a\" when you need text.|{Add the closing quote}{Use double quotes for a string}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow("func test() {\n    letter := 'a\n}", 0)
     assert PeStmts("func test() {\n    letter := 'a\n}") == "VariableDeclarationStatement(letter);", PeStmts("func test() {\n    letter := 'a\n}")
 }
 
@@ -1217,7 +1217,7 @@ test "020 slice 16: an unterminated character literal offers the double-quote ro
 // delimiter changes the failure mode as well as the message.
 test "020 slice 16: an unterminated triple-quoted string spans the three-character delimiter" {
     assert PeCensus("func test() {\n    text := \"\"\"hello\nworld\n}\n") == "NL105@2:13+3;", PeCensus("func test() {\n    text := \"\"\"hello\nworld\n}\n")
-    assert PeRow("func test() {\n    text := \"\"\"hello\nworld\n}\n", 0) == "NL105@2:13+3|Unterminated triple-quoted string literal|    text := \"\"\"hello|This triple-quoted string starts with `\"\"\"` but reaches the end of the file before the closing triple quote.|Add the closing triple quote `\"\"\"` before the end of the file.|{Add the closing triple quote}{Check where the raw string should end}|https://docs.n-sharp.dev/errors/NL105", PeRow("func test() {\n    text := \"\"\"hello\nworld\n}\n", 0)
+    assert PeRow("func test() {\n    text := \"\"\"hello\nworld\n}\n", 0) == "NL105@2:13+3|Unterminated triple-quoted string literal|    text := \"\"\"hello|This triple-quoted string starts with `\"\"\"` but reaches the end of the file before the closing triple quote.|Add the closing triple quote `\"\"\"` before the end of the file.|{Add the closing triple quote}{Check where the raw string should end}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow("func test() {\n    text := \"\"\"hello\nworld\n}\n", 0)
     assert PeStmts("func test() {\n    text := \"\"\"hello\nworld\n}\n") == "VariableDeclarationStatement(text);", PeStmts("func test() {\n    text := \"\"\"hello\nworld\n}\n")
 }
 
@@ -1225,7 +1225,7 @@ test "020 slice 16: an unterminated triple-quoted string spans the three-charact
 // Four characters, and the snippet keeps the interpolation hole verbatim.
 test "020 slice 16: an unterminated interpolated raw string spans the four-character `$\"\"\"` delimiter" {
     assert PeCensus("func test() {\n    text := $\"\"\"hello {name}\n}\n") == "NL105@2:13+4;", PeCensus("func test() {\n    text := $\"\"\"hello {name}\n}\n")
-    assert PeRow("func test() {\n    text := $\"\"\"hello {name}\n}\n", 0) == "NL105@2:13+4|Unterminated interpolated raw string literal|    text := $\"\"\"hello {name}|This interpolated raw string starts with `$\"\"\"` but reaches the end of the file before the closing triple quote.|Add the closing triple quote `\"\"\"` before the end of the file.|{Add the closing triple quote}{Check where the raw string should end}|https://docs.n-sharp.dev/errors/NL105", PeRow("func test() {\n    text := $\"\"\"hello {name}\n}\n", 0)
+    assert PeRow("func test() {\n    text := $\"\"\"hello {name}\n}\n", 0) == "NL105@2:13+4|Unterminated interpolated raw string literal|    text := $\"\"\"hello {name}|This interpolated raw string starts with `$\"\"\"` but reaches the end of the file before the closing triple quote.|Add the closing triple quote `\"\"\"` before the end of the file.|{Add the closing triple quote}{Check where the raw string should end}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow("func test() {\n    text := $\"\"\"hello {name}\n}\n", 0)
     assert PeStmts("func test() {\n    text := $\"\"\"hello {name}\n}\n") == "VariableDeclarationStatement(text);", PeStmts("func test() {\n    text := $\"\"\"hello {name}\n}\n")
 }
 
@@ -1239,7 +1239,7 @@ test "020 slice 16: an unterminated interpolated raw string spans the four-chara
 // Successor to Parser_MissingClosingParen_PointsAtCallOwner.
 test "020 slice 16: a missing `)` underlines the CALLEE" {
     assert PeCensus("func test() {\n    print(\"hello\"\n}") == "NL107@2:5+5;", PeCensus("func test() {\n    print(\"hello\"\n}")
-    assert PeRow("func test() {\n    print(\"hello\"\n}", 0) == "NL107@2:5+5|Missing closing ')'|    print(\"hello\"|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://docs.n-sharp.dev/errors/NL107", PeRow("func test() {\n    print(\"hello\"\n}", 0)
+    assert PeRow("func test() {\n    print(\"hello\"\n}", 0) == "NL107@2:5+5|Missing closing ')'|    print(\"hello\"|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL107", PeRow("func test() {\n    print(\"hello\"\n}", 0)
     assert PeStmts("func test() {\n    print(\"hello\"\n}") == "PrintStatement;", PeStmts("func test() {\n    print(\"hello\"\n}")
 }
 
@@ -1248,7 +1248,7 @@ test "020 slice 16: a missing `)` underlines the CALLEE" {
 // characters of `print`.
 test "020 slice 16: an unclosed EMPTY argument list still anchors on the callee, and the next line parses" {
     assert PeCensus("func test() {\n    print(\n    greeting.CompareTo(\"ter\")\n}") == "NL107@2:5+5;", PeCensus("func test() {\n    print(\n    greeting.CompareTo(\"ter\")\n}")
-    assert PeRow("func test() {\n    print(\n    greeting.CompareTo(\"ter\")\n}", 0) == "NL107@2:5+5|Missing closing ')'|    print(|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://docs.n-sharp.dev/errors/NL107", PeRow("func test() {\n    print(\n    greeting.CompareTo(\"ter\")\n}", 0)
+    assert PeRow("func test() {\n    print(\n    greeting.CompareTo(\"ter\")\n}", 0) == "NL107@2:5+5|Missing closing ')'|    print(|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL107", PeRow("func test() {\n    print(\n    greeting.CompareTo(\"ter\")\n}", 0)
     assert PeStmts("func test() {\n    print(\n    greeting.CompareTo(\"ter\")\n}") == "PrintStatement;ExpressionStatement;", PeStmts("func test() {\n    print(\n    greeting.CompareTo(\"ter\")\n}")
 }
 
@@ -1256,14 +1256,14 @@ test "020 slice 16: an unclosed EMPTY argument list still anchors on the callee,
 // function is recovered without a body, which the deleted file did not state.
 test "020 slice 16: an unclosed parameter list anchors on the FUNCTION NAME" {
     assert PeCensus("func test(\n") == "NL107@1:6+4;", PeCensus("func test(\n")
-    assert PeRow("func test(\n", 0) == "NL107@1:6+4|Missing closing ')'|func test(|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://docs.n-sharp.dev/errors/NL107", PeRow("func test(\n", 0)
+    assert PeRow("func test(\n", 0) == "NL107@1:6+4|Missing closing ')'|func test(|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL107", PeRow("func test(\n", 0)
     assert PeStmts("func test(\n") == "", PeStmts("func test(\n")
 }
 
 // Successor to Parser_MissingClosingBracket_ArrayLiteralPointsAtAssignedVariable.
 test "020 slice 16: an unclosed array literal underlines the ASSIGNED VARIABLE" {
     assert PeCensus("func test() {\n    nums := [1, 2\n    print nums\n}") == "NL108@2:5+4;", PeCensus("func test() {\n    nums := [1, 2\n    print nums\n}")
-    assert PeRow("func test() {\n    nums := [1, 2\n    print nums\n}", 0) == "NL108@2:5+4|Missing closing ']'|    nums := [1, 2|I reached the next line while looking for the closing ']' that matches an earlier '['.|Every opening bracket '[' needs a matching closing bracket ']'.|{Add ']' before starting the next line}{Check the matching '[' in this expression}|https://docs.n-sharp.dev/errors/NL108", PeRow("func test() {\n    nums := [1, 2\n    print nums\n}", 0)
+    assert PeRow("func test() {\n    nums := [1, 2\n    print nums\n}", 0) == "NL108@2:5+4|Missing closing ']'|    nums := [1, 2|I reached the next line while looking for the closing ']' that matches an earlier '['.|Every opening bracket '[' needs a matching closing bracket ']'.|{Add ']' before starting the next line}{Check the matching '[' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL108", PeRow("func test() {\n    nums := [1, 2\n    print nums\n}", 0)
     assert PeStmts("func test() {\n    nums := [1, 2\n    print nums\n}") == "VariableDeclarationStatement(nums);PrintStatement;", PeStmts("func test() {\n    nums := [1, 2\n    print nums\n}")
 }
 
@@ -1272,7 +1272,7 @@ test "020 slice 16: an unclosed array literal underlines the ASSIGNED VARIABLE" 
 // cases made only through their line numbers.
 test "020 slice 16: an unclosed index access underlines the INDEXED RECEIVER" {
     assert PeCensus("func test() {\n    nums := [1, 2, 3]\n    print nums[0\n}") == "NL108@3:11+4;", PeCensus("func test() {\n    nums := [1, 2, 3]\n    print nums[0\n}")
-    assert PeRow("func test() {\n    nums := [1, 2, 3]\n    print nums[0\n}", 0) == "NL108@3:11+4|Missing closing ']'|    print nums[0|I reached the next line while looking for the closing ']' that matches an earlier '['.|Every opening bracket '[' needs a matching closing bracket ']'.|{Add ']' before starting the next line}{Check the matching '[' in this expression}|https://docs.n-sharp.dev/errors/NL108", PeRow("func test() {\n    nums := [1, 2, 3]\n    print nums[0\n}", 0)
+    assert PeRow("func test() {\n    nums := [1, 2, 3]\n    print nums[0\n}", 0) == "NL108@3:11+4|Missing closing ']'|    print nums[0|I reached the next line while looking for the closing ']' that matches an earlier '['.|Every opening bracket '[' needs a matching closing bracket ']'.|{Add ']' before starting the next line}{Check the matching '[' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL108", PeRow("func test() {\n    nums := [1, 2, 3]\n    print nums[0\n}", 0)
     assert PeStmts("func test() {\n    nums := [1, 2, 3]\n    print nums[0\n}") == "VariableDeclarationStatement(nums);PrintStatement;", PeStmts("func test() {\n    nums := [1, 2, 3]\n    print nums[0\n}")
 }
 
@@ -1281,7 +1281,7 @@ test "020 slice 16: an unclosed index access underlines the INDEXED RECEIVER" {
 // last segment.
 test "020 slice 16: a missing `)` on a qualified call underlines the whole `Console.WriteLine`" {
     assert PeCensus("\nfunc test() {\n    Console.WriteLine(\"hello\"\n}") == "NL107@3:13+9;", PeCensus("\nfunc test() {\n    Console.WriteLine(\"hello\"\n}")
-    assert PeRow("\nfunc test() {\n    Console.WriteLine(\"hello\"\n}", 0) == "NL107@3:13+9|Missing closing ')'|    Console.WriteLine(\"hello\"|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://docs.n-sharp.dev/errors/NL107", PeRow("\nfunc test() {\n    Console.WriteLine(\"hello\"\n}", 0)
+    assert PeRow("\nfunc test() {\n    Console.WriteLine(\"hello\"\n}", 0) == "NL107@3:13+9|Missing closing ')'|    Console.WriteLine(\"hello\"|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL107", PeRow("\nfunc test() {\n    Console.WriteLine(\"hello\"\n}", 0)
     assert PeStmts("\nfunc test() {\n    Console.WriteLine(\"hello\"\n}") == "ExpressionStatement;", PeStmts("\nfunc test() {\n    Console.WriteLine(\"hello\"\n}")
 }
 
@@ -1292,7 +1292,7 @@ test "020 slice 16: a missing `)` on a qualified call underlines the whole `Cons
 // disposal-semantics note that is the actual reason for the restriction.
 test "020 slice 16: `using` with a tuple pattern is refused, and the pattern is what gets underlined" {
     assert PeCensus("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}") == "NL103@2:15+13;", PeCensus("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}")
-    assert PeRow("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}", 0) == "NL103@2:15+13|Using statement requires a variable declaration, not tuple deconstruction|    using let (left, right) := getPair() {|The 'using' statement can only work with single variable declarations, not tuple deconstruction.|Use a single variable: using let resource := getResource() { ... }|{Change from tuple deconstruction to single variable}{Example: using let file := File.Open(path) { ... }}{Note: The variable will be automatically disposed when the block ends}|https://docs.n-sharp.dev/errors/NL103", PeRow("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}", 0)
+    assert PeRow("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}", 0) == "NL103@2:15+13|Using statement requires a variable declaration, not tuple deconstruction|    using let (left, right) := getPair() {|The 'using' statement can only work with single variable declarations, not tuple deconstruction.|Use a single variable: using let resource := getResource() { ... }|{Change from tuple deconstruction to single variable}{Example: using let file := File.Open(path) { ... }}{Note: The variable will be automatically disposed when the block ends}|https://schneidenbach.github.io/nsharplang/docs/errors/NL103", PeRow("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}", 0)
     assert PeDecls("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}") == "FunctionDeclaration[test/s1]", PeDecls("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}")
     assert PeStmts("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}") == "UsingStatement;", PeStmts("func test() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}")
 }
@@ -1302,7 +1302,7 @@ test "020 slice 16: `using` with a tuple pattern is refused, and the pattern is 
 // real CallExpression — so the recovery skipped exactly one token.
 test "020 slice 16: a stray token where `:=` belongs reports once and the deconstruction still lands" {
     assert PeCensus("func test() {\n    let (x, y) err := getTuple()\n}") == "NL102@2:16+3;", PeCensus("func test() {\n    let (x, y) err := getTuple()\n}")
-    assert PeRow("func test() {\n    let (x, y) err := getTuple()\n}", 0) == "NL102@2:16+3|Tuple deconstruction requires ':=' or '='. Got 'err'|    let (x, y) err := getTuple()|To unpack a tuple into multiple variables, you need to use ':=' or '=' after the variable list.|Tuple deconstruction syntax: (x, y) := getTuple() or (x, y) = getTuple()|{Add ':=' for new variables: (x, y) := (1, 2)}{Add '=' for existing variables: (x, y) = tuple}{Example: (name, age) := getPerson()}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    let (x, y) err := getTuple()\n}", 0)
+    assert PeRow("func test() {\n    let (x, y) err := getTuple()\n}", 0) == "NL102@2:16+3|Tuple deconstruction requires ':=' or '='. Got 'err'|    let (x, y) err := getTuple()|To unpack a tuple into multiple variables, you need to use ':=' or '=' after the variable list.|Tuple deconstruction syntax: (x, y) := getTuple() or (x, y) = getTuple()|{Add ':=' for new variables: (x, y) := (1, 2)}{Add '=' for existing variables: (x, y) = tuple}{Example: (name, age) := getPerson()}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    let (x, y) err := getTuple()\n}", 0)
     assert PeDecls("func test() {\n    let (x, y) err := getTuple()\n}") == "FunctionDeclaration[test/s1]", PeDecls("func test() {\n    let (x, y) err := getTuple()\n}")
     assert PeStmts("func test() {\n    let (x, y) err := getTuple()\n}") == "TupleDeconstructionStatement(x,y/CallExpression);", PeStmts("func test() {\n    let (x, y) err := getTuple()\n}")
 }
@@ -1315,7 +1315,7 @@ test "020 slice 16: a stray token where `:=` belongs reports once and the decons
 // follow-on 'expected an initializer' diagnostic: the census is exactly one row.
 test "020 slice 16: the double-failure placeholder anchors at the CURRENT token, line 3 column 2" {
     assert PeCensus("func test() {\n    let (x, y) err\n}") == "NL102@2:16+3;", PeCensus("func test() {\n    let (x, y) err\n}")
-    assert PeRow("func test() {\n    let (x, y) err\n}", 0) == "NL102@2:16+3|Tuple deconstruction requires ':=' or '='. Got 'err'|    let (x, y) err|To unpack a tuple into multiple variables, you need to use ':=' or '=' after the variable list.|Tuple deconstruction syntax: (x, y) := getTuple() or (x, y) = getTuple()|{Add ':=' for new variables: (x, y) := (1, 2)}{Add '=' for existing variables: (x, y) = tuple}{Example: (name, age) := getPerson()}|https://docs.n-sharp.dev/errors/NL102", PeRow("func test() {\n    let (x, y) err\n}", 0)
+    assert PeRow("func test() {\n    let (x, y) err\n}", 0) == "NL102@2:16+3|Tuple deconstruction requires ':=' or '='. Got 'err'|    let (x, y) err|To unpack a tuple into multiple variables, you need to use ':=' or '=' after the variable list.|Tuple deconstruction syntax: (x, y) := getTuple() or (x, y) = getTuple()|{Add ':=' for new variables: (x, y) := (1, 2)}{Add '=' for existing variables: (x, y) = tuple}{Example: (name, age) := getPerson()}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("func test() {\n    let (x, y) err\n}", 0)
     assert PeDecls("func test() {\n    let (x, y) err\n}") == "FunctionDeclaration[test/s1]", PeDecls("func test() {\n    let (x, y) err\n}")
     assert PeStmts("func test() {\n    let (x, y) err\n}") == "TupleDeconstructionStatement(x,y/IdentifierExpression=<error>@3:2);", PeStmts("func test() {\n    let (x, y) err\n}")
 }
@@ -1353,7 +1353,7 @@ func PeUnderlined(source: string, index: int): string {
 // Successor to Span_NL101_UnexpectedToken_UnderlinesOffendingToken.
 test "020 slice 16: NL101 underlines the offending token" {
     assert PeCensus("package T\n\nfunc Main() {\n    let x = @\n}\n") == "NL101@4:13+1;", PeCensus("package T\n\nfunc Main() {\n    let x = @\n}\n")
-    assert PeRow("package T\n\nfunc Main() {\n    let x = @\n}\n", 0) == "NL101@4:13+1|Unexpected token '@' in expression|    let x = @|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://docs.n-sharp.dev/errors/NL101", PeRow("package T\n\nfunc Main() {\n    let x = @\n}\n", 0)
+    assert PeRow("package T\n\nfunc Main() {\n    let x = @\n}\n", 0) == "NL101@4:13+1|Unexpected token '@' in expression|    let x = @|I was parsing an expression and found '@', which I don't know how to handle here.|Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL101", PeRow("package T\n\nfunc Main() {\n    let x = @\n}\n", 0)
     assert PeUnderlined("package T\n\nfunc Main() {\n    let x = @\n}\n", 0) == "@", PeUnderlined("package T\n\nfunc Main() {\n    let x = @\n}\n", 0)
     assert PeUnderlined("package T\n\nfunc Main() {\n    let x = @\n}\n", 0).Trim() != ""
 }
@@ -1361,7 +1361,7 @@ test "020 slice 16: NL101 underlines the offending token" {
 // Successor to Span_NL102_ExpectedToken_UnderlinesParameterName.
 test "020 slice 16: NL102 underlines the parameter name" {
     assert PeCensus("package T\n\nfunc greet(name string) {\n    return name\n}\n") == "NL102@3:12+4;", PeCensus("package T\n\nfunc greet(name string) {\n    return name\n}\n")
-    assert PeRow("package T\n\nfunc greet(name string) {\n    return name\n}\n", 0) == "NL102@3:12+4|Expected ':' after parameter name. Got 'string'|func greet(name string) {|Parameter 'name' needs a ':' before its type.|Write this parameter as `name: Type`.|{Add ':' after 'name'}|https://docs.n-sharp.dev/errors/NL102", PeRow("package T\n\nfunc greet(name string) {\n    return name\n}\n", 0)
+    assert PeRow("package T\n\nfunc greet(name string) {\n    return name\n}\n", 0) == "NL102@3:12+4|Expected ':' after parameter name. Got 'string'|func greet(name string) {|Parameter 'name' needs a ':' before its type.|Write this parameter as `name: Type`.|{Add ':' after 'name'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("package T\n\nfunc greet(name string) {\n    return name\n}\n", 0)
     assert PeUnderlined("package T\n\nfunc greet(name string) {\n    return name\n}\n", 0) == "name", PeUnderlined("package T\n\nfunc greet(name string) {\n    return name\n}\n", 0)
     assert PeUnderlined("package T\n\nfunc greet(name string) {\n    return name\n}\n", 0).Trim() != ""
 }
@@ -1372,7 +1372,7 @@ test "020 slice 16: NL102 underlines the parameter name" {
 // ('Expected '{'').
 test "020 slice 16: NL104 underlines the last VISIBLE owner, never the empty EOF position" {
     assert PeCensus("package T\n\nclass Foo") == "NL104@3:7+3;", PeCensus("package T\n\nclass Foo")
-    assert PeRow("package T\n\nclass Foo", 0) == "NL104@3:7+3|Expected '{' but reached the end of the file|class Foo|I was expecting '{' here, but the file ended first.|Finish this construct before the end of the file.|<null>|https://docs.n-sharp.dev/errors/NL104", PeRow("package T\n\nclass Foo", 0)
+    assert PeRow("package T\n\nclass Foo", 0) == "NL104@3:7+3|Expected '{' but reached the end of the file|class Foo|I was expecting '{' here, but the file ended first.|Finish this construct before the end of the file.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL104", PeRow("package T\n\nclass Foo", 0)
     assert PeUnderlined("package T\n\nclass Foo", 0) == "Foo", PeUnderlined("package T\n\nclass Foo", 0)
     assert PeUnderlined("package T\n\nclass Foo", 0).Trim() != ""
 }
@@ -1381,7 +1381,7 @@ test "020 slice 16: NL104 underlines the last VISIBLE owner, never the empty EOF
 // different message, and the recovered declaration is an `<error>`-named bodiless function.
 test "020 slice 16: NL104 after a bare `func` underlines the keyword" {
     assert PeCensus("package T\n\nfunc") == "NL104@3:1+4;", PeCensus("package T\n\nfunc")
-    assert PeRow("package T\n\nfunc", 0) == "NL104@3:1+4|Expected function name, but reached the end of the file|func|I was expecting an identifier here, but the file ended first.|Finish this construct before the end of the file.|<null>|https://docs.n-sharp.dev/errors/NL104", PeRow("package T\n\nfunc", 0)
+    assert PeRow("package T\n\nfunc", 0) == "NL104@3:1+4|Expected function name, but reached the end of the file|func|I was expecting an identifier here, but the file ended first.|Finish this construct before the end of the file.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL104", PeRow("package T\n\nfunc", 0)
     assert PeUnderlined("package T\n\nfunc", 0) == "func", PeUnderlined("package T\n\nfunc", 0)
     assert PeUnderlined("package T\n\nfunc", 0).Trim() != ""
 }
@@ -1389,7 +1389,7 @@ test "020 slice 16: NL104 after a bare `func` underlines the keyword" {
 // Successor to Span_NL105_InvalidLiteral_UnderlinesUnterminatedString.
 test "020 slice 16: NL105 underlines the opening quote and its text" {
     assert PeCensus("package T\n\nfunc Main() {\n    name := \"Ada\n}\n") == "NL105@4:13+4;", PeCensus("package T\n\nfunc Main() {\n    name := \"Ada\n}\n")
-    assert PeRow("package T\n\nfunc Main() {\n    name := \"Ada\n}\n", 0) == "NL105@4:13+4|Unterminated string literal|    name := \"Ada|This string starts with a quote but reaches the end of the line before a closing quote.|Add the closing quote on this line, or use a triple-quoted string for multi-line text.|{Add a closing quote}{Use triple quotes for multi-line strings}|https://docs.n-sharp.dev/errors/NL105", PeRow("package T\n\nfunc Main() {\n    name := \"Ada\n}\n", 0)
+    assert PeRow("package T\n\nfunc Main() {\n    name := \"Ada\n}\n", 0) == "NL105@4:13+4|Unterminated string literal|    name := \"Ada|This string starts with a quote but reaches the end of the line before a closing quote.|Add the closing quote on this line, or use a triple-quoted string for multi-line text.|{Add a closing quote}{Use triple quotes for multi-line strings}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow("package T\n\nfunc Main() {\n    name := \"Ada\n}\n", 0)
     assert PeUnderlined("package T\n\nfunc Main() {\n    name := \"Ada\n}\n", 0) == "\"Ada", PeUnderlined("package T\n\nfunc Main() {\n    name := \"Ada\n}\n", 0)
     assert PeUnderlined("package T\n\nfunc Main() {\n    name := \"Ada\n}\n", 0).Trim() != ""
 }
@@ -1397,7 +1397,7 @@ test "020 slice 16: NL105 underlines the opening quote and its text" {
 // Successor to Span_NL106_MissingClosingBrace_UnderlinesFunctionName.
 test "020 slice 16: NL106 underlines the function name" {
     assert PeCensus("func Main() {\n    print \"hi\"\n") == "NL106@1:6+4;", PeCensus("func Main() {\n    print \"hi\"\n")
-    assert PeRow("func Main() {\n    print \"hi\"\n", 0) == "NL106@1:6+4|Missing closing '}'|func Main() {|The block that started on line 1 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://docs.n-sharp.dev/errors/NL106", PeRow("func Main() {\n    print \"hi\"\n", 0)
+    assert PeRow("func Main() {\n    print \"hi\"\n", 0) == "NL106@1:6+4|Missing closing '}'|func Main() {|The block that started on line 1 is missing its closing brace. I reached the end of the file without finding it.|Add a '}' to close this block.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL106", PeRow("func Main() {\n    print \"hi\"\n", 0)
     assert PeUnderlined("func Main() {\n    print \"hi\"\n", 0) == "Main", PeUnderlined("func Main() {\n    print \"hi\"\n", 0)
     assert PeUnderlined("func Main() {\n    print \"hi\"\n", 0).Trim() != ""
 }
@@ -1405,7 +1405,7 @@ test "020 slice 16: NL106 underlines the function name" {
 // Successor to Span_NL107_MissingClosingParen_UnderlinesCallOwner.
 test "020 slice 16: NL107 underlines the call owner" {
     assert PeCensus("func Main() {\n    print(\"hello\"\n}\n") == "NL107@2:5+5;", PeCensus("func Main() {\n    print(\"hello\"\n}\n")
-    assert PeRow("func Main() {\n    print(\"hello\"\n}\n", 0) == "NL107@2:5+5|Missing closing ')'|    print(\"hello\"|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://docs.n-sharp.dev/errors/NL107", PeRow("func Main() {\n    print(\"hello\"\n}\n", 0)
+    assert PeRow("func Main() {\n    print(\"hello\"\n}\n", 0) == "NL107@2:5+5|Missing closing ')'|    print(\"hello\"|I reached the next line while looking for the closing ')' that matches an earlier '('.|Every opening parenthesis '(' needs a matching closing parenthesis ')'.|{Add ')' before starting the next line}{Check the matching '(' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL107", PeRow("func Main() {\n    print(\"hello\"\n}\n", 0)
     assert PeUnderlined("func Main() {\n    print(\"hello\"\n}\n", 0) == "print", PeUnderlined("func Main() {\n    print(\"hello\"\n}\n", 0)
     assert PeUnderlined("func Main() {\n    print(\"hello\"\n}\n", 0).Trim() != ""
 }
@@ -1413,7 +1413,7 @@ test "020 slice 16: NL107 underlines the call owner" {
 // Successor to Span_NL108_MissingClosingBracket_UnderlinesAssignedVariable.
 test "020 slice 16: NL108 underlines the assigned variable" {
     assert PeCensus("func Main() {\n    nums := [1, 2\n    print nums\n}\n") == "NL108@2:5+4;", PeCensus("func Main() {\n    nums := [1, 2\n    print nums\n}\n")
-    assert PeRow("func Main() {\n    nums := [1, 2\n    print nums\n}\n", 0) == "NL108@2:5+4|Missing closing ']'|    nums := [1, 2|I reached the next line while looking for the closing ']' that matches an earlier '['.|Every opening bracket '[' needs a matching closing bracket ']'.|{Add ']' before starting the next line}{Check the matching '[' in this expression}|https://docs.n-sharp.dev/errors/NL108", PeRow("func Main() {\n    nums := [1, 2\n    print nums\n}\n", 0)
+    assert PeRow("func Main() {\n    nums := [1, 2\n    print nums\n}\n", 0) == "NL108@2:5+4|Missing closing ']'|    nums := [1, 2|I reached the next line while looking for the closing ']' that matches an earlier '['.|Every opening bracket '[' needs a matching closing bracket ']'.|{Add ']' before starting the next line}{Check the matching '[' in this expression}|https://schneidenbach.github.io/nsharplang/docs/errors/NL108", PeRow("func Main() {\n    nums := [1, 2\n    print nums\n}\n", 0)
     assert PeUnderlined("func Main() {\n    nums := [1, 2\n    print nums\n}\n", 0) == "nums", PeUnderlined("func Main() {\n    nums := [1, 2\n    print nums\n}\n", 0)
     assert PeUnderlined("func Main() {\n    nums := [1, 2\n    print nums\n}\n", 0).Trim() != ""
 }
@@ -1459,14 +1459,14 @@ test "020 slice 16: every corpus span underlines a visible, non-whitespace token
 test "020 slice 16: an untyped table header before a bare row value terminates with one NL102" {
     assert !PeParse("test \"d\" with (a) 9 { }").Success
     assert PeCensus("test \"d\" with (a) 9 { }") == "NL102@1:16+1;", PeCensus("test \"d\" with (a) 9 { }")
-    assert PeRow("test \"d\" with (a) 9 { }", 0) == "NL102@1:16+1|Expected ':' after parameter name. Got ')'|test \"d\" with (a) 9 { }|Parameter 'a' needs a ':' before its type.|Write this parameter as `a: Type`.|{Add ':' after 'a'}|https://docs.n-sharp.dev/errors/NL102", PeRow("test \"d\" with (a) 9 { }", 0)
+    assert PeRow("test \"d\" with (a) 9 { }", 0) == "NL102@1:16+1|Expected ':' after parameter name. Got ')'|test \"d\" with (a) 9 { }|Parameter 'a' needs a ':' before its type.|Write this parameter as `a: Type`.|{Add ':' after 'a'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("test \"d\" with (a) 9 { }", 0)
     assert PeDecls("test \"d\" with (a) 9 { }") == "TestDeclaration[]", PeDecls("test \"d\" with (a) 9 { }")
 }
 
 test "020 slice 16: an untyped table header before a bracketed row value terminates with one NL102" {
     assert !PeParse("test \"d\" with (a) [ 9 ] { }").Success
     assert PeCensus("test \"d\" with (a) [ 9 ] { }") == "NL102@1:16+1;", PeCensus("test \"d\" with (a) [ 9 ] { }")
-    assert PeRow("test \"d\" with (a) [ 9 ] { }", 0) == "NL102@1:16+1|Expected ':' after parameter name. Got ')'|test \"d\" with (a) [ 9 ] { }|Parameter 'a' needs a ':' before its type.|Write this parameter as `a: Type`.|{Add ':' after 'a'}|https://docs.n-sharp.dev/errors/NL102", PeRow("test \"d\" with (a) [ 9 ] { }", 0)
+    assert PeRow("test \"d\" with (a) [ 9 ] { }", 0) == "NL102@1:16+1|Expected ':' after parameter name. Got ')'|test \"d\" with (a) [ 9 ] { }|Parameter 'a' needs a ':' before its type.|Write this parameter as `a: Type`.|{Add ':' after 'a'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("test \"d\" with (a) [ 9 ] { }", 0)
     assert PeDecls("test \"d\" with (a) [ 9 ] { }") == "TestDeclaration[]", PeDecls("test \"d\" with (a) [ 9 ] { }")
 }
 
@@ -1481,7 +1481,7 @@ test "020 slice 16: an untyped table header before a bracketed row value termina
 test "020 slice 16: a mismatched brace inside a bracketed row reports four diagnostics and terminates" {
     assert !PeParse("test \"d\" with (a) [ (9 } ] { }").Success
     assert PeCensus("test \"d\" with (a) [ (9 } ] { }") == "NL102@1:16+1;NL101@1:26+1;NL101@1:28+1;NL101@1:30+1;", PeCensus("test \"d\" with (a) [ (9 } ] { }")
-    assert PeRow("test \"d\" with (a) [ (9 } ] { }", 0) == "NL102@1:16+1|Expected ':' after parameter name. Got ')'|test \"d\" with (a) [ (9 } ] { }|Parameter 'a' needs a ':' before its type.|Write this parameter as `a: Type`.|{Add ':' after 'a'}|https://docs.n-sharp.dev/errors/NL102", PeRow("test \"d\" with (a) [ (9 } ] { }", 0)
+    assert PeRow("test \"d\" with (a) [ (9 } ] { }", 0) == "NL102@1:16+1|Expected ':' after parameter name. Got ')'|test \"d\" with (a) [ (9 } ] { }|Parameter 'a' needs a ':' before its type.|Write this parameter as `a: Type`.|{Add ':' after 'a'}|https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeRow("test \"d\" with (a) [ (9 } ] { }", 0)
     assert PeDecls("test \"d\" with (a) [ (9 } ] { }") == "TestDeclaration[]ClassDeclaration[<error>/m0]ClassDeclaration[<error>/m0]ClassDeclaration[<error>/m0]", PeDecls("test \"d\" with (a) [ (9 } ] { }")
 }
 
@@ -1512,7 +1512,7 @@ test "NL105 refuses an unrecognised escape at the backslash, not at the literal"
     source := "func test() {\n    name := \"a\\qb\"\n}\n"
     assert PeCensus(source) == "NL105@2:15+2;", PeCensus(source)
     assert PeUnderlined(source, 0) == "\\q", PeUnderlined(source, 0)
-    assert PeRow(source, 0) == "NL105@2:15+2|Unrecognised escape sequence `\\\\q`|    name := \"a\\\\qb\"|`\\\\q` is not an escape sequence in N#, so I cannot tell what character you meant here.|N# knows `\\\\0 \\\\a \\\\b \\\\e \\\\f \\\\n \\\\r \\\\t \\\\v \\\\' \\\\\" \\\\\\\\`, plus `\\\\xH..HHHH`, `\\\\uHHHH` and `\\\\UHHHHHHHH`.|{Write `\\\\\\\\q` for a literal backslash followed by `q`}{Use a triple-quoted `\"\"\"...\"\"\"` string, where no backslash is an escape}|https://docs.n-sharp.dev/errors/NL105", PeRow(source, 0)
+    assert PeRow(source, 0) == "NL105@2:15+2|Unrecognised escape sequence `\\\\q`|    name := \"a\\\\qb\"|`\\\\q` is not an escape sequence in N#, so I cannot tell what character you meant here.|N# knows `\\\\0 \\\\a \\\\b \\\\e \\\\f \\\\n \\\\r \\\\t \\\\v \\\\' \\\\\" \\\\\\\\`, plus `\\\\xH..HHHH`, `\\\\uHHHH` and `\\\\UHHHHHHHH`.|{Write `\\\\\\\\q` for a literal backslash followed by `q`}{Use a triple-quoted `\"\"\"...\"\"\"` string, where no backslash is an escape}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow(source, 0)
 }
 
 test "NL105 names the WIDTH for a hex escape, because a short run is a different mistake" {
@@ -1520,16 +1520,16 @@ test "NL105 names the WIDTH for a hex escape, because a short run is a different
     // be a lie, so the hint is about the width and the neighbouring escapes that take fewer digits.
     shortU := "func test() {\n    name := \"\\u041\"\n}\n"
     assert PeCensus(shortU) == "NL105@2:14+2;", PeCensus(shortU)
-    assert PeRow(shortU, 0) == "NL105@2:14+2|Unrecognised escape sequence `\\\\u`|    name := \"\\\\u041\"|`\\\\u` is not an escape sequence in N#, so I cannot tell what character you meant here.|`\\\\u` needs EXACTLY four hex digits, as in `\\\\u001b`.|{Write `\\\\uHHHH` with exactly four hex digits}{Use `\\\\xH` to `\\\\xHHHH` when you have fewer digits}{Use `\\\\UHHHHHHHH` for a code point above U+FFFF}|https://docs.n-sharp.dev/errors/NL105", PeRow(shortU, 0)
+    assert PeRow(shortU, 0) == "NL105@2:14+2|Unrecognised escape sequence `\\\\u`|    name := \"\\\\u041\"|`\\\\u` is not an escape sequence in N#, so I cannot tell what character you meant here.|`\\\\u` needs EXACTLY four hex digits, as in `\\\\u001b`.|{Write `\\\\uHHHH` with exactly four hex digits}{Use `\\\\xH` to `\\\\xHHHH` when you have fewer digits}{Use `\\\\UHHHHHHHH` for a code point above U+FFFF}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow(shortU, 0)
 
     bareX := "func test() {\n    name := \"\\x\"\n}\n"
     assert PeCensus(bareX) == "NL105@2:14+2;", PeCensus(bareX)
-    assert PeRow(bareX, 0) == "NL105@2:14+2|Unrecognised escape sequence `\\\\x`|    name := \"\\\\x\"|`\\\\x` is not an escape sequence in N#, so I cannot tell what character you meant here.|`\\\\x` needs one to four HEX digits after it, as in `\\\\x1b`.|{Write `\\\\xH` to `\\\\xHHHH` with one to four hex digits}{Use `\\\\e` when you mean the escape character}|https://docs.n-sharp.dev/errors/NL105", PeRow(bareX, 0)
+    assert PeRow(bareX, 0) == "NL105@2:14+2|Unrecognised escape sequence `\\\\x`|    name := \"\\\\x\"|`\\\\x` is not an escape sequence in N#, so I cannot tell what character you meant here.|`\\\\x` needs one to four HEX digits after it, as in `\\\\x1b`.|{Write `\\\\xH` to `\\\\xHHHH` with one to four hex digits}{Use `\\\\e` when you mean the escape character}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow(bareX, 0)
 
     // `\U` past the last plane is a real code-point refusal, not a width one.
     bigU := "func test() {\n    name := \"\\U00110000\"\n}\n"
     assert PeCensus(bigU) == "NL105@2:14+2;", PeCensus(bigU)
-    assert PeRow(bigU, 0) == "NL105@2:14+2|Unrecognised escape sequence `\\\\U`|    name := \"\\\\U00110000\"|`\\\\U` is not an escape sequence in N#, so I cannot tell what character you meant here.|`\\\\U` needs EXACTLY eight hex digits and a real code point, as in `\\\\U0001F600` — a lone surrogate and anything above U+10FFFF are refused.|{Write `\\\\UHHHHHHHH` with exactly eight hex digits}{Use `\\\\uHHHH` for a code point in the basic plane}|https://docs.n-sharp.dev/errors/NL105", PeRow(bigU, 0)
+    assert PeRow(bigU, 0) == "NL105@2:14+2|Unrecognised escape sequence `\\\\U`|    name := \"\\\\U00110000\"|`\\\\U` is not an escape sequence in N#, so I cannot tell what character you meant here.|`\\\\U` needs EXACTLY eight hex digits and a real code point, as in `\\\\U0001F600` — a lone surrogate and anything above U+10FFFF are refused.|{Write `\\\\UHHHHHHHH` with exactly eight hex digits}{Use `\\\\uHHHH` for a code point in the basic plane}|https://schneidenbach.github.io/nsharplang/docs/errors/NL105", PeRow(bigU, 0)
 }
 
 test "NL105 reports ONCE per literal, however many bad escapes it holds" {

@@ -228,7 +228,7 @@ test "format for tooling preserves the rich context and omits the location" {
     // NOT IN THE DELETED FILE: the WHOLE payload an agent reads. Seven `Contains` samples cannot see
     // the ORDER of the blocks, the blank line between each pair, the marker's indent, or that the
     // trailing newline is trimmed — and this is the exact text `nlc query` hands an LLM.
-    assert CompilerErrorText(formatted) == "NL202: Type mismatch\n\nI am having trouble with this code on line 10:\n\nx: int = \"hello\"\n    ^^^^^^^\n\nactual: string\nexpected: int\n\nStrings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result).\n\ndocs: https://docs.n-sharp.dev/errors/NL202"
+    assert CompilerErrorText(formatted) == "NL202: Type mismatch\n\nI am having trouble with this code on line 10:\n\nx: int = \"hello\"\n    ^^^^^^^\n\nactual: string\nexpected: int\n\nStrings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result).\n\ndocs: https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
 }
 
 // NOT IN THE DELETED FILE AT ALL: the two arms the deleted file never asked for.
@@ -259,7 +259,7 @@ test "format for msbuild collapses the rich context onto one line" {
     // NOT IN THE DELETED FILE: "no newline" is satisfied by simply DROPPING the multi-line hint.
     // The whole value proves the hint SURVIVES, with its interior newline folded to a single space,
     // and pins the ` | ` separator MSBuild's log parser splits on.
-    assert formatted == "Type mismatch | I am having trouble with this code on line 10: | actual: string | expected: int | Strings and integers are different types. To convert a string to an int, you can use int.Parse(yourString) or int.TryParse(yourString, out result). | docs: https://docs.n-sharp.dev/errors/NL202"
+    assert formatted == "Type mismatch | I am having trouble with this code on line 10: | actual: string | expected: int | Strings and integers are different types. To convert a string to an int, you can use int.Parse(yourString) or int.TryParse(yourString, out result). | docs: https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
 
     // AND THE SNIPPET IS DELIBERATELY ABSENT: MSBuild renders its own caret line, so a second one
     // would double it.

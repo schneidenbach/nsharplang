@@ -168,7 +168,7 @@ test "a fully populated diagnostic prints every Elm section" {
         "Check your types",
         "int",
         "string",
-        "https://docs.n-sharp.dev/errors/NL202"
+        "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
     )
 
     text := OutputFormatterTextBuilders.DiagnosticsToText(OftbDiagnosticList(diagnostic))
@@ -197,7 +197,7 @@ test "a fully populated diagnostic prints every Elm section" {
     assert text.Contains("Actual: `string`")
     assert text.Contains("Hint: Check your types")
     assert text.Contains("Suggestion: Use int.Parse")
-    assert text.Contains("See: https://docs.n-sharp.dev/errors/NL202")
+    assert text.Contains("See: https://schneidenbach.github.io/nsharplang/docs/errors/NL202")
     assert text.Contains("1 error")
 }
 

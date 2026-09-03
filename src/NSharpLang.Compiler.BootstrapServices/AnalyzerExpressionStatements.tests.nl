@@ -609,7 +609,7 @@ test "with a source snippet the expression-statement report takes the rich shape
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidExpressionStatement
-    assert harness.Errors[0].DocsUrl == "https://docs.n-sharp.dev/errors/NL313"
+    assert harness.Errors[0].DocsUrl == "https://schneidenbach.github.io/nsharplang/docs/errors/NL313"
     assert harness.Errors[0].HumanExplanation != null
 }
 

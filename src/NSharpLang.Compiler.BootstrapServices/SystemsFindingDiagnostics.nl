@@ -17,7 +17,7 @@ class SystemsFindingDiagnostics {
             Suggestion: finding.Suggestion,
             HumanExplanation: "Systems policy '" + PolicyName(finding.Policy) + "' rejected the '" + finding.Effect + "' effect.",
             ContextualHint: CallPathHint(finding.CallPath),
-            DocsUrl: "https://docs.n-sharp.dev/errors/" + finding.Code
+            DocsUrl: DiagnosticDocs.UrlFor(finding.Code)
         }
     }
 

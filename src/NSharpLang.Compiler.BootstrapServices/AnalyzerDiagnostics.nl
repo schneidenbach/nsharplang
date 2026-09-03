@@ -48,7 +48,7 @@ class AnalyzerDiagnostics {
     }
 
     static func CreateImportCollision(message: string, currentFilePath: string?, duplicateSourcePath: string?, line: int, column: int, sourceSnippet: string?, length: int, suggestion: string, humanExplanation: string, contextualHint: string): CompilerError {
-        docsUrl := "https://docs.n-sharp.dev/errors/NL702"
+        docsUrl := DiagnosticDocs.UrlFor("NL702")
         fileName: string? = currentFilePath
         if fileName == null {
             fileName = duplicateSourcePath

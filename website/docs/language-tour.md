@@ -657,14 +657,14 @@ class Counter {
 ```
 
 The lockee must be a **reference type** — locking on a value type (`int`, a struct, an enum,
-`int?`) is a compile-time error ([NL320](https://docs.n-sharp.dev/errors/NL320)). `Monitor`
+`int?`) is a compile-time error ([NL320](https://schneidenbach.github.io/nsharplang/docs/errors/NL320)). `Monitor`
 locks on object identity, and a value would be boxed into a fresh object on every `lock`, so
 the lock would guard nothing. The same applies to a generic `T` unless it is constrained to a
 reference type (`where T: class`). Lock on a dedicated `object` field, as `Counter` does above.
 
 Inside a `finally` block, control transfers that would leave the block — `return`, or
 `break`/`continue` targeting a loop outside it — are compile-time errors
-([NL319](https://docs.n-sharp.dev/errors/NL319)): the runtime must always finish running a
+([NL319](https://schneidenbach.github.io/nsharplang/docs/errors/NL319)): the runtime must always finish running a
 `finally`. `throw` is allowed, and loops opened inside the `finally` can still
 `break`/`continue` normally.
 

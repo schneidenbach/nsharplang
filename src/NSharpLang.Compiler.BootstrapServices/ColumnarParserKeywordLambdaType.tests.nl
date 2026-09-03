@@ -614,7 +614,7 @@ test "020 s22 parser type NEGATIVE: `int |` with no right arm is refused ONCE at
     source := "func Bad(value: int |): void {\n}"
     assert !PeParse(source).Success
     assert PeCensus(source) == "NL103@1:22+1;", PeCensus(source)
-    assert PeRow(source, 0) == "NL103@1:22+1|Expected a type after '|' in anonymous union type|func Bad(value: int |): void {|Anonymous union types use the form `A | B`, so every `|` must be followed by another type.|Add the missing type arm, or remove the trailing `|`.|<null>|https://docs.n-sharp.dev/errors/NL103", PeRow(source, 0)
+    assert PeRow(source, 0) == "NL103@1:22+1|Expected a type after '|' in anonymous union type|func Bad(value: int |): void {|Anonymous union types use the form `A | B`, so every `|` must be followed by another type.|Add the missing type arm, or remove the trailing `|`.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL103", PeRow(source, 0)
     assert PeRow(source, 1) == "<no-such-error>", PeRow(source, 1)
     assert PeDecls(source) == "FunctionDeclaration[Bad/s0]", PeDecls(source)
     actual := PsAst(source)

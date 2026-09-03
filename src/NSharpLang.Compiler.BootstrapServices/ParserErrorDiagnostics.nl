@@ -22,6 +22,6 @@ class ParserErrorDiagnostics {
 
     static func BuildDocsUrl(code: ErrorCode): string {
         codeValue: int = (int)code
-        return "https://docs.n-sharp.dev/errors/NL" + codeValue.ToString("D3")
+        return DiagnosticDocs.UrlFor("NL" + codeValue.ToString("D3"))
     }
 }

@@ -210,7 +210,7 @@ func Main() {
             Assert.Equal(10, diagnostic.GetProperty("column").GetInt32());
             Assert.Equal(1, diagnostic.GetProperty("length").GetInt32());
             Assert.Contains("'int'", diagnostic.GetProperty("message").GetString());
-            Assert.Equal("https://docs.n-sharp.dev/errors/NL320", diagnostic.GetProperty("docsUrl").GetString());
+            Assert.Equal("https://schneidenbach.github.io/nsharplang/docs/errors/NL320", diagnostic.GetProperty("docsUrl").GetString());
         }
         finally
         {
@@ -247,7 +247,7 @@ func Main() {
 
             Assert.Equal(6, diagnostic.GetProperty("line").GetInt32()); // Underlines the full `return` keyword.
             Assert.Equal("return".Length, diagnostic.GetProperty("length").GetInt32());
-            Assert.Equal("https://docs.n-sharp.dev/errors/NL319", diagnostic.GetProperty("docsUrl").GetString());
+            Assert.Equal("https://schneidenbach.github.io/nsharplang/docs/errors/NL319", diagnostic.GetProperty("docsUrl").GetString());
         }
         finally
         {

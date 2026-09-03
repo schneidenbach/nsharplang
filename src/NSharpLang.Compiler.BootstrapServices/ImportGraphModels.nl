@@ -152,7 +152,7 @@ class ImportCycleDiagnosticReporter {
             HumanExplanation: "File imports form a cycle: " + cycle.DisplayPath,
             ContextualHint: "Circular imports are not allowed because they make symbol resolution order ambiguous.\n" + "Import path: " + cycle.DisplayPath,
             Suggestion: "Move shared types or functions into a separate file/package that every file can import without importing back, or invert one dependency so imports flow in one direction.",
-            DocsUrl: "https://docs.n-sharp.dev/errors/NL703"
+            DocsUrl: DiagnosticDocs.UrlFor("NL703")
         })
     }
 

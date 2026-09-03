@@ -79,7 +79,7 @@ class GoldenDiagnostic {
         Help = help
     }
 
-    DocsUrl: string => "https://docs.n-sharp.dev/errors/" + Category + "/" + Code
+    DocsUrl: string => DiagnosticDocs.UrlFor(Code)
 }
 
 func DgsAdd(corpus: List<GoldenDiagnostic>, category: string, code: string, message: string, filePath: string, line: int, column: int, length: int, source: string, explanation: string, help: string) {
@@ -621,7 +621,7 @@ test "every diagnostic in the suite is fully curated" {
         assert !String.IsNullOrWhiteSpace(diagnostic.Explanation)
         assert !String.IsNullOrWhiteSpace(diagnostic.Help)
         assert !String.IsNullOrWhiteSpace(diagnostic.File)
-        assert diagnostic.DocsUrl.StartsWith("https://docs.n-sharp.dev/")
+        assert diagnostic.DocsUrl.StartsWith(DiagnosticDocs.Base)
         assert diagnostic.Line >= 1
         assert diagnostic.Column >= 1
         assert diagnostic.Length >= 1
@@ -632,7 +632,7 @@ test "every diagnostic in the suite is fully curated" {
 test "every diagnostic points at its own category-qualified docs page" {
     // The deleted file asserted the URL PREFIX, which a builder that sent all twenty-four to the
     // same page would satisfy. The whole table:
-    assert DgsDocsUrls() == "https://docs.n-sharp.dev/errors/parser/NL101\n" + "https://docs.n-sharp.dev/errors/parser/NL102\n" + "https://docs.n-sharp.dev/errors/parser/NL104\n" + "https://docs.n-sharp.dev/errors/parser/NL106\n" + "https://docs.n-sharp.dev/errors/parser/NL107\n" + "https://docs.n-sharp.dev/errors/analyzer/NL202\n" + "https://docs.n-sharp.dev/errors/analyzer/NL203\n" + "https://docs.n-sharp.dev/errors/analyzer/NL301\n" + "https://docs.n-sharp.dev/errors/analyzer/NL302\n" + "https://docs.n-sharp.dev/errors/analyzer/NL303\n" + "https://docs.n-sharp.dev/errors/analyzer/NL305\n" + "https://docs.n-sharp.dev/errors/analyzer/NL401\n" + "https://docs.n-sharp.dev/errors/analyzer/NL501\n" + "https://docs.n-sharp.dev/errors/analyzer/NL306\n" + "https://docs.n-sharp.dev/errors/linter/NL001\n" + "https://docs.n-sharp.dev/errors/linter/NL006\n" + "https://docs.n-sharp.dev/errors/linter/NL010\n" + "https://docs.n-sharp.dev/errors/linter/NL002\n" + "https://docs.n-sharp.dev/errors/linter/NL003\n" + "https://docs.n-sharp.dev/errors/linter/NL004\n" + "https://docs.n-sharp.dev/errors/linter/NL011\n" + "https://docs.n-sharp.dev/errors/linter/NL012\n" + "https://docs.n-sharp.dev/errors/linter/NL016\n" + "https://docs.n-sharp.dev/errors/linter/NL020\n"
+    assert DgsDocsUrls() == "https://schneidenbach.github.io/nsharplang/docs/errors/NL101\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL102\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL104\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL106\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL107\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL202\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL203\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL301\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL302\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL303\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL305\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL401\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL501\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL306\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL001\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL006\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL010\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL002\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL003\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL004\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL011\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL012\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL016\n" + "https://schneidenbach.github.io/nsharplang/docs/errors/NL020\n"
 }
 
 // NOT IN THE DELETED FILE: the severity mapping, including the arm no diagnostic reaches.

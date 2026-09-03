@@ -771,7 +771,7 @@ test "020 s19 parser patterns: `out var num` is refused ONCE, at the inline decl
     source := "\n            func TryParse(input: string, out result: int): bool {\n                result = 42\n                return true\n            }\n\n            func Main() {\n                if TryParse(\"123\", out var num) {\n                    print num\n                }\n            }\n        "
     assert !PeParse(source).Success
     assert PeCensus(source) == "NL103@8:40+7;", PeCensus(source)
-    assert PeRow(source, 0) == "NL103@8:40+7|Inline out declarations are not supported|                if TryParse(\"123\", out var num) {|N# out arguments must refer to a variable that already exists.|Declare 'num' before the call, then pass 'out num'.|<null>|https://docs.n-sharp.dev/errors/NL103", PeRow(source, 0)
+    assert PeRow(source, 0) == "NL103@8:40+7|Inline out declarations are not supported|                if TryParse(\"123\", out var num) {|N# out arguments must refer to a variable that already exists.|Declare 'num' before the call, then pass 'out num'.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL103", PeRow(source, 0)
     assert PeRow(source, 1) == "<no-such-error>", PeRow(source, 1)
     assert PeDecls(source) == "FunctionDeclaration[TryParse/s2]FunctionDeclaration[Main/s1]", PeDecls(source)
 }
@@ -780,7 +780,7 @@ test "020 s19 parser patterns: `out int value` gets the same one diagnostic with
     source := "\n            func TryParse(input: string, out result: int): bool {\n                result = 42\n                return true\n            }\n\n            func Main() {\n                if TryParse(\"456\", out int value) {\n                    print value\n                }\n            }\n        "
     assert !PeParse(source).Success
     assert PeCensus(source) == "NL103@8:40+9;", PeCensus(source)
-    assert PeRow(source, 0) == "NL103@8:40+9|Inline out declarations are not supported|                if TryParse(\"456\", out int value) {|N# out arguments must refer to a variable that already exists.|Declare 'value' before the call, then pass 'out value'.|<null>|https://docs.n-sharp.dev/errors/NL103", PeRow(source, 0)
+    assert PeRow(source, 0) == "NL103@8:40+9|Inline out declarations are not supported|                if TryParse(\"456\", out int value) {|N# out arguments must refer to a variable that already exists.|Declare 'value' before the call, then pass 'out value'.|<null>|https://schneidenbach.github.io/nsharplang/docs/errors/NL103", PeRow(source, 0)
     assert PeRow(source, 1) == "<no-such-error>", PeRow(source, 1)
     assert PeDecls(source) == "FunctionDeclaration[TryParse/s2]FunctionDeclaration[Main/s1]", PeDecls(source)
 }

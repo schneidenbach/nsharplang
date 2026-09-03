@@ -564,7 +564,7 @@ test "with source text the report takes the RICH shape, which is the SAME messag
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
     assert harness.Errors[0].Message == "Variable 'total' is typed as 'int', but the value is 'string'"
-    assert harness.Errors[0].DocsUrl == "https://docs.n-sharp.dev/errors/NL202"
+    assert harness.Errors[0].DocsUrl == "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
 }
 test "the two routes disagree about the ANCHOR and about what is ADDED, never about the SENTENCE" {
     plain := VdDefault()

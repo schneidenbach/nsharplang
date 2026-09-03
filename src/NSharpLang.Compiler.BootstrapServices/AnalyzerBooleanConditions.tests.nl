@@ -350,7 +350,7 @@ test "THE `if` CONDITION REPORTS THROUGH THE RICH BUILDER WHEN IT HAS A SNIPPET 
     assert error.ActualType == "int"
     assert error.ExpectedType == "bool"
     assert error.SourceSnippet == "    if count { }"
-    assert error.DocsUrl == "https://docs.n-sharp.dev/errors/NL202"
+    assert error.DocsUrl == "https://schneidenbach.github.io/nsharplang/docs/errors/NL202"
     assert error.HumanExplanation == "I am having trouble with this code on line 4:"
     assert error.Line == 4
     assert error.Column == 8
