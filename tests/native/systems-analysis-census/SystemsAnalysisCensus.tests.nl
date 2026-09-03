@@ -656,7 +656,7 @@ test "020 s41 systems analysis census: the same guard does NOT carry into the br
 
 test "020 s41 systems analysis census: a narrow `allow(alloc, reason: …)` block licenses the allocation and the report is EMPTY (was SystemsNSharpTests.HotFunction_AcceptsNarrowAllowAllocBlock)" {
     directory := SacFixture("hotfunction-acceptsnarrowallowallocblock", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: default\n  systems:\n    mode: strict\n")
-    SacWrite(directory, "Program.nl", "[hot]\nfunc Make(): int {\n    allow(alloc, reason: \"cold fallback table\") {\n        value := alloc new Box()\n    }\n    return 1\n}\n\nclass Box {}\n")
+    SacWrite(directory, "Program.nl", "[hot]\nfunc Make(): int {\n    allow(alloc, reason: \"cold fallback table\") {\n        _value := alloc new Box()\n    }\n    return 1\n}\n\nclass Box {}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
     envelope := SacEnvelope(check.Stdout)
@@ -735,7 +735,7 @@ test "020 s41 systems analysis census: a `[trusted]` site with only a reason is 
 
 test "020 s41 systems analysis census: a `[memory(safe)]` + fully-attributed `[trusted]` wrapper with a restricted `unsafe` block reports NOTHING, and its trusted row carries owner and review (was SystemsNSharpTests.TrustedMemorySafeWrapper_AllowsRestrictedUnsafeBlock)" {
     directory := SacFixture("trustedmemorysafewrapper-allowsrestrictedunsafeblock", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
-    SacWrite(directory, "Program.nl", "[memory(safe)]\n[trusted(reason: \"bounds checked by caller\", owner: \"runtime-core\", review: \"SYS-1\")]\nfunc Copy(): int {\n    unsafe {\n        value := 1\n    }\n    return 1\n}\n")
+    SacWrite(directory, "Program.nl", "[memory(safe)]\n[trusted(reason: \"bounds checked by caller\", owner: \"runtime-core\", review: \"SYS-1\")]\nfunc Copy(): int {\n    unsafe {\n        _value := 1\n    }\n    return 1\n}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
     envelope := SacEnvelope(check.Stdout)

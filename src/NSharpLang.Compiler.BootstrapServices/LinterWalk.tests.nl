@@ -654,13 +654,105 @@ test "an AWAIT FOREACH counts as an await, so its async function is not NL004" {
     assert LwkCodes(idle) == "NL004@7:1;"
 }
 
-test "a statement shape with no arm is walked no further" {
+test "the shapes NAMED bodyless are silent — and naming them is what makes the tail throw safe" {
+    // RETITLED AND RE-PINNED. This used to read "a statement shape with no arm is walked no further",
+    // which stated the FAIL-OPEN rule as a fact; that rule is what let `unsafe`/`alloc`/`allow` bodies
+    // go unwalked for every lint rule. These six shapes are silent because `IsBodylessStatement` NAMES
+    // them silent — they carry no binding, no expression and no nested body — not because nobody wrote
+    // their arm.
     state := LwkState()
     walk := new LinterWalk(state)
     walk.VisitStatement(new BreakStatement(4, 5))
     walk.VisitStatement(new ContinueStatement(5, 5))
     walk.VisitStatement(new EmptyStatement(6, 5))
+    walk.VisitStatement(new PreprocessorDirective("#if DEBUG", 7, 1))
+    walk.VisitStatement(new FileImport("helpers.nl", null, 8, 1))
+    walk.VisitStatement(new NamespaceImport("System.Text", null, 9, 1))
     assert state.Diagnostics.Count == 0
+
+    assert LinterWalk.IsBodylessStatement(new BreakStatement(4, 5))
+    assert LinterWalk.IsBodylessStatement(new ContinueStatement(5, 5))
+    assert LinterWalk.IsBodylessStatement(new EmptyStatement(6, 5))
+    assert LinterWalk.IsBodylessStatement(new PreprocessorDirective("#if DEBUG", 7, 1))
+    assert LinterWalk.IsBodylessStatement(new FileImport("helpers.nl", null, 8, 1))
+    assert LinterWalk.IsBodylessStatement(new NamespaceImport("System.Text", null, 9, 1))
+
+    // Non-vacuity, and the whole point of the list: a shape that is NOT named is not silently skipped.
+    assert !LinterWalk.IsBodylessStatement(new UnsafeBlockStatement(LwkEmptyBlock(4, 12), 4, 5))
+    assert !LinterWalk.IsBodylessStatement(LwkEmptyBlock(4, 5))
+}
+
+test "A STATEMENT KIND WITH NO ARM NOW THROWS — the walk cannot be switched off by a new node kind" {
+    // The future-subclass simulation, which is the only way to reach the tail now that every shipped
+    // `Statement` is either walked or named bodyless. Before this slice the walk RETURNED here, and a
+    // returning tail is how `off`, `unsafe`, `alloc` and `allow` each shipped with the linter blind
+    // inside them.
+    state := LwkState()
+    walk := new LinterWalk(state)
+    assert throws InvalidOperationException {
+        walk.VisitStatement(new LwkUnknownStatement(11, 7))
+    }
+}
+
+// ── the three body-carrying wrappers (`unsafe`, `alloc`, `allow`) ────────────────────────────────
+//
+// EACH OF THESE HAD NO ARM, AND A MISSING ARM DOES NOT WEAKEN ONE RULE — IT SWITCHES THE WHOLE LINTER
+// OFF FOR THE SUBTREE. Measured on the shipped CLI before the fix: a local read only inside such a
+// body was reported NL001 (an ERROR, so it blocked `nlc build` on correct source), a local declared
+// and never read INSIDE one was never reported at all, an import used only inside one was reported
+// NL010, and an empty catch block inside one was never NL011. Both directions are pinned below,
+// through the source-text census rather than a hand-built tree, because the defect was reachable from
+// ordinary source and no hand-built contract had caught it.
+
+test "a local read only inside an `unsafe` body is NOT NL001, and one unread INSIDE it IS" {
+    assert LnieCensus("\nfunc F() {\n    a := 1\n    unsafe {\n        print a\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    unsafe {\n        b := 2\n    }\n}\n") == "NL001@4:9+1;"
+}
+
+test "a local read only inside an `alloc` body is NOT NL001, and one unread INSIDE it IS" {
+    assert LnieCensus("\nfunc F() {\n    c := 3\n    alloc {\n        print c\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    alloc {\n        d := 4\n    }\n}\n") == "NL001@4:9+1;"
+}
+
+test "a local read only inside an `allow(...)` body is NOT NL001, and one unread INSIDE it IS" {
+    assert LnieCensus("\nfunc F() {\n    e := 5\n    allow(alloc, reason: \"probe\") {\n        print e\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    allow(alloc, reason: \"probe\") {\n        f := 6\n    }\n}\n") == "NL001@4:9+1;"
+}
+
+test "the blindness was never NL001-only: NL010 and NL011 were lost inside a wrapper body too" {
+    // An import used ONLY inside an `unsafe` body was reported unused, and an empty catch block inside
+    // one was never reported. Both are the same missing arm.
+    assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    unsafe {\n        sb := new StringBuilder()\n        print sb\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    unsafe {\n        try {\n            print 1\n        } catch ex: Exception {\n        }\n    }\n}\n") == "NL011@6:11+5;"
+}
+
+test "a wrapper body owns its scope, so a binding inside one does not leak past it" {
+    // The arm hands the body to `VisitStatement`, which reaches `VisitBlock` and pushes a scope — so
+    // the inner name is reported at the wrapper's close and is NOT visible to the statement after it.
+    state := LwkState()
+    walk := new LinterWalk(state)
+    inner := LwkStatements()
+    inner.Add(LwkVar("scoped", null, 5, 9))
+    body := LwkBlockOf(inner, 4, 12)
+    outer := LwkStatements()
+    outer.Add(new UnsafeBlockStatement(body, 4, 5))
+    outer.Add(LwkRead("scoped", 8, 5))
+    walk.VisitStatement(LwkBlockOf(outer, 3, 1))
+    assert LwkCodes(state) == "NL001@5:9;"
+}
+
+test "`alloc` and `allow` walk their bodies through the same arm shape as `unsafe`" {
+    allocState := LwkState()
+    allocWalk := new LinterWalk(allocState)
+    allocWalk.VisitStatement(new AllocBlockStatement(LwkBlock1(LwkVar("dead", null, 5, 9), 4, 12), 4, 5))
+    assert LwkCodes(allocState) == "NL001@5:9;"
+
+    allowState := LwkState()
+    allowWalk := new LinterWalk(allowState)
+    effects := new List<string>()
+    effects.Add("alloc")
+    allowWalk.VisitStatement(new AllowStatement(effects, "probe", null, LwkBlock1(LwkVar("dead", null, 5, 9), 4, 12), 4, 5))
+    assert LwkCodes(allowState) == "NL001@5:9;"
 }
 
 // ── the operand slots a read-walk must see (the `off` / pattern family) ──────────────────────────
@@ -859,4 +951,12 @@ test "a CAPTURED parameter read inside a nested function counts as read" {
     outer := LwkFunction("outer", LwkParams(["captured"]), LwkBlock1(innerStatement, 7, 30), null, false)
     walk.VisitFunction(outer)
     assert state.Diagnostics.Count == 0
+}
+
+// A `Statement` subclass the walk has never heard of — the stand-in for the NEXT node kind someone
+// adds. It exists so the fail-safe tail can be asserted rather than described; every shipped
+// `Statement` is now either walked or named bodyless, so nothing else can reach that throw.
+class LwkUnknownStatement: Statement {
+    constructor(Line: int, Column: int): base(Line, Column) {
+    }
 }

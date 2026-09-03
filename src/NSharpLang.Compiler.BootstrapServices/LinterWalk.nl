@@ -112,16 +112,24 @@ class LinterWalk {
 
     // ---- the statement arm ------------------------------------------------------------------------
 
-    // Every statement shape the walk understands. A shape with no arm here is walked no further —
-    // correct for `break`, `continue` and the empty statement, which carry no binding, no expression
-    // and no nested body.
+    // Every statement shape the walk understands, AND — SINCE THIS SLICE — EVERY SHAPE IT DOES NOT.
     //
-    // THAT RULE IS FAIL-OPEN, UNLIKE THE EXPRESSION WALK'S, and it has already cost one shipped
-    // feature: `OffStatement` carries a handle expression and had no arm, so a subscription read only
-    // by its `off` was reported NL001. `AstChildrenCore.Of` throws for an expression node it does not
-    // know; nothing here throws for a statement it does not know. `AllocBlockStatement`,
-    // `AllowStatement` and `UnsafeBlockStatement` each carry a `BlockStatement` body and still have no
-    // arm — measured, and left for the slice that owns those forms.
+    // THIS ARM USED TO BE FAIL-OPEN WHILE THE EXPRESSION ARM WAS FAIL-SAFE, AND THAT ASYMMETRY COST
+    // TWO SHIPPED FEATURES. `OffStatement` carries a handle expression and had no arm, so a
+    // subscription read only by its `off` was reported NL001. Then `AllocBlockStatement`,
+    // `AllowStatement` and `UnsafeBlockStatement` — each carrying a `BlockStatement` body — had no arm
+    // either, so THE LINTER WAS BLIND INSIDE EVERY `unsafe`, `alloc` AND `allow(…)` BODY FOR EVERY
+    // RULE IT HAS: a local read only in such a body was reported NL001, a local declared and never
+    // read inside one was never reported at all, an import used only inside one was reported NL010,
+    // and an empty catch block inside one was never NL011. A missing arm does not weaken one rule; it
+    // switches the whole linter off for that subtree.
+    //
+    // SO THE TAIL NOW THROWS, exactly as `AstChildrenCore.Of` throws for an expression node it does
+    // not know. A statement shape reaches the end of this walk only by being named in
+    // `IsBodylessStatement` as carrying no binding, no expression and no nested body; anything else
+    // is a new node kind whose arm has not been written, and the walk says so instead of silently
+    // skipping the subtree. That is what stops the next `Statement` subclass from re-opening this
+    // hole — the previous two were each found by a user, not by the walk.
     func VisitStatement(statement: Statement) {
         variableDeclaration := statement as VariableDeclarationStatement
         if variableDeclaration != null {
@@ -132,6 +140,33 @@ class LinterWalk {
         block := statement as BlockStatement
         if block != null {
             VisitBlock(block)
+            return
+        }
+
+        // THE THREE BODY-CARRYING WRAPPERS. `unsafe { … }`, `alloc { … }` and
+        // `allow(effect, reason: …) { … }` each wrap an ordinary `BlockStatement`, and the code inside
+        // one is ordinary code: its reads are reads, its declarations are declarations, and its own
+        // scope is the block's. Handing the body to `VisitStatement` reaches `VisitBlock`, which
+        // pushes and pops the scope — so a local declared inside the wrapper is reported at the
+        // wrapper's closing brace and does not leak past it.
+        //
+        // `AllowStatement`'s `Effects`, `Reason` and `Owner` are strings the parser already decoded,
+        // not expressions, so there is nothing in the header to walk.
+        unsafeBlock := statement as UnsafeBlockStatement
+        if unsafeBlock != null {
+            VisitStatement(unsafeBlock.Body)
+            return
+        }
+
+        allocBlock := statement as AllocBlockStatement
+        if allocBlock != null {
+            VisitStatement(allocBlock.Body)
+            return
+        }
+
+        allowStatement := statement as AllowStatement
+        if allowStatement != null {
+            VisitStatement(allowStatement.Body)
             return
         }
 
@@ -291,7 +326,47 @@ class LinterWalk {
             state.MarkVariableUsed(awaitForEach.VariableName, false)
             VisitStatement(awaitForEach.Body)
             state.PopScope()
+            return
         }
+
+        if IsBodylessStatement(statement) {
+            return
+        }
+
+        // The receiver must be object-typed for `GetType()` to emit.
+        node: object = statement
+        throw new InvalidOperationException("The lint walk has no arm for statement kind '" + node.GetType().Name + "' at line " + statement.Line.ToString() + ", column " + statement.Column.ToString() + ". Add an arm that walks its bindings and expressions, or name it in IsBodylessStatement if it carries none.")
+    }
+
+    // THE SHAPES THAT ARE WALKED NO FURTHER BECAUSE THERE IS NOTHING IN THEM TO WALK. Each carries no
+    // binding, no expression and no nested body, so reaching one is not a gap. This list is what makes
+    // the throw above safe to write: a shape is silent because it was NAMED silent, not because nobody
+    // wrote its arm.
+    //
+    // The three import/directive kinds are `Statement` subclasses that the parser keeps at file level;
+    // they are named here so that a file-level walk which ever reaches one does not trip the tail.
+    static func IsBodylessStatement(statement: Statement): bool {
+        if (statement as BreakStatement) != null {
+            return true
+        }
+
+        if (statement as ContinueStatement) != null {
+            return true
+        }
+
+        if (statement as EmptyStatement) != null {
+            return true
+        }
+
+        if (statement as PreprocessorDirective) != null {
+            return true
+        }
+
+        if (statement as FileImport) != null {
+            return true
+        }
+
+        return (statement as NamespaceImport) != null
     }
 
     // A declaration binds its name and then walks its initializer — unless the initializer carries a
