@@ -117,6 +117,11 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
   the byte-level body encoder (zero catalog rows; slice 1's blanket refusal of the body layer corrected) → S2.5 the
   remaining bodies per the fork → S2.6 harness + `tests/native/metadata-writer` (+ the corpus pin). The Cecil
   corelib→contract rewrite stays load-bearing through slice 2.
+- `stream/soundness-rules` (worktree `soundness`, from `50f110733`) — empties contract A's exemption list (seven codes the catalog
+  publishes and no site reports: NL803 abstract `new`, NL802 sealed base, NL801/NL806, NL204/NL307/NL502) by making each rule real
+  in the N# analyzer owners, plus `out`-parameter definite assignment on both halves; each slice reproduces the silent hole first,
+  contracts positive and negative spellings, updates the code's page under contract B, removes the exemption, and judges every
+  new estate hit in the 101-project `check --json` differential.
 - `stream/diag-honesty` (worktree `diag-honesty`, from `af07060ac`) — the product defects the error-docs arc surfaced: the
   `<error>` placeholder cascade, NL701's inverted hint, NL321/NL702 suggesting fixes that do not compile, NL001/NL012
   counting a write as a use; then the queued linter defects (NL010 `catch` types, NL011 suggestion, NL003 literals, NL002
