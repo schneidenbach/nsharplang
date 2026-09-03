@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `529ad23bf` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, pushed — the code-intelligence chips A–C, the type-constraint metadata slice 2d, task 022 slice 2e; this docs commit rides on top).
+**Tip:** `94ff758b5` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 7 m 33 s, pushed — the constraint slice 2d-ii, the visual re-verification record, task 022 slice 3a-i; this docs commit rides on top).
 
 ### Queue state (`tasks/README.md`)
 
@@ -48,7 +48,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 | 022 | filed `0d472bdd4`; slice 1 measured (`871b6dafc`); slice 2: 2a–2d landed, 2h measured universe A unreachable through `PersistedAssemblyBuilder`, 2e (ref-pack coring) in progress; 3a/3b/4 independent; 5 waits for 023 — §4.11 |
 | 023 | filed 2026-09-02 (the ECMA-335 writer as the second executor; N#-spelled; slice 1 = the spelling-gap decode) — supersedes the Reflection.Emit route for 015-E |
 
-### Visual IDE verification — DISCHARGED 2026-09-02 (D1–D4 FIXED and merged; visual re-verification in progress)
+### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
 Verified against `d26460045` with VSIX 0.6.0 (sha256 `853abbfc…8568`, LanguageServer.dll 10:58) in VS Code 1.134 on
 `examples/12-multi-file-projects/WeatherDemo` and a systems probe; record, 21 screenshots, the `nlc --systems-report`
@@ -60,24 +60,28 @@ fix, in the editor); the parser cast-lookahead fix (`print(x)` then `sum := 0` �
 as a local int); hover on user functions and record members; go-to-definition and find-references across files;
 the NL002 auto-import quick fix offered and applied; NSYS010/NSYS050/NL001 identical to `nlc check --systems-report`.
 **BLOCKED (tier)**: rename — the widget opens with the right placeholder but cannot be typed into or confirmed.
-**FAIL — four IDE defects, each with a VS Code-free repro in the README, filed as wave-3 chips. Three are FIXED (§4.10
-rows); the visual re-verification of D3 at `385b7e8d1` and of D1/D2 at `26592a954` is the IDE-verify session's
-(branch `verify/ide-2026-09-02b`; it holds on a computer-use screen-takeover consent the user must approve):**
-- **D3 — FIXED, merged `87ec6b9d1`.** Member completion after a trailing `.` listed scope identifiers + keywords because
-  `CompletionHandler` was the only handler with no project route; it now routes to the same N# owners
-  `nlc query completions` uses, with an in-process comparator asserting the two answers are equal.
-- **D2 — FIXED, merged `26592a954` (`87400ec24`).** Three causes, three N# owners, zero new C#: `AstNodeFinderCore` had
-  arms for 9 of 42 expression kinds (`new Foo { A: x.Y() }` and `$"{x.Y}"` were leaves); `MemberTypeInfoOfType` had no
-  reflected-member arm (`MemberInfo` is not a columnar surface — `ReflectedMemberHandle` carries the three sorts); the
-  renderer was bare. Generic members are read off the DEFINITION and mapped back through `AnalyzerReflectionTypeOverride`
-  because `CompletionReflectionFacts` substitutes `object` for every N# user type. `HoverHandler.cs` 307 → 149.
-  `nlc query type` moved with it (a BCL member position answers the member, not the receiver) and no pin moved.
-- **D1 — FIXED by D2's `InterpolatedStringExpression` arm** (`{forecast.TemperatureC}` now `int`).
-- **D4 — FIXED, merged (`6f92309d3`/`b63f23a4a`/`85a00c0ce`).** NL002 anchored on `new` because the linter handed the keyword's
-  position to the import check; it now reports at the type name's span, and the rule covers every written type position
-  (parameter, return, field, local annotation, generic argument, array element) — two real missing imports in the
-  compiler's own source surfaced and were fixed, zero false positives. Visual re-verification pending (the quick fix must
-  be offered at every column of the type name and not on `new`).
+**Re-verified 2026-09-02 evening at `529ad23bf`** (VSIX sha256 `2499bb3b…5bea`, LanguageServer.dll 20:39, VS Code 1.136, a
+server process started after the install; record, 24 screenshots, the format probe sources and the server log at
+`artifacts/ide-verification/2026-09-02b/README.md`, branch `verify/ide-2026-09-02b`, commit `b00eeef4d`, merged
+`f9ad44dda`). **ALL SIX PASS**: (1) D3 member completion after a trailing `.` — properties/methods only, no scope names,
+keywords or accessors; (2) format-on-save — the hand-wrapped call one argument per line with the closer alone, the long
+single-line call untouched, the hugged lambda kept, the multi-line `[trusted(reason:, owner:, review:)]` and the `"""`
+raw string byte-identical; (3) D1 `{forecast.TemperatureC}` hovers `int`; D2 BCL hover carries signature, declaring type
+AND the reference-pack summary (`AddDays`, `Now`, `Length`, `ToArray`, `ToUpper`), controls unchanged; (4) D4 NL002
+squiggles on `StringBuilder`, the import fix offered at the first, middle and last column of the name and not on `new`,
+applied after the last import, diagnostics cleared; (5) summaries under every BCL signature, first metadata hover ≤1.2 s,
+later ones immediate; (6) `Next(-20, 55)` → `int Next(int minValue, int maxValue)`, `Next(summaries.Length)` →
+`int Next(int maxValue)`, no overload suffix.
+**Three observations filed as chips (not failures):** O1 — completion lists identical duplicate rows per overload
+(`Split` ×9, `IndexOf` ×6) with properties after all methods (would fail the May headless `duplicateLabels` check);
+O2 — `service.` offers the file-private camelCase field `summaries` from ANOTHER file (a visibility leak: file-private
+members must not be offered across files); O3 — `[trusted]` without `review:` plus `[memory(safe)]` reports two
+NSYS100. **Harness finding:** `reload-vscode-extension.sh`'s kill step (`killall … || true`) silently failed three
+times while VS Code was self-updating, so the window kept a stale extension host and the first verdicts were taken
+against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-run) — the script must wait for
+`pgrep -x Code` to be empty and print the new server's start time.
+- **D3 — FIXED, merged `87ec6b9d1`; D2 — FIXED, merged `26592a954`; D1 — FIXED with D2; D4 — FIXED, merged `ef0a5bf65`.**
+  The decodes are in §4.10; the visual proof is the record above.
 
 ### Active slices (2026-09-02)
 
@@ -109,8 +113,16 @@ rows); the visual re-verification of D3 at `385b7e8d1` and of D1/D2 at `26592a95
   (the survivors: `Assembly.Load` proven live by mutation, the doc-index root off `Assembly.Location`; the Cecil rewrite
   recorded load-bearing). NOW 3a as the GENERAL construction rule: the `typeof`-keyed allow-list in
   `ColumnarConstructionPlanner` deleted, candidates scored with the ordinary call resolver's `ArgumentsScoreWithFacts`;
-  3a-ii (the three `ConstructorInfo.Invoke` sites) waits for a toolset republish, since the estate compiles with the
-  packaged SDK's allow-list.
+  3a-i LANDED `857c71712` (merged `94ff758b5`): the twelve-type chain, `IsApprovedExceptionType` and `Types2/3/4`
+  deleted; every public instance constructor a candidate, scored like methods, unique best wins, ties decline loudly;
+  the two predicted conversions were already general; zero corpus rows moved (no project had a construction the list
+  declined). 3a-ii (the three `ConstructorInfo.Invoke` sites) waits for a toolset republish, since the estate compiles
+  with the packaged SDK's allow-list.
+- Type constraints reach metadata for all five type keywords (`19f2911b6` class/struct/record, `ae8f4bdb1` interface +
+  union — a union is two owners: the base's builders are read back in the emit pass and every case is constrained from
+  its own map; the type-load proof is a `columnar-emit-facts` contract); both C# files shrank under the ratchet. 2b
+  (enforcement at every closing site) next; 2f (the `IsSupportedType` closed list, a sibling of the construction
+  allow-list) after 022/3a.
 - `stream/chips-esc-where` — chip 1: the N# string decoder knows eleven escapes and passes any other through silently
   (`"\x1b"` is four characters; `"\q"` is accepted) → the full C# escape family, an unrecognised escape becomes a located
   diagnostic, the reference gains the table, and an N#-owned colour policy (terminal check, `NO_COLOR`, `FORCE_COLOR`,
@@ -133,8 +145,10 @@ rows); the visual re-verification of D3 at `385b7e8d1` and of D1/D2 at `26592a95
   type forwarding defeats per-assembly lookup); call-site hover shows the WRONG overload today (`Append("x")` →
   `Append(char, int)`: the arity loop is dead in production) → one `FindCallExpressionAtPosition` entry point shared with
   signature help, overloads narrowed by argument types with arity as the fallback.
-- IDE re-verification (peer session, `verify/ide-2026-09-02b`, holding on the user's screen-takeover consent): D3
-  completion, format-on-save, D1/D2 hover and D4 quick-fix anchoring, all at `ef0a5bf65`.
+- IDE re-verification DONE (above); next IDE batch on `stream/ide-chips-o1-o3`: O1 duplicate overload rows in
+  completion, O2 the file-private member leak across files, O3 the doubled NSYS100, and the reload script's kill step.
+- Surface gaps found writing the constraint contracts (queue): a field WRITE on a generic struct local declines at
+  `emit.local.initializer`; reading a union case's payload field declines the same way. Neither is constraint-related.
 
 ### `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED (record; numbers in §4.1)
 
@@ -207,22 +221,22 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `529ad23bf` (re-measure at your tip; never inherit)
+### Baselines at `94ff758b5` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 595 (596 − 2 collapsed Range duplicates + 1 new, D2) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,433** measured in the gate at `529ad23bf` (7,413 at `c9da157fc` + 5 code-intelligence + 15 constraints 2d) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,441** measured in the gate at `94ff758b5` (7,433 at `529ad23bf` + 6 task 022 slice 3a-i + 2 re-measured) |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20,784 lines / 19,768 non-blank |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:edb3087f935e2950` (after 2d lowered `ColumnarIlEmitter.cs` and `ColumnarProgramInputBuilder.cs` to observed; audit-observed) |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:5b72f3c669441a59` (after 2d-ii lowered both emitter-side C# files again; audit-observed) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
 | packaged SDK 0.1.0 in both feeds | packed from `385b7e8d1` (Sdk nupkg md5 `e55c25e1…`), carrying the incremental-emit stamp and the retained external-type scan; **measured through the shipped package on a loaded box: the compiler's own product build 29.6 s wall (was 133–160 s), no-op rebuild 0.93 s (was 132.8 s), tests-included build 46.0 s (was 273–307 s); estate restore+emit+test 76 s, 7,305/7,305** |
-| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **6 m 33 s** at `c9da157fc` (6 m 34 s at `ef0a5bf65` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
+| gate | `./scripts/test-all.sh --commit` VS Code-ENABLED (auto) → 131 steps, `GATE EXIT 0`, **7 m 33 s** at `94ff758b5` (6 m 33 s at `c9da157fc` (28 m 44 s skip-VS-Code at wave-3 start; the incremental emit + emit-path fix did it). Steps 3c/allocation stay load-sensitive |
 
 ### The verification bar (every B-arc slice; the accumulated standard)
 
@@ -411,7 +425,10 @@ kernel change.
 - A chained call on a CALL RESULT, on a member-access, or on an ARRAY/LIST INDEX declines
   (`emit.call.instance-member-unmodeled` / `emit.return.expression`); bind the receiver to a local
   (017/5, 6, 20B, 26, 56; 019/2, 6). A three-deep chain `type.get_Assembly().GetName().Name` declines on
-  SHAPE, not on member (019/2).
+  SHAPE, not on member (019/2). SCOPE CORRECTED 2026-09-02 (task 023 slice 1 probes at `94ff758b5`): a chained
+  call on a CALL RESULT of an external member now PASSES and runs, as does an instance call on an external
+  STRUCT receiver (`OpCodes.Ret.get_Name()`) and an external struct in a plain local — re-measure before
+  binding a receiver to a local; the member-access, index and three-deep shapes were not re-probed.
 - `.Length` read off a CALL RESULT declines at `emit.statement.block-child`, while `.Count` off a call
   result and `.DiagnosticId` off a static call both emit — it is `.Length` specifically (020/13).
 - A property READ chained onto a call result must be bound first (`Only(sink).Severity`, 018/4; 017/16).
@@ -1108,7 +1125,9 @@ Structural knowledge the code does not state. Process lessons are in §2; per-sl
   alongside it can BREAK what the ordinary direct-call resolver would have bound: a supported instance
   plan pre-empts `ColumnarOrdinaryRuntimeDirectCallResolver` TERMINALLY (`plan.Rollback` + `return false`,
   never falling through), and no plan can describe a VALUE receiver (`ValidatePlanForm` demands `Call`
-  while the legacy host demands `CallVirtual`).
+  while the legacy host demands `CallVirtual`). SUPERSEDED IN PART 2026-09-02: an instance call on an external
+  STRUCT receiver passes and runs at `94ff758b5` (task 023 slice 1, probe a01) — the value-receiver statement
+  no longer describes the tip.
 - **`ColumnarExternalBindingPlans` is the LEGACY whole-subtree planner's surface, not the binding
   authority.** `ColumnarDirectCallPlanner` falls through to `ColumnarOrdinaryRuntimeDirectCallResolver`,
   which binds any suitable public non-generic instance method on a receiver already in
