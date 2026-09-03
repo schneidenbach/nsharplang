@@ -136,6 +136,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.InvalidSizedArrayConstructorArguments)
         AddCompiler(descriptors, ErrorCode.MemberWriteThroughValueCopy)
         AddCompiler(descriptors, ErrorCode.FeatureNotImplemented)
+        AddCompiler(descriptors, ErrorCode.AbstractMemberNotImplemented)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
@@ -203,7 +204,7 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Type
         }
 
-        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.FeatureNotImplemented) {
+        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.AbstractMemberNotImplemented) {
             return DiagnosticCategory.Semantic
         }
 

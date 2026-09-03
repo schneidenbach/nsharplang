@@ -176,7 +176,7 @@ test "DocsUrlFor RETURNS THE STORED URL where one exists — the arm no C# test 
 
 test "EVERY code is distinct, and the catalog is exactly its four builders" {
     codes := DctCodes()
-    assert codes.Count == 99
+    assert codes.Count == 100
 
     duplicates := 0
     outer := 0
@@ -197,7 +197,7 @@ test "EVERY code is distinct, and the catalog is exactly its four builders" {
 
     // The four builders, counted where they are OBSERVABLE: the linter rows are the ones sourced
     // to the linter, the performance and AOT rows are the ones in their own categories, and the
-    // rest are the compiler's. 80 + 5 + 4 + 10 = 99, so nothing is uncounted or double-counted.
+    // rest are the compiler's. 81 + 5 + 4 + 10 = 100, so nothing is uncounted or double-counted.
     linterRows := DctCountBySource(DiagnosticSource.Linter)
     performanceRows := DctCountByCategory(DiagnosticCategory.Performance)
     aotRows := DctCountByCategory(DiagnosticCategory.Aot)
@@ -205,7 +205,7 @@ test "EVERY code is distinct, and the catalog is exactly its four builders" {
     assert linterRows == 10
     assert performanceRows == 5
     assert aotRows == 4
-    assert compilerRows == 80
+    assert compilerRows == 81
     assert compilerRows + performanceRows + aotRows + linterRows == codes.Count
 }
 

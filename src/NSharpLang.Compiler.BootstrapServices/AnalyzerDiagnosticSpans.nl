@@ -597,6 +597,17 @@ class AnalyzerDiagnosticSpans {
         return new DiagnosticSpan(field.Line, GetDeclarationNameColumn(field.Name, field.Line, field.Column), Math.Max(1, field.Name.Length))
     }
 
+    // A TYPE DECLARATION reports on its NAME, from the name plus the declaration's own anchor — the
+    // same derivation the member helpers use, taken by parts because the six declaration classes share
+    // no base that carries `Name`.
+    func GetTypeNameDiagnosticSpan(name: string, line: int, column: int): DiagnosticSpan {
+        if string.IsNullOrWhiteSpace(name) || name == "<error>" {
+            return new DiagnosticSpan(line, column, GetTokenLength(line, column))
+        }
+
+        return new DiagnosticSpan(line, GetDeclarationNameColumn(name, line, column), Math.Max(1, name.Length))
+    }
+
     // An ASSIGNMENT TARGET reports on the name being written to. Unlike the general expression span
     // this never widens to a stable PATH — an assignment diagnostic is about the member being
     // assigned, not about the receiver chain that reaches it.

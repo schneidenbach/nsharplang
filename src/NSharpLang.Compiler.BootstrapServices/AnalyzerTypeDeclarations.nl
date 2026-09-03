@@ -428,6 +428,7 @@ class AnalyzerTypeDeclarations {
         ValidateNoStaticMembersOnGenericType(state)
         ResolveDeclaredBases(state)
         ValidateOverrideTargets(state)
+        ValidateAbstractMemberImplementations(state)
         state.OwnerType = OwnerTypeFor(state)
         DeclareNestedTypesInCurrentScope(state.OwnerType)
         if state.Form == 3 {
@@ -1332,6 +1333,215 @@ class AnalyzerTypeDeclarations {
     // `override func GetType()` is a real fault rather than a tolerated one.
     static func ClassifyObjectOverrideTarget(name: string): int {
         return ClassifyReflectionOverrideTarget(typeof(object), name)
+    }
+
+    // ---- an inherited abstract member that nobody implemented -------------------------------------
+    //
+    // A CONCRETE CLASS MUST CARRY EVERY ABSTRACT MEMBER IT INHERITS, AND N# LET ONE OUT THE DOOR.
+    // `abstract class Shape { abstract Area: double => … }` with `class Circle : Shape { }` beneath it
+    // reported nothing at all and EMITTED — a concrete type with an unimplemented abstract slot, which
+    // is the CS0534 family and a language-correctness hole rather than a style rule. The method
+    // spelling was equally silent.
+    //
+    // THE REPORT IS ONE DIAGNOSTIC NAMING EVERY MISSING MEMBER, not one per member. A half-written
+    // subclass is a single mistake with a list attached, and three separate squiggles on the same class
+    // header would read as three unrelated problems.
+    //
+    // SILENCE REMAINS THE DEFAULT, and here it is stricter than in the override rule: if ANY link in
+    // the base chain cannot be opened, the whole check abandons rather than reporting the members it
+    // did manage to see — a missing set computed from half a chain is not a missing set. Four shapes
+    // are exempt outright: a type with no written base (it inherits `object`, which is concrete), an
+    // ABSTRACT derived class (it may pass the obligation down), any non-class form, and a base clause
+    // that did not resolve.
+    //
+    // MATCHING IS BY NAME AND KIND. A function answers a function and a property answers a property,
+    // because a field named `Area` does not implement `abstract func Area()` and silencing on it would
+    // be worse than the report. Overloads are not distinguished — a class with overloaded methods does
+    // not parse in N# today, so a name is a slot for every source shape this walk can read.
+    func ValidateAbstractMemberImplementations(state: TypeDeclarationState) {
+        if state.Form != 0 {
+            return
+        }
+
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration == null {
+            return
+        }
+
+        if (Convert.ToInt32(classDeclaration.Modifiers) & Convert.ToInt32(Modifiers.Abstract)) != 0 {
+            return
+        }
+
+        declaredBase := DeclaredBaseTypeFor(state)
+        if declaredBase == null {
+            return
+        }
+
+        seenFunctions := new HashSet<string>(StringComparer.Ordinal)
+        seenProperties := new HashSet<string>(StringComparer.Ordinal)
+        CollectDeclaredMemberNames(state, seenFunctions, seenProperties)
+
+        missing := new List<string>()
+        if !CollectUnimplementedAbstractMembers(declaredBase, seenFunctions, seenProperties, missing, 0) {
+            return
+        }
+
+        if missing.Count == 0 {
+            return
+        }
+
+        ReportUnimplementedAbstractMembers(classDeclaration, missing)
+    }
+
+    // WHAT THIS TYPE ITSELF BRINGS. Every function and property it declares counts, with or without
+    // `override`: a member that fills the slot fills it, and a missing `override` is the override
+    // rule's business rather than this one's.
+    func CollectDeclaredMemberNames(state: TypeDeclarationState, seenFunctions: HashSet<string>, seenProperties: HashSet<string>) {
+        members := TypeMembers(state)
+        if members == null {
+            return
+        }
+
+        for member in members {
+            function := member as FunctionDeclaration
+            if function != null {
+                seenFunctions.Add(function.Name)
+                continue
+            }
+
+            property := member as PropertyDeclaration
+            if property != null {
+                seenProperties.Add(property.Name)
+            }
+        }
+    }
+
+    // THE BASE CHAIN, NEAREST FIRST, SO A NEARER CONCRETE OVERRIDE CLOSES THE SLOT. A member name is
+    // recorded the first time the walk meets it, and only an ABSTRACT first sighting is a missing
+    // implementation — an intermediate class that already overrode it has discharged the obligation.
+    // Returns false for "cannot tell", which abandons the whole report.
+    func CollectUnimplementedAbstractMembers(candidate: TypeInfo?, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, missing: List<string>, depth: int): bool {
+        if depth > 24 {
+            return false
+        }
+
+        if candidate == null {
+            return true
+        }
+
+        if BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            CollectReflectedAbstractMembers(reflectionType.Type, seenFunctions, seenProperties, missing)
+            return true
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return false
+        }
+
+        declaredMembers := shape.DeclaredMembers
+        index := 0
+        while index < declaredMembers.Length {
+            declared := declaredMembers[index]
+            RecordAbstractCandidate(declared, seenFunctions, seenProperties, missing)
+            index = index + 1
+        }
+
+        if shape.BaseType == null && WritesUnresolvedBase(candidate) {
+            return false
+        }
+
+        return CollectUnimplementedAbstractMembers(shape.BaseType, seenFunctions, seenProperties, missing, depth + 1)
+    }
+
+    static func RecordAbstractCandidate(declared: DeclaredMemberInfo, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, missing: List<string>) {
+        isAbstract := (declared.DeclaredModifiers & Convert.ToInt32(Modifiers.Abstract)) != 0
+        if declared.Kind == DeclaredMemberKind.Function {
+            if seenFunctions.Add(declared.Name) && isAbstract {
+                missing.Add(declared.Name)
+            }
+
+            return
+        }
+
+        if declared.Kind == DeclaredMemberKind.Property {
+            if seenProperties.Add(declared.Name) && isAbstract {
+                missing.Add(declared.Name)
+            }
+        }
+    }
+
+    // METADATA'S HALF, AND ONE CALL SETTLES THE WHOLE REMAINING CHAIN. `GetMethods` and `GetProperties`
+    // already walk the CLR bases and already return the MOST DERIVED implementation of each virtual
+    // slot, so a member that some intermediate CLR class overrode comes back non-abstract and is
+    // correctly not required — the same property that lets the override rule ask them once.
+    static func CollectReflectedAbstractMembers(clrType: Type, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, missing: List<string>) {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        methods := clrType.GetMethods(flags)
+        index := 0
+        while index < methods.Length {
+            method := methods[index]
+            if !method.get_IsSpecialName() && method.get_IsAbstract() {
+                if seenFunctions.Add(method.get_Name()) {
+                    missing.Add(method.get_Name())
+                }
+            }
+
+            index = index + 1
+        }
+
+        properties := clrType.GetProperties(flags)
+        propertyIndex := 0
+        while propertyIndex < properties.Length {
+            property := properties[propertyIndex]
+            if IsAbstractPropertyAccessor(property.GetGetMethod(true)) || IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
+                if seenProperties.Add(property.get_Name()) {
+                    missing.Add(property.get_Name())
+                }
+            }
+
+            propertyIndex = propertyIndex + 1
+        }
+    }
+
+    static func IsAbstractPropertyAccessor(accessor: MethodInfo?): bool {
+        if accessor == null {
+            return false
+        }
+
+        return accessor.get_IsAbstract()
+    }
+
+    // THE SENTENCE COUNTS, because "does not implement 3 inherited abstract members" followed by the
+    // list is what a reader can act on, and the singular form must not read like a truncated plural.
+    // The squiggle goes on the CLASS NAME — the class is what is incomplete, and no one member is more
+    // to blame than the others.
+    func ReportUnimplementedAbstractMembers(classDeclaration: ClassDeclaration, missing: List<string>) {
+        names := ""
+        index := 0
+        while index < missing.Count {
+            if index > 0 {
+                names = names + ", "
+            }
+
+            names = names + "'" + missing[index] + "'"
+            index = index + 1
+        }
+
+        message := "'" + classDeclaration.Name + "' does not implement inherited abstract member " + names
+        suggestion := "Implement it in '" + classDeclaration.Name + "', or declare '" + classDeclaration.Name + "' abstract so a subclass must."
+        if missing.Count > 1 {
+            message = "'" + classDeclaration.Name + "' does not implement " + missing.Count.ToString() + " inherited abstract members: " + names
+            suggestion = "Implement all " + missing.Count.ToString() + " in '" + classDeclaration.Name + "', or declare '" + classDeclaration.Name + "' abstract so a subclass must."
+        }
+
+        span := spansValue.GetTypeNameDiagnosticSpan(classDeclaration.Name, classDeclaration.Line, classDeclaration.Column)
+        diagnosticsValue.Report(ErrorCode.AbstractMemberNotImplemented, message, span.Line, span.Column, suggestion, span.Length)
     }
 
     // ---- the property half of the same question -------------------------------------------------

@@ -1253,6 +1253,42 @@ func TypeDeclProperty(name: string, modifiers: Modifiers): PropertyDeclaration {
     return new PropertyDeclaration(name, TypeDeclInt(), null, null, body, modifiers, PropertyModifier.None, TypeDeclNoAttributes(), 8, 5)
 }
 
+func TypeDeclAbstractBits(): int {
+    return Convert.ToInt32(Modifiers.Abstract)
+}
+
+func TypeDeclMemberInfos2(first: DeclaredMemberInfo, second: DeclaredMemberInfo): DeclaredMemberInfo[] {
+    members := new DeclaredMemberInfo[](2)
+    members[0] = first
+    members[1] = second
+    return members
+}
+
+func TypeDeclNames(names: List<string>): string {
+    joined := ""
+    index := 0
+    while index < names.Count {
+        if index > 0 {
+            joined = joined + ","
+        }
+
+        joined = joined + names[index]
+        index = index + 1
+    }
+
+    return joined
+}
+
+func TypeDeclEmptyNames(): HashSet<string> {
+    return new HashSet<string>(StringComparer.Ordinal)
+}
+
+func TypeDeclNamesOf(name: string): HashSet<string> {
+    seen := new HashSet<string>(StringComparer.Ordinal)
+    seen.Add(name)
+    return seen
+}
+
 func TypeDeclMemberInfos(first: DeclaredMemberInfo): DeclaredMemberInfo[] {
     members := new DeclaredMemberInfo[](1)
     members[0] = first
@@ -1357,6 +1393,163 @@ test "AN `override` WITH NO SLOT TO TAKE IS `NL311`, AND THE REPORT NAMES WHICH 
     assert sealedHarness.Errors.Count == 1
     assert sealedHarness.Errors[0].Code == ErrorCode.InvalidModifier
     assert sealedHarness.Errors[0].Message == "'GetType' is declared 'override', but it is not marked 'virtual', 'abstract' or 'override'"
+}
+
+// ---------------------------------------------------------------------------------------------
+// AN INHERITED ABSTRACT MEMBER THAT NOBODY IMPLEMENTED (`NL324`)
+//
+// A CONCRETE CLASS WITH AN UNIMPLEMENTED ABSTRACT SLOT IS NOT A STYLE PROBLEM, IT IS THE CS0534 HOLE.
+// `abstract class Shape { abstract Area: double => … }` with `class Circle : Shape { }` beneath it
+// reported nothing and EMITTED. The method spelling was equally silent. Both are measured below at the
+// pieces, and end to end through `nlc check --json` in the commit message.
+//
+// The exemptions carry as much weight as the report: silence for a fully implemented class, for an
+// ABSTRACT derived class, for a class with no written base, for a concrete CLR base, and for an
+// intermediate concrete override that already discharged the obligation. And the walk abandons
+// entirely — reporting nothing at all — the moment any link in the chain cannot be opened, because a
+// missing set computed from half a chain is not a missing set.
+// ---------------------------------------------------------------------------------------------
+
+test "a first sighting that is ABSTRACT is missing; a first sighting that is not CLOSES the slot" {
+    // `RecordAbstractCandidate` is the whole rule in one step: nearest-first, first sighting wins.
+    missing := new List<string>()
+    seenFunctions := TypeDeclEmptyNames()
+    seenProperties := TypeDeclEmptyNames()
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", TypeDeclAbstractBits()), seenFunctions, seenProperties, missing)
+    assert TypeDeclNames(missing) == "Area"
+
+    // Seen already — an implementation in the derived type, or a nearer concrete override — is silent.
+    closed := new List<string>()
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", TypeDeclAbstractBits()), TypeDeclNamesOf("Area"), TypeDeclEmptyNames(), closed)
+    assert closed.Count == 0
+
+    // A non-abstract first sighting records the name WITHOUT requiring it: that is how an intermediate
+    // class that already overrode the member discharges the obligation for everything below it.
+    concrete := new List<string>()
+    concreteSeen := TypeDeclEmptyNames()
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", 0), concreteSeen, TypeDeclEmptyNames(), concrete)
+    assert concrete.Count == 0
+    assert concreteSeen.Contains("Area")
+
+    // A PROPERTY answers the property slot and a FUNCTION answers the function slot — a field named
+    // `Area` does not implement `abstract func Area()`, so the two name sets stay disjoint.
+    propertyMissing := new List<string>()
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclPropertyMemberInfo("Area", TypeDeclAbstractBits()), TypeDeclNamesOf("Area"), TypeDeclEmptyNames(), propertyMissing)
+    assert TypeDeclNames(propertyMissing) == "Area"
+}
+
+test "METADATA's abstract members come from ONE call, which already walks the CLR chain" {
+    // `Stream` is the canonical shape: abstract METHODS and abstract PROPERTIES on the same type. It is
+    // reached through `Type.GetType` rather than `typeof` because `typeof` of a non-core-library type
+    // does not emit as a static-call argument (the wall the estate hits everywhere).
+    streamType := Type.GetType("System.IO.Stream")
+    assert streamType != null
+    if streamType != null {
+        streamMissing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(streamType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), streamMissing)
+        assert streamMissing.Count == 10
+        assert streamMissing.Contains("Read")
+        assert streamMissing.Contains("Write")
+        assert streamMissing.Contains("Seek")
+        assert streamMissing.Contains("SetLength")
+        assert streamMissing.Contains("Flush")
+        assert streamMissing.Contains("CanRead")
+        assert streamMissing.Contains("CanWrite")
+        assert streamMissing.Contains("CanSeek")
+        assert streamMissing.Contains("Length")
+        assert streamMissing.Contains("Position")
+
+        // A name the derived type already declares is not required, whatever metadata says — one from
+        // the method half and one from the property half, so both subtractions are proven.
+        suppliedMissing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(streamType, TypeDeclNamesOf("Read"), TypeDeclNamesOf("Length"), suppliedMissing)
+        assert suppliedMissing.Count == 8
+        assert !suppliedMissing.Contains("Read")
+        assert !suppliedMissing.Contains("Length")
+    }
+
+    // A CONCRETE CLR base requires nothing, and this is the row that keeps the rule off every
+    // `class X : Exception` in the estate. `GetMethods` returns the MOST DERIVED implementation of each
+    // slot, so `MemoryStream`'s overrides come back non-abstract without any chain walk of our own.
+    memoryStreamType := Type.GetType("System.IO.MemoryStream")
+    assert memoryStreamType != null
+    if memoryStreamType != null {
+        concreteMissing := new List<string>()
+        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(memoryStreamType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), concreteMissing)
+        assert concreteMissing.Count == 0
+    }
+
+    exceptionMissing := new List<string>()
+    AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(typeof(Exception), TypeDeclEmptyNames(), TypeDeclEmptyNames(), exceptionMissing)
+    assert exceptionMissing.Count == 0
+
+    assert !AnalyzerTypeDeclarations.IsAbstractPropertyAccessor(null)
+}
+
+test "the chain walk answers CANNOT TELL rather than reporting from half a chain" {
+    harness := TypeDeclDefault()
+
+    // A base that is present and readable: the abstract member is required.
+    readable := TypeDeclSourceOwner("Shape", TypeDeclMemberInfos(TypeDeclMemberInfo("Area", TypeDeclAbstractBits())))
+    readableMissing := new List<string>()
+    assert harness.Declarations.CollectUnimplementedAbstractMembers(readable, TypeDeclEmptyNames(), TypeDeclEmptyNames(), readableMissing, 0)
+    assert TypeDeclNames(readableMissing) == "Area"
+
+    // An UNKNOWN link abandons the whole report — false, and the caller reports nothing.
+    unknownMissing := new List<string>()
+    assert !harness.Declarations.CollectUnimplementedAbstractMembers(BuiltInTypes.Unknown, TypeDeclEmptyNames(), TypeDeclEmptyNames(), unknownMissing, 0)
+
+    // So does a chain deeper than the cycle brake.
+    deepMissing := new List<string>()
+    assert !harness.Declarations.CollectUnimplementedAbstractMembers(readable, TypeDeclEmptyNames(), TypeDeclEmptyNames(), deepMissing, 25)
+
+    // A null candidate is the END of a chain, not a failure: `object` requires nothing.
+    endMissing := new List<string>()
+    assert harness.Declarations.CollectUnimplementedAbstractMembers(null, TypeDeclEmptyNames(), TypeDeclEmptyNames(), endMissing, 0)
+    assert endMissing.Count == 0
+}
+
+test "`NL324` NAMES EVERY MISSING MEMBER IN ONE DIAGNOSTIC, and the singular is not a truncated plural" {
+    oneHarness := TypeDeclDefault()
+    oneMissing := new List<string>()
+    oneMissing.Add("Area")
+    oneHarness.Declarations.ReportUnimplementedAbstractMembers(TypeDeclClass("Circle", new List<Declaration>(), null, null, Modifiers.None), oneMissing)
+    assert oneHarness.Errors.Count == 1
+    assert oneHarness.Errors[0].Code == ErrorCode.AbstractMemberNotImplemented
+    assert oneHarness.Errors[0].Message == "'Circle' does not implement inherited abstract member 'Area'"
+    assert oneHarness.Errors[0].Suggestion == "Implement it in 'Circle', or declare 'Circle' abstract so a subclass must."
+    assert oneHarness.Errors[0].Length == 6
+
+    manyHarness := TypeDeclDefault()
+    manyMissing := new List<string>()
+    manyMissing.Add("Area")
+    manyMissing.Add("Perimeter")
+    manyMissing.Add("Name")
+    manyHarness.Declarations.ReportUnimplementedAbstractMembers(TypeDeclClass("Circle", new List<Declaration>(), null, null, Modifiers.None), manyMissing)
+    assert manyHarness.Errors.Count == 1
+    assert manyHarness.Errors[0].Message == "'Circle' does not implement 3 inherited abstract members: 'Area', 'Perimeter', 'Name'"
+    assert manyHarness.Errors[0].Suggestion == "Implement all 3 in 'Circle', or declare 'Circle' abstract so a subclass must."
+}
+
+test "the four outright exemptions are checked before any chain is walked" {
+    // An ABSTRACT derived class may pass the obligation down, so it is never asked.
+    abstractHarness := TypeDeclDefault()
+    abstractMembers := new List<Declaration>()
+    TypeDeclRun(abstractHarness, abstractHarness.Declarations.BeginClass(TypeDeclClass("Partial", abstractMembers, null, null, Modifiers.Abstract), abstractHarness.Assignability), null)
+    assert abstractHarness.Errors.Count == 0
+
+    // A class with no written base inherits `object`, which is concrete.
+    rootHarness := TypeDeclDefault()
+    rootMembers := new List<Declaration>()
+    rootMembers.Add(TypeDeclFunction("F", Modifiers.None))
+    TypeDeclRun(rootHarness, rootHarness.Declarations.BeginClass(TypeDeclClass("Plain", rootMembers, null, null, Modifiers.None), rootHarness.Assignability), null)
+    assert rootHarness.Errors.Count == 0
+
+    // A STRUCT and a RECORD are not class forms and inherit no abstract slot.
+    structHarness := TypeDeclDefault()
+    structMembers := new List<Declaration>()
+    TypeDeclRun(structHarness, structHarness.Declarations.BeginStruct(TypeDeclStruct("Point", structMembers, null, null, Modifiers.None), structHarness.Assignability), null)
+    assert structHarness.Errors.Count == 0
 }
 
 // ---------------------------------------------------------------------------------------------

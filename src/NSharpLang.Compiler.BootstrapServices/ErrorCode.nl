@@ -42,6 +42,7 @@ enum ErrorCode {
     InvalidSizedArrayConstructorArguments = 321,
     MemberWriteThroughValueCopy = 322,
     FeatureNotImplemented = 323,
+    AbstractMemberNotImplemented = 324,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     MissingRequiredParameter = 403,
