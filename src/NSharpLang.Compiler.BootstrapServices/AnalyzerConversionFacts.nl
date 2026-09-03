@@ -106,6 +106,51 @@ class AnalyzerConversionFacts {
         return false
     }
 
+    // DEFINITELY A NON-NULLABLE VALUE TYPE — a POSITIVE test, and that is the whole point of it.
+    //
+    // `!IsReferenceType(x)` is NOT this question. That predicate answers FALSE for a bare type
+    // parameter (a `SimpleTypeInfo` named `T`, which may be instantiated with a class), for a
+    // constructed generic, for an unknown type and for everything its tail does not name — so
+    // negating it would accuse code that is correct. This one names the kinds it is sure about and
+    // answers false for every other shape, which is what lets a caller REPORT on the strength of it.
+    //
+    // Deliberately NOT in the set: `void`, `null` and `never` (comparing one to null is a different
+    // nonsense and reporting here would cascade), tuples and SoA rows (their equality is its own
+    // question), by-refs, and any reflected GENERIC type — which is how `Nullable<T>` stays out
+    // whichever way the analyzer happened to model it.
+    static func IsDefinitelyNonNullableValueType(candidate: TypeInfo): bool {
+        simple := candidate as SimpleTypeInfo
+        if simple != null {
+            name := simple.Name
+            return name == "int" || name == "long" || name == "float" || name == "double" || name == "decimal" || name == "byte" || name == "sbyte" || name == "short" || name == "ushort" || name == "uint" || name == "ulong" || name == "char" || name == "bool"
+        }
+
+        if (candidate as StructTypeInfo) != null {
+            return true
+        }
+
+        if (candidate as EnumTypeInfo) != null {
+            return true
+        }
+
+        recordType := candidate as RecordTypeInfo
+        if recordType != null {
+            return recordType.IsStruct
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            clrType := reflectionType.Type
+            if clrType.get_IsGenericParameter() || clrType.get_IsGenericType() {
+                return false
+            }
+
+            return clrType.get_IsValueType()
+        }
+
+        return false
+    }
+
     // The Span family by name, in every spelling the analyzer sees. This gates the implicit
     // array-to-span conversion, so it belongs with the conversion tables rather than with the
     // callable/delegate facts. Note this is a STRICT SUPERSET of the loop-sequence owner's

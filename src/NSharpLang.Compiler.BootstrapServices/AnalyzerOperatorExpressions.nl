@@ -702,6 +702,10 @@ class AnalyzerOperatorExpressions {
             return ComparisonOverloadResult(expression, left, right, overloadResult, "equality operators must return 'bool'")
         }
 
+        if TryReportNullComparisonWithValueType(expression, left, right) {
+            return BuiltInTypes.Unknown
+        }
+
         if CanCompareWithEqualityOperator(left, right) {
             return BuiltInTypes.Bool
         }
@@ -710,6 +714,57 @@ class AnalyzerOperatorExpressions {
         opText := OperatorFacts.GetBinaryText(expression.Operator)
         diagnosticsValue.Report(ErrorCode.TypeMismatch, "The '" + opText + "' operator doesn't work with '" + TypeText(left) + "' and '" + TypeText(right) + "' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload", span.Line, span.Column, "Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.", span.Length)
         return BuiltInTypes.Unknown
+    }
+
+    // A NULL COMPARISON THAT CANNOT BE NULL, WHERE THE TYPE IS THE PROOF.
+    //
+    // `CanCompareWithEqualityOperator` answers TRUE the moment either side is `null`, which is right
+    // for every reference and nullable operand and wrong for a value-typed one: `count != null` where
+    // `count: int` typed as `bool`, reached the backend, and died there as
+    // `NL103 … Declined at emit.if.condition` — a sentence about the compiler's internals for a
+    // mistake the type system can name. The LINTER already reports the LITERAL half of this shape as
+    // NL003 (`3 == null`), and it cannot report this half, because it has no types. This is that
+    // rule's other half, stated where the types are, in the linter's own words.
+    //
+    // The operand test is `IsDefinitelyNonNullableValueType`, a POSITIVE predicate: a bare type
+    // parameter, a constructed generic, a nullable and an unresolved type all answer false and stay
+    // silent, because reporting on `T == null` inside a generic function would accuse correct code.
+    // An operator overload is resolved BEFORE this is asked, so a type that defines its own `==`
+    // against null keeps it.
+    func TryReportNullComparisonWithValueType(expression: BinaryExpression, left: TypeInfo, right: TypeInfo): bool {
+        resolvedLeft := declarationsValue.ResolveDeclaredAlias(left)
+        resolvedRight := declarationsValue.ResolveDeclaredAlias(right)
+
+        valueSide := resolvedLeft
+        leftIsNull := BuiltInTypes.Is(resolvedLeft, BuiltInTypes.Null)
+        rightIsNull := BuiltInTypes.Is(resolvedRight, BuiltInTypes.Null)
+        if leftIsNull == rightIsNull {
+            return false
+        }
+
+        valueExpression := expression.Left
+        if leftIsNull {
+            valueSide = resolvedRight
+            valueExpression = expression.Right
+        }
+
+        // THE PARTITION, READ FROM THE ONE PLACE THAT STATES IT. A literal operand is the LINTER's
+        // NL003 — `3 == null` needs no types to be wrong — and reporting it here too would put two
+        // codes carrying the same sentence on one line.
+        if NullComparisonFacts.LinterOwnsOperand(valueExpression) {
+            return false
+        }
+
+        if !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(valueSide) {
+            return false
+        }
+
+        // The squiggle goes under the OPERAND that cannot be null, never under the whole comparison
+        // or under the `null` — the same choice NL003 makes for the literal half.
+        span := spansValue.GetBinaryOperandDiagnosticSpan(expression, !leftIsNull, leftIsNull)
+        typeText := TypeText(valueSide)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "This null check is unnecessary — '" + typeText + "' is a value type and can never be null", span.Line, span.Column, "Remove the null check. If the value really can be absent, declare it as '" + typeText + "?'.", span.Length)
+        return true
     }
 
     // THE SHARED TAIL OF BOTH COMPARISON CLASSES. `IsAssignable` rather than identity, because an
