@@ -53,18 +53,44 @@ cause is a genuine N# design refusal, the writer's spelling around it stated and
 program in N# that writes a `Main` printing a string through `MetadataBuilder` and runs on the shared
 framework; STATUS.md §0 discipline.
 
-## Slice 2 — The writer for the declaration host
+## Slice 2 — The writer for the declaration host (re-aimed 2026-09-03 by its own Phase-1 decode)
 
-The writer executes the plan rows for types, fields, methods, properties, generic parameters and their
-constraints, custom attributes (the blobs task 022 slice 2a already writes), P/Invoke, nested types,
-unions, enums, and the exception regions — everything the Reflection.Emit executor defines outside
-method bodies — and encodes method bodies through `InstructionEncoder` from the same opcode rows (124
-distinct opcodes in the union; `BeginFaultBlock` included).
+Slice 1's decode assumed plan rows exist for declarations; slice 2's decode measured that they do not: the
+declaration host is imperative C# over the source-shaped `ColumnarProgramInput` (57 `TryResolveType` sites, 95
+`MakeGenericType`), and the method-body plan rows describe only what the door claims. Measured over the corpus at
+`8a144587b` (67 N#-emitted assemblies, 4,320 bodies): 17.9% of bodies are wholly row-described (13.1% door-claimed,
+4.8% synthesized), 75.1% are host-assembled with plan fragments, 7.0% carry no plan row. So slice 2 is a sequence:
 
-Terminal condition: hello-world and the `.tests.nl` corpus projects emit through the writer with
-method-body parity to the Reflection.Emit image under the normaliser, identical stdout/exit for the
-executable programs, `ilverify` green, decline census stated; the writer selectable per project
-(`project.yml`) for the A/B only — no product default moves yet.
+- **S2.0 — decode** (done, `b0231f9f5`): the method-body key dumper rebuilt (`ilspycmd -il`, short/long folding,
+  branch offsets to ordinals, a scope map with a collision guard), the three-marker census above, and the body fork
+  decided — **(B) the plan-recording sink**: the host's `ILGenerator` field becomes an N#-owned recorder producing the
+  same plan rows the executor consumes (eight members, 88 opcodes of which 37 carry operands, six new plan constants,
+  zero new operand kinds), every recorded body validated by `ValidateMethodBodyStack`, a refused body a located finding.
+- **The `U` (uint) literal suffix** did not emit at all — fixed as its own commit (`2b131186f`; two contracts had pinned
+  the defect as a fact).
+- **S2.1 — the declaration-row IR** (`ColumnarDeclarationPlan.nl`) driving the EXISTING Reflection.Emit walk from rows, one
+  table per commit at whole-PE `IL_DIFFS=0` (one writer still): (a) module + assembly + enums, (b) typedefs, (c) fields +
+  constants, (d) methods + signatures + parameters, (e) properties + accessors, (f) generic parameters + constraints, (g)
+  custom attributes, (h) P/Invoke, (i) method overrides — the walk's order dependencies become explicit row order.
+- **S2.2 — resolution moves to N#**: the 57 `TryResolveType` sites emit a resolved type-reference KEY, `AddType` gains its
+  structural form, the override resolver returns a descriptor beside its `MethodInfo`, maxstack becomes a plan column
+  from `ValidateMethodBodyStack`'s heights, ambient locals become slot indices.
+- **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
+  `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
+  table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
+  the Reflection.Emit image.
+- **S2.4 — the byte-level body encoder** (header, EH section small and fat with fault, every body byte through
+  `BlobBuilder`; zero catalog rows; slice 1's blanket refusal of the body layer is corrected — `AddMethodBody` and
+  `ExceptionRegionEncoder` were catalog gaps, not signature refusals).
+- **S2.5 — the remaining bodies** through the recording sink.
+- **S2.6 — the switch, the parity harness and `tests/native/metadata-writer`** (the compile-time corpus pin moves in the
+  same commit).
+
+Terminal condition: hello-world and the `.tests.nl` corpus projects emit through the writer with method-body parity to
+the Reflection.Emit image under a name-resolved body dump with a stated scope map, identical stdout/exit for the
+executable programs, `ilverify` unchanged, decline census stated, `nlc test` green with identical Passed counts; the
+writer selectable per project (`backend: il-writer`) for the A/B only — no product default moves yet. The Cecil
+corelib→contract rewrite stays load-bearing through slice 2.
 
 ## Slice 3 — One universe through the writer
 
