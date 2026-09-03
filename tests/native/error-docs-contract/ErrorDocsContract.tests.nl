@@ -456,12 +456,30 @@ test "there is exactly ONE documentation host, and it is the published site" {
 // repository would be walked by the root `nlc format --check`, by the compile-time corpus and by
 // every estate scan, and the examples are DELIBERATELY malformed. The page is the fixture.
 //
-// TWO-FILE EXAMPLES, one rule. Some rules only exist ACROSS files — `NL308` is a visibility rule and
-// a single file cannot state it. So: a block whose FIRST LINE is `// FILE Lib.nl` is written as
-// `Lib.nl` beside the next marked block's `Program.nl`. The header is an ordinary comment inside the
-// file that is written, so it occupies line 1 and every `// ERROR` line number counts from it —
-// what the page shows is byte-for-byte what ran, with nothing synthesised in between. A block headed
-// `// FILE Program.nl` is just the program, named for symmetry.
+// MULTI-FILE EXAMPLES, one rule. Some rules only exist ACROSS files: `NL308` is a visibility rule
+// and `NL702` is a collision between two imports, and neither can be stated in a single file. So:
+//
+//     A ```n# block whose FIRST LINE is `// FILE <name>.nl` is written to the probe project as
+//     `<name>.nl`. Consecutive such blocks accumulate; the example is COMPLETED by the block headed
+//     `// FILE Program.nl`, or by any block with no `// FILE` header at all, which is the program.
+//
+// The header is an ordinary comment inside the file that is written, so it occupies line 1 and every
+// `// ERROR` line number counts from it — what the page shows is byte-for-byte what ran, with
+// nothing synthesised in between and no fixture living outside the page.
+//
+// A COMPANION OF ANY OTHER KIND is named by its fence, which is also how Docusaurus labels a code
+// block with a filename:
+//
+//     ```json title="hot-summaries.json"
+//     { … exact bytes … }
+//     ```
+//
+// The block's bytes are written verbatim to that name, with nothing added — necessary for files
+// that cannot carry a comment at all. `NSYS150` needs a JSON sidecar, and `System.Text.Json`
+// rejects comments, so a `// FILE` header would make the very file the example is about invalid.
+// `title="project.yml"` REPLACES the default project file, which is how a systems page opts in:
+// the systems analyzer reports nothing at all unless the project asks for it. A project file
+// persists for the WHOLE PAGE once given, so a page may mark more than one example.
 class EdbProbe {
     static func CliPath(): string {
         root := EdcPaths.RepositoryRoot()
@@ -474,20 +492,23 @@ class EdbProbe {
     }
 
     // Write `source` as a project and return what `nlc check --text` printed. `library` so an
-    // example never has to invent a `main` it would then have to explain. A non-empty `library` is
-    // written beside it as `Lib.nl`.
-    static func Check(name: string, source: string, library: string): string {
+    // example never has to invent a `main` it would then have to explain. `companions` is zero or
+    // more further files, each introduced by its own `// FILE <name>.nl` header line.
+    static func Check(name: string, source: string, companions: string, project: string): string {
         directory := Path.Combine(EdbProbe.WorkspaceRoot(), name)
         if Directory.Exists(directory) {
             Directory.Delete(directory, true)
         }
 
         Directory.CreateDirectory(directory)
-        File.WriteAllText(Path.Combine(directory, "project.yml"), "name: ErrorDocsRepro\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n")
-        File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
-        if library.Length > 0 {
-            File.WriteAllText(Path.Combine(directory, "Lib.nl"), library)
+        projectText := "name: ErrorDocsRepro\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n"
+        if project.Length > 0 {
+            projectText = project
         }
+
+        File.WriteAllText(Path.Combine(directory, "project.yml"), projectText)
+        File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
+        EdbWriteCompanions(directory, companions)
 
         arguments := "\"" + EdbProbe.CliPath() + "\" check --project \"" + directory + "\" --text"
 
@@ -589,14 +610,80 @@ func EdbHeaderLine(header: string): int {
 class EdbExample {
     Page: string
     Source: string
-    Library: string
+    Companions: string
+    Project: string
     Marks: string
 
-    constructor(page: string, source: string, library: string, marks: string) {
+    constructor(page: string, source: string, companions: string, project: string, marks: string) {
         Page = page
         Source = source
-        Library = library
+        Companions = companions
+        Project = project
         Marks = marks
+    }
+}
+
+// The filename a fence declares: ```` ```json title="hot-summaries.json" ```` -> hot-summaries.json.
+// Empty for a plain fence.
+func EdbFenceTitle(line: string): string {
+    if !line.StartsWith("```", StringComparison.Ordinal) {
+        return ""
+    }
+
+    marker := "title=\""
+    at := line.IndexOf(marker, StringComparison.Ordinal)
+    if at < 0 {
+        return ""
+    }
+
+    rest := line.Substring(at + marker.Length)
+    stop := rest.IndexOf("\"", StringComparison.Ordinal)
+    if stop <= 0 {
+        return ""
+    }
+
+    return rest.Substring(0, stop)
+}
+
+// Split the accumulated companion text back into files on its `// FILE <name>.nl` header lines and
+// write each one. The header stays in the file it names, so the bytes on the page are the bytes on
+// disk.
+func EdbWriteCompanions(directory: string, companions: string) {
+    if companions.Length == 0 {
+        return
+    }
+
+    currentName := ""
+    currentText := ""
+    lines := companions.Split('\n')
+    i := 0
+    while i < lines.Length {
+        line := lines[i]
+        if line.StartsWith("// FILE ", StringComparison.Ordinal) {
+            if currentName.Length > 0 {
+                File.WriteAllText(Path.Combine(directory, currentName), currentText)
+            }
+
+            currentName = line.Substring(8).Trim()
+            if currentName.EndsWith(".nl", StringComparison.Ordinal) {
+                // An `.nl` companion keeps its `// FILE` line: it is a comment, it is what the page
+                // shows, and every `// ERROR` line number on the page counts from it.
+                currentText = line + "\n"
+            } else {
+                // Anything else was named by its fence and gets its bytes and nothing else.
+                currentText = ""
+            }
+        } else {
+            if currentName.Length > 0 {
+                currentText = currentText + line + "\n"
+            }
+        }
+
+        i = i + 1
+    }
+
+    if currentName.Length > 0 {
+        File.WriteAllText(Path.Combine(directory, currentName), currentText)
     }
 }
 
@@ -607,7 +694,11 @@ func EdbExamplesOnPage(pageCode: string, examples: List<EdbExample>) {
     lines := text.Split('\n')
     inBlock := false
     block := new List<string>()
-    pendingLibrary := ""
+    pendingCompanions := ""
+    pendingProject := ""
+    inProject := false
+    titledName := ""
+    projectBlock := new List<string>()
     i := 0
     while i < lines.Length {
         line := lines[i]
@@ -619,13 +710,15 @@ func EdbExamplesOnPage(pageCode: string, examples: List<EdbExample>) {
                 while j < block.Count {
                     at := block[j].IndexOf("// ERROR ", StringComparison.Ordinal)
                     if at >= 0 {
-                        code := EdbTrimCode(block[j].Substring(at + 9))
-                        if code.Length > 0 {
+                        codes := EdbMarkedCodes(block[j].Substring(at + 9))
+                        k := 0
+                        while k < codes.Count {
                             if marks.Length > 0 {
                                 marks = marks + " "
                             }
 
-                            marks = marks + code + "@" + (j + 1).ToString()
+                            marks = marks + codes[k] + "@" + (j + 1).ToString()
+                            k = k + 1
                         }
                     }
 
@@ -633,14 +726,16 @@ func EdbExamplesOnPage(pageCode: string, examples: List<EdbExample>) {
                 }
 
                 blockText := EdcJoinLines(block)
-                if block.Count > 0 && block[0].StartsWith("// FILE Lib.nl", StringComparison.Ordinal) {
-                    // The companion file for the NEXT marked block on this page.
-                    pendingLibrary = blockText
+                isCompanion := block.Count > 0 && block[0].StartsWith("// FILE ", StringComparison.Ordinal) && !block[0].StartsWith("// FILE Program.nl", StringComparison.Ordinal)
+                if isCompanion {
+                    // A further file for the NEXT completing block on this page.
+                    pendingCompanions = pendingCompanions + blockText
                 } else {
                     if marks.Length > 0 {
-                        examples.Add(new EdbExample(pageCode, blockText, pendingLibrary, marks))
-                        pendingLibrary = ""
+                        examples.Add(new EdbExample(pageCode, blockText, pendingCompanions, pendingProject, marks))
                     }
+
+                    pendingCompanions = ""
                 }
 
                 block = new List<string>()
@@ -648,9 +743,33 @@ func EdbExamplesOnPage(pageCode: string, examples: List<EdbExample>) {
                 block.Add(line)
             }
         } else {
-            if line.StartsWith("```n#", StringComparison.Ordinal) {
-                inBlock = true
-                block = new List<string>()
+            if inProject {
+                if line.StartsWith("```", StringComparison.Ordinal) {
+                    inProject = false
+                    blockBytes := EdcJoinLines(projectBlock)
+                    if titledName == "project.yml" {
+                        pendingProject = blockBytes
+                    } else {
+                        pendingCompanions = pendingCompanions + "// FILE " + titledName + "\n" + blockBytes
+                    }
+
+                    projectBlock = new List<string>()
+                    titledName = ""
+                } else {
+                    projectBlock.Add(line)
+                }
+            } else {
+                if line.StartsWith("```n#", StringComparison.Ordinal) {
+                    inBlock = true
+                    block = new List<string>()
+                } else {
+                    named := EdbFenceTitle(line)
+                    if named.Length > 0 {
+                        inProject = true
+                        titledName = named
+                        projectBlock = new List<string>()
+                    }
+                }
             }
         }
 
@@ -658,22 +777,59 @@ func EdbExamplesOnPage(pageCode: string, examples: List<EdbExample>) {
     }
 }
 
-// `NL324` out of `NL324: does not implement …` — a marker may carry prose after the code.
-func EdbTrimCode(tail: string): string {
-    code := ""
+// The codes a `// ERROR …` marker claims for its line.
+//
+// `NL324: does not implement …`  -> NL324          (prose after a colon is ignored)
+// `NL006, NL312`                 -> NL006, NL312   (a line that genuinely reports both)
+//
+// The comma form is not a convenience. Some rules CANNOT be reported alone: the linter's
+// terminator test is a strict subset of the analyzer's, so every NL006 co-fires with NL312 at the
+// same line. Without this, such a code could only be documented by pretending its example is clean
+// or by exempting a rule that is fully enforced — both worse than saying what actually happens.
+func EdbMarkedCodes(tail: string): List<string> {
+    codes := new List<string>()
+    head := tail
+    colon := head.IndexOf(":", StringComparison.Ordinal)
+    if colon >= 0 {
+        head = head.Substring(0, colon)
+    }
+
+    parts := head.Split(',')
     i := 0
-    while i < tail.Length {
-        c := tail[i]
-        if char.IsLetterOrDigit(c) {
-            code = code + c.ToString()
-        } else {
-            i = tail.Length
+    while i < parts.Length {
+        candidate := parts[i].Trim()
+        if EdbLooksLikeCode(candidate) {
+            codes.Add(candidate)
         }
 
         i = i + 1
     }
 
-    return code
+    return codes
+}
+
+// `NL006` or `NSYS010`: letters then digits, nothing else.
+func EdbLooksLikeCode(value: string): bool {
+    if value.Length < 3 {
+        return false
+    }
+
+    digits := 0
+    i := 0
+    while i < value.Length {
+        c := value[i]
+        if char.IsDigit(c) {
+            digits = digits + 1
+        } else {
+            if !char.IsLetter(c) || digits > 0 {
+                return false
+            }
+        }
+
+        i = i + 1
+    }
+
+    return digits > 0
 }
 
 func EdcJoinLines(lines: List<string>): string {
@@ -709,7 +865,7 @@ func EdbBrokenExamples(): string {
         label := example.Page + "#" + (i + 1).ToString()
         marks := EdbSplitMarks(example.Marks)
         reported := new List<string>()
-        headers := EdbHeaders(EdbProbe.Check("page" + i.ToString(), example.Source, example.Library))
+        headers := EdbHeaders(EdbProbe.Check("page" + i.ToString(), example.Source, example.Companions, example.Project))
         j := 0
         while j < headers.Count {
             header := headers[j]
@@ -783,7 +939,7 @@ func EdbExemptionsThatNowReport(): string {
         separator := row.IndexOf("|", StringComparison.Ordinal)
         code := row.Substring(0, separator)
         source := row.Substring(separator + 1)
-        headers := EdbHeaders(EdbProbe.Check("exempt" + i.ToString(), source, ""))
+        headers := EdbHeaders(EdbProbe.Check("exempt" + i.ToString(), source, "", ""))
         j := 0
         while j < headers.Count {
             if EdbHeaderCode(headers[j]) == code {
