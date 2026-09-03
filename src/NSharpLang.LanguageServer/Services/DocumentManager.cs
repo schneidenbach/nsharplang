@@ -22,7 +22,7 @@ public class DocumentManager
     private readonly ConcurrentDictionary<string, DocumentState> _documents = new();
     private readonly ConcurrentDictionary<string, DateTime> _lastAccessTimes = new();
     private readonly ILogger<DocumentManager> _logger;
-    private readonly Analyzer _sharedAnalyzer;
+    public Analyzer SharedAnalyzer { get; }
     private readonly CodeIntelligenceService _codeIntelligenceService = new();
     private readonly HashSet<string> _loadedProjectDirs = new();
     private readonly object _analyzerLock = new();
@@ -36,8 +36,8 @@ public class DocumentManager
         _logger = logger;
 
         // Initialize shared analyzer ONCE with system assemblies
-        _sharedAnalyzer = new Analyzer();
-        _sharedAnalyzer.LoadSystemAssemblies();
+        SharedAnalyzer = new Analyzer();
+        SharedAnalyzer.LoadSystemAssemblies();
 
         _logger.LogInformation("DocumentManager initialized with shared Analyzer (system assemblies loaded)");
     }
@@ -265,7 +265,7 @@ public class DocumentManager
                 if (!_loadedProjectDirs.Contains(projectDir))
                 {
                     _logger.LogInformation("Loading assemblies for new project directory: {ProjectDir}", projectDir);
-                    _sharedAnalyzer.LoadFromProjectConfig(projectConfig, projectDir);
+                    SharedAnalyzer.LoadFromProjectConfig(projectConfig, projectDir);
                     _loadedProjectDirs.Add(projectDir);
                 }
             }
@@ -274,7 +274,7 @@ public class DocumentManager
             if (state.CompilationUnit != null)
             {
                 // Use shared analyzer (thread-safe because Analyze doesn't mutate state)
-                var analysisResult = _sharedAnalyzer.Analyze(state.CompilationUnit, filePath, analysisProjectRoot, text);
+                var analysisResult = SharedAnalyzer.Analyze(state.CompilationUnit, filePath, analysisProjectRoot, text);
                 diagnostics.AddRange(analysisResult.Errors);
 
                 // Store semantic model and binding map for IDE features

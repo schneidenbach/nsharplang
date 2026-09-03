@@ -67,20 +67,22 @@ func EtcFullNameOf(clrType: Type?): string {
     return fullName
 }
 
-func EtcSeedAssemblies(): List<Assembly> {
-    seeds := EditorTypeCatalogFacts.EditorUniverseSeedTypeNames()
+// THE EDITOR'S UNIVERSE, WHICH IS THE ANALYZER'S (022/4c). Opened the way the analyzer opens one, so
+// what this contract asks is what the editor will actually see.
+func EtcAnalyzerUniverse(): List<Assembly> {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    context := scan.Context
+    if context == null {
+        throw new InvalidOperationException("The external assembly scan produced no metadata context.")
+    }
+
     assemblies := new List<Assembly>()
-    seen := new List<string>()
+    names := ExternalAssemblyScan.CommonAssemblyNames()
     index := 0
-    while index < seeds.Length {
-        resolved := Type.GetType(seeds[index])
-        if resolved != null {
-            assembly := resolved.get_Assembly()
-            name := EtcAssemblyNameOf(seeds[index])
-            if !seen.Contains(name) {
-                seen.Add(name)
-                assemblies.Add(assembly)
-            }
+    while index < names.Length {
+        try {
+            assemblies.Add(context.LoadFromAssemblyName(names[index]))
+        } catch loadError: Exception {
         }
 
         index = index + 1
@@ -106,49 +108,11 @@ func EtcJoin(values: string[]): string {
 
 // ── the universe ─────────────────────────────────────────────────────────────────────────────
 
-test "the editor universe is four seed names and every one of them resolves" {
-    seeds := EditorTypeCatalogFacts.EditorUniverseSeedTypeNames()
-
-    assert seeds.Length == 4
-    assert seeds[0] == "System.Object"
-    assert seeds[1] == "System.Console, System.Console"
-    assert seeds[2] == "System.Linq.Enumerable, System.Linq"
-    assert seeds[3] == "System.Collections.Generic.List`1"
-
-    index := 0
-    while index < seeds.Length {
-        assert Type.GetType(seeds[index]) != null
-        index = index + 1
-    }
-}
-
-test "the four seed names reach THREE assemblies because List and object share the core library" {
-    seeds := EditorTypeCatalogFacts.EditorUniverseSeedTypeNames()
-
-    coreFromObject := EtcAssemblyNameOf(seeds[0])
-    console := EtcAssemblyNameOf(seeds[1])
-    linq := EtcAssemblyNameOf(seeds[2])
-    coreFromList := EtcAssemblyNameOf(seeds[3])
-
-    // The fourth entry is NOT a fourth assembly. The C# this replaced carried a `// System.Collections`
-    // comment beside it, which was wrong.
-    assert coreFromObject == "System.Private.CoreLib"
-    assert coreFromList == coreFromObject
-    assert console == "System.Console"
-    assert linq == "System.Linq"
-    assert EtcSeedAssemblies().Count == 3
-}
-
-test "the metadata-name spelling is the only one N# has and it answers the same types typeof would" {
-    seeds := EditorTypeCatalogFacts.EditorUniverseSeedTypeNames()
-
-    // `typeof(object)` is spellable; `typeof(Console)` does not EMIT (static class) and an open
-    // `typeof(List<>)` does not PARSE, which is why all four are named rather than three of them.
-    assert Type.GetType(seeds[0]) == typeof(object)
-    assert EtcFullNameOf(Type.GetType(seeds[1])) == "System.Console"
-    assert EtcFullNameOf(Type.GetType(seeds[2])) == "System.Linq.Enumerable"
-    assert Type.GetType(seeds[3]) == typeof(List<int>).GetGenericTypeDefinition()
-}
+// THE FOUR SEED-UNIVERSE BLOCKS ARE RETIRED (022/4c), NOT LOST. They pinned that four names reached
+// three assemblies of the language server's own process, and that those three WERE the editor's type
+// universe. The editor now reads the analyzer's universe instead, so the thing they described no
+// longer exists; what replaced it is contracted in `EditorTypeCatalog.tests.nl`, including the fact
+// this file used to state indirectly -- that the roster must always be reachable.
 
 // ── the roster ───────────────────────────────────────────────────────────────────────────────
 
@@ -220,11 +184,14 @@ test "the force-include list is DEFINED from the roster and carries all twelve i
     assert fullNames[11] == "System.Threading.CancellationToken"
 }
 
-test "every force-included full name resolves inside the three-assembly seed universe" {
+test "every force-included full name resolves inside the analyzer's universe" {
     // The roster is the ONE part of a completion that must always be offerable, so a name that the
-    // editor's universe cannot reach would be a silently missing item.
-    assemblies := EtcSeedAssemblies()
-    assert assemblies.Count == 3
+    // editor's universe cannot reach would be a silently missing item. RE-AIMED by 022/4c: the
+    // universe this asks is the analyzer's metadata context, because that is what the editor reads
+    // now -- and asking it here is what would catch a roster entry the common-assembly table cannot
+    // reach, which the old three-assembly form could not have seen.
+    assemblies := EtcAnalyzerUniverse()
+    assert assemblies.Count > 0
 
     fullNames := EditorTypeCatalogFacts.CommonShortTypeFullNames()
     index := 0

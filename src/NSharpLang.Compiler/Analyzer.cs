@@ -2347,11 +2347,11 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Load the project's references. Every decision about WHICH reference means what, and in which
-    /// order, belongs to the N# orchestration owner; this entry point exists because the analyzer is
-    /// the thing that has a project.
+    /// Load the project's references. WHICH reference means what, and in which order, is the N#
+    /// orchestration owner's; this entry point exists because the analyzer is the thing with a project.
     /// </summary>
     public void LoadFromProjectConfig(ProjectConfig config, string? projectDirectory = null)
         => _referenceLoadOrchestration.Load(config, projectDirectory ?? Environment.CurrentDirectory);
 
+    public EditorTypeCatalog CreateEditorTypeCatalog() => _metadataLoadSurface.CreateEditorTypeCatalog();
 }
