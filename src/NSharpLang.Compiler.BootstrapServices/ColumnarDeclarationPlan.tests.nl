@@ -200,3 +200,99 @@ test "the declaration plan carries its typedef table" {
     assert plan.TypeDefs.StructExactNames[0] == "Demo.Product"
     assert plan.TypeDefs.InterfaceCount == 0
 }
+
+// A struct whose READONLY-FLAGS array is deliberately SHORTER than its field list -- the shape the
+// bounds guard exists for, and one the emitter accepts today.
+func DeclarationPlanFieldStruct(
+    name: string,
+    fieldNames: string[],
+    fieldCanonicals: string[],
+    staticFlags: bool[],
+    readonlyFlags: bool[]
+): ColumnarStructInput {
+    return new ColumnarStructInput(
+        name,
+        fieldNames,
+        fieldCanonicals,
+        new List<ColumnarFunctionInput>(),
+        new List<ColumnarConstructorInput>(),
+        new List<ColumnarPropertyInput>(),
+        true,
+        null,
+        staticFlags,
+        null,
+        null,
+        false,
+        null,
+        readonlyFlags
+    )
+}
+
+test "the field rows publish all four FieldAttributes words" {
+    assert ColumnarDeclarationPlanner.PublicFieldAttribute() == 6
+    assert ColumnarDeclarationPlanner.StaticFieldAttribute() == 16
+    assert ColumnarDeclarationPlanner.InitOnlyFieldAttribute() == 32
+
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false) == 6
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true) == 38
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, false) == 22
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, true) == 54
+}
+
+test "the readonly flag is bounds-guarded and a field past the flags array is simply not readonly" {
+    names := new string[](3)
+    names[0] = "First"
+    names[1] = "Second"
+    names[2] = "Third"
+    canonicals := new string[](3)
+    canonicals[0] = "int"
+    canonicals[1] = "string?"
+    canonicals[2] = "int"
+    statics := new bool[](3)
+    statics[2] = true
+    // TWO flags for THREE fields: reading index 2 unguarded would throw on a shape the emitter accepts.
+    readonlys := new bool[](2)
+    readonlys[1] = true
+    input := DeclarationPlanFieldStruct("Box", names, canonicals, statics, readonlys)
+
+    assert !ColumnarDeclarationPlanner.FieldIsReadonlyAt(input, 0)
+    assert ColumnarDeclarationPlanner.FieldIsReadonlyAt(input, 1)
+    assert !ColumnarDeclarationPlanner.FieldIsReadonlyAt(input, 2)
+
+    // A NULLABLE field is one whose CANONICAL text ends in `?`.
+    assert !ColumnarDeclarationPlanner.FieldIsNullableAt(input, 0)
+    assert ColumnarDeclarationPlanner.FieldIsNullableAt(input, 1)
+    assert !ColumnarDeclarationPlanner.FieldIsNullableAt(input, 2)
+}
+
+test "the field rows carry a word, a static flag and a nullable flag for every field of every struct" {
+    names := new string[](3)
+    names[0] = "First"
+    names[1] = "Second"
+    names[2] = "Third"
+    canonicals := new string[](3)
+    canonicals[0] = "int"
+    canonicals[1] = "string?"
+    canonicals[2] = "int"
+    statics := new bool[](3)
+    statics[2] = true
+    readonlys := new bool[](2)
+    readonlys[1] = true
+
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanFieldStruct("Box", names, canonicals, statics, readonlys))
+    program := DeclarationPlanTypeDefProgram("namespace Demo\n", structs, new List<ColumnarInterfaceInput>())
+    rows := ColumnarDeclarationPlanner.BuildFields(program)
+
+    assert rows.StructCount == 1
+    assert rows.FieldNames[0].Length == 3
+    assert rows.FieldNames[0][1] == "Second"
+    // instance 6, readonly instance 38, static (past the flags array, so not readonly) 22.
+    assert rows.FieldAttributeWords[0][0] == 6
+    assert rows.FieldAttributeWords[0][1] == 38
+    assert rows.FieldAttributeWords[0][2] == 22
+    assert !rows.FieldIsStatic[0][0]
+    assert rows.FieldIsStatic[0][2]
+    assert !rows.FieldIsNullable[0][0]
+    assert rows.FieldIsNullable[0][1]
+}
