@@ -423,7 +423,7 @@ test "020 s19 parser patterns: a PARENTHESIZED pattern is a one-element Position
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "020 s19 parser patterns: a TypePattern's TYPE REFERENCE carries NO position at all: Line 0, Column 0 and a zero-length span, while the pattern itself anchors on the type name (was ParserTests.TestTypePatternSimple)" {
+test "020 s19 parser patterns: a TypePattern's TYPE REFERENCE is stamped at the type name, exactly where the pattern anchors — and NL002 needs that position (was ParserTests.TestTypePatternSimple)" {
     source := "func check(obj: object): string {\n    result := match obj {\n        string s => s,\n        int n => n.ToString(),\n        _ => \"unknown\"\n    }\n    return result\n}"
     assert PsCensus(source) == ""
     actual := PsAst(source)
@@ -432,8 +432,8 @@ test "020 s19 parser patterns: a TypePattern's TYPE REFERENCE carries NO positio
     params2.Add(Golden.Param("obj", Golden.SimpleT("object", 1, 17, 23), null, false, ParameterModifier.None, 1, 12))
     stmts3 := new List<Statement>()
     mcases4 := new List<MatchCase>()
-    mcases4.Add(Golden.CaseM(Golden.PType(Golden.SimpleT("string", 0, 0, 0), "s", 3, 9), null, Golden.Ident("s", 3, 21)))
-    mcases4.Add(Golden.CaseM(Golden.PType(Golden.SimpleT("int", 0, 0, 0), "n", 4, 9), null, Golden.Call(Golden.Member(Golden.Ident("n", 4, 18), "ToString", false, 4, 19), Golden.NoArgs(), Golden.NoTypeArgs(), 4, 28)))
+    mcases4.Add(Golden.CaseM(Golden.PType(Golden.StampedT("string", 3, 9), "s", 3, 9), null, Golden.Ident("s", 3, 21)))
+    mcases4.Add(Golden.CaseM(Golden.PType(Golden.StampedT("int", 4, 9), "n", 4, 9), null, Golden.Call(Golden.Member(Golden.Ident("n", 4, 18), "ToString", false, 4, 19), Golden.NoArgs(), Golden.NoTypeArgs(), 4, 28)))
     mcases4.Add(Golden.CaseM(Golden.PIdent("_", 5, 9), null, Golden.StrLit("\"unknown\"", 5, 14)))
     stmts3.Add(Golden.VarDecl("result", null, Golden.Match(Golden.Ident("obj", 2, 21), mcases4, 2, 15), VariableKind.Let, 2, 5))
     stmts3.Add(Golden.Return(Golden.Ident("result", 7, 12), 7, 5))
@@ -442,7 +442,7 @@ test "020 s19 parser patterns: a TypePattern's TYPE REFERENCE carries NO positio
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "020 s19 parser patterns: `System.String s` keeps the qualified name in ONE SimpleTypeReference — still at Line 0, Column 0 — rather than splitting it into a member access (was ParserTests.TestTypePatternWithQualifiedName)" {
+test "020 s19 parser patterns: `System.String s` keeps the qualified name in ONE SimpleTypeReference — stamped at the first segment — rather than splitting it into a member access (was ParserTests.TestTypePatternWithQualifiedName)" {
     source := "func check(obj: object): string {\n    result := match obj {\n        System.String s => s,\n        _ => \"unknown\"\n    }\n    return result\n}"
     assert PsCensus(source) == ""
     actual := PsAst(source)
@@ -451,7 +451,7 @@ test "020 s19 parser patterns: `System.String s` keeps the qualified name in ONE
     params2.Add(Golden.Param("obj", Golden.SimpleT("object", 1, 17, 23), null, false, ParameterModifier.None, 1, 12))
     stmts3 := new List<Statement>()
     mcases4 := new List<MatchCase>()
-    mcases4.Add(Golden.CaseM(Golden.PType(Golden.SimpleT("System.String", 0, 0, 0), "s", 3, 9), null, Golden.Ident("s", 3, 28)))
+    mcases4.Add(Golden.CaseM(Golden.PType(Golden.StampedT("System.String", 3, 9), "s", 3, 9), null, Golden.Ident("s", 3, 28)))
     mcases4.Add(Golden.CaseM(Golden.PIdent("_", 4, 9), null, Golden.StrLit("\"unknown\"", 4, 14)))
     stmts3.Add(Golden.VarDecl("result", null, Golden.Match(Golden.Ident("obj", 2, 21), mcases4, 2, 15), VariableKind.Let, 2, 5))
     stmts3.Add(Golden.Return(Golden.Ident("result", 6, 12), 6, 5))
@@ -469,8 +469,8 @@ test "020 s19 parser patterns: two arms binding the SAME name over the same type
     params2.Add(Golden.Param("obj", Golden.SimpleT("object", 1, 17, 23), null, false, ParameterModifier.None, 1, 12))
     stmts3 := new List<Statement>()
     mcases4 := new List<MatchCase>()
-    mcases4.Add(Golden.CaseM(Golden.PType(Golden.SimpleT("string", 0, 0, 0), "s", 3, 9), Golden.Bin(Golden.Member(Golden.Ident("s", 3, 23), "Length", false, 3, 24), BinaryOperator.Greater, Golden.IntLit("5", 3, 34), 3, 32), Golden.StrLit("\"long\"", 3, 39)))
-    mcases4.Add(Golden.CaseM(Golden.PType(Golden.SimpleT("string", 0, 0, 0), "s", 4, 9), null, Golden.StrLit("\"short\"", 4, 21)))
+    mcases4.Add(Golden.CaseM(Golden.PType(Golden.StampedT("string", 3, 9), "s", 3, 9), Golden.Bin(Golden.Member(Golden.Ident("s", 3, 23), "Length", false, 3, 24), BinaryOperator.Greater, Golden.IntLit("5", 3, 34), 3, 32), Golden.StrLit("\"long\"", 3, 39)))
+    mcases4.Add(Golden.CaseM(Golden.PType(Golden.StampedT("string", 4, 9), "s", 4, 9), null, Golden.StrLit("\"short\"", 4, 21)))
     mcases4.Add(Golden.CaseM(Golden.PIdent("_", 5, 9), null, Golden.StrLit("\"not string\"", 5, 14)))
     stmts3.Add(Golden.VarDecl("result", null, Golden.Match(Golden.Ident("obj", 2, 21), mcases4, 2, 15), VariableKind.Let, 2, 5))
     stmts3.Add(Golden.Return(Golden.Ident("result", 7, 12), 7, 5))
