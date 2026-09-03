@@ -2207,3 +2207,67 @@ test "`NL801` runs BEFORE the sealed rule, so a doubly-broken base list gets ONE
 
     assert TypeDeclCodes(harness.Errors) == "801"
 }
+
+// ---------------------------------------------------------------------------------------------
+// A BASE CHAIN THAT CLOSES ON ITSELF (`NL307`)
+//
+// `class A : B` with `class B : A` beneath it REACHED THE EMITTER and died there as an `NL103`
+// carrying no code and no line. A base chain that closes on itself is not a type at all — there is
+// no layout to compute and no constructor chain to run — and every walk in this file that follows a
+// base chain already carried a depth guard because of it. The guards were there; the diagnostic was
+// not.
+//
+// ONE REPORT PER PARTICIPATING DECLARATION, anchored on the class NAME, which is what `csc` produces
+// for the same program (CS0146, once per class, at the name).
+// ---------------------------------------------------------------------------------------------
+
+func TypeDeclSelfBasedOwner(name: string): TypeInfo {
+    selfReference: TypeReference = new SimpleTypeReference(name, 12, 17)
+    owner: TypeInfo = new ClassTypeInfo(name, 7, 10, false, selfReference, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0), true)
+    return owner
+}
+
+test "`NL307` is reported on the class NAME and prints the chain that closes" {
+    harness := TypeDeclDefault()
+    harness.Scopes.DeclareNestedTypeIfAbsent("A", TypeDeclSelfBasedOwner("A"))
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClassWithBase("A", "A", 12, 17), harness.Assignability), null)
+
+    assert TypeDeclCodes(harness.Errors) == "307"
+    assert harness.Errors[0].Message == "'A' inherits from itself: A -> A"
+    assert harness.Errors[0].Suggestion == "A base chain must end. Break the cycle — drop one of the `:` clauses, or make one of the links an `interface`, which may be implemented by anything on the chain."
+    // The class header is at (7,10); the report sits on the NAME, exactly as `NL324` and `NL325` do.
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 10
+    assert harness.Errors[0].Length == 1
+}
+
+test "the chain text renders each link by its own declared name" {
+    assert AnalyzerTypeDeclarations.InheritanceChainName(TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0))) == "Base"
+    assert AnalyzerTypeDeclarations.InheritanceChainName(TypeDeclClrOwner("System.Exception")) == "Exception"
+
+    // The report itself, driven directly, so the sentence is pinned apart from the walk that finds it.
+    harness := TypeDeclDefault()
+    harness.Declarations.ReportInheritanceCycle(TypeDeclClass("A", new List<Declaration>(), null, null, Modifiers.None), "A -> B -> C -> A")
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.CircularDependency
+    assert harness.Errors[0].Message == "'A' inherits from itself: A -> B -> C -> A"
+}
+
+test "an ordinary base chain is SILENT, and so is a declaration with no base at all" {
+    // A real, terminating chain.
+    chained := TypeDeclDefault()
+    chained.Scopes.DeclareNestedTypeIfAbsent("Base", TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0)))
+    TypeDeclRun(chained, chained.Declarations.BeginClass(TypeDeclClassWithBase("Derived", "Base", 12, 17), chained.Assignability), null)
+    assert chained.Errors.Count == 0
+
+    // No `:` clause at all — the walk is not even entered.
+    root := TypeDeclDefault()
+    TypeDeclRun(root, root.Declarations.BeginClass(TypeDeclClass("Plain", new List<Declaration>(), null, null, Modifiers.None), root.Assignability), null)
+    assert root.Errors.Count == 0
+
+    // A base that did not resolve answers `NL201` and nothing about cycles: a chain computed from a
+    // name nobody could find is not a chain.
+    unresolved := TypeDeclDefault()
+    TypeDeclRun(unresolved, unresolved.Declarations.BeginClass(TypeDeclClassWithBase("Derived", "NoSuchBase", 12, 17), unresolved.Assignability), null)
+    assert TypeDeclCodes(unresolved.Errors) == "201"
+}
