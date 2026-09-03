@@ -83,104 +83,26 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
 - **D3 — FIXED, merged `87ec6b9d1`; D2 — FIXED, merged `26592a954`; D1 — FIXED with D2; D4 — FIXED, merged `ef0a5bf65`.**
   The decodes are in §4.10; the visual proof is the record above.
 
-### Active slices (2026-09-02)
+### Active slices (2026-09-03; worktrees at `/private/tmp/nsharp-agent-wt/<stream>`, WIP committed before every pause)
 
-- `stream/023-s1-spelling-gap` — task 023 slice 1, the spelling gap. COMPLETE: the member table, the cause groups,
-  the refusal of the SRM encoder layer and every filed language gap with its probe are in
-  `decodes/2026-09-02-writer-spelling-gap-decode.md` (§4.12). **The hello-world metadata writer is N#, runs, and
-  its emitted assembly runs on the shared framework and passes `ilverify`.** Two language slices landed —
-  `023/1a` external enum members wholesale (merged at `d9c943a75`), `023/1b` the writer's assembly + 37 catalog
-  rows. FILED, NOT LANDED, each with its probe and its sizing: literal-zero -> external enum (§10.2.4),
-  in-range integer constant -> narrower integral target (§10.2.11), `DateTime.TryParse` unmodeled, the
-  fully-qualified static receiver, and `NL010`'s `System.IO` mis-attribution. **Slice 2 is unblocked**, and its
-  spelling is decided: byte-level blobs onto `BlobBuilder`, handles by value, `EntityHandle` by token, two-pass
-  row reservation, full arity everywhere — and it needs ONE toolset republish after `023/1b`, because the writer
-  lives in `BootstrapServices` and the catalog rows are inert there until then.
-
-- `stream/format-rawstring-reparse` — the formatter's data-loss family: attributes re-rendered (`[trusted(reason: …)]`
-  became `[trusted(reason = …)]` on one line and `[aotSafe(mono-wasm)]` became `[aotSafe(mono - wasm)]` — the estate
-  reformat did this to two proof programs and the batch gate caught it through `systems-proof-corpus` 42/44; the two
-  files are restored and the fix is "attributes are emitted verbatim from their source span"), raw strings losing
-  `"""`, `let` unspellable, digit separators dropped; plus the parser refusing `return """abc"""` (NL305/NL312/NL006 on
-  correct source), `EndLine` under-reported for multi-line raw literals, the `AllocExpression` arm and `--check`
-  reporting. LANDED `0006d0d41` (seven commits, §4.10 FORMAT-FIDELITY row): root `nlc format --check --project .` exits 0
-  with zero declines (was 23), fixed point proven, estate 7,320. A SIXTH defect surfaced in the reformat's own diff:
-  `FormatFunctionSignature` never wrote `FunctionDeclaration.Constraints`, so `where T : struct, Sortable<T>` clauses were
-  DELETED — the estate's only real `where` clause is `38-unmanaged-sort-comparer`, so `17aa99e58` dropped none by luck.
-  LESSON for any wide reformat: test-run identity plus `nlc check --json` identity did NOT cover
-  `docs/design/systems-samples/proofs/**` semantics — run `tests/native/systems-proof-corpus` too. Two follow-ups filed:
-  `StringLiteralDecoder.IsTripleQuoteStringLiteral` tests for delimiters the token never carries (a raw literal reaching
-  `Decode` is `DecodeBody`'d; emit is immune because it reads a source slice); and format discovery walks hidden
-  directories — at the repo root it descends into `.claude/worktrees/**` (other sessions' nested checkouts) and reports
-  their stale sources, so the root check is clean only in a copy that excludes them.
-- `stream/022-s2-one-universe` — task 022 slice 2. Its Phase-1 probe showed slice 2 AS WRITTEN is non-viable: a
-  runtime-cored builder with metadata-context operands saves but does not bind (`ModuleBuilderImpl` encodes primitives
-  only for types whose `Assembly` is reference-equal to the builder's core assembly), an MLC generic definition cannot be
-  closed over a user `TypeBuilder`, and type identity is false across universes. **Decided (2026-09-02): the emit
-  universe becomes the metadata universe** — the builder cored on the metadata context, every signature/operand
-  `typeof` routed through one N#-owned emit-universe facade — because a runtime universe returns null for BCL members
-  under NativeAOT (slice 1) and so can never emit an arbitrary BCL call from a native `nlc`. Landing now, universe-
-  independent: 2a–2d landed (blobs byte-identical; `GetRawConstantValue`; the two silent guards; `metadataPath` off
-  `Assembly.Location`); 2h measured universe A UNREACHABLE through `PersistedAssemblyBuilder` (→ task 023); 2e landed
-  (the survivors: `Assembly.Load` proven live by mutation, the doc-index root off `Assembly.Location`; the Cecil rewrite
-  recorded load-bearing). NOW 3a as the GENERAL construction rule: the `typeof`-keyed allow-list in
-  `ColumnarConstructionPlanner` deleted, candidates scored with the ordinary call resolver's `ArgumentsScoreWithFacts`;
-  3a COMPLETE: 3a-i `857c71712` (the twelve-type chain, `IsApprovedExceptionType` and `Types2/3/4` deleted; every
-  public instance constructor a candidate, scored like methods, unique best wins, ties decline loudly; the two
-  predicted conversions were already general; zero corpus rows moved) and, after the toolset republish from
-  `94ff758b5`, 3a-ii `83961914c` (the three `ConstructorInfo.Invoke` sites are `new`; `CreateMetadataLoadContext`,
-  `SetObject`, `CreateNullabilityContext` deleted; `ConstructorInfo::Invoke` 0 by SET DIFF on a tests-excluded estate
-  dll — the distinct-member count rose 263 → 265 because three constructors replaced one `Invoke`, so a bare count would
-  have read as a regression; a census must say which build it read, since `dotnet test` leaves a tests-included dll in
-  `bin`). 3b (the `MetadataLoadContext` quarantine out of `Analyzer.cs`) in Phase 1.
-- Type constraints reach metadata for all five type keywords (`19f2911b6` class/struct/record, `ae8f4bdb1` interface +
-  union — a union is two owners: the base's builders are read back in the emit pass and every case is constrained from
-  its own map; the type-load proof is a `columnar-emit-facts` contract); both C# files shrank under the ratchet. 2b
-  (enforcement at every closing site) next; 2f (the `IsSupportedType` closed list, a sibling of the construction
-  allow-list) after 022/3a.
-- `stream/chips-esc-where` — chip 1: the N# string decoder knows eleven escapes and passes any other through silently
-  (`"\x1b"` is four characters; `"\q"` is accepted) → the full C# escape family, an unrecognised escape becomes a located
-  diagnostic, the reference gains the table, and an N#-owned colour policy (terminal check, `NO_COLOR`, `FORCE_COLOR`,
-  `--color`) lands with it because none exists today; chip 2: `where` on class/struct/record/interface/union does not
-  parse while `website/docs/types.md` promises it with five examples — parse + AST + formatter, NL208 at type use sites,
-  the false NL208 on `where T : IComparable<T>` (the implements test never substitutes `T`), metadata emit through an N#
-  constraint-resolution kernel shared with the method path (the emitter's 90-line C# block is deleted), docs.
-- `stream/chips-linter-analyzer` — the LINTER WALK is blind inside every `unsafe`/`alloc`/`allow` body for every rule
-  (`VisitStatement` has no arm for the three body-carrying kinds and skips silently; the analyzer walks them) → the arms
-  plus a closed tail (unknown statement kinds throw); type patterns, `is` and `as` do not credit their type's import
-  (false NL010) → routed through `TrackTypeReference`, which widens NL002 there (census-accounted); `override`
-  PROPERTIES unchecked (a missing base emits and runs) → the override check extended to properties on both sides; and a
-  NEW rule NL324: a concrete class leaving an inherited abstract member unimplemented is silent for methods and
-  properties and the type runs (the CS0534 class) — measured on eleven shapes, `class MyStream : Stream` names all ten;
-  and a second hole found beside it: NO interface-implementation rule exists (`class English : Greeter { }` with
-  `Greet` unimplemented is silent) — chip E, the CS0535 class.
-- `stream/chips-code-intelligence` — `nlc query type` renders a metadata method as `Name(...)` from two producers → hover's
-  signature renderer at the seam (value change, no schema bump, four commands move); XML doc summaries in hover from the
-  ref pack's global doc-id index built lazily on the first metadata-member hover (the shared framework ships no XML;
-  type forwarding defeats per-assembly lookup); call-site hover shows the WRONG overload today (`Append("x")` →
-  `Append(char, int)`: the arity loop is dead in production) → one `FindCallExpressionAtPosition` entry point shared with
-  signature help, overloads narrowed by argument types with arity as the fallback.
-- IDE re-verification, FOURTH ROUND at `a2d75f537` — ALL PASS (record `artifacts/ide-verification/2026-09-02c/README.md`,
-  8 screenshots, branch `verify/ide-2026-09-02c` `de762cf45`, merged `bc9ba1a4f`): one completion row per member name with
-  the overload count in the detail (`String[] (+10 overloads)`), no duplicate labels; `service.` from another namespace no
-  longer offers the camelCase field while the same-namespace control does; exactly one NSYS100 naming what is absent
-  ("[trusted] is missing the review metadata and [memory(safe)]"); hover and the D4 quick fix unchanged. Two findings:
-  the reload script's proof line prints the LOWEST `LanguageServer.dll` pid (`pgrep … | head -n 1`), which on this machine
-  is a stale August orphan — FAIL as a proof (use `pgrep -n`, or the child of the newest Code Helper); and FOURTEEN
-  orphaned `LanguageServer.dll` processes (ppid 1, July–September) outlive their windows — the server does not exit when
-  its extension host goes away, a product defect (the server must exit on client disconnect / parent death).
-- `stream/023-s1-spelling-gap` — **the hello-world metadata writer works end to end in N#**: `hw_writer` builds through
-  the branch CLI, writes a 2,048-byte assembly through `MetadataBuilder` alone (byte-level blobs, token arithmetic from
-  declaration order, no `GetToken`, no implicit handle conversions), and that assembly runs on the shared framework and
-  passes `ilverify` — slice 1's terminal probe met on the real path. Four Phase-1 predictions overturned by execution
-  (an external struct receiver, an external struct in a plain local, a chained call on a call result all PASS); the
-  real gaps are closed allow-lists (external enum members per member — `023/1a` `92a319b49` admits them wholesale; the
-  32-row `IsSupportedRuntimeTypeName`; the retired construction list; the three-name override-target list found by 3b),
-  plus two constant-conversion rules (`1c` literal zero → enum, `1d` in-range constant → narrower integral) and two
-  filed gaps (a fully-qualified static receiver does not bind without the import; `DateTime.TryParse(s, out d)` is
-  static-member-unmodeled).
-- Surface gaps found writing the constraint contracts (queue): a field WRITE on a generic struct local declines at
-  `emit.local.initializer`; reading a union case's payload field declines the same way. Neither is constraint-related.
+- `stream/022-s3b2-load-surface` — task 022 3b-2 REDONE from the recorded design after the worktree loss: the 93-line
+  load surface out of `Analyzer.cs` into `AnalyzerMetadataLoadSurface.nl`, the two C# `[Fact]`s migrated onto real on-disk
+  fixtures (the shared-framework and reference-pack `System.Runtime.dll`) and the C# test file deleted; then 3b-3
+  construct/dispose and 3b-4 the three orchestration decisions.
+- `stream/lsp-lifetime-2` — the language server exits on stdin EOF, the `exit` notification and client death (a stdin
+  pump into a `Pipe` + one event-driven watch; measured 0.2–0.5 s on all five paths against ≥ 20 s survival), a native
+  contract through a shell vehicle, the reload script's proof line naming the server of the window just launched (the
+  Roslyn-server trap recorded); REDONE after the worktree loss.
+- `stream/error-docs-pages` — the 20 catalog retirements (REDONE), the exemption list for the seven soundness holes, the
+  autogenerated sidebar and index, contract B (every page's example produces its code through the shipped CLI), then
+  every page by family to 81/81. The URL constant is already on `systems-language` (`a9059fc71`).
+- `stream/023-s2-writer` — task 023 slice 2 Phase 1 (read-only): the writer as the second executor over the plan rows
+  inside BootstrapServices — consumer shape, coverage order, the method-body parity harness, the per-project switch.
+- Type constraints reach metadata for all five type keywords (`19f2911b6`, `ae8f4bdb1`); NL208 at `new` sites (`0e382403c`);
+  the declaration-position checks are blocked by the emitter door (§1 decode above) and their working attempt is preserved
+  outside the tree.
+- The IDE-verify peer session is idle until the lifetime fix is gated and pushed (fifth round: the proof line naming the
+  fresh server; one server per window after a close).
 
 ### `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED (record; numbers in §4.1)
 
@@ -1077,6 +999,12 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
   `CompileTimeBench.tests.nl`'s "the corpus is the N project.yml projects" assertion after 022/3b-1 added
   `external-abstract-override`; the pin is 71 at `c79fe23bb`. A brief that adds a native project says so and moves the pin
   in the same commit (2026-09-03).
+
+- **Agent worktrees live at `/private/tmp/nsharp-agent-wt/<stream>`, never under a session scratchpad, and agents commit
+  WIP before every pause.** On 2026-09-03 the four active worktrees under another session's scratchpad vanished when that
+  session ended, taking every uncommitted slice with them (022/3b-2's 370 N# lines + the `Analyzer.cs` shrink, the LSP
+  lifetime fix and its contract, the 20 catalog retirements across 14 files). Committed work on the branches survived.
+  "Writing source is fine during a pause" is only true once the source is committed.
 
 ## 3. Architecture facts
 
