@@ -33,7 +33,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 **Error-docs arc:** MERGED at `08ec08a82` (branch tip `706d37c9f`), gated green in r19 as part of `af07060ac`. See §4.11.
 
-**Tip:** `50f110733` on `systems-language` (PR #190 against `main`; pushed 2026-09-03 ~14:10 with the STATUS commits on top) — gate r20 fully GREEN: exit 0, every step, ~7 min, unit 593, estate 7,524; the compile-time timing step now records `skipped-by-load` inside a full gate (Step 3a loads the box) instead of lying red. The batch carries 023/2.1b+2.1c (`03fc6d699`, `5de84b5ee`), 022/3b-3 (`122450249`) and the load-aware compile-time gate (`73d38eb3d`); the ownership ratchet was merged per row by the side that shrank the file and the head re-observed. Previous tip `af07060ac` (gate r19, the error-docs arc + 023/2.1a).)
+**Tip:** `a2df5dd74` on `systems-language` (PR #190 against `main`; pushed 2026-09-03 ~15:40 with the cursor commit on top) — gate r21 fully GREEN: exit 0, every step, unit 593, estate 7,592 (Step 3a 3 m 35 s, Step 3b VS Code integration 51 s). The batch carries 023/2.1d (`647f2e827`), 022/3b-4a+4b (`918a746e3`, `a6b36fb4a` — slice 3b terminal), diag-honesty 1–6 (`610f87e44`, new `tests/native/diagnostic-honesty`) and soundness 1–3 (`39f535c1c`, NL803/NL802/NL801/NL806 enforced). Lesson: after merging analyzer streams, REBUILD the CLI before running native projects — a stale `Cli.dll` made two green projects look red. Previous tips: `50f110733` (r20), `af07060ac` (r19).)
 
 ### Queue state (`tasks/README.md`)
 
@@ -211,17 +211,17 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `50f110733` (re-measure at your tip; never inherit)
+### Baselines at `a2df5dd74` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
-| unit suite (`tests/Tests.csproj`) | 593 in gates r19 and r20 (595 at `27a6d24f6`; the error-docs arc's two retired-code assertions) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,524** measured in gate r20 at `50f110733` (7,517 at `af07060ac` + 3 + 3 writer contracts, 023/2.1b–c, + 1 load-surface contract, 022/3b-3) |
-| native projects | 45 `project.yml` under `tests/native` (46 entries); corpus pin 73 (every `project.yml` under examples, tests and templates) |
+| unit suite (`tests/Tests.csproj`) | 593 in gates r19–r21 (595 at `27a6d24f6`; the error-docs arc's two retired-code assertions) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,592** measured in gate r21 at `a2df5dd74` (7,524 at `50f110733` + 4 writer contracts 023/2.1d + 16 load-surface/resolver contracts 022/3b-4 + 19 diag-honesty + 29 soundness) |
+| native projects | 46 `project.yml` under `tests/native`; corpus pin 74 (every `project.yml` under examples, tests and templates) |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
-| `ColumnarIlEmitter.cs` | 20,728 lines / 19,716 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1, 1e, 2.1a, 2.1b and 2.1c each shrank it); `Analyzer.cs` 2,720 (2,798 before 3b-2; 2,726 before 3b-3) |
+| `ColumnarIlEmitter.cs` | 20724 lines / 19712 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1, 1e, 2.1a–d each shrank it); `Analyzer.cs` 2357 (2,798 before 3b; 3b removed 441 lines) |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:73f3912b20d84a27` (re-observed over the `50f110733` merge; when two streams repin, keep per row the side that SHRANK the file — ceilings never rise — then `OWN008` prints the observed head) |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:7f26d22e0b4b070a` (at `a2df5dd74`; when two streams repin, keep per row the side that SHRANK the file — ceilings never rise — then `OWN008` prints the observed head; derive the repin LAST, at the commit's own tree, never carry it through a rebase) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
