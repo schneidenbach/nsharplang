@@ -913,3 +913,167 @@ test "the SAME shape refusal under `with` names `with` rather than the object in
 
     assert harness.Errors[0].Message == "SoA tables cannot use `with` collection initializer entries"
 }
+
+// ---- the uninstantiable forms (NL803) --------------------------------------------------------------
+//
+// `new Shape()` ON AN `abstract class Shape` WAS ACCEPTED IN SILENCE, AND HAD BEEN SINCE THE CODE WAS
+// WRITTEN. The catalog published NL803 and nothing reported it: `nlc check` answered `ok: true` on a
+// project that constructs a type with no direct instances. These contracts pin the rule's whole
+// surface — the three shapes that have no instance, the shapes that DO, and the two ways the rule
+// must not fire.
+
+func ConstructionAbstractClass(name: string): ClassTypeInfo {
+    return new ClassTypeInfo(name, 1, 1, false, null, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes(), true, null, true)
+}
+
+func ConstructionInterface(name: string): InterfaceTypeInfo {
+    return new InterfaceTypeInfo(name, 1, 1, false, ConstructionEmptyTypeReferences(), ConstructionEmptyTypeParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes())
+}
+
+// `typeof` of a STATIC class does not emit in this toolset — it is the `abstract sealed` SHAPE, not
+// the assembly — so the CLR type arrives through `Type.GetType`, which is the estate's door. The
+// names must be CORE-LIBRARY names: `System.Console` lives in its own assembly and `Type.GetType`
+// answers null for it without an assembly qualifier, so `System.Math` is the static class used here.
+func ConstructionClrType(metadataName: string): ReflectionTypeInfo {
+    resolved := Type.GetType(metadataName)
+    if resolved == null {
+        throw new InvalidOperationException("Could not resolve '" + metadataName + "'.")
+    }
+
+    return new ReflectionTypeInfo(resolved)
+}
+
+func ConstructionAbstractOpenHolder(): ClassTypeInfo {
+    typeParameters := new TypeParameter[](1)
+    typeParameters[0] = new TypeParameter("T")
+    return new ClassTypeInfo("Holder", 1, 1, false, null, ConstructionEmptyTypeReferences(), typeParameters, ConstructionEmptyParameters(), ConstructionEmptyMembers(), ConstructionEmptyNestedTypes(), true, null, true)
+}
+
+test "`new` on an ABSTRACT CLASS is refused, anchored on the written type name" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Shape", ConstructionAbstractClass("Shape"))
+    state := harness.Arm.Begin(ConstructionNewOf("Shape", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of abstract class 'Shape'"
+    // The squiggle sits under `Shape`, not under the whole `new` expression: the type reference is at
+    // (4,5) and the `new` keyword at (4,1).
+    assert harness.Errors[0].Line == 4
+    assert harness.Errors[0].Column == 5
+    assert harness.Errors[0].Length == 5
+}
+
+test "the abstract-class way out is a CONCRETE SUBCLASS, spelled so the reader can paste it" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Shape", ConstructionAbstractClass("Shape"))
+    state := harness.Arm.Begin(ConstructionNewOf("Shape", ConstructionNoArguments(), null))
+    ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert harness.Errors[0].Suggestion == "Construct a concrete subclass — `class ConcreteShape : Shape { ... }` — and write `new ConcreteShape()` here, or remove `abstract` from `Shape` if it is meant to be constructed directly."
+}
+
+test "`new` on an INTERFACE is refused and named as an interface" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Greeter", ConstructionInterface("Greeter"))
+    state := harness.Arm.Begin(ConstructionNewOf("Greeter", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of interface 'Greeter'"
+    assert harness.Errors[0].Suggestion == "Construct a class that implements it — `class MyGreeter : Greeter { ... }` — and write `new MyGreeter()` here."
+}
+
+test "`new` on an EXTERNAL abstract class is refused with the same sentence" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Stream", ConstructionClrType("System.IO.Stream"))
+    state := harness.Arm.Begin(ConstructionNewOf("Stream", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of abstract class 'Stream'"
+}
+
+// A STATIC CLASS IS `abstract sealed` IN METADATA AND THE READER NEVER WROTE EITHER WORD. Telling
+// them `Console` is abstract would be true of the metadata and useless to them, so the arm is split
+// and the suggestion is the member call they meant.
+test "`new` on an EXTERNAL STATIC class is refused as a static class, not as an abstract one" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Math", ConstructionClrType("System.Math"))
+    state := harness.Arm.Begin(ConstructionNewOf("Math", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of static class 'Math'"
+    assert harness.Errors[0].Suggestion == "`Math` is a static class and has no instances. Call its members directly, as `Math.Member(...)`."
+}
+
+test "`new` on an EXTERNAL INTERFACE is refused as an interface" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("IDisposable", ConstructionClrType("System.IDisposable"))
+    state := harness.Arm.Begin(ConstructionNewOf("IDisposable", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of interface 'IDisposable'"
+}
+
+// A CLOSED GENERIC IS OPENED FIRST: `Holder<string>` is instantiable exactly when `Holder<T>` is, and
+// the name the reader wrote is the one the report names.
+test "a CLOSED GENERIC over an abstract definition is refused, naming what was written" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Holder", ConstructionAbstractOpenHolder())
+    arguments := new List<TypeReference>()
+    arguments.Add(new SimpleTypeReference("string", 4, 12))
+    generic: TypeReference = new GenericTypeReference("Holder", arguments, 4, 5)
+    state := harness.Arm.Begin(new NewExpression(generic, ConstructionNoArguments(), null, 4, 1))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == "803"
+    assert harness.Errors[0].Message == "Cannot create an instance of abstract class 'Holder'"
+    assert harness.Errors[0].Column == 5
+}
+
+// ---- and the shapes the rule must leave alone ------------------------------------------------------
+
+test "a CONCRETE class is silent" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Circle", ConstructionPlainClass("Circle"))
+    state := harness.Arm.Begin(ConstructionNewOf("Circle", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == ""
+    assert trace.Answer == "class:Circle"
+}
+
+// AN ARRAY IS NOT AN INSTANCE OF ITS ELEMENT TYPE. `new Shape[](4)` makes four empty slots, which is
+// legal over any element type at all, so the written length ends the question before it is asked.
+test "a SIZED ARRAY over an abstract element type is silent" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Shape", ConstructionAbstractClass("Shape"))
+    state := harness.Arm.Begin(ConstructionSizedArray("Shape", ConstructionIntLiteral("4"), ConstructionNoArguments()))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == ""
+}
+
+test "an EXTERNAL CONCRETE class is silent" {
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("MemoryStream", ConstructionClrType("System.IO.MemoryStream"))
+    state := harness.Arm.Begin(ConstructionNewOf("MemoryStream", ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+
+    assert trace.Codes == ""
+}
+
+// A TARGET-TYPED `new` HAS NO WRITTEN TYPE REFERENCE AND IS NOT THIS RULE'S BUSINESS: the type it
+// adopts came from a slot that some other declaration already vouched for.
+test "a TARGET-TYPED `new` is not put through this rule" {
+    harness := ConstructionArm()
+    saved := harness.Ambient.EnterExpectedType(ConstructionAbstractClass("Shape"))
+    state := harness.Arm.Begin(ConstructionNewOf(null, ConstructionNoArguments(), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Int))
+    harness.Ambient.ExitExpectedType(saved)
+
+    assert trace.Codes == ""
+}

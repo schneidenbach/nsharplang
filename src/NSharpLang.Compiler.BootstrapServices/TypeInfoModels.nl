@@ -218,13 +218,21 @@ class ClassTypeInfo: TypeInfo {
     HasParameterlessConstructor: bool => hasParameterlessConstructorValue
 
     constraintsValue: GenericConstraint[]
+    isAbstractValue: bool
 
     // The declaration's `where` clauses, in written order. Empty when it has none, never null, so a
     // caller never has to distinguish "no clause" from "not carried".
     Constraints: GenericConstraint[] => constraintsValue
 
-    constructor(name: string, line: int, column: int, isSealed: bool, baseClass: TypeReference?, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], hasParameterlessConstructor: bool, constraints: GenericConstraint[]? = null) {
+    // WHETHER THE DECLARATION CARRIES `abstract`. `IsSealed` had been here since the type was first
+    // written and its opposite had not, so the one question `new` has to ask — may this type have a
+    // direct instance — could not be asked of a resolved type at all. It is a DEFAULTED trailing
+    // constructor parameter so that every hand-built shape in the estate keeps its own arity.
+    IsAbstract: bool => isAbstractValue
+
+    constructor(name: string, line: int, column: int, isSealed: bool, baseClass: TypeReference?, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], hasParameterlessConstructor: bool, constraints: GenericConstraint[]? = null, isAbstract: bool = false) {
         constraintsValue = constraints ?? new GenericConstraint[](0)
+        isAbstractValue = isAbstract
         nameValue = name
         lineValue = line
         columnValue = column

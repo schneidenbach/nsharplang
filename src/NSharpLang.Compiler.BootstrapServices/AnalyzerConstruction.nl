@@ -317,6 +317,7 @@ class AnalyzerConstruction {
         } else {
             state.ConstructedType = typeResolverValue.ResolveDeclaredType(node.Type)
             ReportBareGenericConstructionIfNeeded(state, node)
+            ReportAbstractInstantiationIfNeeded(state, node)
             ReportConstructionConstraintViolationsIfNeeded(state, node)
             ResolveUnionCaseConstruction(state, node)
         }
@@ -375,6 +376,117 @@ class AnalyzerConstruction {
         }
 
         AnalyzerGenericConstraintChecks.ReportTypeArgumentViolations(constraints, substitution, generic.Name, typeResolverValue, assignabilityValue, diagnosticsValue, line, column, MaxSpanLength(generic.Name))
+    }
+
+    // `new Shape()` ON AN `abstract class Shape` WAS ACCEPTED IN SILENCE. NL803 has been in the
+    // catalog since the codes were first written and nothing ever reported it: a project could
+    // construct a type that, by its own declaration, has no direct instances, and `nlc check`
+    // answered `ok: true`. The CLR refuses the `newobj` at run time, so what the reader got instead
+    // of a diagnostic was either a `MemberAccessException` or — for the shapes the columnar backend
+    // declines — an NL103 naming the backend rather than the mistake.
+    //
+    // THE RULE IS ABOUT INSTANCES, NOT ABOUT CLASSES. Three declared shapes have no direct instance
+    // and each one is named as what it is, because "abstract" is a word the reader did not write for
+    // two of them: an `abstract class`, an `interface`, and a static class (`abstract sealed` in
+    // metadata, which is how the BCL spells `Console` and `Math`).
+    //
+    // AN ARRAY IS NOT AN INSTANCE OF ITS ELEMENT TYPE. `new Shape[](4)` creates four empty slots and
+    // is perfectly legal over an abstract element type, so a written array length ends the question
+    // before it is asked.
+    func ReportAbstractInstantiationIfNeeded(state: ConstructionState, node: NewExpression) {
+        if node.ArrayLengthExpression != null {
+            return
+        }
+
+        kind := UninstantiableKind(state.ConstructedType)
+        if kind.Length == 0 {
+            return
+        }
+
+        line := node.Line
+        column := node.Column
+        length := 3
+        writtenName := TypeText(state.ConstructedType)
+        simpleReference := node.Type as SimpleTypeReference
+        if simpleReference != null {
+            line = simpleReference.Line
+            column = simpleReference.Column
+            length = MaxSpanLength(simpleReference.Name)
+            writtenName = simpleReference.Name
+        } else {
+            genericReference := node.Type as GenericTypeReference
+            if genericReference != null {
+                line = genericReference.Line
+                column = genericReference.Column
+                length = MaxSpanLength(genericReference.Name)
+                writtenName = genericReference.Name
+            }
+        }
+
+        diagnosticsValue.Report(ErrorCode.AbstractInstantiation, "Cannot create an instance of " + kind + " '" + writtenName + "'", line, column, UninstantiableSuggestion(kind, writtenName), length)
+    }
+
+    // WHICH UNINSTANTIABLE SHAPE THIS IS, or "" for every type that may have a direct instance.
+    // A closed generic is opened first, because `Box<int>` is instantiable exactly when `Box<T>` is.
+    static func UninstantiableKind(candidate: TypeInfo): string {
+        opened := candidate
+        generic := candidate as GenericTypeInfo
+        if generic != null {
+            definition := generic.GenericDefinition
+            if definition == null {
+                return ""
+            }
+
+            opened = definition
+        }
+
+        classType := opened as ClassTypeInfo
+        if classType != null {
+            if classType.IsAbstract {
+                return "abstract class"
+            }
+
+            return ""
+        }
+
+        if (opened as InterfaceTypeInfo) != null {
+            return "interface"
+        }
+
+        reflectionType := opened as ReflectionTypeInfo
+        if reflectionType == null {
+            return ""
+        }
+
+        clrType := reflectionType.Type
+        if clrType.get_IsInterface() {
+            return "interface"
+        }
+
+        if !clrType.get_IsAbstract() {
+            return ""
+        }
+
+        if clrType.get_IsSealed() {
+            return "static class"
+        }
+
+        return "abstract class"
+    }
+
+    // THE WAY OUT, AND IT MUST COMPILE. Each arm names a spelling the reader can paste: a concrete
+    // subclass for an abstract class, a concrete implementer for an interface, and — for a static
+    // class, which can never have one — the member call the writer almost certainly meant.
+    static func UninstantiableSuggestion(kind: string, writtenName: string): string {
+        if kind == "interface" {
+            return "Construct a class that implements it — `class My" + writtenName + " : " + writtenName + " { ... }` — and write `new My" + writtenName + "()` here."
+        }
+
+        if kind == "static class" {
+            return "`" + writtenName + "` is a static class and has no instances. Call its members directly, as `" + writtenName + ".Member(...)`."
+        }
+
+        return "Construct a concrete subclass — `class Concrete" + writtenName + " : " + writtenName + " { ... }` — and write `new Concrete" + writtenName + "()` here, or remove `abstract` from `" + writtenName + "` if it is meant to be constructed directly."
     }
 
     static func MaxSpanLength(name: string): int {

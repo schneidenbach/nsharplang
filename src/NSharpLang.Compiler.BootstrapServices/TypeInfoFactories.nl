@@ -16,7 +16,7 @@ class NominalTypeInfoFactory {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
         nestedTypes := GetNestedTypeArray(declaration)
-        return new ClassTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), HasModifier(declaration, 128), GetOptionalTypeReference(declaration, "BaseClass"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, nestedTypes, HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers), GetGenericConstraintArray(declaration))
+        return new ClassTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), HasModifier(declaration, Convert.ToInt32(Modifiers.Sealed)), GetOptionalTypeReference(declaration, "BaseClass"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, nestedTypes, HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers), GetGenericConstraintArray(declaration), HasModifier(declaration, Convert.ToInt32(Modifiers.Abstract)))
     }
 
     static func FromStructDeclaration(declaration: object): StructTypeInfo {
