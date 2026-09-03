@@ -415,6 +415,9 @@ kernel change.
   forwarded — ``Stack`1`` needs `, System.Collections`, ``Queue`1``/``HashSet`1`` do not), then
   `MakeGenericType`; `typeof(object).get_Assembly().GetType(...)` is the compiler's own spelling
   (017/2, 3, 23, 36; 019/22-2 — proved reference-identical 9/9).
+- **OVERTURNED 2026-09-03 (022/2f matrix, 38 shapes through the branch CLI): `HashSet<int>` PASSES.**
+- **OVERTURNED 2026-09-03 (same matrix): `StringBuilder` PASSES, and needs no qualification.**
+- **OVERTURNED 2026-09-03 (same matrix): `Stream` PASSES** — `FileStream`, `MemoryStream` and `StreamWriter` still decline.
 - `typeof(X)` as a static-call ARGUMENT is narrower still: arrays, nullables and external enum/attribute
   types decline at `emit.call.static-user-argument` while primitives and `typeof(Type)`/`typeof(object)`
   bind (017/13, 64). **The decline SITE moves with the position and does not identify the cause**: the same
