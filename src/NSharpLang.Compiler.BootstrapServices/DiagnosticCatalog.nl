@@ -52,6 +52,23 @@ class DiagnosticCatalog {
         return DiagnosticDocs.UrlFor(code)
     }
 
+    // The codes this catalog publishes, sorted, as a plain list. `Descriptors` exposes them only
+    // through `IReadOnlyCollection<DiagnosticDescriptor>`, which does not survive a cross-assembly
+    // walk on the columnar emit path — `tests/native/error-docs-contract` needs the code list to
+    // cross that boundary, and so would any tool that wants to enumerate the catalog.
+    static func AllCodes(): List<string> {
+        codes := new List<string>()
+        descriptors := BuildDescriptors()
+        i := 0
+        while i < descriptors.Count {
+            codes.Add(descriptors[i].Code)
+            i = i + 1
+        }
+
+        codes.Sort()
+        return codes
+    }
+
     static func BuildDescriptors(): List<DiagnosticDescriptor> {
         descriptors := new List<DiagnosticDescriptor>()
         AddCompilerDescriptors(descriptors)
