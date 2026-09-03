@@ -21059,7 +21059,7 @@ test "020 s36 analyzer clean source V-CONTROL V10c: the same file with NO sideca
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
     assert AcRow(analysis, 0) == "ImportNotFound|Cannot find import './B'|<null>|Error"
-    assert AcHint(analysis, 0) == "Make sure the file exists at the path './B'.\nThe path should be relative to your project root.\n\nCommon issues:\n  - Check for typos in the file path\n  - Make sure the file extension is correct\n  - Verify the file is in the expected directory"
+    assert AcHint(analysis, 0) == "Make sure the file exists at the path './B'.\nA path starting with './' or '../' is relative to THIS file; any other path is relative to the project root.\nThe '.nl' extension is optional — 'Helper' and 'Helper.nl' name the same file.\n\nCommon issues:\n  - Check for typos in the file path\n  - Check whether the path should start with './' (beside this file) or not (from the project root)\n  - Verify the file is in the expected directory"
     assert AcSnippet(analysis, 0) == "import \"./B\""
     assert AcRow(analysis, 1) == "<no-such-error>"
 }

@@ -88,6 +88,18 @@ class DhProbe {
     }
 }
 
+// A companion name may carry a directory (`sub/User.nl`), because the import rule this file
+// contracts is ABOUT which directory a path is measured from and cannot be stated in one flat folder.
+func DhWriteCompanion(directory: string, name: string, text: string) {
+    path := Path.Combine(directory, name)
+    parent := Path.GetDirectoryName(path)
+    if parent != null {
+        Directory.CreateDirectory(parent ?? directory)
+    }
+
+    File.WriteAllText(path, text)
+}
+
 func DhWriteCompanions(directory: string, companions: string) {
     if companions.Length == 0 {
         return
@@ -102,7 +114,7 @@ func DhWriteCompanions(directory: string, companions: string) {
         line := lines[index]
         if line.StartsWith(header, StringComparison.Ordinal) {
             if currentName.Length > 0 {
-                File.WriteAllText(Path.Combine(directory, currentName), currentText)
+                DhWriteCompanion(directory, currentName, currentText)
             }
 
             currentName = line.Substring(header.Length).Trim()
@@ -115,7 +127,7 @@ func DhWriteCompanions(directory: string, companions: string) {
     }
 
     if currentName.Length > 0 {
-        File.WriteAllText(Path.Combine(directory, currentName), currentText)
+        DhWriteCompanion(directory, currentName, currentText)
     }
 }
 
@@ -247,4 +259,44 @@ test "the suppressed cascade takes NOTHING true with it — the one report that 
 test "a well-formed program is untouched by the guard: it reports nothing at all" {
     output := DhProbe.Check("clean", "func Total(prices: int[]): int {\n    sum := 0\n    for price in prices {\n        sum = sum + price\n    }\n\n    return sum\n}\n")
     assert DhDiagnosticCount(output) == 0, output
+}
+
+// ═══ NL701 — THE HINT AND THE RESOLVER AGREE ══════════════════════════════════════════════════
+//
+// A hint is a claim about the compiler, and this one was the opposite of the truth: it said "The
+// path should be relative to your project root" while `FileResolver.ResolveFilePath` measures a
+// `./` or `../` path from the IMPORTING FILE and everything else from the project root. Every
+// example in the language writes the `./` form, so the one sentence a stuck reader had to go on
+// sent them the wrong way.
+//
+// The rule is measured here before it is quoted: three probes, one per arm, from a file that is NOT
+// at the project root — which is the only place the two rules can disagree.
+func DhImportProbe(name: string, importPath: string): string {
+    companions := "// FILE Helper.nl\nnamespace Probe.Helpers\n\nfunc Decorate(value: string): string {\n    return \"<\" + value + \">\"\n}\n"
+    companions = companions + "// FILE sub/User.nl\nimport \"" + importPath + "\"\n\nfunc Use(value: string): string {\n    return Decorate(value)\n}\n"
+    return DhProbe.Run(name, "check", "func Root(): int {\n    return 1\n}\n", companions)
+}
+
+test "NL701's rule, measured: from a file in a subdirectory, `./Helper.nl` FAILS and `../Helper.nl` and the bare `Helper` both resolve" {
+    // `./` is measured from the importing file, so a root sibling is NOT beside it. Line 2 of the
+    // companion, because its `// FILE` header is line 1 — what the page shows is what runs.
+    dotSlash := DhImportProbe("nl701-dot-slash", "./Helper.nl")
+    assert DhCodeCount(dotSlash, "NL701") == 1, dotSlash
+
+    // `../` is measured from the importing file too, and reaches the root.
+    dotDot := DhImportProbe("nl701-dot-dot", "../Helper.nl")
+    assert DhCodeCount(dotDot, "NL701") == 0, dotDot
+
+    // Anything without a leading `./` or `../` is measured from the PROJECT ROOT — and the `.nl`
+    // extension is optional, which is the second half of the hint.
+    bare := DhImportProbe("nl701-bare", "Helper")
+    assert DhCodeCount(bare, "NL701") == 0, bare
+}
+
+test "NL701 PRINTS that rule — both halves of it — and no longer prints the one that is false" {
+    output := DhProbe.Check("nl701-hint", "import \"./formatting.nl\"\n\nfunc Greet(name: string): string {\n    return \"hello \" + name\n}\n")
+    assert DhCodeCount(output, "NL701") == 1, output
+    assert output.IndexOf("A path starting with './' or '../' is relative to THIS file; any other path is relative to the project root.", StringComparison.Ordinal) >= 0, output
+    assert output.IndexOf("The '.nl' extension is optional", StringComparison.Ordinal) >= 0, output
+    assert output.IndexOf("The path should be relative to your project root.", StringComparison.Ordinal) < 0, output
 }

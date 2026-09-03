@@ -238,7 +238,11 @@ class ErrorMessageBuilder {
     static func ImportNotFound(fileName: string, line: int, column: int, sourceSnippet: string, length: int, importPath: string): CompilerError {
         humanExplanation := "I cannot find the file you're trying to import on line " + IntText(line) + ":"
 
-        contextualHint := "Make sure the file exists at the path '" + importPath + "'.\n" + "The path should be relative to your project root.\n\n" + "Common issues:\n" + "  - Check for typos in the file path\n" + "  - Make sure the file extension is correct\n" + "  - Verify the file is in the expected directory"
+        // THE TWO RULES, IN THE ORDER `FileResolver.ResolveFilePath` ASKS THEM. This hint used to say
+        // "The path should be relative to your project root", which is the opposite of what happens
+        // for the `./` form the message is quoting — the form every example writes — so the one
+        // sentence a stuck reader had to go on sent them the wrong way.
+        contextualHint := "Make sure the file exists at the path '" + importPath + "'.\n" + "A path starting with './' or '../' is relative to THIS file; any other path is relative to the project root.\n" + "The '.nl' extension is optional — 'Helper' and 'Helper.nl' name the same file.\n\n" + "Common issues:\n" + "  - Check for typos in the file path\n" + "  - Check whether the path should start with './' (beside this file) or not (from the project root)\n" + "  - Verify the file is in the expected directory"
 
         return new CompilerError(ErrorCode.ImportNotFound, "Cannot find import '" + importPath + "'", line, column, ErrorSeverity.Error) {
             FileName: fileName,

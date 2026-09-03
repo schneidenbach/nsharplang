@@ -1383,7 +1383,7 @@ test "020 s37 playground diagnostic spans: Check MissingFileImport PreservesQuot
     assert PgCount(response) == 1
     assert PgCensus(response) == "NL701@1:8+11;"
     assert PgRow(response, 0) == "NL701|error|Cannot find import './Missing'|Program.nl|1|8|11"
-    assert PgDetail(response, 0) == "import \"./Missing\"|I cannot find the file you're trying to import on line 1:|<null>|Make sure the file exists at the path './Missing'.\nThe path should be relative to your project root.\n\nCommon issues:\n  - Check for typos in the file path\n  - Make sure the file extension is correct\n  - Verify the file is in the expected directory"
+    assert PgDetail(response, 0) == "import \"./Missing\"|I cannot find the file you're trying to import on line 1:|<null>|Make sure the file exists at the path './Missing'.\nA path starting with './' or '../' is relative to THIS file; any other path is relative to the project root.\nThe '.nl' extension is optional — 'Helper' and 'Helper.nl' name the same file.\n\nCommon issues:\n  - Check for typos in the file path\n  - Check whether the path should start with './' (beside this file) or not (from the project root)\n  - Verify the file is in the expected directory"
     assert PgRow(response, 1) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
     assert PgOk(other) == "False"
@@ -1985,7 +1985,7 @@ test "020 s37 playground diagnostic spans: V10c — Check MissingFileImport Pres
     assert PgCount(response) == 1
     assert PgCensus(response) == "NL701@1:8+11;"
     assert PgRow(response, 0) == "NL701|error|Cannot find import './Missing'|Program.nl|1|8|11"
-    assert PgDetail(response, 0) == "import \"./Missing\"|I cannot find the file you're trying to import on line 1:|<null>|Make sure the file exists at the path './Missing'.\nThe path should be relative to your project root.\n\nCommon issues:\n  - Check for typos in the file path\n  - Make sure the file extension is correct\n  - Verify the file is in the expected directory"
+    assert PgDetail(response, 0) == "import \"./Missing\"|I cannot find the file you're trying to import on line 1:|<null>|Make sure the file exists at the path './Missing'.\nA path starting with './' or '../' is relative to THIS file; any other path is relative to the project root.\nThe '.nl' extension is optional — 'Helper' and 'Helper.nl' name the same file.\n\nCommon issues:\n  - Check for typos in the file path\n  - Check whether the path should start with './' (beside this file) or not (from the project root)\n  - Verify the file is in the expected directory"
     assert PgRow(response, 1) == "<no-such-diagnostic>"
     other := PgCheck("import \"./Missing\"\n\nfunc main() {\n}")
     assert PgOk(other) == "False"
