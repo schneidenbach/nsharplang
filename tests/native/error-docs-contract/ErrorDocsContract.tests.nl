@@ -164,7 +164,7 @@ func EdcDocumentedCodes(): List<string> {
 
 // ─── THE EXEMPTION LIST ───────────────────────────────────────────────────────────────────────
 //
-// SIX CODES ARE EXEMPT FROM THE PAGE REQUIREMENT, AND EACH ONE IS A HOLE IN THE LANGUAGE, NOT A
+// FIVE CODES ARE EXEMPT FROM THE PAGE REQUIREMENT, AND EACH ONE IS A HOLE IN THE LANGUAGE, NOT A
 // DOCUMENTATION GAP. The catalog publishes them, the rule each one names is a rule N# intends to
 // enforce, and NOTHING ENFORCES IT — measured by probe through the shipped CLI, not inferred. A
 // page for one of them would have to describe a diagnostic the reader can never see, so instead the
@@ -186,7 +186,6 @@ func EdcExemptions(): List<string> {
     rows.Add("NL307|systems-language-closeout/STATUS.md|Circular inheritance is not diagnosed; it reaches the emitter and fails there as an NL103 columnar decline, which names the backend rather than the cycle.")
     rows.Add("NL502|systems-language-closeout/STATUS.md|A wildcard arm written before a live arm is accepted in silence; the live arm is dead code the compiler never mentions.")
     rows.Add("NL801|systems-language-closeout/STATUS.md|More than one base class is not diagnosed; it reaches the emitter and fails there as an NL103 columnar decline.")
-    rows.Add("NL802|systems-language-closeout/STATUS.md|`class Derived : Base` where `Base` is `sealed` is accepted in silence and the whole project checks clean.")
     rows.Add("NL806|systems-language-closeout/STATUS.md|A constructor called with the wrong arity is not diagnosed; it reaches the emitter and fails there as an NL103 columnar decline.")
     return rows
 }
@@ -413,7 +412,7 @@ test "EVERY exemption names a code the catalog still publishes, a defect that ex
 
     // The list is small ON PURPOSE. It is the count of language rules N# publishes a code for and
     // does not enforce; it may shrink, and it must never grow without a measured probe behind it.
-    assert EdcExemptions().Count == 6
+    assert EdcExemptions().Count == 5
 }
 
 test "EVERY page carries the front matter the site and the tab title read" {
@@ -923,7 +922,6 @@ func EdbExemptPrograms(): List<string> {
     programs.Add("NL307|class A : B {\n}\n\nclass B : A {\n}\n")
     programs.Add("NL502|func Classify(n: int): string {\n    return match n {\n        _ => \"any\",\n        1 => \"one\"\n    }\n}\n")
     programs.Add("NL801|class Left {\n}\n\nclass Right {\n}\n\nclass Both : Left, Right {\n}\n")
-    programs.Add("NL802|sealed class Base {\n}\n\nclass Derived : Base {\n}\n")
     programs.Add("NL806|class Point {\n    X: int\n\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc Make(): Point {\n    return new Point(1, 2)\n}\n")
     return programs
 }
