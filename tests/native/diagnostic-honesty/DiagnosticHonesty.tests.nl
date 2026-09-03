@@ -494,3 +494,60 @@ test "a bare `throw` is not an N# re-throw form, which is why the suggestion say
     assert DhCodeCount(bare, "NL102") == 1, bare
     assert bare.IndexOf("Expected an exception expression after 'throw'", StringComparison.Ordinal) >= 0, bare
 }
+
+// ═══ THE NULL CHECK THAT CANNOT BE NULL — BOTH HALVES, AND NEITHER TWICE ══════════════════════
+//
+// NL003 reads the LITERAL half (`3 == null`) and needs no types to do it. The other half — a name
+// whose TYPE cannot be null — the linter cannot see at all, so `count != null` on an `int` typed as
+// `bool`, reached the backend and died there as `NL103 … Declined at emit.if.condition`: a sentence
+// about the compiler's internals for a mistake the type system can name. The analyzer now names it
+// in the linter's own words, and the two owners partition the shape rather than overlapping.
+
+test "a null check on a value-typed NAME is reported by the analyzer, in NL003's words, where it used to be an opaque emit decline" {
+    output := DhProbe.Check("nullcheck-name", "func Budget(count: int): int {\n    if count != null {\n        return 1\n    }\n\n    return 0\n}\n")
+    assert DhCodeCount(output, "NL202") == 1, output
+    assert output.IndexOf("This null check is unnecessary — 'int' is a value type and can never be null", StringComparison.Ordinal) >= 0, output
+    assert output.IndexOf("declare it as 'int?'", StringComparison.Ordinal) >= 0, output
+    // The decline it replaces is gone, not accompanied.
+    assert DhCodeCount(output, "NL103") == 0, output
+}
+
+test "the two owners PARTITION the shape: a literal is NL003 alone, a name is NL202 alone, never both on one line" {
+    literal := DhProbe.Check("nullcheck-literal", "func RetryBudget(): int {\n    if 3 == null {\n        return 0\n    }\n\n    return 3\n}\n")
+    assert DhCodeCount(literal, "NL003") == 1, literal
+    assert DhCodeCount(literal, "NL202") == 0, literal
+
+    name := DhProbe.Check("nullcheck-name-only", "func Budget(count: int): int {\n    if count != null {\n        return 1\n    }\n\n    return 0\n}\n")
+    assert DhCodeCount(name, "NL202") == 1, name
+    assert DhCodeCount(name, "NL003") == 0, name
+}
+
+test "an enum, a struct and a record struct are value types too, and the suggested `?` spelling COMPILES" {
+    valueTypes := DhProbe.Check("nullcheck-valuetypes", "enum Color {\n    Red,\n    Green\n}\n\nstruct Point {\n    X: int\n}\n\nfunc FromEnum(color: Color): int {\n    if color != null {\n        return 1\n    }\n\n    return 0\n}\n\nfunc FromStruct(point: Point): int {\n    if point != null {\n        return 1\n    }\n\n    return 0\n}\n")
+    assert DhCodeCount(valueTypes, "NL202") == 2, valueTypes
+
+    // THE SUGGESTED FIX, RUN.
+    nullable := DhProbe.Check("nullcheck-suggested", "func Budget(count: int?): int {\n    if count != null {\n        return 1\n    }\n\n    return 0\n}\n")
+    assert DhDiagnosticCount(nullable) == 0, nullable
+}
+
+test "THE NEGATIVES: a type parameter, a reference, `object` and a string are all silent" {
+    // A bare `T` may be instantiated with a class, so accusing `value == null` inside a generic
+    // function would be accusing correct code. This is the load-bearing negative.
+    generic := DhProbe.Check("nullcheck-generic", "func Generic<T>(value: T): int {\n    if value == null {\n        return 0\n    }\n\n    return 1\n}\n")
+    assert DhDiagnosticCount(generic) == 0, generic
+
+    reference := DhProbe.Check("nullcheck-reference", "import System.Text\n\nfunc Reference(builder: StringBuilder): int {\n    if builder != null {\n        return 1\n    }\n\n    return 0\n}\n")
+    assert DhDiagnosticCount(reference) == 0, reference
+
+    boxed := DhProbe.Check("nullcheck-object", "func Boxed(value: object): int {\n    if value != null {\n        return 1\n    }\n\n    return 0\n}\n")
+    assert DhDiagnosticCount(boxed) == 0, boxed
+
+    text := DhProbe.Check("nullcheck-string", "func Text(value: string): int {\n    if value != null {\n        return 1\n    }\n\n    return 0\n}\n")
+    assert DhDiagnosticCount(text) == 0, text
+}
+
+test "a type that defines its own equality keeps it — the overload is resolved BEFORE this rule is asked" {
+    output := DhProbe.Check("nullcheck-overload", "struct Key {\n    Value: int\n\n    static func operator ==(left: Key, right: Key): bool {\n        return left.Value == right.Value\n    }\n\n    static func operator !=(left: Key, right: Key): bool {\n        return left.Value != right.Value\n    }\n}\n\nfunc CompareKeys(left: Key, right: Key): bool {\n    return left == right && left != right\n}\n")
+    assert DhDiagnosticCount(output) == 0, output
+}

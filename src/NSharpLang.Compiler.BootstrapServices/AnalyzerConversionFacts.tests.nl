@@ -448,3 +448,79 @@ test "the span name gate accepts both spellings of both span types and nothing e
     assert !AnalyzerConversionFacts.IsSpanTypeName("System.Memory")
     assert !AnalyzerConversionFacts.IsSpanTypeName("List")
 }
+
+// ── "definitely a non-nullable value type" ──────────────────────────────────────────────────────
+//
+// A POSITIVE predicate, and the reason it exists is that `!IsReferenceType(x)` is a DIFFERENT
+// question. That one answers false for a bare type parameter, a constructed generic, an unknown type
+// and everything its tail does not name, so negating it would let a caller REPORT on shapes it knows
+// nothing about. The caller here is the null-comparison rule, which accuses source of a mistake, so
+// the negatives below are the load-bearing half of this contract.
+
+test "the primitive value-type names answer TRUE, and the three non-types beside them do not" {
+    valueNames := ConversionSourceNames()
+    index := 0
+    while index < valueNames.Length {
+        if !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new SimpleTypeInfo(valueNames[index])) {
+            throw new InvalidOperationException("'" + valueNames[index] + "' must answer TRUE.")
+        }
+
+        index += 1
+    }
+
+    assert AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new SimpleTypeInfo("bool"))
+    assert AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new SimpleTypeInfo("decimal"))
+
+    // `void`, `null` and `never` are not types a value can have, and comparing one to null is a
+    // different nonsense — reporting on them here would cascade off some other mistake.
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new SimpleTypeInfo("void"))
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new SimpleTypeInfo("null"))
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new SimpleTypeInfo("never"))
+}
+
+test "A BARE TYPE PARAMETER ANSWERS FALSE, which is the negative the whole predicate exists for" {
+    // `T` reaches the analyzer as a `SimpleTypeInfo` named `T`, and `T` may be instantiated with a
+    // class — so `value == null` inside `func F<T>(value: T)` must never be accused.
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new SimpleTypeInfo("T"))
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new SimpleTypeInfo("TResult"))
+
+    // ...and `!IsReferenceType` would have said the opposite for it, which is the whole point.
+    assert AnalyzerConversionFacts.IsReferenceType(new SimpleTypeInfo("T"))
+}
+
+test "a struct, an enum and a record STRUCT answer TRUE; a class, an interface, an array and a record CLASS do not" {
+    assert AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(ConversionStructType())
+    assert AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(ConversionEnumType())
+    assert AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(ConversionRecordType(true))
+
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(ConversionRecordType(false))
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(ConversionClassType())
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(ConversionInterfaceType())
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new ArrayTypeInfo(BuiltInTypes.Int))
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(ConversionFunctionType())
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(ConversionUnionType())
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(ConversionAnonymousUnionType())
+}
+
+test "a NULLABLE answers FALSE however it is modelled — as `T?` and as a reflected generic" {
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new NullableTypeInfo(new SimpleTypeInfo("int")))
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new NullableTypeInfo(ConversionStructType()))
+
+    // A reflected `Nullable<int>` is a value type to the CLR, which is exactly why the reflected arm
+    // refuses every GENERIC type rather than asking `IsValueType` alone.
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new ReflectionTypeInfo(typeof(int?)))
+}
+
+test "a reflected type answers by the CLR, and a reflected GENERIC PARAMETER answers FALSE" {
+    assert AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new ReflectionTypeInfo(typeof(int)))
+    assert AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new ReflectionTypeInfo(typeof(DateTime)))
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new ReflectionTypeInfo(typeof(string)))
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new ReflectionTypeInfo(typeof(object)))
+
+    // A constructed generic is refused whether its arguments are value types or not.
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(new ReflectionTypeInfo(typeof(List<int>)))
+}
+
+test "an UNKNOWN type answers FALSE, so a rule built on this cannot accuse source the analyzer failed to resolve" {
+    assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(BuiltInTypes.Unknown)
+}

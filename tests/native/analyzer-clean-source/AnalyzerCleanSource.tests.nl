@@ -14618,21 +14618,27 @@ test "020 s33 analyzer clean source: `RelationalOperator_ReflectedPrimitiveRetur
     assert AcRow(rich, 0) == "<no-such-error>"
 }
 
-test "020 s33 analyzer clean source: `EqualityOperator_SupportedOperands_AreValid` parses to 1 record + 1 struct + 7 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.EqualityOperator_SupportedOperands_AreValid)" {
+// THE FIXTURE PINNED THE HOLE. Its `CompareValueToNull` writes `value != null` on an `int` — which is
+// the shape NL003 reports when the operand is a LITERAL and nothing reported when it was a typed
+// name; the migrated C# claim was `HasErrors == false`, so the gap shipped as a contract. The
+// analyzer now names it, and every OTHER comparison in the fixture is still silent, which is what
+// makes this one row the whole delta.
+test "020 s33 analyzer clean source: `EqualityOperator_SupportedOperands_AreValid` parses to 1 record + 1 struct + 7 functions and BOTH routes report ONE row — the `int != null` the deleted `HasErrors == false` claim had pinned as valid (was AnalyzerTests.EqualityOperator_SupportedOperands_AreValid)" {
     source := "\nrecord struct Measurement(value: int) {\n}\n\nstruct Key {\n    Value: int\n\n    static func operator ==(left: Key, right: Key): bool {\n        return left.Value == right.Value\n    }\n\n    static func operator !=(left: Key, right: Key): bool {\n        return left.Value != right.Value\n    }\n}\n\nfunc ComparePrimitives(a: int, b: double, flag: bool, ch: char): bool {\n    return a == b && flag != false && ch == 'x'\n}\n\nfunc CompareDecimals(left: decimal, right: decimal): bool {\n    return left == right\n}\n\nfunc CompareReferences(text: string, other: object, values: int[]): bool {\n    return text == \"x\" && text != other && values == null && null != other\n}\n\nfunc CompareValueToNull(value: int): bool {\n    return value != null\n}\n\nfunc CompareRecordStructs(left: Measurement, right: Measurement): bool {\n    return left == right\n}\n\nfunc CompareKeys(left: Key, right: Key): bool {\n    return left == right && left != right\n}\n\nfunc CompareReflectedChars(left: string, right: string): bool {\n    leftChar := Char.ToLowerInvariant(left[0])\n    rightChar := Char.ToLowerInvariant(right[0])\n    return leftChar == rightChar\n}\n        "
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=0;RecordDeclaration:Measurement;StructDeclaration:Key;FunctionDeclaration:ComparePrimitives;FunctionDeclaration:CompareDecimals;FunctionDeclaration:CompareReferences;FunctionDeclaration:CompareValueToNull;FunctionDeclaration:CompareRecordStructs;FunctionDeclaration:CompareKeys;FunctionDeclaration:CompareReflectedChars;"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == ""
-    assert AcHasErrors(analysis) == "False"
-    assert AcErrorCount(analysis) == 0
-    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCensus(analysis) == "NL202:TypeMismatch@30:12+5;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|This null check is unnecessary — 'int' is a value type and can never be null|Remove the null check. If the value really can be absent, declare it as 'int?'.|Error"
+    assert AcRow(analysis, 1) == "<no-such-error>"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == ""
-    assert AcHasErrors(rich) == "False"
-    assert AcErrorCount(rich) == 0
-    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCensus(rich) == "NL202:TypeMismatch@30:12+5;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcRow(rich, 1) == "<no-such-error>"
 }
 
 test "020 s33 analyzer clean source: `EqualityOperator_NestedEnumOperands_AreValid` parses to 1 class and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.EqualityOperator_NestedEnumOperands_AreValid)" {

@@ -52,28 +52,11 @@ class LinterNullCheckPolicy {
 
     // NL003's half: the name of the scalar value type a literal operand has, or nothing.
     //
-    // This is a TOTAL four-way function over the literal kinds N# has, and it is written that way
-    // on purpose. The C# it replaces carried a fifth `_ => "value type"` arm that the enclosing
-    // type test made unreachable — a default that could never fire, and whose presence suggested
-    // the list was open when it is closed.
+    // The list itself lives on `NullComparisonFacts`, because the ANALYZER reads the same list to
+    // decide when to stand down — its own rule covers every non-literal operand, and two copies of
+    // this list would eventually drift into a double report on one line.
     static func ValueTypeLiteralName(operand: Expression): string? {
-        if operand is IntLiteralExpression {
-            return "int"
-        }
-
-        if operand is FloatLiteralExpression {
-            return "float"
-        }
-
-        if operand is CharLiteralExpression {
-            return "char"
-        }
-
-        if operand is BoolLiteralExpression {
-            return "bool"
-        }
-
-        return null
+        return NullComparisonFacts.ValueTypeLiteralName(operand)
     }
 
     // NL016's half: an expression that was JUST created and therefore cannot be null.
