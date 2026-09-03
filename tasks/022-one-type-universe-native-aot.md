@@ -111,21 +111,30 @@ are task 023 slice 3's; they are not reachable through `PersistedAssemblyBuilder
 refuses a `TypeBuilder` whatever the builder's core; every hybrid writes a second corelib `AssemblyRef`
 and does not bind).
 
-## Slice 3a — Admit `new` on a `nuget:`-sourced type
+## Slice 3a — Admit `new` on external types generally; the construction allow-list retired
 
-Widen columnar emission for the one construction path that still declines. Annotations, fields,
-parameters, instance calls and chained calls on `nuget:`-sourced types already emit; only
-`emit.local.initializer` for a `new` declines.
+RE-AIMED 2026-09-02 by the slice's own decode: provenance is irrelevant — `new DeserializerBuilder()`
+(NuGet) builds today and `new NullabilityInfoContext()` (CoreLib) declines, for one reason: external
+construction is gated by a closed allow-list keyed on `typeof` identity
+(`ColumnarConstructionPlanner.TrySelectRuntimeConstructor`, thirteen types plus seventeen approved
+exception types), and anything else declines with no site of its own. The allow-list is the defect.
 
-Terminal condition: an N# function that writes `new PathAssemblyResolver(paths)` and
-`new MetadataLoadContext(resolver, "System.Private.CoreLib")` builds; the three
-`ConstructorInfo.Invoke` sites (`ExternalAssemblyScan.nl:577`, `:591`,
-`NullabilityMetadataReflection.nl:190`) become direct construction and their reflection-invoke
-helpers are deleted; `ConstructorInfo::Invoke` disappears from the estate's IL member census; a
-columnar-admission contract pins the new shape.
+Replace it with the general rule: the planner consumes the analyzer's bound constructor for
+`new X(args)` on an external type where the analyzer records one, and otherwise selects from the
+metadata catalog by arity and argument assignability keyed on full name (never `Type` identity), with
+overload ties declined loudly naming the candidates. The argument conversions the estate's own shapes
+need — array → `IEnumerable<T>`, the implicit upcast to an abstract parameter type — are admitted
+generally in argument planning, never as special cases.
 
-`NullabilityMetadataReflection.nl:190` invokes a **CoreLib** constructor, not a `nuget:`-sourced one.
-Decode its decline reason inside this slice rather than assuming it is the same wall.
+Terminal condition: the allow-list and `IsApprovedExceptionType` (where it exists only to feed it) are
+deleted; an N# function that writes `new PathAssemblyResolver(paths)`,
+`new MetadataLoadContext(resolver, "System.Private.CoreLib")` and `new NullabilityInfoContext()`
+builds; the three `ConstructorInfo.Invoke` sites (`ExternalAssemblyScan.nl:649`, `:663`,
+`NullabilityMetadataReflection.nl:209` at `114c4cda3`) become direct construction and
+`CreateMetadataLoadContext`, `SetObject` and `CreateNullabilityContext` are deleted;
+`ConstructorInfo::Invoke` disappears from the estate's IL member census; the control-first corpus sweep
+holds `IL_DIFFS=0` at both granularities for every previously admitted construction; the decline census
+before/after names every newly admitted shape; a contract per admitted shape and per loud decline.
 
 ## Slice 3b — Retire the `MetadataLoadContext` quarantine from `Analyzer.cs`
 
