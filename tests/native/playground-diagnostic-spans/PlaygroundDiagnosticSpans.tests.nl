@@ -1164,7 +1164,7 @@ test "020 s37 playground diagnostic spans: Check AdditionalMalformedConstructs P
     assert PgDetail(response, 0) == "    Items: List<>|Generic type 'List' needs a type argument between '<' and '>'.|Add a type argument|Write this type as `List<T>` or remove the generic argument list."
     assert PgRow(response, 1) == "NL207|error|Generic type 'List' takes 1 type argument(s), but 0 were provided|Program.nl|4|12|4"
     assert PgDetail(response, 1) == "    Items: List<>|<null>|Match the declaration's type parameter count for 'List'|<null>"
-    assert PgRow(response, 2) == "NL002|error|I can't find 'List' — it looks like a missing import|Program.nl|4|12|4"
+    assert PgRow(response, 2) == "NL002|error|'List' is used without the import that provides it|Program.nl|4|12|4"
     assert PgDetail(response, 2) == "    Items: List<>|<null>|Add 'import System.Collections.Generic' at the top of the file|<null>"
     assert PgRow(response, 3) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
@@ -1174,7 +1174,7 @@ test "020 s37 playground diagnostic spans: Check AdditionalMalformedConstructs P
     assert PgCensus(other) == "NL102@4:12+6;NL207@4:12+4;NL002@4:12+4;"
     assert PgRow(other, 0) == "NL102|error|Expected type name. Got '>'|Program.tests.nl|4|12|6"
     assert PgRow(other, 1) == "NL207|error|Generic type 'List' takes 1 type argument(s), but 0 were provided|Program.tests.nl|4|12|4"
-    assert PgRow(other, 2) == "NL002|error|I can't find 'List' — it looks like a missing import|Program.tests.nl|4|12|4"
+    assert PgRow(other, 2) == "NL002|error|'List' is used without the import that provides it|Program.tests.nl|4|12|4"
 }
 
 test "020 s37 playground diagnostic spans: Check AdditionalMalformedConstructs PreserveVisibleTokenSpansForMarkers — NL001@4:5+5;NL102@4:14+3;, and the test-file route agrees (was PlaygroundCompilerTests.Check_AdditionalMalformedConstructs_PreserveVisibleTokenSpansForMarkers InlineData row 2)" {
@@ -1239,7 +1239,7 @@ test "020 s37 playground diagnostic spans: Check MissingFieldTypeBeforeNextField
     assert PgDetail(response, 1) == "    Items: List<>|Generic type 'List' needs a type argument between '<' and '>'.|Add a type argument|Write this type as `List<T>` or remove the generic argument list."
     assert PgRow(response, 2) == "NL207|error|Generic type 'List' takes 1 type argument(s), but 0 were provided|Program.nl|5|12|4"
     assert PgDetail(response, 2) == "    Items: List<>|<null>|Match the declaration's type parameter count for 'List'|<null>"
-    assert PgRow(response, 3) == "NL002|error|I can't find 'List' — it looks like a missing import|Program.nl|5|12|4"
+    assert PgRow(response, 3) == "NL002|error|'List' is used without the import that provides it|Program.nl|5|12|4"
     assert PgDetail(response, 3) == "    Items: List<>|<null>|Add 'import System.Collections.Generic' at the top of the file|<null>"
     assert PgRow(response, 4) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
@@ -1250,7 +1250,7 @@ test "020 s37 playground diagnostic spans: Check MissingFieldTypeBeforeNextField
     assert PgRow(other, 0) == "NL102|error|Expected type name. Got 'Items'|Program.tests.nl|4|5|4"
     assert PgRow(other, 1) == "NL102|error|Expected type name. Got '>'|Program.tests.nl|5|12|6"
     assert PgRow(other, 2) == "NL207|error|Generic type 'List' takes 1 type argument(s), but 0 were provided|Program.tests.nl|5|12|4"
-    assert PgRow(other, 3) == "NL002|error|I can't find 'List' — it looks like a missing import|Program.tests.nl|5|12|4"
+    assert PgRow(other, 3) == "NL002|error|'List' is used without the import that provides it|Program.tests.nl|5|12|4"
 }
 
 test "020 s37 playground diagnostic spans: Check IncompleteMemberAccessBeforeCall PreservesReceiverSpan — NL102@5:5+4;, and the test-file route agrees (was PlaygroundCompilerTests.Check_IncompleteMemberAccessBeforeCall_PreservesReceiverSpan)" {

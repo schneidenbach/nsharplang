@@ -299,7 +299,7 @@ See: https://schneidenbach.github.io/nsharplang/docs/errors/NL010
     2 |     items := new List<int>()
       |                  ^^^^
 
-[linter] I can't find 'List' — it looks like a missing import
+[linter] 'List' is used without the import that provides it
 
 `List` resolves to a known framework type whose namespace is not imported in this file.
 
