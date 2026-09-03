@@ -463,9 +463,18 @@ class LinterWalk {
 
     // Each catch clause owns a scope holding its exception variable, which is exempt from NL001. An
     // EMPTY catch block is NL011 and is not walked — there is nothing in it to walk.
+    //
+    // THE CLAUSE'S EXCEPTION TYPE IS A WRITTEN TYPE REFERENCE, exactly as a parameter's, a `typeof`'s
+    // and a type pattern's are, and it was the last such slot the walk did not reach. A
+    // `TypeReference` is not an `Expression`, so neither this walk nor `AstChildrenCore.Of` ever saw
+    // it: a file whose ONLY mention of `System` was `catch (e: InvalidOperationException)` reported a
+    // false NL010 against that import — an ERROR that stops the build, and one whose `nlc fix` DELETES
+    // the import the file needs. `TrackTypeReference` is the one door that answers both NL010 and
+    // NL002, so the clause type asks both.
     func VisitTry(statement: TryStatement) {
         VisitStatement(statement.TryBlock)
         for catchClause in statement.CatchClauses {
+            state.TrackTypeReference(catchClause.ExceptionType)
             catchBlockIsEmpty := catchClause.Block.Statements.Count == 0
 
             if catchBlockIsEmpty {

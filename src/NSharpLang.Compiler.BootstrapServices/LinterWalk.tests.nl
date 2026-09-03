@@ -1201,3 +1201,28 @@ test "the write still counts as a MENTION for the import rules, which ask a diff
     walk.VisitStatement(LwkBlockOf(statements, 3, 1))
     assert LwkCodes(state) == "NL002@3:5;"
 }
+
+// ── the LAST written-type slot: a `catch` clause ────────────────────────────────────────────────
+//
+// The family above widened six type slots and left the seventh. A `catch` clause's `ExceptionType`
+// is a `TypeReference` hanging off a `CatchClause`, which is not an `Expression` and not a
+// `Statement`, so nothing reached it: a file whose ONLY mention of `System` was
+// `catch (e: InvalidOperationException)` reported a false NL010 against that import — an ERROR that
+// fails `nlc check` on correct source, and whose `nlc fix` DELETES the import the file needs.
+
+test "a type named ONLY in a `catch` clause makes its import used, and needs one when absent" {
+    assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    try {\n        print(\"body\")\n    } catch (e: StringBuilder) {\n        print(\"caught\")\n    }\n}\n") == ""
+    assert LnieCensus("\nfunc F() {\n    try {\n        print(\"body\")\n    } catch (e: StringBuilder) {\n        print(\"caught\")\n    }\n}\n") == "NL002@5:17+13;"
+}
+
+test "a BARE `catch` names no type and asks nothing, and its clause is still walked" {
+    // Non-vacuity: the clause body's own read is still credited, so the widening did not replace the
+    // block walk with the type walk.
+    assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    builder := new StringBuilder()\n    try {\n        print(\"body\")\n    } catch {\n        print(builder.Length)\n    }\n}\n") == ""
+}
+
+test "the exception VARIABLE is still exempt from NL001, and the clause type does not make it read" {
+    // `catch (error: StringBuilder)` binds `error`; binding the exception is how you name the clause,
+    // not how you use a value, and tracking the TYPE must not change that either way.
+    assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    try {\n        print(\"body\")\n    } catch (error: StringBuilder) {\n        print(\"caught\")\n    }\n}\n") == ""
+}

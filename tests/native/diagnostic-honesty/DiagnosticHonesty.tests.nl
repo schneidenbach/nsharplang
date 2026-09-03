@@ -431,3 +431,24 @@ test "the `_` opt-out both rules point at still works on a write-only binding" {
     output := DhProbe.Check("nl001-underscore", "func Run() {\n    _total := 0\n    _total = 5\n}\n\nfunc Take(_x: int) {\n    _x = 5\n}\n")
     assert DhDiagnosticCount(output) == 0, output
 }
+
+// ═══ NL010 — A `catch` CLAUSE'S TYPE IS A MENTION ═════════════════════════════════════════════
+//
+// The last written-type slot the lint walk did not reach. A file whose only mention of `System` was
+// `catch (e: InvalidOperationException)` reported NL010 against the import it needs — an ERROR that
+// fails `nlc check` on correct source, and whose `nlc fix` deletes the line.
+
+test "an import used ONLY by a `catch` clause's exception type is not reported unused" {
+    output := DhProbe.Check("nl010-catch", "import System\n\nfunc Run() {\n    try {\n        print(\"body\")\n    } catch (e: InvalidOperationException) {\n        print(\"caught\")\n    }\n}\n")
+    assert DhDiagnosticCount(output) == 0, output
+}
+
+test "the same slot asks the OPPOSITE question too: a catch type with no import is NL002" {
+    output := DhProbe.Check("nl010-catch-missing", "func Run() {\n    try {\n        print(\"body\")\n    } catch (e: StringBuilder) {\n        print(\"caught\")\n    }\n}\n")
+    assert DhCodeCount(output, "NL002") == 1, output
+}
+
+test "an import nothing mentions at all is STILL NL010, so the widening did not silence the rule" {
+    output := DhProbe.Check("nl010-live", "import System.Text\n\nfunc Run() {\n    print(\"body\")\n}\n")
+    assert DhCodeCount(output, "NL010") == 1, output
+}
