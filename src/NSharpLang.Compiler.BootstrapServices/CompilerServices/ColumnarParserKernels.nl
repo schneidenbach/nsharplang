@@ -846,12 +846,14 @@ class InterfaceDeclarationTable {
     BaseNameLengths: int[]
     TypeParamStarts: int[]
     TypeParamLengths: int[]
-    constructor(methodFuncIndices: int[], baseNameStarts: int[], baseNameLengths: int[], typeParamStarts: int[], typeParamLengths: int[]) {
+    Where: ParserDeclarationWhereTable
+    constructor(methodFuncIndices: int[], baseNameStarts: int[], baseNameLengths: int[], typeParamStarts: int[], typeParamLengths: int[], whereTable: ParserDeclarationWhereTable) {
         MethodFuncIndices = methodFuncIndices
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
         TypeParamStarts = typeParamStarts
         TypeParamLengths = typeParamLengths
+        Where = whereTable
     }
 }
 
@@ -960,7 +962,8 @@ class UnionDeclarationTable {
     FieldTypeLengths: int[]
     TypeParamStarts: int[]
     TypeParamLengths: int[]
-    constructor(caseNameStarts: int[], caseNameLengths: int[], caseFieldCounts: int[], fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], typeParamStarts: int[], typeParamLengths: int[]) {
+    Where: ParserDeclarationWhereTable
+    constructor(caseNameStarts: int[], caseNameLengths: int[], caseFieldCounts: int[], fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], typeParamStarts: int[], typeParamLengths: int[], whereTable: ParserDeclarationWhereTable) {
         CaseNameStarts = caseNameStarts
         CaseNameLengths = caseNameLengths
         CaseFieldCounts = caseFieldCounts
@@ -970,6 +973,7 @@ class UnionDeclarationTable {
         FieldTypeLengths = fieldTypeLengths
         TypeParamStarts = typeParamStarts
         TypeParamLengths = typeParamLengths
+        Where = whereTable
     }
 }
 
@@ -1371,12 +1375,18 @@ class InterfaceSignatureBaseOutputTable {
     BaseNameTexts: string[]
     InterfaceNameTexts: string[]
     TypeParamTexts: string[]
-    constructor(baseNameStarts: int[], baseNameLengths: int[], baseNameTexts: string[], interfaceNameTexts: string[], typeParamTexts: string[]) {
+    WhereOwnerTexts: string[]
+    WhereItemCodes: int[]
+    WhereTypeTexts: string[]
+    constructor(baseNameStarts: int[], baseNameLengths: int[], baseNameTexts: string[], interfaceNameTexts: string[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[]) {
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
         BaseNameTexts = baseNameTexts
         InterfaceNameTexts = interfaceNameTexts
         TypeParamTexts = typeParamTexts
+        WhereOwnerTexts = whereOwnerTexts
+        WhereItemCodes = whereItemCodes
+        WhereTypeTexts = whereTypeTexts
     }
 }
 
@@ -1737,19 +1747,25 @@ class ColumnarUnionScratchTable {
 }
 
 class ColumnarUnionTextOutputTable {
+    WhereOwnerTexts: string[]
+    WhereItemCodes: int[]
+    WhereTypeTexts: string[]
     CaseNameTexts: string[]
     CaseFieldCounts: int[]
     FieldNameTexts: string[]
     FieldTypeTexts: string[]
     TypeParamTexts: string[]
     UnionNameTexts: string[]
-    constructor(caseNameTexts: string[], caseFieldCounts: int[], fieldNameTexts: string[], fieldTypeTexts: string[], typeParamTexts: string[], unionNameTexts: string[]) {
+    constructor(caseNameTexts: string[], caseFieldCounts: int[], fieldNameTexts: string[], fieldTypeTexts: string[], typeParamTexts: string[], unionNameTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[]) {
         CaseNameTexts = caseNameTexts
         CaseFieldCounts = caseFieldCounts
         FieldNameTexts = fieldNameTexts
         FieldTypeTexts = fieldTypeTexts
         TypeParamTexts = typeParamTexts
         UnionNameTexts = unionNameTexts
+        WhereOwnerTexts = whereOwnerTexts
+        WhereItemCodes = whereItemCodes
+        WhereTypeTexts = whereTypeTexts
     }
 }
 
@@ -1853,6 +1869,9 @@ class ColumnarInterfaceBaseScratchTable {
 }
 
 class ColumnarInterfaceOutputTable {
+    WhereOwnerTexts: string[]
+    WhereItemCodes: int[]
+    WhereTypeTexts: string[]
     MethodFuncIndices: int[]
     BaseNameTexts: string[]
     InterfaceNameTexts: string[]
@@ -1864,7 +1883,7 @@ class ColumnarInterfaceOutputTable {
     MethodParamTypeTexts: string[]
     MethodParamModifierKinds: int[]
     TypeParamTexts: string[]
-    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[], methodParamModifierKinds: int[], typeParamTexts: string[]) {
+    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[], methodParamModifierKinds: int[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[]) {
         MethodFuncIndices = methodFuncIndices
         BaseNameTexts = baseNameTexts
         InterfaceNameTexts = interfaceNameTexts
@@ -1876,6 +1895,9 @@ class ColumnarInterfaceOutputTable {
         MethodParamTypeTexts = methodParamTypeTexts
         MethodParamModifierKinds = methodParamModifierKinds
         TypeParamTexts = typeParamTexts
+        WhereOwnerTexts = whereOwnerTexts
+        WhereItemCodes = whereItemCodes
+        WhereTypeTexts = whereTypeTexts
     }
 }
 
@@ -8815,6 +8837,18 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
 
     result.Values[2] = baseCount
 
+    // Generic CONSTRAINTS, between the base-interface list and the body.
+    ifaceWhereNext := pos
+    ifaceWhereCount := ParseDeclarationWhereClausesCore(tokens, count, pos, decl.Where, out ifaceWhereNext)
+    if ifaceWhereCount < 0 {
+        return -1
+    }
+
+    pos = ifaceWhereNext
+    if result.Values.Length > 6 {
+        result.Values[6] = ifaceWhereCount
+    }
+
     if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
@@ -10701,6 +10735,18 @@ func ParseUnionDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, 
 
     result.Values[2] = typeParamCount
 
+    // Generic CONSTRAINTS, between the type parameters and the case body — a union has no base list.
+    unionWhereNext := pos
+    unionWhereCount := ParseDeclarationWhereClausesCore(tokens, count, pos, decl.Where, out unionWhereNext)
+    if unionWhereCount < 0 {
+        return -1
+    }
+
+    pos = unionWhereNext
+    if result.Values.Length > 5 {
+        result.Values[5] = unionWhereCount
+    }
+
     if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
@@ -12071,7 +12117,8 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
     }
 
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    declaration := new InterfaceDeclarationTable(methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths, new int[](count + 1), new int[](count + 1))
+    declarationWhere := new ParserDeclarationWhereTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    declaration := new InterfaceDeclarationTable(methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths, new int[](count + 1), new int[](count + 1), declarationWhere)
     declarationResult := new ParserDeclarationResultTable(result.Values)
     methodCount := ParseInterfaceDeclarationCore(declarationTokens, count, interfaceIndex, declaration, declarationResult)
     if methodCount < 0 {
@@ -12092,6 +12139,37 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
     interfaceName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
     if interfaceName == "" {
         return -1
+    }
+
+    // The constraint rows, rendered exactly as the struct core renders them.
+    ifaceWhereCount := 0
+    if result.Values.Length > 6 {
+        ifaceWhereCount = result.Values[6]
+    }
+
+    if ifaceWhereCount > baseOutputs.WhereOwnerTexts.Length || ifaceWhereCount > baseOutputs.WhereItemCodes.Length || ifaceWhereCount > baseOutputs.WhereTypeTexts.Length {
+        return -1
+    }
+
+    w := 0
+    while w < ifaceWhereCount {
+        ownerName := ParserDeclarationSpanText(source, declaration.Where.NameStarts[w], declaration.Where.NameLengths[w])
+        if ownerName == "" {
+            return -1
+        }
+
+        baseOutputs.WhereOwnerTexts[w] = ownerName
+        baseOutputs.WhereItemCodes[w] = declaration.Where.ItemCodes[w]
+        constraintText := ""
+        if declaration.Where.ItemCodes[w] == 0 {
+            constraintText = ParserDeclarationCanonicalTypeText(source, declaration.Where.TypeStarts[w], declaration.Where.TypeLengths[w])
+            if constraintText == "" {
+                return -1
+            }
+        }
+
+        baseOutputs.WhereTypeTexts[w] = constraintText
+        w = w + 1
     }
 
     baseOutputs.InterfaceNameTexts[0] = interfaceName
@@ -13802,17 +13880,18 @@ func ColumnarStructTypeParameterNamesDistinct(source: string, scratch: ColumnarS
     return 1
 }
 
-func ParseColumnarUnionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameTexts: string[], outCaseFieldCounts: int[], outFieldNameTexts: string[], outFieldTypeTexts: string[], outTypeParamTexts: string[], outUnionNameTexts: string[], outResult: int[]): int {
+func ParseColumnarUnionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameTexts: string[], outCaseFieldCounts: int[], outFieldNameTexts: string[], outFieldTypeTexts: string[], outTypeParamTexts: string[], outUnionNameTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[]): int {
     tokens := new ColumnarUnionTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
     scratch := new ColumnarUnionScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    outputs := new ColumnarUnionTextOutputTable(outCaseNameTexts, outCaseFieldCounts, outFieldNameTexts, outFieldTypeTexts, outTypeParamTexts, outUnionNameTexts)
+    outputs := new ColumnarUnionTextOutputTable(outCaseNameTexts, outCaseFieldCounts, outFieldNameTexts, outFieldTypeTexts, outTypeParamTexts, outUnionNameTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts)
     result := new ColumnarUnionResultTable(outResult)
     return ParseColumnarUnionInfoCore(source, tokens, unionIndex, scratch, outputs, result)
 }
 
 func ParseColumnarUnionInfoCore(source: string, tokens: ColumnarUnionTokenTable, unionIndex: int, scratch: ColumnarUnionScratchTable, outputs: ColumnarUnionTextOutputTable, result: ColumnarUnionResultTable): int {
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    decl := new UnionDeclarationTable(scratch.CaseNameStarts, scratch.CaseNameLengths, outputs.CaseFieldCounts, scratch.FieldNameStarts, scratch.FieldNameLengths, scratch.FieldTypeStarts, scratch.FieldTypeLengths, scratch.TypeParamStarts, scratch.TypeParamLengths)
+    unionWhere := new ParserDeclarationWhereTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    decl := new UnionDeclarationTable(scratch.CaseNameStarts, scratch.CaseNameLengths, outputs.CaseFieldCounts, scratch.FieldNameStarts, scratch.FieldNameLengths, scratch.FieldTypeStarts, scratch.FieldTypeLengths, scratch.TypeParamStarts, scratch.TypeParamLengths, unionWhere)
     declarationResult := new ParserDeclarationResultTable(result.Values)
     caseCount := ParseUnionDeclarationCore(declarationTokens, tokens.Count, unionIndex, decl, declarationResult)
     if caseCount < 0 {
@@ -13849,6 +13928,37 @@ func ParseColumnarUnionInfoCore(source: string, tokens: ColumnarUnionTokenTable,
     }
 
     outputs.UnionNameTexts[0] = unionName
+
+    // The constraint rows, rendered as the struct and interface cores render them.
+    unionWhereCount := 0
+    if result.Values.Length > 5 {
+        unionWhereCount = result.Values[5]
+    }
+
+    if unionWhereCount > outputs.WhereOwnerTexts.Length || unionWhereCount > outputs.WhereItemCodes.Length || unionWhereCount > outputs.WhereTypeTexts.Length {
+        return -1
+    }
+
+    w := 0
+    while w < unionWhereCount {
+        ownerName := ParserDeclarationSpanText(source, decl.Where.NameStarts[w], decl.Where.NameLengths[w])
+        if ownerName == "" {
+            return -1
+        }
+
+        outputs.WhereOwnerTexts[w] = ownerName
+        outputs.WhereItemCodes[w] = decl.Where.ItemCodes[w]
+        constraintText := ""
+        if decl.Where.ItemCodes[w] == 0 {
+            constraintText = ParserDeclarationCanonicalTypeText(source, decl.Where.TypeStarts[w], decl.Where.TypeLengths[w])
+            if constraintText == "" {
+                return -1
+            }
+        }
+
+        outputs.WhereTypeTexts[w] = constraintText
+        w = w + 1
+    }
 
     i = 0
     while i < typeParamCount {
@@ -14202,17 +14312,17 @@ func ColumnarEnumMemberNamesDistinct(source: string, scratch: ColumnarEnumMember
     return 1
 }
 
-func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outMethodParamModifierKinds: int[], outTypeParamTexts: string[], outResult: int[]): int {
+func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outMethodParamModifierKinds: int[], outTypeParamTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[]): int {
     tokens := new ColumnarInterfaceTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
     scratch := new ColumnarInterfaceBaseScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts, outMethodParamModifierKinds, outTypeParamTexts)
+    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts, outMethodParamModifierKinds, outTypeParamTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts)
     result := new ColumnarInterfaceResultTable(outResult)
     return ParseColumnarInterfaceInfoCore(source, tokens, interfaceIndex, scratch, outputs, result)
 }
 
 func ParseColumnarInterfaceInfoCore(source: string, tokens: ColumnarInterfaceTokenTable, interfaceIndex: int, scratch: ColumnarInterfaceBaseScratchTable, outputs: ColumnarInterfaceOutputTable, result: ColumnarInterfaceResultTable): int {
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts)
+    baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts, outputs.WhereOwnerTexts, outputs.WhereItemCodes, outputs.WhereTypeTexts)
     methodOutputs := new InterfaceSignatureMethodOutputTable(outputs.MethodFuncIndices, outputs.MethodNameTexts, outputs.MethodReturnTexts, outputs.MethodParamCounts, outputs.MethodBodyFlags, outputs.MethodParamNameTexts, outputs.MethodParamTypeTexts, outputs.MethodParamModifierKinds)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
