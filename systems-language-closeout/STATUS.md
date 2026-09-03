@@ -117,6 +117,10 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
   the byte-level body encoder (zero catalog rows; slice 1's blanket refusal of the body layer corrected) → S2.5 the
   remaining bodies per the fork → S2.6 harness + `tests/native/metadata-writer` (+ the corpus pin). The Cecil
   corelib→contract rewrite stays load-bearing through slice 2.
+- `stream/diag-honesty` (worktree `diag-honesty`, from `af07060ac`) — the product defects the error-docs arc surfaced: the
+  `<error>` placeholder cascade, NL701's inverted hint, NL321/NL702 suggesting fixes that do not compile, NL001/NL012
+  counting a write as a use; then the queued linter defects (NL010 `catch` types, NL011 suggestion, NL003 literals, NL002
+  whitelist), each its own contracted slice.
 - `stream/compile-time-gate-load` — the compile-time timing gate skips honestly above a load threshold of 0.2 × logical
   cores (2.0 on the 10-core M4; the five red gates had medians 1.5–2.2× baseline at loads 4.4–8.1, ≈ 1 + 0.13·L, so load
   alone reaches the ×1.5 limit at L ≈ 3.9), the verdict string carries the numbers, a one-line record lands in
