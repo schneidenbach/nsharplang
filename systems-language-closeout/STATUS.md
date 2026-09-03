@@ -31,7 +31,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Tip:** `c9da157fc` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, 6 m 33 s, pushed — task 022 slices 2a–2d + 2h and the escape/`where` chips 1a–2c; this docs commit rides on top).
+**Tip:** `529ad23bf` on `systems-language` (PR #190 against `main`; gated VS Code-ENABLED `./scripts/test-all.sh --commit`, 131 steps, `GATE EXIT 0`, pushed — the code-intelligence chips A–C, the type-constraint metadata slice 2d, task 022 slice 2e; this docs commit rides on top).
 
 ### Queue state (`tasks/README.md`)
 
@@ -104,10 +104,13 @@ rows); the visual re-verification of D3 at `385b7e8d1` and of D1/D2 at `26592a95
   universe becomes the metadata universe** — the builder cored on the metadata context, every signature/operand
   `typeof` routed through one N#-owned emit-universe facade — because a runtime universe returns null for BCL members
   under NativeAOT (slice 1) and so can never emit an arbitrary BCL call from a native `nlc`. Landing now, universe-
-  independent: 2a attribute blobs (byte-identical, measured), 2b `GetRawConstantValue`, 2c the two silent guards,
-  2d `metadataPath` off `Assembly.Location`; then 2h measures universe A's two unknowns (an MLC-cored builder closing
-  an MLC generic over its own `TypeBuilder`; coring on the ref pack's `System.Runtime`, which may make
-  `EmitIlAssembly.cs`'s Cecil corelib→contract rewrite a deletion) before the task text is re-aimed and 2e–2g follow.
+  independent: 2a–2d landed (blobs byte-identical; `GetRawConstantValue`; the two silent guards; `metadataPath` off
+  `Assembly.Location`); 2h measured universe A UNREACHABLE through `PersistedAssemblyBuilder` (→ task 023); 2e landed
+  (the survivors: `Assembly.Load` proven live by mutation, the doc-index root off `Assembly.Location`; the Cecil rewrite
+  recorded load-bearing). NOW 3a as the GENERAL construction rule: the `typeof`-keyed allow-list in
+  `ColumnarConstructionPlanner` deleted, candidates scored with the ordinary call resolver's `ArgumentsScoreWithFacts`;
+  3a-ii (the three `ConstructorInfo.Invoke` sites) waits for a toolset republish, since the estate compiles with the
+  packaged SDK's allow-list.
 - `stream/chips-esc-where` — chip 1: the N# string decoder knows eleven escapes and passes any other through silently
   (`"\x1b"` is four characters; `"\q"` is accepted) → the full C# escape family, an unrecognised escape becomes a located
   diagnostic, the reference gains the table, and an N#-owned colour policy (terminal check, `NO_COLOR`, `FORCE_COLOR`,
@@ -120,8 +123,10 @@ rows); the visual re-verification of D3 at `385b7e8d1` and of D1/D2 at `26592a95
   plus a closed tail (unknown statement kinds throw); type patterns, `is` and `as` do not credit their type's import
   (false NL010) → routed through `TrackTypeReference`, which widens NL002 there (census-accounted); `override`
   PROPERTIES unchecked (a missing base emits and runs) → the override check extended to properties on both sides; and a
-  NEW rule: a concrete class leaving an inherited abstract member unimplemented is silent for methods and properties and
-  the type runs (the CS0534 class) — new NL code, source and reflected bases, census.
+  NEW rule NL324: a concrete class leaving an inherited abstract member unimplemented is silent for methods and
+  properties and the type runs (the CS0534 class) — measured on eleven shapes, `class MyStream : Stream` names all ten;
+  and a second hole found beside it: NO interface-implementation rule exists (`class English : Greeter { }` with
+  `Greet` unimplemented is silent) — chip E, the CS0535 class.
 - `stream/chips-code-intelligence` — `nlc query type` renders a metadata method as `Name(...)` from two producers → hover's
   signature renderer at the seam (value change, no schema bump, four commands move); XML doc summaries in hover from the
   ref pack's global doc-id index built lazily on the first metadata-member hover (the shared framework ships no XML;
@@ -202,17 +207,17 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `c9da157fc` (re-measure at your tip; never inherit)
+### Baselines at `529ad23bf` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 595 (596 − 2 collapsed Range duplicates + 1 new, D2) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,413** measured in the gate at `c9da157fc` (7,359 at `ef0a5bf65` + 19 task 022 slice 2 + 35 escape/`where` chips) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,433** measured in the gate at `529ad23bf` (7,413 at `c9da157fc` + 5 code-intelligence + 15 constraints 2d) |
 | native projects / `columnar-emit-facts` blocks | 47 / 38 |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20,784 lines / 19,768 non-blank |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:2d28ecf4658f7ce1` (the audit-observed union after 022/2a's and the colour policy's fingerprint-only repins) |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:edb3087f935e2950` (after 2d lowered `ColumnarIlEmitter.cs` and `ColumnarProgramInputBuilder.cs` to observed; audit-observed) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
@@ -965,6 +970,10 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
 - Visual IDE verification is UNDISCHARGED and was MEASURED, not inherited: `list_granted_applications`
   returns `allowedApps: []` with every grant flag false, and a grant needs an interactive approval dialog
   an autonomous run cannot answer. An integration suite is not a screenshot (016 N+3; 017/1–21; 021/4, 12).
+
+- **`git stash` is REPO-WIDE, not worktree-local.** A bare `git stash pop` in one worktree took a sibling agent's
+  stash off the shared stack and began applying its six files (the conflict preserved the entry). In a shared checkout
+  use `git stash push -m <name>` and `git stash pop stash@{n}` by ref — or no stash at all (2026-09-02).
 
 ## 3. Architecture facts
 
