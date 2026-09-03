@@ -528,10 +528,11 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // ─── THE CORPUS ───────────────────────────────────────────────────────────────────────────────
 
 // 68 at 8cf40128a; 70 since the two 2026-09 measurement branches merged (tests/native/systems-vectorization-facts and
-// tests/fixtures/systems-vectorization/opt-out-probe joined; this harness's own project.yml is excluded by BenchSelfProjectPath).
-test "compile-time bench: the corpus is the 70 project.yml projects under examples, tests and templates" {
+// tests/fixtures/systems-vectorization/opt-out-probe joined; this harness's own project.yml is excluded by BenchSelfProjectPath);
+// 71 since 022/3b-1 added tests/native/external-abstract-override.
+test "compile-time bench: the corpus is the 71 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 70
+    assert projects.Count == 71
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "templates/nsharp-console")
     assert BenchListContains(projects, "tests/native/ownership-audit")
