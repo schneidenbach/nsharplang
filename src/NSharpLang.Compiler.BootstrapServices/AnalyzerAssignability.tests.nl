@@ -454,7 +454,82 @@ test "nominal subtyping walks reflection hierarchies and refuses identity" {
     assert !assignability.IsSubtypeOf(objectType, stringType)
 
     // A source with no declared bases and no reflection identity answers false rather than throwing.
+    // THE CLASS-TARGET CASE STAYS FALSE ON PURPOSE: the interface bridge below deliberately does not
+    // widen to class targets, so boxing never enters this predicate.
     assert !assignability.IsSubtypeOf(BuiltInTypes.Int, BuiltInTypes.Object)
+}
+
+test "chip: a BUILT-IN spelling reaches its generic INTERFACES, which made every constraint on a primitive a false report" {
+    // THE DEFECT. `string` and `int` arrive as `SimpleTypeInfo`, which is neither a class, a struct,
+    // a record, an interface nor a reflected type — so `IsSubtypeOf` fell through every arm to
+    // `false`, and `where T: IComparable<T>` (published in BOTH `website/docs/functions.md` and
+    // `types.md`) answered "`string` does not implement `IComparable<string>`" for every argument.
+    //
+    // IT WAS NEVER ABOUT SELF-REFERENCE: a constraint that does not mention `T` at all
+    // (`where T: IComparable<string>`) failed identically. It was the BOUND TYPE — a user class and
+    // `List<int>` both passed all along, because their interface lists are declared where the walk
+    // could already see them.
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        assignability := AssignabilityWithWellKnownTypes(context)
+        core := context.LoadFromAssemblyName("System.Runtime")
+
+        stringType := core.GetType("System.String")
+        charType := core.GetType("System.Char")
+        intType := core.GetType("System.Int32")
+        comparableDefinition := core.GetType("System.IComparable`1")
+        equatableDefinition := core.GetType("System.IEquatable`1")
+        enumerableDefinition := core.GetType("System.Collections.Generic.IEnumerable`1")
+
+        comparableOfString: TypeInfo = new ReflectionTypeInfo(AssignabilityCloseOver(comparableDefinition, stringType))
+        equatableOfString: TypeInfo = new ReflectionTypeInfo(AssignabilityCloseOver(equatableDefinition, stringType))
+        enumerableOfChar: TypeInfo = new ReflectionTypeInfo(AssignabilityCloseOver(enumerableDefinition, charType))
+        enumerableOfString: TypeInfo = new ReflectionTypeInfo(AssignabilityCloseOver(enumerableDefinition, stringType))
+        comparableOfInt: TypeInfo = new ReflectionTypeInfo(AssignabilityCloseOver(comparableDefinition, intType))
+
+        // The four that were false reports, all of them real CLR facts.
+        assert assignability.IsSubtypeOf(BuiltInTypes.String, comparableOfString)
+        assert assignability.IsSubtypeOf(BuiltInTypes.String, equatableOfString)
+        assert assignability.IsSubtypeOf(BuiltInTypes.String, enumerableOfChar)
+        assert assignability.IsSubtypeOf(BuiltInTypes.Int, comparableOfInt)
+
+        // AND THE TRUE NEGATIVE SURVIVES, which is what makes the acceptance mean anything:
+        // `string` is `IEnumerable<char>`, NOT `IEnumerable<string>`.
+        assert !assignability.IsSubtypeOf(BuiltInTypes.String, enumerableOfString)
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "chip: the interface bridge refuses a CLASS target, so boxing stays out of nominal subtyping" {
+    // The bridge is acceptance-only AND interface-only. Both rows below are true of `int` in the
+    // CLR and stay false here: widening to class targets would flip the `IsSubtypeOf(int, object)`
+    // row pinned above, and would put boxing into a predicate several callers read as nominal.
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        assignability := AssignabilityWithWellKnownTypes(context)
+        core := context.LoadFromAssemblyName("System.Runtime")
+
+        objectTarget: TypeInfo = new ReflectionTypeInfo(core.GetType("System.Object"))
+        valueTypeTarget: TypeInfo = new ReflectionTypeInfo(core.GetType("System.ValueType"))
+
+        assert !assignability.IsSubtypeOf(BuiltInTypes.Int, objectTarget)
+        assert !assignability.IsSubtypeOf(BuiltInTypes.Int, valueTypeTarget)
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// Close a generic DEFINITION over one argument, both of them already CLR types from the scan's own
+// load context — the identity that matters, since a type from a different context would not match.
+func AssignabilityCloseOver(definition: Type, argument: Type): Type {
+    arguments := new Type[](1)
+    arguments[0] = argument
+    return definition.MakeGenericType(arguments)
 }
 
 // The bridge's own harness, with the well-known-type bag the production analyzer carries: the
