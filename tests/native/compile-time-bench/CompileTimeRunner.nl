@@ -556,13 +556,81 @@ func BenchSpawnedCount(fileName: string, arguments: string): int {
     return BenchParseCount(run.Stdout.Trim())
 }
 
+// A working tree carries `.git` as a DIRECTORY; a git worktree carries it as a FILE pointing at
+// the repository it belongs to. Both are git metadata and both answer `rev-parse`; the product
+// gate's isolated copy has NEITHER, which is the whole reason the reason-string below exists.
+func BenchHasGitMetadata(repositoryRoot: string): bool {
+    marker := Path.Combine(repositoryRoot, ".git")
+    return Directory.Exists(marker) || File.Exists(marker)
+}
+
+// `tests/scripts/test-all.sh` exports this into the environment of the isolated gate run, so the
+// harness can say WHICH tree it is in rather than guessing from an absent `.git`.
+func BenchIsIsolatedGateCopy(): bool {
+    flag := Environment.GetEnvironmentVariable("NSHARP_TEST_ALL_ISOLATED") ?? ""
+    return flag.Trim() != ""
+}
+
+// The commit of the tree the CLI under test was built from, or the REASON there is none. It is
+// never the bare word "unknown": that told five red gates nothing at all.
 func BenchReadCliCommit(repositoryRoot: string): string {
     run := BenchRunProcess("git", "-C " + BenchQuote(repositoryRoot) + " rev-parse HEAD", Path.GetTempPath())
     if run.ExitCode != 0 {
-        return "unknown"
+        return BenchCliCommitUnavailableReason(BenchHasGitMetadata(repositoryRoot), BenchIsIsolatedGateCopy())
     }
 
     return run.Stdout.Trim()
+}
+
+// ─── THE MACHINE'S LOAD ───────────────────────────────────────────────────────────────────────
+
+// `sysctl -n vm.loadavg` is the systems throughput gate's own spelling
+// (`benchmarks/native-comparison/runner/Program.nl`), so on macOS the two gates report the same
+// number from the same source. That OID does not exist on Linux, where `/usr/bin/uptime` carries
+// the same three figures — and `BenchOneMinuteLoadThousandths` reads either shape, so the fallback
+// needs no second parser. Measured on this machine: sysctl answers `{ 5.18 4.43 4.57 }` and uptime
+// `13:04  up  3:46, 1 user, load averages: 5.18 4.43 4.57`, and both parse to 5180.
+//
+// `""` when neither answers, which the parser reports as the unreadable load `-1` — never as 0.
+func BenchLoadAverageText(): string {
+    if OperatingSystem.IsMacOS() {
+        run := BenchRunProcess("sysctl", "-n vm.loadavg", Path.GetTempPath())
+        if run.ExitCode == 0 {
+            return run.Stdout.Trim()
+        }
+    }
+
+    if OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() {
+        uptime := BenchRunProcess("/usr/bin/uptime", "", Path.GetTempPath())
+        if uptime.ExitCode == 0 {
+            return uptime.Stdout.Trim()
+        }
+    }
+
+    return ""
+}
+
+// Read BEFORE the measured runs, so the figure describes the machine the medians were taken on
+// rather than the machine after this gate has spent three builds of the compiler loading it.
+func BenchReadMachineLoad(): BenchMachineLoad {
+    return new BenchMachineLoad(BenchOneMinuteLoadThousandths(BenchLoadAverageText()), BenchProcessorCount())
+}
+
+// The one line the gate leaves behind. A timing judgement that was silently NOT MADE is the
+// failure mode this file is removing: Step 3a forbids the block from printing (it parses stdout
+// and stderr as one JSON document), so the record goes to a file instead. `artifacts/` is
+// gitignored and is excluded from the gate's isolated copy, so this never enters the tree the
+// gate measures. Best effort by construction: a gate must not go red because a log could not be
+// written.
+func BenchWriteGateRecord(repositoryRoot: string, line: string): bool {
+    directory := Path.Combine(Path.Combine(repositoryRoot, "artifacts"), "compile-time")
+    try {
+        Directory.CreateDirectory(directory)
+        File.WriteAllText(Path.Combine(directory, "last-gate-run.txt"), line + "\n")
+        return true
+    } catch {
+        return false
+    }
 }
 
 func BenchReadDotnetVersion(): string {
