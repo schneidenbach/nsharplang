@@ -931,6 +931,9 @@ class ColumnarInterfaceModifierParseProbe {
     MethodParamNames: string[]
     MethodParamTypes: string[]
     MethodParamModifierKinds: int[]
+    WhereOwnerTexts: string[]
+    WhereItemCodes: int[]
+    WhereTypeTexts: string[]
     MethodBodyFlags: int[]
     Result: int[]
 
@@ -956,8 +959,11 @@ class ColumnarInterfaceModifierParseProbe {
         MethodParamTypes = new string[](capacity)
         MethodParamModifierKinds = new int[](capacity)
         typeParams := new string[](capacity)
+        WhereOwnerTexts = new string[](capacity)
+        WhereItemCodes = new int[](capacity)
+        WhereTypeTexts = new string[](capacity)
         Result = new int[](8)
-        MethodCount = ParseColumnarInterfaceInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, tokenCount, 0, methodFuncIndices, baseNames, interfaceNames, MethodNames, methodReturns, MethodParamCounts, MethodBodyFlags, MethodParamNames, MethodParamTypes, MethodParamModifierKinds, typeParams, Result)
+        MethodCount = ParseColumnarInterfaceInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, tokenCount, 0, methodFuncIndices, baseNames, interfaceNames, MethodNames, methodReturns, MethodParamCounts, MethodBodyFlags, MethodParamNames, MethodParamTypes, MethodParamModifierKinds, typeParams, WhereOwnerTexts, WhereItemCodes, WhereTypeTexts, Result)
     }
 }
 

@@ -67,6 +67,42 @@ class ColumnarGenericConstraintPlanner {
         return !isFromAssemblyBuilder && !isValueType && !isSzArray && isClass
     }
 
+    // WHAT ONE RESOLVED CONSTRAINT IS: an interface to add to the set, the single base-type constraint,
+    // or a shape the emitter does not model. The caller answers the CLR questions because it holds the
+    // `Type`; the DECISION is here, so both generic-parameter owners reach it the same way.
+    //
+    // A type PARAMETER is a BASE constraint (`where T: U`), never an interface — it is not known to be
+    // one, and the CLR records it in the base slot. The caller must pass `false` for the four
+    // shape questions when the constraint IS a parameter: `Type.IsSZArray` throws on a bare parameter
+    // under persisted emit, so those answers must never be computed for one.
+    static func ConstraintKindInterface(): int {
+        return 0
+    }
+
+    static func ConstraintKindBase(): int {
+        return 1
+    }
+
+    static func ConstraintKindRefused(): int {
+        return -1
+    }
+
+    static func ClassifyConstraint(isGenericParameter: bool, isUserInterface: bool, isRuntimeInterface: bool, isTypeBuilder: bool, isValueType: bool, isFromAssemblyBuilder: bool, isSzArray: bool, isClass: bool): int {
+        if isGenericParameter {
+            return ConstraintKindBase()
+        }
+
+        if isUserInterface || isRuntimeInterface {
+            return ConstraintKindInterface()
+        }
+
+        if IsAdmissibleBaseConstraint(false, isTypeBuilder, isValueType, isFromAssemblyBuilder, isSzArray, isClass) {
+            return ConstraintKindBase()
+        }
+
+        return ConstraintKindRefused()
+    }
+
     // CIRCULAR type-parameter constraints (`where T: T`, `where T: U where U: T`) emit metadata the CLR
     // REJECTS at load with a TypeLoadException — probe-proven over-accept, so the emitter must decline
     // rather than write it.

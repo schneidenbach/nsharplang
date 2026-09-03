@@ -524,10 +524,14 @@ internal static class ColumnarProgramInputBuilder
                 var outFieldTypeTexts = new string[cap];
                 var outTypeParamTexts = new string[cap];
                 var outUnionNameTexts = new string[1];
-                var outResult = new int[4];
+                var outWhereOwnerTexts = new string[cap];
+                var outWhereItemCodes = new int[cap];
+                var outWhereTypeTexts = new string[cap];
+                var outResult = new int[6];
                 var caseCount = global::Program.ParseColumnarUnionInfoInto(
                     source, ck, cs, cv, n, unionIndex, outCaseNameTexts, outCaseFieldCounts,
-                    outFieldNameTexts, outFieldTypeTexts, outTypeParamTexts, outUnionNameTexts, outResult);
+                    outFieldNameTexts, outFieldTypeTexts, outTypeParamTexts, outUnionNameTexts,
+                    outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, outResult);
                 if (caseCount <= 0 || outResult[1] <= 0)
                 {
                     return DeclineAtToken(ColumnarParseDeclines.UnionDeclaration, cs, cv, unionIndex);
@@ -541,16 +545,7 @@ internal static class ColumnarProgramInputBuilder
                 // tag struct (matching UnionValueLayout.IsValueStructEmittable); this flag selects that emit
                 // path over the class hierarchy. Eligibility is N#-owned (ParserColumnarUnions.nl).
                 var isValueStruct = global::Program.ColumnarUnionIsValueStructEmittable(outCaseFieldCounts, caseCount, typeParamCount) == 1;
-                string[]? typeParamNames = null;
-                if (typeParamCount > 0)
-                {
-                    typeParamNames = new string[typeParamCount];
-                    for (var tp = 0; tp < typeParamCount; tp++)
-                    {
-                        var typeParamName = outTypeParamTexts[tp];
-                        typeParamNames[tp] = typeParamName;
-                    }
-                }
+                string[]? typeParamNames = typeParamCount > 0 ? ColumnarConstraintColumns.TrimTexts(outTypeParamTexts, typeParamCount) : null;
 
                 var caseNames = new string[caseCount];
                 var caseFieldNames = new string[caseCount][];
@@ -575,7 +570,10 @@ internal static class ColumnarProgramInputBuilder
                     caseFieldTypes[c] = types;
                 }
 
-                unions.Add(new ColumnarUnionInput(unionName, caseNames, caseFieldNames, caseFieldTypes, typeParamNames, isValueStruct));
+                var unionTypeParams = typeParamNames ?? System.Array.Empty<string>();
+                unions.Add(new ColumnarUnionInput(unionName, caseNames, caseFieldNames, caseFieldTypes, typeParamNames, isValueStruct,
+                    typeParamSpecialConstraints: ColumnarConstraintColumns.BuildSpecials(outWhereOwnerTexts, outWhereItemCodes, unionTypeParams, outResult[5]),
+                    typeParamTypeConstraints: ColumnarConstraintColumns.BuildTypeConstraints(outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, unionTypeParams, outResult[5])));
             }
             return true;
         }
@@ -968,21 +966,19 @@ internal static class ColumnarProgramInputBuilder
                 var outMethodParamTypeTexts = new string[cap];
                 var outMethodParamModifierKinds = new int[cap];
                 var outTypeParamTexts = new string[cap];
+                var outWhereOwnerTexts = new string[cap];
+                var outWhereItemCodes = new int[cap];
+                var outWhereTypeTexts = new string[cap];
                 var outResult = new int[8];
                 var methodCount = global::Program.ParseColumnarInterfaceInfoInto(source, ck, cs, cv, n, interfaceIndex,
                     outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts,
                     outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags,
                     outMethodParamNameTexts, outMethodParamTypeTexts, outMethodParamModifierKinds,
-                    outTypeParamTexts, outResult);
+                    outTypeParamTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, outResult);
                 if (methodCount < 0)
                     return DeclineAtToken(ColumnarParseDeclines.InterfaceDeclaration, cs, cv, interfaceIndex);
                 var interfaceName = outInterfaceNameTexts[0];
-                var baseInterfaceCount = outResult[2];
-                var baseInterfaceNames = new string[baseInterfaceCount];
-                for (var b = 0; b < baseInterfaceCount; b++)
-                {
-                    baseInterfaceNames[b] = outBaseNameTexts[b];
-                }
+                var baseInterfaceNames = ColumnarConstraintColumns.TrimTexts(outBaseNameTexts, outResult[2]);
                 var typeParamCount = outResult[4];
                 if (typeParamCount < 0 || typeParamCount > outTypeParamTexts.Length)
                     return DeclineAtToken(ColumnarParseDeclines.InterfaceTypeParameterMetadata, cs, cv, interfaceIndex, interfaceName);
@@ -1037,7 +1033,9 @@ internal static class ColumnarProgramInputBuilder
                     return DeclineAtToken(ColumnarParseDeclines.InterfaceParameterCount, cs, cv, interfaceIndex, interfaceName);
                 interfaceInputs.Add(new ColumnarInterfaceInput(
                     interfaceName, baseInterfaceNames, methodNames, methodReturns, methodParamNames, methodParamCanonicals, methodBodies,
-                    typeParamNames: typeParamNames, methodParamModifierKinds: methodParamModifierKinds));
+                    typeParamNames: typeParamNames, methodParamModifierKinds: methodParamModifierKinds,
+                    typeParamSpecialConstraints: ColumnarConstraintColumns.BuildSpecials(outWhereOwnerTexts, outWhereItemCodes, typeParamNames, outResult[6]),
+                    typeParamTypeConstraints: ColumnarConstraintColumns.BuildTypeConstraints(outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, typeParamNames, outResult[6])));
             }
             return true;
         }

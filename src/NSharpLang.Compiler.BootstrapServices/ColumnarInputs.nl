@@ -42,14 +42,18 @@ class ColumnarUnionInput {
     CaseFieldTypeCanonicals: string[][] => caseFieldTypeCanonicalsValue
     TypeParamNames: string[] => typeParamNamesValue
     IsValueStruct: bool => isValueStructValue
+    TypeParamSpecialConstraints: int[]
+    TypeParamTypeConstraints: string[][]
 
-    constructor(name: string, caseNames: string[], caseFieldNames: string[][], caseFieldTypeCanonicals: string[][], typeParamNames: string[]? = null, isValueStruct: bool = false, sourceFileId: int = 0) {
+    constructor(name: string, caseNames: string[], caseFieldNames: string[][], caseFieldTypeCanonicals: string[][], typeParamNames: string[]? = null, isValueStruct: bool = false, sourceFileId: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null) {
         nameValue = name
         caseNamesValue = caseNames
         caseFieldNamesValue = caseFieldNames
         caseFieldTypeCanonicalsValue = caseFieldTypeCanonicals
         typeParamNamesValue = typeParamNames ?? new string[](0)
         isValueStructValue = isValueStruct
+        TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, typeParamNamesValue.Length)
+        TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, typeParamNamesValue.Length)
         SourceFileId = sourceFileId
     }
 }
@@ -250,9 +254,11 @@ class ColumnarInterfaceInput {
     MethodParamCanonicals: string[][]
     MethodParamModifierKinds: int[][]
     MethodBodies: ColumnarFunctionInput?[]
+    TypeParamSpecialConstraints: int[]
+    TypeParamTypeConstraints: string[][]
     SourceFileId: int
 
-    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null) {
+    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null) {
         Name = name
         BaseInterfaceNames = baseInterfaceNames
         TypeParamNames = typeParamNames ?? new string[](0)
@@ -262,6 +268,8 @@ class ColumnarInterfaceInput {
         MethodParamCanonicals = methodParamCanonicals
         MethodParamModifierKinds = methodParamModifierKinds ?? CreateMethodParamModifierKinds(methodNames, methodParamCanonicals)
         MethodBodies = methodBodies ?? new ColumnarFunctionInput?[](methodNames.Length)
+        TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, TypeParamNames.Length)
+        TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, TypeParamNames.Length)
         SourceFileId = sourceFileId
     }
 
