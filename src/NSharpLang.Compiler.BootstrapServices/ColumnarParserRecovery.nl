@@ -2534,6 +2534,12 @@ class ColumnarParserRecovery {
                 baseIndex = baseIndex + 1
             }
         }
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 2/3/4/6: materialize the ClassDeclaration (Parser.cs :973). Line/Column anchor the class
         // keyword (Parser.cs :933-934). TypeParameters + BaseClass + Interfaces are the tranche-6 materialized
@@ -2542,12 +2548,12 @@ class ColumnarParserRecovery {
         // tranche-3 populated list. A malformed type-param or base list DECLINES materialization (no-stub).
         // FULLY QUALIFIED (`NSharpLang.Compiler.Ast.ClassDeclaration`): a test-helper `class ClassDeclaration` in
         // NSharpLang.Compiler collides under the tests-enabled build.
-        canMaterialize := attrsOk && paramsOk && baseListOk
+        canMaterialize := attrsOk && paramsOk && baseListOk && constraintsOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryParams, modifiers, attributes, classToken.Line, classToken.Column))
+                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryParams, modifiers, attributes, classToken.Line, classToken.Column, constraints))
             } else {
-                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, null, modifiers, attributes, classToken.Line, classToken.Column))
+                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, null, modifiers, attributes, classToken.Line, classToken.Column, constraints))
             }
         }
     }
@@ -2577,6 +2583,12 @@ class ColumnarParserRecovery {
         interfaces := ParseBaseTypeList()
         // interface list (Parser.cs :998)
         baseListOk := BaseListMaterializable
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the StructDeclaration (Parser.cs :1010). Stage N+1c tranche 11
         // threads `isRefStruct` from the two `ref struct` dispatch arms (Parser.cs :221-225 top level / :1443-
@@ -2584,12 +2596,12 @@ class ColumnarParserRecovery {
         // tranche-6 materialized values; Modifiers/Attributes/PrimaryConstructorParameters the tranche-4
         // values. A malformed type-param or interface list DECLINES materialization (no-stub). Members is the
         // tranche-3 populated list.
-        canMaterialize := attrsOk && paramsOk && baseListOk
+        canMaterialize := attrsOk && paramsOk && baseListOk && constraintsOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, primaryParams, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct))
+                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, primaryParams, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct, constraints))
             } else {
-                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, null, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct))
+                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, null, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct, constraints))
             }
         }
     }
@@ -2626,6 +2638,12 @@ class ColumnarParserRecovery {
         interfaces := ParseBaseTypeList()
         // interface list (Parser.cs :1043)
         baseListOk := BaseListMaterializable
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the RecordDeclaration (Parser.cs :1055). IsStruct reflects the
         // consumed `record struct`. TypeParameters + Interfaces are the tranche-6 materialized values;
@@ -2633,12 +2651,12 @@ class ColumnarParserRecovery {
         // (or null when absent) — THE UNLOCK for the public-positional-record real-corpus files. A malformed
         // type-param or interface list DECLINES materialization (no-stub). Members is the tranche-3 populated
         // list.
-        canMaterialize := attrsOk && paramsOk && baseListOk
+        canMaterialize := attrsOk && paramsOk && baseListOk && constraintsOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, primaryParams, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column))
+                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, primaryParams, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column, constraints))
             } else {
-                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, null, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column))
+                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, null, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column, constraints))
             }
         }
     }
@@ -2717,15 +2735,21 @@ class ColumnarParserRecovery {
         baseInterfaces := ParseBaseTypeList()
         // base interface list (Parser.cs :1150)
         baseListOk := BaseListMaterializable
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         members := ParseTypeBody(name, typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the InterfaceDeclaration (Parser.cs :1150-return). Line/Column = the
         // first-token position (`duck` if present, else `interface`). TypeParameters + BaseInterfaces are the
         // tranche-6 materialized values; Modifiers/Attributes the tranche-4 values. A malformed type-param or
         // base-interface list DECLINES materialization (no-stub). Members is the tranche-3 populated list.
         // Interfaces have no primary-ctor params.
-        canMaterialize := attrsOk && baseListOk
+        canMaterialize := attrsOk && baseListOk && constraintsOk
         if canMaterialize {
-            AddDeclaration(new InterfaceDeclaration(name, typeParams, baseInterfaces, members, modifiers, isDuck, attributes, interfaceLine, interfaceColumn))
+            AddDeclaration(new InterfaceDeclaration(name, typeParams, baseInterfaces, members, modifiers, isDuck, attributes, interfaceLine, interfaceColumn, constraints))
         }
     }
 
@@ -2744,6 +2768,12 @@ class ColumnarParserRecovery {
         }
         typeParams := ParseTypeParameters()
         // Parser.cs :1188
+        // Generic CONSTRAINTS `where T : …` (chip: `where` on TYPE declarations). The clause sits after the
+        // base/interface list and before the body, exactly as it does on a function, and it reuses the SAME
+        // `ParseGenericConstraints` the function arms have always called — the grammar was never the missing
+        // piece, only the call.
+        constraints := ParseGenericConstraints()
+        constraintsOk := ConstraintsMaterializable
         cases := ParseUnionBody(unionDiagnosticSpan, unionLine)
         bodyOk := TypeBodyMaterializable
         // N+1c tranche 6: materialize the UnionDeclaration (Parser.cs :1247). TypeParameters is the tranche-6
@@ -2751,8 +2781,8 @@ class ColumnarParserRecovery {
         // multi-line payload type clears TypeBodyMaterializable → decline). Modifiers/Attributes the threaded
         // tranche-4 values (an argument-bearing attribute clears attrsOk → decline). AddDeclaration routes it to
         // an enclosing type's Members when nested, else the top level.
-        if attrsOk && bodyOk {
-            AddDeclaration(new UnionDeclaration(name, typeParams, cases, modifiers, attributes, unionLine, unionColumn))
+        if attrsOk && bodyOk && constraintsOk {
+            AddDeclaration(new UnionDeclaration(name, typeParams, cases, modifiers, attributes, unionLine, unionColumn, constraints))
         }
     }
 

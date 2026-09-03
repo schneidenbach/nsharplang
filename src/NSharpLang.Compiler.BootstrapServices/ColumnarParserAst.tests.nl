@@ -165,16 +165,16 @@ class AstEq {
             return Names("Path Alias PathColumn PathLength Line Column")
         }
         if typeName == "ClassDeclaration" {
-            return Names("Name TypeParameters BaseClass Interfaces Members PrimaryConstructorParameters Modifiers Attributes Line Column")
+            return Names("Name TypeParameters BaseClass Interfaces Members PrimaryConstructorParameters Modifiers Attributes Line Column Constraints")
         }
         if typeName == "StructDeclaration" {
-            return Names("Name TypeParameters Interfaces Members PrimaryConstructorParameters Modifiers Attributes IsRefStruct Line Column")
+            return Names("Name TypeParameters Interfaces Members PrimaryConstructorParameters Modifiers Attributes IsRefStruct Line Column Constraints")
         }
         if typeName == "RecordDeclaration" {
-            return Names("Name TypeParameters Interfaces Members PrimaryConstructorParameters IsStruct Modifiers Attributes Line Column")
+            return Names("Name TypeParameters Interfaces Members PrimaryConstructorParameters IsStruct Modifiers Attributes Line Column Constraints")
         }
         if typeName == "InterfaceDeclaration" {
-            return Names("Name TypeParameters BaseInterfaces Members Modifiers IsDuckInterface Attributes Line Column")
+            return Names("Name TypeParameters BaseInterfaces Members Modifiers IsDuckInterface Attributes Line Column Constraints")
         }
         if typeName == "EnumDeclaration" {
             return Names("Name Members Type Modifiers Attributes Line Column")
@@ -238,7 +238,7 @@ class AstEq {
             return Names("Name")
         }
         if typeName == "UnionDeclaration" {
-            return Names("Name TypeParameters Cases Modifiers Attributes Line Column")
+            return Names("Name TypeParameters Cases Modifiers Attributes Line Column Constraints")
         }
         if typeName == "UnionCase" {
             return Names("Name Properties Line Column")
@@ -817,6 +817,13 @@ class Golden {
         return (Modifiers)value
     }
 
+    // `SpecialConstraintKind` is a flags enum too: `where T: class, new()` sets Class|New. Same
+    // int-bitmask + cast idiom as `Mods2`, because an enum `|` is not on the emit surface.
+    static func Special2(a: SpecialConstraintKind, b: SpecialConstraintKind): SpecialConstraintKind {
+        value := System.Convert.ToInt32(a) | System.Convert.ToInt32(b)
+        return (SpecialConstraintKind)value
+    }
+
     static func AddImport(imports: List<ImportDirective>, ns: string, alias: string?, line: int, column: int) {
         imports.Add(new ImportDirective(ns, alias, line, column))
     }
@@ -878,6 +885,31 @@ class Golden {
     // A class with generics + base/interface split + modifiers (Parser.cs :984). FQN'd (test-stub collision).
     static func AddClassGPBase(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, baseClass: TypeReference?, interfaces: List<TypeReference>, mods: Modifiers, line: int, column: int) {
         decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, new List<Declaration>(), null, mods, new List<AttributeNode>(), line, column))
+    }
+
+    // ---- generic CONSTRAINTS on a type declaration ----
+    //
+    // The five sit together because the clause is one grammar reused five times: it parses with the same
+    // `ParseGenericConstraints` a function has always used, and it lands in a `Constraints` field with the
+    // same shape. A helper per keyword is what lets each test state ONLY its own header.
+    static func AddClassGPWhere(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, constraints: List<GenericConstraint>, line: int, column: int) {
+        decls.Add(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column, constraints))
+    }
+
+    static func AddStructGPWhere(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, constraints: List<GenericConstraint>, line: int, column: int) {
+        decls.Add(new StructDeclaration(name, typeParams, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, column, false, constraints))
+    }
+
+    static func AddRecordGPWhere(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, constraints: List<GenericConstraint>, line: int, column: int) {
+        decls.Add(new RecordDeclaration(name, typeParams, new List<TypeReference>(), new List<Declaration>(), null, false, Modifiers.None, new List<AttributeNode>(), line, column, constraints))
+    }
+
+    static func AddInterfaceGPWhere(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, constraints: List<GenericConstraint>, line: int, column: int) {
+        decls.Add(new InterfaceDeclaration(name, typeParams, new List<TypeReference>(), new List<Declaration>(), Modifiers.None, false, new List<AttributeNode>(), line, column, constraints))
+    }
+
+    static func AddUnionGPWhere(decls: List<Declaration>, name: string, typeParams: List<TypeParameter>, cases: List<UnionCase>, constraints: List<GenericConstraint>, line: int, column: int) {
+        decls.Add(new UnionDeclaration(name, typeParams, cases, Modifiers.None, new List<AttributeNode>(), line, column, constraints))
     }
 
     // ---- union bodies ----
@@ -5969,4 +6001,117 @@ test "020 slice 12: a plain local function materializes over the deleted file's 
     Golden.AddFunc(decls, Golden.Func("Outer", Golden.NoParams(), Golden.SimpleT("void", 1, 15, 19), outerBody, null, null, Golden.NoConstraints(), Modifiers.None, 1, 1))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+// ═══ `where` ON A TYPE DECLARATION ════════════════════════════════════════════════════════════
+//
+// THE DEFECT: `class Box<T> where T : struct { }` did not parse. The clause worked on a FUNCTION
+// and nowhere else, so the five type keywords answered `NL102 Expected '{', got 'where'` plus an
+// `NL109` calling `where` a reserved word used as a field name — while `website/docs/types.md`
+// documented the feature in two sections with five worked examples.
+//
+// The grammar was never missing. `ParseGenericConstraints` has been there all along for functions;
+// the type arms simply never called it. Each arm now does, in the position the clause occupies in
+// the source — after the base/interface list, before the body — and a malformed clause DECLINES
+// materialization through `ConstraintsMaterializable`, exactly as it does on a function.
+//
+// `Constraints` is registered in `AstEq.FieldNames` for all five, so every one of the 291 AST
+// contracts in this file now compares the field too; the ones that do not write a clause assert it
+// is null.
+
+test "chip: a class takes `where`, and the clause lands in ClassDeclaration.Constraints" {
+    actual := RunAst("class Box<T> where T: struct {\n}\n")
+    typeParams := new List<TypeParameter>()
+    Golden.AddTP(typeParams, "T")
+    constraints := Golden.Constraints1("T", Golden.NoTypeRefs(), SpecialConstraintKind.Struct)
+    decls := new List<Declaration>()
+    Golden.AddClassGPWhere(decls, "Box", typeParams, constraints, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+test "chip: a struct takes `where`" {
+    actual := RunAst("struct Pair<T> where T: struct {\n}\n")
+    typeParams := new List<TypeParameter>()
+    Golden.AddTP(typeParams, "T")
+    constraints := Golden.Constraints1("T", Golden.NoTypeRefs(), SpecialConstraintKind.Struct)
+    decls := new List<Declaration>()
+    Golden.AddStructGPWhere(decls, "Pair", typeParams, constraints, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+test "chip: a record takes `where`" {
+    actual := RunAst("record Holder<T> where T: class {\n}\n")
+    typeParams := new List<TypeParameter>()
+    Golden.AddTP(typeParams, "T")
+    constraints := Golden.Constraints1("T", Golden.NoTypeRefs(), SpecialConstraintKind.Class)
+    decls := new List<Declaration>()
+    Golden.AddRecordGPWhere(decls, "Holder", typeParams, constraints, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+test "chip: an interface takes `where`" {
+    actual := RunAst("interface Repo<T> where T: class {\n}\n")
+    typeParams := new List<TypeParameter>()
+    Golden.AddTP(typeParams, "T")
+    constraints := Golden.Constraints1("T", Golden.NoTypeRefs(), SpecialConstraintKind.Class)
+    decls := new List<Declaration>()
+    Golden.AddInterfaceGPWhere(decls, "Repo", typeParams, constraints, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+test "chip: a union takes `where`, between its type parameters and its cases" {
+    actual := RunAst("union Maybe<T> where T: class {\n    None\n}\n")
+    typeParams := new List<TypeParameter>()
+    Golden.AddTP(typeParams, "T")
+    constraints := Golden.Constraints1("T", Golden.NoTypeRefs(), SpecialConstraintKind.Class)
+    cases := new List<UnionCase>()
+    Golden.AddUCaseBare(cases, "None", 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddUnionGPWhere(decls, "Maybe", typeParams, cases, constraints, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+test "chip: a type with no clause carries a NULL Constraints, not an empty list" {
+    // The distinction the formatter depends on: null means the author wrote no clause and none is
+    // written back. An empty list would round-trip as a bare `where`, which does not parse.
+    actual := RunAst("class Box<T> {\n}\n")
+    typeParams := new List<TypeParameter>()
+    Golden.AddTP(typeParams, "T")
+    decls := new List<Declaration>()
+    Golden.AddClassGPWhere(decls, "Box", typeParams, null, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == "", AstEq.Diff(expected, actual, "unit")
+}
+
+test "chip: the documented MULTI-CONSTRAINT and MULTI-CLAUSE headers both parse" {
+    // `website/docs/types.md` publishes `class Service<T> where T : class, IDisposable, new()`, and a
+    // two-parameter type needs two clauses. Both are the shapes the docs promise.
+    multi := RunAst("class Service<T> where T: class, IDisposable, new() {\n}\n")
+    typeParams := new List<TypeParameter>()
+    Golden.AddTP(typeParams, "T")
+    constraintTypes := new List<TypeReference>()
+    constraintTypes.Add(Golden.SimpleT("IDisposable", 1, 34, 45))
+    constraints := Golden.Constraints1("T", constraintTypes, Golden.Special2(SpecialConstraintKind.Class, SpecialConstraintKind.New))
+    decls := new List<Declaration>()
+    Golden.AddClassGPWhere(decls, "Service", typeParams, constraints, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, multi, "unit") == "", AstEq.Diff(expected, multi, "unit")
+
+    // Two clauses, one per parameter.
+    two := RunAst("class Map<K, V> where K: class where V: struct {\n}\n")
+    twoParams := new List<TypeParameter>()
+    Golden.AddTP(twoParams, "K")
+    Golden.AddTP(twoParams, "V")
+    twoConstraints := new List<GenericConstraint>()
+    Golden.AddConstraint(twoConstraints, "K", Golden.NoTypeRefs(), SpecialConstraintKind.Class)
+    Golden.AddConstraint(twoConstraints, "V", Golden.NoTypeRefs(), SpecialConstraintKind.Struct)
+    twoDecls := new List<Declaration>()
+    Golden.AddClassGPWhere(twoDecls, "Map", twoParams, twoConstraints, 1, 1)
+    twoExpected := Golden.Unit(null, NoImports(), NoFileImports(), null, twoDecls, 1, 1)
+    assert AstEq.Diff(twoExpected, two, "unit") == "", AstEq.Diff(twoExpected, two, "unit")
 }
