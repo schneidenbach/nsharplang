@@ -271,6 +271,12 @@ safe) and governed by a `[trusted(...)]` attribute recording **why** it's safe, 
 owns it, when it was **reviewed**, and when that sign-off **expires**. Without that
 governance, the `unsafe` is `NSYS100`.
 
+An incomplete `[trusted]` wrapper reports **one** `NSYS100`, and its sentence names exactly what is
+absent — `[trusted] is missing the review metadata`, or `[trusted] is missing the owner and review
+metadata and [memory(safe)]` — so the fix is readable from the message without diffing it against
+your own attribute. `expires` is not part of the rule: it travels on the trusted-site record for the
+report to show, and a wrapper with no expiry is still audited.
+
 ```n#
 [memory(safe)]
 [trusted(

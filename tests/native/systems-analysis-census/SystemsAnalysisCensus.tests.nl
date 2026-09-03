@@ -704,7 +704,7 @@ test "020 s41 systems analysis census: a `[boundary]` reports its allocation AND
     assert trustedCount == 0
 }
 
-test "020 s41 systems analysis census: a `[trusted]` site with only a reason is recorded as a trusted site AND reported NSYS100 for the missing governance metadata (was SystemsNSharpTests.TrustedFunction_RequiresGovernanceMetadata)" {
+test "020 s41 systems analysis census: a `[trusted]` site with only a reason is recorded as a trusted site AND reported ONE NSYS100 naming exactly what the proof is missing (was SystemsNSharpTests.TrustedFunction_RequiresGovernanceMetadata)" {
     directory := SacFixture("trustedfunction-requiresgovernancemetadata", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
     SacWrite(directory, "Program.nl", "[trusted(reason: \"wraps native copy\")]\nfunc Copy(): int {\n    return 1\n}\n")
     check := SacCheck(directory)
@@ -714,19 +714,21 @@ test "020 s41 systems analysis census: a `[trusted]` site with only a reason is 
     findingCount := SacCount(check.Stdout, "findings")
     finding0 := SacRow(check.Stdout, "findings", 0)
     finding1 := SacRow(check.Stdout, "findings", 1)
-    findingPast := SacRow(check.Stdout, "findings", 2)
     functionCount := SacCount(check.Stdout, "functions")
     function0 := SacRow(check.Stdout, "functions", 0)
     trustedCount := SacCount(check.Stdout, "trustedSites")
     trusted0 := SacRow(check.Stdout, "trustedSites", 0)
     SacCleanup(directory)
     assert exitCode == 1
-    assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=0,boundaryFunctions=0,findings=2,errors=2,warnings=0,trustedSites=1}"
-    assert diagnostics == "NSYS100:error@2:1+4|NSYS100:error@2:1+4"
-    assert findingCount == 2
-    assert finding0 == "code=NSYS100;severity=error;effect=memorySafety;message=[trusted] requires reason, owner, and review metadata;file=Program.nl;line=2;column=1;length=4;function=Copy;policy=systems:strict;summarySource=sourceInferred;suggestion=Write [trusted(reason: \"...\", owner: \"...\", review: \"...\")] on the wrapper.;callPath=[Copy]"
-    assert finding1 == "code=NSYS100;severity=error;effect=memorySafety;message=[trusted] wrappers must declare [memory(safe)] for Systems N# v1;file=Program.nl;line=2;column=1;length=4;function=Copy;policy=systems:strict;summarySource=sourceInferred;suggestion=Add [memory(safe)] after documenting the unsafe proof.;callPath=[Copy]"
-    assert findingPast == "<no-such-row>"
+    assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=0,boundaryFunctions=0,findings=1,errors=1,warnings=0,trustedSites=1}"
+
+    // THIS BLOCK USED TO PIN THE DEFECT: two NSYS100s at the identical span, `2:1+4` twice, with two
+    // sentences a reader had to compare word by word to discover they were two halves of ONE
+    // unfinished proof. One finding now, and it names the two things the wrapper did not write.
+    assert diagnostics == "NSYS100:error@2:1+4"
+    assert findingCount == 1
+    assert finding0 == "code=NSYS100;severity=error;effect=memorySafety;message=[trusted] is missing the owner and review metadata and [memory(safe)];file=Program.nl;line=2;column=1;length=4;function=Copy;policy=systems:strict;summarySource=sourceInferred;suggestion=Write [trusted(reason: \"...\", owner: \"...\", review: \"...\")] and [memory(safe)] on the wrapper, after documenting the unsafe proof.;callPath=[Copy]"
+    assert finding1 == "<no-such-row>"
     assert functionCount == 1
     assert function0 == "name=Copy;file=Program.nl;line=2;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
     assert trustedCount == 1
