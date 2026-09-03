@@ -128,7 +128,7 @@ func LwsOpenFunction(state: LinterWalkState, names: string[]): LinterFunctionFra
     while index < names.Length {
         state.DeclareVariable(names[index], 10 + index, 5)
         state.MarkVariableUsed(names[index], false)
-        state.AddParameter(names[index], 10 + index, 5)
+        state.AddParameter(names[index], 10 + index, 5, false)
         index = index + 1
     }
 

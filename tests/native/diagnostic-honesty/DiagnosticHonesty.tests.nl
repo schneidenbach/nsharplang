@@ -374,3 +374,60 @@ test "NL702 on a colliding TYPE keeps the alias, because an alias-qualified TYPE
     aliased := DhCollisionProbe("nl702-type-aliased", DhTagType("Name"), DhTagType("Code"), "import \"./text.nl\"\nimport \"./money.nl\" as Money\n\nfunc MakeText(name: string): Tag {\n    return new Tag(name)\n}\n\nfunc MakeMoney(code: string): Money.Tag {\n    return new Money.Tag(code)\n}\n")
     assert DhDiagnosticCount(aliased) == 0, aliased
 }
+
+// ═══ NL001 / NL012 — "NEVER READ" NOW MEANS NEVER READ ════════════════════════════════════════
+//
+// Both rules print "never read", and both used to measure whether the name was MENTIONED again:
+// `total := 0` followed by `total = 5` and nothing else was ACCEPTED. What follows runs the shapes
+// through the shipped `nlc check` — the rule, and the four boundaries that keep it from becoming a
+// false positive.
+func DhNL001(output: string): int {
+    return DhCodeCount(output, "NL001")
+}
+
+func DhNL012(output: string): int {
+    return DhCodeCount(output, "NL012")
+}
+
+test "a local that is only WRITTEN is NL001, and the sentence it prints is the true one" {
+    output := DhProbe.Check("nl001-write-only", "func Run() {\n    total := 0\n    total = 5\n}\n")
+    assert DhNL001(output) == 1, output
+    assert output.IndexOf("Variable 'total' is declared but never read", StringComparison.Ordinal) >= 0, output
+}
+
+test "a by-value PARAMETER that is only written is NL012" {
+    output := DhProbe.Check("nl012-write-only", "func Run(x: int) {\n    x = 5\n}\n")
+    assert DhNL012(output) == 1, output
+    assert output.IndexOf("Parameter 'x' in 'Run' is never read", StringComparison.Ordinal) >= 0, output
+}
+
+test "the three shapes that really DO read the name are untouched: compound assignment, an element write, a member write" {
+    compound := DhProbe.Check("nl001-compound", "func Run(): int {\n    a := 1\n    a += 1\n    return a\n}\n")
+    assert DhDiagnosticCount(compound) == 0, compound
+
+    // An element write reads the receiver to find where to store, so `values` is used.
+    element := DhProbe.Check("nl001-element", "func Run(): int {\n    values := new int[3]\n    values[0] = 1\n    return values[0]\n}\n")
+    assert DhDiagnosticCount(element) == 0, element
+
+    // A member write reads the receiver for the same reason.
+    member := DhProbe.Check("nl001-member", "class Holder {\n    Value: int\n}\n\nfunc Run(): int {\n    box := new Holder()\n    box.Value = 7\n    return box.Value\n}\n")
+    assert DhDiagnosticCount(member) == 0, member
+}
+
+test "a `ref` or `out` parameter's write is its USE, because the store escapes to the caller" {
+    // `func Read(out value: int) { value = 23 }` is the entire purpose of an `out` parameter, and
+    // reading one before assignment is not even legal — so the write has to count.
+    byRef := DhProbe.Check("nl012-byref", "func Read(out value: int) {\n    value = 23\n}\n\nfunc Increment(ref count: int) {\n    count = count + 10\n}\n")
+    assert DhDiagnosticCount(byRef) == 0, byRef
+
+    // The exemption is for the WRITE, not for the modifier: a by-reference parameter nothing
+    // mentions at all is still reported, and a by-VALUE neighbour on the same signature still is.
+    mixed := DhProbe.Check("nl012-byref-mixed", "func Ignore(out value: int, unusedByValue: int) {\n    value = 1\n}\n")
+    assert DhNL012(mixed) == 1, mixed
+    assert mixed.IndexOf("Parameter 'unusedByValue' in 'Ignore'", StringComparison.Ordinal) >= 0, mixed
+}
+
+test "the `_` opt-out both rules point at still works on a write-only binding" {
+    output := DhProbe.Check("nl001-underscore", "func Run() {\n    _total := 0\n    _total = 5\n}\n\nfunc Take(_x: int) {\n    _x = 5\n}\n")
+    assert DhDiagnosticCount(output) == 0, output
+}

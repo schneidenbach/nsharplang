@@ -96,10 +96,20 @@ class LinterWalk {
 
             state.DeclareVariable(parameter.Name, parameterLine, parameterColumn)
             state.MarkVariableUsed(parameter.Name, false)
-            state.AddParameter(parameter.Name, parameterLine, parameterColumn)
+            state.AddParameter(parameter.Name, parameterLine, parameterColumn, IsByReferenceParameter(parameter))
         }
 
         state.RecordParameterScope()
+    }
+
+    // A `ref` or `out` parameter. `params` is by VALUE — it is an array the caller built — so it is
+    // not one of these, and a write to it is as dead as a write to any other by-value parameter.
+    static func IsByReferenceParameter(parameter: Parameter): bool {
+        if parameter.Modifier == ParameterModifier.Ref {
+            return true
+        }
+
+        return parameter.Modifier == ParameterModifier.Out
     }
 
     // The `async` modifier, read as a flag bit. `Modifiers` is a flags enum and the test is the same
@@ -722,6 +732,39 @@ class LinterWalk {
         if stringLiteral != null {
             // The RAW literal text, `$"…"` and all: the scan needs the interpolation syntax itself.
             state.HandleStringInterpolation(stringLiteral.Value)
+            return
+        }
+
+        // AN ASSIGNMENT'S TARGET IS A WRITE, AND A WRITE IS NOT A READ.
+        //
+        // Everything else in this arm reaches `VisitChildExpressions`, which hands the TARGET to the
+        // identifier arm above and marks it used — so `total := 0` followed by `total = 5` and
+        // nothing else was ACCEPTED, by a rule whose own message says "never read". What NL001 and
+        // NL012 measured was whether the name was MENTIONED again, not whether a value was ever read
+        // out of it, and a store-only local is exactly the half-finished edit those rules exist for.
+        //
+        // THE EXEMPTION IS AS NARROW AS THE FACT. Only a PLAIN `=` whose target is a BARE NAME is a
+        // pure write:
+        //   - `x += 1` (and `-=`, `*=`, `/=`, `??=`) READS x to compute the new value — a use, and
+        //     the compound arm below walks the target exactly as before;
+        //   - `x[0] = 1` writes an ELEMENT and reads `x` to find it — a use;
+        //   - `x.Field = 1` writes a MEMBER and reads `x` to find it — a use;
+        //   - `x = x + 1` reads x on the RIGHT, and the value walk marks it used from there.
+        // Only the bare-name target of a plain `=` is skipped, and only for the USAGE question: the
+        // name is still a written identifier, so NL010 still counts it as a mention of whatever
+        // import supplies it and NL002 still asks whether it needs one.
+        assignment := expression as AssignmentExpression
+        if assignment != null {
+            targetIdentifier := assignment.Target as IdentifierExpression
+            if targetIdentifier != null && assignment.Operator == AssignmentOperator.Assign {
+                state.MarkVariableWritten(targetIdentifier.Name)
+                state.NoteCodeIdentifier(targetIdentifier.Name)
+                state.CheckMissingImport(targetIdentifier)
+            } else {
+                VisitExpression(assignment.Target)
+            }
+
+            VisitExpression(assignment.Value)
             return
         }
 
