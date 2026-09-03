@@ -23,7 +23,6 @@ import System.Reflection
 // argument position. Both are written here, over enums whose types are NOT on
 // `IsSupportedRuntimeTypeName`, which is the second half of the measurement: admitting a member does
 // not require admitting its type.
-
 func EnumFactsTypeAttributeMask(): int {
     mask := TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed
     return Convert.ToInt32(mask)
