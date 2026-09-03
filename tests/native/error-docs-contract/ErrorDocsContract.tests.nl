@@ -2,6 +2,7 @@ namespace NSharpLang.ErrorDocsContract.Tests
 
 import System
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 
 
@@ -440,4 +441,412 @@ test "there is exactly ONE documentation host, and it is the published site" {
     assert DiagnosticDocs.UrlFor("NL320") == "https://schneidenbach.github.io/nsharplang/docs/errors/NL320"
     // NSYS findings take the same constant, not a second spelling.
     assert DiagnosticDocs.UrlFor("NSYS010") == "https://schneidenbach.github.io/nsharplang/docs/errors/NSYS010"
+}
+
+// ═══ CONTRACT B — EVERY PUBLISHED EXAMPLE IS RUN ══════════════════════════════════════════════
+//
+// A documentation page whose example does not reproduce is worse than no page: it teaches a shape
+// the compiler does not actually reject, and nothing notices when the compiler changes underneath
+// it. So every ```n# block on every page that carries a `// ERROR <code>` marker is EXTRACTED,
+// written to a throwaway project, and put through the REAL SHIPPED `nlc check` — the same binary a
+// user runs. The marked code must be reported AT THE MARKED LINE, and every error-severity
+// diagnostic the run produces must be marked. A page cannot drift from the compiler.
+//
+// Fenced blocks rather than a fixture tree, deliberately: a directory of `.nl` files under the
+// repository would be walked by the root `nlc format --check`, by the compile-time corpus and by
+// every estate scan, and the examples are DELIBERATELY malformed. The page is the fixture.
+class EdbProbe {
+    static func CliPath(): string {
+        root := EdcPaths.RepositoryRoot()
+        cli := Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.Cli"), "bin"), "Debug"), "net10.0")
+        return Path.Combine(cli, "Cli.dll")
+    }
+
+    static func WorkspaceRoot(): string {
+        return Path.Combine(Path.GetTempPath(), "nsharp-error-docs-repro")
+    }
+
+    // Write `source` as a one-file project and return what `nlc check --text` printed. `library`
+    // so an example never has to invent a `main` it would then have to explain.
+    static func Check(name: string, source: string): string {
+        directory := Path.Combine(EdbProbe.WorkspaceRoot(), name)
+        if Directory.Exists(directory) {
+            Directory.Delete(directory, true)
+        }
+
+        Directory.CreateDirectory(directory)
+        File.WriteAllText(Path.Combine(directory, "project.yml"), "name: ErrorDocsRepro\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
+        arguments := "\"" + EdbProbe.CliPath() + "\" check --project \"" + directory + "\" --text"
+
+        // `DotnetRunner` in the compiler assembly does exactly this and cannot be called: a
+        // cross-assembly static returning a user class DECLINES on the columnar emit path. `Process`
+        // itself crosses, so the contract spawns the CLI directly rather than routing through it.
+        startInfo := new ProcessStartInfo("dotnet", arguments)
+        startInfo.RedirectStandardOutput = true
+        startInfo.RedirectStandardError = true
+        startInfo.UseShellExecute = false
+        process := new Process { StartInfo: startInfo }
+        process.Start()
+
+        // `nlc check --text` writes its DIAGNOSTICS TO STDERR and its summary to stdout — the Go and
+        // Rust convention. Reading only stdout finds no diagnostics at all, and a contract that
+        // reads nothing passes everything, so both streams are taken and joined.
+        errorText := process.StandardError.ReadToEnd()
+        standardText := process.StandardOutput.ReadToEnd()
+        process.WaitForExit()
+        process.Dispose()
+        Directory.Delete(directory, true)
+        return errorText + "\n" + standardText
+    }
+}
+
+// One reported diagnostic, as the shipped renderer prints its header:
+//     ── [NL104] ERROR ───────────────────────── Program.nl:1:1 ──
+//
+// Matched by its CONTENT — a bracketed code, a severity word, and the file position — rather than by
+// the box-drawing rule it is padded with, so the match does not depend on how the child process's
+// bytes survive the pipe.
+func EdbHeaders(output: string): List<string> {
+    headers := new List<string>()
+    lines := output.Split('\n')
+    i := 0
+    while i < lines.Length {
+        line := lines[i].Replace("\r", "")
+        bracket := line.IndexOf("[", StringComparison.Ordinal)
+        if bracket >= 0 && line.IndexOf("] ", StringComparison.Ordinal) > bracket && line.IndexOf("Program.nl:", StringComparison.Ordinal) > bracket {
+            headers.Add(line.Substring(bracket))
+        }
+
+        i = i + 1
+    }
+
+    return headers
+}
+
+func EdbHeaderCode(header: string): string {
+    stop := header.IndexOf("]", StringComparison.Ordinal)
+    if stop <= 1 {
+        return ""
+    }
+
+    return header.Substring(1, stop - 1)
+}
+
+func EdbHeaderSeverity(header: string): string {
+    stop := header.IndexOf("]", StringComparison.Ordinal)
+    if stop < 0 {
+        return ""
+    }
+
+    rest := header.Substring(stop + 2)
+    space := rest.IndexOf(" ", StringComparison.Ordinal)
+    if space < 0 {
+        return rest
+    }
+
+    return rest.Substring(0, space)
+}
+
+// The line number out of the trailing `Program.nl:<line>:<column>` of a header.
+func EdbHeaderLine(header: string): int {
+    marker := "Program.nl:"
+    at := header.IndexOf(marker, StringComparison.Ordinal)
+    if at < 0 {
+        return 0
+    }
+
+    rest := header.Substring(at + marker.Length)
+    digits := ""
+    i := 0
+    while i < rest.Length && char.IsDigit(rest[i]) {
+        digits = digits + rest[i].ToString()
+        i = i + 1
+    }
+
+    if digits.Length == 0 {
+        return 0
+    }
+
+    return Int32.Parse(digits)
+}
+
+// One fenced block, with every `// ERROR <code>` it carries. `Marks` is the space-joined set of
+// `<code>@<line>` the block claims — a block may mark several lines, and each one is held to its
+// own claim.
+class EdbExample {
+    Page: string
+    Source: string
+    Marks: string
+
+    constructor(page: string, source: string, marks: string) {
+        Page = page
+        Source = source
+        Marks = marks
+    }
+}
+
+// The marker is the house style the first five pages already used: the offending line of an `n#`
+// block ends `// ERROR <code>`. Exactly one marked line per block, and the block is the program.
+func EdbExamplesOnPage(pageCode: string, examples: List<EdbExample>) {
+    text := File.ReadAllText(EdcPaths.PageFor(pageCode)).Replace("\r", "")
+    lines := text.Split('\n')
+    inBlock := false
+    block := new List<string>()
+    i := 0
+    while i < lines.Length {
+        line := lines[i]
+        if inBlock {
+            if line.StartsWith("```", StringComparison.Ordinal) {
+                inBlock = false
+                marks := ""
+                j := 0
+                while j < block.Count {
+                    at := block[j].IndexOf("// ERROR ", StringComparison.Ordinal)
+                    if at >= 0 {
+                        code := EdbTrimCode(block[j].Substring(at + 9))
+                        if code.Length > 0 {
+                            if marks.Length > 0 {
+                                marks = marks + " "
+                            }
+
+                            marks = marks + code + "@" + (j + 1).ToString()
+                        }
+                    }
+
+                    j = j + 1
+                }
+
+                if marks.Length > 0 {
+                    examples.Add(new EdbExample(pageCode, EdcJoinLines(block), marks))
+                }
+
+                block = new List<string>()
+            } else {
+                block.Add(line)
+            }
+        } else {
+            if line.StartsWith("```n#", StringComparison.Ordinal) {
+                inBlock = true
+                block = new List<string>()
+            }
+        }
+
+        i = i + 1
+    }
+}
+
+// `NL324` out of `NL324: does not implement …` — a marker may carry prose after the code.
+func EdbTrimCode(tail: string): string {
+    code := ""
+    i := 0
+    while i < tail.Length {
+        c := tail[i]
+        if char.IsLetterOrDigit(c) {
+            code = code + c.ToString()
+        } else {
+            i = tail.Length
+        }
+
+        i = i + 1
+    }
+
+    return code
+}
+
+func EdcJoinLines(lines: List<string>): string {
+    joined := ""
+    i := 0
+    while i < lines.Count {
+        joined = joined + lines[i] + "\n"
+        i = i + 1
+    }
+
+    return joined
+}
+
+func EdbAllExamples(): List<EdbExample> {
+    examples := new List<EdbExample>()
+    pages := EdcPageCodes()
+    i := 0
+    while i < pages.Count {
+        EdbExamplesOnPage(pages[i], examples)
+        i = i + 1
+    }
+
+    return examples
+}
+
+// Every way one published example can be wrong, in one sentence each.
+func EdbBrokenExamples(): string {
+    broken := new List<string>()
+    examples := EdbAllExamples()
+    i := 0
+    while i < examples.Count {
+        example := examples[i]
+        label := example.Page + "#" + (i + 1).ToString()
+        marks := EdbSplitMarks(example.Marks)
+        reported := new List<string>()
+        headers := EdbHeaders(EdbProbe.Check("page" + i.ToString(), example.Source))
+        j := 0
+        while j < headers.Count {
+            header := headers[j]
+            claim := EdbHeaderCode(header) + "@" + EdbHeaderLine(header).ToString()
+            if !EdcContains(reported, claim) {
+                reported.Add(claim)
+            }
+
+            // A diagnostic that stops a build and is not one the page claims makes the example
+            // teach something it does not say. Warnings and info are allowed to appear unclaimed.
+            if EdbHeaderSeverity(header) == "ERROR" && !EdcContains(marks, claim) {
+                broken.Add(label + ":unclaimed-" + claim)
+            }
+
+            j = j + 1
+        }
+
+        j = 0
+        while j < marks.Count {
+            if !EdcContains(reported, marks[j]) {
+                broken.Add(label + ":claimed-" + marks[j] + "-was-not-reported")
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return EdcJoin(broken)
+}
+
+func EdbSplitMarks(marks: string): List<string> {
+    values := new List<string>()
+    parts := marks.Split(' ')
+    i := 0
+    while i < parts.Length {
+        if parts[i].Length > 0 {
+            values.Add(parts[i])
+        }
+
+        i = i + 1
+    }
+
+    return values
+}
+
+// ─── the exemption list, held to its own claim ────────────────────────────────────────────────
+//
+// Each exempt code names a program that is SILENT today. These are those programs. If one of them
+// ever reports its code, the rule has been implemented — and the exemption has to go, replaced by
+// a page, which is exactly what this contract forces. A hole cannot be closed quietly.
+func EdbExemptPrograms(): List<string> {
+    programs := new List<string>()
+    programs.Add("NL204|func Widen(): string {\n    v := 42\n    return v as string ?? \"\"\n}\n")
+    programs.Add("NL307|class A : B {\n}\n\nclass B : A {\n}\n")
+    programs.Add("NL502|func Classify(n: int): string {\n    return match n {\n        _ => \"any\",\n        1 => \"one\"\n    }\n}\n")
+    programs.Add("NL801|class Left {\n}\n\nclass Right {\n}\n\nclass Both : Left, Right {\n}\n")
+    programs.Add("NL802|sealed class Base {\n}\n\nclass Derived : Base {\n}\n")
+    programs.Add("NL803|abstract class Shape {\n    abstract func Area(): double\n}\n\nfunc Make(): Shape {\n    return new Shape()\n}\n")
+    programs.Add("NL806|class Point {\n    X: int\n\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc Make(): Point {\n    return new Point(1, 2)\n}\n")
+    return programs
+}
+
+func EdbExemptionsThatNowReport(): string {
+    landed := new List<string>()
+    programs := EdbExemptPrograms()
+    i := 0
+    while i < programs.Count {
+        row := programs[i]
+        separator := row.IndexOf("|", StringComparison.Ordinal)
+        code := row.Substring(0, separator)
+        source := row.Substring(separator + 1)
+        headers := EdbHeaders(EdbProbe.Check("exempt" + i.ToString(), source))
+        j := 0
+        while j < headers.Count {
+            if EdbHeaderCode(headers[j]) == code {
+                landed.Add(code + ":IS-NOW-REPORTED-so-write-its-page-and-delete-the-exemption")
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return EdcJoin(landed)
+}
+
+// Every exemption row must have a program here, and every program an exemption row.
+func EdbExemptionProgramMismatch(): string {
+    mismatched := new List<string>()
+    exemptCodes := EdcExemptCodes()
+    programs := EdbExemptPrograms()
+    programCodes := new List<string>()
+    i := 0
+    while i < programs.Count {
+        programCodes.Add(programs[i].Substring(0, programs[i].IndexOf("|", StringComparison.Ordinal)))
+        i = i + 1
+    }
+
+    i = 0
+    while i < exemptCodes.Count {
+        if !EdcContains(programCodes, exemptCodes[i]) {
+            mismatched.Add(exemptCodes[i] + ":exempt-with-no-probe-program")
+        }
+
+        i = i + 1
+    }
+
+    i = 0
+    while i < programCodes.Count {
+        if !EdcContains(exemptCodes, programCodes[i]) {
+            mismatched.Add(programCodes[i] + ":probe-program-with-no-exemption")
+        }
+
+        i = i + 1
+    }
+
+    return EdcJoin(mismatched)
+}
+
+// ─── contract B ───────────────────────────────────────────────────────────────────────────────
+
+test "the built CLI this contract runs the examples through is present" {
+    assert File.Exists(EdbProbe.CliPath()), EdbProbe.CliPath()
+}
+
+test "EVERY marked example on EVERY page reports its own code, at its own line, and nothing else" {
+    assert EdbBrokenExamples() == "", EdbBrokenExamples()
+}
+
+test "EVERY page carrying a code has at least one runnable marked example" {
+    missing := new List<string>()
+    examples := EdbAllExamples()
+    pages := EdcPageCodes()
+    i := 0
+    while i < pages.Count {
+        found := false
+        j := 0
+        while j < examples.Count {
+            if examples[j].Page == pages[i] && examples[j].Marks.Contains(pages[i] + "@") {
+                found = true
+            }
+
+            j = j + 1
+        }
+
+        if !found {
+            missing.Add(pages[i])
+        }
+
+        i = i + 1
+    }
+
+    assert EdcJoin(missing) == "", EdcJoin(missing)
+}
+
+test "EVERY exempt code is STILL unenforced, so a landed rule cannot hide behind its exemption" {
+    assert EdbExemptionProgramMismatch() == "", EdbExemptionProgramMismatch()
+    assert EdbExemptionsThatNowReport() == "", EdbExemptionsThatNowReport()
 }
