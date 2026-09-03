@@ -427,6 +427,7 @@ class AnalyzerTypeDeclarations {
         DeclareTypeParameters(state)
         ValidateNoStaticMembersOnGenericType(state)
         ResolveDeclaredBases(state)
+        ValidateSingleBaseClass(state)
         ValidateBaseClassEligibility(state)
         ValidateOverrideTargets(state)
         ValidateAbstractMemberImplementations(state)
@@ -1204,6 +1205,83 @@ class AnalyzerTypeDeclarations {
     func ReportOverridePropertyTargetFault(property: PropertyDeclaration, reason: string, suggestion: string) {
         span := spansValue.GetPropertyNameDiagnosticSpan(property)
         diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + property.Name + "' is declared 'override', but it " + reason, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // `class Both : Left, Right` OVER TWO CLASSES REACHED THE EMITTER AND DIED THERE as an NL103
+    // columnar decline, which names the backend and not the mistake. NL801 has been in the catalog
+    // since the codes were written and nothing reported it. N# is a CLR language: a class has exactly
+    // one base and any number of interfaces, and that is a rule of the runtime, not a preference.
+    //
+    // THE PARSER CANNOT ANSWER THIS AND NEVER COULD. `: A, B, C` is split by POSITION — `[0]` to
+    // `BaseClass`, the rest to `Interfaces` — so "how many of these are classes" is a question only
+    // resolution can answer, and it is asked over BOTH slots as one written list. That is also why the
+    // count is what decides rather than the slot: `class X : IFoo, Base` names ONE base class in the
+    // wrong position and is not this rule's business.
+    //
+    // IT RUNS BEFORE THE SEALED RULE. A declaration with two bases has a shape problem, and being told
+    // that the second one is also sealed would be a second sentence about the same broken line.
+    func ValidateSingleBaseClass(state: TypeDeclarationState) {
+        if state.Form != 0 {
+            return
+        }
+
+        classDeclaration := state.Declaration as ClassDeclaration
+        if classDeclaration == null {
+            return
+        }
+
+        written := WrittenInterfaceReferences(state)
+        if written == null || written.Count < 2 {
+            return
+        }
+
+        firstName := ""
+        index := 0
+        while index < written.Count {
+            reference := written[index]
+            resolved := typeResolverValue.ResolveType(reference)
+            if IsBaseClassShape(resolved) {
+                name := BaseReferenceName(reference)
+                if firstName.Length > 0 {
+                    span := BaseReferenceSpan(reference, name, classDeclaration)
+                    message := "'" + classDeclaration.Name + "' declares more than one base class: '" + firstName + "' and '" + name + "'"
+                    suggestion := "A class has exactly one base class, followed by any number of interfaces. Keep '" + firstName + "' as the base and make '" + name + "' an `interface` that '" + classDeclaration.Name + "' implements, or hold one — give '" + classDeclaration.Name + "' a field `inner: " + name + "`."
+                    diagnosticsValue.Report(ErrorCode.MultipleInheritance, message, span.Line, span.Column, suggestion, span.Length)
+                    return
+                }
+
+                firstName = name
+            }
+
+            index = index + 1
+        }
+    }
+
+    // WHETHER A RESOLVED BASE-LIST ENTRY OCCUPIES THE ONE BASE-CLASS SLOT. Only a class does: an
+    // interface is free, a struct or an enum in a base list is a different fault with a different
+    // sentence, and an entry that did not resolve answers no — a count computed from a name nobody
+    // could find would report a program whose real problem is `NL201`.
+    static func IsBaseClassShape(candidate: TypeInfo?): bool {
+        if candidate == null || BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        opened := OpenGenericInstantiation(candidate)
+        if opened == null {
+            return false
+        }
+
+        if (opened as ClassTypeInfo) != null {
+            return true
+        }
+
+        reflectionType := opened as ReflectionTypeInfo
+        if reflectionType == null {
+            return false
+        }
+
+        clrType := reflectionType.Type
+        return clrType.get_IsClass() && !clrType.get_IsInterface() && !clrType.get_IsValueType()
     }
 
     // `class Derived : Base` WHERE `Base` IS `sealed` WAS ACCEPTED IN SILENCE AND THE WHOLE PROJECT

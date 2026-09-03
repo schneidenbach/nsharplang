@@ -2059,19 +2059,23 @@ test "an EXTERNAL sealed base is refused through the same walk" {
 }
 
 test "a base reference the parser gave NO position falls back to the class header, never to line 0" {
-    positioned := AnalyzerTypeDeclarations.BaseReferenceSpan(new SimpleTypeReference("Base", 12, 17), "Base", TypeDeclClass("Derived", new List<Declaration>(), null, null, Modifiers.None))
+    positionedReference: TypeReference = new SimpleTypeReference("Base", 12, 17)
+    positioned := AnalyzerTypeDeclarations.BaseReferenceSpan(positionedReference, "Base", TypeDeclClass("Derived", new List<Declaration>(), null, null, Modifiers.None))
     assert positioned.Line == 12
     assert positioned.Column == 17
     assert positioned.Length == 4
 
-    unpositioned := AnalyzerTypeDeclarations.BaseReferenceSpan(new SimpleTypeReference("Base"), "Base", TypeDeclClass("Derived", new List<Declaration>(), null, null, Modifiers.None))
+    unpositionedReference: TypeReference = new SimpleTypeReference("Base")
+    unpositioned := AnalyzerTypeDeclarations.BaseReferenceSpan(unpositionedReference, "Base", TypeDeclClass("Derived", new List<Declaration>(), null, null, Modifiers.None))
     assert unpositioned.Line == 7
     assert unpositioned.Column == 10
     assert unpositioned.Length == 7
 
     // Both spellings a base clause can take answer their own written name.
-    assert AnalyzerTypeDeclarations.BaseReferenceName(new SimpleTypeReference("Base", 1, 1)) == "Base"
-    assert AnalyzerTypeDeclarations.BaseReferenceName(new GenericTypeReference("Box", new List<TypeReference>(), 1, 1)) == "Box"
+    simpleReference: TypeReference = new SimpleTypeReference("Base", 1, 1)
+    genericReference: TypeReference = new GenericTypeReference("Box", new List<TypeReference>(), 1, 1)
+    assert AnalyzerTypeDeclarations.BaseReferenceName(simpleReference) == "Base"
+    assert AnalyzerTypeDeclarations.BaseReferenceName(genericReference) == "Box"
 }
 
 test "the legal spellings stay SILENT" {
@@ -2102,6 +2106,104 @@ test "the legal spellings stay SILENT" {
     // A SEALED CLASS USED AS A VALUE — not as a base — is untouched: the rule is about the `:` clause.
     valueHarness := TypeDeclDefault()
     valueHarness.Scopes.DeclareNestedTypeIfAbsent("Leaf", TypeDeclSealedOwner("Leaf"))
-    TypeDeclRun(valueHarness, valueHarness.Declarations.BeginClass(TypeDeclClass("Holder", TypeDeclMembers(TypeDeclField("value", new SimpleTypeReference("Leaf", 8, 12), null, Modifiers.None)), null, null, Modifiers.None), valueHarness.Assignability), null)
+    fieldType: TypeReference = new SimpleTypeReference("Leaf", 8, 12)
+    TypeDeclRun(valueHarness, valueHarness.Declarations.BeginClass(TypeDeclClass("Holder", TypeDeclMembers(TypeDeclField("value", fieldType, null, Modifiers.None)), null, null, Modifiers.None), valueHarness.Assignability), null)
     assert valueHarness.Errors.Count == 0
+}
+
+// ---------------------------------------------------------------------------------------------
+// MORE THAN ONE BASE CLASS (`NL801`)
+//
+// `class Both : Left, Right` over two classes REACHED THE EMITTER and died there as an `NL103`
+// columnar decline, which names the backend and not the mistake. N# is a CLR language: a class has
+// exactly one base and any number of interfaces, and that is a rule of the runtime.
+//
+// THE PARSER CANNOT ANSWER THIS. `: A, B, C` is split by POSITION — `[0]` to `BaseClass`, the rest to
+// `Interfaces` — so "how many of these are classes" is a question only resolution can answer, and it
+// is asked over BOTH slots as ONE written list. Which is also why the COUNT decides and not the slot:
+// `class X : IFoo, Base` names one base class in an unusual position and is not this rule's business.
+// ---------------------------------------------------------------------------------------------
+
+func TypeDeclClassWithBases(name: string, first: string, firstColumn: int, second: string, secondColumn: int): ClassDeclaration {
+    baseReference: TypeReference = new SimpleTypeReference(first, 12, firstColumn)
+    interfaces := new List<TypeReference>()
+    secondReference: TypeReference = new SimpleTypeReference(second, 12, secondColumn)
+    interfaces.Add(secondReference)
+    return new ClassDeclaration(name, null, baseReference, interfaces, new List<Declaration>(), null, Modifiers.None, TypeDeclNoAttributes(), 7, 10)
+}
+
+test "only a CLASS occupies the one base-class slot" {
+    assert AnalyzerTypeDeclarations.IsBaseClassShape(TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0)))
+    assert AnalyzerTypeDeclarations.IsBaseClassShape(TypeDeclSealedOwner("Leaf"))
+    assert AnalyzerTypeDeclarations.IsBaseClassShape(TypeDeclClrOwner("System.Exception"))
+    assert AnalyzerTypeDeclarations.IsBaseClassShape(TypeDeclClosedGeneric("Box", TypeDeclSourceOwner("Box", new DeclaredMemberInfo[](0))))
+
+    // An interface is free — a class may write as many as it likes.
+    assert !AnalyzerTypeDeclarations.IsBaseClassShape(TypeDeclSourceInterface("Greeter", new DeclaredMemberInfo[](0)))
+    assert !AnalyzerTypeDeclarations.IsBaseClassShape(TypeDeclClrOwner("System.IDisposable"))
+
+    // A struct or an enum in a base list is a different fault with a different sentence.
+    assert !AnalyzerTypeDeclarations.IsBaseClassShape(TypeDeclClrOwner("System.Int32"))
+    assert !AnalyzerTypeDeclarations.IsBaseClassShape(TypeDeclClrOwner("System.DayOfWeek"))
+
+    // AN ENTRY THAT DID NOT RESOLVE ANSWERS NO. A count computed from a name nobody could find would
+    // report a program whose real problem is `NL201`.
+    assert !AnalyzerTypeDeclarations.IsBaseClassShape(null)
+    assert !AnalyzerTypeDeclarations.IsBaseClassShape(BuiltInTypes.Unknown)
+    assert !AnalyzerTypeDeclarations.IsBaseClassShape(TypeDeclClosedGeneric("Box", null))
+}
+
+test "`NL801` is reported ONCE, on the SECOND base class" {
+    harness := TypeDeclDefault()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Left", TypeDeclSourceOwner("Left", new DeclaredMemberInfo[](0)))
+    harness.Scopes.DeclareNestedTypeIfAbsent("Right", TypeDeclSourceOwner("Right", new DeclaredMemberInfo[](0)))
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClassWithBases("Both", "Left", 15, "Right", 21), harness.Assignability), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.MultipleInheritance
+    assert harness.Errors[0].Message == "'Both' declares more than one base class: 'Left' and 'Right'"
+    assert harness.Errors[0].Suggestion == "A class has exactly one base class, followed by any number of interfaces. Keep 'Left' as the base and make 'Right' an `interface` that 'Both' implements, or hold one — give 'Both' a field `inner: Right`."
+    assert harness.Errors[0].Line == 12
+    assert harness.Errors[0].Column == 21
+    assert harness.Errors[0].Length == 5
+}
+
+test "one base plus any number of INTERFACES is silent, in either slot order" {
+    baseFirst := TypeDeclDefault()
+    baseFirst.Scopes.DeclareNestedTypeIfAbsent("Base", TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0)))
+    baseFirst.Scopes.DeclareNestedTypeIfAbsent("Greeter", TypeDeclSourceInterface("Greeter", new DeclaredMemberInfo[](0)))
+    TypeDeclRun(baseFirst, baseFirst.Declarations.BeginClass(TypeDeclClassWithBases("English", "Base", 15, "Greeter", 21), baseFirst.Assignability), null)
+    assert TypeDeclCodes(baseFirst.Errors) == ""
+
+    // `class X : IFoo, Base` names ONE base class, in an unusual position. The count decides, not the
+    // slot, so it is silent about inheritance.
+    interfaceFirst := TypeDeclDefault()
+    interfaceFirst.Scopes.DeclareNestedTypeIfAbsent("Base", TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0)))
+    interfaceFirst.Scopes.DeclareNestedTypeIfAbsent("Greeter", TypeDeclSourceInterface("Greeter", new DeclaredMemberInfo[](0)))
+    TypeDeclRun(interfaceFirst, interfaceFirst.Declarations.BeginClass(TypeDeclClassWithBases("English", "Greeter", 15, "Base", 21), interfaceFirst.Assignability), null)
+    assert TypeDeclCodes(interfaceFirst.Errors) == ""
+
+    // TWO interfaces and no base at all: the ordinary shape, and never this rule's business.
+    twoInterfaces := TypeDeclDefault()
+    twoInterfaces.Scopes.DeclareNestedTypeIfAbsent("Greeter", TypeDeclSourceInterface("Greeter", new DeclaredMemberInfo[](0)))
+    twoInterfaces.Scopes.DeclareNestedTypeIfAbsent("Namer", TypeDeclSourceInterface("Namer", new DeclaredMemberInfo[](0)))
+    TypeDeclRun(twoInterfaces, twoInterfaces.Declarations.BeginClass(TypeDeclClassWithBases("English", "Greeter", 15, "Namer", 21), twoInterfaces.Assignability), null)
+    assert twoInterfaces.Errors.Count == 0
+
+    // And a class with ONE written base is not asked at all — the list is shorter than two.
+    single := TypeDeclDefault()
+    single.Scopes.DeclareNestedTypeIfAbsent("Base", TypeDeclSourceOwner("Base", new DeclaredMemberInfo[](0)))
+    TypeDeclRun(single, single.Declarations.BeginClass(TypeDeclClassWithBase("Derived", "Base", 12, 17), single.Assignability), null)
+    assert single.Errors.Count == 0
+}
+
+// A DECLARATION WITH TWO BASES HAS A SHAPE PROBLEM, and being told the second one is also sealed
+// would be a second sentence about the same broken line.
+test "`NL801` runs BEFORE the sealed rule, so a doubly-broken base list gets ONE sentence" {
+    harness := TypeDeclDefault()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Left", TypeDeclSourceOwner("Left", new DeclaredMemberInfo[](0)))
+    harness.Scopes.DeclareNestedTypeIfAbsent("Leaf", TypeDeclSealedOwner("Leaf"))
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClassWithBases("Both", "Left", 15, "Leaf", 21), harness.Assignability), null)
+
+    assert TypeDeclCodes(harness.Errors) == "801"
 }
