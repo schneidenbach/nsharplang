@@ -33,7 +33,7 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 **Error-docs arc:** MERGED at `08ec08a82` (branch tip `706d37c9f`), gated green in r19 as part of `af07060ac`. See §4.11.
 
-**Tip:** `a18489795` on `systems-language` (PR #190 against `main`; pushed 2026-09-03 ~16:40 with the cursor commit on top) — gate r22 fully GREEN: exit 0, every step incl. Step 3b VS Code integration, unit 593, estate 7,624. The batch carries 023/2.1e (`06d3eacb9`), 022/4a–4c (`4c802bd12` — a LANGUAGE SERVER change: slice 4d still owes the visual round with the owner at the keyboard) and soundness 4–5 (`823f4030c`, `feb73176b`: contract A's exemption list is ZERO, 97 diagnostic pages). Previous tips: `a2df5dd74` (r21), `50f110733` (r20), `af07060ac` (r19).)
+**Tip:** `1cd8ec19c` on `systems-language` (PR #190 against `main`; pushed 2026-09-03 ~17:45) — gate r23 fully GREEN: exit 0, unit 593, estate 7,630, VS Code integration step green; carries the diag-honesty slice 7 merge (`51fa6592b`) and the HANDOFF file `tasks/024-handoff-2026-09-03.md` (the session ended at the owner's weekly limit; Codex picks up from that file; every stream's WIP is committed on its branch). Previous tips: `a18489795` (r22), `a2df5dd74` (r21).)
 
 ### Queue state (`tasks/README.md`)
 
@@ -218,12 +218,12 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
   021's closing contract refused a documented C# exception; the owner's decision supersedes that refusal for the
   emitter, and 021's box is re-decided by a measured slice once items 1–2 land.
 
-### Baselines at `a18489795` (re-measure at your tip; never inherit)
+### Baselines at `1cd8ec19c` (re-measure at your tip; never inherit)
 
 | measure | value |
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 593 in gates r19–r22 (595 at `27a6d24f6`; the error-docs arc's two retired-code assertions) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,624** measured in gate r22 at `a18489795` (7,592 at `a2df5dd74` + 3 accessor contracts 023/2.1e − 3 + re-aims 022/4 + 32 soundness 4–5) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,630** measured in gate r23 at `1cd8ec19c` (7,624 at `a18489795` + 6, diag-honesty slice 7) |
 | native projects | 46 `project.yml` under `tests/native`; corpus pin 74 (every `project.yml` under examples, tests and templates) |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20724 lines / 19712 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1, 1e, 2.1a–d each shrank it); `Analyzer.cs` 2357 (2,798 before 3b; 3b removed 441 lines) |
