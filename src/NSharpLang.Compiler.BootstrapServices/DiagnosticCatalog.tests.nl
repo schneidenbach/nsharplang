@@ -11,7 +11,7 @@ import System.Collections.Generic
 // nine of the 99 descriptors, and only two of the four BUILDERS that produce them.
 //
 // THE SAMPLE IS REPLACED BY THE CROSS. Every descriptor the catalog publishes is walked, and the
-// builders are asserted as a PARTITION: 68 compiler + 10 linter, no row belonging to two builders
+// builders are asserted as a PARTITION: 69 compiler + 10 linter, no row belonging to two builders
 // and no row belonging to none. A rule added to `AddLinterRuleDescriptors` and forgotten in the
 // partition guard now FAILS a contract instead of passing unnoticed — which is the property the
 // deleted file's duplicate census could not have, because a census only sees the rows that are
@@ -164,7 +164,7 @@ test "NO descriptor stores a docs URL, so the deleted stored-URL arm cannot come
 
 test "EVERY code is distinct, and the catalog is exactly its two builders" {
     codes := DctCodes()
-    assert codes.Count == 78
+    assert codes.Count == 79
 
     duplicates := 0
     outer := 0
@@ -184,7 +184,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert duplicates == 0
 
     // The builders, counted where they are OBSERVABLE: the linter rows are the ones sourced to the
-    // linter, the rest are the compiler's. 68 + 10 = 78, so nothing is uncounted or double-counted.
+    // linter, the rest are the compiler's. 69 + 10 = 79, so nothing is uncounted or double-counted.
     //
     // The performance and AOT categories are asserted at ZERO, not omitted. A row in either one is
     // a row for a rule this compiler does not produce - that is exactly how NL950-954 and NL960-963
@@ -196,7 +196,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert linterRows == 10
     assert performanceRows == 0
     assert aotRows == 0
-    assert compilerRows == 68
+    assert compilerRows == 69
     assert compilerRows + linterRows == codes.Count
 }
 

@@ -68,5 +68,6 @@ enum ErrorCode {
     VisibilityConventionWarning = 903,
     PossibleNullAccess = 905,
     NullabilityWarning = 907,
-    ReferenceLoadFailure = 923
+    ReferenceLoadFailure = 923,
+    InternalCompilerError = 924
 }

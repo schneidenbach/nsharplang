@@ -171,12 +171,12 @@ class AnalyzerMetadataLoadSurface {
     func CreateWellKnownTypes(): AnalyzerWellKnownTypes {
         loadContext := Context
         if loadContext == null {
-            throw new InvalidOperationException("MLC not opened")
+            throw new InvalidOperationException("AnalyzerMetadataLoadSurface.CreateWellKnownTypes requires a metadata load context, and Open was never called on this surface.")
         }
 
         core := loadContext.get_CoreAssembly()
         if core == null {
-            throw new InvalidOperationException("MLC core assembly not loaded")
+            throw new InvalidOperationException("AnalyzerMetadataLoadSurface requires the metadata load context to have bound a core assembly, and it bound none from the compiler's own framework directories.")
         }
 
         return new AnalyzerWellKnownTypes(loadContext, core)

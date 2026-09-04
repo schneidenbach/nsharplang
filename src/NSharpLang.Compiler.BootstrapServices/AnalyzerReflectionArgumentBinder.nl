@@ -1081,7 +1081,7 @@ class AnalyzerReflectionArgumentBinder {
         coreLibrary := typeof(object).get_Assembly()
         voidType := coreLibrary.GetType("System.Void")
         if voidType == null {
-            throw new InvalidOperationException("The core library does not define 'System.Void'.")
+            throw new InvalidOperationException("AnalyzerReflectionArgumentBinder requires System.Void in the compiler's own core library, and Assembly.GetType returned null for it.")
         }
 
         return voidType

@@ -170,6 +170,15 @@ message.
 | `tree` | Dependency tree emitted | Missing project root/config or dependency resolver failure |
 | `doctor` | Required install checks passed | One or more required checks failed |
 
+An unexpected exception escaping any command exits **`2`** and prints
+[NL924: internal compiler error](errors/NL924.md) to stderr. This is a bug in N#.
+The process boundary uses the same plain diagnostic for text and JSON requests and leaves stdout
+untouched; check the exit status before treating stdout as a complete response. Ordinary errors
+handled by a command retain the exit codes and JSON envelopes documented above.
+
+`nlc run` forwards the launched program's exit status, including `2`. In that case the number alone
+does not identify an internal compiler failure: NL924 on stderr supplies that distinction.
+
 ## JSON Examples
 
 `nlc check`:

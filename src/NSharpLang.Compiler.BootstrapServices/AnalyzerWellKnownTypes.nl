@@ -198,7 +198,7 @@ class AnalyzerWellKnownTypes {
     func ResolveRequired(fullName: string): Type {
         resolved := Resolve(fullName)
         if resolved == null {
-            throw new InvalidOperationException(fullName + " not found in MLC")
+            throw new InvalidOperationException("AnalyzerWellKnownTypes requires '" + fullName + "' in the metadata load context's core assembly, and neither it nor the core library defines it.")
         }
 
         return resolved

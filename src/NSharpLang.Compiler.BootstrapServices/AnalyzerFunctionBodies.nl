@@ -1228,7 +1228,7 @@ class AnalyzerFunctionBodies {
     static func SequenceDefinition(fullName: string): Type {
         definition := Type.GetType(fullName)
         if definition == null {
-            throw new InvalidOperationException("Required sequence type " + fullName + " was not found.")
+            throw new InvalidOperationException("AnalyzerFunctionBodies requires the sequence type '" + fullName + "' in the compiler's own core library, and Type.GetType returned null for it.")
         }
 
         return definition

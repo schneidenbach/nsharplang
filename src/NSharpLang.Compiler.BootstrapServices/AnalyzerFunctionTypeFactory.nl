@@ -643,7 +643,7 @@ class AnalyzerFunctionTypeFactory {
         coreLibrary := typeof(object).get_Assembly()
         resolved := coreLibrary.GetType(fullName)
         if resolved == null {
-            throw new InvalidOperationException("The core library does not define '" + fullName + "'.")
+            throw new InvalidOperationException("AnalyzerFunctionTypeFactory requires '" + fullName + "' in the compiler's own core library, and Assembly.GetType returned null for it.")
         }
 
         return resolved

@@ -17,6 +17,24 @@ compiler-service kernels. New kernel shapes must compile under the pinned stage-
 
 ---
 
+## Internal failures and exit status
+
+A command normally exits `0` on success or `1` for a diagnostic, invalid request, or command failure.
+An unexpected exception escaping command dispatch exits **`2`** and prints **NL924** to stderr.
+The N# `InternalErrorBoundary` preserves the exception's invariant sentence and concrete type, explains
+that the failure is a bug in N#, and links to the reporting instructions. It does not print a stack
+trace or invent a source span. A known file may prefix the diagnostic; the process entry point has
+only arguments and supplies no file.
+
+This process-level failure uses the same plain stderr diagnostic for text and JSON requests. It
+leaves stdout untouched, including any output already written; it does not invent a JSON envelope
+or a new schema version. Consumers must check exit status before treating stdout as a complete
+command response. Existing command-local catches still return their documented diagnostics and
+exit status `1`; this boundary handles exceptions that escape those handlers.
+
+`nlc run` forwards the launched program's exit status, including `2`. In that case the number alone
+does not identify an internal compiler failure: NL924 on stderr supplies that distinction.
+
 ## Command Reference
 
 ### Build & Run
