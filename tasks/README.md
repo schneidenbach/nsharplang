@@ -44,35 +44,28 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [ ] [021 — Final compiler ownership audit](021-final-compiler-ownership-audit.md)
 - [ ] [022 — One external type universe, and a NativeAOT `nlc`](022-one-type-universe-native-aot.md)
 - [ ] [023 — The ECMA-335 metadata writer: the second executor over the plan rows](023-ecma335-metadata-writer.md)
-- [ ] [024 — Handoff 2026-09-03: in-flight streams and the next steps](024-handoff-2026-09-03.md) — a snapshot for the next coordinator; delete it once its streams have landed and STATUS.md §1 carries the rest
 
 The order is deliberate. If current code proves a dependency has changed, update the queue in a
 small documentation commit with concrete evidence before reordering; do not silently skip ahead.
 
-## 021 terminal state — twelve slices run, box deliberately unchecked
+## 021 terminal state — audit recorded, box deliberately unchecked
 
-Task 021's audit is complete and its findings are recorded in `memory/architecture.md`'s reviewed
-allowlist. The box is **not** checked, because the task's own contract requires that every surviving
-non-N# file be *"pre-existing, non-growing, mechanical, and explicitly reviewed against a canonical
-N# owner."* Three of those four conjuncts hold across the whole surface — zero non-N# files were
-added, zero of 381 ratchet rows exceed their epoch ceiling, and every file is classified with its
-owner named. **The `mechanical` conjunct fails for one file**, and with it the task's requirement
-that IL generation have exactly one N# production owner.
+The original twelve-slice audit at `6fcb41f64` found that surviving C# was non-growing and classified,
+but the declaration/body emitter still owned compiler decisions. The end state remains unchanged:
+one N# production owner for IL generation, with any surviving host pre-existing, non-growing,
+mechanical, and explicitly reviewed against its N# owner.
 
-What remains, and where it belongs:
+Current measured route and boundaries are in [STATUS §1](../systems-language-closeout/STATUS.md):
 
-1. **`src/NSharpLang.Compiler/Columnar/ColumnarIlEmitter.cs`** — 21,519 lines carrying **144
-   user-facing sentences**. Blocked on the four remaining `015` sub-tasks and on the AOT
-   metadata-writer task that must replace `System.Reflection.Emit`. By design, `015` does not
-   complete inside `021`; closing `015` is what unblocks this box.
-2. **`Analyzer.cs`'s `MetadataLoadContext` quarantine** — 17 members plus the nested
-   `NSharpMetadataResolver`, holding the file's only remaining decision (one internal exception
-   message). Blocked on the AOT external-type-model task: the estate cannot yet spell
-   `MetadataReader`, and 83 production `.nl` files name the `System.Reflection` object model.
-3. **Visual IDE verification** — the one terminal condition no backend slice could discharge.
-   Computer-use is unavailable in this environment (the grant list is empty and a grant needs an
-   interactive dialog), so the VS Code integration suite plus the extension reinstall are the only
-   evidence. An integration suite is not a screenshot; editor *rendering* remains unverified.
+1. `ColumnarIlEmitter.cs` remains 20,724 lines / 19,712 nonblank after S2.1(f). Task 023 builds
+   explicit declaration rows and an N# ECMA-335 writer, then removes Reflection.Emit and the old emitter.
+2. The external scan/catalog and editor type catalog are N#-owned; Analyzer.cs is 2,357 lines and
+   TypeResolver.cs is 61. One metadata universe through emission and NativeAOT still depend on the
+   writer (023/3, then 022/5). The old Reflection.Emit-only plan is superseded.
+3. Visual IDE verification is available and has been performed, including the 2026-09-04 package
+   catalog growth, completion import acceptance, NL002 quick fix, and fresh-server lifetime checks.
+   It is no longer accurately described as unavailable. [Evidence](../systems-language-closeout/decodes/2026-09-04-takeover-verification.md).
 
-Everything else `021` named is green, including the full VS Code-enabled product gate, the ownership
-audit, and the clean two-key repin.
+The 2026-09-03 handoff snapshot was retired after its four streams landed; current ownership,
+remaining source/tooling chips, verification procedure, and owner choices are carried in STATUS §1.
+The 015, 021, 022, and 023 boxes stay unchecked until their actual terminal conditions pass.
