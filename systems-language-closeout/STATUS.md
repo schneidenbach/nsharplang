@@ -33,7 +33,11 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 **Error-docs arc:** MERGED at `08ec08a82` (branch tip `706d37c9f`), gated green in r19 as part of `af07060ac`. See §4.11.
 
-**Tip:** `1cd8ec19c` on `systems-language` (PR #190 against `main`; pushed 2026-09-03 ~17:45) — gate r23 fully GREEN: exit 0, unit 593, estate 7,630, VS Code integration step green; carries the diag-honesty slice 7 merge (`51fa6592b`) and the HANDOFF file `tasks/024-handoff-2026-09-03.md` (the session ended at the owner's weekly limit; Codex picks up from that file; every stream's WIP is committed on its branch). Previous tips: `a18489795` (r22), `a2df5dd74` (r21).)
+**Checkout at takeover (2026-09-04):** `6ea697316` on `systems-language`, clean and equal to the local
+`origin/systems-language` tracking ref. This is a bookkeeping commit after **last recorded gated product tip
+`1cd8ec19c`** (r23: unit 593, estate 7,630, VS Code smoke green). The surviving r23 log is
+`/private/tmp/gate-163317/gate.log` and ends `ALL TESTS PASSED!` with validated isolated cache storage.
+No new integration verdict is claimed for the takeover work below.
 
 ### Queue state (`tasks/README.md`)
 
@@ -46,9 +50,9 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 | 018 | complete — systems-analyzer policy N#-owned; box checked |
 | 019 | complete — `DocQuery.cs` deleted at `dc2c4ae20`; box checked |
 | 020 | complete at `530bfbc85` (45 slices); box checked |
-| 021 | audit complete at `6fcb41f64` (12 slices); **box deliberately unchecked** — the emitter retires via 015-E on Reflection.Emit (the `MetadataBuilder` writer is shelved), the external type universe via task 022; visual IDE verification discharged 2026-09-02 (D1–D3 fixed, D4 open) |
-| 022 | filed `0d472bdd4`; slice 1 measured (`871b6dafc`); slice 2 closed at 2e (2a–2e landed; 2h measured universe A unreachable through `PersistedAssemblyBuilder`; the Cecil rewrite load-bearing until 023/3); slice 3a COMPLETE (`857c71712` the general construction rule, `83961914c` the three reflection-invoked constructors become `new` after the republish — `ConstructorInfo::Invoke` 0 by set diff); 3b-1 (`c79fe23bb`) and 3b-2 (the load surface to N#, `27a6d24f6`) LANDED; 3b-3 LANDED (`122450249`, merged `50f110733`, gate r20 pending: `Analyzer.cs` 2,726 → 2,720, `MetadataLoadContext` code lines 4 → 2, both in the resolver); 3b-4a (`918a746e3`: the three literal-less decisions become an ordered plan, 212 lines leave `Analyzer.cs`) and 3b-4b (`a6b36fb4a`: `AnalyzerMetadataAssemblyResolver.nl` subclasses the external abstract resolver; the surface builds resolver, directory ladder and context in one door because the CLR binds the core eagerly) LANDED, merged `002ffe737`, gate r21 pending — **slice 3b TERMINAL: `MetadataLoadContext` matches zero code lines in `src/**/*.cs`**; `Analyzer.cs` 2,798 → 2,357 across 3b; estate 7,540; the D3 contract's first version passed against the mutant (probe order is invisible in the returned assembly; the FAILURE TABLE is the observable — a correct order never attempts a load that must fail), both mutants now bite; slice 4 IMPLEMENTED (`808a03498` the probe — outcome 1, `Type.IsPublic`/`IsNested` bind under the packaged SDK, and the decode's fallback derivation was FALSE: `IsPublic` is true only for TOP-LEVEL public types, 138 of 1,498 exported types are nested; `6e3b9262f` `EditorTypeCatalog.nl` + 8 contracts, the caches keyed on the analyzer assembly list's identity because `LoadFromProjectConfig` appends per project directory after completions may have been served; `4c802bd12` `TypeResolver.cs` 373 → 61, the editor's seed universe retired; under MLC `Assembly.GetType` FOLLOWS type forwarders while `GetExportedTypes` does not, so simple-name completion depends on `System.Private.CoreLib` being in the list — pinned; the ratchet does not net across files; merged `f8993ab0c`) — **4d pending: the coordinator's VS Code-enabled gate r22 + the visual round with the owner at the keyboard**; 5 waits for 023 — §4.11 |
-| 023 | filed 2026-09-02; slice 1 COMPLETE (`92a319b49` enum members wholesale, `3dc04f9c1` the writer's assembly + 37 catalog rows, `b399c397a` the decode — the hello-world writer runs from the committed tree, `ilverify` green); 1e LANDED (`41ccc7f87`, the constant-conversion rules with the emit-coercion owner moved to N#); slice 2 re-aimed 2026-09-03 (S2.0–S2.6): S2.0 census CLOSED (`763661395`; 17.9 % of bodies wholly row-described, 93.0 % carry rows), S2.1(a) LANDED (`749036b5c` in `af07060ac`: the declaration-row IR, assembly/module/enum rows the walk executes, whole-PE `IL_DIFFS=0` over 68 corpus assemblies), S2.1(b) LANDED (`03fc6d699`, merged `0801929bf`, gate pending: typedefs are rows; the host's nested-visibility asymmetry — a top-level type ORs `Public`, a nested one ORs its `NestedVisibilityAttributes` INSTEAD — pinned four ways plus a fifth proving a nested type never acquires `Public`; whole-PE `IL_DIFFS=0` over 69 assemblies, estate 7,520 = 7,517 + 3 measured by reverting the contracts file), S2.1(c) LANDED (`5de84b5ee`, merged `fa2af1df1`: fields are rows; `FieldReadonlyFlags` may be SHORTER than `FieldNames`, so the bounds guard IS the computation; `IL_DIFFS=0` over 69 assemblies, estate 7,523), S2.1(d) LANDED (`647f2e827`, merged `9dea96b5b`, gate pending: the `MethodAttributes` base words are rows — a free function (22) is NOT a static method (150): no `HideBySig` because free functions do not overload; `op_` is a case-sensitive name prefix that decides `SpecialName`; `this` occupies argument zero so instance ordinals shift by one; the `Virtual|Final|NewSlot` widening stays S2.2, ORed by the host onto the planned base; `IL_DIFFS=0` over 69 assemblies, estate 7,528 = 7,524 + 4 measured), S2.1(e) LANDED (`06d3eacb9`, merged locally, gate pending: accessor words are rows — an accessor word is its method word plus `SpecialName`, pinned for both cases; the host neither grew nor shrank (fingerprint-only repin); `IL_DIFFS=0` over 70 assemblies, estate 7,595 = 7,592 + 3 measured; a cast-of-null local initializer `(T?)null` declines at `emit.local.initializer` while `null` in argument position is fine — compile contracts against the estate BEFORE spending a sweep; the harness now prints a VERDICT over IL, estate and format so a red step cannot hide behind ALL-DONE), S2.1(f) generic parameters + constraints in flight (`ColumnarConstraintColumns.SpecialsOrEmpty`/`TypesOrEmpty` normalise null but not SHORT arrays — the host's `Length > g` guards are load-bearing) — §4.12 |
+| 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
+| 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d visual checks remain owed**. 2f-b catalog-based type admission is active; slice 5 waits for 023/3 — §4.11 |
+| 023 | slice 1 complete; constant-conversion owner 1e landed. S2.0 census and S2.1(a)–(e) declaration rows landed. **S2.1(f) at `dc3131202` awaits trustworthy whole-PE parity proof and integration**. S2.1(g)–(i), resolution S2.2, declarations S2.3, body encoder S2.4, coverage S2.5 and harness S2.6 remain — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -85,67 +89,43 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
 - **D3 — FIXED, merged `87ec6b9d1`; D2 — FIXED, merged `26592a954`; D1 — FIXED with D2; D4 — FIXED, merged `ef0a5bf65`.**
   The decodes are in §4.10; the visual proof is the record above.
 
-### Active slices (2026-09-03; worktrees at `/private/tmp/nsharp-agent-wt/<stream>`, WIP committed before every pause)
+### Active slices (2026-09-04 takeover)
 
-- `stream/022-s3b2-load-surface` — 3b-2 LANDED `ccdf6ff06` (merged `5a4d61e97`): the 93-line load surface is
-  `AnalyzerMetadataLoadSurface.nl` (228 lines: `LoadByPath`/`LoadByName`/`Register`, the three dedupe predicates,
-  `AddSearchDirectory`, both `RecordFailure` doors; the context held from `Attach` to `Detach`), `Analyzer.cs` 2,798 → 2,726,
-  the two C# `[Fact]`s passed unchanged against the moved surface before their 159-line file was deleted (row REMOVED), the
-  fixtures are the two `System.Runtime.dll`s that already ship with one identity at two paths (the deleted header's claim
-  that a throwaway-library kernel was needed was false; `LoadFromAssemblyPath` throws on an already-loaded identity, so the
-  context probe is load-bearing and contracted), the 100-project differential byte-identical, the sweep 114/114 SAME once
-  `NSharpLang.Runtime.dll` was pinned (byte-different between worktrees only by CodeView path LENGTH, which the normaliser
-  does not neutralise). 3b-3 (construct/dispose) and 3b-4 (the three orchestration decisions + the resolver to N#) in
-  Phase 1; slice 3b's "`MetadataLoadContext` matches zero code lines" is not yet discharged.
-- LANDED `1ad0d1f02` + `a4c8336d0` (merged `8f0ef3138`): the language server exits on stdin EOF (0.02–0.03 s, was ≥ 20 s),
-  on client death (0.13 s, was ≥ 25 s) and on the `exit` notification, through a stdin pump into a `Pipe` and one
-  event-driven watch, `Program.cs` 157 → 155 lines; `tests/native/lsp-lifetime` proves all three through a shell vehicle
-  (the parent-death and redirected-stdin shapes decline at columnar emit — three door gaps filed); the reload script's proof
-  line names the newest plugin host's own server child (a bare `pgrep -n` would have named Copilot's Roslyn server). The
-  fifth visual round (the proof line live; one server per window after a close) needs the user at the keyboard.
-- `stream/error-docs-pages` — the 20 catalog retirements (REDONE), the exemption list for the seven soundness holes, the
-  autogenerated sidebar and index, contract B (every page's example produces its code through the shipped CLI), then
-  every page by family to 81/81. The URL constant is already on `systems-language` (`a9059fc71`).
-- `stream/023-s2-writer` — task 023 slice 2, plan ADOPTED 2026-09-03 from its Phase-1 decode: there are NO declaration
-  plan rows today (the declaration host is imperative C# over the source-shaped `ColumnarProgramInput`; 57 `TryResolveType`
-  sites, 95 `MakeGenericType`) and the plan rows describe only door-claimed bodies (~13% of body keys) — so slice 2 is
-  S2.0 decode (rebuild the method-body key dumper; re-derive the door census; decide the body fork with numbers) → the
-  `U` uint-literal suffix that does not emit (own commit) → S2.1 the declaration-row IR `ColumnarDeclarationPlan.nl`
-  driving the EXISTING Reflection.Emit walk one table per commit at `IL_DIFFS=0` → S2.2 resolution to N# (type-reference
-  keys, the override descriptor, maxstack as a plan column from `ValidateMethodBodyStack`'s heights, ambient locals as
-  slot indices) → S2.3 the writer for declarations behind `backend: il-writer` (the switch already exists in N#) → S2.4
-  the byte-level body encoder (zero catalog rows; slice 1's blanket refusal of the body layer corrected) → S2.5 the
-  remaining bodies per the fork → S2.6 harness + `tests/native/metadata-writer` (+ the corpus pin). The Cecil
-  corelib→contract rewrite stays load-bearing through slice 2.
-- `stream/invariant-diagnostics` (worktree `invariants`, from `a18489795`) — the analyzer's twelve `InvalidOperationException`
-  internal-invariant throw sites: census, reproduce from user source where reachable and make each a diagnostic (NL924-class or the
-  owning code) with a page under contract B; the provably unreachable ones state the invariant the way the estate already does.
-- `stream/022-s3b2-load-surface` continues with task 022 slice 2f — the closed allow-lists on the emit path
-  (`IsSupportedRuntimeTypeName` 32 rows, `ColumnarTypeOfPlanner.IsSupportedType`) become "a catalog-resolvable type is supported";
-  decode first (decline census with the lists widened; the republish boundary named before it is crossed); C# edits limited to
-  deletions inside the list functions and their call sites because 023-s2 edits the same file.
-- `stream/soundness-rules` — COMPLETE at `9032921d8` (five slices; merged `cb7d676e0`, gate r22). Slices 1–3 LANDED (`0291d7692` NL803 `new` on a type with no instances, `6526ab9ad` NL802 a base that cannot be extended, `39f535c1c` NL801 two bases + NL806 constructor arity; merged `563524668`, gate r21 pending; exemption list 7 → 3; 102-project differential byte-identical each time; zero C#); slices 4–5 LANDED (`823f4030c` NL307 + NL502 + NL204 with the seven `match` fixtures judged — six vindicated the rule, one was the agent's own mis-spelling, none a rule bug — and **contract A's exemption list at ZERO**, pages 90 → 98; `feb73176b` NL304 widened to `out` parameters on every path out of the callee; merged `cb7d676e0`, gate r22 pending; estate 7,616 on the branch; three false positives found by the ESTATE, not review: NL204 on a cast to an unresolved name (lenient cast resolution hands a bare `ExternalTypeInfo`, NL201 silent), the `out` rule on a method returning from `try` and all three `catch` clauses — `AnalyzeTry` had answered a flat `false` for "always exits" since it was written; the fix narrowed to the HANDLED `try`); the FORK the agent parked: NL204 needs `_patternReachability` threaded into the existing `_targetTypedOperands.Begin(expr)` call in `Analyzer.cs` — one argument, no line growth, a fingerprint repin (coordinator ruling: take it — wiring that routes a report to the N# owner is not C# logic). Aim: empties contract A's exemption list (seven codes the catalog
-  publishes and no site reports: NL803 abstract `new`, NL802 sealed base, NL801/NL806, NL204/NL307/NL502) by making each rule real
-  in the N# analyzer owners, plus `out`-parameter definite assignment on both halves; each slice reproduces the silent hole first,
-  contracts positive and negative spellings, updates the code's page under contract B, removes the exemption, and judges every
-  new estate hit in the 101-project `check --json` differential.
-- `stream/diag-honesty` (worktree `diag-honesty`, from `af07060ac`) — slices 1–6 LANDED (`9b53bf5d6` the parser's `<error>` placeholder can no longer reach a sentence, `177bc7343` NL701's hint said the opposite of the resolver's rule, `6feec3136` NL321/NL702 now suggest spellings the compiler accepts, `a0cf3ce6e` NL001/NL012 measure "never read" exactly, `c63f2079f` NL010 sees a `catch` clause's type, `610f87e44` NL011's suggestion no longer proposes a comment; new native project `tests/native/diagnostic-honesty` (corpus pin 74); merged `3e58772de`, gate r21 pending); slice 7 LANDED (`7a30bc5a2`, merged `51fa6592b`, gate r23 pending: a null check that cannot be null gets a sentence instead of an emit decline — `count != null` on an `int` typed as `bool` because `CanCompareWithEqualityOperator` was unconditionally true when a side is `Null`); slice 8 (the NL002 whitelist and sentence) in flight. Aim: the product defects the error-docs arc surfaced: the
-  `<error>` placeholder cascade, NL701's inverted hint, NL321/NL702 suggesting fixes that do not compile, NL001/NL012
-  counting a write as a use; then the queued linter defects (NL010 `catch` types, NL011 suggestion, NL003 literals, NL002
-  whitelist), each its own contracted slice.
-- `stream/compile-time-gate-load` — LANDED `73d38eb3d` (merged `950bc5df1`, gate r20 pending): the compile-time timing gate skips honestly above a load threshold of 0.2 × logical
-  cores (2.0 on the 10-core M4; the five red gates had medians 1.5–2.2× baseline at loads 4.4–8.1, ≈ 1 + 0.13·L, so load
-  alone reaches the ×1.5 limit at L ≈ 3.9), the verdict string carries the numbers, a one-line record lands in
-  `artifacts/compile-time/last-gate-run.txt`, `cliCommit=unknown` becomes the honest reason (the gate copy has no `.git`),
-  the correctness half keeps running under load; the runner has no runtime skip (a static `Skip=` only), so the skip is a
-  silently passing block — inside a full gate the timing judgement will usually be skipped, and the number stays what
-  `memory/testing.md` §8 says: taken on a quiet box.
-- Type constraints reach metadata for all five type keywords (`19f2911b6`, `ae8f4bdb1`); NL208 at `new` sites (`0e382403c`);
-  the declaration-position checks are blocked by the emitter door (§1 decode above) and their working attempt is preserved
-  outside the tree.
-- The IDE-verify peer session is unblocked: the lifetime fix is in the tree (fifth round: the proof line naming the
-  fresh server against a REAL plugin host — the only claim this slice could not measure without VS Code — and one server
-  per window after a close, which is the orphan count going to zero).
+The coordinator owns this cursor and landing order. Agents own separate durable worktrees under
+`/private/tmp/nsharp-agent-wt/`, commit coherent slices after focused verification and the root format check,
+and commit WIP before pausing. No agent republishes the toolset or runs an integration gate independently.
+
+| owner / branch | current bounded slice | acceptance before landing |
+|---|---|---|
+| writer parity / `stream/023-s2-writer` | S2.1(f), implementation `dc3131202`; recover its missing whole-PE proof before starting (g) | Explicit `dc3131202^` and `dc3131202` inputs, identical nonempty assembly sets and project outcomes, pre/pre control, non-vacuity mutation, then pre/post `IL_DIFFS=0`; the inherited script's `HEAD~1` now points at the wrong parent and its missing-assembly allowance cannot be accepted |
+| type rules / `stream/022-s3b2-load-surface` | 2f-b first: resolve `typeof` through the existing exact catalog/source/alias resolver and replace external admission lists with assembly identity rules | Reconstruct the probe matrix from evidence: the handoff's stated counts disagree with its listed names. Keep source/alias precedence and structural guards; report admission separately from downstream emission. No C# emitter edits in this slice |
+| internal errors / `stream/invariant-diagnostics` | Step (c), NL924 boundary in N#; fourteen invariant sites already measured and worded | Synthetic exception through the production boundary, stable output and exit status, catalog/page contract, no C# growth. Full `Execute` migration hit a dependency cycle and mixed-language compilation limits; measured fallback is one host delegation to N# catch/render/exit, without claiming the C# dispatcher retired |
+| coordinator / `stream/diag-honesty` | Review slice 8, truthful NL002 import-hygiene sentence; slices 1–7 are already gated | Tighten the inherited test that called two unsuccessful builds identical: assert child exit status and complete diagnostic-stream equality. Contracts build libraries, so remove their unsupported “and run” claim. Focused estate/native/format checks, updated arc row, then integration and visual verification |
+
+**Landing order:** the diagnostic slice and S2.1(f) proof are the first candidates; 2f-b and NL924 follow
+only when their own focused evidence is complete. Pause all implementation/sweep work before each fresh
+isolated integration gate. Build and pre-check the merged CLI; derive any two-key ownership repin LAST from
+the observed merged tree. Use the AGENTS.md gate appropriate to scope: backend-only checkpoints skip VS Code;
+IDE-affecting checkpoints include VS Code and a rebuilt/reinstalled extension with screenshots. The current
+NL002 diagnostic change plus the overdue editor checks require the VS Code-enabled path. Push only the exact
+gated revision; do not republish packages mid-slice.
+
+**Still owed:** editor type-universe slice 4d (project packages, including additions after first completion)
+and LSP lifetime visual verification (fresh server named by the reload script; one server per open window
+and exit on close). Computer-use can access VS Code at takeover; no fresh visual verdict yet. A quiet-box
+compile-time measurement also remains owed; a load-skipped gate is not that measurement.
+
+**Next after this wave:** 023 S2.1(g)–(i), S2.2 resolution, S2.3 declaration writer, S2.4 body encoder,
+S2.5 coverage and S2.6 metadata-writer harness; then one type universe through the writer and retirement of
+Reflection.Emit. 022/2f-b2 may delete the static-call chain only after 2f-b; 2f-b3 construction, 2f-c declaration
+names, 2f-d duplicate runtime predicates and 2f-e estate deletions follow. Stop at the committed/gated toolset
+republish boundary before estate code uses newly admitted shapes. 022/5 NativeAOT and 015-B17 stay parked.
+
+**Completed streams:** soundness rules (`9032921d8`, merged `cb7d676e0`, r22); error-docs
+(`08ec08a82`, r19); diagnostic-honesty 1–6 (r21), 7 (`51fa6592b`, r23); load-aware compile-time gate
+(`73d38eb3d`, merged `950bc5df1`, r20). Type constraints reach metadata for all five type keywords
+(`19f2911b6`, `ae8f4bdb1`) and NL208 reaches `new` sites (`0e382403c`); declaration-position work remains blocked
+by the emitter door. Domain choice and the owner's unrelated idle sessions/process remain unchanged.
 
 ### `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED (record; numbers in §4.1)
 
@@ -173,18 +153,11 @@ proof in the bar ran green; the numbers are in §4.1 and the coordinator commits
 
 ### Next briefs (in order)
 
-1. **B17 — the composed instance-member receiver (`o.Inner.V`).** It moves the EIGHTH cascade arm,
-   the one where the cascade sets `nsharpOwned = ClaimsRoot(...)` BEFORE `TryEmit` and a set-but-failed claim
-   declines the whole function; type and append sides must move together. The three plain-surface sites in
-   `ColumnarDirectCallPlanner` (`:1040`/`:1208` pinned as receivers paired with a written `false`).
-2. Continue the B-arc to full statement/expression coverage (C# host: 21 statement kinds / 27 expression
-   kinds; N# door growing).
-3. `015-D` real async lowering (retires the blocking-await model).
-4. `015-E` the declaration host + the AOT metadata writer (`MetadataBuilder` as a SECOND executor over the
-   same plan rows; retires `System.Reflection.Emit` in the emitter).
-5. The AOT type-model task (replace the analyzer's MetadataLoadContext external type model; `MetadataReader`
-   is unreachable from N# at emit). Then re-run 021's closing decision and its box.
-6. Wave 3 (below): D4, then the chip-found defects; the 15 filed chips are closed.
+Use the active-slice and landing tables above. Task 023's writer is the dependency path to retiring
+Reflection.Emit and the C# emitter; task 022's catalog work proceeds independently until its writer boundary.
+The composed receiver (015-B17), remaining B-arc coverage and real async lowering (015-D) remain open.
+Task 021 is re-decided by measured ownership and product evidence after the writer and type universe land.
+The earlier Reflection.Emit-only plan is historical and was withdrawn by the decision below.
 
 Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the language"):
 - File task 022; the formatter wraps gofmt-style (author-preserving). The 2026-09-02 morning ruling "shelve the
@@ -261,8 +234,8 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
    empty first; NEVER signal a gate (its EXIT trap deletes the tree under the live core). Read the verdict from
    the log's `GATE EXIT` line; a log's filename is part of its identity.
 10. **Agent hygiene:** progress line every few minutes (the 600 s stream watchdog kills silent waits); never
-    `git add -A`; stage only your files; do not commit (the coordinator commits); this file always,
-    `tasks/README.md` never.
+    `git add -A`; stage only your files; commit coherent slices after focused tests and root format checks;
+    agents record §4, while the coordinator owns §1 and `tasks/*`.
 
 ### Harness state (inherit exactly)
 
