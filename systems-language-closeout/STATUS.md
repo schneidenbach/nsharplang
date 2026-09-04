@@ -33,11 +33,12 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 **Error-docs arc:** MERGED at `08ec08a82` (branch tip `706d37c9f`), gated green in r19 as part of `af07060ac`. See §4.11.
 
-**Checkout at takeover (2026-09-04):** `6ea697316` on `systems-language`, clean and equal to the local
-`origin/systems-language` tracking ref. This is a bookkeeping commit after **last recorded gated product tip
-`1cd8ec19c`** (r23: unit 593, estate 7,630, VS Code smoke green). The surviving r23 log is
-`/private/tmp/gate-163317/gate.log` and ends `ALL TESTS PASSED!` with validated isolated cache storage.
-No new integration verdict is claimed for the takeover work below.
+**Takeover integration (2026-09-04):** started at clean/pushed `6ea697316` on `systems-language`.
+The diagnostic-honesty slice is merged at `f83bf86e2`, the N# NL924 boundary at `16784b0e1`, scoped
+`typeof` admission from `629c727a5`, and proven S2.1(f) plus its shared-empty correction at `dd4853044`.
+The final editor correction and integration checkpoint are being verified below. The preceding gated
+product tip is `1cd8ec19c` (r23: unit 593, estate 7,630, VS Code smoke green); its surviving log is
+`/private/tmp/gate-163317/gate.log`. A focused slice result is not a new full-gate verdict.
 
 ### Queue state (`tasks/README.md`)
 
@@ -51,8 +52,8 @@ No new integration verdict is claimed for the takeover work below.
 | 019 | complete — `DocQuery.cs` deleted at `dc2c4ae20`; box checked |
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
-| 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d visual checks remain owed**. 2f-b catalog-based type admission is active; slice 5 waits for 023/3 — §4.11 |
-| 023 | slice 1 complete; constant-conversion owner 1e landed. S2.0 census and S2.1(a)–(e) declaration rows landed. **S2.1(f) at `dc3131202` awaits trustworthy whole-PE parity proof and integration**. S2.1(g)–(i), resolution S2.2, declarations S2.3, body encoder S2.4, coverage S2.5 and harness S2.6 remain — §4.12 |
+| 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package hover/namespace completion and lifetime checks passed visually during takeover; completion acceptance exposed a missing import edit, being corrected below**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
+| 023 | slice 1 complete; constant-conversion owner 1e landed. S2.0 census and S2.1(a)–(e) declaration rows landed. **S2.1(f) and cache correction are merged at `dd4853044`: four committed-arm comparisons, 94 assemblies, zero IL/missing-output/outcome differences**. S2.1(g)–(i), resolution S2.2, declarations S2.3, body encoder S2.4, coverage S2.5 and harness S2.6 remain — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -89,43 +90,51 @@ against the old server (kept under `stale-385b7e8d1/` as evidence only, then re-
 - **D3 — FIXED, merged `87ec6b9d1`; D2 — FIXED, merged `26592a954`; D1 — FIXED with D2; D4 — FIXED, merged `ef0a5bf65`.**
   The decodes are in §4.10; the visual proof is the record above.
 
-### Active slices (2026-09-04 takeover)
+### Takeover checkpoint and next ownership slices
 
-The coordinator owns this cursor and landing order. Agents own separate durable worktrees under
-`/private/tmp/nsharp-agent-wt/`, commit coherent slices after focused verification and the root format check,
-and commit WIP before pausing. No agent republishes the toolset or runs an integration gate independently.
+The coordinator owns this cursor and landing order. Implementation worktrees are durable under
+`/private/tmp/nsharp-agent-wt/`; each owner commits focused-green slices and pauses clean before the
+fresh integration gate. No agent republishes the SDK or runs an independent product gate.
 
-| owner / branch | current bounded slice | acceptance before landing |
+| stream | integrated result | evidence and remaining boundary |
 |---|---|---|
-| writer parity / `stream/023-s2-writer` | S2.1(f), implementation `dc3131202`; recover its missing whole-PE proof before starting (g) | Explicit `dc3131202^` and `dc3131202` inputs, identical nonempty assembly sets and project outcomes, pre/pre control, non-vacuity mutation, then pre/post `IL_DIFFS=0`; the inherited script's `HEAD~1` now points at the wrong parent and its missing-assembly allowance cannot be accepted |
-| type rules / `stream/022-s3b2-load-surface` | 2f-b first: resolve `typeof` through the existing exact catalog/source/alias resolver and replace external admission lists with assembly identity rules | Reconstruct the probe matrix from evidence: the handoff's stated counts disagree with its listed names. Keep source/alias precedence and structural guards; report admission separately from downstream emission. No C# emitter edits in this slice |
-| internal errors / `stream/invariant-diagnostics` | Step (c), NL924 boundary in N#; fourteen invariant sites already measured and worded | Synthetic exception through the production boundary, stable output and exit status, catalog/page contract, no C# growth. Full `Execute` migration hit a dependency cycle and mixed-language compilation limits; measured fallback is one host delegation to N# catch/render/exit, without claiming the C# dispatcher retired |
-| coordinator / `stream/diag-honesty` | Review slice 8, truthful NL002 import-hygiene sentence; slices 1–7 are already gated | Tighten the inherited test that called two unsuccessful builds identical: assert child exit status and complete diagnostic-stream equality. Contracts build libraries, so remove their unsupported “and run” claim. Focused estate/native/format checks, updated arc row, then integration and visual verification |
+| writer / `stream/023-s2-writer` | S2.1(f), `dc3131202`, plus shared empty row `08c67e468`; merge `dd4853044` | Pre/pre, pre/historical, pre/cache and historical/cache each compare 94 assemblies with zero IL/output-set/outcome differences; 73/75 projects and 2,117 native tests per arm. The two identical NL402 template declines remain. One-byte mutation changes the predicted assembly and stdout. [Proof](decodes/2026-09-04-s21f-parity-proof.md) |
+| type rules / `stream/022-s3b2-load-surface` | 2f-b `629c727a5`: scoped source/catalog/alias resolution and exact external identity admission | 38-row matrix **16 pass / 22 decline → 37 pass / 1 decline**. `Uri` is missing from the product catalog; the handoff's 22/22 catalog claim used a different probe. Source-builder generic lowerings retained after a real audit regression. No C# or SDK change |
+| internal errors / `stream/invariant-diagnostics` | N# boundary `e885d7926`, merge `16784b0e1`; portable newline contracts `35ee5d396` | Escaping CLI exception renders NL924 on stderr and exits 2; synthetic exact output plus production Main invocation tested. `nlc run` still forwards child exit 2 without inventing NL924. Full Execute migration remains blocked by the measured dependency/mixed-language boundary; C# dispatcher ownership is not claimed retired. [Decode](decodes/invariant-diagnostics-boundary.md) |
+| diagnostic honesty / `stream/diag-honesty` | NL002 import-hygiene wording, merge `f83bf86e2` | Child exit status and complete error output replace the inherited weak failed-build comparison; unsupported “and run” claims removed. New `typeof` admission changes some former emission failures to successes; the integration contract is being reconciled |
+| editor acceptance / `codex/ide-auto-import` | Fix required by actual editor acceptance: the completion label promised an import but supplied no edit | N# placement shared with NL002 quick fix, namespace scope policy moved out of C#, actual wire edits applied and checked. Final multiline-header/start-of-file review and installed-extension verification pending |
 
-**Landing order:** the diagnostic slice and S2.1(f) proof are the first candidates; 2f-b and NL924 follow
-only when their own focused evidence is complete. Pause all implementation/sweep work before each fresh
-isolated integration gate. Build and pre-check the merged CLI; derive any two-key ownership repin LAST from
-the observed merged tree. Use the AGENTS.md gate appropriate to scope: backend-only checkpoints skip VS Code;
-IDE-affecting checkpoints include VS Code and a rebuilt/reinstalled extension with screenshots. The current
-NL002 diagnostic change plus the overdue editor checks require the VS Code-enabled path. Push only the exact
-gated revision; do not republish packages mid-slice.
+**Integration procedure:** build the merged CLI and pre-check affected native projects. Derive every
+ownership repin from the OBSERVED merged tree, on both keys, without increasing a ceiling. Root format
+check before each commit. Pause all implementation and sweep work, require clean committed worktrees,
+then byte-copy with `.claude/worktrees` and `artifacts/from-worktrees` excluded. Run a fresh
+`./scripts/test-all.sh --commit` with VS Code ENABLED for this IDE-affecting wave. Log outside the copy,
+check for another gate first, never kill the gate driver, and push only the exact gated source revision.
+No SDK/feed republish during this wave.
 
-**Still owed:** editor type-universe slice 4d (project packages, including additions after first completion)
-and LSP lifetime visual verification (fresh server named by the reload script; one server per open window
-and exit on close). Computer-use can access VS Code at takeover; no fresh visual verdict yet. A quiet-box
-compile-time measurement also remains owed; a load-skipped gate is not that measurement.
+**Next writer slice:** S2.1(g) custom attributes, then (h) P/Invoke and (i) method overrides, each over
+explicit declaration rows and with whole-PE control-first parity. Continue S2.2 resolved type-reference
+keys, S2.3 declaration writer, S2.4 body encoding, S2.5 remaining bodies and S2.6 metadata-writer parity
+harness. Then task 023/3 routes the unified type universe through that writer and retires Reflection.Emit.
 
-**Next after this wave:** 023 S2.1(g)–(i), S2.2 resolution, S2.3 declaration writer, S2.4 body encoder,
-S2.5 coverage and S2.6 metadata-writer harness; then one type universe through the writer and retirement of
-Reflection.Emit. 022/2f-b2 may delete the static-call chain only after 2f-b; 2f-b3 construction, 2f-c declaration
-names, 2f-d duplicate runtime predicates and 2f-e estate deletions follow. Stop at the committed/gated toolset
-republish boundary before estate code uses newly admitted shapes. 022/5 NativeAOT and 015-B17 stay parked.
+**Next independent type slice:** 022/2f-b2 routes static calls through existing `GetStaticCallPlan` and
+deletes the measured 866-line closed chain; coordinate exclusive emitter ownership with the writer.
+Then 2f-b3 construction, 2f-c declaration-name rows (re-measure the count), 2f-d duplicate runtime type
+predicates and 2f-e estate deletions. Stop at a committed/gated SDK republish before estate code uses
+newly admitted shapes. 022/5 NativeAOT and 015-B17 remain parked; 021 is re-audited after 022/023 land.
 
-**Completed streams:** soundness rules (`9032921d8`, merged `cb7d676e0`, r22); error-docs
-(`08ec08a82`, r19); diagnostic-honesty 1–6 (r21), 7 (`51fa6592b`, r23); load-aware compile-time gate
-(`73d38eb3d`, merged `950bc5df1`, r20). Type constraints reach metadata for all five type keywords
-(`19f2911b6`, `ae8f4bdb1`) and NL208 reaches `new` sites (`0e382403c`); declaration-position work remains blocked
-by the emitter door. Domain choice and the owner's unrelated idle sessions/process remain unchanged.
+**Remaining follow-ups:** estate `import System` hygiene plus gate-lint consistency; external-call
+constant conversion at the call site; the source/IDE chips already recorded below; isolated gate commit
+stamping (`cliCommit` currently unavailable inside its inner copy). A quiet-box compile-time judgment
+remains owed: a loaded-machine skip is not that evidence. Current corpus census is **75 tracked projects**,
+with **74 in the compile-time pin** because it excludes its own project, and 46 native projects.
+
+**Owner choices preserved:** docs retain `https://schneidenbach.github.io/nsharplang/docs/errors/<code>`;
+`docs.n-sharp.dev` has not been provisioned. Existing orphan servers (1007 and 37105 measured at takeover)
+and the owner's three nested `.claude/worktrees` sessions were left untouched. The completed
+`stream/soundness-rules` branch was safely deleted after its merge ancestry was verified. Check current
+branches/worktrees before another diagnostic-fixture regeneration; the separate golden-fixture session
+mentioned in the handoff has no new landing claimed here.
 
 ### `015-B16` — door kind 7 (Parenthesized) and door kind 55 (`typeof`) — LANDED (record; numbers in §4.1)
 
@@ -197,7 +206,7 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
 |---|---|
 | unit suite (`tests/Tests.csproj`) | 593 in gates r19–r22 (595 at `27a6d24f6`; the error-docs arc's two retired-code assertions) |
 | BootstrapServices estate (`.tests.nl` blocks) | **7,630** measured in gate r23 at `1cd8ec19c` (7,624 at `a18489795` + 6, diag-honesty slice 7) |
-| native projects | 46 `project.yml` under `tests/native`; corpus pin 74 (every `project.yml` under examples, tests and templates) |
+| native projects | 46 `project.yml` under `tests/native`; 75 tracked corpus projects, with pin 74 excluding the compile-time benchmark itself |
 | live-tree `nlc check --project src/NSharpLang.Compiler.BootstrapServices --json` | 403 files / 243 results (NL402 65, a pre-existing false-positive family) |
 | `ColumnarIlEmitter.cs` | 20724 lines / 19712 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1, 1e, 2.1a–d each shrank it); `Analyzer.cs` 2357 (2,798 before 3b; 3b removed 441 lines) |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
