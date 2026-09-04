@@ -1,0 +1,969 @@
+{
+  "proof": {
+    "verdict": "PASS",
+    "pre": "51fa6592b3ffc393fb1bc5f3ede571c5129f4c11",
+    "historical_post": "dc31312024ca1b0897d4065dc693ca740ef2b92d",
+    "final": "08c67e4689a3cbfff4c7fe13d3be5f4418b414c0",
+    "corpus": "dc31312024ca1b0897d4065dc693ca740ef2b92d",
+    "corpus_outputs": 94,
+    "targets_per_arm": 75,
+    "passing_projects_per_arm": 73,
+    "expected_declines": [
+      "templates/nsharp-systems-cli",
+      "templates/nsharp-systems-lib"
+    ],
+    "comparisons": [
+      "a-b",
+      "a-c",
+      "a-d",
+      "c-d"
+    ],
+    "IL_DIFFS": 0,
+    "estate_historical": 7632,
+    "estate_final": 7633,
+    "normalizer_mutation_differences": 1
+  },
+  "normalizer_sha256": "534ad423c57eed3fb2e733e5e80d1e2a1579230253e2b36a306f713d28cde63a",
+  "outputs": [
+    {
+      "path": "docs/design/systems-samples/proofs/24-zero-copy-frame-reader/bin/Debug/net10.0/SystemsProof24ZeroCopyFrameReader.dll",
+      "normal_sha256": "27be41a2c1f7c63fd0c8d166cd0230912976bde31bbe9721b49452965556fd00",
+      "raw_sha256_by_arm": {
+        "a": "b5614e4d945881576fd5e162cafcfad7f5b5e31466d5e607b58955b6ac7f4cc1",
+        "b": "e0ed71eadc4c59f4a84fb47f3d4dd41d3fb2304c80bbe4790429cc42c6964624",
+        "c": "72e2f09859087a3a45895587ee5af957a2e239bfb22198e7847d66e200a96bf6",
+        "d": "32fed2cfe5d616c5c39921c68185907fa6020956c48dfeef93d9f41d4fefa0f0"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/25-trusted-memory-copy/bin/Debug/net10.0/SystemsProof25TrustedMemoryCopy.dll",
+      "normal_sha256": "5c0def5df963609b9845a31a092060a0dee36440c28e8af2e5e698b41c68efe8",
+      "raw_sha256_by_arm": {
+        "a": "651c1cf3b54f1e0050e1ae14cd23f69c232ddf084c9093b4e3b4bd9e3b50044b",
+        "b": "a7fac039ee827e3a5a50944ae3fa4e4648efb3a4a7073590f6bb477a9f591aa1",
+        "c": "9928a9d03e04c97520118bd12f4c0bb5c0c3b6b476f8e566347ead1800246a8a",
+        "d": "b95ad1157d1e54e0e53de8311c785037a35bcdb8a372dd50b4a7dac21b3c4a50"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/26-native-device-handle/bin/Debug/net10.0/SystemsProof26NativeDeviceHandle.dll",
+      "normal_sha256": "cbb907c71ca12d6a667b5e44229a9d388af8c8d856afa4933d81e2a8aab4d7d3",
+      "raw_sha256_by_arm": {
+        "a": "80652319fd7c76e49e23247914d76fe4fa9fd1e028d8f0aa2b3353f252a279c3",
+        "b": "c034ff33b5f8f8d9976e5d0c14c4f9144dabb9458ed3c038dc831d2e263a10ce",
+        "c": "491137ee68c81fbf59c23c269d23eb85a8d66897e9c1ca68c7eaafefe99c94e2",
+        "d": "e2ea013aaaba064704dd8db078a0f168dfb94b3a321f3dbb13d64499782e9d3d"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/27-c-library-cli/bin/Debug/net10.0/SystemsProof27CLibraryCli.dll",
+      "normal_sha256": "31eefa3377b9f2f96bcbb7dda121d5384407f47eb201a6a65b63c2e65fc8bdaa",
+      "raw_sha256_by_arm": {
+        "a": "750a34dc73a870421de9fe17f302f6471af07f906a255ba70ddf4a128a90f792",
+        "b": "d89a7f64b3110e6dabf10ef989b4d4efef7c9505e7d90dc24769f4f68300f661",
+        "c": "30ac5ba238996f9f4b30d5438c1a91f60c2155c7f9e57fb89540f3a8d578ec4e",
+        "d": "d7a2e6d393a30199d036df31a3170c49183d7862d4ec669a1afd1bb5738f333a"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/30-cold-failure-logging/bin/Debug/net10.0/SystemsProof30ColdFailureLogging.dll",
+      "normal_sha256": "3f32e902e326a690787633fc020bac5c4bc60cbc7f2821cb065d80b859df8cdb",
+      "raw_sha256_by_arm": {
+        "a": "6e20e225718e8ff618077b4eddd738bc966e7cf71ba63d2a36499423ec3e0b81",
+        "b": "374d4a04b85e4837e36ef0b428f68d0998d46c39101e189ad878a69367921aff",
+        "c": "b0218fb5de300499097a946a186ce8f4ea950668ce873d508127b136cbb21059",
+        "d": "9fd9fee02cdb368d998236dfdfc7e92f6c60da9c67b8141789035887bf3d371c"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/31-hot-metrics/bin/Debug/net10.0/SystemsProof31HotMetrics.dll",
+      "normal_sha256": "83cca7afc6142b9cd3333e2452f8f250226b2eb9c93633f2ded94e2a0cd74a40",
+      "raw_sha256_by_arm": {
+        "a": "123bd67161682b78c518311d5ab3b5566adb8beb3d7ce51d5779f200e6109258",
+        "b": "9ff1612581374cda52f9f2a20d739c6000f1a4e610db5381c3fc8ea67e256057",
+        "c": "98932c4897bde13ff90c194580f74ea1857d136950f73cb3014472740a66219a",
+        "d": "6978f10e088df9d2fa774b2cad83ce755971fd32f302ab01809bde6d125e4924"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/32-cache-prewarm/bin/Debug/net10.0/SystemsProof32CachePrewarm.dll",
+      "normal_sha256": "ab38cfbb834034a9b0cf664515bfb5b1f97aced32f1dec6e4831e10c5973712c",
+      "raw_sha256_by_arm": {
+        "a": "5256ccc0c0906cecc76a039cbe37248a81886bb6b21f3e87a0a892fa05eedf09",
+        "b": "4bb770a68ba0ec7db409eb8c511ce056b12378efaf2a9d050ed19e63d274b3ac",
+        "c": "c9b16473e1cef29ec9d42d5aa479bf156ae31254baf4936f8ba4c1ec3c28d7f8",
+        "d": "0e7fd2fe0c75c48a64090941790bb2a99e2d5d28bc722ec689dfe80bb8234e8e"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/33-arraypool-file-io/bin/Debug/net10.0/SystemsProof33ArrayPoolFileIo.dll",
+      "normal_sha256": "64f32c7fb90717e476d690a89d7b94b8cbb36357c11b4afeaae52e8faba53ee2",
+      "raw_sha256_by_arm": {
+        "a": "89c126f6768b4332c19e3d66dd4a4510c58f76643f97f3fc7b9f5255fbed6ff5",
+        "b": "8dacfbb6e9590759d8b469d8c2c82ce4a616fc2786bee38b5f9e248faa809fc3",
+        "c": "b85f7d8e978db6835631be99f16f6e65ffe53668bc3a9d0758f622bfb441ba81",
+        "d": "8b47215bce77ef50ee3565c0c9cf37daeb271da379f50b046a96a9b1b53310fe"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/34-memorypool-disposal/bin/Debug/net10.0/SystemsProof34MemoryPoolDisposal.dll",
+      "normal_sha256": "ea65652b8398a856fb313455e36d4ea31fff23264916e8c406a9e6693557f781",
+      "raw_sha256_by_arm": {
+        "a": "48338c4dbd841f755bd815fe53556462560c5c06235a2a5acd47d011dfd87118",
+        "b": "295de565ab0b3424a9b17596a7de90ba06e34e9d2ea479e2dc4c874f06063497",
+        "c": "d3f21737c70ac9f8ad9f9eb2df800a4ea1fbda372c63d112a93cdf622508809e",
+        "d": "5cbf30dcbc8ac7a9fc9039d738ff67f1c2538227067d2b1911ad59c1ac412d56"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/35-async-file-hot-parser/bin/Debug/net10.0/SystemsProof35AsyncFileHotParser.dll",
+      "normal_sha256": "cb4bca4e9ae346db4198fa3149d6acf518cd8327d6ff5382d22128742b7809d8",
+      "raw_sha256_by_arm": {
+        "a": "73aaab1719cb829386fa7df76d4758c5a563e2f523d82eb592af154d5cd8b062",
+        "b": "742d46586ba2584503aeb40e51b8452f0fe13f04d4b18cc97111c091b55029f4",
+        "c": "21eefdff13d5afe1cdfda77306c0d91a73d38f0d22a80bb0de6bcf261016ba3d",
+        "d": "0c399efc99f4ec268675cfcb090c150f094add6b77c67c356212c62c55cc0c80"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/36-dictionary-setup-hot-read/bin/Debug/net10.0/SystemsProof36DictionarySetupHotRead.dll",
+      "normal_sha256": "d0f0f5ac00b42362bff1ba1c2694befd8515903d636c28682756bdd25106a643",
+      "raw_sha256_by_arm": {
+        "a": "bf0aaab2cf8148e0d55abb04b71f51110f025a6837908b1c9488ee868cca32c4",
+        "b": "069c9852ab887e55ba5f7c7acb6c6239bb816ef180900d8ab0a59de82deefa32",
+        "c": "f013e730342cb0402e90789dea10ea8cbfc4ced765ad3a183636121cb09bd84c",
+        "d": "25b6b87d556928bd0752e89541500cab3c56b080fb057309c0c43179bf9c2e6b"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/37-fixed-capacity-map/bin/Debug/net10.0/SystemsProof37FixedCapacityMap.dll",
+      "normal_sha256": "00e80058fee207cc22ad4e80d49e5e22e1b3c3368772f72774363d489e082e1e",
+      "raw_sha256_by_arm": {
+        "a": "88b95a6d8f576b12fad4af012f34845d79455aa1703663a1c593a0883373d483",
+        "b": "f74c790c8deebb50726b1d542919081ba5cf8bfba0c0720c4cfbc9ca80fe0f95",
+        "c": "6573e237f23c55070a01a8dd3f52e39ff43f22b2553e2a95629b328388688e92",
+        "d": "a684ce82867a92cc8e97b6dc8785df5d743a37e72eafb4e95b50d20d9f0fab4b"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/38-unmanaged-sort-comparer/bin/Debug/net10.0/SystemsProof38UnmanagedSortComparer.dll",
+      "normal_sha256": "d4622a7b22d12b4328182340c4bf6b32d6f017bd2d9607892dae0bc275e76c8e",
+      "raw_sha256_by_arm": {
+        "a": "96385f8576a101206e339f9f76eeeaa017e719628e3956b1fb0ad330a8ecc309",
+        "b": "17b56dc2672396dbf0150e1c841b7f10ad1ac8deedd8a3c7a64d0c9184ef4eff",
+        "c": "1e62b618de59c56c6810a00eb35b6f6c2a3ddad38067bd7254753fea6e6d3df9",
+        "d": "3753769fea2e39ebf7ded35f69358f56a68f360b6024ec34492f39172255687a"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/39-hot-linq-pipeline/bin/Debug/net10.0/SystemsProof39HotLinqPipeline.dll",
+      "normal_sha256": "a47e4d15d8cd5d3cc45bf942fb110c757df5f398617c91b41d6b31d6911c1781",
+      "raw_sha256_by_arm": {
+        "a": "bde9bb67f7cd6ee54abedab35eb9ef8cb3666f13b3df64fe4ddb5426f47624f4",
+        "b": "1eb662f601438be766df76adb8a9a2ceb214ac881bd745fb39a9b09ba1dec3da",
+        "c": "6438ddd57b8a51fdd721a927be9495b4f4306b2c3e53d0b349e1179697ea2a41",
+        "d": "f14b226b30d6b84f7227cededfbb284980c6cb6ea14a4d78bb7eff7c22a095a7"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/41-structured-errors/bin/Debug/net10.0/SystemsProof41StructuredErrors.dll",
+      "normal_sha256": "e84d8a2635e69ce1f260f05f55b7c05ab84365f47cbc15d57794f6bcd0061242",
+      "raw_sha256_by_arm": {
+        "a": "11f4479fc86683ee6c5e55b3b96198fe96cd6fefc56e69121096a68c782a6660",
+        "b": "50febb46e6eec7293d37d07c14033054ae0edb45bfb5f87b6030c45ff222caf4",
+        "c": "d2f6d275747581235587fc3ebfa59e5ce6322800b4d4ac5562a7df70c852b172",
+        "d": "910a8341f59ed529f7e06c3dd7267d62defa5e7a64f56f8c98104f97835b01eb"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/42-aot-friendly-public-api/bin/Debug/net10.0/SystemsProof42AotFriendlyPublicApi.dll",
+      "normal_sha256": "a89aa0c75030afc66c95a282076bdc430eb290f1e26d6a10ae64e43db06b6e07",
+      "raw_sha256_by_arm": {
+        "a": "798c8fbd8524abe50d2267bfbfca392d5608819afa9fca41a412646836eac654",
+        "b": "8b0b005b865e5b6dd8cea6534f36612d5bfae2d4d2c2069ad79d1a6728679f6e",
+        "c": "3771708c0c5e83b81ea1ab756c4cc52872938d4339395931b1fb13f835e23d49",
+        "d": "a835639ffbcf23ed9680eeb212667f9b0572744be238fdea5972729625fc346c"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/43-mono-wasm-plugin/bin/Debug/net10.0/SystemsProof43MonoWasmPlugin.dll",
+      "normal_sha256": "fe2c99ce027faf34c14a9ecd76071bc7b8e29d75ae7b1aaf952dabbe90223ff4",
+      "raw_sha256_by_arm": {
+        "a": "e8561264adff355114691a014bee363dff3ea2b902140c7c4dc76e10101c0680",
+        "b": "2f9f7d0f3542d74de5e4b7565de51946541f6dd5f8eb5ca97ea38fe72a05af29",
+        "c": "b6617e260a33a5d132a33932126e45c0361817be136e6729dc5eb63d4e58a535",
+        "d": "e700b536ef196fd3e6e1f022ce85b8c2fcbbe70962162cf9683696553fed8f45"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/44-ci-allocation-gate/bin/Debug/net10.0/SystemsProof44CiAllocationGate.dll",
+      "normal_sha256": "e4114683b5fbf3012be1cfafd5b79b2e4dacb2e9ec38cd4005ee3b177c3fae9b",
+      "raw_sha256_by_arm": {
+        "a": "824f0173682b8ebe288deadde6db752998fb2bde178396c7d7fd28e9e44fbe97",
+        "b": "e3a82a2e1c9ee3afad9496c10780f3e1c88764aec0cbc32e065205715d887c6f",
+        "c": "5a8cd906d6e4e83809ee1f298189ec70e0d5298cb4efe47a247acfbb02cfab8e",
+        "d": "105a905cd8c35637b8b8f3540c0a54c0a5fd0e09d2094f9778d7864d89b95c17"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/45-trusted-audit/bin/Debug/net10.0/SystemsProof45TrustedAudit.dll",
+      "normal_sha256": "a6321b7ad201226c3d83dec345d1c3fc8aa1e60c35a2668b0fe5146c8f42de7d",
+      "raw_sha256_by_arm": {
+        "a": "8b875c28c9f7852a34a194c43957de618e1d0edf7f82c049503ddab714583d45",
+        "b": "a31872c253d6f5ddd9a73542fbed4689e444302e09670dc0c306cc0799971d93",
+        "c": "3e05c21f8eaed6bdb142b936b599b29a80287c9c6616eb3829f057524c36810c",
+        "d": "3146b0f1181e0af4411e805801836d438eddb52092097f294a7d6cfb1f14a046"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/46-dapper-boundary/bin/Debug/net10.0/SystemsProof46DapperBoundary.dll",
+      "normal_sha256": "cab5e20914fea30da61e51266d2736f6667b49158567f4a7e8f5884462575005",
+      "raw_sha256_by_arm": {
+        "a": "68d1ff306a69fbf5fc35c77e30c560f2cec6da10294338a203990f89838b2b46",
+        "b": "760c5d42b727b1bb63f95f0a16feceb521e383b02f5d215fa99ee834061aaf75",
+        "c": "5e9b7b41363fd0c976f770a06b851f5ba3118a8910f36a9f9fc4ef75a19103a6",
+        "d": "b9502432401b99a2138c1f523576535ea68d065d40bc239fea6239e6b5e12ba2"
+      }
+    },
+    {
+      "path": "docs/design/systems-samples/proofs/48-effect-drift/bin/Debug/net10.0/SystemsProof48EffectDrift.dll",
+      "normal_sha256": "585a2187480ef4bf51381467dd032ffb9543e608907c4d871afe45b730730db9",
+      "raw_sha256_by_arm": {
+        "a": "2fc9dc69009f843cd7895e260449510c23c9a9c6262a746cee093d3684c2f48d",
+        "b": "b305fbb914c7b05343d4d79177d0adb9b436a3eeab91c514805a351bc446544d",
+        "c": "7754e971098b9e745c8484aa7f3577746ba659b618c8a3fb6126df8b70e0c101",
+        "d": "b1f8c630307b1e2a464eb5977f42289f634f78061012811c24f48fe9065dc167"
+      }
+    },
+    {
+      "path": "examples/01-hello-world/bin/Debug/net10.0/Hello.dll",
+      "normal_sha256": "77e32cb33290a23a09d5d6c68ee3a4ab7833614374fbf21224e554c15f5e2299",
+      "raw_sha256_by_arm": {
+        "a": "2f33944051c32ced205bb18e4c79c67d934e20d5c65df6f2acb218b13dbb848c",
+        "b": "0bcef8acb855324868bb1533a5d56b466ad390982b902acb8bf86ace5d15fb3c",
+        "c": "ae76a868e604baa27f85a5cda1f852b1ea9553b04ccf9411fa69fa96e60bd0d3",
+        "d": "8847c9f42a86ea9093215406adc6d134b3b848bf9e54fe09518ef376ae40f721"
+      }
+    },
+    {
+      "path": "examples/11-advanced-features/CheckedUnchecked/bin/Debug/net10.0/CheckedUnchecked.dll",
+      "normal_sha256": "e49e1a07c9158d3a895123558c170a9f5cb799ebcf8ba3533dceecf22ea4ab68",
+      "raw_sha256_by_arm": {
+        "a": "33e51eced1b490fe83eaf7460bea0081ef742fea3c1cda7fa335abb7939448d7",
+        "b": "99b7aa07377b20362076cdbe5f5218e9bedcd60f107cf60e103a5adc140e7877",
+        "c": "8bfdabdabb96b83a46ddc137704b941b6f4178da33e20df79b164b741a9da564",
+        "d": "6ea5efea9facfc0ac33dd24439a3964e45cc30e00e103b1053f2fdc13d8bb952"
+      }
+    },
+    {
+      "path": "examples/11-advanced-features/ConversionOperators/bin/Debug/net10.0/ConversionOperators.dll",
+      "normal_sha256": "a962ba936fe9d631b519a6a28aa2f14353bd99cd694452c9da771756432a6e5a",
+      "raw_sha256_by_arm": {
+        "a": "1d5a0be4356dee150bb94125153f2757ae4f323b16cc92fe795456f8388b7d0c",
+        "b": "0091f88872090ba91c0c51e115ffca73adb01a4231ea5b8d514aa6bb92cfe7dc",
+        "c": "2c2bbe62fec1ae4da45f4230cd2ceece12a70bb05dc5a9b0886753143e17b2f9",
+        "d": "77d018912894f328e313e547d70f93b24a3dccb57802abd1e1edfae1ba2e5d16"
+      }
+    },
+    {
+      "path": "examples/11-advanced-features/FileScopedSimple/bin/Debug/net10.0/FileScopedSimple.dll",
+      "normal_sha256": "593a4f6e6476495096bb3a36f4102b540f9f6ead636357e57764792573ec2284",
+      "raw_sha256_by_arm": {
+        "a": "61a1fb1d330fd84362f947192b7e6a2e7915dc13765dcd86d5a24d705f051a89",
+        "b": "bd8c01863d9b915c387decc748bee64ca6c62c893674adaa08fd9f0f78fcd333",
+        "c": "e27452bfc059b5fdd4da902d828b92809dfd7bc5ea98368986f093bfe9f014d2",
+        "d": "7bfb98efdf81f0967292c77902a733653207dc9a2f9a7ea89238c6fb8a67c2bd"
+      }
+    },
+    {
+      "path": "examples/11-advanced-features/FileScopedTypes/bin/Debug/net10.0/FileScopedTypes.dll",
+      "normal_sha256": "699d1401136b7b9bfe4144fb2053cdc60cdadc8e2a43beb5fd70719fa6240536",
+      "raw_sha256_by_arm": {
+        "a": "c72229ccf7c89590a7c83697ec40d03925d1ccaac0d1a5a3a73ac0da2b145aca",
+        "b": "2c667e3b1d62b7526a86bb24e4a516c78ed3261abc8e1fa5f8361b96a697558c",
+        "c": "3904364c4816d450077462fee539a1036cfe4a78bba7ef91485244e0a1dfed17",
+        "d": "27e13e0380d1650b8282234f1194869ae7b39928a571769db3b5c5df1fe9583e"
+      }
+    },
+    {
+      "path": "examples/11-advanced-features/InterpolatedRawStrings/bin/Debug/net10.0/InterpolatedRawStrings.dll",
+      "normal_sha256": "b82aef6a46c61cf576eddf7d2961b2afaae4a138dd5f4c9879651b3d5abf8eef",
+      "raw_sha256_by_arm": {
+        "a": "49ceee7f92af080fd7ba0d5c0de7c803922cd59a0034997ca2168e87582f2544",
+        "b": "cee9539ae5ec0256a6ed85330066b6c19c750c6384ef11036b3c232947f5b856",
+        "c": "f9391433b062919195a1e388b39ea53645b37c438f762b2710740c92ed40a4fd",
+        "d": "ab071b5fdc25de785e0054ec9160889c8c74695a6eb638af766beeb6d66d5a63"
+      }
+    },
+    {
+      "path": "examples/11-advanced-features/LockStatement/bin/Debug/net10.0/LockStatement.dll",
+      "normal_sha256": "55fd6d39516df45d524d70ed9739be4fdfcb7eaf4b94305267b4bd4cfb6e8c63",
+      "raw_sha256_by_arm": {
+        "a": "467950d51e562b5293b7e5f4332f7521e8149141add92d747576e2e4d3809d4d",
+        "b": "30848294590f456415c153691641a436fbf57a3b191e9ae80c8ee129d6fe114c",
+        "c": "860c89a08fa8594be4a4e17760853345327989a42b6a84fc047ef26976b9cd11",
+        "d": "6cbfac20b9889850771d0db2ac5ba607ea3df99e721c6d2bfccb574d7aa65764"
+      }
+    },
+    {
+      "path": "examples/11-advanced-features/OperatorOverloading/bin/Debug/net10.0/OperatorOverloading.dll",
+      "normal_sha256": "00528e8f5ed31bed1b24540404173e3c7681afe119b2699a75a2a08ac71a4e0d",
+      "raw_sha256_by_arm": {
+        "a": "0b97c59f4888df6d555fda1cb558f8c148af5f8101d91caff1405a8d28187603",
+        "b": "4b2aa265bdc86f2439e93139b4dd91f233446b8dc660e5d2c53d1aece64520a0",
+        "c": "cf2be6f7b28f428c32116a7c9d331ae46f1262182dfd0e0a8eeeff9bdfc237cd",
+        "d": "75fa1beac0da2df5b881e494dcd85922bce4473d18364f62a8c8e0ad4a24edce"
+      }
+    },
+    {
+      "path": "examples/11-advanced-features/PreprocessorDirectives/bin/Debug/net10.0/PreprocessorDirectives.dll",
+      "normal_sha256": "8857bd8c104bffa771a1e5ec8bfce1c19ac08300296e1dfdef2eb71adc6c6ff7",
+      "raw_sha256_by_arm": {
+        "a": "5e14d308d2db648ce3f1579c36949fb1e1f850df5961248528d866d4f859615a",
+        "b": "572a6b6da66ec95c18803cba43efdb4e4cd472a47c93b9d9b8cfcf9140103c42",
+        "c": "af89f4b2f4db59b45d34faaeeaa94d8e1f76dc787b0679b7f63a106025ddfb7d",
+        "d": "0f84ba1a81c6ae6f56b03215bfac24481c3a1ab9d67e8a77606a7292c09806f5"
+      }
+    },
+    {
+      "path": "examples/12-multi-file-projects/AutoDiscovery/bin/Debug/net10.0/AutoDiscovery.dll",
+      "normal_sha256": "9d60e2b7582725af9f80761fc24992d06a7f04cdf2a4ef9e28f4cf2ce8ece9d5",
+      "raw_sha256_by_arm": {
+        "a": "2f69e650d003783cc14694ea6e2405474e9f8e0f3411153d9cd97bb122b1df8e",
+        "b": "3506bcbd32e9b23c2b001ec1ea667cd70a7184738bba895966ca00c8b04de4bf",
+        "c": "601995dfe756976a1271d0b5c7d74442a02ba6a390e50f61fd22207854addee1",
+        "d": "a42b9263ddaf5097a223a8c1f69a1947d5afa53514a0884d82ef9b95e02c579a"
+      }
+    },
+    {
+      "path": "examples/12-multi-file-projects/MultiFileProject/bin/Debug/net10.0/MultiFileProject.dll",
+      "normal_sha256": "db866c9a7d019f4581dd8e230effdc207d7cbacaa5115859c786db0dc49123d2",
+      "raw_sha256_by_arm": {
+        "a": "01dc770ddb4e4a78c3c267ab7e380686e3aacc49ad739ec6fb394239de043fe0",
+        "b": "a49d42360c62c537a71eec2b847c6e56418ad7e8cdd1323888a3459131bda107",
+        "c": "3844479d6d8a94c353f647731c157675e01aaaedd05d529557705ea9d9eb1e04",
+        "d": "030906222297bb9f9acfb3851ca390ecc3145328c5fb341f65b7e81f95710dba"
+      }
+    },
+    {
+      "path": "examples/12-multi-file-projects/SimpleProject/bin/Debug/net10.0/SimpleProject.dll",
+      "normal_sha256": "46e719eaad477da19f1209662e5c57efafd7a85cd86906ff30eb40c0c14bed99",
+      "raw_sha256_by_arm": {
+        "a": "7fe21b409aeaa56622e2347954aa5837842905f41eb34c4eb2f888fac85810de",
+        "b": "c842d59a7043e2bb8ca27938fb2b4f2028f66d022b5aa30f7814da265a0110be",
+        "c": "1ecfcf0ebcb53a407becefc5f605e89491a88f7857d3fc2a4cdf1b7704653e5a",
+        "d": "1674c7eb43286e1229a0ee2360d75c87094809b2bdd521a78e9db29b0cf7dacd"
+      }
+    },
+    {
+      "path": "examples/12-multi-file-projects/TestExample/bin/Debug/net10.0/tests/TestExample.dll",
+      "normal_sha256": "1b055e31836b05747ae936cc04bcf425c10c5fc034ec17c41a86a62c8d1ca07d",
+      "raw_sha256_by_arm": {
+        "a": "6eff670c8147cd7a871606f540204d87a6309362053c87af3afd63bedb08ced0",
+        "b": "00ce80e7e336de88fdfe04c885c84b8357dd94b5cf0ef91129d7492f50ca2cc2",
+        "c": "1735d09059f2580df2349e4d7a3ea5e1f961f8da9f08f1695f6bf7414ce3a511",
+        "d": "a8e903a227f52c5be76062fa666db1c818c5a61620949bf432e25ae7da4b532d"
+      }
+    },
+    {
+      "path": "examples/12-multi-file-projects/WeatherDemo/bin/Debug/net10.0/WeatherDemo.dll",
+      "normal_sha256": "2efffc11898a3380a71aee460b18999bd33667f7a12479bdcf791f1a77607797",
+      "raw_sha256_by_arm": {
+        "a": "dc54eba8e821d5f365b316bd334ebf1f726b035b1684d55d8b403f6e6498423a",
+        "b": "1c54badfce7b0d16b4ea32f32a8f968af9e6d676861d3c56036cde9d7de6b06f",
+        "c": "4c785d9018ef79ba4e804403f10cf056a156c31ce8bd171dd9d2dcc9cd45a1ff",
+        "d": "ef622ede100cd728ad8ba106336a47d068a7868f249c18bb00b573800d0138b7"
+      }
+    },
+    {
+      "path": "examples/12-multi-file-projects/imports/bin/Debug/net10.0/Imports.dll",
+      "normal_sha256": "e306076a004d2b384dc6471a3598d586b234e64537a9591471f3ff4d9e4125f3",
+      "raw_sha256_by_arm": {
+        "a": "8ae81eb96066d8eed66b232adf7b9be823f5dcb1efdb5692eed60241b8ee4375",
+        "b": "bc251a4cf36276427b89a0ebd00652fb466efbfc0cace1533c9bf1f0ea57a701",
+        "c": "ac426894c97c4d61cd3cdb7ecbb97dcfb76340f6b716e9cda812f17bba002aca",
+        "d": "955c27c3f6964110dafde71a4a696cc6a9ad78986be31332684f361b5a60b8f1"
+      }
+    },
+    {
+      "path": "examples/14-minimal-api/bin/Debug/net10.0/MinimalApi.dll",
+      "normal_sha256": "4ab00c12d1463bc43479599b6ff19b03d5b87bdfa3d331bcaf5bb88275f630b2",
+      "raw_sha256_by_arm": {
+        "a": "398a14f039504de813dc4980f99c20ee11f5e09480f4f74395960a6ff2b931a2",
+        "b": "0af0291e27caed358302eee0ee82e1ea6ac93d8e422d94136bf46f56fe2afff7",
+        "c": "b8070030ca70405e4971e680f0320423a51b9533229e2c63b8599f6377bfedba",
+        "d": "15d2b169f705d2a9ccb265084c7b428cae89df985ff821e3b3cbeb6b2c3f209a"
+      }
+    },
+    {
+      "path": "examples/16-task-cli/bin/Debug/net10.0/tests/TaskCli.dll",
+      "normal_sha256": "f883b97ab729f06850355e9779a714dddfb2c1c8d5b25b0aa3cbe826b36f932e",
+      "raw_sha256_by_arm": {
+        "a": "72af9a8e213bfeb8cc2c8e8fb87098d4f57b24b44a5f36b0b01da733baceccda",
+        "b": "a7ad239ff628b9db0930f0f48d28bf864e15ef643e4b3a807122f9f49440b6bb",
+        "c": "0544b6e4b12dafadf6a51da7aae0e4a1d8e0d5fd6250399067cc022fd07423e8",
+        "d": "f71836fd085710217f4e87538610b47463711a226a30c532e91792fde0e26a71"
+      }
+    },
+    {
+      "path": "examples/17-issue-tracker/backend/bin/Debug/net10.0/tests/IssueTracker.dll",
+      "normal_sha256": "ba06eaed0e130b3f7c8eeb565d8d67e71502c42954bc18518a029a5bf0481227",
+      "raw_sha256_by_arm": {
+        "a": "956709cf94760d138ba2d7fbac4b7ba80c60508507e1f39e9308169ab9796ce5",
+        "b": "49e49f1d496f0ce8ea4cf72942b46fd7a9c444a8aac9402e23b5cf4b3fa3c70d",
+        "c": "fe028d8b9fe9bbd4d2318e920b283d43e65ea1540266445715a74bfc06c4e89b",
+        "d": "9b0843088a1ce69165921aa32fe43ff78cb15ee23ead1cdae8d82d01883b77af"
+      }
+    },
+    {
+      "path": "templates/nsharp-console/bin/Debug/net10.0/ConsoleApp.dll",
+      "normal_sha256": "7e718811d87fdce9c01c774b0e9584675d67882bf224580a2f326f0fa9042f52",
+      "raw_sha256_by_arm": {
+        "a": "a72279cd54938d2ab63f51244f95cb03eaf150acb520478fe819c74b96732091",
+        "b": "881451fae4a99cec3fadd432f9071c6f4291d01fc71f980d0f7bb11d58da7a04",
+        "c": "62ad030cd44283591b6734967232a22b06d40e9779497453f3b29844f24d240c",
+        "d": "02fc39ee0b28bc82d6a5369ede985b9476e1b1d47c9977f80f8ae456bbac60d4"
+      }
+    },
+    {
+      "path": "templates/nsharp-library/bin/Debug/net10.0/LibraryProject.dll",
+      "normal_sha256": "583885c6f61eed6496848f52722aec997996dc8b5f49e99ed87cc83473af6a8e",
+      "raw_sha256_by_arm": {
+        "a": "444fa01dc8128a2891af7341ee490ae0535dbc8b7e6e6b7afad60c1ee89c2c55",
+        "b": "994ee389d3ebcfbc202bdd5870214eab45017e03dcb4d354419351a9232d68d2",
+        "c": "23c1370bb2b2720c8be8dee3a61047903016fe58f1288daebdfb6c02136068d2",
+        "d": "d146a0d4beec0d075ae21474583a6eeb371a30e9cc88548c8e00b414afa99402"
+      }
+    },
+    {
+      "path": "templates/nsharp-test/bin/Debug/net10.0/tests/TestProject.dll",
+      "normal_sha256": "c8866a1474ac0b49382b2f8751fadca07be3f69dd3032b5eae66eb92686276ee",
+      "raw_sha256_by_arm": {
+        "a": "6aff00b329db67928339c5010e7def28d8ccf1237002d664a745730a79a80315",
+        "b": "0318ccb8a40c178569af92725262fd414f545ad78290fe27d0f47aa9735e1027",
+        "c": "a7373334a2e4590a2d8bdc0bb0b9aca96af09d9217abafdedc8a4f412a567cec",
+        "d": "472661ef50f542466eb4a609fcd2ea8539a5d43cf77a274501b123ec54adcb6b"
+      }
+    },
+    {
+      "path": "templates/nsharp-webapi/bin/Debug/net10.0/WebApi.dll",
+      "normal_sha256": "659a533b62d469a1e92101a41c9799858939b4169b1e8d21618eef369610e6d8",
+      "raw_sha256_by_arm": {
+        "a": "42256ef0f1e56a6a5ff4b333fbd184b2a25c9c0431210fe7254eaf384cf16625",
+        "b": "b025117617a69ba71b8e86454c5e070cc804009baef33cf8612d21af5d9a0b1f",
+        "c": "5669bab76828946e3b49bfd3ba0c9fe13946b86c9416106f8f9acc50977868df",
+        "d": "69156a167d98a5bffb1b077aafb0616ec462b46a684809cad813e3fddf2ab621"
+      }
+    },
+    {
+      "path": "tests/fixtures/external-base-interface/bin/Debug/net10.0/NSharpLang.ExternalBaseInterface.Fixture.dll",
+      "normal_sha256": "50acf0ad17b08dde8ea57461112904b2969c89188a10f098ec29ed637615825b",
+      "raw_sha256_by_arm": {
+        "a": "674eb3afaf88ad72f4b6d07dd8697b3d648a3f6bde3bdde7d7737fdbb5ee6209",
+        "b": "6ccac24f1ff8faca5730147cba1c04734f4a662b76e994463216085416c92b5e",
+        "c": "0424832cc53f5d175ec0ed7298be28a13bb8f70f9ee655e4a9f25cd49fd2dd6b",
+        "d": "5297c4fd2877b94de206f4dbf5629f73aec2f0729cdd0f39e328a283ddf74cee"
+      }
+    },
+    {
+      "path": "tests/fixtures/external-static-package/bin/Debug/net10.0/tests/NSharpLang.ExternalStaticPackage.Tests.dll",
+      "normal_sha256": "e8273ffa5790bc81b526987ee660e7f4d50a089f3821c2001838ca7a89259202",
+      "raw_sha256_by_arm": {
+        "a": "e59a657e6ec92f2ab96d8923f7aec3c15882369dbceca66aa0ddbe1665c8e713",
+        "b": "7e628f5815ef7ee5e67f760e0bd24e8533b5306bc80d8d9e8db689d16a7d15e2",
+        "c": "f307a4ff32a1292a952c42d119b30009a9b24be9916e81fe642b30a967139a78",
+        "d": "4d82a87861b92ff80aada7a1c43e66df0bc623048139668594ca09f5fc00d8bd"
+      }
+    },
+    {
+      "path": "tests/fixtures/external-static-relative-dll/bin/Debug/net10.0/tests/NSharpLang.ExternalStaticRelativeDll.Tests.dll",
+      "normal_sha256": "811c1853b8150425317f04caa0a6bab2d207c90c0f6d4a96a2fc2e0acce86dce",
+      "raw_sha256_by_arm": {
+        "a": "bb38d4c6089145532200dd3f50f16110a2e88927f22490df2126a1dd09f178a3",
+        "b": "eb808cf80421436da9917c1023157708270e11668b204ff08daca168fec4dfdd",
+        "c": "747b48e06eb4f9aace29947484096854b46069ad54eedb649ea1432783a3dfa5",
+        "d": "010c65dc74eb5e4aacd2b371ae2db826563ec964cc294757dfb4d70bd7448a3e"
+      }
+    },
+    {
+      "path": "tests/fixtures/issue-tracker/bin/Debug/net10.0/tests/IssueTracker.dll",
+      "normal_sha256": "e2cc8500502e2c49c104df0f0b1d1c3ce43e085b3d2b39557fbdc74cf0e85f84",
+      "raw_sha256_by_arm": {
+        "a": "b9e919f2270124af912980cef565c77c10b2885faa402a2aaf6871dfcd199c26",
+        "b": "76223a30dee6bc08a93d3cfb6611b4978735b2b8e12af27e77e2e4da2aef2352",
+        "c": "5a421a2e8b68cb2d22c51aed9ce832e4b998b62d599ec0b6dc60b269af28a1ef",
+        "d": "39e1b6f4d4faeb7f2854ffa808bdd53a6679f59bb41b96e104c606a0086c0aa0"
+      }
+    },
+    {
+      "path": "tests/fixtures/systems-vectorization/opt-out-probe/bin/Debug/net10.0/NSharpLang.VectorizationOptOutProbe.dll",
+      "normal_sha256": "4fa34d49a7624b369e120845d43bd9599a8a5eec121176ddb748dd1cbfbfce10",
+      "raw_sha256_by_arm": {
+        "a": "b356c8bae48b4e4bdf7b595ad641a126d172b58beb4d4e00636f44be8a35b7ac",
+        "b": "a6bdbb79001bfb8e3aea2f993f9e4219a25150b4c52cd1981b847670b7f73a75",
+        "c": "036942ea72a49bd07d27b37e439d91faa39333b003cf491fbc9136a128910de9",
+        "d": "d73c7f9d552465b6dd9421ec7f53bfbe51d1c9bc7990a98bf6709059099a956d"
+      }
+    },
+    {
+      "path": "tests/native/analyzer-binding-map/bin/Debug/net10.0/tests/NSharpLang.AnalyzerBindingMap.Tests.dll",
+      "normal_sha256": "78e504d890b0f070675985e40878b8dd385e82de61a52183c0bba3265325e925",
+      "raw_sha256_by_arm": {
+        "a": "49228b33497e569d3d6a2e8250acf092231ba436cd8e9cf0fd7dda8589e7c82a",
+        "b": "42d71f777c94f06ad58b2cbc8533068194fb6b64fb80e30c2856ded67a4a1032",
+        "c": "3b4dc5065c7c8eae7737407c200b808240e42e9f79029b79bac8fc83fb4be96c",
+        "d": "b6730a9fcad0589aa7b487faf5574bc1c427cb1f77b0e4c1796fe8d45b330315"
+      }
+    },
+    {
+      "path": "tests/native/analyzer-clean-source/bin/Debug/net10.0/tests/NSharpLang.AnalyzerCleanSource.Tests.dll",
+      "normal_sha256": "1f1b2242ff884ad30cc2e0b86ed883c2537182dd3e32fe76b3964d7fde0705c0",
+      "raw_sha256_by_arm": {
+        "a": "b32602a5214b85538e5540e7b8cdc76fcb0d2d7dcf92aba928b4e94c7b867626",
+        "b": "60cffe68d360ac13a2308a4a2a66305a994b4b0a1e7be1d6b975ef762807abf4",
+        "c": "721d65f249f0561bca8b226139f5bcfadaeebf3ffd4df044b09e6e45207e9d76",
+        "d": "b7397426ae212232b66a8b5a4bc5a339829ddfaaba40382febb742360f183deb"
+      }
+    },
+    {
+      "path": "tests/native/analyzer-error-handling/bin/Debug/net10.0/tests/NSharpLang.AnalyzerErrorHandling.Tests.dll",
+      "normal_sha256": "2d7c902fd85a5cd22fca164b508e1c37c49c5303aeb130281f6b2f051c95b3c1",
+      "raw_sha256_by_arm": {
+        "a": "7b1c0df89c5f083d8988c515bbf974efe5e0f4d76cf67900b5ba34e6ae4ef96b",
+        "b": "bfdb75e5ad1820cc04292c1f37796abf272b04291349dfc3defedfa2c45fd7ff",
+        "c": "74613342fbfcdfc190f7d9f403dad890db686de5a2b6c798c8247dd2257dd911",
+        "d": "b51b71dccbf486081fb01ec7ea3447d72f9ec5c6d1f5e8fc04230a584beb4f1f"
+      }
+    },
+    {
+      "path": "tests/native/analyzer-event-subscription/bin/Debug/net10.0/tests/NSharpLang.AnalyzerEventSubscription.Tests.dll",
+      "normal_sha256": "39469697467a0771a7fa5f344a9b7bba1a997736bbfe3ba501cce7073c1522de",
+      "raw_sha256_by_arm": {
+        "a": "f7afafea7ab9d02e03f9c35b2d090fb116c8286b0f0746a5074ee065ccb26924",
+        "b": "7b55799d9737b471f0a8b87f40eb1e6752cc22fe01e74fd3acaaedc9a3aea42c",
+        "c": "c7f2e1f7de55dac80c0fcdb0fb5b030026af540a637e7f72301e534dcfff1fba",
+        "d": "2e68f06161a1b6160d1e81ffcd0f477446e5b888ee25f9f949636a437c16f609"
+      }
+    },
+    {
+      "path": "tests/native/analyzer-identifier-binding/bin/Debug/net10.0/tests/NSharpLang.AnalyzerIdentifierBinding.Tests.dll",
+      "normal_sha256": "674cf5fae151cce17a208f9143ae0df10c9bf0de7cdb64b0c8d6c1dea05c1b79",
+      "raw_sha256_by_arm": {
+        "a": "ac4721e6a245d81ce721b398954bcf5ad673fee568e62cd6fdcb0832c4160d9f",
+        "b": "851672b40bd5e467ddb0880959a16f3df4fb931f3528b1db1a3fcfd408cce99e",
+        "c": "0e9a6326e9fbe8116842122e331d9ef028d687fcdbc6f0bfd03da3bb85717e0c",
+        "d": "74bb31ca887bf3a6566b95a81425a4dabbf280d3bc9435ebfd2a214920f2a13e"
+      }
+    },
+    {
+      "path": "tests/native/analyzer-semantic-model/bin/Debug/net10.0/tests/NSharpLang.AnalyzerSemanticModel.Tests.dll",
+      "normal_sha256": "cea45f33bbce089b44306c2066365eed01e2a0cd079433cb21001fc08503142e",
+      "raw_sha256_by_arm": {
+        "a": "8e89406924579677ebad9b492b5deeebe139db4ea6fa5dea1e8ae1debb28ebfb",
+        "b": "07b25d2ed54a05f3d461c06b34d0bf7f7bb2f139e0d8c5e7404886b41fb4b300",
+        "c": "e106d6ac82c2ffc65f4de24c3be6e91baf7163509a767ac77f11242f713f79b4",
+        "d": "755baa8b10efc7b62fbd6802e1a5c0e797b8e73b93eef41c8c46a8ebe85902cb"
+      }
+    },
+    {
+      "path": "tests/native/as-boxing/bin/Debug/net10.0/tests/NSharpLang.AsBoxing.Tests.dll",
+      "normal_sha256": "2aabef00df83c9dfe732275249fc442034981424f080fe9d7ee3537743c413a7",
+      "raw_sha256_by_arm": {
+        "a": "603f3ba35485e83b79443fbf12742e56bbea254a11d235736507fe3cee6d2d45",
+        "b": "582f64d297ef01dcda28aae22c6e4f1040e61a3df81e26bcc3fc9ab62682ff85",
+        "c": "fcb1640cf5bce949540cbfa66790cf44daf99c6a8344fb2f35f59f4d03801596",
+        "d": "cddab5e776a09a031fd6641b6a44e0e127fc9a28a2112d3081a64169d79495e7"
+      }
+    },
+    {
+      "path": "tests/native/async-task-like/bin/Debug/net10.0/tests/NSharpLang.AsyncTaskLike.Tests.dll",
+      "normal_sha256": "8a3fc6075fcb788b90ebc74f205e15ca561219dfd2dcc9ea3c50e2d75e0b78d7",
+      "raw_sha256_by_arm": {
+        "a": "ee89b28da99d3729facdfefe7fdf70445d24431c9f6efda6b2a1c5061f1d5650",
+        "b": "640805fbdd6eb1f607eeb20ddbbad9b43a20341d86d7870387efcdfefeed67fa",
+        "c": "a78991615ec1a45fd3fd8710b7d5ef9d0f1197f7ac67a248c6075e13feec346c",
+        "d": "c5011de164685d6ba3cea957082c593801704210f7548fb134d6db3d2a08aee4"
+      }
+    },
+    {
+      "path": "tests/native/boolean-code-plan/bin/Debug/net10.0/tests/NSharpLang.BooleanCodePlan.Tests.dll",
+      "normal_sha256": "d671d86d055da40792ed606d991a2a094ba048ca08715890edda830528a93307",
+      "raw_sha256_by_arm": {
+        "a": "b283ab6617703b209c6262b7d3dd76ba79c4f2020c7cc4c8cb6084d59d16a6a8",
+        "b": "66c211e7634dc2d146e4ec46632f018fd6ab10dd50be087b8a33508921cecd81",
+        "c": "073c290f9e9f9e25d36111946a72dcfeaaed9e4d9f8402b5666e095fcdd35f99",
+        "d": "14753ef17225fd48bb17d85c33fb349f38248abd445f5ccddcddd2d85afd09ab"
+      }
+    },
+    {
+      "path": "tests/native/char-classification/bin/Debug/net10.0/tests/NSharpLang.CharClassification.Tests.dll",
+      "normal_sha256": "803dc35ea8eabfae63227243a705de9a59b1df54328d9014c5bb8dddda036963",
+      "raw_sha256_by_arm": {
+        "a": "b1e8fed5d42e7d50f1051eadcc2296552c4a66ebc06c9a8bd60cfb7ad3a29531",
+        "b": "d00338c33855a5257eb69da1c75fcb8ab957c530fd76aaf0d5c20f1e1e68bcaf",
+        "c": "46bafc2f7a8d5afc7d10acb48d728f72ffffd9b26e33395d713e575253dabe47",
+        "d": "d34f42060f097495f4b8c9a340dd58a827aa3958374a9537cd36c492118fa46c"
+      }
+    },
+    {
+      "path": "tests/native/cli-command-contracts/bin/Debug/net10.0/tests/NSharpLang.CliCommandContracts.Tests.dll",
+      "normal_sha256": "676b48fd1c84d98f2ea0913390e1b114463d8e02a8f4c0bd4f1cb8727c5e634e",
+      "raw_sha256_by_arm": {
+        "a": "a479c49dad40dde0c96f9b54b7ad7c9cdedf895b5d435b4f0a3183fbbc150926",
+        "b": "ec1693db437dbc41b0f60ca2ddf4a51a4b8dda4fc1980c6dc75a95ca90a2ad96",
+        "c": "b0a1ba6a2b61c2de62c1b0437f6c6da68dfb0a6266e3d21abf7c62d9496f5fc2",
+        "d": "48bc96c64694835ec3ad526ac5589af23bfe5382eec517b04759cc02a60f4de7"
+      }
+    },
+    {
+      "path": "tests/native/columnar-emit-facts/bin/Debug/net10.0/tests/NSharpLang.ColumnarEmitFacts.Tests.dll",
+      "normal_sha256": "5c32f68a622e81a731861dd9f4ab8b6686ecf2596ff4df3ebe70766d27006f3b",
+      "raw_sha256_by_arm": {
+        "a": "12caf3cc611c8d5ec9f8ba15992e8acb862aef4e5f41c9452b9b34dcf4a396ee",
+        "b": "8abdfb26e787aa232789876e8413836affc11400721be1ea59d67ca24bdc2d06",
+        "c": "00717d30628f2861902dbb4fd337cf468e88a41fb3c227a7a73c1bb8c2b47086",
+        "d": "384d9a67f063a39a58c9d36c0d56fc283c16f7b741815d7ce6c4b9ad02472706"
+      }
+    },
+    {
+      "path": "tests/native/compile-time-bench/bin/Debug/net10.0/tests/NSharpLang.CompileTimeBench.dll",
+      "normal_sha256": "8f11109e1c1c1f859171eca423e22149ebca2f934d22f4b2e1bf307ccfd5f7a5",
+      "raw_sha256_by_arm": {
+        "a": "4c51f236a6820b32a3bd74a8d4d5ff331fac54153adba44bf2e3b93efe146736",
+        "b": "c4026ef7dbef2cfe43c716d153f862385eb4add5fa046982acb009159524950e",
+        "c": "06a68f587c0483a73d41f0cbb3a5010178db3ab32f4df332851a270d12ab8166",
+        "d": "37e7c77cb36946175bea1e1628d7aadc2e4f89262ad9b8717af87a70357d1822"
+      }
+    },
+    {
+      "path": "tests/native/completion-engine/bin/Debug/net10.0/tests/NSharpLang.CompletionEngine.Tests.dll",
+      "normal_sha256": "c93a0d72defe2ed2fbdd2a9be08683a540b3ddf35d86b19814f3aea055a90574",
+      "raw_sha256_by_arm": {
+        "a": "c96763a1d55da0c7f5994860478168d3ed4bba2d60f7d7ee8ea2b1bb7225752a",
+        "b": "7b1d4db2068949ab6f07c40aef326c6c9a2b84c07e7f9580bbff8160b0c1f1f5",
+        "c": "6dcd2c0157f57010adfee0a89d878053a698a888ae1f6736967e7f46e4de70f2",
+        "d": "28614b3f581ded8a7a2c48e7bb9deaada2c4eb24593369a6720f67f056281685"
+      }
+    },
+    {
+      "path": "tests/native/conditional/bin/Debug/net10.0/tests/NSharpLang.Conditional.Tests.dll",
+      "normal_sha256": "ffc0276ae6c874357ffc58efb54870a6785569b35674562178bfdf176987592f",
+      "raw_sha256_by_arm": {
+        "a": "cc98b17ed5faf1e5215b8fbcbfd9122a9d771819519be87bad72bf05148f9bb5",
+        "b": "6d7e44b85fe33f83a6a08c55565a449d0c2b0b609d08d35be86d997823c318c6",
+        "c": "612a9bb87b0705d2466c6ab68f08528ced0b6ae2e7b98fe6754e17fdb8f7cce2",
+        "d": "dd92df4c5686df53444de9bc8fe2832e43daa09d346ca1bf7ff25177978cce52"
+      }
+    },
+    {
+      "path": "tests/native/construction-arrays/bin/Debug/net10.0/tests/NSharpLang.ConstructionArrays.Tests.dll",
+      "normal_sha256": "fc80e1e68a24746dc6eef82948cb5e68121f4c8f30ffeade95500d02a908e88b",
+      "raw_sha256_by_arm": {
+        "a": "5abe782b0251d45daad3fc16c701366c15f29bbfd9c71efd9d6c3b1364c45254",
+        "b": "349eb17514be47aeb32882ebd1d54a72166d7b2ca6c9bcd349d7f282ea10e6b0",
+        "c": "e44e89b613cad863e25b3cb5fa03a9e861dc298145428cbb2bef1a4f68f474c1",
+        "d": "a07ed3113ef3b7dbf9aa29da0eedf7cddf1f95a410629aaa6ab0c8d67b549405"
+      }
+    },
+    {
+      "path": "tests/native/diagnostic-honesty/bin/Debug/net10.0/tests/NSharpLang.DiagnosticHonesty.Tests.dll",
+      "normal_sha256": "b01f900deb994bcb4577b986ed95d970746ac5e3c644863aa803897cc84d6834",
+      "raw_sha256_by_arm": {
+        "a": "5de5d424c031b73918eca763f115425b29c05a1c2539f1439072dfa442ddc0da",
+        "b": "cf5ad24f8f030b129862cd63a29dfd05190d8f5776304b5a22559d69a22f54d7",
+        "c": "c1ac02604693d62c53988cd3634762b58892aaf9965e2e4f2149586c00486cb9",
+        "d": "4fff12a23a37fa27d0b6d9b1975253ec8b2cff642c11d76ef636a84e4bf64aa4"
+      }
+    },
+    {
+      "path": "tests/native/direct-calls/bin/Debug/net10.0/tests/NSharpLang.DirectCalls.Tests.dll",
+      "normal_sha256": "32be36423dbe39d6c4bd2402d4777f2f3e19f24210cfdbcfab7e344fd6360e0a",
+      "raw_sha256_by_arm": {
+        "a": "0fcc675b87add967c487ac3e0d6d7374c4d9a541310e7ad7ca3f5bd464eceb02",
+        "b": "aaccdf8fd399cc20e720f8e5e5c96211a0a63651974d12ed4af26d2683f773ad",
+        "c": "c04e1af166d3a3e2957497646038248b2509acb4bdf14e3ee7819b1c35e1038a",
+        "d": "29707be169fbb46f184daa7682f8241034917d1e270c798f266216016b7f37ee"
+      }
+    },
+    {
+      "path": "tests/native/doc-query/bin/Debug/net10.0/tests/NSharpLang.DocQuery.Tests.dll",
+      "normal_sha256": "4491edc5b00a81bf5a81d2f5d2a72ccf3039da1684b0a20aa80e584474876370",
+      "raw_sha256_by_arm": {
+        "a": "c3df9ca6a98cbeffbf4966d3f27c6a78b074d42b968027f1542cf451cd9bbf58",
+        "b": "9e0e2bab7162452e1b286c17af19c8506ad271610f70378999b3b8cd8da08323",
+        "c": "3d24bfc76168e259dbb63a8c8681a0e9cf377b4fbfa1bc5714931b837486aac3",
+        "d": "5752a4aaa645b67513bb5a09eba9fe2cbcdc6f73c2832fcb555c46158ce70426"
+      }
+    },
+    {
+      "path": "tests/native/erased-enum-identity/bin/Debug/net10.0/tests/NSharpLang.ErasedEnumIdentity.Tests.dll",
+      "normal_sha256": "2e8cacbe8f43315aec31a741f3cdd92a573235d68ba880a18397999573c20b28",
+      "raw_sha256_by_arm": {
+        "a": "09d900547929819748da71bd5f9fbe339ba523f9bcf18f4c174400f8c4a3b54e",
+        "b": "6985bbb0253671aad9e7f89eb3882aa2559ae28e7f8befc6583473d5ea7ef869",
+        "c": "cd5c6099bfd7746cb1818854805001f930990db29aed032a88855813468b206a",
+        "d": "f47370ed7158b334db753643a156be41f77d4a53662df5da55c39ccc63edccad"
+      }
+    },
+    {
+      "path": "tests/native/error-docs-contract/bin/Debug/net10.0/tests/NSharpLang.ErrorDocsContract.Tests.dll",
+      "normal_sha256": "ba3e00ad50fba63bccadf043564b5254ecf505e788b0a341087fe46b8da476fe",
+      "raw_sha256_by_arm": {
+        "a": "3efdda6a9ec3556c12b2aa17bef0bd6d8329d6668a21ffa388f34b07c2a0c110",
+        "b": "e83356b11e50b0a8233ef9911cd563519db6ccd3a73baf1c135f293459e4f610",
+        "c": "fe3b0bf312c28453af2276a24003102b1b36a75ae19338570368c1b4be8e57b2",
+        "d": "84be44adf2ccdff2bf7b0b7d85772e1beab2599fe5ed593f2b83c2caa5d7e36d"
+      }
+    },
+    {
+      "path": "tests/native/extension-calls/bin/Debug/net10.0/tests/NSharpLang.ExtensionCalls.Tests.dll",
+      "normal_sha256": "e831622eee045a12ab95df67fd8e8c77f77cb391330d65a3acbb38d695dcdbd3",
+      "raw_sha256_by_arm": {
+        "a": "449c82a7d70858c8b73b1680fdb5b08044d25b6ce149da95ae1fea5119547e0e",
+        "b": "a9acae62bfa2057cf43c3d638a60759879291d7de48fe73d92d5389a73820e97",
+        "c": "33c5c4cde70ab8f50763a828c43a1271413ffda3fbdaaf39be3ca6ca76552d6b",
+        "d": "5792c928c46d95a863cc8cf6fcf88855bef9970897e76026279b506a15443ee0"
+      }
+    },
+    {
+      "path": "tests/native/external-abstract-override/bin/Debug/net10.0/tests/NSharpLang.ExternalAbstractOverride.Tests.dll",
+      "normal_sha256": "dcadd106a75d5f0fd942218c1d4d4dc3e2ad67afe270fd3a67387286bfd2317d",
+      "raw_sha256_by_arm": {
+        "a": "ee4162d3d1305896ffcc03adaa478dcb4393ffe0c1ba54dc061854229d0e1f69",
+        "b": "47a1e7d47315bee7b4cc3cc5dddedf017da4f261c4e88240c69a59ade06f3fab",
+        "c": "49b35e6bce30909dc1e5c2591db5504119fff04e817b2e57c10a8e0c77dabdbe",
+        "d": "1f26a040c26840379bcf63198c89cbafd562952b68b6866250016bca74fff16a"
+      }
+    },
+    {
+      "path": "tests/native/external-base-interface/bin/Debug/net10.0/tests/NSharpLang.ExternalBaseInterface.Tests.dll",
+      "normal_sha256": "fbe176bfa7581339aefe57a3e71fd78213b8100831d840003bd853f07a4051f0",
+      "raw_sha256_by_arm": {
+        "a": "20e8dbb26cd1c1e9fcabd8ede734d52853806282811c82cf2d1771a0acdeea20",
+        "b": "472f2a3e2f43119ef8a7ed4d0cde00275db1b89b8db3983ffb16ef323202c20e",
+        "c": "0c7ce5816772390d6f1cbe8d252dc531f69948a9b405cb83140a7182cff0152a",
+        "d": "2e4fab3890f2374a30766eb518612fb1d260c816fa2bcfbe42ca74375064c256"
+      }
+    },
+    {
+      "path": "tests/native/generic-scope-invalid/bin/Debug/net10.0/tests/NSharpLang.GenericScopeInvalid.Tests.dll",
+      "normal_sha256": "3702a4b03babf218f7460df6b0d82ec1da0f0e48f6eb0732fdc0d94fd4645f8b",
+      "raw_sha256_by_arm": {
+        "a": "bc756da1b47daf405c9c13227a59867e127da98da52ab80808dee6d6bb413411",
+        "b": "aa28d11adf128abb010ef05ad73b1475494124715b00fce8fc34d522cb995a52",
+        "c": "07e42267bccff8d45dab141b6572c0c3b623c53161a4820d87b9d2eeb469e1cf",
+        "d": "79605db7529cc3cc19a8bd7addd4db9325b1147f0f3d40be0d22e8c8aafec495"
+      }
+    },
+    {
+      "path": "tests/native/interface-parameter-modifiers/bin/Debug/net10.0/tests/NSharpLang.InterfaceParameterModifiers.Tests.dll",
+      "normal_sha256": "91e218db6e39cd7d03250749ce1943af575cf358dd63f05388afe8cedf8a354b",
+      "raw_sha256_by_arm": {
+        "a": "d4af2a287cddc45f86fb1847e9db4b6a1aeb507a6dede85837a102ab85a2e167",
+        "b": "09f2008be120004aeb01c01993c4313575a7028925ec599ae6e1dbdcf5b1f973",
+        "c": "d5daade668f78a38836853dc2c6f24024a1e8cece455abd8a9ad36f8ca83dd4c",
+        "d": "5fa24ba28f4370ae02f4f1665862c6a0328f69a0a5d2a2a2ca336a7dc835221d"
+      }
+    },
+    {
+      "path": "tests/native/iterators/bin/Debug/net10.0/tests/NSharpLang.Iterators.Tests.dll",
+      "normal_sha256": "0dd61a834f7a872cce7c70bc39a19190fb593815ba00f461fef97bec45528c2f",
+      "raw_sha256_by_arm": {
+        "a": "09bdcc422903cd470ff0001142839257a5694d8b802de0330c49aabb5880b9a3",
+        "b": "1cefebd3789709138717e92e759f81d48ffb710730c54bfb058ef37185051686",
+        "c": "be56a17da278acfe3f28e7cccba97cf4ac3c8a2a959696e373b742b81c847a0f",
+        "d": "09b79372ddc2653fac1222cd282f900619e5340506f86e2117ed7093e99a4ecf"
+      }
+    },
+    {
+      "path": "tests/native/lambda-placement/bin/Debug/net10.0/tests/NSharpLang.LambdaPlacement.Tests.dll",
+      "normal_sha256": "1bfc906eafbf53c00c3e2fb3510e4f39465928f779b4981a77a5a91d3c31d488",
+      "raw_sha256_by_arm": {
+        "a": "058da02cd22e9590565b3960a6dfcdd4da1316141f877fe1ec74d4fe3d38340b",
+        "b": "4cad8e633ec2222cee0db30a0e2cff7d53bfec58628b17096c8b8c55bdca116c",
+        "c": "4e6d8c1db50e00b9bbf2aa9366d14456cb0e1ba9cfd40258b8228042522d9fd6",
+        "d": "cea243689cdc02b35d1a5eea0a9b7a1298e867dd12d48bcb899342113339d063"
+      }
+    },
+    {
+      "path": "tests/native/lsp-lifetime/bin/Debug/net10.0/tests/NSharpLang.LspLifetime.Tests.dll",
+      "normal_sha256": "24f94e02a5ffcf8d842a3287b8b4b4327618fca3ff885259db9f59500954f53d",
+      "raw_sha256_by_arm": {
+        "a": "15de11f40a88b9db6447bcc116228949cebcdd46eb2b753372b75eb6095b4a66",
+        "b": "8c0dbec768dcac6669ffc8f12abf356eab6bcbda389fd73673106b2a5fa4476a",
+        "c": "b526fd14aae207ec1aca650a1948ac345b6b613848c562d2c85280fc93680b34",
+        "d": "817e099900f4e97474a49e745f5ffe341cec77a77838a68817648e4766803dd4"
+      }
+    },
+    {
+      "path": "tests/native/ownership-audit/bin/Debug/net10.0/tests/NSharpLang.OwnershipAudit.Tests.dll",
+      "normal_sha256": "88be100cce0b1a7a1cf5c319a72ecf3ddcbc5db934973c009a57868f5caeeaef",
+      "raw_sha256_by_arm": {
+        "a": "d7fcf106d4b35970859140a3feedff53b2e30f6d0c422b25fd25016d14441bea",
+        "b": "d037c4a34ea3f0c9f3b21dd06f17f72461f5c86bd4c281628a7dde792c65f9e8",
+        "c": "4de20e17adbf1ea2e979528c19e7bfbd2b7aa5ed9d9f4a58af07f0b1a929e091",
+        "d": "c712497434e1b82cabd0e4eff829f56e2cb5ed45e5c1c868b76abbce2ca63311"
+      }
+    },
+    {
+      "path": "tests/native/parser-literal-facts/bin/Debug/net10.0/tests/NSharpLang.ParserLiteralFacts.Tests.dll",
+      "normal_sha256": "fe181fbb08cb11868ec341b5e4e53732e93ba1fedff15e29e777a6d81944ca62",
+      "raw_sha256_by_arm": {
+        "a": "29df51fa1aed9ba46b2f35eebb95b6cc1098e66c734bb414b6ec147ef4bda25d",
+        "b": "190fe2ed16a60a7d828efd1035e7afa73b3e992312ba4689c68e59c39437666a",
+        "c": "65071df1c20acb0e0bc24150376ef629a9becb0980f97381ce987ba1c549ccef",
+        "d": "a6b06b1d130f5a76c14bc128bdf12d88eef05e79371273f41fd28d91f9909944"
+      }
+    },
+    {
+      "path": "tests/native/playground-diagnostic-spans/bin/Debug/net10.0/tests/NSharpLang.PlaygroundDiagnosticSpans.Tests.dll",
+      "normal_sha256": "d6d5854a23ed97724cbd4bda2782b05ebc9d9f5f3347c55cf02617e6d976a6cd",
+      "raw_sha256_by_arm": {
+        "a": "30ccd4f9b28654c10f66a439cec1f09286b591d128eb3269d60b508e6467d823",
+        "b": "615eb3cd2528653968946c86c7111dcc9c93fbcfc359f0c548031d196c39b010",
+        "c": "eb16ebf1b9e547a711b223954fddb506e06cb2e0ba10f63f993944136c4be10c",
+        "d": "edd0088244986f43f6462601bad2e9c4a1a983c890b5f4bce41d52b29e224171"
+      }
+    },
+    {
+      "path": "tests/native/playground-tooling-surfaces/bin/Debug/net10.0/tests/NSharpLang.PlaygroundToolingSurfaces.Tests.dll",
+      "normal_sha256": "632d7316b595dda06f4248ca201b6d565a214c2178af36d057b22d6005517e5f",
+      "raw_sha256_by_arm": {
+        "a": "14f65f740506d3375b1751784add9219cfc520dacebd5d7f208a3ad79dda9596",
+        "b": "7ded2fd42c3266719df50b6845014cb85b581e639747d6a0cd320a55bcde2017",
+        "c": "a6b351fde110b585985e9f7b1f4f5a9dc6d72a22fa3643f1cc5754b7b00609c5",
+        "d": "f71772f9152bc41e732d5f1f5db4dad52e6ae7aa560311ec4a13bb7b63cb3727"
+      }
+    },
+    {
+      "path": "tests/native/primitive-binary/bin/Debug/net10.0/tests/NSharpLang.PrimitiveBinary.Tests.dll",
+      "normal_sha256": "d4b6e21e2baf3bd8fadf6963ada8e1818d0cf4ecd49911e5379b10a74718fccb",
+      "raw_sha256_by_arm": {
+        "a": "62b544a0268e9d0cb2ec0f9f3997aa905badb741cc66fca87a7215a7f8896b41",
+        "b": "e70187b29bf9629b392ae3a8b715706b8afdec893770a660430101cf87ad57ba",
+        "c": "258fd048ccab20c9167ad551de1a4af26acd011eec50ba4d440b8b74d2259e9f",
+        "d": "4b01cd17156a4916e8c6ba7f6fb82f6af8ed41a9455c2eff467a758cd5e551c0"
+      }
+    },
+    {
+      "path": "tests/native/query-completions/bin/Debug/net10.0/tests/NSharpLang.QueryCompletions.Tests.dll",
+      "normal_sha256": "f9fe96f22c8063cd68bf894ba8c322850209547b190be5ccdd8e5c2a7fdca23c",
+      "raw_sha256_by_arm": {
+        "a": "e015a5571ba59e784dd6fb2588995b499640c47534e78d1caaee870c95f085f8",
+        "b": "075cb05250e5cbdbe352e1cd2b9ab38b633217e99325383ebcac52d85bf146db",
+        "c": "7387f82eecc1549a5556a38faed83dacaa5f5d024d4b8542e538880800c1e120",
+        "d": "8993eb0db63d6d0717ea900cee773ca0edcce34b136f62d5835a2e5bba095378"
+      }
+    },
+    {
+      "path": "tests/native/query-integration/bin/Debug/net10.0/tests/NSharpLang.QueryIntegration.Tests.dll",
+      "normal_sha256": "5affd238325a7fe6f839a984b6615541078267010e7d824e51264896fd3b505e",
+      "raw_sha256_by_arm": {
+        "a": "3d0e470e0fbb24d3b95e6bf83c35bce5aabf1e17888816fcf332043044ab22d3",
+        "b": "e4576ae2caedffed1ff20c3ec9561b1ddf72b29091f55e66153e15d54c42de57",
+        "c": "feb19ce5eddb78a8ccd1a89db21a56824ab00e116902c5b4713584853e3956b6",
+        "d": "051f56b7c397183ee2f5dd96670620a5d5ab55ebfbb05e0531bcdea6e763514d"
+      }
+    },
+    {
+      "path": "tests/native/range-index/bin/Debug/net10.0/tests/NSharpLang.RangeIndex.Tests.dll",
+      "normal_sha256": "eea4fdc18d396d85dda52200f782598a04542c9589676734633489588bb158ad",
+      "raw_sha256_by_arm": {
+        "a": "635919dab04c39d45694cc8fcc947810e4f939670049e0d5174cd781f4288727",
+        "b": "bfb6a1847585eace4d83257e78dd1eb7cc61a0de1b561a142b4748d0e961d970",
+        "c": "1b0cf14420a9498be7d13debc74ca6d42fbb436575d2cb57a2f227c5f641af63",
+        "d": "252f68fb9d144169ce232504ea5cdfc5c6686e4b20acc3ff7addc65500752192"
+      }
+    },
+    {
+      "path": "tests/native/readonly-dictionary-widening/bin/Debug/net10.0/tests/NSharpLang.ReadOnlyDictionaryWidening.Tests.dll",
+      "normal_sha256": "2f85f59393f5baff1068b3572afbe286b5e1db73a48b1c19384b0b01a0458505",
+      "raw_sha256_by_arm": {
+        "a": "0b5cbdbcc6b4f0650771e9fb78abc5294ccf6c0b6d364f3c007f68460abcf68e",
+        "b": "6dbf7c9c5786c2197b7aba918a2a2815aba5f145ca99e9ae825be8a31a045cce",
+        "c": "291e7507bb050ea0e2ac85e09134be57a1a1284271a29515a9cd7681237df9b1",
+        "d": "af099b1eff0cb7ffae78570a229231cca1f77b14e821289e6fe435e95b758b45"
+      }
+    },
+    {
+      "path": "tests/native/readonly-init/bin/Debug/net10.0/tests/NSharpLang.ReadonlyInit.Tests.dll",
+      "normal_sha256": "fdde80398127ef1d50f6f27acc03c860461b92306b942baba5ccba140cb4ad37",
+      "raw_sha256_by_arm": {
+        "a": "8fe9e1092f8ad281821fa88d75715e97566f3b437a90ec473afac4f8c80ecad2",
+        "b": "035975a7ac2200de8809b12edc30e17325e467869d149317147a1739ad485422",
+        "c": "d2d8f2deeb6a9d904fb9d4e32bc70188aa2ebbd51b52f68c2795fd4a74efec63",
+        "d": "4a7f6c5efc8e7d9bc3987327608afd62d87b3105e0447e65153cd64098ee5c4d"
+      }
+    },
+    {
+      "path": "tests/native/record-with/bin/Debug/net10.0/tests/NSharpLang.RecordWith.Tests.dll",
+      "normal_sha256": "cf72f329ee3c766fe8ad0425cad3cd1b3c43fa4c504456a6e891500fbafe4903",
+      "raw_sha256_by_arm": {
+        "a": "b88951ad53c8d1de54ee7343c15904a1f0650d471f9cf0eb62b8e08eea17eba0",
+        "b": "d06f1265a5e320f83572d707b7ad730353e18a9b6c6fa53c14d6fb2905d3e797",
+        "c": "e0d88d63f0119033491d4d100fe0c89677b55b534349e598a4c5f2a0ae1369cb",
+        "d": "d9f147d5bcbbd5a540a4c5c304d4a52a58ddb72fd2cbd3f1c0a7078b255adb64"
+      }
+    },
+    {
+      "path": "tests/native/reflection-emit-bootstrap/bin/Debug/net10.0/tests/NSharpLang.ReflectionEmitBootstrap.Tests.dll",
+      "normal_sha256": "e463304928c2a8265f452c7780de5b7db77b206d2ed1321f215551b23e1c60dd",
+      "raw_sha256_by_arm": {
+        "a": "c414a269b65e7b31248d2c247c66a9f539cb385aba7e1513dac5e48e8aff86a6",
+        "b": "bb897979f9eddd82944432b9543c1c129f199227736759fe1ef13e6eb461c2f3",
+        "c": "5223f6e6f5b845d30e1351235de8fa111f4a0a3c0edc279ee0e3a4ff576c93da",
+        "d": "013013d4401cd7574f3c4b670d09c050afd6104f86d2015a1c4ae18f18c76de0"
+      }
+    },
+    {
+      "path": "tests/native/scalar-code-plan/bin/Debug/net10.0/tests/NSharpLang.ScalarCodePlan.Tests.dll",
+      "normal_sha256": "4690b20c1c52c62afd99e444691378015dafab42b593fef7402a9109ced9900b",
+      "raw_sha256_by_arm": {
+        "a": "189be0c733aeec3cd9a35b9efffdd60052f1c23b3d2b13def890ab571e2ede3e",
+        "b": "5bfd3830e93b6fa4d10b39aebaee68eefebcead3ac6bdf816e1dbcb86e7fda3e",
+        "c": "a781f7adf3b30fde190bfb98975ce26fc7c2b41726bc733d9749059340c06285",
+        "d": "c6bfdf27c18534917fd7da9003a5b46110e9d54a29760325b9d4e190c689c65a"
+      }
+    },
+    {
+      "path": "tests/native/systems-analysis-census/bin/Debug/net10.0/tests/NSharpLang.SystemsAnalysisCensus.Tests.dll",
+      "normal_sha256": "69cf4e7c676c9935fb20de464205d4efe01cb6b1aed95c5d7390a81a0f9fd13a",
+      "raw_sha256_by_arm": {
+        "a": "5f8af1d8c9d6839accf4da44ab4981ac64e7edd5363072676a73fe06a8dba273",
+        "b": "4cb99175027a2a3439cd0c7b02e5a08206bd74c95cf2840d575328cea35336ca",
+        "c": "bfefc5e692efdd611affb757291fe1821cc3abb8c3ca7681117ba59a7dbcdfb2",
+        "d": "590a8015e050e777ff87e01cb5d797ac4d6f4f1e24818b31886a185227108018"
+      }
+    },
+    {
+      "path": "tests/native/systems-gauntlet-facts/bin/Debug/net10.0/tests/NSharpLang.SystemsGauntletFacts.Tests.dll",
+      "normal_sha256": "663c35ef17f1cc63c78c9a985bce34a40c99d45b6d7bcf990732b9898bc82558",
+      "raw_sha256_by_arm": {
+        "a": "6c740538b2c710741e19d722d3c56b78173a06977b536455bfb31d87e93d4f0c",
+        "b": "f19ea84a0a556367037e512148ff65dca97f5c58ae3b5a6afad0e882bc1509c6",
+        "c": "cc7c7872b3bd95a8f17c2d856caedba1c820f7f372e0f5aab529df1e6b2c2c13",
+        "d": "b20bad79cb859f976b08930ed45d780123fafd9f815471341a9d1096f82d6530"
+      }
+    },
+    {
+      "path": "tests/native/systems-proof-corpus/bin/Debug/net10.0/tests/NSharpLang.SystemsProofCorpus.Tests.dll",
+      "normal_sha256": "49406d0dfe913ca4ea1427774bdca94e976f212877954e9f9afab5aaec253ce2",
+      "raw_sha256_by_arm": {
+        "a": "7a50994ddc070904ca17957fc4267825ff3b3badb3cdce0d55d96603ac43166f",
+        "b": "a4d851a3f90f2233d6348b0d61350493b4232d830259fad29860607defc79ec8",
+        "c": "3c6de828c2f66c3752d6bb49aa264dce59af08c982a974f03a01944870fb80ba",
+        "d": "6d1aedb38ec719cd26c224b1d63e1fae6e8312c2ef630d0e71e859871994b593"
+      }
+    },
+    {
+      "path": "tests/native/systems-vectorization-facts/bin/Debug/net10.0/tests/NSharpLang.SystemsVectorizationFacts.Tests.dll",
+      "normal_sha256": "e5cabf12c6b28586eafb0dfc5bb3241225ef5ad3df10bd0c87d8906819cd7b27",
+      "raw_sha256_by_arm": {
+        "a": "3fb85f610c9c0b84ea0a9ce9680c70f0e1de43b0ea492155fa8197ce9ea6516d",
+        "b": "91820712606048630006f4a80c55817d00919c23d8e7e6bbbbe62c8d6a110aba",
+        "c": "7c559ac7c783b4d47bf186352cd509b794606e3e691e6f3c860dc20e9934c8ba",
+        "d": "431a7875bf8c331e04e197210f5e48a62fca78a1949c1e6292c824e4e3fc05e2"
+      }
+    }
+  ]
+}
