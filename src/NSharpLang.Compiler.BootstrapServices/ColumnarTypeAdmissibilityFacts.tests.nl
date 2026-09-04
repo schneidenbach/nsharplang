@@ -175,7 +175,7 @@ test "span admissibility requires a blittable element, not just the span head" {
 
 // The interop heads are ColumnarRuntimeTypeFacts' to own. Naming `Stream` inline dropped FileStream
 // and DirectoryInfo, and TextWriter was absent altogether — three types the emitter admits.
-test "type admissibility routes the interop heads through the runtime facts owner" {
+test "resolved IO identities share admission while receiver facts remain separate" {
     // `typeof(FileStream)` / `typeof(DirectoryInfo)` DECLINE at emit — the same reason the subject
     // kernel reaches them by name — so the seeded lookup names them here too.
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Stream))
@@ -186,11 +186,11 @@ test "type admissibility routes the interop heads through the runtime facts owne
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.DirectoryInfo"))
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.TextWriter"))
 
-    // Neighbours of the admitted heads that are NOT modelled stay out.
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.MemoryStream"))
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.FileInfo"))
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.StreamWriter"))
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.TextReader"))
+    // Neighbouring catalog identities no longer need individual type-admission rows.
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.MemoryStream"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.FileInfo"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.StreamWriter"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.TextReader"))
 
     // The receiver-side owner answers the same on the two heads it was also missing.
     assert ColumnarRuntimeInstanceMemberResolver.IsAdmittedValueType(AdmissibilityRuntimeType("System.IO.FileStream"))
@@ -198,11 +198,12 @@ test "type admissibility routes the interop heads through the runtime facts owne
     assert !ColumnarRuntimeInstanceMemberResolver.IsAdmittedValueType(AdmissibilityRuntimeType("System.IO.FileInfo"))
 }
 
-// `Result<T, E>` and `Union<A, B>` were admitted on the DEFINITION NAME alone, so
-// `Result<Queue<int>, string>` — whose Ok value has no emit lowering at all — read as a supported
-// type and could reach a collection element or a tuple slot.
+// Result and union argument guards remain structural. A closed catalog type such as Queue<int>
+// is admissible; an argument that still contains an open parameter is not.
 test "result and anonymous-union admissibility constrains the arguments, not just the head" {
-    queue := AdmissibilityQueueOfInt()
+    queue := AdmissibilityRuntimeType("System.Collections.Generic.Queue`1")
+    assert ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(AdmissibilityQueueOfInt(), typeof(string)))
+    assert ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(AdmissibilityUnion(AdmissibilityQueueOfInt(), typeof(string)))
 
     assert ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(typeof(int), typeof(string)))
     assert ColumnarTypeOfPlanner.IsSupportedResultType(AdmissibilityResult(typeof(string), typeof(bool)))

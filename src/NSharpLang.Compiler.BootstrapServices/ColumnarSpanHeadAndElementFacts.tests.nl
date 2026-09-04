@@ -99,9 +99,8 @@ test "the collection element surface admits the five concrete heads without aski
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceStruct)))
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(typeof(HashSet<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceStruct)))
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(typeof(Stack<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceStruct)))
-    // A Queue is not a supported value at all, and the early return admits it anyway once it is
-    // nested inside one of the five — this is the head test, not an argument test.
-    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityQueueOfInt())
+    // A catalog-resolved Queue is now an admissible value, including inside the existing heads.
+    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityQueueOfInt())
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityClosed1("System.Collections.Generic.List`1", AdmissibilityQueueOfInt()))
 
     // The element head list is FIVE, not the ten `IsSupportedCollectionType` carries. Over a baked
@@ -126,7 +125,8 @@ test "the collection element tail requires a supported value that is not builder
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(typeof(object))
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(typeof(DateTime))
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(typeof(int[]))
-    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityRuntimeType("System.Threading.Tasks.TaskScheduler"))
+    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityRuntimeType("System.Threading.Tasks.TaskScheduler"))
+    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityRuntimeType("System.Void"))
 
     // A bare source TypeBuilder is admitted by its own arm, BEFORE the tail is reached.
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct)
@@ -153,7 +153,7 @@ test "the hash set element narrows the collection element by the non enum builde
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(typeof(string))
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(typeof(List<int>))
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(typeof(int[]))
-    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(AdmissibilityQueueOfInt())
+    assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(AdmissibilityQueueOfInt())
 
     // The five-head early return admits `List<sourceStruct>` as a collection element and the set
     // narrowing takes it back out — the one shape class where the two predicates part company.

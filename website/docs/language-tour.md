@@ -688,7 +688,10 @@ func main() {
 
 ## Reflection Operators
 
-`nameof` and `typeof` are compile-time operators.
+`nameof` and `typeof` are compile-time operators. `typeof` resolves type names through the current
+source scope, imports, aliases, and referenced assembly catalog. External classes, structs,
+interfaces, enums, and closed generic types do not need a separate compiler allow-list; for example,
+`typeof(Guid)`, `typeof(Math)`, and `typeof(Queue<int>)` use their resolved type identities.
 
 ```n#
 class Person {

@@ -55,12 +55,9 @@ func SupportedTypeHeadRuntimeGenericParameter(): Type {
     return typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
 }
 
-// THE DIRECT `typeof` SURFACE. Thirty-one arms the head decides by identity and nothing else. The
-// negatives are chosen to be near neighbours of an admitted type rather than arbitrary rejects: a
-// `Guid` and a `DateTimeOffset` beside `DateTime`/`TimeSpan`, a `TextReader` beside `TextWriter`,
-// an `Encoding` beside `StringBuilder`, a `Stopwatch` beside `TimeSpan`. A head that widened to "any BCL struct" or "any System type" would
-// pass the positives and fail here.
-test "the supported-type head owns the scalar and named BCL surface by identity" {
+// Scalars retain their lowering facts. Resolved external types use exact catalog identities;
+// neighbouring BCL structs and reference types no longer need individual admission rows.
+test "the supported-type head retains scalars and admits exact external catalog identities" {
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(int))
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(bool))
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(long))
@@ -97,19 +94,18 @@ test "the supported-type head owns the scalar and named BCL surface by identity"
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Version))
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Assembly))
 
-    // Near neighbours the head must NOT admit.
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.Guid"))
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.DateTimeOffset"))
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.Text.Encoding"))
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.TextReader"))
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.Diagnostics.Stopwatch"))
+    // These catalog-resolved neighbours share the general external admission rule.
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.Guid"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.DateTimeOffset"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.Text.Encoding"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.TextReader"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.Diagnostics.Stopwatch"))
     assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.Void"))
 }
 
-// THE ASSIGNABILITY ARM. The only non-identity BCL arm in the head: every exception type is
-// admitted, including ones the compiler has never heard of, and the test is base-chain
-// assignability rather than a name list. Nothing in the estate asserted this before.
-test "the supported-type head admits every exception by assignability, not by name" {
+// Exceptions use the same catalog identity rule as other external types. Source exceptions retain
+// their builder facts, including a parent constructor's exact CLR owner.
+test "the supported-type head admits resolved exception identities and source exceptions" {
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Exception))
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(InvalidOperationException))
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(ArgumentException))
@@ -117,9 +113,8 @@ test "the supported-type head admits every exception by assignability, not by na
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.OperationCanceledException"))
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.IO.FileNotFoundException"))
 
-    // A SOURCE-declared exception is admitted through the same arm, which is what makes the arm
-    // assignability rather than a list: the builder type is on no list the head carries. It is
-    // built on the PERSISTED shape production emits, through `DefineType`'s parent argument.
+    // A source exception remains a supported builder type, using the persisted shape the compiler
+    // emits and its actual parent declaration.
     sourceException := ExternalGuardPersistedBuilder(
         "Contoso.HeadFacts.SourceFailure",
         0,
@@ -128,8 +123,7 @@ test "the supported-type head admits every exception by assignability, not by na
     assert typeof(Exception).IsAssignableFrom(sourceException)
     assert ColumnarTypeOfPlanner.IsSupportedType(sourceException)
 
-    // A near neighbour that is NOT an exception, declared the same way, is declined — so the
-    // positive above is the assignability arm answering and not the TypeBuilder arm.
+    // General type admission does not change the CLR inheritance relation.
     assert !typeof(Exception).IsAssignableFrom(AdmissibilityRuntimeType("System.Text.Encoding"))
 }
 
@@ -241,7 +235,7 @@ test "the anonymous-union arm head declines every shape that is not a storable v
     assert !ColumnarTypeOfPlanner.IsSupportedAnonymousUnionArm(sourceStruct.MakeByRefType())
     assert !ColumnarTypeOfPlanner.IsSupportedAnonymousUnionArm(sourceStruct.MakePointerType())
     assert !ColumnarTypeOfPlanner.IsSupportedAnonymousUnionArm(typeof(int).MakePointerType())
-    assert !ColumnarTypeOfPlanner.IsSupportedAnonymousUnionArm(AdmissibilityRuntimeType("System.Guid"))
+    assert ColumnarTypeOfPlanner.IsSupportedAnonymousUnionArm(AdmissibilityRuntimeType("System.Guid"))
 
     // The arm head adds NOTHING to the head beyond void and by-ref, and that is asserted rather
     // than assumed: on every shape that is neither, the two answer alike.

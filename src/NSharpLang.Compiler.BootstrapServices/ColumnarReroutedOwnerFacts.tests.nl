@@ -113,25 +113,25 @@ test "open ValueTuple definitions cover exactly arity two through seven" {
     assert ColumnarTypeOfPlanner.OpenValueTupleType(9) == null
 }
 
-// The Json surface the emitter admits as a carried value type. The two NESTED enumerators are in the
-// set and are matched by their `+`-separated metadata name, which is the spelling a nested type has.
-test "the admitted Json surface is exactly the eight modeled types" {
-    assert ColumnarTypeOfPlanner.IsSupportedJsonType(typeof(JsonElement))
-    assert ColumnarTypeOfPlanner.IsSupportedJsonType(typeof(JsonDocument))
-    assert ColumnarTypeOfPlanner.IsSupportedJsonType(typeof(JsonValueKind))
-    assert ColumnarTypeOfPlanner.IsSupportedJsonType(typeof(JsonSerializerOptions))
-    assert ColumnarTypeOfPlanner.IsSupportedJsonType(typeof(JsonNamingPolicy))
-    assert ColumnarTypeOfPlanner.IsSupportedJsonType(ReroutedJsonType("System.Text.Json.JsonProperty"))
-    assert ColumnarTypeOfPlanner.IsSupportedJsonType(ReroutedJsonType("System.Text.Json.JsonElement+ArrayEnumerator"))
-    assert ColumnarTypeOfPlanner.IsSupportedJsonType(ReroutedJsonType("System.Text.Json.JsonElement+ObjectEnumerator"))
+// JSON identities use the same catalog admission rule, including nested metadata names. The
+// array-element guard remains a separate lowering fact.
+test "JSON external value identities use general catalog admission" {
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(JsonElement))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(JsonDocument))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(JsonValueKind))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(JsonSerializerOptions))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(JsonNamingPolicy))
+    assert ColumnarTypeOfPlanner.IsSupportedType(ReroutedJsonType("System.Text.Json.JsonProperty"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(ReroutedJsonType("System.Text.Json.JsonElement+ArrayEnumerator"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(ReroutedJsonType("System.Text.Json.JsonElement+ObjectEnumerator"))
 
-    // Neighbours on the SAME Json surface that are deliberately NOT modeled.
-    assert !ColumnarTypeOfPlanner.IsSupportedJsonType(ReroutedJsonType("System.Text.Json.JsonSerializer"))
-    assert !ColumnarTypeOfPlanner.IsSupportedJsonType(ReroutedJsonType("System.Text.Json.JsonException"))
-    assert !ColumnarTypeOfPlanner.IsSupportedJsonType(typeof(string))
-    assert !ColumnarTypeOfPlanner.IsSupportedJsonType(typeof(int))
-    // An ARRAY of an admitted Json type is not itself an admitted Json type.
-    assert !ColumnarTypeOfPlanner.IsSupportedJsonType(typeof(JsonElement).MakeArrayType())
+    // Neighbouring catalog identities need no new admission row.
+    assert ColumnarTypeOfPlanner.IsSupportedType(ReroutedJsonType("System.Text.Json.JsonSerializer"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(ReroutedJsonType("System.Text.Json.JsonException"))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(string))
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(int))
+    // This structural array guard is unchanged by admitting external identities.
+    assert !ColumnarTypeOfPlanner.IsSupportedType(typeof(JsonElement).MakeArrayType())
 }
 
 // Both the SHORT and the fully-qualified spelling of each modeled external head resolve to the same
