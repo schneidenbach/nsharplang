@@ -33,6 +33,24 @@ func RepeatedText(unit: string, count: int): string {
     return text
 }
 
+test "the custom attribute executor selects only declared constructor slots" {
+    firstOwner := typeof(object)
+    secondOwner := typeof(InvalidOperationException)
+    parameterTypes := new Type[](0)
+    first := firstOwner.GetConstructor(parameterTypes)
+    second := secondOwner.GetConstructor(parameterTypes)
+    assert first != null
+    assert second != null
+    assert Object.ReferenceEquals(ColumnarAttributeBlobs.TestConstructorForSlot(0, first, second), first)
+    assert Object.ReferenceEquals(ColumnarAttributeBlobs.TestConstructorForSlot(1, first, second), second)
+    assert throws InvalidOperationException {
+        ColumnarAttributeBlobs.TestConstructorForSlot(-1, first, second)
+    }
+    assert throws InvalidOperationException {
+        ColumnarAttributeBlobs.TestConstructorForSlot(2, first, second)
+    }
+}
+
 test "a no-argument attribute blob is the prologue and a zero named count" {
     blob := ColumnarAttributeBlobs.NoArgument()
     assert blob.Length == 4
@@ -45,7 +63,8 @@ test "two string arguments write a length-prefixed UTF-8 run each" {
 }
 
 test "the xunit Trait shape matches the bytes CustomAttributeBuilder wrote" {
-    blob := ColumnarAttributeBlobs.TwoStrings("NSharpDescription", "a description")
+    assert ColumnarAttributeBlobs.DescriptionTraitKey() == "NSharpDescription"
+    blob := ColumnarAttributeBlobs.TwoStrings(ColumnarAttributeBlobs.DescriptionTraitKey(), "a description")
     assert BlobText(blob) == "1-0-17-78-83-104-97-114-112-68-101-115-99-114-105-112-116-105-111-110-13-97-32-100-101-115-99-114-105-112-116-105-111-110-0-0"
 }
 

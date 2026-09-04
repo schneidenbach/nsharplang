@@ -2,6 +2,8 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
 
 // CUSTOM-ATTRIBUTE BLOBS, WRITTEN DIRECTLY (ECMA-335 II.23.3), BECAUSE THE BUILDER CANNOT BE
 // CONSTRUCTED UNDER NativeAOT. `new CustomAttributeBuilder(ctor, args)` throws
@@ -16,6 +18,40 @@ import System.Collections.Generic
 // attribute with no arguments, and one with two string arguments -- and both are pinned byte-for-byte
 // against what `CustomAttributeBuilder` produced, so the conversion moves no emitted byte.
 class ColumnarAttributeBlobs {
+    static func DescriptionTraitKey(): string {
+        return "NSharpDescription"
+    }
+
+    // The temporary Reflection.Emit executor applies planned rows whose data does not depend on
+    // builders. Binding constructors stays with the current host until S2.2; no selection or
+    // attachment-order policy stays there. An empty sequence performs no attachment.
+    static func ApplyToType(target: TypeBuilder, attributeConstructor: ConstructorInfo, blobs: byte[][]) {
+        index := 0
+        while index < blobs.Length {
+            target.SetCustomAttribute(attributeConstructor, blobs[index])
+            index = index + 1
+        }
+    }
+
+    // Generated rows have one blob for each valid constructor slot. Like the other declaration
+    // columns, both arrays are read-only after planning; this executor does not accept source data.
+    static func ApplyToTestMethod(target: MethodBuilder, traitConstructor: ConstructorInfo, factConstructor: ConstructorInfo, constructorSlots: int[], blobs: byte[][]) {
+        index := 0
+        while index < constructorSlots.Length {
+            target.SetCustomAttribute(TestConstructorForSlot(constructorSlots[index], traitConstructor, factConstructor), blobs[index])
+            index = index + 1
+        }
+    }
+
+    static func TestConstructorForSlot(slot: int, traitConstructor: ConstructorInfo, factConstructor: ConstructorInfo): ConstructorInfo {
+        if slot == 0 {
+            return traitConstructor
+        }
+        if slot == 1 {
+            return factConstructor
+        }
+        throw new InvalidOperationException("Unknown custom test attribute constructor slot.")
+    }
 
     // `[IsByRefLike]`, `[IsReadOnly]`, `[Fact]`: prolog, no fixed arguments, no named arguments.
     static func NoArgument(): byte[] {

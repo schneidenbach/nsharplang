@@ -4081,12 +4081,12 @@ internal sealed class ColumnarIlEmitter
                 tb = enclosingDef.Builder.DefineNestedType(st.Name, typeAttributes,
                     st.IsReference ? typeof(object) : typeof(ValueType));
             }
-            if (st.IsRefStruct)
+            if (declarationPlan.CustomAttributes.StructByRefLikeBlobs[s].Length > 0)
             {
                 var byRefLikeCtor = typeof(System.Runtime.CompilerServices.IsByRefLikeAttribute).GetConstructor(Type.EmptyTypes);
                 if (byRefLikeCtor == null)
                     return false;
-                tb.SetCustomAttribute(byRefLikeCtor, ColumnarAttributeBlobs.NoArgument());
+                ColumnarAttributeBlobs.ApplyToType(tb, byRefLikeCtor, declarationPlan.CustomAttributes.StructByRefLikeBlobs[s]);
             }
 
             // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
@@ -4924,7 +4924,7 @@ internal sealed class ColumnarIlEmitter
                     return DeclineStatic("emit.union.predeclare", "value-struct union base was not predeclared for '" + un.Name + "'", un.Name);
                 var readOnlyCtor = typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute).GetConstructor(Type.EmptyTypes);
                 if (readOnlyCtor != null)
-                    structTb.SetCustomAttribute(readOnlyCtor, ColumnarAttributeBlobs.NoArgument());
+                    ColumnarAttributeBlobs.ApplyToType(structTb, readOnlyCtor, declarationPlan.CustomAttributes.UnionReadOnlyBlobs[u]);
 
                 var tagField = structTb.DefineField("_tag", typeof(int), FieldAttributes.Private | FieldAttributes.InitOnly);
                 var tagCtor = structTb.DefineConstructor(
@@ -5733,10 +5733,8 @@ internal sealed class ColumnarIlEmitter
         // rule: an exe serializes through ManagedPEBuilder with the entry-point token set (Save never writes
         // one); an async `main` cannot BE the entry point (returns Task/Task<T>), so a sync __NSharpEntryPoint
         // wrapper blocks on GetAwaiter().GetResult(), declared BEFORE CreateType() so it bakes with Program.
-        // TEST DECLARATIONS — the NSharpTests contract: one public module-level type, each test a public
-        // instance void method with Trait("NSharpDescription", ...) + Fact resolved from the restored xunit at
-        // emit time; bodies use the standard body emitter; `nlc test` and `dotnet test` both discover them.
-        if (program.Tests is { Count: > 0 } testInputs)
+        // TEST DECLARATIONS consume planned attributes and the standard body emitter.
+        if (declarationPlan.CustomAttributes.TestBlobs.Length > 0)
         {
             Type factAttributeType;
             Type traitAttributeType;
@@ -5757,8 +5755,9 @@ internal sealed class ColumnarIlEmitter
 
             var testType = module.DefineType("NSharpTests", TypeAttributes.Public | TypeAttributes.Class);
             var usedTestMethodNames = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var testInput in testInputs)
+            for (var testIndex = 0; testIndex < declarationPlan.CustomAttributes.TestBlobs.Length; testIndex++)
             {
+                var testInput = program.Tests![testIndex];
                 var methodName = TestDescriptionToMethodName(testInput.Description);
                 if (!usedTestMethodNames.Add(methodName))
                 {
@@ -5769,8 +5768,7 @@ internal sealed class ColumnarIlEmitter
                 }
 
                 var testMethod = testType.DefineMethod(methodName, MethodAttributes.Public | MethodAttributes.HideBySig, typeof(void), Type.EmptyTypes);
-                testMethod.SetCustomAttribute(traitCtor, ColumnarAttributeBlobs.TwoStrings("NSharpDescription", testInput.Description));
-                testMethod.SetCustomAttribute(factCtor, ColumnarAttributeBlobs.NoArgument());
+                ColumnarAttributeBlobs.ApplyToTestMethod(testMethod, traitCtor, factCtor, declarationPlan.CustomAttributes.TestConstructorSlots, declarationPlan.CustomAttributes.TestBlobs[testIndex]);
 
                 var testBody = testInput.Body;
                 var testIl = testMethod.GetILGenerator();

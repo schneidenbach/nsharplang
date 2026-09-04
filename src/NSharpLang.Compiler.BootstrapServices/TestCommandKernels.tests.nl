@@ -20,6 +20,17 @@ func NativeRun(outcomeRanks: int[], outcomeCount: int): NativeTestRun {
     return new NativeTestRun(new List<NativeTestResult>(), outcomeRanks, outcomeCount)
 }
 
+test "the test description trait readers preserve the literal metadata contract" {
+    // These expectations must not call the shared key owner: a coordinated emitter/reader rename
+    // would otherwise keep every display-name round trip green while changing published metadata.
+    assert TestCommandKernels.GetNSharpDescriptionTraitKey() == "NSharpDescription"
+    assert TestCommandKernels.IsNSharpDescriptionTraitName("NSharpDescription")
+    assert !TestCommandKernels.IsNSharpDescriptionTraitName("nsharpdescription")
+    assert !TestCommandKernels.IsNSharpDescriptionTraitName("NSharpDescription ")
+    assert !TestCommandKernels.IsNSharpDescriptionTraitName("")
+    assert !TestCommandKernels.IsNSharpDescriptionTraitName(null)
+}
+
 test "native test summaries reject empty discovery" {
     summary := TestCommandKernels.SummarizeNativeTestRun(NativeRun(new int[](0), 0))
 

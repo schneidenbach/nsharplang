@@ -7,6 +7,7 @@ import System.IO
 import System.Reflection
 import System.Text
 import System.Text.Json
+import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 
 class NativeTestCase {
@@ -211,11 +212,11 @@ class TestCommandKernels {
     }
 
     static func IsNSharpDescriptionTraitName(traitName: string?): bool {
-        return string.Equals(traitName ?? "", "NSharpDescription", StringComparison.Ordinal)
+        return string.Equals(traitName ?? "", ColumnarAttributeBlobs.DescriptionTraitKey(), StringComparison.Ordinal)
     }
 
     static func GetNSharpDescriptionTraitKey(): string {
-        return "NSharpDescription"
+        return ColumnarAttributeBlobs.DescriptionTraitKey()
     }
 
     static func IsNUnitIgnoreAttributeName(attributeFullName: string?): bool {

@@ -1,7 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections.Generic
+import NSharpLang.Compiler
 
 // THE DECLARATION-ROW IR — THE SECOND HALF OF THE PLAN-ROW IR, WHICH DID NOT EXIST.
 //
@@ -12,8 +12,8 @@ import System.Collections.Generic
 // inline as it went. So a SECOND executor over "the same plan rows" had, for every declaration,
 // no rows to execute.
 //
-// This is that table. It grows one declaration family per slice (023/2 S2.1 (a)…(i)); this file
-// carries (a) — the assembly, the module and the enums. The rule the whole arc follows: anything the
+// This is that table. It grows one declaration family per slice (023/2 S2.1 (a)…(i)), starting with
+// (a) — the assembly, the module and the enums. The rule the whole arc follows: anything the
 // Reflection.Emit executor COMPUTES is planner work, because a second executor would otherwise have
 // to compute it again and the two could disagree. For enums that is exactly two computations —
 // the resolved exact type name, and the composed `TypeAttributes` word.
@@ -143,7 +143,30 @@ class ColumnarPropertyRows {
     }
 }
 
+// CUSTOM ATTRIBUTES, IN ATTACHMENT ORDER. Each outer index identifies its source declaration;
+// each inner sequence is the complete ordered attachment list for that owner. Empty means absent.
+// The first two families bind their sole constructor to IsByRefLike() and IsReadOnly() respectively.
+// Test slots bind 0 to Trait(string, string), 1 to Fact(); slot order is data, not executor policy.
+// Source lists retain stable ordinals through emission. These rows capture attribute data, not the
+// rest of each source declaration; executors treat the resulting arrays as read-only.
+// Constructor resolution is still S2.2: missing IsByRefLike declines, missing IsReadOnly is skipped,
+// and missing test constructors produce the existing emit.tests.framework decline before any test.
+class ColumnarCustomAttributeRows {
+    StructByRefLikeBlobs: byte[][][]
+    UnionReadOnlyBlobs: byte[][][]
+    TestConstructorSlots: int[]
+    TestBlobs: byte[][][]
+
+    constructor(structByRefLikeBlobs: byte[][][], unionReadOnlyBlobs: byte[][][], testConstructorSlots: int[], testBlobs: byte[][][]) {
+        StructByRefLikeBlobs = structByRefLikeBlobs
+        UnionReadOnlyBlobs = unionReadOnlyBlobs
+        TestConstructorSlots = testConstructorSlots
+        TestBlobs = testBlobs
+    }
+}
+
 class ColumnarDeclarationPlan {
+    CustomAttributes: ColumnarCustomAttributeRows
     Properties: ColumnarPropertyRows
     Methods: ColumnarMethodRows
     Fields: ColumnarFieldRows
@@ -159,6 +182,7 @@ class ColumnarDeclarationPlan {
     EnumMemberStringValues: string[][]
 
     constructor(
+        customAttributes: ColumnarCustomAttributeRows,
         properties: ColumnarPropertyRows,
         methods: ColumnarMethodRows,
         fields: ColumnarFieldRows,
@@ -173,6 +197,7 @@ class ColumnarDeclarationPlan {
         enumMemberValues: int[][],
         enumMemberStringValues: string[][]
     ) {
+        CustomAttributes = customAttributes
         Properties = properties
         Methods = methods
         Fields = fields
@@ -190,6 +215,67 @@ class ColumnarDeclarationPlan {
 }
 
 class ColumnarDeclarationPlanner {
+    static func BuildCustomAttributes(program: ColumnarProgramInput): ColumnarCustomAttributeRows {
+        empty := new byte[][](0)
+        noArgument: byte[] = null
+        marker: byte[][] = null
+        structs := program.Structs
+        structBlobs := new byte[][][](structs.Count)
+        index := 0
+        while index < structs.Count {
+            structBlobs[index] = empty
+            if structs[index].IsRefStruct {
+                if marker == null {
+                    noArgument = ColumnarAttributeBlobs.NoArgument()
+                    marker = new byte[][](1)
+                    marker[0] = noArgument
+                }
+                structBlobs[index] = marker
+            }
+            index = index + 1
+        }
+
+        unions := program.Unions
+        unionBlobs := new byte[][][](unions.Count)
+        index = 0
+        while index < unions.Count {
+            unionBlobs[index] = empty
+            if unions[index].IsValueStruct {
+                if marker == null {
+                    noArgument = ColumnarAttributeBlobs.NoArgument()
+                    marker = new byte[][](1)
+                    marker[0] = noArgument
+                }
+                unionBlobs[index] = marker
+            }
+            index = index + 1
+        }
+
+        tests := program.Tests
+        testCount := 0
+        if tests != null {
+            testCount = tests.Count
+        }
+        slots := new int[](0)
+        testBlobs := new byte[][][](testCount)
+        if tests != null && testCount > 0 {
+            slots = new int[](2)
+            slots[0] = 0
+            slots[1] = 1
+            if noArgument == null {
+                noArgument = ColumnarAttributeBlobs.NoArgument()
+            }
+            index = 0
+            while index < testCount {
+                blobs := new byte[][](2)
+                blobs[0] = ColumnarAttributeBlobs.TwoStrings(ColumnarAttributeBlobs.DescriptionTraitKey(), tests[index].Description)
+                blobs[1] = noArgument
+                testBlobs[index] = blobs
+                index = index + 1
+            }
+        }
+        return new ColumnarCustomAttributeRows(structBlobs, unionBlobs, slots, testBlobs)
+    }
 
     // `TypeAttributes` (ECMA-335 II.23.1.15) as integers, for the same reason
     // `ColumnarGenericConstraintPlanner` writes `GenericParameterAttributes` as integers: the bits are
@@ -648,6 +734,7 @@ class ColumnarDeclarationPlanner {
         }
 
         return new ColumnarDeclarationPlan(
+            BuildCustomAttributes(program),
             BuildProperties(program),
             BuildMethods(program),
             BuildFields(program),
