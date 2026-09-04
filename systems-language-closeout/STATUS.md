@@ -36,16 +36,18 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 **Takeover integration (2026-09-04):** started at clean/pushed `6ea697316` on `systems-language`.
 The diagnostic-honesty slice is merged at `f83bf86e2`, the N# NL924 boundary at `16784b0e1`, scoped
 `typeof` admission from `629c727a5`, and proven S2.1(f) plus its shared-empty correction at `dd4853044`.
-The editor correction is merged at `1527e823` and visually verified after reinstall. The exact
-checkpoint SHA and fresh VS Code-enabled gate verdict are recorded at
-`/private/tmp/gate-20260904-takeover-r26/gate.log`; inspect that verdict before treating the checkpoint
-as gated. The r25 retry exposed missing bootstrap versions in a partially populated dependency cache;
+The editor correction is merged at `1527e823` and visually verified after reinstall. **Product tip
+`a0380b68` passed fresh VS Code-enabled gate r26 in 8m20s: unit 593, estate 7,650, VS Code 36,
+all native suites and IL verification of 68 assemblies.** Log: `/private/tmp/gate-20260904-takeover-r26/gate.log`.
+The final documentation checkpoint is verified by a consecutive fresh gate recorded at
+`/private/tmp/gate-20260904-takeover-r27/gate.log`; inspect its source SHA and verdict before push.
+The r25 retry exposed missing bootstrap versions in a partially populated dependency cache;
 reseeding now runs even when the package-ID directory exists. The first run (r24, `242e401d`) had one installer dry-run unit failure;
 the exact test and complete compiled unit suite then passed. The gate now retains assertion details;
 no installer test was weakened and the initial failure remains unexplained.
-[Verification record](decodes/2026-09-04-takeover-verification.md). The preceding gated
-product tip is `1cd8ec19c` (r23: unit 593, estate 7,630, VS Code smoke green); its surviving log is
-`/private/tmp/gate-163317/gate.log`. A focused slice result is not a new full-gate verdict.
+[Verification record](decodes/2026-09-04-takeover-verification.md). The earlier r23 tip was `1cd8ec19c`
+(unit 593, estate 7,630, VS Code smoke green); log `/private/tmp/gate-163317/gate.log`.
+A focused slice result is not a new full-gate verdict.
 
 ### Queue state (`tasks/README.md`)
 
@@ -122,7 +124,9 @@ No SDK/feed republish during this wave.
 **Next writer slice:** S2.1(g) custom attributes, then (h) P/Invoke and (i) method overrides, each over
 explicit declaration rows and with whole-PE control-first parity. Continue S2.2 resolved type-reference
 keys, S2.3 declaration writer, S2.4 body encoding, S2.5 remaining bodies and S2.6 metadata-writer parity
-harness. Then task 023/3 routes the unified type universe through that writer and retires Reflection.Emit.
+harness. Task 023/3 then gives the writer its unified metadata universe and removes runtime emit lookups
+and the Cecil corelib-to-contract rewrite. Task 023/4 flips the product default and deletes
+Reflection.Emit and `ColumnarIlEmitter.cs`.
 
 **Next independent type slice:** 022/2f-b2 routes static calls through existing `GetStaticCallPlan` and
 deletes the measured 866-line closed chain; coordinate exclusive emitter ownership with the writer.
@@ -217,8 +221,8 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
 
 | measure | value |
 |---|---|
-| unit suite (`tests/Tests.csproj`) | 593 in gates r19–r22 (595 at `27a6d24f6`; the error-docs arc's two retired-code assertions) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,630** measured in gate r23 at `1cd8ec19c` (7,624 at `a18489795` + 6, diag-honesty slice 7) |
+| unit suite (`tests/Tests.csproj`) | **593/593** in fresh gate r26 at `a0380b68` (595 at `27a6d24f6`; the error-docs arc's two retired-code assertions) |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,650/7,650** in fresh gate r26 at `a0380b68`; preceding r23 at `1cd8ec19c` had 7,630 |
 | native projects | 46 `project.yml` under `tests/native`; 75 tracked corpus projects, with pin 74 excluding the compile-time benchmark itself |
 | live-tree strict `nlc check` on BootstrapServices | `1527e823`: 425 files / 260 results, exit 1. Same final CLI over takeover `6ea697316`: 423 / 261. No new findings after source-line mapping; the sole removal is CodeFix sourceCode unused-parameter NL012. Raw comparison `/private/tmp/nsharp-takeover-live-check/`; 403/243 was stale |
 | `ColumnarIlEmitter.cs` | 20724 lines / 19712 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1, 1e, 2.1a–d each shrank it); `Analyzer.cs` 2357 (2,798 before 3b; 3b removed 441 lines) |

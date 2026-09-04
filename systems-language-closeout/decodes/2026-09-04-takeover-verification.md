@@ -1,8 +1,8 @@
 # Takeover integration and editor verification — 2026-09-04
 
-The final product source revision is `1527e823` (the following checkpoint commit updates documentation).
-All implementation agents are paused with clean committed worktrees. The combined ownership audit
-passes 18/18 at `head-v1:7f8f7f99a6064f1c`; no ceiling increased. CompletionHandler shrank from
+The compiler and IDE source revision is `1527e823`; the gate-infrastructure repairs below land at
+`a0380b68`, which passed fresh gate r26. All implementation agents are paused with clean committed
+worktrees. The ownership audit passes 18/18 at `head-v1:873549ff87d77915`; no ceiling increased. CompletionHandler shrank from
 638/559 to 620/546 total/nonblank lines. ColumnarIlEmitter remains 20,724/19,712.
 
 ## Installed editor evidence
@@ -53,9 +53,18 @@ The writer's committed-arm whole-PE proof and the focused source-estate counts a
 The checkpoint is run with `./scripts/test-all.sh --commit`, VS Code enabled, from a byte-copy
 excluding nested `.claude/worktrees` and `artifacts/from-worktrees`. All implementation agents remain
 paused. The source SHA, exit status, and complete fresh verdict are recorded externally at
-`/private/tmp/gate-20260904-takeover-r26/gate.log`; read its verdict before using this checkpoint as
+`/private/tmp/gate-20260904-takeover-r27/gate.log`; read its verdict before using this checkpoint as
 gated evidence. No SDK/feed republish is part of this takeover wave. Only the exact successful
 checkpoint SHA is eligible for push to `origin/systems-language`.
+
+The implementation checkpoint `a0380b68438b739cf3565e1be1306570d1fe6a64` passed r26 in **8m20s**:
+**593/593** units, **7,650/7,650** compiler contracts, all native project suites, **36/36** VS Code smoke
+tests, and IL verification of **68 assemblies**, with the throughput, package, template and example
+steps green. Log: `/private/tmp/gate-20260904-takeover-r26/gate.log`. The compile-time timing judgment
+was skipped at load 4.13/10 cores; its exact record is `compile-time-gate.txt` beside that log, and the
+quiet measurement below supplies the timing evidence. The final documentation checkpoint follows
+with a second consecutive fresh gate against the same dependency cache, exercising the bootstrap
+repair after the successful run's package cleanup. No product code changes between those runs.
 
 ### First gate and failure-reporting correction
 
