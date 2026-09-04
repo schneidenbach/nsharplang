@@ -135,3 +135,18 @@ test "the where-site bounds guards answer for a parameter past the end of a shor
     // And the guarded read composes with the attribute rule: a parameter past the end contributes no bits.
     assert ColumnarGenericConstraintPlanner.AttributeBitsFor(ColumnarGenericConstraintPlanner.SpecialAt(specials, 2)) == 0
 }
+
+test "missing type-constraint rows share one empty array and present rows retain their identity" {
+    first := ColumnarGenericConstraintPlanner.TypeConstraintsAt(null, 0)
+    shortRows := new string[][](1)
+    present := new string[](0)
+    shortRows[0] = present
+    pastEnd := ColumnarGenericConstraintPlanner.TypeConstraintsAt(shortRows, 1)
+    repeated := ColumnarGenericConstraintPlanner.TypeConstraintsAt(shortRows, 99)
+
+    assert first.Length == 0
+    assert Object.ReferenceEquals(first, pastEnd)
+    assert Object.ReferenceEquals(first, repeated)
+    assert Object.ReferenceEquals(present, ColumnarGenericConstraintPlanner.TypeConstraintsAt(shortRows, 0))
+    assert !Object.ReferenceEquals(present, first)
+}

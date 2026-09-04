@@ -12,6 +12,11 @@ import System
 // parameter with `attrs=None`: the five `TypeBuilder.DefineGenericParameters` sites had no rules to
 // apply. The rules are here now, and the emitter's one CLR helper reads them for all six sites.
 class ColumnarGenericConstraintPlanner {
+    static readonly emptyTypeConstraints: string[] = createEmptyTypeConstraints()
+
+    static func createEmptyTypeConstraints(): string[] {
+        return new string[](0)
+    }
 
     // `GenericParameterAttributes` (ECMA-335 II.23.1.7), as integers because the emitter's own bits are
     // CLR-side: ReferenceTypeConstraint 4, NotNullableValueTypeConstraint 8, DefaultConstructorConstraint 16.
@@ -49,7 +54,8 @@ class ColumnarGenericConstraintPlanner {
         if typeConstraintRows != null && index < typeConstraintRows.Length {
             return typeConstraintRows[index]
         }
-        return new string[](0)
+        // Preserve the host's shared empty answer without allocating for each missing row.
+        return ColumnarGenericConstraintPlanner.emptyTypeConstraints
     }
 
     // `SpecialConstraintKind` (Class 1, Struct 2, New 4) to the CLR's attribute word.
