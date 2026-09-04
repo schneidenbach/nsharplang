@@ -866,7 +866,7 @@ test "NL002's bare-identifier span STOPS AT THE IDENTIFIER, and does not run the
 
 // THE SENTENCE STOPPED CLAIMING THE COMPILER CANNOT FIND THE NAME, BECAUSE IT ALWAYS CAN. Measured on
 // the shipped CLI with the rule silenced, every row of this table resolves: `StringBuilder`, `Task`,
-// `CancellationToken`, `List<int>` and `Stack<int>` BUILD AND RUN with no import, and the rows that
+// `CancellationToken`, `List<int>` and `Stack<int>` BUILD with no import, and the rows that
 // fail — `Regex`, `HttpClient`, `Queue<int>` — fail identically WITH their import, because the
 // backend cannot lower those types yet. `tests/native/diagnostic-honesty` runs both sides on every
 // gate.

@@ -519,7 +519,7 @@ class LinterMissingImport {
 
     // THE SENTENCE HAD TO STOP CLAIMING THE COMPILER CANNOT FIND THE NAME, BECAUSE IT ALWAYS CAN.
     // Measured on the shipped CLI with the rule silenced: `StringBuilder`, `Task`,
-    // `CancellationToken`, `List<int>` and `Stack<int>` BUILD AND RUN with NO import at all, and the
+    // `CancellationToken`, `List<int>` and `Stack<int>` BUILD with NO import at all, and the
     // rows that do fail — `Regex`, `HttpClient`, `Queue<int>` — fail IDENTICALLY WITH THEIR IMPORT,
     // because the columnar backend cannot lower those types yet. Not one row of this table is a
     // resolution failure, so "I can't find 'StringBuilder'" was false for every one of them.
