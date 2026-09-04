@@ -109,3 +109,28 @@ test "the trim helper copies exactly the count asked for" {
     assert ColumnarConstraintColumns.TrimTexts(texts, 2)[1] == "B"
     assert ColumnarConstraintColumns.TrimTexts(texts, 0).Length == 0
 }
+
+test "SpecialsOrEmpty and TypesOrEmpty normalise NULL but never a SHORT array" {
+    // The names promise more than the functions do, and the difference is load-bearing: the `where`
+    // site's bounds guards exist BECAUSE a short row survives this call unchanged.
+    fromNullSpecials := ColumnarConstraintColumns.SpecialsOrEmpty(null, 3)
+    assert fromNullSpecials.Length == 3
+    fromNullTypes := ColumnarConstraintColumns.TypesOrEmpty(null, 3)
+    assert fromNullTypes.Length == 3
+    // A null-sourced row is a USABLE empty row, not a null the caller must test.
+    assert fromNullTypes[0].Length == 0
+    assert fromNullTypes[2].Length == 0
+
+    // A NON-NULL SHORT array is returned UNCHANGED: `typeParamCount` is ignored entirely, so two rows
+    // stay two rows for a three-parameter owner.
+    shortSpecials := new int[](2)
+    shortSpecials[0] = ColumnarConstraintColumns.NewFlag()
+    keptSpecials := ColumnarConstraintColumns.SpecialsOrEmpty(shortSpecials, 3)
+    assert keptSpecials.Length == 2
+    assert keptSpecials[0] == ColumnarConstraintColumns.NewFlag()
+
+    shortTypes := new string[][](1)
+    shortTypes[0] = new string[](0)
+    keptTypes := ColumnarConstraintColumns.TypesOrEmpty(shortTypes, 3)
+    assert keptTypes.Length == 1
+}

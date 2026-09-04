@@ -12,6 +12,11 @@ import System
 // parameter with `attrs=None`: the five `TypeBuilder.DefineGenericParameters` sites had no rules to
 // apply. The rules are here now, and the emitter's one CLR helper reads them for all six sites.
 class ColumnarGenericConstraintPlanner {
+    static readonly emptyTypeConstraints: string[] = createEmptyTypeConstraints()
+
+    static func createEmptyTypeConstraints(): string[] {
+        return new string[](0)
+    }
 
     // `GenericParameterAttributes` (ECMA-335 II.23.1.7), as integers because the emitter's own bits are
     // CLR-side: ReferenceTypeConstraint 4, NotNullableValueTypeConstraint 8, DefaultConstructorConstraint 16.
@@ -25,6 +30,32 @@ class ColumnarGenericConstraintPlanner {
 
     static func DefaultConstructorConstraintBit(): int {
         return 16
+    }
+
+    // THE TWO BOUNDS GUARDS AT THE `where` SITE, AND WHY THEY ARE NOT BELT-AND-BRACES.
+    //
+    // `ColumnarConstraintColumns.SpecialsOrEmpty` / `TypesOrEmpty` are named as if they normalise, and
+    // they DO -- but only for NULL. A non-null array SHORTER than the type-parameter count is returned
+    // UNCHANGED, `typeParamCount` unused, so an owner declaring three parameters can reach emit with a
+    // two-entry specials row. Reading it unguarded would throw on a shape the emitter accepts today,
+    // which is the same class of trap as the field family's readonly flags. The guards are therefore
+    // rules with contracts, not defensive noise at a call site.
+    //
+    // A parameter past the end has NO special constraint (0) and NO type constraints (an empty row) --
+    // never a missing row the caller must test for.
+    static func SpecialAt(specialRows: int[], index: int): int {
+        if specialRows != null && index < specialRows.Length {
+            return specialRows[index]
+        }
+        return 0
+    }
+
+    static func TypeConstraintsAt(typeConstraintRows: string[][], index: int): string[] {
+        if typeConstraintRows != null && index < typeConstraintRows.Length {
+            return typeConstraintRows[index]
+        }
+        // Preserve the host's shared empty answer without allocating for each missing row.
+        return ColumnarGenericConstraintPlanner.emptyTypeConstraints
     }
 
     // `SpecialConstraintKind` (Class 1, Struct 2, New 4) to the CLR's attribute word.

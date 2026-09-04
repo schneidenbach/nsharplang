@@ -104,3 +104,49 @@ test "constraint rows on a NON-generic owner are malformed" {
     assert !ColumnarGenericConstraintPlanner.HasConstraintsWithoutTypeParameters(0, 0, 0)
     assert !ColumnarGenericConstraintPlanner.HasConstraintsWithoutTypeParameters(1, 1, 1)
 }
+
+test "the where-site bounds guards answer for a parameter past the end of a short row" {
+    // THE EXACT SHORT SHAPE, BUILT RATHER THAN DESCRIBED: three type parameters, TWO specials rows and
+    // ONE type-constraint row. `SpecialsOrEmpty`/`TypesOrEmpty` normalise NULL but not SHORT, so this
+    // reaches emit and an unguarded read would throw.
+    specials := new int[](2)
+    specials[0] = ColumnarConstraintColumns.ClassFlag()
+    specials[1] = ColumnarConstraintColumns.StructFlag()
+
+    assert ColumnarGenericConstraintPlanner.SpecialAt(specials, 0) == ColumnarConstraintColumns.ClassFlag()
+    assert ColumnarGenericConstraintPlanner.SpecialAt(specials, 1) == ColumnarConstraintColumns.StructFlag()
+    // Past the end: NO special constraint, not a throw and not a missing row.
+    assert ColumnarGenericConstraintPlanner.SpecialAt(specials, 2) == 0
+    assert ColumnarGenericConstraintPlanner.SpecialAt(specials, 99) == 0
+    assert ColumnarGenericConstraintPlanner.SpecialAt(null, 0) == 0
+
+    types := new string[][](1)
+    first := new string[](1)
+    first[0] = "Sortable"
+    types[0] = first
+
+    assert ColumnarGenericConstraintPlanner.TypeConstraintsAt(types, 0).Length == 1
+    assert ColumnarGenericConstraintPlanner.TypeConstraintsAt(types, 0)[0] == "Sortable"
+    // Past the end: an EMPTY row, so the caller iterates nothing rather than testing for null.
+    assert ColumnarGenericConstraintPlanner.TypeConstraintsAt(types, 1).Length == 0
+    assert ColumnarGenericConstraintPlanner.TypeConstraintsAt(types, 99).Length == 0
+    assert ColumnarGenericConstraintPlanner.TypeConstraintsAt(null, 0).Length == 0
+
+    // And the guarded read composes with the attribute rule: a parameter past the end contributes no bits.
+    assert ColumnarGenericConstraintPlanner.AttributeBitsFor(ColumnarGenericConstraintPlanner.SpecialAt(specials, 2)) == 0
+}
+
+test "missing type-constraint rows share one empty array and present rows retain their identity" {
+    first := ColumnarGenericConstraintPlanner.TypeConstraintsAt(null, 0)
+    shortRows := new string[][](1)
+    present := new string[](0)
+    shortRows[0] = present
+    pastEnd := ColumnarGenericConstraintPlanner.TypeConstraintsAt(shortRows, 1)
+    repeated := ColumnarGenericConstraintPlanner.TypeConstraintsAt(shortRows, 99)
+
+    assert first.Length == 0
+    assert Object.ReferenceEquals(first, pastEnd)
+    assert Object.ReferenceEquals(first, repeated)
+    assert Object.ReferenceEquals(present, ColumnarGenericConstraintPlanner.TypeConstraintsAt(shortRows, 0))
+    assert !Object.ReferenceEquals(present, first)
+}
