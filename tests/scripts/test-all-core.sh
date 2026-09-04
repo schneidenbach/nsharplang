@@ -322,7 +322,7 @@ else
     echo "Running all unit tests..."
     dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate -v q
     TEST_OUTPUT=$(mktemp)
-    if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
+    if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --logger 'console;verbosity=minimal' --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
         TEST_RESULT=$(grep -E "Passed!|Failed!" "$TEST_OUTPUT" || echo "")
         if [ -n "$TEST_RESULT" ]; then
             echo "$TEST_RESULT"

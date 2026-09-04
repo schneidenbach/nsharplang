@@ -53,9 +53,29 @@ The writer's committed-arm whole-PE proof and the focused source-estate counts a
 The checkpoint is run with `./scripts/test-all.sh --commit`, VS Code enabled, from a byte-copy
 excluding nested `.claude/worktrees` and `artifacts/from-worktrees`. All implementation agents remain
 paused. The source SHA, exit status, and complete fresh verdict are recorded externally at
-`/private/tmp/gate-20260904-takeover-r24/gate.log`; read its verdict before using this checkpoint as
+`/private/tmp/gate-20260904-takeover-r25/gate.log`; read its verdict before using this checkpoint as
 gated evidence. No SDK/feed republish is part of this takeover wave. Only the exact successful
 checkpoint SHA is eligible for push to `origin/systems-language`.
+
+### First gate and failure-reporting correction
+
+The r24 gate on `242e401d` exited 1 after 8m16s: unit **592 pass / 1 fail**,
+compiler estate **7,650/7,650**, VS Code smoke **36/36**, and all remaining steps passed,
+including verification of 68 emitted assemblies. The failing test was
+`SetupLocalScriptTests.InstallLocalSkipVscodeDryRunKeepsCliOnlyPath`. Its scripts and assertions
+are unchanged from takeover. The original `-v q` test invocation suppressed the assertion detail;
+its early failure excludes the 180-second timeout, but no more specific cause can be established.
+The complete failed log is `/private/tmp/gate-20260904-takeover-r24/gate.log`.
+
+Without rebuilding, the exact test passed and the same full compiled unit suite then passed
+**593/593** in the retained isolated tree. The focused `dev.sh SetupLocalScriptTests` rebuild also
+passed **9/9**. Logs and TRX results are outside the repository at
+`/private/tmp/nsharp-setup-local-repro/`. The gate now explicitly selects the console logger's
+`minimal` verbosity while retaining quiet MSBuild output. A controlled invalid setup environment
+proved the log includes the failing assertion, child stderr and the existing `Failed!` summary.
+No assertions or timeout changed; this corrects missing failure evidence, not the unexplained
+first-run failure. The shell row remains 916/815 lines; its observed fingerprint is
+`text-v1:d27a5cd61db84583`, and both reviewed head keys are `head-v1:94e6b5916c964abc`.
 
 ## Quiet compile-time measurement
 
