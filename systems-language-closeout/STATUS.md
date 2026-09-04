@@ -54,7 +54,7 @@ A focused slice result is not a new full-gate verdict.
 | task | state |
 |---|---|
 | 001–014 | accepted, boxes checked (acceptance commits in §4) |
-| 015 | **box UNCHECKED — reopened at `6fcb41f64`**; the `015-A` arc closed at `87afbcb39`; the `015-B` arc (method-body door) is in progress, B1–B15 landed, B16 active |
+| 015 | **box UNCHECKED — reopened at `6fcb41f64`**; the `015-A` arc closed at `87afbcb39`; B1–B16 landed, B17 waits on the writer/type-universe prerequisites below |
 | 016 | complete — `Parser.cs` deleted; box checked; one optional bookkeeping follow-on (see §4) |
 | 017 | complete — zero-policy analyzer; box checked |
 | 018 | complete — systems-analyzer policy N#-owned; box checked |
@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | slice 1 complete; constant-conversion owner 1e landed. S2.0 census and S2.1(a)–(e) declaration rows landed. **S2.1(f) and cache correction are merged at `dd4853044`: four committed-arm comparisons, 94 assemblies, zero IL/missing-output/outcome differences**. S2.1(g)–(i), resolution S2.2, declarations S2.3, body encoder S2.4, coverage S2.5 and harness S2.6 remain — §4.12 |
+| 023 | slice 1 complete; constant-conversion owner 1e landed. S2.0 census and S2.1(a)–(f) landed, including the shared-empty correction. **S2.1(g) is merged at `4f2a8e63` from `f6ebcf42`: N# attribute rows/application, 94 assemblies with zero IL/output-set/outcome differences, estate 7,658, merged audit 18/18**. S2.1(h)–(i), resolution S2.2, declarations S2.3, body encoder S2.4, coverage S2.5 and harness S2.6 remain. The fresh backend integration checkpoint is identified below — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,24 +123,29 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** S2.1(g) custom attributes, then (h) P/Invoke and (i) method overrides, each over
+**Next writer slice:** S2.1(h) P/Invoke, then (i) method overrides, each over
 explicit declaration rows and with whole-PE control-first parity. Continue S2.2 resolved type-reference
 keys, S2.3 declaration writer, S2.4 body encoding, S2.5 remaining bodies and S2.6 metadata-writer parity
 harness. Task 023/3 then gives the writer its unified metadata universe and removes runtime emit lookups
 and the Cecil corelib-to-contract rewrite. Task 023/4 flips the product default and deletes
 Reflection.Emit and `ColumnarIlEmitter.cs`.
 
-**Active goal slice (2026-09-04, base `5ac4faa79`):** S2.1(g), the four custom-attribute attachment
-sites in `ColumnarIlEmitter.cs` (`IsByRefLike`, `IsReadOnly`, description `Trait`, and `Fact`).
-The writer worker has exclusive emitter edit ownership in `codex/023-s21g-attributes`; Astra owns
-the declaration contract, review, landing order, merged ratchet and integration evidence. The slice
-must put attribute selection/data into canonical N# declaration records, preserve attribute order,
-blobs and constructor-failure behavior, and remove the corresponding C# decisions. The shared
-`NSharpDescription` key also has consumers in `TestCommandKernels`; independently literal-pinned
-contracts must prevent a synchronized writer/reader rename from hiding an ABI change. Constructor
-resolution remains S2.2. Whole-PE proof uses independent control arms and the fixed committed
-`5ac4faa79` corpus. Static-call deletion and strict-source hygiene are read-only decodes during this
-slice; neither may contend with the emitter owner. No completion or new gate result is claimed yet.
+**Goal checkpoint (2026-09-04):** S2.1(g) moved all four custom-attribute attachment sites
+(`IsByRefLike`, `IsReadOnly`, description `Trait`, and `Fact`) to N# declaration records and N#
+application. The shared description key is independently literal-pinned with its CLI readers;
+constructor resolution/failure timing remains S2.2. C# is 20,722 / 19,710 nonblank lines. The merged
+ownership head is `head-v1:3d58ab0370b44a15`; the audit passed 18/18 after its observed two-key repin.
+The fixed `5ac4faa79` corpus passed 2,138 native tests per arm with zero differences across 94 images.
+[Completed parity proof](decodes/2026-09-04-s21g-parity-proof.md). The initial live-working-directory
+harness arms were rejected and all three arms rerun from their corpus roots.
+
+The fresh backend integration run for this checkpoint is recorded outside the source snapshot at
+`/private/tmp/gate-20260904-goal-s21g-r1/`: `source.json` identifies the exact committed revision,
+`gate.log` carries the full fresh run, and `exit-code.txt` is its terminal result. Read that actual
+verdict before advancing or pushing; this ledger does not substitute for the gate. After it passes,
+the next writer cut is the [P/Invoke record plan](decodes/2026-09-04-s21h-pinvoke-next-cut.md).
+Astra owns planning/integration and assigns one emitter writer at a time. Static-call and
+self-hosting decodes below are independent candidates; no implementation is claimed for them.
 
 **Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
 `TryEmitStaticCall` already calls the N# planner; its 865-line method includes source dispatch and an
@@ -249,10 +254,10 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
 | unit suite (`tests/Tests.csproj`) | **593/593** in fresh gate r26 at `a0380b68` (595 at `27a6d24f6`; the error-docs arc's two retired-code assertions) |
 | BootstrapServices estate (`.tests.nl` blocks) | **7,650/7,650** in fresh gate r26 at `a0380b68`; preceding r23 at `1cd8ec19c` had 7,630 |
 | native projects | 46 `project.yml` under `tests/native`; 75 tracked corpus projects, with pin 74 excluding the compile-time benchmark itself |
-| live-tree strict `nlc check` on BootstrapServices | `1527e823`: 425 files / 260 results, exit 1. Same final CLI over takeover `6ea697316`: 423 / 261. No new findings after source-line mapping; the sole removal is CodeFix sourceCode unused-parameter NL012. Raw comparison `/private/tmp/nsharp-takeover-live-check/`; 403/243 was stale |
-| `ColumnarIlEmitter.cs` | 20724 lines / 19712 non-blank (20,784 at `8cf40128a`; 2d, 2d-ii, 3b-1, 1e, 2.1a–d each shrank it); `Analyzer.cs` 2357 (2,798 before 3b; 3b removed 441 lines) |
+| live-tree strict `nlc check` on BootstrapServices | `f6ebcf42`: 425 files / 259 results, exit 1; all 259 retained rows match the prior source walk, with one unused import removed. `1527e823` was 425 / 260 and takeover `6ea697316` was 423 / 261. Raw comparisons `/private/tmp/nsharp-s21g-check-*.json` and `/private/tmp/nsharp-takeover-live-check/`; self-hosting remains open |
+| `ColumnarIlEmitter.cs` | 20722 lines / 19710 non-blank after S2.1(g), `4f2a8e63`; `Analyzer.cs` 2357 (2,798 before 3b; 3b removed 441 lines) |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:873549ff87d77915` (observed after the gate bootstrap-cache repair; when two streams repin, keep per row the side that SHRANK the file — ceilings never rise — then `OWN008` prints the observed head; derive the repin LAST, at the commit's own tree, never carry it through a rebase) |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:3d58ab0370b44a15` (observed after S2.1(g), `4f2a8e63`; when two streams repin, keep per row the side that SHRANK the file — ceilings never rise — then `OWN008` prints the observed head; derive the repin LAST, at the commit's own tree, never carry it through a rebase) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |

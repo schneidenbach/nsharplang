@@ -72,6 +72,11 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   table per commit at whole-PE `IL_DIFFS=0` (one writer still): (a) module + assembly + enums, (b) typedefs, (c) fields +
   constants, (d) methods + signatures + parameters, (e) properties + accessors, (f) generic parameters + constraints, (g)
   custom attributes, (h) P/Invoke, (i) method overrides — the walk's order dependencies become explicit row order.
+  **(g) implemented at `f6ebcf42`, integrated at `4f2a8e63`:** N# owns the four attribute families'
+  selection, blob data and application order; all four C# attachment calls are removed. The corrected
+  control-first proof compares 94 assemblies with no IL, output-set or outcome differences and 2,138
+  native tests per arm. Constructor resolution remains S2.2; (h) is next. See STATUS for the exact
+  fresh integration-gate record and the dated parity proof.
 - **S2.2 — resolution moves to N#**: the 57 `TryResolveType` sites emit a resolved type-reference KEY, `AddType` gains its
   structural form, the override resolver returns a descriptor beside its `MethodInfo`, maxstack becomes a plan column
   from `ValidateMethodBodyStack`'s heights, ambient locals become slot indices.

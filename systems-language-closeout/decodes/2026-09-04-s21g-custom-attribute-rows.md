@@ -132,9 +132,10 @@ zero normalized PE/outcome/output-set differences. Its non-vacuity mutation chan
 normalized assembly and stdout. Raw proof: `/private/tmp/nsharp-023-s21g-proof-20260904`.
 
 This implementation commit does not claim final pre/post corpus acceptance. The post compiler must
-be built from the committed integration tree and compared against those controls. The full-PE
+be built from committed source and compared against those controls; the integration record must
+identify that revision and verify that its product sources match the merged tree. The full-PE
 normalizer retains custom-attribute table order and blob bytes. Named execution witnesses include
-FrameReader/FrameResult in proof `24-zero-copy-frame-reader`, value unions such as Status/IssueStatus
-in the task CLI/issue-tracker examples, and the corpus test methods' Trait/Fact rows. The coordinator
+FrameReader/FrameResult in proof `24-zero-copy-frame-reader`, the payload-free `TaskCli.Models.Status`
+in the task CLI example, and the corpus test methods' Trait/Fact rows. The coordinator
 records final owner coverage and parity results. No S2.1(h), S2.2, SDK republish, default-writer flip,
 or Reflection.Emit retirement is claimed here.
