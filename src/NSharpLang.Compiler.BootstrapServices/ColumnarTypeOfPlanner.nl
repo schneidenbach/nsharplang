@@ -11,6 +11,7 @@ import System.Text
 import System.Text.Json
 import System.Threading
 import System.Threading.Tasks
+import NSharpLang.Compiler
 import YamlDotNet.Serialization
 
 
@@ -166,7 +167,17 @@ class ColumnarTypeOfPlanner {
             return false
         }
         canonical := ""
-        return TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), 0, out canonical) && TryResolveType(canonical, bindings, out targetType)
+        if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), 0, out canonical) {
+            return false
+        }
+        scope := nodes.BindingScope
+        if scope != null && !canonical.Contains("|") {
+            claimed := false
+            return scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out targetType, out claimed)
+        }
+        // Anonymous unions retain their dedicated structural resolver. Detached planner facts have
+        // no source/import catalog; the standalone resolver remains their explicit input surface.
+        return TryResolveType(canonical, bindings, out targetType)
     }
 
     static func TryBuildTypeCanonical(nodes: ColumnarNodeTable, source: string, node: int, depth: int, out canonical: string): bool {
@@ -1086,36 +1097,60 @@ class ColumnarTypeOfPlanner {
     // Mixed arithmetic (implicit widening) is not modelled — an expression's operands must share
     // one type.
     static func IsSupportedType(valueType: Type): bool {
-        if valueType == typeof(int) || valueType == typeof(bool) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(string) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(uint) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(decimal) || valueType == typeof(object) || valueType == typeof(Stream) || valueType == typeof(StreamReader) || valueType == typeof(StringComparer) || valueType == typeof(StringBuilder) || valueType == typeof(DateTime) || valueType == typeof(TimeSpan) || valueType == typeof(Index) || valueType == typeof(Range) || valueType == typeof(CancellationToken) || valueType == typeof(Random) || valueType == typeof(IList) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) {
+        if valueType == null {
+            return false
+        }
+        if valueType == typeof(int) || valueType == typeof(bool) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(string) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(uint) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(decimal) || valueType == typeof(object) {
             return true
         }
-        // `typeof(TextWriter)` DECLINES at emit under the pinned toolset (NL103, emit.if.condition),
-        // the same class as `typeof(FileStream)`, so the type is seeded by name. This is a toolset
-        // limit, not a design choice, and it disappears at the next SDK repack.
-        if valueType == RequiredTextWriterType() {
+        if IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || IsClosedSourceGeneric(valueType) {
             return true
         }
-        // The interop heads are owned by ColumnarRuntimeTypeFacts, not re-listed here: the direct-call
-        // set is Stream/FileStream/DirectoryInfo and the process set is Process/ProcessStartInfo/
-        // StreamReader. Naming only `Stream` inline dropped FileStream and DirectoryInfo.
-        if ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(valueType) || ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType(valueType) {
-            return true
+        // SymbolType reports IsSZArray for pointers and byrefs too. Those shapes belong to their
+        // parameter/pointer owners and must never enter the ordinary storable-type surface.
+        if valueType.get_IsPointer() || valueType.get_IsByRef() {
+            return false
         }
-        if IsSupportedTaskType(valueType) || typeof(Exception).IsAssignableFrom(valueType) || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedJsonType(valueType) || IsSupportedExternalType(valueType) || IsSupportedSpanLikeType(valueType) || IsSupportedArrayPoolType(valueType) || IsSupportedMemoryPoolType(valueType) || IsSupportedMemoryOwnerType(valueType) || IsSupportedMemoryType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || IsClosedSourceGeneric(valueType) || IsSupportedValueTuple(valueType) || IsSupportedDelegateType(valueType) || IsSupportedCollectionType(valueType) || IsSupportedNullable(valueType) {
-            return true
-        }
-        // `SymbolType` — what a builder type's MakePointerType/MakeByRefType returns — reports
-        // `IsSZArray` as TRUE for a POINTER and for a BYREF. That is a reflection-emit defect, and
-        // trusting it admitted `UserStruct*` and `UserStruct&` into the whole supported surface
-        // through the element recursion (the element of `UserStruct*` reads back as the
-        // TypeBuilder). Pointers have no lowering in this backend at all, and by-ref types are
-        // valid only in PARAMETER slots, where `IsSupportedParameterType`'s own by-ref arm asks the
-        // question properly. The two guards are asked FIRST so the array arm answers about arrays.
-        if !valueType.get_IsPointer() && !valueType.get_IsByRef() && valueType.get_IsSZArray() {
+        if valueType.get_HasElementType() {
             element := valueType.GetElementType()
-            return element != null && IsSupportedElementType(element)
+            return valueType.get_IsSZArray() && element != null && IsSupportedElementType(element)
         }
-        return false
+        // Reflection.Emit cannot resolve a closed type containing a source builder through
+        // Assembly.GetType. Its existing collection/task/result/union rebinding lowerings own these
+        // structural shapes; the catalog rule below applies to complete external identities.
+        if ContainsBuilderBoundType(valueType) {
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType)
+        }
+        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
+            definition := valueType.GetGenericTypeDefinition()
+            if ExternalAssemblyScan.HasExactTypeIdentity(definition, RequiredNullableDefinition().get_AssemblyQualifiedName() ?? "") {
+                return IsSupportedNullable(valueType)
+            }
+        }
+        if IsByRefLike(valueType) {
+            return IsSupportedSpanLikeType(valueType)
+        }
+        return IsSupportedCatalogType(valueType)
+    }
+
+    // Resolution has already selected this assembly. Its own type catalog must reproduce the exact
+    // assembly-qualified identity; a familiar namespace or a matching short name is no evidence.
+    // This works in both runtime and MetadataLoadContext universes without loading another assembly.
+    static func IsSupportedCatalogType(valueType: Type): bool {
+        if valueType == null || valueType.get_HasElementType() || ContainsBuilderBoundType(valueType) || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        fullName := valueType.FullName ?? ""
+        identity := valueType.get_AssemblyQualifiedName() ?? ""
+        if fullName.Length == 0 || identity.Length == 0 || ExternalAssemblyScan.HasExactTypeIdentity(RequiredVoidType(), identity) {
+            return false
+        }
+        try {
+            candidate := valueType.get_Assembly().GetType(fullName)
+            return candidate != null && ExternalAssemblyScan.HasExactTypeIdentity(candidate, identity)
+        } catch {
+            return false
+        }
     }
 
     static func IsSupportedElementType(valueType: Type): bool {
@@ -1184,11 +1219,6 @@ class ColumnarTypeOfPlanner {
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
         return (name == "System.Threading.Tasks.Task`1" || name == "System.Threading.Tasks.ValueTask`1") && IsSupportedType(valueType.GetGenericArguments()[0])
-    }
-
-    static func IsSupportedJsonType(valueType: Type): bool {
-        name := valueType.FullName ?? ""
-        return name == "System.Text.Json.JsonElement" || name == "System.Text.Json.JsonDocument" || name == "System.Text.Json.JsonValueKind" || name == "System.Text.Json.JsonSerializerOptions" || name == "System.Text.Json.JsonNamingPolicy" || name == "System.Text.Json.JsonElement+ArrayEnumerator" || name == "System.Text.Json.JsonElement+ObjectEnumerator" || name == "System.Text.Json.JsonProperty"
     }
 
     // SOLE OWNER since `015-A5`, which deleted the C# emitter's copy and rerouted its two sites.
@@ -1646,16 +1676,6 @@ class ColumnarTypeOfPlanner {
         result := Type.GetType("System.Collections.Generic.IReadOnlyDictionary`2")
         if result == null {
             throw new InvalidOperationException("System.Collections.Generic.IReadOnlyDictionary`2 runtime type was not found.")
-        }
-        return result
-    }
-
-    // Fetched BY NAME for the same reason the read-only dictionary head is: the pinned toolset that
-    // compiles this kernel does not resolve the `TextWriter` canonical, though it emits the type fine.
-    static func RequiredTextWriterType(): Type {
-        result := Type.GetType("System.IO.TextWriter")
-        if result == null {
-            throw new InvalidOperationException("System.IO.TextWriter runtime type was not found.")
         }
         return result
     }

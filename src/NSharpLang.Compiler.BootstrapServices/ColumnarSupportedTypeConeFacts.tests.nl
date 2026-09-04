@@ -113,12 +113,12 @@ test "the four buffer heads are admitted at byte and at no other element" {
     assert !ColumnarTypeOfPlanner.IsSupportedMemoryType(AdmissibilityRuntimeType("System.Memory`1"))
     assert !ColumnarTypeOfPlanner.IsSupportedMemoryOwnerType(typeof(int))
 
-    // All four are reachable through the root predicate, which is how the emitter consumes them.
+    // Type admission is independent of the buffer-specific operations: all five catalog types pass.
     assert ColumnarTypeOfPlanner.IsSupportedType(arrayPoolByte)
     assert ColumnarTypeOfPlanner.IsSupportedType(memoryPoolByte)
     assert ColumnarTypeOfPlanner.IsSupportedType(ownerByte)
     assert ColumnarTypeOfPlanner.IsSupportedType(memoryByte)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(arrayPoolInt)
+    assert ColumnarTypeOfPlanner.IsSupportedType(arrayPoolInt)
 }
 
 // `Nullable<T>` is admissible exactly when T is LIFTABLE, and the liftable set is not the same as the
@@ -315,9 +315,8 @@ test "the collection heads are exactly ten and the tuple arities exactly two thr
     assert !ColumnarTypeOfPlanner.IsSupportedValueTuple(AdmissibilityRuntimeType("System.ValueTuple`2"))
     assert !ColumnarTypeOfPlanner.IsSupportedValueTuple(typeof(int))
 
-    // A tuple is only as admissible as its slots: an unmodelled collection in one of them declines
-    // the whole tuple, and so does an enum, which has no tuple element lowering.
-    assert !ColumnarTypeOfPlanner.IsSupportedValueTuple(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), AdmissibilityQueueOfInt()))
+    // Catalog-resolved slots are admissible; the tuple lowering still declines enum slots.
+    assert ColumnarTypeOfPlanner.IsSupportedValueTuple(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), AdmissibilityQueueOfInt()))
     assert !ColumnarTypeOfPlanner.IsSupportedValueTuple(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), AdmissibilityRuntimeType("System.DayOfWeek")))
 }
 
@@ -331,7 +330,7 @@ test "the task and delegate families are closed lists with constrained arguments
     assert ColumnarTypeOfPlanner.IsSupportedTaskType(AdmissibilityClosed1("System.Threading.Tasks.Task`1", typeof(string)))
     assert ColumnarTypeOfPlanner.IsSupportedTaskType(AdmissibilityClosed1("System.Threading.Tasks.ValueTask`1", typeof(int)))
 
-    assert !ColumnarTypeOfPlanner.IsSupportedTaskType(AdmissibilityClosed1("System.Threading.Tasks.Task`1", AdmissibilityQueueOfInt()))
+    assert ColumnarTypeOfPlanner.IsSupportedTaskType(AdmissibilityClosed1("System.Threading.Tasks.Task`1", AdmissibilityQueueOfInt()))
     assert !ColumnarTypeOfPlanner.IsSupportedTaskType(AdmissibilityRuntimeType("System.Threading.Tasks.Task`1"))
     assert !ColumnarTypeOfPlanner.IsSupportedTaskType(typeof(int))
 
@@ -343,11 +342,11 @@ test "the task and delegate families are closed lists with constrained arguments
     assert ColumnarTypeOfPlanner.IsSupportedDelegateType(ConeClosedInts("System.Func`1", 1))
     assert ColumnarTypeOfPlanner.IsSupportedDelegateType(ConeClosedInts("System.Func`5", 5))
 
-    // Past the modelled arity, a delegate that is not Action/Func, and an unsupported argument.
+    // Operation-specific arities and families remain narrow; catalog-resolved arguments pass.
     assert !ColumnarTypeOfPlanner.IsSupportedDelegateType(ConeClosedInts("System.Action`5", 5))
     assert !ColumnarTypeOfPlanner.IsSupportedDelegateType(ConeClosedInts("System.Func`6", 6))
     assert !ColumnarTypeOfPlanner.IsSupportedDelegateType(ConeClosedInts("System.Predicate`1", 1))
-    assert !ColumnarTypeOfPlanner.IsSupportedDelegateType(AdmissibilityClosed1("System.Func`1", AdmissibilityQueueOfInt()))
+    assert ColumnarTypeOfPlanner.IsSupportedDelegateType(AdmissibilityClosed1("System.Func`1", AdmissibilityQueueOfInt()))
     assert !ColumnarTypeOfPlanner.IsSupportedDelegateType(AdmissibilityRuntimeType("System.Action`1"))
 }
 
