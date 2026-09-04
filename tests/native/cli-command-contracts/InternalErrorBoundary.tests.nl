@@ -27,7 +27,7 @@ func InternalBoundaryProbe(source: string): CliRun {
 }
 
 func InternalDocumentedOutput(): string {
-    page := File.ReadAllText(Path.Combine(CliRepositoryRoot(), "website/docs/errors/NL924.md"))
+    page := File.ReadAllText(Path.Combine(CliRepositoryRoot(), "website/docs/errors/NL924.md")).Replace("\r\n", "\n")
     fence := "```text title=\"NL924 boundary output\"\n"
     start := page.IndexOf(fence, StringComparison.Ordinal)
     assert start >= 0, "NL924 must retain its contracted output example."
@@ -40,11 +40,11 @@ func InternalDocumentedOutput(): string {
 test "NL924 process boundary renders synthetic invariant failure exactly as its documentation" {
     source := "import System\nimport NSharpLang.Cli\nfunc main(): int {\n    action: Func<int> = () => FailInvariant()\n    return InternalErrorBoundary.Execute(action)\n}\nfunc FailInvariant(): int {\n    throw new InvalidOperationException(\"AnalyzerScopeStack requires a non-empty scope stack before Peek.\")\n}\n"
     run := InternalBoundaryProbe(source)
-    expected := "error NL924: Internal compiler error.\nThis is a bug in N#, not in your code.\nAnalyzerScopeStack requires a non-empty scope stack before Peek.\nException: System.InvalidOperationException\nReport this failure: https://schneidenbach.github.io/nsharplang/docs/errors/NL924\n"
+    expected := "error NL924: Internal compiler error.\nThis is a bug in N#, not in your code.\nAnalyzerScopeStack requires a non-empty scope stack before Peek.\nException: System.InvalidOperationException\nReport this failure: https://schneidenbach.github.io/nsharplang/docs/errors/NL924" + Environment.NewLine
     assert run.ExitCode == 2
     assert run.Stdout == "", run.Stdout
     assert run.Stderr == expected, run.Stderr
-    assert InternalDocumentedOutput() == expected
+    assert InternalDocumentedOutput() == expected.Replace("\r\n", "\n")
 }
 
 test "the real CLI Main routes an escaping exception through NL924" {
@@ -53,7 +53,7 @@ test "the real CLI Main routes an escaping exception through NL924" {
     // reflection rethrew TargetInvocationException and the child aborted with a stack trace.
     source := "import System\nimport System.Reflection\nfunc main(): int {\n    owner := Type.GetType(\"NSharpLang.Cli.Program, Cli\")\n    if owner == null { return 98 }\n    entry := owner.GetMethod(\"Main\", BindingFlags.NonPublic | BindingFlags.Static)\n    if entry == null { return 99 }\n    arguments := new object?[](1)\n    returned := entry.Invoke(null, arguments)\n    return Convert.ToInt32(returned)\n}\n"
     run := InternalBoundaryProbe(source)
-    expected := "error NL924: Internal compiler error.\nThis is a bug in N#, not in your code.\nObject reference not set to an instance of an object.\nException: System.NullReferenceException\nReport this failure: https://schneidenbach.github.io/nsharplang/docs/errors/NL924\n"
+    expected := "error NL924: Internal compiler error.\nThis is a bug in N#, not in your code.\nObject reference not set to an instance of an object.\nException: System.NullReferenceException\nReport this failure: https://schneidenbach.github.io/nsharplang/docs/errors/NL924" + Environment.NewLine
     assert run.ExitCode == 2
     assert run.Stdout == "", run.Stdout
     assert run.Stderr == expected, run.Stderr
@@ -63,8 +63,8 @@ test "NL924 leaves existing stdout bytes intact and emits no invented JSON envel
     source := "import System\nimport NSharpLang.Cli\nfunc main(): int {\n    action: Func<int> = () => WriteThenFail()\n    return InternalErrorBoundary.Execute(action)\n}\nfunc WriteThenFail(): int {\n    Console.WriteLine(\"{\\\"schemaVersion\\\":1}\")\n    throw new InvalidOperationException(\"SyntheticCommand requires its output operation to complete.\")\n}\n"
     run := InternalBoundaryProbe(source)
     assert run.ExitCode == 2
-    assert run.Stdout == "{\"schemaVersion\":1}\n", run.Stdout
-    assert run.Stderr == "error NL924: Internal compiler error.\nThis is a bug in N#, not in your code.\nSyntheticCommand requires its output operation to complete.\nException: System.InvalidOperationException\nReport this failure: https://schneidenbach.github.io/nsharplang/docs/errors/NL924\n", run.Stderr
+    assert run.Stdout == "{\"schemaVersion\":1}" + Environment.NewLine, run.Stdout
+    assert run.Stderr == "error NL924: Internal compiler error.\nThis is a bug in N#, not in your code.\nSyntheticCommand requires its output operation to complete.\nException: System.InvalidOperationException\nReport this failure: https://schneidenbach.github.io/nsharplang/docs/errors/NL924" + Environment.NewLine, run.Stderr
 }
 
 test "the process boundary preserves ordinary return codes and keeps stderr empty" {
