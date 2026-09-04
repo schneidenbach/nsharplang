@@ -195,6 +195,29 @@ func EdcExemptions(): List<string> {
     return rows
 }
 
+// One narrow exemption from the SOURCE-repro requirement, never from the page requirement.
+// Internal compiler errors have no supported source reproducer: the named native contract
+// supplies a synthetic exception, runs the product boundary, and pins the page's exact output.
+func EdcOutputExampleExemptions(): List<string> {
+    rows := new List<string>()
+    rows.Add("NL924|tests/native/cli-command-contracts/InternalErrorBoundary.tests.nl|NL924 process boundary renders synthetic invariant failure exactly as its documentation")
+    return rows
+}
+
+func EdcHasOutputExample(code: string): bool {
+    rows := EdcOutputExampleExemptions()
+    i := 0
+    while i < rows.Count {
+        if EdcExemptField(rows[i], 0) == code {
+            return true
+        }
+
+        i = i + 1
+    }
+
+    return false
+}
+
 func EdcExemptField(row: string, index: int): string {
     remaining := row
     i := 0
@@ -371,7 +394,7 @@ func EdcPagesWithoutRepro(): string {
     i := 0
     while i < pageCodes.Count {
         text := File.ReadAllText(EdcPaths.PageFor(pageCodes[i]))
-        if !text.Contains("// ERROR " + pageCodes[i]) {
+        if !text.Contains("// ERROR " + pageCodes[i]) && !EdcHasOutputExample(pageCodes[i]) {
             missing.Add(pageCodes[i])
         }
 
@@ -419,6 +442,25 @@ test "EVERY exemption names a code the catalog still publishes, a defect that ex
     // code for and does not enforce. It reached zero on the soundness arc; it must never grow
     // without a measured probe behind every row.
     assert EdcExemptions().Count == 0
+}
+
+test "the only source-repro exemption names NL924 and its existing exact-output native contract" {
+    rows := EdcOutputExampleExemptions()
+    assert rows.Count == 1
+    assert EdcExemptField(rows[0], 0) == "NL924"
+    assert !EdcHasOutputExample("NL923")
+    assert !EdcHasOutputExample("NL999")
+    code := EdcExemptField(rows[0], 0)
+    contract := EdcExemptField(rows[0], 1)
+    testName := EdcExemptField(rows[0], 2)
+    assert EdcContains(EdcCatalogCodes(), code)
+    assert File.Exists(EdcPaths.PageFor(code))
+    assert File.Exists(EdcPaths.RepositoryPath(contract))
+    source := File.ReadAllText(EdcPaths.RepositoryPath(contract))
+    assert source.Contains("test \"" + testName + "\" {")
+    page := File.ReadAllText(EdcPaths.PageFor(code))
+    assert page.Contains(contract)
+    assert page.Contains("```text title=\"NL924 boundary output\"")
 }
 
 test "EVERY page carries the front matter the site and the tab title read" {
@@ -1011,7 +1053,7 @@ test "EVERY page carrying a code has at least one runnable marked example" {
             j = j + 1
         }
 
-        if !found {
+        if !found && !EdcHasOutputExample(pages[i]) {
             missing.Add(pages[i])
         }
 

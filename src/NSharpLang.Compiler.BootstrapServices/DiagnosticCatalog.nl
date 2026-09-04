@@ -179,6 +179,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.PossibleNullAccess)
         AddCompiler(descriptors, ErrorCode.NullabilityWarning)
         AddCompiler(descriptors, ErrorCode.ReferenceLoadFailure)
+        AddCompiler(descriptors, ErrorCode.InternalCompilerError)
     }
 
     static func AddCompiler(descriptors: List<DiagnosticDescriptor>, code: ErrorCode) {

@@ -12,7 +12,7 @@ namespace NSharpLang.Cli;
 partial class Program
 {
     static int Main(string[] args)
-        => Execute(args);
+        => InternalErrorBoundary.Execute(() => Execute(args));
 
     internal static int Execute(string[] args)
     {
