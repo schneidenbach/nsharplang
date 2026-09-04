@@ -1393,6 +1393,10 @@ return the recorded green result quickly. Plain `./scripts/test-all.sh` may use
 that cache for development feedback. Integration and release evidence uses
 `--commit` (or `--release`) so cached results are not accepted.
 
+The dependency cache can contain gate-generated SDK versions without the bootstrap version.
+Each invocation refreshes the caller's bootstrap SDK/runtime package trees before compiling, even
+when those package-ID directories already exist; gate-specific sibling versions are retained.
+
 The full isolated run:
 1. Runs all unit tests (`dotnet test`)
 2. Runs compiler-service `.tests.nl` contracts plus every `.tests.nl` project under

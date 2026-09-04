@@ -53,7 +53,7 @@ The writer's committed-arm whole-PE proof and the focused source-estate counts a
 The checkpoint is run with `./scripts/test-all.sh --commit`, VS Code enabled, from a byte-copy
 excluding nested `.claude/worktrees` and `artifacts/from-worktrees`. All implementation agents remain
 paused. The source SHA, exit status, and complete fresh verdict are recorded externally at
-`/private/tmp/gate-20260904-takeover-r25/gate.log`; read its verdict before using this checkpoint as
+`/private/tmp/gate-20260904-takeover-r26/gate.log`; read its verdict before using this checkpoint as
 gated evidence. No SDK/feed republish is part of this takeover wave. Only the exact successful
 checkpoint SHA is eligible for push to `origin/systems-language`.
 
@@ -76,6 +76,24 @@ proved the log includes the failing assertion, child stderr and the existing `Fa
 No assertions or timeout changed; this corrects missing failure evidence, not the unexplained
 first-run failure. The shell row remains 916/815 lines; its observed fingerprint is
 `text-v1:d27a5cd61db84583`, and both reviewed head keys are `head-v1:94e6b5916c964abc`.
+
+### Consecutive fresh gate bootstrap repair
+
+The r25 retry on `78cf8f4a` failed before tests after four seconds because the reused dependency
+cache lacked `NSharpLang.Sdk` 0.1.0. The first run's package phase clears the SDK/runtime package-ID
+cache directories, and subsequent builds restore only IL-stamped versions. The wrapper previously
+copied bootstrap packages only when the entire package-ID directory was absent. Thus a directory
+containing an unrelated version suppressed restoring the version required for the next compiler build.
+The original caller SDK and both local feeds remain intact and were not republished.
+
+The wrapper now always merges the caller's bootstrap package tree when it exists, refreshing
+matching versions and retaining destination-only versions. Deterministic controls execute the actual
+helper from the before/after scripts: the old helper leaves the required version missing; the fixed
+helper restores exact SDK/runtime payloads, survives a second eviction, refreshes overlapping stale
+bytes, and preserves gate-specific sibling versions. Evidence: `/private/tmp/nsharp-gate-bootstrap-repro/`.
+The failed log is `/private/tmp/gate-20260904-takeover-r25/gate.log`. The wrapper shrinks 567/502 →
+566/501 lines; observed fingerprint `text-v1:b85cb4a09a8d31f5`, both head keys
+`head-v1:873549ff87d77915`. This repair is exercised against the same partial cache by the fresh r26 run.
 
 ## Quiet compile-time measurement
 

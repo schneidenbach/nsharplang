@@ -490,9 +490,8 @@ BOOTSTRAP_NUGET_PACKAGES="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 copy_bootstrap_nuget_package() {
     local package_id="$1"
     local package_dir="$BOOTSTRAP_NUGET_PACKAGES/$package_id"
-    local target_dir="$RUN_DEPS/nuget/packages/$package_id"
 
-    if [ -d "$package_dir" ] && [ ! -d "$target_dir" ]; then
+    if [ -d "$package_dir" ]; then
         mkdir -p "$RUN_DEPS/nuget/packages"
         cp -R "$package_dir" "$RUN_DEPS/nuget/packages/"
     fi
