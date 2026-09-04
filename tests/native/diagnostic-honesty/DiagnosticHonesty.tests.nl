@@ -55,6 +55,13 @@ class DhProbe {
     // is zero or more further files, each introduced by its own `// FILE <name>.nl` header line —
     // the same shape the error-docs contract uses, so a multi-file rule can be stated here too.
     static func Run(name: string, command: string, source: string, companions: string): string {
+        return DhProbe.RunWithConfig(name, command, source, companions, "")
+    }
+
+    // `editorConfig`, when non-empty, is written VERBATIM as the project's `.editorconfig` — the only
+    // way to ask what a rule's own subject does when the rule is silenced, which is how the three
+    // NL002 groups below were measured.
+    static func RunWithConfig(name: string, command: string, source: string, companions: string, editorConfig: string): string {
         directory := Path.Combine(DhProbe.WorkspaceRoot(), name)
         if Directory.Exists(directory) {
             Directory.Delete(directory, true)
@@ -63,9 +70,19 @@ class DhProbe {
         Directory.CreateDirectory(directory)
         File.WriteAllText(Path.Combine(directory, "project.yml"), "name: DiagnosticHonestyProbe\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n")
         File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
+        if editorConfig.Length > 0 {
+            File.WriteAllText(Path.Combine(directory, ".editorconfig"), editorConfig)
+        }
+
         DhWriteCompanions(directory, companions)
 
-        arguments := "\"" + DhProbe.CliPath() + "\" " + command + " --project \"" + directory + "\" --text"
+        // `--text` is `check`'s flag; `build` refuses it.
+        tail := ""
+        if command == "check" {
+            tail = " --text"
+        }
+
+        arguments := "\"" + DhProbe.CliPath() + "\" " + command + " --project \"" + directory + "\"" + tail
         startInfo := new ProcessStartInfo("dotnet", arguments)
         startInfo.RedirectStandardOutput = true
         startInfo.RedirectStandardError = true
@@ -78,9 +95,10 @@ class DhProbe {
         errorText := process.StandardError.ReadToEnd()
         standardText := process.StandardOutput.ReadToEnd()
         process.WaitForExit()
+        exitCode := process.ExitCode
         process.Dispose()
         Directory.Delete(directory, true)
-        return errorText + "\n" + standardText
+        return errorText + "\n-- Dh exit " + exitCode.ToString() + " --\n" + standardText
     }
 
     static func Check(name: string, source: string): string {
@@ -550,4 +568,116 @@ test "THE NEGATIVES: a type parameter, a reference, `object` and a string are al
 test "a type that defines its own equality keeps it — the overload is resolved BEFORE this rule is asked" {
     output := DhProbe.Check("nullcheck-overload", "struct Key {\n    Value: int\n\n    static func operator ==(left: Key, right: Key): bool {\n        return left.Value == right.Value\n    }\n\n    static func operator !=(left: Key, right: Key): bool {\n        return left.Value != right.Value\n    }\n}\n\nfunc CompareKeys(left: Key, right: Key): bool {\n    return left == right && left != right\n}\n")
     assert DhDiagnosticCount(output) == 0, output
+}
+
+// ═══ NL002 — "I CAN'T FIND IT" WAS FALSE FOR EVERY ROW ════════════════════════════════════════
+//
+// NL002 said "I can't find 'StringBuilder' — it looks like a missing import". Run with the rule
+// silenced, the compiler finds every row of its own table: `StringBuilder`, `Task`,
+// `CancellationToken`, `List<int>`, `Stack<int>` and the rest BUILD with no import at all.
+// The names that DO fail — `Regex`, `HttpClient`, `Queue<int>` — fail IDENTICALLY WITH THEIR IMPORT,
+// because the columnar backend cannot lower those types yet; that failure was never the import's.
+//
+// So NL002 is import HYGIENE, and its old sentence claimed a resolution failure that does not
+// happen. The suggestion — the useful half — is unchanged, and is measured never breaking anything.
+func DhSilenced(name: string, source: string): string {
+    return DhProbe.RunWithConfig(name, "build", source, "", "[*.nl]\ndotnet_diagnostic.NL002.severity = none\n")
+}
+
+// Compare the complete diagnostic stream, excluding stdout's project path and elapsed time.
+func DhBuildError(output: string): string {
+    marker := output.IndexOf("\n-- Dh exit ", StringComparison.Ordinal)
+    if marker < 0 {
+        throw new InvalidOperationException("The diagnostic probe did not record the child exit code.")
+    }
+
+    return output.Substring(0, marker)
+}
+
+func DhTakes(typeName: string): string {
+    return "func Take(value: " + typeName + "): int {\n    other: object = value\n    if other != null {\n        return 1\n    }\n\n    return 0\n}\n"
+}
+
+test "NL002 no longer claims the compiler cannot find a name it can, and still names the import to add" {
+    output := DhProbe.Check("nl002-sentence", DhTakes("StringBuilder"))
+    assert DhCodeCount(output, "NL002") == 1, output
+    assert output.IndexOf("'StringBuilder' is used without the import that provides it", StringComparison.Ordinal) >= 0, output
+    assert output.IndexOf("Add 'import System.Text' at the top of the file", StringComparison.Ordinal) >= 0, output
+    assert output.IndexOf("can't find", StringComparison.Ordinal) < 0, output
+}
+
+test "THE OLD SENTENCE WAS FALSE: five rows of NL002's own table BUILD with no import at all" {
+    builder := DhSilenced("nl002-optional-builder", DhTakes("StringBuilder"))
+    assert builder.IndexOf("Build successful", StringComparison.Ordinal) >= 0, builder
+    assert builder.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, builder
+
+    task := DhSilenced("nl002-optional-task", DhTakes("Task"))
+    assert task.IndexOf("Build successful", StringComparison.Ordinal) >= 0, task
+    assert task.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, task
+
+    token := DhSilenced("nl002-optional-token", DhTakes("CancellationToken"))
+    assert token.IndexOf("Build successful", StringComparison.Ordinal) >= 0, token
+    assert token.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, token
+
+    listed := DhSilenced("nl002-optional-list", DhTakes("List<int>"))
+    assert listed.IndexOf("Build successful", StringComparison.Ordinal) >= 0, listed
+    assert listed.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, listed
+
+    stack := DhSilenced("nl002-optional-stack", DhTakes("Stack<int>"))
+    assert stack.IndexOf("Build successful", StringComparison.Ordinal) >= 0, stack
+    assert stack.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, stack
+}
+
+test "the rows that DO fail fail identically WITH their import, so the failure was never the import's" {
+    // `Regex` and `Queue<int>` are types the columnar backend cannot lower yet. `Stack<int>` above and
+    // `Queue<int>` here are the pair that shows it: same namespace, same shape, opposite outcome —
+    // and the import changes neither of them.
+    regexWithout := DhSilenced("nl002-emit-regex-without", DhTakes("Regex"))
+    regexWith := DhSilenced("nl002-emit-regex-with", "import System.Text.RegularExpressions\n\n" + DhTakes("Regex"))
+    assert regexWithout.IndexOf("-- Dh exit 1 --", StringComparison.Ordinal) >= 0, regexWithout
+    assert regexWith.IndexOf("-- Dh exit 1 --", StringComparison.Ordinal) >= 0, regexWith
+    assert DhBuildError(regexWithout) == DhBuildError(regexWith), regexWithout + regexWith
+    assert DhBuildError(regexWithout).IndexOf("requires successful N# columnar emission", StringComparison.Ordinal) >= 0, regexWithout
+
+    queueWithout := DhSilenced("nl002-emit-queue-without", DhTakes("Queue<int>"))
+    queueWith := DhSilenced("nl002-emit-queue-with", "import System.Collections.Generic\n\n" + DhTakes("Queue<int>"))
+    assert queueWithout.IndexOf("-- Dh exit 1 --", StringComparison.Ordinal) >= 0, queueWithout
+    assert queueWith.IndexOf("-- Dh exit 1 --", StringComparison.Ordinal) >= 0, queueWith
+    assert DhBuildError(queueWithout) == DhBuildError(queueWith), queueWithout + queueWith
+    assert DhBuildError(queueWithout).IndexOf("requires successful N# columnar emission", StringComparison.Ordinal) >= 0, queueWithout
+
+    // ...and the silencing really took, so neither failed for NL002.
+    assert DhCodeCount(regexWithout, "NL002") == 0, regexWithout
+    assert DhCodeCount(queueWithout, "NL002") == 0, queueWithout
+    assert DhCodeCount(regexWith, "NL002") == 0, regexWith
+    assert DhCodeCount(queueWith, "NL002") == 0, queueWith
+}
+
+test "the suggestion is safe as well as useful: adding the named import never breaks a build" {
+    imported := DhSilenced("nl002-fixed-builder", "import System.Text\n\n" + DhTakes("StringBuilder"))
+    assert imported.IndexOf("Build successful", StringComparison.Ordinal) >= 0, imported
+    assert imported.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, imported
+
+    listFixed := DhSilenced("nl002-fixed-list", "import System.Collections.Generic\n\n" + DhTakes("List<int>"))
+    assert listFixed.IndexOf("Build successful", StringComparison.Ordinal) >= 0, listFixed
+    assert listFixed.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, listFixed
+}
+
+test "a name the table does not carry is still silent — the rule's stated edge, not an accident" {
+    output := DhProbe.Check("nl002-unlisted", DhTakes("Stopwatch"))
+    assert DhCodeCount(output, "NL002") == 0, output
+}
+
+// A BARE GENERIC NAME IS NOT AN IMPORT PROBLEM, AND THIS IS WHY NL201 WAS LEFT ALONE. An earlier cut
+// of this slice had NL201's suggestion NAME the import for any table row that failed to resolve;
+// `List` written without a type argument reports NL201 whether or not `System.Collections.Generic` is
+// imported — measured both ways — so that suggestion would have been a fix that does not fix it,
+// which is the exact defect class this project exists to remove. It was reverted before it shipped.
+test "a bare generic name reports NL201 WITH the import as well as without, so the import is not its fix" {
+    without := DhProbe.Check("nl201-bare-without", DhTakes("List"))
+    assert DhCodeCount(without, "NL201") == 1, without
+
+    // `with` is a RESERVED WORD (§2.1), so the local is named around it.
+    imported := DhProbe.Check("nl201-bare-with", "import System.Collections.Generic\n\n" + DhTakes("List"))
+    assert DhCodeCount(imported, "NL201") == 1, imported
 }

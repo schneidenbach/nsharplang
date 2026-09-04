@@ -682,8 +682,8 @@ test "every table name is silenced when its own namespace is imported, so no row
 // ── what the diagnostic says ─────────────────────────────────────────────────────────────────
 
 test "the message names the identifier and the suggestion names the import to add" {
-    assert LinterMissingImport.Message("Guid") == "I can't find 'Guid' — it looks like a missing import"
-    assert LinterMissingImport.Message("List") == "I can't find 'List' — it looks like a missing import"
+    assert LinterMissingImport.Message("Guid") == "'Guid' is used without the import that provides it"
+    assert LinterMissingImport.Message("List") == "'List' is used without the import that provides it"
     assert LinterMissingImport.Suggestion("System") == "Add 'import System' at the top of the file"
     assert LinterMissingImport.Suggestion("System.Collections.Generic") == "Add 'import System.Collections.Generic' at the top of the file"
 }
@@ -697,7 +697,7 @@ test "the suggestion is composed from the namespace the decision returned, never
         assert LinterMissingImport.Suggestion(requiredNs) == "Add 'import System.Text.Json' at the top of the file"
     }
 
-    assert LinterMissingImport.Message(name) == "I can't find 'JsonSerializer' — it looks like a missing import"
+    assert LinterMissingImport.Message(name) == "'JsonSerializer' is used without the import that provides it"
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════
@@ -767,11 +767,11 @@ test "A CONSTRUCTED TYPE WITH NO IMPORT REPORTS NL002 — AND THE SPAN IS THE TY
     // golden the product ships.
     listSource := "\nfunc main() {\n    items := new List<int>()\n    x := items\n}"
     assert LmieCensus(listSource) == "NL002@3:18+4;NL001@4:5+1;"
-    assert LmieMessages(listSource) == "NL002|I can't find 'List' — it looks like a missing import;NL001|Variable 'x' is declared but never read;"
+    assert LmieMessages(listSource) == "NL002|'List' is used without the import that provides it;NL001|Variable 'x' is declared but never read;"
 
     builderSource := "\nfunc main() {\n    sb := new StringBuilder()\n    x := sb\n}"
     assert LmieCensus(builderSource) == "NL002@3:15+13;NL001@4:5+1;"
-    assert LmieMessages(builderSource) == "NL002|I can't find 'StringBuilder' — it looks like a missing import;NL001|Variable 'x' is declared but never read;"
+    assert LmieMessages(builderSource) == "NL002|'StringBuilder' is used without the import that provides it;NL001|Variable 'x' is declared but never read;"
 
     // THE ANCHOR SURVIVES A WRAPPER. `new StringBuilder[](2)` is an `ArrayTypeReference` around the
     // simple one, and `Base` unwraps it to answer `StringBuilder`; the span unwraps with it, so the
@@ -852,7 +852,7 @@ test "NL002's bare-identifier span STOPS AT THE IDENTIFIER, and does not run the
     // `.ToString` too. The rule now states the identifier's own length rather than asking.
     dotted := "\nfunc main() {\n    print(StringBuilder.ToString())\n}"
     assert LmieCensus(dotted) == "NL002@3:11+13;"
-    assert LmieMessages(dotted) == "NL002|I can't find 'StringBuilder' — it looks like a missing import;"
+    assert LmieMessages(dotted) == "NL002|'StringBuilder' is used without the import that provides it;"
 
     // CONTROL, and it is the one that says the resolver was not broken to get here: an identifier
     // with nothing after it was always right, and is unchanged at the same thirteen columns.
@@ -862,4 +862,19 @@ test "NL002's bare-identifier span STOPS AT THE IDENTIFIER, and does not run the
     // And the RESOLVER'S own rule still runs a chain together for the callers that want it, which is
     // why it was left alone: this is the same source line, asked of the resolver directly.
     assert DiagnosticSpanContractCovers("StringBuilder.ToString()", 1, "StringBuilder.ToString")
+}
+
+// THE SENTENCE STOPPED CLAIMING THE COMPILER CANNOT FIND THE NAME, BECAUSE IT ALWAYS CAN. Measured on
+// the shipped CLI with the rule silenced, every row of this table resolves: `StringBuilder`, `Task`,
+// `CancellationToken`, `List<int>` and `Stack<int>` BUILD with no import, and the rows that
+// fail — `Regex`, `HttpClient`, `Queue<int>` — fail identically WITH their import, because the
+// backend cannot lower those types yet. `tests/native/diagnostic-honesty` runs both sides on every
+// gate.
+test "NL002's sentence states what is true of EVERY row: the name is used, the import is not there" {
+    assert LinterMissingImport.Message("StringBuilder") == "'StringBuilder' is used without the import that provides it"
+    assert LinterMissingImport.Message("List") == "'List' is used without the import that provides it"
+
+    // The claim it no longer makes, and the half that was always true and is unchanged.
+    assert LinterMissingImport.Message("StringBuilder").IndexOf("can't find", StringComparison.Ordinal) < 0
+    assert LinterMissingImport.Suggestion("System.Text") == "Add 'import System.Text' at the top of the file"
 }

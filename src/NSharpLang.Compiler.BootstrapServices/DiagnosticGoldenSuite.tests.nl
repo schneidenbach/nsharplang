@@ -316,7 +316,7 @@ func DgsCorpus(): List<GoldenDiagnostic> {
         corpus,
         "linter",
         "NL002",
-        "I can't find 'List' — it looks like a missing import",
+        "'List' is used without the import that provides it",
         "linter/missing-import.nl",
         2,
         18,
