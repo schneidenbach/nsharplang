@@ -116,10 +116,12 @@ fresh integration gate. No agent republishes the SDK or runs an independent prod
 **Integration procedure:** build the merged CLI and pre-check affected native projects. Derive every
 ownership repin from the OBSERVED merged tree, on both keys, without increasing a ceiling. Root format
 check before each commit. Pause all implementation and sweep work, require clean committed worktrees,
-then byte-copy with `.claude/worktrees` and `artifacts/from-worktrees` excluded. Run a fresh
-`./scripts/test-all.sh --commit` with VS Code ENABLED for this IDE-affecting wave. Log outside the copy,
-check for another gate first, never kill the gate driver, and push only the exact gated source revision.
-No SDK/feed republish during this wave.
+then byte-copy with `.claude/worktrees` and `artifacts/from-worktrees` excluded. Backend-only writer
+checkpoints use a fresh `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`; IDE-affecting slices require
+VS Code enabled plus extension reload and visual verification. The completed takeover wave used that
+IDE-enabled procedure. Log outside the copy, check for another gate first, never kill the gate driver,
+and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
+gated prerequisite boundary before the estate consumes newly admitted shapes.
 
 **Next writer slice:** S2.1(g) custom attributes, then (h) P/Invoke and (i) method overrides, each over
 explicit declaration rows and with whole-PE control-first parity. Continue S2.2 resolved type-reference
@@ -128,19 +130,42 @@ harness. Task 023/3 then gives the writer its unified metadata universe and remo
 and the Cecil corelib-to-contract rewrite. Task 023/4 flips the product default and deletes
 Reflection.Emit and `ColumnarIlEmitter.cs`.
 
-**Next independent type slice:** 022/2f-b2 routes static calls through existing `GetStaticCallPlan` and
-deletes the measured 866-line closed chain; coordinate exclusive emitter ownership with the writer.
-Then 2f-b3 construction, 2f-c declaration-name rows (re-measure the count), 2f-d duplicate runtime type
+**Active goal slice (2026-09-04, base `5ac4faa79`):** S2.1(g), the four custom-attribute attachment
+sites in `ColumnarIlEmitter.cs` (`IsByRefLike`, `IsReadOnly`, description `Trait`, and `Fact`).
+The writer worker has exclusive emitter edit ownership in `codex/023-s21g-attributes`; Astra owns
+the declaration contract, review, landing order, merged ratchet and integration evidence. The slice
+must put attribute selection/data into canonical N# declaration records, preserve attribute order,
+blobs and constructor-failure behavior, and remove the corresponding C# decisions. The shared
+`NSharpDescription` key also has consumers in `TestCommandKernels`; independently literal-pinned
+contracts must prevent a synchronized writer/reader rename from hiding an ABI change. Constructor
+resolution remains S2.2. Whole-PE proof uses independent control arms and the fixed committed
+`5ac4faa79` corpus. Static-call deletion and strict-source hygiene are read-only decodes during this
+slice; neither may contend with the emitter owner. No completion or new gate result is claimed yet.
+
+**Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
+`TryEmitStaticCall` already calls the N# planner; its 865-line method includes source dispatch and an
+822-line external fallback with 63 top-level conditions. It cannot be deleted by adding routing that
+already exists. The first candidate is trailing null-reference optional arguments through existing
+`ResolveOptionalFill` / `AppendOptionalFillRuntimeSelection`, replacing the two exception-helper arms.
+Before deletion, prove contextual-lambda and unplannable-argument coverage, source shadowing, overload
+ties and runtime/MLC defaults. [Read-only decode](decodes/2026-09-04-static-call-next-cut.md).
+Coordinate exclusive emitter ownership with the writer. Then 2f-b3 construction,
+2f-c declaration-name rows (re-measure the count), 2f-d duplicate runtime type
 predicates and 2f-e estate deletions. Stop at a committed/gated SDK republish before estate code uses
 newly admitted shapes. 022/5 NativeAOT and 015-B17 remain parked; 021 is re-audited after 022/023 land.
 
-**Remaining follow-ups:** estate `import System` hygiene (re-measure the handoff
-206/296 backlog) plus gate-lint consistency; external-call constant conversion at the call site;
+**Remaining follow-ups:** estate import hygiene through semantic lint (306 test files and 215 literal
+`import System` lines at `5ac4faa79`, not an unused-import count) plus gate-lint consistency;
+external-call constant conversion at the call site;
 isolated gate commit stamping (`cliCommit` currently unavailable inside its inner copy).
 Source chips to re-measure: qualified static receivers, `DateTime.TryParse`, `default`, dotted unresolved
 types reported as NL103, NL312/NL006 duplicate reporting, bare-statement `new Box()`, and top-level
 same-name arity. Tooling chips: `query symbols` field/property names, `Id: Guid { get; }` parsing,
 struct-field writes/union-payload reads, `query hover` daemon support, and SignatureHelp text scanning.
+The [self-hosting decode](decodes/2026-09-04-self-hosting-next-cuts.md) revalidates 52 lint findings plus
+208 analysis findings at `5ac4faa79`; it identifies twelve proven production import removals, the
+qualified-static-receiver cause of all sixteen NL301 rows, and the separate expected-type leakage
+behind five reflected NL402 rows. These are execution candidates, not completed fixes.
 Quiet-box compile-time evidence is **complete at `1527e823`**: load 1.71/10 cores, five-run
 front-end build median **8,098 ms** within the unchanged **11,802 ms** limit; check median 28,415 ms.
 Both commands still exit 1 on strict compiler sources. The [verification decode](decodes/2026-09-04-takeover-verification.md) records the scope and raw logs; no baseline was changed. Current corpus census is **75 tracked projects**,

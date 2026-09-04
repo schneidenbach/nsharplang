@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler
 
 func DeclarationPlanEmptyProgramInput(source: string, enums: IReadOnlyList<ColumnarEnumInput>): ColumnarProgramInput {
     // Every argument is spelled: omitting a defaulted parameter of a STATIC method declines emission
@@ -484,4 +485,133 @@ test "the property rows carry a word, both accessor names and the value ordinal 
     assert rows.HasSetter[0][1]
     assert rows.ValueOrdinals[0][0] == 0
     assert rows.ValueOrdinals[0][1] == 1
+}
+
+func DeclarationPlanAttributeProgram(structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, tests: IReadOnlyList<ColumnarTestInput>?): ColumnarProgramInput {
+    return ColumnarProgramInput.CreateSingleSource(
+        "namespace Demo\n",
+        new List<ColumnarFunctionInput>(),
+        new List<ColumnarEnumInput>(),
+        structs,
+        unions,
+        new List<ColumnarInterfaceInput>(),
+        tests
+    )
+}
+
+func DeclarationPlanAttributeUnion(name: string, isValueStruct: bool): ColumnarUnionInput {
+    return new ColumnarUnionInput(name, new string[](0), new string[][](0), new string[][](0), null, isValueStruct)
+}
+
+func DeclarationPlanAttributeTest(description: string): ColumnarTestInput {
+    return new ColumnarTestInput(description, DeclarationPlanMethodInput("Body", "void", false))
+}
+
+test "the custom attribute plan publishes no phantom owners for an empty program" {
+    program := DeclarationPlanEmptyProgramInput("", new List<ColumnarEnumInput>())
+    rows := ColumnarDeclarationPlanner.BuildAssemblyAndEnums(program, "Empty").CustomAttributes
+    assert rows.StructByRefLikeBlobs.Length == 0
+    assert rows.UnionReadOnlyBlobs.Length == 0
+    assert rows.TestBlobs.Length == 0
+    assert rows.TestConstructorSlots.Length == 0
+}
+
+test "custom attribute absence preserves owner ordinals and shares an empty sequence" {
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanStructInput("Plain", false))
+    structs.Add(DeclarationPlanStructInput("Reference", true))
+    unions := new List<ColumnarUnionInput>()
+    unions.Add(DeclarationPlanAttributeUnion("Cases", false))
+    rows := ColumnarDeclarationPlanner.BuildCustomAttributes(DeclarationPlanAttributeProgram(structs, unions, new List<ColumnarTestInput>()))
+    assert rows.StructByRefLikeBlobs.Length == 2
+    assert rows.UnionReadOnlyBlobs.Length == 1
+    assert rows.StructByRefLikeBlobs[0].Length == 0
+    assert rows.StructByRefLikeBlobs[1].Length == 0
+    assert rows.UnionReadOnlyBlobs[0].Length == 0
+    assert Object.ReferenceEquals(rows.StructByRefLikeBlobs[0], rows.StructByRefLikeBlobs[1])
+    assert Object.ReferenceEquals(rows.StructByRefLikeBlobs[0], rows.UnionReadOnlyBlobs[0])
+    assert rows.TestBlobs.Length == 0
+    assert rows.TestConstructorSlots.Length == 0
+}
+
+test "custom attribute marker selection follows each source owner without compacting the columns" {
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanStructInput("Plain", false))
+    refStruct := DeclarationPlanStructInput("Borrowed", false)
+    refStruct.IsRefStruct = true
+    structs.Add(refStruct)
+    structs.Add(DeclarationPlanStructInput("Reference", true))
+    anotherRefStruct := DeclarationPlanStructInput("AnotherBorrowed", false)
+    anotherRefStruct.IsRefStruct = true
+    structs.Add(anotherRefStruct)
+    unions := new List<ColumnarUnionInput>()
+    unions.Add(DeclarationPlanAttributeUnion("ReferenceCases", false))
+    unions.Add(DeclarationPlanAttributeUnion("ValueCases", true))
+    unions.Add(DeclarationPlanAttributeUnion("OtherCases", false))
+    tests := new List<ColumnarTestInput>()
+    tests.Add(DeclarationPlanAttributeTest("a description"))
+    rows := ColumnarDeclarationPlanner.BuildCustomAttributes(DeclarationPlanAttributeProgram(structs, unions, tests))
+    assert rows.StructByRefLikeBlobs.Length == 4
+    assert rows.UnionReadOnlyBlobs.Length == 3
+    assert rows.StructByRefLikeBlobs[0].Length == 0
+    assert rows.StructByRefLikeBlobs[1].Length == 1
+    assert rows.StructByRefLikeBlobs[2].Length == 0
+    assert rows.StructByRefLikeBlobs[3].Length == 1
+    assert rows.UnionReadOnlyBlobs[0].Length == 0
+    assert rows.UnionReadOnlyBlobs[1].Length == 1
+    assert rows.UnionReadOnlyBlobs[2].Length == 0
+    assert BlobText(rows.StructByRefLikeBlobs[1][0]) == "1-0-0-0"
+    assert BlobText(rows.UnionReadOnlyBlobs[1][0]) == "1-0-0-0"
+    assert Object.ReferenceEquals(rows.StructByRefLikeBlobs[1], rows.StructByRefLikeBlobs[3])
+    assert Object.ReferenceEquals(rows.StructByRefLikeBlobs[1], rows.UnionReadOnlyBlobs[1])
+    assert Object.ReferenceEquals(rows.StructByRefLikeBlobs[1][0], rows.TestBlobs[0][1])
+    independent := ColumnarDeclarationPlanner.BuildCustomAttributes(DeclarationPlanAttributeProgram(structs, unions, tests))
+    assert !Object.ReferenceEquals(rows.StructByRefLikeBlobs[1][0], independent.StructByRefLikeBlobs[1][0])
+    assert !Object.ReferenceEquals(rows.TestBlobs[0][0], independent.TestBlobs[0][0])
+    refStruct.IsRefStruct = false
+    tests[0] = DeclarationPlanAttributeTest("changed after planning")
+    assert rows.StructByRefLikeBlobs[1].Length == 1
+    assert BlobText(rows.TestBlobs[0][0]) == "1-0-17-78-83-104-97-114-112-68-101-115-99-114-105-112-116-105-111-110-13-97-32-100-101-115-99-114-105-112-116-105-111-110-0-0"
+}
+
+test "a value union alone still plans its readonly marker" {
+    unions := new List<ColumnarUnionInput>()
+    unions.Add(DeclarationPlanAttributeUnion("ValueCases", true))
+    rows := ColumnarDeclarationPlanner.BuildCustomAttributes(DeclarationPlanAttributeProgram(new List<ColumnarStructInput>(), unions, null))
+    assert rows.UnionReadOnlyBlobs[0].Length == 1
+    assert BlobText(rows.UnionReadOnlyBlobs[0][0]) == "1-0-0-0"
+    assert rows.TestBlobs.Length == 0
+}
+
+test "custom test attributes preserve Trait then Fact and exact per-test description bytes" {
+    tests := new List<ColumnarTestInput>()
+    tests.Add(DeclarationPlanAttributeTest("a description"))
+    tests.Add(DeclarationPlanAttributeTest("é😀"))
+    rows := ColumnarDeclarationPlanner.BuildCustomAttributes(DeclarationPlanAttributeProgram(new List<ColumnarStructInput>(), new List<ColumnarUnionInput>(), tests))
+    assert rows.TestConstructorSlots.Length == 2
+    assert rows.TestConstructorSlots[0] == 0
+    assert rows.TestConstructorSlots[1] == 1
+    assert rows.TestBlobs.Length == 2
+    assert rows.TestBlobs[0].Length == 2
+    assert rows.TestBlobs[1].Length == 2
+    assert BlobText(rows.TestBlobs[0][0]) == "1-0-17-78-83-104-97-114-112-68-101-115-99-114-105-112-116-105-111-110-13-97-32-100-101-115-99-114-105-112-116-105-111-110-0-0"
+    assert BlobText(rows.TestBlobs[1][0]) == "1-0-17-78-83-104-97-114-112-68-101-115-99-114-105-112-116-105-111-110-6-195-169-240-159-152-128-0-0"
+    assert BlobText(rows.TestBlobs[0][1]) == "1-0-0-0"
+    assert Object.ReferenceEquals(rows.TestBlobs[0][1], rows.TestBlobs[1][1])
+}
+
+test "custom test attribute rows retain empty and long SerString payloads" {
+    tests := new List<ColumnarTestInput>()
+    tests.Add(DeclarationPlanAttributeTest(""))
+    tests.Add(DeclarationPlanAttributeTest(RepeatedText("a", 128)))
+    rows := ColumnarDeclarationPlanner.BuildCustomAttributes(DeclarationPlanAttributeProgram(new List<ColumnarStructInput>(), new List<ColumnarUnionInput>(), tests))
+    assert BlobText(rows.TestBlobs[0][0]) == "1-0-17-78-83-104-97-114-112-68-101-115-99-114-105-112-116-105-111-110-0-0-0"
+    longBlob := rows.TestBlobs[1][0]
+    assert longBlob.Length == 152
+    assert Convert.ToInt32(longBlob[20]) == 128
+    assert Convert.ToInt32(longBlob[21]) == 128
+    assert Convert.ToInt32(longBlob[22]) == 97
+    assert Convert.ToInt32(longBlob[149]) == 97
+    assert Convert.ToInt32(longBlob[150]) == 0
+    assert Convert.ToInt32(longBlob[151]) == 0
 }
