@@ -572,14 +572,12 @@ test "a type that defines its own equality keeps it — the overload is resolved
 
 // ═══ NL002 — "I CAN'T FIND IT" WAS FALSE FOR EVERY ROW ════════════════════════════════════════
 //
-// NL002 said "I can't find 'StringBuilder' — it looks like a missing import". Run with the rule
-// silenced, the compiler finds every row of its own table: `StringBuilder`, `Task`,
-// `CancellationToken`, `List<int>`, `Stack<int>` and the rest BUILD with no import at all.
-// The names that DO fail — `Regex`, `HttpClient`, `Queue<int>` — fail IDENTICALLY WITH THEIR IMPORT,
-// because the columnar backend cannot lower those types yet; that failure was never the import's.
+// NL002 said "I can't find 'StringBuilder' — it looks like a missing import". With the rule
+// silenced, the parameter-and-boxing programs below build with or without their namespace imports.
+// The external-type admission slice also made the former `Regex` and `Queue<int>` declines build;
+// an emission failure was never evidence of a missing import.
 //
-// So NL002 is import HYGIENE, and its old sentence claimed a resolution failure that does not
-// happen. The suggestion — the useful half — is unchanged, and is measured never breaking anything.
+// NL002 is import HYGIENE. Its sentence and suggestion remain true as backend admission grows.
 func DhSilenced(name: string, source: string): string {
     return DhProbe.RunWithConfig(name, "build", source, "", "[*.nl]\ndotnet_diagnostic.NL002.severity = none\n")
 }
@@ -606,51 +604,38 @@ test "NL002 no longer claims the compiler cannot find a name it can, and still n
     assert output.IndexOf("can't find", StringComparison.Ordinal) < 0, output
 }
 
-test "THE OLD SENTENCE WAS FALSE: five rows of NL002's own table BUILD with no import at all" {
-    builder := DhSilenced("nl002-optional-builder", DhTakes("StringBuilder"))
-    assert builder.IndexOf("Build successful", StringComparison.Ordinal) >= 0, builder
-    assert builder.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, builder
+// Each row is `probe-name|type-name|namespace`. Compare the entire diagnostic stream and both child
+// exit statuses for the same source shape. A success banner alone does not prove a successful build.
+func DhImportPairFailures(rows: string): string {
+    failures := ""
+    programs := rows.Split('\n')
+    index := 0
+    while index < programs.Length {
+        cells := programs[index].Split('|')
+        name := cells[0]
+        source := DhTakes(cells[1])
+        withoutImport := DhSilenced("nl002-pair-" + name + "-without", source)
+        withImport := DhSilenced("nl002-pair-" + name + "-with", "import " + cells[2] + "\n\n" + source)
+        if withoutImport.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) < 0 || withImport.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) < 0 || withoutImport.IndexOf("Build successful", StringComparison.Ordinal) < 0 || withImport.IndexOf("Build successful", StringComparison.Ordinal) < 0 || DhBuildError(withoutImport) != DhBuildError(withImport) || DhCodeCount(withoutImport, "NL002") != 0 || DhCodeCount(withImport, "NL002") != 0 {
+            failures = failures + name + ":\n" + withoutImport + withImport + "\n"
+        }
 
-    task := DhSilenced("nl002-optional-task", DhTakes("Task"))
-    assert task.IndexOf("Build successful", StringComparison.Ordinal) >= 0, task
-    assert task.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, task
+        index = index + 1
+    }
 
-    token := DhSilenced("nl002-optional-token", DhTakes("CancellationToken"))
-    assert token.IndexOf("Build successful", StringComparison.Ordinal) >= 0, token
-    assert token.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, token
-
-    listed := DhSilenced("nl002-optional-list", DhTakes("List<int>"))
-    assert listed.IndexOf("Build successful", StringComparison.Ordinal) >= 0, listed
-    assert listed.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, listed
-
-    stack := DhSilenced("nl002-optional-stack", DhTakes("Stack<int>"))
-    assert stack.IndexOf("Build successful", StringComparison.Ordinal) >= 0, stack
-    assert stack.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, stack
+    return failures
 }
 
-test "the rows that DO fail fail identically WITH their import, so the failure was never the import's" {
-    // `Regex` and `Queue<int>` are types the columnar backend cannot lower yet. `Stack<int>` above and
-    // `Queue<int>` here are the pair that shows it: same namespace, same shape, opposite outcome —
-    // and the import changes neither of them.
-    regexWithout := DhSilenced("nl002-emit-regex-without", DhTakes("Regex"))
-    regexWith := DhSilenced("nl002-emit-regex-with", "import System.Text.RegularExpressions\n\n" + DhTakes("Regex"))
-    assert regexWithout.IndexOf("-- Dh exit 1 --", StringComparison.Ordinal) >= 0, regexWithout
-    assert regexWith.IndexOf("-- Dh exit 1 --", StringComparison.Ordinal) >= 0, regexWith
-    assert DhBuildError(regexWithout) == DhBuildError(regexWith), regexWithout + regexWith
-    assert DhBuildError(regexWithout).IndexOf("requires successful N# columnar emission", StringComparison.Ordinal) >= 0, regexWithout
+test "THE OLD SENTENCE WAS FALSE: five established NL002 rows BUILD with and without their imports" {
+    rows := "builder|StringBuilder|System.Text\ntask|Task|System.Threading.Tasks\ntoken|CancellationToken|System.Threading\nlist|List<int>|System.Collections.Generic\nstack|Stack<int>|System.Collections.Generic"
+    failures := DhImportPairFailures(rows)
+    assert failures == "", failures
+}
 
-    queueWithout := DhSilenced("nl002-emit-queue-without", DhTakes("Queue<int>"))
-    queueWith := DhSilenced("nl002-emit-queue-with", "import System.Collections.Generic\n\n" + DhTakes("Queue<int>"))
-    assert queueWithout.IndexOf("-- Dh exit 1 --", StringComparison.Ordinal) >= 0, queueWithout
-    assert queueWith.IndexOf("-- Dh exit 1 --", StringComparison.Ordinal) >= 0, queueWith
-    assert DhBuildError(queueWithout) == DhBuildError(queueWith), queueWithout + queueWith
-    assert DhBuildError(queueWithout).IndexOf("requires successful N# columnar emission", StringComparison.Ordinal) >= 0, queueWithout
-
-    // ...and the silencing really took, so neither failed for NL002.
-    assert DhCodeCount(regexWithout, "NL002") == 0, regexWithout
-    assert DhCodeCount(queueWithout, "NL002") == 0, queueWithout
-    assert DhCodeCount(regexWith, "NL002") == 0, regexWith
-    assert DhCodeCount(queueWith, "NL002") == 0, queueWith
+test "catalog admission keeps NL002 truthful: ten more parameter-and-boxing shapes BUILD identically with and without imports" {
+    rows := "dictionary|Dictionary<string, int>|System.Collections.Generic\nhashset|HashSet<int>|System.Collections.Generic\nstream|Stream|System.IO\nregex|Regex|System.Text.RegularExpressions\nhttpclient|HttpClient|System.Net.Http\nqueue|Queue<int>|System.Collections.Generic\nlinkedlist|LinkedList<int>|System.Collections.Generic\nfile|File|System.IO\njson|JsonSerializer|System.Text.Json\nencoding|Encoding|System.Text"
+    failures := DhImportPairFailures(rows)
+    assert failures == "", failures
 }
 
 test "the suggestion is safe as well as useful: adding the named import never breaks a build" {
