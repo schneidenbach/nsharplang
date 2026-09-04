@@ -864,12 +864,9 @@ test "NL002's bare-identifier span STOPS AT THE IDENTIFIER, and does not run the
     assert DiagnosticSpanContractCovers("StringBuilder.ToString()", 1, "StringBuilder.ToString")
 }
 
-// THE SENTENCE STOPPED CLAIMING THE COMPILER CANNOT FIND THE NAME, BECAUSE IT ALWAYS CAN. Measured on
-// the shipped CLI with the rule silenced, every row of this table resolves: `StringBuilder`, `Task`,
-// `CancellationToken`, `List<int>` and `Stack<int>` BUILD with no import, and the rows that
-// fail — `Regex`, `HttpClient`, `Queue<int>` — fail identically WITH their import, because the
-// backend cannot lower those types yet. `tests/native/diagnostic-honesty` runs both sides on every
-// gate.
+// The native diagnostic-honesty suite builds fifteen parameter-and-boxing shapes both with and
+// without their imports. Former Regex, HttpClient and Queue<int> emission declines now build too;
+// NL002 describes import hygiene independently of which source shapes the backend admits.
 test "NL002's sentence states what is true of EVERY row: the name is used, the import is not there" {
     assert LinterMissingImport.Message("StringBuilder") == "'StringBuilder' is used without the import that provides it"
     assert LinterMissingImport.Message("List") == "'List' is used without the import that provides it"
