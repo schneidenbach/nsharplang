@@ -225,6 +225,11 @@ class LinterWalkState {
     // resolved against its source line because the directive's own column points at the keyword rather
     // than at the namespace; a file import already carries its diagnostic span.
     func RegisterImports(unit: CompilationUnit) {
+        currentNamespace := AnalyzerDeclarationFileFacts.GetUnitNamespace(unit)
+        if currentNamespace != null {
+            importedNamespaces.Add(currentNamespace)
+        }
+
         for importDirective in unit.Imports {
             importedNamespaces.Add(importDirective.Namespace)
             span := LinterImportMetadata.ResolveNamespaceImportSpan(importDirective.Column, importDirective.Namespace, SourceLine(importDirective.Line))

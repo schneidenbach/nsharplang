@@ -109,7 +109,7 @@ public class CompletionHandler : CompletionHandlerBase
         AddDocumentSymbolCompletionItems(doc, items, itemKeys, inScopeNames);
         AddSemanticCompletionItems(doc, request.Position.Line, request.Position.Character, items, itemKeys, inScopeNames);
         AddLanguageCompletionItems(items, itemKeys);
-        AddExternalImportableCompletionItems(doc, currentPrefix, items, itemKeys, inScopeNames);
+        AddExternalImportableCompletionItems(doc, currentPrefix, request.Position, items, itemKeys, inScopeNames);
 
         _logger.LogDebug("Providing {Count} completion items for {Uri}", items.Count, uri);
 
@@ -358,13 +358,20 @@ public class CompletionHandler : CompletionHandlerBase
     private void AddExternalImportableCompletionItems(
         Models.DocumentState? doc,
         string currentPrefix,
+        Position position,
         List<CompletionItem> items,
         HashSet<string> itemKeys,
         HashSet<string> inScopeNames)
     {
+        var planner = new ImportEditPlanner(doc?.CompilationUnit, doc?.Text ?? "");
         foreach (var type in _typeResolver.GetImportableTypes(currentPrefix))
         {
-            var isInScope = IsNamespaceInScope(doc, type.Namespace);
+            var isInScope = ImportEditPlanner.IsNamespaceInScope(doc?.CompilationUnit, type.Namespace);
+            var edits = planner.CompletionEdits(type.Namespace, type.Name, position.Line + 1, position.Character).Select(edit => new OmniSharp.Extensions.LanguageServer.Protocol.Models.TextEdit
+            {
+                Range = new LspRange(edit.StartLine - 1, edit.StartColumn, edit.EndLine - 1, edit.EndColumn),
+                NewText = edit.NewText
+            }).ToArray();
             var item = new CompletionItem
             {
                 Label = type.Name,
@@ -373,6 +380,8 @@ public class CompletionHandler : CompletionHandlerBase
                     : CompletionItemKind.Class,
                 Detail = isInScope ? type.FullName : $"{type.FullName} (auto-import {type.Namespace})",
                 InsertText = type.Name,
+                TextEdit = new TextEditOrInsertReplaceEdit(edits[0]),
+                AdditionalTextEdits = new TextEditContainer(edits.Skip(1)),
                 SortText = BuildSortText(isInScope ? SortExternalInScope : SortExternalImportable, type.Name, type.Namespace),
             };
 
@@ -463,33 +472,6 @@ public class CompletionHandler : CompletionHandlerBase
         }
 
         return lineText[start..end];
-    }
-
-    private static bool IsNamespaceInScope(Models.DocumentState? doc, string namespaceName)
-    {
-        if (doc?.CompilationUnit == null)
-        {
-            return false;
-        }
-
-        if (string.Equals(GetUnitNamespace(doc.CompilationUnit), namespaceName, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        return IsNamespaceAlreadyImported(doc.CompilationUnit, namespaceName);
-    }
-
-    private static string? GetUnitNamespace(CompilationUnit? compilationUnit)
-    {
-        return compilationUnit?.Package?.Name ?? compilationUnit?.Namespace?.Name;
-    }
-
-    private static bool IsNamespaceAlreadyImported(CompilationUnit compilationUnit, string importNamespace)
-    {
-        return compilationUnit.Imports.Any(import =>
-            import.Alias == null &&
-            string.Equals(import.Namespace, importNamespace, StringComparison.Ordinal));
     }
 
     private static bool TryExtractImportPrefix(string beforeCursor, out string importPrefix)
