@@ -845,7 +845,7 @@ class ColumnarParserRecovery {
         ImportNodes.Add(new ImportDirective(name, alias, line, column))
     }
 
-    func Run() {
+    func RunHeader() {
         // The CompilationUnit's Line/Column are the first token's position, captured BEFORE any parsing
         // (Parser.cs ParseCompilationUnit :33-34).
         UnitLine = Current().Line
@@ -872,6 +872,10 @@ class ColumnarParserRecovery {
 
             ParseImport()
         }
+    }
+
+    func Run() {
+        RunHeader()
 
         // Declaration boundary. Stage 2 carries the declaration-NAME family through the SAME
         // shared-panic model: each top-level declaration resets panic (Parser.cs

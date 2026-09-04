@@ -8,6 +8,7 @@ N# (`.nl` files) VS Code support with syntax highlighting, diagnostics, completi
 
 ### 🚀 IntelliSense & Code Completion
 - **Smart auto-completion** for keywords, types, and symbols
+- **External type imports** - Accepting a type marked `auto-import` inserts its namespace import. Existing imports and the current namespace/package stay in scope; imports follow file headers and preserve the document's line endings.
 - **Signature help** with parameter information
 - **Hover tooltips** showing type information
 - **Go to Definition** - Jump to symbol declarations

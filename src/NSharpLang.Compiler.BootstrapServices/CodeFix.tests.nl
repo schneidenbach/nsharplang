@@ -166,11 +166,10 @@ test "the missing-import fix inserts after the last existing import" {
     assert twoFixes[0].Edits[0].StartLine == 3
     assert FixApplicatorCore.ApplyEdits(twoImports, twoFixes[0].Edits) == "import System\nimport System.IO\nimport System.Collections.Generic\n\nfunc main() {\n    let list = new List<int>()\n}"
 
-    // AND THE LAST IMPORT'S LINE IS READ FROM THE TREE, NOT FROM THE TEXT: the same source with no
-    // parsed tree behind it falls back to inserting at line 1.
-    assert CodeFixActionHelpers.GetLastImportLine(CodeFixUnit(twoImports)) == 2
-    assert CodeFixActionHelpers.GetLastImportLine(CodeFixUnit(sourceCode)) == 1
-    assert CodeFixActionHelpers.GetLastImportLine(CodeFixUnit("func main() {}")) == 0
+    // The shared source planner consumes the complete header before inserting.
+    assert new ImportEditPlanner(CodeFixUnit(twoImports), twoImports).HeaderEndLine == 2
+    assert new ImportEditPlanner(CodeFixUnit(sourceCode), sourceCode).HeaderEndLine == 1
+    assert new ImportEditPlanner(CodeFixUnit("func main() {}"), "func main() {}").HeaderEndLine == 0
 }
 
 // Successor to AddMissingImport_HandlesInvalidSuggestion.

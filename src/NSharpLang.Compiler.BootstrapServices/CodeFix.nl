@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.Collections
 import System.Collections.Generic
 import System.Text
 
@@ -48,18 +47,13 @@ class AddMissingImportCodeFixProvider {
 
     func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
-        lastImportLine := CodeFixActionHelpers.GetLastImportLine(ast)
-        hasImports := lastImportLine > 0
-
-        insertLine := 0
-        insertColumn := 0
-        importText := ""
-        title := ""
+        namespaceToImport := ""
         suggestion := diagnostic.Suggestion ?? ""
-        if suggestion.Length > 0 && CodeFixActionHelpers.TryGetMissingImportEdit(suggestion, hasImports, lastImportLine, out insertLine, out insertColumn, out importText, out title) {
-            edits := new List<TextEdit>()
-            edits.Add(new TextEdit(insertLine, insertColumn, insertLine, insertColumn, importText))
-            actions.Add(new CodeAction(title, "NL002", edits, CodeActionKind.QuickFix))
+        if CodeFixActionHelpers.TryGetMissingImportNamespace(suggestion, out namespaceToImport) {
+            edits := ImportEditPlanner.GetEdits(ast, sourceCode, namespaceToImport)
+            if edits.Count > 0 {
+                actions.Add(new CodeAction("Add import " + namespaceToImport, "NL002", edits, CodeActionKind.QuickFix))
+            }
         }
 
         return actions
@@ -174,58 +168,8 @@ class CodeFixActionHelpers {
         return codes
     }
 
-    static func GetLastImportLine(ast: object): int {
-        if ast == null {
-            return 0
-        }
-
-        // CompilationUnit is authored as an N# class, so Imports emits as a field; older C# records
-        // exposed it as a property. Read either shape.
-        importsObject := GetMemberValue(ast, "Imports")
-        if importsObject == null {
-            return 0
-        }
-
-        imports := importsObject as IList
-        if imports == null || imports.Count == 0 {
-            return 0
-        }
-
-        lastImport := imports[imports.Count - 1]
-        if lastImport == null {
-            return 0
-        }
-
-        lineValue := GetMemberValue(lastImport, "Line")
-        if lineValue == null {
-            return 0
-        }
-
-        return Convert.ToInt32(lineValue)
-    }
-
-    // AST nodes are authored as N# classes, whose members emit as fields; older C# records exposed
-    // them as properties. Read either shape so import positioning survives both.
-    static func GetMemberValue(owner: object, memberName: string): object? {
-        property := owner.GetType().GetProperty(memberName)
-        if property != null {
-            return property.GetValue(owner)
-        }
-
-        field := owner.GetType().GetField(memberName)
-        if field != null {
-            return field.GetValue(owner)
-        }
-
-        return null
-    }
-
-    static func TryGetMissingImportEdit(suggestion: string, hasImports: bool, lastImportLine: int, out insertLine: int, out insertColumn: int, out importText: string, out title: string): bool {
-        insertLine = 0
-        insertColumn = 0
-        importText = ""
-        title = ""
-
+    static func TryGetMissingImportNamespace(suggestion: string, out namespaceToImport: string): bool {
+        namespaceToImport = ""
         prefix := "Add 'import "
         if !CodeFixStartsWith(suggestion, prefix) {
             return false
@@ -237,15 +181,7 @@ class CodeFixActionHelpers {
             return false
         }
 
-        namespaceToImport := suggestion.Substring(namespaceStart, namespaceEnd - namespaceStart)
-        insertLine = 1
-        if hasImports {
-            insertLine = lastImportLine + 1
-        }
-
-        insertColumn = 0
-        importText = "import " + namespaceToImport + "\n"
-        title = "Add import " + namespaceToImport
+        namespaceToImport = suggestion.Substring(namespaceStart, namespaceEnd - namespaceStart)
         return true
     }
 

@@ -789,3 +789,37 @@ test "an interpolated string's holes are genuine reads" {
     silent.PopScope()
     assert silent.Diagnostics.Count == 1
 }
+
+test "the current namespace and package supply type scope without inventing an import to lint" {
+    namespaceUnit := CodeFixUnit("namespace System.Text\nfunc Build() {}")
+    state := LwsState()
+    state.RegisterImports(namespaceUnit)
+    state.TrackTypeReference(LwsSimpleType("StringBuilder"))
+    state.CheckUnusedImports()
+    assert LwsCodes(state) == ""
+    packageUnit := CodeFixUnit("package System.Text\nfunc Build() {}")
+    state = LwsState()
+    state.RegisterImports(packageUnit)
+    state.TrackTypeReference(LwsSimpleType("StringBuilder"))
+    state.CheckUnusedImports()
+    assert LwsCodes(state) == ""
+    differentUnit := CodeFixUnit("namespace Example\nfunc Build() {}")
+    state = LwsState()
+    state.RegisterImports(differentUnit)
+    state.TrackTypeReference(LwsSimpleType("StringBuilder"))
+    assert LwsCodes(state) == "NL002@1:1;"
+}
+
+test "current namespace scope does not mark a real explicit import as used" {
+    source := "namespace System.Text\nimport System.Text\nfunc Build() {}"
+    state := LwsStateWithSource(source)
+    state.RegisterImports(CodeFixUnit(source))
+    state.CheckUnusedImports()
+    assert LwsCodes(state) == "NL010@2:8;"
+    source = "package System.Text\nimport System.IO\nfunc Build() {}"
+    state = LwsStateWithSource(source)
+    state.RegisterImports(CodeFixUnit(source))
+    state.TrackTypeReference(LwsSimpleType("StringBuilder"))
+    state.CheckUnusedImports()
+    assert LwsCodes(state) == "NL010@2:8;"
+}
