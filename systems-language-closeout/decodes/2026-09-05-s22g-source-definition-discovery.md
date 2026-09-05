@@ -83,3 +83,16 @@ lines, and 2,646 fewer bytes in `ColumnarIlEmitter.cs`. Exact command output, so
 handoff receipt are under `/private/tmp/nsharp-s22g-executor-logs`. The coordinator owns immutable
 exact-source corpus replay, strict diagnostic mapping, physical metadata parity, ownership
 ratchets, the final backend gate and push.
+
+## Integration strict correction
+
+Root's initial immutable replay at `de83c4197` matched the entire emitted corpus, but strict checking
+reported two new NL011 errors for empty generic-definition catch bodies. Both compilers agreed on
+those findings. Correction `096968ae7` (worker `bafce7640`) makes each caught NotSupportedException or
+NotImplementedException explicitly clear the output and return false, the same result previously
+reached at the common tail after cleanup. No catch boundary or direct-scan behavior changes.
+Focused 7/7 and dev Columnar 12/12 pass. The corrected source SHA256 is
+`2b569fdaa21d11594f5a41182901b869340a8a7170e543cdb284848d40ea57a9`.
+Final immutable strict checking returns to 259 inherited errors, zero warnings, across 433 files;
+identical final-source pre/final JSON and unchanged-line mapping are retained. See the integration
+proof for the separate combined-source gate, independent controls, mutation and final review.

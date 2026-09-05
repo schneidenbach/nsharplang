@@ -164,6 +164,16 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   delay registry.Values until after their existing guards/head reads. The throwing-disposal fixture
   replacement remains unexecuted; actual discovery migration and all later S2.2 work remain open.
   [Field prerequisite proof](../systems-language-closeout/decodes/2026-09-05-s22g1-parity-proof.md).
+  **S2.2(g) discovery owner at `770482e8e`, controls `de83c4197`, catch correction `096968ae7`:**
+  first-hit live Builder identity and direct/struct/interface/closed resolution are N#-owned. Three C#
+  helpers are deleted, retaining only direct forwarding doors; emitter −107 lines / −98 nonblank / −2,646 bytes.
+  Consumed IL pins generic Current, first-hit/exception/out/disposal and delayed Values phases. The
+  corrected final compiler matches 94 whole images / 2,184 native tests on the fixed accepted corpus;
+  strict 259 unchanged across 433 checked files. Old private-helper throw witness 3/3 and exact 2-red
+  early-out-clear mutation are retained. Fresh gate/push are pending at
+  `/private/tmp/gate-20260905-goal-s22g-r1/`. The combined duplicate scan and constrained/member
+  admission, remaining type-pool consumers and local/maxstack work remain open.
+  [Discovery proof](../systems-language-closeout/decodes/2026-09-05-s22g-parity-proof.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

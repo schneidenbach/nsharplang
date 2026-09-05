@@ -123,62 +123,69 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** finish the S2.2(g1) acceptance/seed receipts at
-`/private/tmp/gate-20260905-goal-s22g1-r1/`, then continue S2.2(g) source-definition discovery.
-S2.2(g0) is accepted and pushed at `f54385d5`: its fresh gate passed 593 unit / 7,757 canonical /
-104 native declaration tests, and its SDK-built exact generic Current/finally probe passed1/1.
-The gate and seed acceptance receipts are under `/private/tmp/gate-20260905-goal-s22g0-r1/`.
+**Next writer slice:** finish S2.2(g) acceptance at
+`/private/tmp/gate-20260905-goal-s22g-r1/`, then revalidate the connected source-method-selection and
+call-admission boundary. The pure source-definition finder is now N#-owned; the combined loop at
+`ColumnarIlEmitter.cs:16627` may continue to a later duplicate after member selection fails, so it
+cannot be replaced by a first-hit finder. `TrySelectInstanceMethodOnChain` and constrained-interface
+argument matching need a connected port that does not call policy back into C#. Planning remains
+separate from accepting another owner. Type-pool consumers and locals/maxstack still precede S2.3–S2.6;
+023/3 removes runtime lookups/Cecil rewriting and 023/4 deletes Reflection.Emit and the C# emitter.
 
-Product prerequisite `f243d421` now binds the actual BCL `System.Type.EmptyTypes` field. Closed
-receiver discovery must preserve the existing `Array.Empty<Type>()` object identity; a private empty
-array is insufficient. Memory's pinned-stage-0 rule requires a committed, freshly gated
-`setup-local.sh --skip-vscode --no-path-update` repin and SDK-built probe before the new owner consumes
-this field. Read the actual gate/seed receipts; the gate's isolated SDK does not repin the live seed.
+S2.2(g0/g1) remain accepted. The g1 branch/remote checkpoint is `1e3d8cb`; its fresh 449-second gate
+passed 593 unit / 7,759 canonical / 105 native declaration tests, 52 native projects and 68 IL assemblies. Its
+live SDK 0.1.0 field probe passed 1/1 with the actual BCL empty-array identity. Gate/seed acceptance is
+under `/private/tmp/gate-20260905-goal-s22g1-r1/`; packaged SDK SHA256 begins `7f879985`. The same-version
+stale cache was measured, preserved and refreshed. This seed contains both the exact generic
+enumerator storage and Type.EmptyTypes field prerequisites used by the new owner.
 
-Revalidate `/private/tmp/nsharp-s22g-next-cut/README.md` against these accepted checkpoints. Its original
-plan fetched registry.Values too early: corrected direct-type and closed-receiver doors accept the
-registry and read Values only after the original guards/head reads. Preserve first-hit CLR Type
-equality, live duplicate order, direct TypeBuilder-only doors, exception and out-write timing, and
-closed arguments read before disposal. Struct resolution forwards its caller slot; interface
-resolution keeps its local candidate. Existing b/c structural capture stays at the successful consumer
-phase. Use an inferred exact typed enumerator, GetEnumerator before try, and guarded Dispose in
-finally. Bare-loop/covariance drafts were rejected. A try/yield/finally-throw fixture is a measured
-unsupported iterator shape; the replacement all-N# test-only throwing enumerator is still unexecuted,
-so post-hit disposal failure coverage is not yet accepted. Sol's owner and Terra's direct controls
-remain private drafts pending the g1 live seed.
+**Goal checkpoint (2026-09-05):** S2.2(g), product `770482e8e` (worker `c2981db60`), independent
+controls `de83c4197` (worker `587bc935`), strict catch correction `096968ae7` (worker `bafce7640`).
+`ColumnarSourceDefinitionResolver` now owns first-hit live Builder/CLR Type discovery, struct and
+interface resolution, direct-type lookup and closed receiver discovery. Three C# helper definitions
+are gone, three private doors are direct one-expression forwards, four interface sites call N# at
+the existing phase and one inline field scan uses the same owner. C# is **−107 lines / −98 nonblank /
+−2,646 bytes**; emitter **19,377 / 18,407 / 1,012,012 bytes**, AddType **36/12/1 keyed/35 handle-only**.
+The shrink-only ratchet moves to `head-v1:5605ce87ef5e4440`; no epoch ceiling or assertion count changes.
 
-The combined general-call loop may continue past a duplicate after member selection fails; it is not
-a pure finder. Constrained matching can emit reference conversions and cannot be ported by installing
-a callback. Those connected admission cuts, type-pool consumers and locals/maxstack remain before
-S2.3–S2.6. Task 023/3 removes runtime lookups/Cecil rewriting; 023/4 deletes Reflection.Emit and the
-C# emitter. The eleven iterator declaration lookup removals and earlier binding owners stay accepted.
+Actual IL preserves Type.op_Equality, exact IEnumerator<ColumnarStructDef>.Current, acquisition before
+try, hit writes before finally and miss clear after disposal. Struct forwards the caller's out slot;
+interface retains a local candidate. Direct/closed doors delay Values until their guards/head reads;
+closed discovery initializes outputs with the real BCL empty array and reads actual arguments after
+the hit, before disposal. No eager structural capture, callback or fallback was added. General-call
+and constrained admission remain separate C# ownership debt.
 
-**Goal checkpoint (2026-09-05):** S2.2(g1), product `f243d421` (worker `765776ce`). Four N# product
-lines add an exact Type.EmptyTypes field plan through the existing semantic-owner/static-field route.
-The native oracle compares all four emitted read forms with the actual BCL Array.Empty<Type>() object;
-short and qualified names, local storage and typed out assignment pass. Shadowing and nearby-owner/
-member refusals remain pinned. No general generic-static-call route or runtime-reflection fallback
-was added. Independent review verified the immutable source archive, all 14 CLI / 77 support files,
-and the consumed binding/ldsfld IL.
+Fixed accepted-f543 corpus arms d/e/p/f/g each have **94 whole normalized images / 2,184 native
+passes**,75 targets / 73 successful projects and the same two NL402 template refusals. Corrected final g
+matches the original pre, accepted g1 and initial discovery arms in images, sets and full outcomes. The
+fixed declaration suite is 104 with 55 physical MethodImpl rows; the updated source suite 105 is tested
+separately. Whole-image comparison retains the physical tables; one-byte output/attachment controls
+prove sensitivity. The actual old private helpers' shared-frame DynamicMethod witness passes 3/3,
+including forwarded struct hit/out versus interface-local sentinel after throwing disposal.
 
-No C# changes: emitter **19,484 / 18,505 nonblank / 1,014,658 bytes**, AddType **36/12/1 keyed/35
-handle-only**, and discovery census are unchanged; ratchet head remains `head-v1:8484731b27e8462d`.
-The fixed accepted f543 corpus has **94 whole normalized images / 2,184 native passes per arm**;
-pre/pre/prerequisite image sets and full outcomes match, including the two existing NL402 refusals.
-Its declaration suite is 104 tests with 55 physical MethodImpl rows; the new field test is separate
-from this fixed corpus. One-byte output and closed-interface attachment controls detect the expected
-changes. Canonical estate **7,759/7,759**, full new native declaration suite **105/105**; the root's
-identical final field fixture declines before tests on actual f543 and passes **1/1** on immutable f243.
-Strict output remains **432 files / 259 errors / 0 warnings**, byte-equal on identical final sources
-with every baseline finding mapped to an unchanged line.
-[Implementation](decodes/2026-09-05-s22g1-type-empty-types.md) and
-[integration proof](decodes/2026-09-05-s22g1-parity-proof.md) retain sources, limitations and receipts.
+Sol's final ownership estate passed 7,765/7,765 and source-definition filter 7/7 (six new plus one
+existing); Terra's independent controls passed 4/4 and their estate 7,763/7,763. These were separate
+source snapshots; the combined estate is measured by the fresh integration gate. The final catch
+correction passed dev Columnar 12/12 and focused 7/7. A frozen entry-clear mutation produces exactly the
+predicted two assertion failures, with the other five controls green. Its subject and timing-test
+bytes are unchanged by the later catch correction.
 
-The fresh backend gate, subsequent live-seed repin and push acceptance are recorded at
-`/private/tmp/gate-20260905-goal-s22g1-r1/`. At this documentation commit those steps are pending;
-read source.json, exit-code.txt, acceptance.json and seed-repin before advancing. Astra owns planning,
-review and integration; Sol and Terra execute. All terminal 015/021/022/023 boxes remain open. No IDE
-change is claimed, and discovery remains C#-owned until its actual follow-up lands.
+The generator-state draft observed the wrong object: GetEnumerator clones the factory enumerable.
+The accepted fixture captures the actual consumed enumerator. Throwing-disposal fixtures use bounded
+N# Reflection.Emit and catch inside typed runners so exceptional reflection out-copyback cannot hide
+caller state. A separate false-MoveNext/throwing-Dispose control pins the miss sentinel. Unexecuted
+try/yield/finally and unsupported local/cast drafts were replaced on measured evidence, not counted
+as coverage. Initial strict replay exposed two new NL011 errors in empty catches; `096968ae7` handles
+each expected generic reflection failure by clearing out and returning false. Final strict replay is
+**433 checked files / 259 errors / 0 warnings**, byte-equal for both compilers on the same final source,
+with all baseline findings mapped to unchanged lines and no added or removed diagnostic.
+
+[Implementation](decodes/2026-09-05-s22g-source-definition-discovery.md) and
+[integration proof](decodes/2026-09-05-s22g-parity-proof.md) retain exact source/payload, control and
+review links. At this documentation commit, the fresh backend gate and push remain pending under
+`/private/tmp/gate-20260905-goal-s22g-r1/`; read actual source/exit/acceptance receipts before advancing.
+No new language feature requires another live SDK repin in g. All terminal 015/021/022/023 boxes remain
+open. Astra plans, reviews and integrates; Sol and Terra execute. No IDE behavior change is claimed.
 
 **Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
 `TryEmitStaticCall` already calls the N# planner; its 865-line method includes source dispatch and an
@@ -3040,6 +3047,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| 023/S2.2(g) — live source-definition discovery | `770482e8e`; controls `de83c4197`; catch correction `096968ae7`; this integration commit | First-hit Builder identity, direct/struct/interface/closed discovery move to N#; three C# helpers deleted, eight direct routes | Exact generic Current, disposal/out timing and delayed Values are consumed IL; generator witness had to observe the cloned enumerator; empty generic catches now explicitly return false | Emitter19,377/18,407 (−107/−98/−2,646bytes); fixed94images/2,184tests each equal; strict 259 unchanged after measured NL011 correction; old private-helper witness 3/3 and predicted2-red mutation. Ratchet `head-v1:5605ce87ef5e4440`. [Proof](decodes/2026-09-05-s22g-parity-proof.md) |
 | 023/S2.2(g1) — BCL empty type-array field prerequisite | `f243d421` (worker `765776ce`); this integration commit | Four N# lines bind Type.EmptyTypes through the existing semantic static-field owner | Preserve the BCL empty-array identity and delayed registry.Values reads in the pending discovery cut; exact ldsfld and typed out assignment verified | No C# or ratchet change; estate 7,759; native declarations105; fixed corpus94 images/2,184 tests each equal; actual f543 same-source declines/f243 passes1; strict259 unchanged. Gate/live seed remain receipt-gated. [Proof](decodes/2026-09-05-s22g1-parity-proof.md) |
 | 023/S2.2(g0) — exact enumerator storage prerequisite | `504946215`; native controls `958bffd63`; this integration commit | N# admits genuine IEnumerator<T> over an already-admitted source element, preserving exact Current and disposal spelling | Storable protocol state stays separate from collections; exact AQN rejects foreign namesakes; discovery remains C#-owned until gated seed repin | No C# or ratchet change; estate 7,757; fixed corpus 94 images/2,179 tests each equal; compatible controls 103/103 and 48 MethodImpl rows equal; old source-element local declines/new passes1; strict259 unchanged; audit18/18. [Proof](decodes/2026-09-05-s22g0-parity-proof.md) |
 | 023/S2.2(f) — base bindings and method realization | `86c88c496`; controls `453e467b8` / `f6191720f`; this integration commit | Derive consumed base bindings from the existing N# walk and remove ordinary DefineMethod replay from C# | Actual ancestor and open/effective signature remain distinct; captured host name/return/parameters are copied; validation still precedes all attachments after default metadata | Emitter 19,484/18,505 (−1/−1/−38 bytes); combined estate 7,756; declarations 99. Three-arm parity 94 images/2,177 tests each; exact controls 99+3 and 45+5 MethodImpl rows; strict 259 unchanged; audit18/18, `head-v1:8484731b27e8462d`. [Proof](decodes/2026-09-05-s22f-parity-proof.md) |
