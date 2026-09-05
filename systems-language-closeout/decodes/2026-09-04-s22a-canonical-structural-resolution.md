@@ -1,5 +1,11 @@
 # S2.2(a): canonical resolution and a consumed structural type reference
 
+Subsequent correction (S2.2(b), `4b592311`): this slice's input-snapshot tests did not establish
+emitted backing-storage immutability. Getter-only rows still exposed mutable fields and arrays.
+The [S2.2(b) implementation](2026-09-05-s22b-source-interface-member-resolution.md) adds readonly
+fields, copied BCL read-only storage and three controls that fail on the earlier representation.
+The original S2.2(a) parity and execution receipts below remain historical evidence for that revision.
+
 Implementation baseline: `665b1068ad6905b4de3fc98efdf6f404e454c525`. This first S2.2 cut moves
 the connected ordinary, generic-aware, closed-source-generic and delegate canonical resolver into
 N#. Resolution now produces an emission-scoped structural reference beside its exact runtime `Type`,

@@ -102,6 +102,15 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   handle-only. Member/override descriptors, remaining type consumers, ambient locals and maxstack
   are later S2.2 cuts. See STATUS and the
   [implementation decode](../systems-language-closeout/decodes/2026-09-04-s22a-canonical-structural-resolution.md).
+  **S2.2(b) implemented at `4b592311`, production controls integrated at `ad303387`:**
+  ordinary source-interface member lookup is N#-owned and its actual declaring/signature identity
+  is consumed by the existing override attachment executor. The C# recursive helper is deleted;
+  emitter 19,613 / 18,622 nonblank (−16 / −15). A required correction makes retained structural
+  identity storage readonly with copied BCL read-only collections; S2.2(a)'s input snapshots alone
+  did not prove backing-storage immutability. Estate 7,714, native declarations 85, iterators 25;
+  strict source retains 259 findings. Closed-source, external/base/iterator member resolution,
+  remaining type consumers, ambient locals and maxstack remain open. See STATUS and the
+  [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22b-source-interface-member-resolution.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
