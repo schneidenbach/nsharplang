@@ -22,14 +22,6 @@ class ConstraintControlsThird<T> {
 class ConstraintControlsDifferentName<U> {
 }
 
-class ConstraintControlsFallback<T> where T: IDisposable {
-}
-
-class ConstraintControlsDisposable: IDisposable {
-    func Dispose() {
-    }
-}
-
 // A deliberately non-CLR comparer demonstrates that the initial lookup stays the supplied map's
 // TryGetValue, rather than being replaced with Type equality or weak fallback enumeration.
 class ConstraintControlsAllTypeComparer: IEqualityComparer<Type> {
@@ -163,6 +155,16 @@ func ConstraintControlsIncrementField(il: ILGenerator, field: FieldBuilder) {
     il.Emit(OpCodes.Stfld, field)
 }
 
+func ConstraintControlsEmitTrace(il: ILGenerator, traceField: FieldBuilder, code: int) {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(int)
+    add := ExecutorRequiredMethod(typeof(List<int>), "Add", parameterTypes)
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Ldfld, traceField)
+    il.Emit(OpCodes.Ldc_I4, code)
+    il.Emit(OpCodes.Callvirt, add)
+}
+
 func ConstraintControlsEmitInvalidOperation(il: ILGenerator, message: string) {
     parameterTypes := new Type[](1)
     parameterTypes[0] = typeof(string)
@@ -208,7 +210,8 @@ func ConstraintControlsWeakRows(
     typeName: string,
     mode: int,
     key: Type,
-    value: Type[]
+    value: Type[],
+    trace: List<int>?
 ): object {
     noParameters := new Type[](0)
     elementArguments := new Type[](1)
@@ -237,6 +240,7 @@ func ConstraintControlsWeakRows(
     moveCount := ConstraintControlsDefineField(owner, "MoveCount", typeof(int))
     currentCount := ConstraintControlsDefineField(owner, "CurrentCount", typeof(int))
     disposeCount := ConstraintControlsDefineField(owner, "DisposeCount", typeof(int))
+    traceField := ConstraintControlsDefineField(owner, "Trace", typeof(List<int>))
 
     constructor := owner.DefineConstructor(
         (MethodAttributes)6,
@@ -342,6 +346,9 @@ func ConstraintControlsWeakRows(
     )
     disposeIl := TypeOfMethodBuilderIL(dispose)
     ConstraintControlsIncrementField(disposeIl, disposeCount)
+    if trace != null {
+        ConstraintControlsEmitTrace(disposeIl, traceField, 91)
+    }
     if mode == 3 || mode == 5 {
         ConstraintControlsEmitInvalidOperation(disposeIl, "weak entry disposal failed")
     } else {
@@ -360,6 +367,13 @@ func ConstraintControlsWeakRows(
         throw new InvalidOperationException("The constraint protocol fixture lost its Pair field.")
     }
     bakedPairField.SetValue(instance, ConstraintControlsPairObject(key, value))
+    if trace != null {
+        bakedTraceField := baked.GetField("Trace")
+        if bakedTraceField == null {
+            throw new InvalidOperationException("The constraint protocol fixture lost its Trace field.")
+        }
+        bakedTraceField.SetValue(instance, trace)
+    }
     return instance
 }
 
@@ -754,19 +768,33 @@ test "a map miss reaches its hostile generic enumerator after the exact null out
     assert state.InitialOut == null
 }
 
-test "a public fallback observes the exhausted weak enumerator after its disposal" {
-    requested := ConstraintControlsParameter(typeof(ConstraintControlsFallback<ConstraintControlsDisposable>))
-    nonmatching := ConstraintControlsParameter(typeof(ConstraintControlsDifferentName<int>))
+test "a public fallback enters the requested getter after it disposes the exhausted weak enumerator" {
+    trace := new List<int>()
+    expected := ConstraintControlsOneType(typeof(IDisposable))
+    requested := GenericConstraintReflectionProbeType(
+        "FallbackAfterDispose",
+        typeof(object),
+        trace,
+        1,
+        false,
+        0,
+        "T",
+        0,
+        0,
+        0,
+        expected,
+        0
+    )
     rowValue := ConstraintControlsOneType(typeof(IComparable))
-    rows := ConstraintControlsWeakRows("FallbackRows", 1, nonmatching, rowValue)
+    rows := ConstraintControlsWeakRows("FallbackRows", 1, typeof(int), rowValue, trace)
     map := ConstraintControlsHostileMap("Fallback", false, requested, null, rows)
     outcome := new ConstraintControlsWeakOutcome(null)
 
     assert ConstraintControlsInvokeResolve(map, requested, outcome)
     assert outcome.Result
     assert outcome.ErrorMessage == null
-    assert outcome.Constraints.Length == 1
-    assert outcome.Constraints[0] == typeof(IDisposable)
+    assert Object.ReferenceEquals(outcome.Constraints, expected)
+    assert GenericConstraintProbeTraceText(trace) == "91,14"
     state := ConstraintControlsHostileState(map)
     assert state.LookupCount == 1
     assert state.AcquireCount == 1
@@ -775,11 +803,25 @@ test "a public fallback observes the exhausted weak enumerator after its disposa
     assert ConstraintControlsCounter(rows, "DisposeCount") == 1
 }
 
-test "a throwing weak disposal prevents the public reflection fallback" {
-    requested := ConstraintControlsParameter(typeof(ConstraintControlsFallback<ConstraintControlsDisposable>))
-    matching := ConstraintControlsParameter(typeof(ConstraintControlsFirst<int>))
+test "an exhausted throwing disposal prevents the public fallback getter from starting" {
+    trace := new List<int>()
+    expected := ConstraintControlsOneType(typeof(IDisposable))
+    requested := GenericConstraintReflectionProbeType(
+        "FallbackBlockedByDispose",
+        typeof(object),
+        trace,
+        1,
+        false,
+        0,
+        "T",
+        0,
+        0,
+        0,
+        expected,
+        0
+    )
     marker := ConstraintControlsOneType(typeof(IComparable))
-    rows := ConstraintControlsWeakRows("FallbackDisposeThrows", 3, matching, marker)
+    rows := ConstraintControlsWeakRows("FallbackDisposeThrows", 5, typeof(int), marker, trace)
     map := ConstraintControlsHostileMap("FallbackDisposeThrows", false, requested, null, rows)
     outcome := new ConstraintControlsWeakOutcome(null)
 
@@ -787,11 +829,12 @@ test "a throwing weak disposal prevents the public reflection fallback" {
     assert !outcome.Result
     assert outcome.ErrorMessage == "weak entry disposal failed"
     assert outcome.Constraints == null
+    assert GenericConstraintProbeTraceText(trace) == "91"
     state := ConstraintControlsHostileState(map)
     assert state.LookupCount == 1
     assert state.AcquireCount == 1
     assert ConstraintControlsCounter(rows, "MoveCount") == 1
-    assert ConstraintControlsCounter(rows, "CurrentCount") == 1
+    assert ConstraintControlsCounter(rows, "CurrentCount") == 0
     assert ConstraintControlsCounter(rows, "DisposeCount") == 1
 }
 
@@ -799,7 +842,7 @@ test "weak lookup reads generic Current then disposes before reporting its first
     requested := ConstraintControlsParameter(typeof(ConstraintControlsSecond<int>))
     first := ConstraintControlsParameter(typeof(ConstraintControlsFirst<int>))
     firstValue := ConstraintControlsOneType(typeof(IDisposable))
-    rows := ConstraintControlsWeakRows("Hit", 0, first, firstValue)
+    rows := ConstraintControlsWeakRows("Hit", 0, first, firstValue, null)
     outcome := new ConstraintControlsWeakOutcome(null)
 
     assert ConstraintControlsInvokeWeak(rows, requested, outcome)
@@ -816,7 +859,7 @@ test "weak lookup disposes a completed miss before reporting false and a null ou
     requested := ConstraintControlsParameter(typeof(ConstraintControlsSecond<int>))
     nonmatching := ConstraintControlsParameter(typeof(ConstraintControlsDifferentName<int>))
     value := ConstraintControlsOneType(typeof(IDisposable))
-    rows := ConstraintControlsWeakRows("Miss", 1, nonmatching, value)
+    rows := ConstraintControlsWeakRows("Miss", 1, nonmatching, value, null)
     outcome := new ConstraintControlsWeakOutcome(value)
 
     assert ConstraintControlsInvokeWeak(rows, requested, outcome)
@@ -835,7 +878,7 @@ test "weak lookup preserves its direct out local across acquisition movement and
     nonmatching := ConstraintControlsParameter(typeof(ConstraintControlsDifferentName<int>))
     value := ConstraintControlsOneType(typeof(IDisposable))
 
-    acquireRows := ConstraintControlsWeakRows("AcquireThrows", 4, matching, value)
+    acquireRows := ConstraintControlsWeakRows("AcquireThrows", 4, matching, value, null)
     acquireOutcome := new ConstraintControlsWeakOutcome(value)
     assert ConstraintControlsInvokeWeak(acquireRows, requested, acquireOutcome)
     assert !acquireOutcome.Result
@@ -846,7 +889,7 @@ test "weak lookup preserves its direct out local across acquisition movement and
     assert ConstraintControlsCounter(acquireRows, "CurrentCount") == 0
     assert ConstraintControlsCounter(acquireRows, "DisposeCount") == 0
 
-    moveRows := ConstraintControlsWeakRows("MoveThrows", 2, nonmatching, value)
+    moveRows := ConstraintControlsWeakRows("MoveThrows", 2, nonmatching, value, null)
     moveOutcome := new ConstraintControlsWeakOutcome(value)
     assert ConstraintControlsInvokeWeak(moveRows, requested, moveOutcome)
     assert !moveOutcome.Result
@@ -857,7 +900,7 @@ test "weak lookup preserves its direct out local across acquisition movement and
     assert ConstraintControlsCounter(moveRows, "CurrentCount") == 0
     assert ConstraintControlsCounter(moveRows, "DisposeCount") == 1
 
-    disposeRows := ConstraintControlsWeakRows("DisposeThrows", 3, matching, value)
+    disposeRows := ConstraintControlsWeakRows("DisposeThrows", 3, matching, value, null)
     disposeOutcome := new ConstraintControlsWeakOutcome(null)
     assert ConstraintControlsInvokeWeak(disposeRows, requested, disposeOutcome)
     assert !disposeOutcome.Result
@@ -868,7 +911,7 @@ test "weak lookup preserves its direct out local across acquisition movement and
     assert ConstraintControlsCounter(disposeRows, "CurrentCount") == 1
     assert ConstraintControlsCounter(disposeRows, "DisposeCount") == 1
 
-    missDisposeRows := ConstraintControlsWeakRows("MissDisposeThrows", 5, nonmatching, value)
+    missDisposeRows := ConstraintControlsWeakRows("MissDisposeThrows", 5, nonmatching, value, null)
     missDisposeOutcome := new ConstraintControlsWeakOutcome(value)
     assert ConstraintControlsInvokeWeak(missDisposeRows, requested, missDisposeOutcome)
     assert !missDisposeOutcome.Result
