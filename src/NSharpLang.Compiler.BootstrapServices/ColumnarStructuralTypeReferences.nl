@@ -29,10 +29,10 @@ class ColumnarStructuralTypeEmissionIdentity {
 }
 
 class ColumnarStructuralGenericOwnerIdentity {
-    kindValue: ColumnarStructuralGenericOwnerKind
-    sourceFileIdValue: int
-    declaringTypeNameValue: string
-    memberOrdinalValue: int
+    readonly kindValue: ColumnarStructuralGenericOwnerKind
+    readonly sourceFileIdValue: int
+    readonly declaringTypeNameValue: string
+    readonly memberOrdinalValue: int
 
     Kind: ColumnarStructuralGenericOwnerKind => kindValue
     SourceFileId: int => sourceFileIdValue
@@ -64,8 +64,8 @@ class ColumnarStructuralGenericOwnerIdentity {
 }
 
 class ColumnarStructuralGenericParameterIdentity {
-    ownerValue: ColumnarStructuralGenericOwnerIdentity
-    parameterOrdinalValue: int
+    readonly ownerValue: ColumnarStructuralGenericOwnerIdentity
+    readonly parameterOrdinalValue: int
 
     Owner: ColumnarStructuralGenericOwnerIdentity => ownerValue
     ParameterOrdinal: int => parameterOrdinalValue
@@ -76,23 +76,25 @@ class ColumnarStructuralGenericParameterIdentity {
     }
 }
 
-// The key contains metadata identity only. The constructor snapshots both arrays, and callers can
-// inspect elements only through indexed readers; an interned identity therefore cannot be mutated.
+// The key contains metadata identity only. Constructor inputs are copied into BCL read-only
+// collections whose mutable List backing is never retained by a caller.
 class ColumnarStructuralTypeKey {
-    kindValue: ColumnarStructuralTypeReferenceKind
-    emissionIdentityValue: ColumnarStructuralTypeEmissionIdentity?
-    primitiveNameValue: string
-    sourceDeclarationNameValue: string
-    assemblyIdentityValue: string
-    namespaceNameValue: string
-    nestedNamesValue: string[]
-    isValueTypeValue: bool
-    genericOwnerKindValue: ColumnarStructuralGenericOwnerKind
-    genericOwnerSourceFileIdValue: int
-    genericOwnerDeclaringTypeNameValue: string
-    genericOwnerMemberOrdinalValue: int
-    genericParameterOrdinalValue: int
-    childrenValue: ColumnarStructuralTypeKey[]
+    readonly kindValue: ColumnarStructuralTypeReferenceKind
+    readonly emissionIdentityValue: ColumnarStructuralTypeEmissionIdentity?
+    readonly primitiveNameValue: string
+    readonly sourceDeclarationNameValue: string
+    readonly assemblyIdentityValue: string
+    readonly namespaceNameValue: string
+    readonly nestedNamesValue: IReadOnlyList<string>
+    readonly nestedNameCountValue: int
+    readonly isValueTypeValue: bool
+    readonly genericOwnerKindValue: ColumnarStructuralGenericOwnerKind
+    readonly genericOwnerSourceFileIdValue: int
+    readonly genericOwnerDeclaringTypeNameValue: string
+    readonly genericOwnerMemberOrdinalValue: int
+    readonly genericParameterOrdinalValue: int
+    readonly childrenValue: IReadOnlyList<object>
+    readonly childCountValue: int
 
     Kind: ColumnarStructuralTypeReferenceKind => kindValue
     EmissionIdentity: ColumnarStructuralTypeEmissionIdentity? => emissionIdentityValue
@@ -106,8 +108,8 @@ class ColumnarStructuralTypeKey {
     GenericOwnerDeclaringTypeName: string => genericOwnerDeclaringTypeNameValue
     GenericOwnerMemberOrdinal: int => genericOwnerMemberOrdinalValue
     GenericParameterOrdinal: int => genericParameterOrdinalValue
-    NestedNameCount: int => nestedNamesValue.Length
-    ChildCount: int => childrenValue.Length
+    NestedNameCount: int => nestedNameCountValue
+    ChildCount: int => childCountValue
 
     constructor(
         kind: ColumnarStructuralTypeReferenceKind,
@@ -134,48 +136,56 @@ class ColumnarStructuralTypeKey {
         sourceDeclarationNameValue = sourceDeclarationName
         assemblyIdentityValue = assemblyIdentity
         namespaceNameValue = namespaceName
-        nestedNamesValue = new string[](nestedNames.Length)
+        nestedNamesCopy := new List<string>()
         i := 0
         while i < nestedNames.Length {
             if nestedNames[i] == null {
                 throw new InvalidOperationException("Structural key names cannot contain null entries.")
             }
-            nestedNamesValue[i] = nestedNames[i]
+            nestedNamesCopy.Add(nestedNames[i])
             i += 1
         }
+        nestedNamesValue = nestedNamesCopy.AsReadOnly()
+        nestedNameCountValue = nestedNames.Length
         isValueTypeValue = isValueType
         genericOwnerKindValue = genericOwnerKind
         genericOwnerSourceFileIdValue = genericOwnerSourceFileId
         genericOwnerDeclaringTypeNameValue = genericOwnerDeclaringTypeName
         genericOwnerMemberOrdinalValue = genericOwnerMemberOrdinal
         genericParameterOrdinalValue = genericParameterOrdinal
-        childrenValue = new ColumnarStructuralTypeKey[](children.Length)
+        childrenCopy := new List<object>()
         i = 0
         while i < children.Length {
             if children[i] == null {
                 throw new InvalidOperationException("Structural key children cannot contain null entries.")
             }
-            childrenValue[i] = children[i]
+            childrenCopy.Add(children[i])
             i += 1
         }
+        childrenValue = childrenCopy.AsReadOnly()
+        childCountValue = children.Length
     }
 
     func NestedName(index: int): string {
-        return nestedNamesValue[index]
+        return nestedNamesValue.get_Item(index)
     }
 
     func Child(index: int): ColumnarStructuralTypeKey {
-        return childrenValue[index]
+        child := childrenValue.get_Item(index) as ColumnarStructuralTypeKey
+        if child == null {
+            throw new InvalidOperationException("Structural key child storage is invalid.")
+        }
+        return child
     }
 }
 
 class ColumnarSelectedTypeReference {
-    emissionIdentityValue: ColumnarStructuralTypeEmissionIdentity
-    keyValue: ColumnarStructuralTypeKey?
-    runtimeTypeValue: Type
-    hasRuntimeTypeValue: bool
-    sourceProvenanceEmissionValue: ColumnarStructuralTypeEmissionIdentity?
-    sourceProvenanceNameValue: string
+    readonly emissionIdentityValue: ColumnarStructuralTypeEmissionIdentity
+    readonly keyValue: ColumnarStructuralTypeKey?
+    readonly runtimeTypeValue: Type
+    readonly hasRuntimeTypeValue: bool
+    readonly sourceProvenanceEmissionValue: ColumnarStructuralTypeEmissionIdentity?
+    readonly sourceProvenanceNameValue: string
 
     EmissionIdentity: ColumnarStructuralTypeEmissionIdentity => emissionIdentityValue
     Key: ColumnarStructuralTypeKey? => keyValue
@@ -210,8 +220,8 @@ class ColumnarSelectedTypeReference {
 // A pool row keeps the selecting table beside the immutable selected reference. The executor uses
 // this object to revalidate the key/runtime pair before any ILGenerator mutation.
 class ColumnarStructuralTypePoolEntry {
-    tableValue: ColumnarStructuralTypeReferenceTable
-    selectedValue: ColumnarSelectedTypeReference
+    readonly tableValue: ColumnarStructuralTypeReferenceTable
+    readonly selectedValue: ColumnarSelectedTypeReference
 
     Table: ColumnarStructuralTypeReferenceTable => tableValue
     Selected: ColumnarSelectedTypeReference => selectedValue
@@ -232,13 +242,13 @@ class ColumnarStructuralTypePoolEntry {
 // One table belongs to one semantic resolution catalog and therefore to one emission. Runtime
 // companions remain local to this table and are never recovered from a process-wide Type lookup.
 class ColumnarStructuralTypeReferenceTable {
-    identityValue: ColumnarStructuralTypeEmissionIdentity
-    rowsValue: List<ColumnarStructuralTypeKey>
-    sourceTypesByName: Dictionary<string, Type>
-    synthesizedTypeNames: HashSet<string>
-    uniqueSourceNamesByType: Dictionary<Type, string>
-    ambiguousSourceTypes: HashSet<Type>
-    genericParameters: Dictionary<Type, ColumnarStructuralGenericParameterIdentity>
+    readonly identityValue: ColumnarStructuralTypeEmissionIdentity
+    readonly rowsValue: List<ColumnarStructuralTypeKey>
+    readonly sourceTypesByName: Dictionary<string, Type>
+    readonly synthesizedTypeNames: HashSet<string>
+    readonly uniqueSourceNamesByType: Dictionary<Type, string>
+    readonly ambiguousSourceTypes: HashSet<Type>
+    readonly genericParameters: Dictionary<Type, ColumnarStructuralGenericParameterIdentity>
 
     Identity: ColumnarStructuralTypeEmissionIdentity => identityValue
     RowCount: int => rowsValue.Count

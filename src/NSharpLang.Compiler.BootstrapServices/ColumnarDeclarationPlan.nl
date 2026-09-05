@@ -124,12 +124,16 @@ class ColumnarMethodRows {
 // move lookup failures earlier for unbaked MethodBuilder/TypeBuilder handles, so this row performs no
 // reflection.
 class ColumnarResolvedMethodOverride {
-    TargetKind: int
-    TargetOrdinal: int
-    MemberName: string
-    ReturnCanonical: string
-    ParameterCanonicals: string[]
-    Target: MethodInfo
+    readonly TargetKind: int
+    readonly TargetOrdinal: int
+    readonly MemberName: string
+    readonly ReturnCanonical: string
+    readonly ParameterCanonicals: string[]
+    readonly targetValue: MethodInfo
+    readonly sourceInterfaceBindingValue: ColumnarSourceInterfaceMethodBinding?
+
+    Target: MethodInfo => targetValue
+    SourceInterfaceBinding: ColumnarSourceInterfaceMethodBinding? => sourceInterfaceBindingValue
 
     constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], target: MethodInfo) {
         if memberName == null || returnCanonical == null || parameterCanonicals == null || target == null {
@@ -141,7 +145,36 @@ class ColumnarResolvedMethodOverride {
         MemberName = memberName
         ReturnCanonical = returnCanonical
         ParameterCanonicals = parameterCanonicals
-        Target = target
+        targetValue = target
+        sourceInterfaceBindingValue = null
+    }
+
+    constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], binding: ColumnarSourceInterfaceMethodBinding) {
+        if memberName == null || returnCanonical == null || parameterCanonicals == null || binding == null || binding.Target == null {
+            throw new InvalidOperationException("Resolved source-interface override facts cannot be null.")
+        }
+
+        TargetKind = targetKind
+        TargetOrdinal = targetOrdinal
+        MemberName = memberName
+        ReturnCanonical = returnCanonical
+        ParameterCanonicals = parameterCanonicals
+        targetValue = binding.Target
+        sourceInterfaceBindingValue = binding
+    }
+
+    func ValidatedTarget(expectedTable: ColumnarStructuralTypeReferenceTable?): MethodInfo {
+        if sourceInterfaceBindingValue == null {
+            return targetValue
+        }
+        if expectedTable == null {
+            throw new InvalidOperationException("A structural source-interface override requires its consuming emission table.")
+        }
+        validated := sourceInterfaceBindingValue.ValidatedTarget(expectedTable)
+        if !Object.ReferenceEquals(validated, targetValue) {
+            throw new InvalidOperationException("A source-interface override target no longer matches its captured binding.")
+        }
+        return validated
     }
 }
 
@@ -149,12 +182,15 @@ class ColumnarResolvedMethodOverride {
 // an explicit base slot first, then source-interface slots, then external-interface slots. The N#
 // executor is the sole owner of DefineMethodOverride calls.
 class ColumnarMethodOverrideCompletion {
-    IsValid: bool
-    DeclineCode: string
-    DeclineMessage: string
-    DeclineOwnerName: string
-    MethodAttributes: int
-    Targets: ColumnarResolvedMethodOverride[]
+    readonly IsValid: bool
+    readonly DeclineCode: string
+    readonly DeclineMessage: string
+    readonly DeclineOwnerName: string
+    readonly MethodAttributes: int
+    readonly targetsValue: IReadOnlyList<object>
+    readonly targetCountValue: int
+
+    Targets: ColumnarResolvedMethodOverride[] => CopyTargets()
 
     constructor(isValid: bool, declineCode: string, declineMessage: string, declineOwnerName: string, methodAttributes: int, targets: ColumnarResolvedMethodOverride[]) {
         IsValid = isValid
@@ -162,19 +198,63 @@ class ColumnarMethodOverrideCompletion {
         DeclineMessage = declineMessage
         DeclineOwnerName = declineOwnerName
         MethodAttributes = methodAttributes
-        Targets = targets
+        targetCopy := new List<object>()
+        index := 0
+        while index < targets.Length {
+            if targets[index] == null {
+                throw new InvalidOperationException("A completed override target cannot be null.")
+            }
+            targetCopy.Add(targets[index])
+            index += 1
+        }
+        targetsValue = targetCopy.AsReadOnly()
+        targetCountValue = targets.Length
     }
 
     func Apply(owner: TypeBuilder, body: MethodBuilder) {
+        ApplyCore(owner, body, null)
+    }
+
+    func Apply(owner: TypeBuilder, body: MethodBuilder, expectedTable: ColumnarStructuralTypeReferenceTable) {
+        ApplyCore(owner, body, expectedTable)
+    }
+
+    func ApplyCore(owner: TypeBuilder, body: MethodBuilder, expectedTable: ColumnarStructuralTypeReferenceTable?) {
         if !IsValid || owner == null || body == null {
             throw new InvalidOperationException("Only a valid method-override completion can be applied.")
         }
 
+        validatedTargets := new MethodInfo[](targetCountValue)
         index := 0
-        while index < Targets.Length {
-            owner.DefineMethodOverride(body, Targets[index].Target)
+        while index < targetCountValue {
+            target := RequiredTarget(index)
+            validatedTargets[index] = target.ValidatedTarget(expectedTable)
             index = index + 1
         }
+
+        index = 0
+        while index < validatedTargets.Length {
+            owner.DefineMethodOverride(body, validatedTargets[index])
+            index = index + 1
+        }
+    }
+
+    func CopyTargets(): ColumnarResolvedMethodOverride[] {
+        copy := new ColumnarResolvedMethodOverride[](targetCountValue)
+        index := 0
+        while index < targetCountValue {
+            copy[index] = RequiredTarget(index)
+            index += 1
+        }
+        return copy
+    }
+
+    func RequiredTarget(index: int): ColumnarResolvedMethodOverride {
+        target := targetsValue.get_Item(index) as ColumnarResolvedMethodOverride
+        if target == null {
+            throw new InvalidOperationException("Completed override target storage is invalid.")
+        }
+        return target
     }
 }
 
@@ -189,10 +269,11 @@ class ColumnarMethodOverrideDeclaration {
     MemberName: string
     ReturnCanonical: string
     ParameterCanonicals: string[]
-    sourceTargets: List<MethodInfo>
-    externalTargets: List<MethodInfo>
-    seenSourceTargets: HashSet<MethodInfo>
-    seenExternalTargets: HashSet<MethodInfo>
+    readonly sourceTargets: List<MethodInfo>
+    readonly sourceTargetBindings: List<ColumnarSourceInterfaceMethodBinding?>
+    readonly externalTargets: List<MethodInfo>
+    readonly seenSourceTargets: HashSet<MethodInfo>
+    readonly seenExternalTargets: HashSet<MethodInfo>
 
     SourceTargetCount: int => sourceTargets.Count
     ExternalTargetCount: int => externalTargets.Count
@@ -209,6 +290,7 @@ class ColumnarMethodOverrideDeclaration {
         ReturnCanonical = returnCanonical
         ParameterCanonicals = CopyStrings(parameterCanonicals)
         sourceTargets = new List<MethodInfo>()
+        sourceTargetBindings = new List<ColumnarSourceInterfaceMethodBinding?>()
         externalTargets = new List<MethodInfo>()
         seenSourceTargets = new HashSet<MethodInfo>()
         seenExternalTargets = new HashSet<MethodInfo>()
@@ -232,7 +314,41 @@ class ColumnarMethodOverrideDeclaration {
         }
         if seenSourceTargets.Add(target) {
             sourceTargets.Add(target)
+            sourceTargetBindings.Add(null)
         }
+    }
+
+    func AddSourceTarget(binding: ColumnarSourceInterfaceMethodBinding) {
+        if binding == null || binding.Target == null {
+            throw new InvalidOperationException("A structural source-interface override target cannot be null.")
+        }
+        target := binding.Target
+        if seenSourceTargets.Add(target) {
+            sourceTargets.Add(target)
+            sourceTargetBindings.Add(binding)
+        }
+    }
+
+    func TryAddSourceInterfaceTarget(
+        interfaceDefinition: ColumnarStructDef,
+        memberName: string,
+        returnType: Type,
+        parameterTypes: Type[],
+        table: ColumnarStructuralTypeReferenceTable
+    ): bool {
+        binding: ColumnarSourceInterfaceMethodBinding? = null
+        if !ColumnarSourceInterfaceMethodResolver.TryFind(
+            interfaceDefinition,
+            memberName,
+            returnType,
+            parameterTypes,
+            table,
+            out binding
+        ) || binding == null {
+            return false
+        }
+        AddSourceTarget(binding)
+        return true
     }
 
     func AddExternalTarget(target: MethodInfo) {
@@ -279,7 +395,12 @@ class ColumnarMethodOverrideDeclaration {
 
         index := 0
         while index < sourceTargets.Count {
-            targets[cursor] = CreateResolvedTarget(SourceInterfaceTargetKind(), index, sourceTargets[index])
+            sourceBinding := sourceTargetBindings[index]
+            if sourceBinding == null {
+                targets[cursor] = CreateResolvedTarget(SourceInterfaceTargetKind(), index, sourceTargets[index])
+            } else {
+                targets[cursor] = CreateResolvedSourceTarget(SourceInterfaceTargetKind(), index, sourceBinding)
+            }
             cursor = cursor + 1
             index = index + 1
         }
@@ -302,6 +423,17 @@ class ColumnarMethodOverrideDeclaration {
             ReturnCanonical,
             ParameterCanonicals,
             target
+        )
+    }
+
+    func CreateResolvedSourceTarget(kind: int, ordinal: int, binding: ColumnarSourceInterfaceMethodBinding): ColumnarResolvedMethodOverride {
+        return new ColumnarResolvedMethodOverride(
+            kind,
+            ordinal,
+            MemberName,
+            ReturnCanonical,
+            ParameterCanonicals,
+            binding
         )
     }
 

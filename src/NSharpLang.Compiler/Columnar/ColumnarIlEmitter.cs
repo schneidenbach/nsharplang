@@ -3457,8 +3457,12 @@ internal sealed class ColumnarIlEmitter
                 var methodOverride = declarationPlan.MethodOverrides.Methods[s][mi];
                 foreach (var implementedInterface in def.ImplementedInterfaces)
                 {
-                    if (TryFindInterfaceMethod(implementedInterface, m.Name, mSignatureReturn, mParamTypes, out var interfaceMember))
-                        methodOverride.AddSourceTarget(interfaceMember);
+                    methodOverride.TryAddSourceInterfaceTarget(
+                        implementedInterface,
+                        m.Name,
+                        mSignatureReturn,
+                        mParamTypes,
+                        typeResolution.Structs.StructuralTypeReferences);
                 }
                 foreach (var implementedInterfaceType in def.ImplementedInterfaceTypes)
                 {
@@ -3484,7 +3488,7 @@ internal sealed class ColumnarIlEmitter
                     m.Name, (MethodAttributes)methodOverrideCompletion.MethodAttributes, mSignatureReturn, mParamTypes);
                 if (!DefineMethodParameterMetadata(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
                     return false;
-                methodOverrideCompletion.Apply(def.Builder, mb);
+                methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences);
                 AddInstanceMethod(def, m.Name,
                     new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn));
                 structMethodJobs.Add((def, m, mb, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, mParamTypeMap, false));
@@ -18151,26 +18155,6 @@ internal sealed class ColumnarIlEmitter
                 return false;
         }
         return true;
-    }
-
-    private static bool TryFindInterfaceMethod(
-        ColumnarStructDef interfaceDef, string name, Type returnType, Type[] paramTypes,
-        out MethodBuilder method)
-    {
-        if (interfaceDef.Methods.TryGetValue(name, out var own)
-            && own.ReturnType == returnType
-            && ParamTypesMatch(own.ParamTypes, paramTypes))
-        {
-            method = own.Builder;
-            return true;
-        }
-        foreach (var baseInterface in interfaceDef.InterfaceBases)
-        {
-            if (TryFindInterfaceMethod(baseInterface, name, returnType, paramTypes, out method))
-                return true;
-        }
-        method = null!;
-        return false;
     }
 
     private static bool TryFindClosedInterfaceMethod(
