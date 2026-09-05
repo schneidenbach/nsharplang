@@ -159,10 +159,10 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   Type.EmptyTypes through the unchanged semantic static-field planner. Four native read forms preserve
   actual Array.Empty<Type>() reference identity, including typed out assignment. Estate7,759 and native
   declarations105 pass; fixed accepted-f543 corpus94 images/2,184 native tests per arm matches; strict259
-  unchanged. No C# owner moved. Require fresh gate and live SDK field-probe receipts at
-  `/private/tmp/gate-20260905-goal-s22g1-r1/` before consuming this field. Corrected discovery doors
-  delay registry.Values until after their existing guards/head reads. The throwing-disposal fixture
-  replacement remains unexecuted; actual discovery migration and all later S2.2 work remain open.
+  unchanged. No C# owner moved. Accepted g1 checkpoint `1e3d8cb` has fresh gate and live SDK
+  field-probe receipts at `/private/tmp/gate-20260905-goal-s22g1-r1/`; the same seed remains valid
+  through h. Subsequent g discovery preserves delayed Values and proves the throwing-disposal
+  boundary with the actual consumed enumerator.
   [Field prerequisite proof](../systems-language-closeout/decodes/2026-09-05-s22g1-parity-proof.md).
   **S2.2(g) discovery owner at `770482e8e`, controls `de83c4197`, catch correction `096968ae7`:**
   first-hit live Builder identity and direct/struct/interface/closed resolution are N#-owned. Three C#
@@ -170,10 +170,25 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   Consumed IL pins generic Current, first-hit/exception/out/disposal and delayed Values phases. The
   corrected final compiler matches 94 whole images / 2,184 native tests on the fixed accepted corpus;
   strict 259 unchanged across 433 checked files. Old private-helper throw witness 3/3 and exact 2-red
-  early-out-clear mutation are retained. Fresh gate/push are pending at
-  `/private/tmp/gate-20260905-goal-s22g-r1/`. The combined duplicate scan and constrained/member
+  early-out-clear mutation are retained. Accepted/pushed `2ce691554` has a fresh 448-second gate:
+  593 unit / 7,769 canonical / 105 native declaration tests, audit18, 52 native projects and 68 IL
+  assemblies; receipts at `/private/tmp/gate-20260905-goal-s22g-r1/`. The combined duplicate scan and constrained/member
   admission, remaining type-pool consumers and local/maxstack work remain open.
   [Discovery proof](../systems-language-closeout/decodes/2026-09-05-s22g-parity-proof.md).
+  **S2.2(h) constraint lookup at `47d0a062d`, final controls `18c079268`, ratchet `e170415204`:**
+  exact-map lookup, live weak name/ordinal fallback and safe raw reflection move to the existing N#
+  planner. Two C# helpers are deleted; one direct forwarding door remains. Emitter −43 lines / −41
+  nonblank / −1,128 bytes. Canonical controls add18 (3+5+10); native constraint-order twins pass107/107
+  under both immutable compilers, with identical whole IL/normalized PE and constrained callvirt.
+  Fixed94-image/2,184-test corpus unchanged; strict259→258 removes only an old NL010 now that System
+  is used. Old-query witness3/3; one-row mutation fails exactly its predicted control. Fresh gate at
+  `e170415204` passes in453s: 593 unit / 7,787 canonical / 107 declaration tests, audit18, 52 native
+  projects and 68 IL assemblies. Gate/acceptance records at `/private/tmp/gate-20260905-goal-s22h-r1/`
+  distinguish the tested source from the documentation-only follow-up. Existing g1 SDK is unchanged.
+  Next S2.2(i): complete record synthesis plus its five structural type consumers; first validate the
+  actual driver with that seed. Map production, connected call admission and later writer work remain
+  open. [Lookup proof](../systems-language-closeout/decodes/2026-09-05-s22h-parity-proof.md) and
+  [next cut](../systems-language-closeout/decodes/2026-09-05-s22i-record-next-cut.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

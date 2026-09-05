@@ -86,10 +86,13 @@ semantic IL; every other body is identical after method-RVA comment normalizatio
 generic Current and all enumeration/output/getter phases remain. The exact TryFind source/IL and
 whole timing-test file match the frozen mutation originals. Root's final ownership audit passes 18/18.
 
-The documentation/ratchet integration commit is followed by an exclusive fresh
-`VSCODE_TESTS=skip ./scripts/test-all.sh --commit` and exact push. Those remain pending at this commit;
-read `/private/tmp/gate-20260905-goal-s22g-r1/source.json`, exit-code.txt and acceptance.json before
-advancing. This ownership move uses the already accepted g1 language seed; it introduces no additional
-language feature requiring a new live SDK repin. No terminal task 015/021/022/023 box changes. The next
-connected source member-selection/admission work, remaining type/local/maxstack ownership and native
-writer/universe/NativeAOT closeout remain open.
+The exclusive fresh `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` tested
+`8b19a8ba17ba31e1c4d09dc94f72ab312b8f6a67` and passed in448s: 593 unit / 7,769 canonical / 105 native
+declaration / 18 ownership tests, 52 native projects and 68 IL-verified assemblies. A verified
+documentation-only follow-up is accepted and pushed as `2ce6915544ebd8e55faac47e5177d9788783c729`.
+`/private/tmp/gate-20260905-goal-s22g-r1/acceptance.json` SHA256
+`aeec9dbc809e19a78999a585e4aa12bef1910a1e80644623dde41d39cafbe0a0` records both revisions, exact
+remote and diagnostic archive. Timing was unjudged under load; benchmark correctness passed.
+The already accepted g1 SDK remains sufficient, with no additional repin. No terminal task
+015/021/022/023 box changes. Remaining ownership and writer/universe/NativeAOT closeout stay open;
+see the live STATUS for the successor slice.
