@@ -144,11 +144,13 @@ The final strict walk uses the immutable baseline CLI and the changed CLI agains
 `src/NSharpLang.Compiler.BootstrapServices` tree. Both report **427 checked files, 259 errors and 0
 warnings** with expected exit 1; stdout JSON is byte-identical at SHA256
 `ed9b29010436aab6fb59b04f41930eaee386fed09117c791dc0907c582cecfe8`, and stderr is empty.
-Baseline source to edited source retains the same 259 sites. Three existing BindingScope diagnostics
-move with added lines; two existing RangeIndexPlanner NL402 explanations show the new table-argument
-arities. The raw files are `/private/tmp/nsharp-s22a-executor-logs/strict-postformat-{pre,post}.json`;
-the baseline-to-edited mapping is
-`/private/tmp/nsharp-023-s22a-proof-20260904/strict-preliminary-comparison.json`.
+Baseline source to edited source retains the same 259 sites. The final mapping has 26 line shifts:
+12 in BindingScope, seven in CodePlanExecutor, six in SemanticTypeRegistry and one in TypeOfPlanner.
+Three BindingScope NL412 explanations also contain the shifted line number; two RangeIndexPlanner
+NL402 snippets/hints show the explicit added table argument and corresponding arities. The final
+raw files are `/private/tmp/nsharp-s22a-executor-logs/strict-postformat-{pre,post}.json`; the complete
+baseline-to-edited mapping is
+`/private/tmp/nsharp-023-s22a-proof-20260904/final-controls-77686382de9e/strict-comparison.json`.
 
 `ColumnarIlEmitter.cs` decreases from **20,688 / 19,677 / 1,074,830** total lines, nonblank lines and
 bytes to **19,629 / 18,637 / 1,021,506**. Its final SHA256 is

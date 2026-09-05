@@ -94,6 +94,14 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   from `ValidateMethodBodyStack`'s heights, ambient locals become slot indices. The first connected
   resolver cut and required production key consumer are specified in the
   [next-cut decode](../systems-language-closeout/decodes/2026-09-04-s22-resolution-next-cut.md).
+  **S2.2(a) implemented at `77686382`:** the connected canonical resolver and dependency
+  closure are N#-owned; thirteen C# helper definitions are deleted. Resolution retains immutable
+  structural identity and emission provenance, consumed by the existing `typeof` type-pool/ldtoken
+  path. Emitter 19,629 / 18,637 nonblank (−1,059 / −1,040); estate 7,703, native declarations 79,
+  iterators 25. The corrected pool census is 36 calls across 12 files: one keyed, 35 still
+  handle-only. Member/override descriptors, remaining type consumers, ambient locals and maxstack
+  are later S2.2 cuts. See STATUS and the
+  [implementation decode](../systems-language-closeout/decodes/2026-09-04-s22a-canonical-structural-resolution.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

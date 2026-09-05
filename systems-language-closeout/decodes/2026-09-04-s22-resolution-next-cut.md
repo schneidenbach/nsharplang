@@ -10,8 +10,11 @@ SDK publication, test runs, corpus sweeps, or gates were performed for this revi
 Task 023 S2.2 names `ColumnarEmitPlan`; the actual owner is
 `ColumnarCodePlan.nl`. `AddType(Type)` at line 881 appends a live handle to
 `Types: Type[]`; it does not intern or retain structural references. There are
-**37 production AddType calls in 13 files** under BootstrapServices (tests and
-comments excluded). Preserve their append order: repeated types currently occupy
+**36 production ColumnarCodePlan.AddType calls in 12 files** under BootstrapServices (tests and
+comments excluded). The initial 37/13 name census also counted the unrelated
+`ColumnarExtensionMethodResolver.AddType(index, candidateType)` helper. This correction
+retains the internal `ColumnarCodePlan.AddType(planLocalMirrorTypes[i])` call that a
+qualified-call-only search misses. Preserve append order: repeated types currently occupy
 separate pool slots. The executor has 23 `plan.Types[...]` reads, including nine
 explicit type-operand emission arms, local declarations, catches, and validation.
 

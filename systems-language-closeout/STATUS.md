@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | slice 1, constant-conversion owner 1e, S2.0 and **S2.1(a)–(i) landed**. S2.1(i) is integrated from `75fa5a77`: all fourteen override attachment sites move to consumed N# rows; 94 images and project outcomes match, estate 7,676, native declarations 76/76, merged audit 18/18. **S2.2 structural resolution is next**, followed by S2.3 declarations, S2.4 body encoder, S2.5 coverage and S2.6 harness. The fresh backend checkpoint is identified below — §4.12 |
+| 023 | slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), and **S2.2(a) landed**. `77686382` moves the canonical resolver/dependency closure into N# and consumes structural identity through typeof/ldtoken; thirteen C# helpers are deleted. Estate 7,703; native declarations 79; merged audit 18/18; 94 images and all corpus outcomes match. **Remaining S2.2 member/override descriptors, type consumers, ambient locals and maxstack precede S2.3–S2.6.** The fresh backend checkpoint is identified below — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,40 +123,45 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** [S2.2 structural resolution](decodes/2026-09-04-s22-resolution-next-cut.md).
-The first connected cut moves ordinary/type-parameter-aware canonical resolution, closed source
-construction and delegate resolution into N#, producing structural references with live companions.
-It must consume a reference through the existing typeof → AddType → ldtoken route in the same slice;
-no C# callback or disconnected descriptor kernel. Revalidated baseline: 56 ordinary plus 30 generic
-resolver calls (definitions excluded), 95 MakeGenericType calls, and append-only Type pools.
-S2.1(i)'s fourteen override attachment sites are gone; its runtime target handles and exact member
-resolution remain S2.2 debt. Then S2.3 declarations, S2.4 body encoding, S2.5 remaining bodies and
-S2.6 writer parity; task 023/3 removes runtime emit lookups and the Cecil rewrite, and 023/4 deletes
-Reflection.Emit and ColumnarIlEmitter.cs.
+**Next writer slice:** continue S2.2 after the consumed canonical-resolution cut at `77686382`.
+The next bounded cut must revalidate and retire the remaining member/override resolution owner while
+retaining structural declaring-type/signature descriptors beside selected handles. The ordinary,
+source-interface and external-interface target-selection policies still matter; attachment rows
+already landed in S2.1(i) and must not be repeated. Then finish the remaining type-pool consumers,
+ambient-local slots and retained maxstack before S2.3 declarations, S2.4 body encoding, S2.5 remaining
+bodies and S2.6 writer parity. Task 023/3 removes runtime emit lookups and the Cecil rewrite;
+023/4 deletes Reflection.Emit and ColumnarIlEmitter.cs.
 
-**Goal checkpoint (2026-09-04):** S2.1(i), implemented by Sol at `75fa5a77`, moves all
-fourteen method-override attachments into N# records and executors. Ordinary rows own two distinct
-MethodInfo deduplication domains, final flags, captured source identity, late base-target decline
-and base → source → external application order. Iterator rows replace unused override strings and
-retain identities beside handles at their original attachment phases. C# emitter totals decrease
-to **20,688 / 19,677 nonblank** (−26 each). No C# policy is added; Modifiers.Override remains the
-existing value owner. The observed merged head is `head-v1:dc4ce2dde3db9257`, audit **18/18**.
+The [S2.2(a) decode](decodes/2026-09-04-s22a-canonical-structural-resolution.md) records the current
+boundary. The corrected pool census is **36 calls in 12 files: one keyed and 35 handle-only**.
+The initial 37/13 name census included an unrelated extension-index helper; qualified calls alone
+miss the internal plan-local-mirror append. Exact runtime-name resolution moved, but the separate
+loaded-external-type probe remains in C# for its existing ASP.NET caller.
 
-Fixed `69ad857b` corpus: **94 images, 2,145 native tests per arm**, zero PE/output-set/outcome
-differences in both pre/pre and pre/post. Exact committed new native controls pass **10/10 on both
-compilers**, with complete IL and all thirteen physical MethodImpl rows/order identical. IL-operand
-and MethodImpl-target byte mutations both change the predicted image and runtime output. Focused
-estate **7,676/7,676**, native declarations **76/76**, iterators **25/25**, dev.sh Columnar **12/12**.
-Strict source stays **425 files / 259 findings** with only four +11 line shifts; pre/post compilers
-return identical results on current source. [Parity proof](decodes/2026-09-04-s21i-parity-proof.md).
+**Goal checkpoint (2026-09-04):** S2.2(a), implemented at `77686382`, moves the connected canonical
+resolver and its dependency closure into directly called N#. Thirteen C# helpers are deleted;
+selected structural keys and runtime companions reach the existing typeof → AddType → ldtoken route.
+Emission identity, erased-enum provenance, VAR/MVAR owners, pool growth/reuse and rejection before
+IL/local mutation are covered. Emitter totals are **19,629 / 18,637 nonblank** (−1,059 / −1,040).
+The observed merged head is `head-v1:0693c72e2dad21ec`, audit **18/18**; no ceiling is raised.
+
+Fixed `665b1068` corpus: **94 images and 2,155 native tests per arm**, zero whole-PE/output-set/outcome
+differences in both pre/pre and pre/post. Fourteen exact new tests pass on both immutable compilers:
+81 literal resolver cases in ten tests, three production signature/typeof tests and one collection
+shadowing test. Their emitted image/output sets match. The live byte mutant changes exactly the
+predicted image and stdout. Final formatted estate **7,703/7,703**, native declarations **79/79**,
+iterators **25/25**, dev.sh Columnar **12/12**. Strict source retains **259 existing findings** over
+427 files; pre/post compilers return identical JSON on the same final source. Existing source-line
+shifts and the two explicit-argument diagnostic edits are mapped in the
+[parity proof](decodes/2026-09-04-s22a-parity-proof.md).
 
 The fresh backend integration run is recorded outside the committed source snapshot at
-`/private/tmp/gate-20260904-goal-s21i-r1/`: `source.json` identifies its exact revision, `gate.log`
+`/private/tmp/gate-20260904-goal-s22a-r1/`: `source.json` identifies its exact revision, `gate.log`
 carries the fresh run, and `exit-code.txt` is its terminal result. Read that actual verdict before
-advancing or pushing; this ledger does not substitute for the gate. The prior h checkpoint was
-pushed at `69ad857b` after its fresh backend gate passed in 7m22s; retained receipt:
-`/private/tmp/gate-20260904-goal-s21h-r1/acceptance.json`.
-Astra owns planning/review/integration; Sol executes the bounded ownership slice. All terminal
+advancing or pushing; this ledger does not substitute for the gate. The prior S2.1(i) checkpoint was
+pushed at `665b1068` after its fresh backend gate; retained receipt:
+`/private/tmp/gate-20260904-goal-s21i-r1/acceptance.json`.
+Astra owns planning/review/integration; Sol and Terra execute bounded work. All terminal
 015/021/022/023 boxes remain open. No SDK republish or IDE behavior change is claimed here.
 
 **Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
@@ -3017,6 +3022,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| 023/S2.2(a) — canonical structural resolution | `77686382`; this integration commit | Ordinary/generic-aware canonical resolution and dependency closure move into N#; thirteen C# helpers are deleted. The typeof pool/executor consumes the selected key/runtime pair | Fresh emission tokens, distinct source/synthesized and VAR/MVAR owners, erased-enum provenance and pre-IL validation. Actual pool census 36/12 corrects the earlier name-only count; 35 handle-only consumers remain | Emitter 19,629/18,637 (−1,059/−1,040); estate 7,703; declarations 79; iterators 25. Three-arm parity 94 images/2,155 tests each, zero differences; exact new controls 14/14 each; audit 18/18, `head-v1:0693c72e2dad21ec`. [Proof](decodes/2026-09-04-s22a-parity-proof.md) |
 | 023/S2.1(i) — method overrides | `75fa5a77`; this integration commit | All fourteen C# attachments move to consumed ordinary/iterator N# records; two MethodInfo equality domains, final flags, deferred decline and target order are N#-owned | Runtime handles are retained without eager MethodBuilder reflection. Physical MethodImpl table order differs from attachment call order; both are preserved. Fixture typeof/default-argument failures were measured and fixed without the discarded reflection wrapper | Emitter 20,688/19,677 (−26 each); estate 7,676; native declarations 76; both-CLI new controls 10/10. Three-arm parity 94 images/2,145 native tests each, zero differences; audit 18/18, `head-v1:dc4ce2dde3db9257`. [Proof](decodes/2026-09-04-s21i-parity-proof.md) |
 | 023/S2.1(h) — P/Invoke declarations | `0cde66a0`, checkpoint `69ad857b` | N# sparse source-ordinal rows own native selection/validity/declines/names/flags/conventions and PreserveSig OR; C# consumes after signature resolution. Shared flag helpers move to existing ColumnarFunctionInput, with one shorter InputBuilder expression | Stage-0 green did not imply strict-source green: an added NL412 exposed the global helper boundary and was removed without duplicating its flag. Parser-only negative probes were rejected; retained N# tests mutate parsed metadata to reach actual return → parameter → native → default failure order | Emitter 20,714/19,703; builder 1,044/975, −9 bytes. Estate 7,666; native declarations 66; both-CLI new controls 7/7. Three-arm parity 94 images/2,138 native tests each, zero differences; audit 18/18, `head-v1:1a04757c9e9e81ad`. [Proof](decodes/2026-09-04-s21h-parity-proof.md) |
 | 023/S2.1(g) — custom attributes | `f6ebcf42`, merge `4f2a8e63`, checkpoint `54faf94a` | Four attribute families' selection, blobs and ordered attachment live in N#; four C# SetCustomAttribute calls removed | Corpus commands must use their archived corpus root; all three arms were rerun after rejecting the live-cwd harness. Constructor resolution remains S2.2 | Estate 7,658; 94 images/2,138 native tests per arm, zero differences; audit 18/18. Fresh backend gate 474 s on exact pushed `54faf94a`. [Proof](decodes/2026-09-04-s21g-parity-proof.md) |
