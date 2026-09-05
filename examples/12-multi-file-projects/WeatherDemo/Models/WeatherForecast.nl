@@ -7,6 +7,6 @@ record WeatherForecast {
     TemperatureC: int
     Summary: string?
 
-    // Expression-bodied computed property (C# 6+)
+    // Expression-bodied computed property
     TemperatureF: int => 32 + (TemperatureC * 9 / 5)
 }

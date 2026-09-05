@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using NSharpLang.Compiler;
@@ -17,25 +16,14 @@ public class LoadProjectReferences : Task
     [Output]
     public ITaskItem[] FrameworkReferences { get; set; } = Array.Empty<ITaskItem>();
 
-    [Output]
-    public ITaskItem[] ProjectReferences { get; set; } = Array.Empty<ITaskItem>();
-
     public override bool Execute()
     {
         try
         {
-            if (string.IsNullOrEmpty(ProjectFile) || !File.Exists(ProjectFile))
-            {
-                Log.LogMessage(MessageImportance.Low, "No project.yml file found, skipping reference loading.");
-                return true;
-            }
-
-            var config = ProjectFileParser.Parse(ProjectFile);
+            var config = ProjectFileParser.Parse(ProjectFile!);
 
             var packageRefs = new List<ITaskItem>();
             var frameworkRefs = new List<ITaskItem>();
-            var projectRefs = new List<ITaskItem>();
-
             // Process dependencies
             foreach (var dep in config.Dependencies)
             {
@@ -58,23 +46,11 @@ public class LoadProjectReferences : Task
                     // DLL references are handled by the compiler during build
                     case ReferenceType.Dll:
                         break;
-
-                    case ReferenceType.Project:
-                        var projectPath = Path.IsPathRooted(dep.Project!)
-                            ? dep.Project!
-                            : Path.Combine(Path.GetDirectoryName(ProjectFile)!, dep.Project!);
-                        var resolvedProjectPath = ProjectReferenceResolver.ResolveMsBuildProjectPath(projectPath);
-                        projectRefs.Add(new TaskItem(resolvedProjectPath));
-                        break;
                 }
             }
 
             PackageReferences = packageRefs.ToArray();
             FrameworkReferences = frameworkRefs.ToArray();
-            ProjectReferences = projectRefs.ToArray();
-
-            Log.LogMessage(MessageImportance.Normal,
-                $"Loaded {PackageReferences.Length} package reference(s), {FrameworkReferences.Length} framework reference(s), and {ProjectReferences.Length} project reference(s) from {ProjectFile}");
 
             return true;
         }

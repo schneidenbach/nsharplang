@@ -3,62 +3,78 @@
   <!-- Import base SDK targets (dynamic based on project.yml sdk field, set in Sdk.props) -->
   <Import Project="Sdk.targets" Sdk="$(_NSharpBaseSdk)" />
 
-  <!-- Disable native executable generation in Debug to avoid NETSDK1177 signing
-       errors when rebuilding while the app is still running. In Debug, apps are
-       launched via 'dotnet run' which doesn't need the apphost. Release builds
-       still produce a native executable for deployment.
-       Placed after base SDK import so $(Configuration) has its resolved value. -->
+  <!-- No apphost in Debug: rebuilding while the app runs trips NETSDK1177, and `dotnet run` does not need one.
+       Release still produces a native executable. After the base SDK import so $(Configuration) is resolved. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <UseAppHost Condition="'$(UseAppHost)' == ''">false</UseAppHost>
   </PropertyGroup>
 
   <PropertyGroup>
-    <!-- Output path for generated source files (now that IntermediateOutputPath is set by Microsoft.NET.Sdk) -->
-    <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)nsharp/</NSharpOutputPath>
+    <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == '' And '$(MSBuildProjectName)' == 'NSharpLang.Compiler.BootstrapServices'">false</NSharpEmitValidateWithLegacyAnalysis>
+    <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == ''">true</NSharpEmitValidateWithLegacyAnalysis>
+    <_NSharpEmitStamp>$(IntermediateOutputPath)nsharp.emit.stamp</_NSharpEmitStamp>
   </PropertyGroup>
 
-  <!-- Reference the NSharp build tasks -->
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectReferences"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectConfig"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
-  <UsingTask TaskName="NSharpLang.Build.Tasks.WriteCompilationStub"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.EmitIlAssembly"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
 
-  <!-- Apply project.yml settings during the current MSBuild invocation as well
-       as through obj/project.g.props. This keeps direct dotnet builds and C#
-       ProjectReference consumers working even before nlc restore has generated
-       the compatibility props file. -->
+  <!-- Apply project.yml in THIS invocation as well as through obj/project.g.props, so direct dotnet builds and
+       ProjectReference consumers work even before nlc restore has generated the compatibility props file. -->
   <Target Name="_ApplyNSharpProjectConfigForCurrentBuild"
-          BeforeTargets="PrepareForBuild;CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;GenerateNSharpIlStub;CoreCompile"
+          BeforeTargets="_GetRestoreProjectStyle;_GetRestoreTargetFrameworksOutput;_GenerateRestoreProjectSpec;GetTargetPath;GetTargetPathWithTargetPlatformMoniker;PrepareForBuild;CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;CoreCompile"
           Condition="Exists('$(NSharpProjectFile)')">
     <LoadProjectConfig ProjectDirectory="$(MSBuildProjectDirectory)">
       <Output TaskParameter="TargetFramework" PropertyName="TargetFramework" />
       <Output TaskParameter="OutputType" PropertyName="OutputType" />
       <Output TaskParameter="AssemblyName" PropertyName="AssemblyName" />
+      <Output TaskParameter="Version" PropertyName="_NSharpProjectVersion" />
+      <Output TaskParameter="AssemblyVersion" PropertyName="_NSharpProjectAssemblyVersion" />
+      <Output TaskParameter="FileVersion" PropertyName="_NSharpProjectFileVersion" />
       <Output TaskParameter="Sdk" PropertyName="_NSharpBaseSdk" />
       <Output TaskParameter="TestFramework" PropertyName="NSharpTestFramework" />
     </LoadProjectConfig>
+
+    <PropertyGroup Condition="'$(AssemblyName)' != ''">
+      <TargetName>$(AssemblyName)</TargetName>
+      <TargetFileName>$(TargetName)$(TargetExt)</TargetFileName>
+      <TargetPath>$(TargetDir)$(TargetFileName)</TargetPath>
+      <TargetRefPath Condition="'$(ProduceReferenceAssembly)' == 'true' And '$(ProduceReferenceAssemblyInOutDir)' == 'true'">$([MSBuild]::NormalizePath($(TargetDir), 'ref', $(TargetFileName)))</TargetRefPath>
+      <TargetRefPath Condition="'$(ProduceReferenceAssembly)' == 'true' And '$(ProduceReferenceAssemblyInOutDir)' != 'true'">$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(IntermediateOutputPath), 'ref', $(TargetFileName)))</TargetRefPath>
+      <ProjectDepsFileName>$(AssemblyName).deps.json</ProjectDepsFileName>
+      <ProjectDepsFilePath>$(TargetDir)$(ProjectDepsFileName)</ProjectDepsFilePath>
+      <ProjectRuntimeConfigFileName>$(AssemblyName).runtimeconfig.json</ProjectRuntimeConfigFileName>
+      <ProjectRuntimeConfigFilePath>$(TargetDir)$(ProjectRuntimeConfigFileName)</ProjectRuntimeConfigFilePath>
+      <ProjectRuntimeConfigDevFilePath Condition="'$(GenerateRuntimeConfigDevFile)' == 'true'">$(TargetDir)$(AssemblyName).runtimeconfig.dev.json</ProjectRuntimeConfigDevFilePath>
+      <PackageId Condition="'$(PackageId)' == '' Or '$(PackageId)' == '$(MSBuildProjectName)'">$(AssemblyName)</PackageId>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(_NSharpProjectVersion)' != ''">
+      <Version Condition="'$(Version)' == '' Or '$(Version)' == '1.0.0'">$(_NSharpProjectVersion)</Version>
+      <PackageVersion Condition="'$(PackageVersion)' == '' Or '$(PackageVersion)' == '1.0.0'">$(_NSharpProjectVersion)</PackageVersion>
+      <AssemblyVersion Condition="'$(_NSharpProjectAssemblyVersion)' != '' And ('$(AssemblyVersion)' == '' Or '$(AssemblyVersion)' == '1.0.0.0')">$(_NSharpProjectAssemblyVersion)</AssemblyVersion>
+      <FileVersion Condition="'$(_NSharpProjectFileVersion)' != '' And ('$(FileVersion)' == '' Or '$(FileVersion)' == '1.0.0.0')">$(_NSharpProjectFileVersion)</FileVersion>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(AssemblyName)' != ''">
+      <IntermediateAssembly Remove="@(IntermediateAssembly)" />
+      <IntermediateAssembly Include="$(IntermediateOutputPath)$(TargetName)$(TargetExt)" />
+      <IntermediateRefAssembly Remove="@(IntermediateRefAssembly)" />
+      <IntermediateRefAssembly Include="$(IntermediateOutputPath)refint\$(TargetName)$(TargetExt)" Condition="'@(IntermediateRefAssembly)' == ''" />
+    </ItemGroup>
 
     <PropertyGroup Condition="'$(OutputType)' == 'Exe'">
       <GenerateProgramFile>false</GenerateProgramFile>
     </PropertyGroup>
   </Target>
 
-  <Target Name="_ValidateNSharpBackend"
-          BeforeTargets="Build;Rebuild;Restore"
-          Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpCompilationBackend)' != '' And '$(NSharpCompilationBackend)' != 'il'">
-    <Error Text="The 'transpile' backend has been removed. Set backend: il in project.yml and use the IL toolchain for build/run/test/publish. To inspect generated C#, run 'nlc export csharp'." />
-  </Target>
-
-  <!-- Auto-discover all .nl files (excluding tests) -->
   <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
     <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
   </ItemGroup>
 
-  <!-- Auto-discover all .tests.nl files (unless excluded for production builds) -->
   <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' != 'true'">
     <NSharpTestFiles Include="**/*.tests.nl" Exclude="**/obj/**;**/bin/**" />
   </ItemGroup>
@@ -70,7 +86,6 @@
       <NSharpTestFramework Condition="'$(NSharpTestFramework)' == ''">xunit</NSharpTestFramework>
     </PropertyGroup>
 
-    <!-- xUnit dependencies -->
     <ItemGroup Condition="'$(_NSharpTestFiles)' != '' And '$(NSharpTestFramework)' == 'xunit'">
       <PackageReference Include="xunit" Version="2.9.2" />
       <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
@@ -84,7 +99,6 @@
       </PackageReference>
     </ItemGroup>
 
-    <!-- NUnit dependencies -->
     <ItemGroup Condition="'$(_NSharpTestFiles)' != '' And '$(NSharpTestFramework)' == 'nunit'">
       <PackageReference Include="NUnit" Version="4.3.2" />
       <PackageReference Include="NUnit3TestAdapter" Version="4.6.0">
@@ -101,52 +115,43 @@
     <PropertyGroup Condition="'$(_NSharpTestFiles)' != ''">
       <HasNSharpTestFiles>true</HasNSharpTestFiles>
 
-      <!-- Default coverage settings -->
       <CoverletOutputFormat Condition="'$(CoverletOutputFormat)' == ''">opencover</CoverletOutputFormat>
       <CoverletOutput Condition="'$(CoverletOutput)' == ''">$(MSBuildProjectDirectory)/coverage.</CoverletOutput>
-      <ExcludeByFile Condition="'$(ExcludeByFile)' == ''">**/*.g.cs</ExcludeByFile>
-
       <!-- Only enable by default if explicitly requested -->
       <CollectCoverage Condition="'$(CollectCoverage)' == ''">false</CollectCoverage>
     </PropertyGroup>
   </Target>
 
-  <!-- Load dependencies from project.yml and add them to MSBuild items -->
-  <Target Name="LoadNSharpReferences" BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences">
+  <Target Name="LoadNSharpReferences"
+          BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences"
+          Condition="Exists('$(NSharpProjectFile)')">
     <LoadProjectReferences ProjectFile="$(NSharpProjectFile)">
       <Output TaskParameter="PackageReferences" ItemName="PackageReference" />
       <Output TaskParameter="FrameworkReferences" ItemName="FrameworkReference" />
     </LoadProjectReferences>
   </Target>
 
-  <Target Name="GenerateNSharpIlStub"
-          BeforeTargets="CoreCompile"
+  <Target Name="CoreCompile"
           Condition="'$(EnableNSharpCompilation)' == 'true' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')">
-
-    <Message Importance="High" Text="Generating N# IL compilation stub..." />
-
-    <WriteCompilationStub
-      OutputPath="$(NSharpOutputPath)"
-      Sources="@(NSharpCompile)"
-      ProjectRoot="$(MSBuildProjectDirectory)"
-      ProjectFile="$(NSharpProjectFile)">
-      <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
-    </WriteCompilationStub>
+    <Message Importance="High" Text="Skipping CoreCompile for N# project; emitting direct IL assembly." />
   </Target>
 
-  <!-- Always include generated sources (even when compilation targets are skipped as up-to-date) -->
-  <Target Name="IncludeNSharpGeneratedFiles"
-          BeforeTargets="CoreCompile"
-          AfterTargets="GenerateNSharpIlStub"
-          Condition="'$(EnableNSharpCompilation)' == 'true'">
-    <ItemGroup>
-      <Compile Include="$(NSharpOutputPath)**/*.g.cs" />
-    </ItemGroup>
+  <!-- The emit is skipped only when the sources, project.yml, the resolved references, the SDK's own tool assemblies AND the source-set identity are all unchanged. The stamp's CONTENT is that identity (which files, tests in or out, configuration), so a tests-included build can never be satisfied by the product-only assembly sitting at the same obj path, and the product build after it cannot inherit the tests-included one. -->
+  <Target Name="_NSharpEmitStampIdentity" BeforeTargets="EmitNSharpIlAssembly" Condition="'$(EnableNSharpCompilation)' == 'true'">
+    <PropertyGroup>
+      <_NSharpEmitKey>@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);$(Configuration);$(DefineConstants);$(NSharpEmitValidateWithLegacyAnalysis)</_NSharpEmitKey>
+      <_NSharpEmitId>$([MSBuild]::StableStringHash($(_NSharpEmitKey), 'Sha256'))</_NSharpEmitId>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(_NSharpEmitStamp)" Condition="Exists('$(_NSharpEmitStamp)')">
+      <Output TaskParameter="Lines" ItemName="_NSharpEmitPrevId" />
+    </ReadLinesFromFile>
+    <Delete Files="$(_NSharpEmitStamp)" Condition="Exists('$(_NSharpEmitStamp)') And '@(_NSharpEmitPrevId)' != '$(_NSharpEmitId)'" />
   </Target>
-
   <Target Name="EmitNSharpIlAssembly"
           AfterTargets="CoreCompile"
           BeforeTargets="CopyFilesToOutputDirectory"
+          Inputs="@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);@(ReferencePath);$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll;$(MSBuildThisFileDirectory)../tools/Compiler.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.BootstrapServices.dll"
+          Outputs="$(_NSharpEmitStamp);@(IntermediateAssembly)"
           Condition="'$(EnableNSharpCompilation)' == 'true' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')">
     <ItemGroup>
       <_NSharpIlSources Include="@(NSharpCompile)" />
@@ -160,16 +165,15 @@
       References="@(ReferencePath)"
       ProjectRoot="$(MSBuildProjectDirectory)"
       ProjectFile="$(NSharpProjectFile)"
+      AssemblyVersion="$(AssemblyVersion)"
+      Configuration="$(Configuration)"
+      DefineConstants="$(DefineConstants)"
       TargetAssemblyPath="@(IntermediateAssembly)"
-      TargetReferenceAssemblyPath="$(TargetRefPath)" />
+      TargetReferenceAssemblyPath="@(IntermediateRefAssembly)"
+      ValidateWithLegacyAnalysis="$(NSharpEmitValidateWithLegacyAnalysis)" />
+    <WriteLinesToFile File="$(_NSharpEmitStamp)" Lines="$(_NSharpEmitId)" Overwrite="true" />
   </Target>
 
-  <!-- Clean generated files -->
-  <Target Name="CleanNSharp" BeforeTargets="CoreClean" Condition="'$(EnableNSharpCompilation)' == 'true'">
-    <RemoveDir Directories="$(NSharpOutputPath)" />
-  </Target>
-
-  <!-- Format N# files -->
   <Target Name="FormatNSharp" Condition="'$(EnableNSharpCompilation)' == 'true'">
     <PropertyGroup>
       <NSharpCliPath Condition="'$(NSharpCliPath)' == ''">nlc</NSharpCliPath>
@@ -183,7 +187,6 @@
           IgnoreExitCode="false" />
   </Target>
 
-  <!-- Generate HTML coverage report -->
   <Target Name="GenerateCoverageReport"
           Condition="'$(HasNSharpTestFiles)' == 'true' And '$(GenerateCoverageReport)' == 'true'">
     <PropertyGroup>
@@ -193,7 +196,6 @@
 
     <Message Importance="High" Text="Generating HTML coverage report..." />
 
-    <!-- Generate the report when reportgenerator is available on PATH. -->
     <Exec Command="reportgenerator -reports:&quot;$(CoverageFiles)&quot; -targetdir:&quot;$(CoverageReportDir)&quot; -reporttypes:Html"
           WorkingDirectory="$(MSBuildProjectDirectory)"
           IgnoreExitCode="true" />

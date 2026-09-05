@@ -1,312 +1,60 @@
 # N# Compiler and Toolset Documentation
 
-**Status:** Active N# compiler + CLI/tooling documentation. Verify launch readiness with current command output and dated audit evidence.
-**Tests:** Counts move quickly; use fresh `./scripts/test-all.sh` output or dated evidence artifacts instead of this index.
+**Status:** Active implementation notes. Current code and recent commits are authoritative; docs are useful
+only when they match product-path behavior.
 
-Welcome to the N# compiler documentation. This folder contains technical documentation organized for fast lookup and minimal context usage.
+## Compiler Ownership Rule
 
----
+The compiler core, compiler-service core, and CLI/tooling command logic are N#-owned. Two surfaces
+remain still-owning C# and are named in `memory/architecture.md`'s reviewed allowlist:
+`Columnar/ColumnarIlEmitter.cs` (IL generation, retiring under task 015) and `Analyzer.cs`'s
+`MetadataLoadContext` quarantine (retiring with the AOT external-type-model task).
+Do not use documentation to justify keeping legacy fallback/legacy emitter ownership or
+`*DogfoodAdapter` layers alive. Old dogfood/columnar strategy logs that normalized fallback work have
+been deleted.
 
-## Quick Start
+Compiler-service kernels are statically compiled through `NSharpLang.Compiler.BootstrapServices`;
+product paths must not use `Assembly.Load`/delegate reflection for N# compiler services. Because
+BootstrapServices is built by the pinned stage-0 SDK, any kernel that uses a tip-only language or
+backend feature requires a local SDK repin with `./scripts/setup-local.sh` before it is a valid
+kernel shape.
 
-### "How do I...?"
+## Quick Lookup
 
-| Question | Answer |
-|----------|--------|
-| Understand the architecture? | Read [architecture.md](architecture.md) |
-| Plan compiler performance work? | Read [docs/design/performance-compiler-refactor.md](../docs/design/performance-compiler-refactor.md) |
-| Check IL backend parity status? | Read [il-compiler-parity-audit.md](il-compiler-parity-audit.md) |
-| Learn about a component? | See [components/](#components) folder |
-| Find a feature? | See [features/](#features) folder |
-| Run tests? | See [testing.md](testing.md) |
-| Check limitations? | See [limitations.md](limitations.md) |
-
----
-
-## Documentation Structure
-
-### [architecture.md](architecture.md)
-High-level overview of the compiler pipeline, design decisions, and project structure.
-
-**Read this first** to understand how everything fits together.
-
-**Topics:**
-- Compiler pipeline (Lexer → Parser → Analyzer → backend selection)
-- Backend strategy and IL toolchain status
-- Component overview
-- Data flow
-- Build commands
-
-### [il-compiler-parity-audit.md](il-compiler-parity-audit.md)
-Current audit of the direct IL backend against the legacy C# export surface.
-
-**Topics:**
-- Recently closed IL backend gaps
-- Residual interop risks outside the exercised C#-export surface
-- Current parity status between IL emission and the legacy C# export surface
-
-### [docs/design/performance-compiler-refactor.md](../docs/design/performance-compiler-refactor.md)
-Performance-focused compiler refactor plan for Bound IR, escape/capture/allocation facts, dual ABI lowering, value layout, span/loop lowering, generic specialization, AOT readiness, and benchmark evidence gates.
-
-**Topics:**
-- Compiler pipeline refactor from AST-direct emission to Bound IR plus performance facts
-- Critical language and interop tradeoffs for each optimization family
-- Evidence gates for IL shape, BenchmarkDotNet, public claims, and rollback decisions
-
----
+| Question | Read |
+|----------|------|
+| Understand current architecture? | [architecture.md](architecture.md) |
+| Work on CLI/tooling behavior? | [components/cli-toolchain.md](components/cli-toolchain.md) |
+| Run tests and gates? | [testing.md](testing.md) |
+| Check known limitations? | [limitations.md](limitations.md) |
+| Work on language features? | Current source, recent commits, tests, and focused website docs |
+| Work on Systems N#? | Current source, recent commits, tests, and [../website/docs/systems.md](../website/docs/systems.md) |
 
 ## Components
 
-Detailed documentation for each compiler component.
-
-### [components/lexer.md](components/lexer.md)
-Tokenization, string handling, operator recognition.
-
-**Key details:**
-- String literals stored WITH quotes
-- Newline filtering
-- Token types
-- Error handling
-
-### [components/parser.md](components/parser.md)
-AST construction, recursive descent parsing, operator precedence.
-
-**Key details:**
-- Lambda parsing at assignment level
-- For loop shorthand (`:=`)
-- Operator precedence table
-- AST node types
-
-### [components/analyzer.md](components/analyzer.md)
-Type checking, semantic analysis, name resolution.
-
-**Key details:**
-- Scope management
-- Type inference
-- External type resolution (via reflection)
-- Duck interface structural typing
-- Pattern exhaustiveness checking
-
-### [components/transpiler.md](components/transpiler.md)
-C# code generation from AST.
-
-**Key details:**
-- Union type → abstract base class
-- Duck interface → internal interface
-- String enum → static class
-- Convention → explicit modifiers
-- Special cases (async iterators, error handling)
-
-### [components/cli.md](components/cli.md)
-Command-line interface basics. *Legacy doc — see cli-toolchain.md for the full picture.*
-
-### [components/cli-toolchain.md](components/cli-toolchain.md)
-N# CLI/toolchain reference. Covers the current `nlc` command surface including the LLM-first code intelligence workflows.
-
-**Key details:**
-- `nlc check` — fast type-check (like `cargo check`)
-- `nlc fix` — auto-apply suggestions (like `cargo clippy --fix`)
-- `nlc query` — code intelligence (symbols, outline, diagnostics, type, definition, references, completions)
-- `nlc daemon` — background analysis server (Unix socket)
-- JSON schema discipline, Elm-level error output
-- Architecture: CodeIntelligenceService, CompletionEngine, BindingMap, OutputFormatter
-- Comparison with Go and Rust toolchains
-
-### [components/error-reporting.md](components/error-reporting.md)
-Professional error messages with codes and suggestions.
-
-**Key details:**
-- Error codes (NL001-NL999)
-- Rust-style formatting
-- Context-aware suggestions
-- Color output
-
----
-
-## Features
-
-Documentation organized by feature category.
-
-### [features/type-system.md](features/type-system.md)
-Type inference, duck interfaces, external types, user-defined types.
-
-**Topics:**
-- Type inference (`:=`, arrays)
-- Duck interfaces and structural typing
-- Anonymous unions (`A | B`) and CLR `Union<T0, T1>` ABI
-- External type resolution (.NET reflection)
-- User-defined types (class, struct, record, union, enum)
-- Type compatibility and conversions
-
-### [features/pattern-matching.md](features/pattern-matching.md)
-Match expressions, patterns, guards, exhaustiveness checking.
-
-**Topics:**
-- Pattern types (identifier, literal, union, positional, list, type)
-- Pattern guards (when clauses)
-- Exhaustiveness checking for unions
-- Transpilation to C# switch expressions
-
-### [features/async.md](features/async.md)
-Async/await, async streams (IAsyncEnumerable).
-
-**Topics:**
-- Async functions and await expressions
-- Async streams with `async*` and `await foreach`
-- ValueTask configuration
-- Yield break
-- Cancellation support
-
-### [features/collections.md](features/collections.md)
-Arrays, collection expressions, params, iterators.
-
-**Topics:**
-- Array literals and type inference
-- Collection expressions (C# 12)
-- Indexing and ranges
-- Params arrays and collections (C# 13)
-- List patterns
-- Spread operator
-- Iterators with yield
-- LINQ integration
-
-### [features/interop.md](features/interop.md)
-C# interop, using statements, external types, attributes.
-
-**Topics:**
-- Using statements and aliased imports
-- External type resolution
-- Calling C# code
-- Attributes (including qualified names)
-- Generics, delegates, ref/out parameters
-- N# consumed by C# projects
-- Type compatibility mapping
-
----
+| Component | File | Key Topics |
+|-----------|------|------------|
+| Lexer | [components/lexer.md](components/lexer.md) | Tokenization, strings, operators |
+| Parser | [components/parser.md](components/parser.md) | AST construction, precedence, patterns |
+| Analyzer | [components/analyzer.md](components/analyzer.md) | Types, scopes, semantic checking |
+| CLI Toolchain | [components/cli-toolchain.md](components/cli-toolchain.md) | `check`, `fix`, `query`, daemon, completions, JSON schemas |
+| Error Reporting | [components/error-reporting.md](components/error-reporting.md) | Error codes, formatting, suggestions |
 
 ## Testing
 
-### [testing.md](testing.md)
-Test suite organization, strategy, and examples.
-
-**Details:**
-- Avoid hard-coded counts here; use fresh `./scripts/test-all.sh` output or dated evidence artifacts
-- No mocks strategy
-- Test examples
-- Running tests
-- Coverage details
-
----
-
-## Limitations
-
-### [limitations.md](limitations.md)
-Current limitations and workarounds.
-
-**Categories:**
-- Type system (lambda inference, generic inference)
-- Method resolution (overload by type)
-- Pattern matching (guards, nested unions)
-- Extension methods on literals
-- Import system (circular imports)
-- IDE support (LSP Phase 3+)
-- Tooling (formatter, REPL)
-
----
-
-## How to Find Information
-
-### By Task
-
-**"I need to implement a feature"**
-1. Check [architecture.md](architecture.md) for overall design
-2. Check relevant [components/](#components) files for implementation
-3. Check [testing.md](testing.md) for test patterns
-4. Check [limitations.md](limitations.md) for known issues
-
-**"I need to understand existing code"**
-1. Check [components/](#components) folder for component details
-2. Check [features/](#features) folder for feature specifics
-3. Search for specific terms in relevant files
-
-**"I need to fix a bug"**
-1. Identify component (Lexer, Parser, Analyzer, C# exporter)
-2. Read relevant component doc in [components/](#components)
-3. Check [testing.md](testing.md) for test approach
-4. Check [limitations.md](limitations.md) if it's a known limitation
-
-**"I need to add tests"**
-1. Read [testing.md](testing.md) for strategy
-2. Look at existing tests in `tests/` folder
-3. Follow patterns from relevant test file
-
-### By Component
-
-| Component | File | Size | Key Topics |
-|-----------|------|------|------------|
-| Lexer | [components/lexer.md](components/lexer.md) | ~3KB | Tokenization, strings, operators |
-| Parser | [components/parser.md](components/parser.md) | ~5KB | AST, precedence, patterns |
-| Analyzer | [components/analyzer.md](components/analyzer.md) | ~6KB | Types, scopes, checking |
-| C# Exporter | [components/transpiler.md](components/transpiler.md) | ~5KB | C# export generation, strategies |
-| CLI (legacy) | [components/cli.md](components/cli.md) | ~3KB | Build/run basics |
-| CLI Toolchain | [components/cli-toolchain.md](components/cli-toolchain.md) | ~8KB | **Full reference:** check, fix, query, daemon, completions |
-| Errors | [components/error-reporting.md](components/error-reporting.md) | ~3KB | Codes, formatting, suggestions |
-
-### By Feature
-
-| Feature | File | Key Topics |
-|---------|------|------------|
-| Types | [features/type-system.md](features/type-system.md) | Inference, duck interfaces, external types |
-| Patterns | [features/pattern-matching.md](features/pattern-matching.md) | Match, patterns, guards, exhaustiveness |
-| Async | [features/async.md](features/async.md) | Async/await, streams, yield |
-| Collections | [features/collections.md](features/collections.md) | Arrays, params, iterators, LINQ |
-| Interop | [features/interop.md](features/interop.md) | C# interop, using, attributes |
-
----
-
-## Context Usage
-
-These documentation files are optimized for AI context windows:
-
-| File | Approximate Size | When to Read |
-|------|------------------|--------------|
-| architecture.md | ~5KB | Always (high-level overview) |
-| components/*.md | ~3-6KB each | When working on specific component |
-| features/*.md | ~4-7KB each | When implementing/debugging feature |
-| testing.md | ~4KB | When writing tests |
-| limitations.md | ~5KB | When hitting unexpected behavior |
-
-**Total:** ~50KB across all files (vs 133KB in old single file)
-
-**Strategy:** Read architecture.md first, then only load specific files as needed.
-
----
+Read [testing.md](testing.md). Do not hard-code test totals; use fresh command output or dated evidence
+from the relevant test run.
 
 ## Related Documentation
 
-- **../docs/DESIGN.md** - Language design and syntax specification
-- **../README.md** - Project overview and getting started
-- **../docs/** - User-facing documentation and guides
-- **./completed-tasks/** - Archived completed tasks
+- [../README.md](../README.md) - repository overview and setup
+- [../docs/README.md](../docs/README.md) - user-facing and design documentation map
+- [../website/docs/](../website/docs/) - published documentation source
 
----
+## Deleted Stale Docs
 
-## Questions This Documentation Answers
-
-1. ✅ How is the compiler architected?
-2. ✅ What does each component do?
-3. ✅ How is [feature X] implemented?
-4. ✅ How do I parse [syntax]?
-5. ✅ How does type checking work?
-6. ✅ How is C# code generated?
-7. ✅ How do I run the compiler?
-8. ✅ How do I write tests?
-9. ✅ What are the current limitations?
-10. ✅ How does [tricky feature] work internally?
-11. ✅ What CLI commands exist? → [components/cli-toolchain.md](components/cli-toolchain.md)
-12. ✅ How does the LLM code intelligence toolchain work?
-13. ✅ How does N# compare to Go/Rust for LLM development?
-
----
-
-*Last Updated: 2026-03-25*
+The old self-host progress log, dogfood rewrite plan, benchmark summary, columnar roadmap, SoA gate,
+performance refactor plan, cross-language systems benchmark roadmap, implementation audit, and parity
+audit docs were removed because they repeatedly instructed agents to route through N# while preserving
+legacy compiler ownership or optimizing proof artifacts instead of deleting old owners. Do not
+recreate those files as history archives; use current code, recent commits, and tests instead.

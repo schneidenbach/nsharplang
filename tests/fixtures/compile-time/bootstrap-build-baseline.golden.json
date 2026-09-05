@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "project": "src/NSharpLang.Compiler.BootstrapServices",
+  "command": "build",
+  "stage": "front-end (parse + strict lint); nlc build exits 1 at strict lint on this project, so analysis and emit are NOT covered until it exits 0",
+  "expectedExitCode": 1,
+  "measuredAt": "2026-09-01",
+  "cliCommit": "8cf40128a2175ecf5a61196a6ab7f7911ded5afc",
+  "machine": "Apple M4, 10 logical cores, macOS 15.6 (Darwin 24.6.0), .NET SDK 10.0.105, idle machine",
+  "runs": 5,
+  "files": 403,
+  "lines": 172653,
+  "medianWallMs": 7868,
+  "medianPeakRssBytes": 180584448,
+  "toleranceFactor": 1.5
+}

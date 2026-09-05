@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol;
@@ -63,10 +64,10 @@ public class TypeHierarchyPrepareHandler : TypeHierarchyPrepareHandlerBase
             // Only type declarations produce hierarchy items
             var (name, kind, declLine, declColumn) = typeInfo switch
             {
-                ClassTypeInfo c => (c.Declaration.Name, LspSymbolKind.Class, c.Declaration.Line, c.Declaration.Column),
-                InterfaceTypeInfo i => (i.Declaration.Name, LspSymbolKind.Interface, i.Declaration.Line, i.Declaration.Column),
-                StructTypeInfo s => (s.Declaration.Name, LspSymbolKind.Struct, s.Declaration.Line, s.Declaration.Column),
-                RecordTypeInfo r => (r.Declaration.Name, LspSymbolKind.Class, r.Declaration.Line, r.Declaration.Column),
+                ClassTypeInfo c => (c.Name, LspSymbolKind.Class, c.Line, c.Column),
+                InterfaceTypeInfo i => (i.Name, LspSymbolKind.Interface, i.Line, i.Column),
+                StructTypeInfo s => (s.Name, LspSymbolKind.Struct, s.Line, s.Column),
+                RecordTypeInfo r => (r.Name, LspSymbolKind.Class, r.Line, r.Column),
                 EnumTypeInfo e => (e.Declaration.Name, LspSymbolKind.Enum, e.Declaration.Line, e.Declaration.Column),
                 _ => (null, default(LspSymbolKind), 0, 0)
             };
@@ -223,10 +224,10 @@ public class TypeHierarchySupertypesHandler : TypeHierarchySupertypesHandlerBase
             {
                 var (kind, line, column) = typeInfo switch
                 {
-                    ClassTypeInfo c => (LspSymbolKind.Class, c.Declaration.Line, c.Declaration.Column),
-                    InterfaceTypeInfo i => (LspSymbolKind.Interface, i.Declaration.Line, i.Declaration.Column),
-                    StructTypeInfo s => (LspSymbolKind.Struct, s.Declaration.Line, s.Declaration.Column),
-                    RecordTypeInfo r => (LspSymbolKind.Class, r.Declaration.Line, r.Declaration.Column),
+                    ClassTypeInfo c => (LspSymbolKind.Class, c.Line, c.Column),
+                    InterfaceTypeInfo i => (LspSymbolKind.Interface, i.Line, i.Column),
+                    StructTypeInfo s => (LspSymbolKind.Struct, s.Line, s.Column),
+                    RecordTypeInfo r => (LspSymbolKind.Class, r.Line, r.Column),
                     EnumTypeInfo e => (LspSymbolKind.Enum, e.Declaration.Line, e.Declaration.Column),
                     _ => (default(LspSymbolKind), 0, 0)
                 };
@@ -338,13 +339,13 @@ public class TypeHierarchySubtypesHandler : TypeHierarchySubtypesHandlerBase
                 // Check base class
                 if (classDecl.BaseClass != null)
                 {
-                    matches = TypeReferenceMatchesName(classDecl.BaseClass, targetName);
+                    matches = CodeIntelligenceDisplayText.InterfaceNameMatches(classDecl.BaseClass, targetName);
                 }
 
                 // Check implemented interfaces
                 if (!matches)
                 {
-                    matches = classDecl.Interfaces.Any(iface => TypeReferenceMatchesName(iface, targetName));
+                    matches = classDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName));
                 }
 
                 if (matches)
@@ -359,7 +360,7 @@ public class TypeHierarchySubtypesHandler : TypeHierarchySubtypesHandlerBase
 
             case StructDeclaration structDecl:
             {
-                if (structDecl.Interfaces.Any(iface => TypeReferenceMatchesName(iface, targetName)))
+                if (structDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
                 {
                     item = TypeHierarchyPrepareHandler.CreateTypeHierarchyItem(
                         structDecl.Name, LspSymbolKind.Struct, doc.Uri, structDecl.Line, structDecl.Column);
@@ -371,7 +372,7 @@ public class TypeHierarchySubtypesHandler : TypeHierarchySubtypesHandlerBase
 
             case RecordDeclaration recordDecl:
             {
-                if (recordDecl.Interfaces.Any(iface => TypeReferenceMatchesName(iface, targetName)))
+                if (recordDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
                 {
                     item = TypeHierarchyPrepareHandler.CreateTypeHierarchyItem(
                         recordDecl.Name, LspSymbolKind.Class, doc.Uri, recordDecl.Line, recordDecl.Column);
@@ -385,7 +386,7 @@ public class TypeHierarchySubtypesHandler : TypeHierarchySubtypesHandlerBase
             {
                 // An interface extending the target interface is a subtype
                 if (targetKind == LspSymbolKind.Interface &&
-                    interfaceDecl.BaseInterfaces.Any(iface => TypeReferenceMatchesName(iface, targetName)))
+                    interfaceDecl.BaseInterfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
                 {
                     item = TypeHierarchyPrepareHandler.CreateTypeHierarchyItem(
                         interfaceDecl.Name, LspSymbolKind.Interface, doc.Uri, interfaceDecl.Line, interfaceDecl.Column);
@@ -397,18 +398,5 @@ public class TypeHierarchySubtypesHandler : TypeHierarchySubtypesHandlerBase
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Extracts the name from a TypeReference and compares it to the target.
-    /// </summary>
-    private static bool TypeReferenceMatchesName(TypeReference typeRef, string targetName)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference simple => string.Equals(simple.Name, targetName, StringComparison.Ordinal),
-            GenericTypeReference generic => string.Equals(generic.Name, targetName, StringComparison.Ordinal),
-            _ => false
-        };
     }
 }

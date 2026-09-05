@@ -2,7 +2,7 @@
 # Stable terminal rendering from OutputFormatter.DiagnosticsToText.
 # Docs URLs are category-qualified where parser/analyzer/linter docs are split.
 
-Diagnostic clusters (25 groups, 25 diagnostics)
+Diagnostic clusters (24 groups, 24 diagnostics)
   [1x] diagnostic-message-shape / variable-declaration / risk: low
        recipe: manual-triage:inspect-root-diagnostic
        root: analyzer/cannot-infer.nl:2:5
@@ -73,7 +73,7 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        example: [linter] Async function has no await
        next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
-  ... 15 more clusters omitted; use --json for the full AI-consumable cluster list.
+  ... 14 more clusters omitted; use --json for the full AI-consumable cluster list.
 
 ── [NL101] ERROR ──────────── parser/missing-argument.nl:3:17 ──
 
@@ -86,7 +86,7 @@ The parser found `)` while it was still looking for an expression argument.
 
 Suggestion: Add the missing expression before `)` or remove the dangling comma.
 
-See: https://docs.n-sharp.dev/errors/parser/NL101
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL101
 
 ── [NL102] ERROR ───── parser/missing-parameter-colon.nl:1:12 ──
 
@@ -99,20 +99,7 @@ Function parameters use `name: Type`; without the colon, the type name is parsed
 
 Suggestion: Write `func greet(name: string) { ... }`.
 
-See: https://docs.n-sharp.dev/errors/parser/NL102
-
-── [NL103] ERROR ─── parser/object-initializer-equals.nl:2:23 ──
-
-    2 |     return new User { Name = "Ada" }
-      |                       ^^^^
-
-[parser] Invalid syntax in object initializer
-
-N# object initializers use colon fields; `=` is C# object-initializer syntax.
-
-Suggestion: Use `new User { Name: "Ada" }`.
-
-See: https://docs.n-sharp.dev/errors/parser/NL103
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL102
 
 ── [NL104] ERROR ──────── parser/missing-closing-brace.nl:5:1 ──
 
@@ -123,7 +110,7 @@ The file ended before the parser found the closing `}` for the current block.
 
 Suggestion: Add the missing closing brace and re-run `nlc check`.
 
-See: https://docs.n-sharp.dev/errors/parser/NL104
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL104
 
 ── [NL106] ERROR ────────── parser/missing-match-brace.nl:7:1 ──
 
@@ -136,7 +123,7 @@ A block started here but never closed, so later code may be attached to the wron
 
 Suggestion: Close the block with `}` at the indentation level where the construct began.
 
-See: https://docs.n-sharp.dev/errors/parser/NL106
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL106
 
 ── [NL107] ERROR ────────── parser/missing-call-paren.nl:4:14 ──
 
@@ -149,7 +136,7 @@ This call opened `(` but did not close it before the line ended.
 
 Suggestion: Add `)` after the final argument: `add(first, second)`.
 
-See: https://docs.n-sharp.dev/errors/parser/NL107
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL107
 
 ── [NL202] ERROR ───────────── analyzer/type-mismatch.nl:3:19 ──
 
@@ -162,7 +149,7 @@ This expression produces `string`, but the annotation says `int`.
 
 Suggestion: Parse the string intentionally or change the annotation to `string`.
 
-See: https://docs.n-sharp.dev/errors/analyzer/NL202
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL202
 
 ── [NL203] ERROR ─────────────── analyzer/cannot-infer.nl:2:5 ──
 
@@ -175,7 +162,7 @@ See: https://docs.n-sharp.dev/errors/analyzer/NL202
 
 Suggestion: Add an explicit type, for example `let value: string? = null`.
 
-See: https://docs.n-sharp.dev/errors/analyzer/NL203
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL203
 
 ── [NL301] ERROR ──────── analyzer/undefined-variable.nl:6:12 ──
 
@@ -188,7 +175,7 @@ There is no local, parameter, or member named `totla` in scope.
 
 Suggestion: Did you mean `total`? Fix the spelling or declare the variable before use.
 
-See: https://docs.n-sharp.dev/errors/analyzer/NL301
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL301
 
 ── [NL302] ERROR ──────────── analyzer/undefined-type.nl:1:11 ──
 
@@ -201,7 +188,7 @@ The analyzer cannot resolve `Usr` from this file's declarations or imports.
 
 Suggestion: Import the type, define it, or correct the spelling to `User`.
 
-See: https://docs.n-sharp.dev/errors/analyzer/NL302
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL302
 
 ── [NL303] ERROR ────────── analyzer/undefined-member.nl:4:17 ──
 
@@ -214,7 +201,7 @@ The receiver type is `string`, and `Lenght` is not one of its members.
 
 Suggestion: Did you mean `Length`? Use the exact member name exposed by the type.
 
-See: https://docs.n-sharp.dev/errors/analyzer/NL303
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL303
 
 ── [NL305] ERROR ───────────── analyzer/missing-return.nl:1:1 ──
 
@@ -227,7 +214,7 @@ This function promises to return `int`, but at least one branch can fall off the
 
 Suggestion: Return an `int` on every path, or change the return type to `void` if no value is needed.
 
-See: https://docs.n-sharp.dev/errors/analyzer/NL305
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL305
 
 ── [NL401] ERROR ─────── analyzer/wrong-argument-count.nl:5:5 ──
 
@@ -240,7 +227,7 @@ The call is missing one required argument from the function signature.
 
 Suggestion: Pass the missing value, or update the function signature if it should be optional.
 
-See: https://docs.n-sharp.dev/errors/analyzer/NL401
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL401
 
 ── [NL501] ERROR ─────── analyzer/non-exhaustive-match.nl:3:5 ──
 
@@ -253,7 +240,7 @@ The match does not handle every possible value of `Color`.
 
 Suggestion: Add arms for the missing cases or a final `_ => ...` arm when a catch-all is intentional.
 
-See: https://docs.n-sharp.dev/errors/analyzer/NL501
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL501
 
 ── [NL306] ERROR ────── analyzer/duplicate-declaration.nl:3:5 ──
 
@@ -266,7 +253,7 @@ Two declarations share the name `count`; the second hides the first and is almos
 
 Suggestion: Rename one of the declarations or remove the duplicate.
 
-See: https://docs.n-sharp.dev/errors/analyzer/NL306
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL306
 
 ── [NL001] ERROR ────────────── linter/unused-variable.nl:2:5 ──
 
@@ -279,7 +266,7 @@ Unused locals are almost always stale code or a missed side effect.
 
 Suggestion: Remove the declaration or prefix it with `_` when the unused value is intentional.
 
-See: https://docs.n-sharp.dev/errors/linter/NL001
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL001
 
 ── [NL006] ERROR ───────────── linter/unreachable-code.nl:4:5 ──
 
@@ -292,7 +279,7 @@ Statements after a guaranteed exit cannot run and often hide a control-flow bug.
 
 Suggestion: Move the statement before the exit or delete it.
 
-See: https://docs.n-sharp.dev/errors/linter/NL006
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL006
 
 ── [NL010] ERROR ──────────────── linter/unused-import.nl:1:1 ──
 
@@ -305,20 +292,20 @@ Unused imports make dependency intent harder to read and can mask stale code.
 
 Suggestion: Remove the import or use a symbol from it.
 
-See: https://docs.n-sharp.dev/errors/linter/NL010
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL010
 
 ── [NL002] ERROR ────────────── linter/missing-import.nl:2:18 ──
 
     2 |     items := new List<int>()
       |                  ^^^^
 
-[linter] I can't find 'List' — it looks like a missing import
+[linter] 'List' is used without the import that provides it
 
 `List` resolves to a known framework type whose namespace is not imported in this file.
 
 Suggestion: Add `import System.Collections.Generic` at the top of the file.
 
-See: https://docs.n-sharp.dev/errors/linter/NL002
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL002
 
 ── [NL003] ERROR ─────── linter/unnecessary-null-check.nl:3:4 ──
 
@@ -331,7 +318,7 @@ The value is already known to be non-nullable, so the condition adds noise witho
 
 Suggestion: Delete the null check and keep the useful branch body.
 
-See: https://docs.n-sharp.dev/errors/linter/NL003
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL003
 
 ── [NL004] ERROR ────────── linter/async-without-await.nl:1:1 ──
 
@@ -344,7 +331,7 @@ An async function with no await usually does not need the async state machine.
 
 Suggestion: Remove `async` or await the asynchronous operation that should drive this function.
 
-See: https://docs.n-sharp.dev/errors/linter/NL004
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL004
 
 ── [NL011] ERROR ────────────────── linter/empty-catch.nl:5:3 ──
 
@@ -357,7 +344,7 @@ Swallowing errors silently makes failures hard to debug and can corrupt program 
 
 Suggestion: Handle the error, log it, or explain the intentional suppression with a comment.
 
-See: https://docs.n-sharp.dev/errors/linter/NL011
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL011
 
 ── [NL012] ERROR ──────────── linter/unused-parameter.nl:1:11 ──
 
@@ -370,7 +357,7 @@ Unused parameters usually mean the call contract drifted from the implementation
 
 Suggestion: Use the parameter, remove it from the signature, or prefix it with `_` if required by an interface.
 
-See: https://docs.n-sharp.dev/errors/linter/NL012
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL012
 
 ── [NL016] ERROR ───────── linter/redundant-null-check.nl:3:4 ──
 
@@ -383,7 +370,7 @@ The expression was just created with `new`, so the comparison against null is al
 
 Suggestion: Remove the null check — the value cannot be null.
 
-See: https://docs.n-sharp.dev/errors/linter/NL016
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL016
 
 ── [NL020] ERROR ──────────── linter/shadowed-variable.nl:4:9 ──
 
@@ -396,7 +383,7 @@ Shadowing makes reads ambiguous and can cause updates to affect the wrong variab
 
 Suggestion: Rename the inner variable or reuse the existing one intentionally.
 
-See: https://docs.n-sharp.dev/errors/linter/NL020
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL020
 
 
-Found 25 errors.
+Found 24 errors.

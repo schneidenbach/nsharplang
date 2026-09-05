@@ -130,6 +130,8 @@ ensure_profile_sources_env() {
 }
 
 ensure_nsharp_path() {
+    export NSHARP_INSTALL_DIR
+
     if ! nsharp_path_contains "$NSHARP_BIN_DIR"; then
         export PATH="$NSHARP_BIN_DIR:$PATH"
     fi
@@ -162,7 +164,8 @@ ensure_nsharp_path() {
         mkdir -p "$NSHARP_ENV_DIR"
         cat > "$NSHARP_ENV_FILE" <<EOF
 # Added by N# local setup.
-export PATH="$NSHARP_BIN_DIR:\$PATH"
+export NSHARP_INSTALL_DIR="$NSHARP_INSTALL_DIR"
+export PATH="\$NSHARP_INSTALL_DIR/bin:\$PATH"
 EOF
         if [[ -n "$dotnet_root" ]]; then
             {

@@ -32,6 +32,8 @@ func add(a: int, b: int): int {
 }
 ```
 
+Functions that return a value must declare that return type. Omitting the return type means the function returns `void`.
+
 ### Visibility
 
 Functions follow N#'s convention-based visibility:
@@ -81,6 +83,24 @@ message1 := greet("Alice")              // "Hello, Alice!"
 message2 := greet("Bob", "Hi")          // "Hi, Bob!"
 ```
 
+Enum members are compile-time constructor defaults too. The enum owner is bound
+where the constructor is declared, so imports at a call site cannot change it.
+
+```n#
+enum DeliveryMode {
+    Standard,
+    Express
+}
+
+class Quote {
+    Mode: DeliveryMode
+
+    constructor(mode: DeliveryMode = DeliveryMode.Standard) {
+        this.Mode = mode
+    }
+}
+```
+
 ### Params Arrays
 
 ```n#
@@ -97,7 +117,7 @@ result1 := sum(1, 2, 3)           // 6
 result2 := sum(1, 2, 3, 4, 5)     // 15
 ```
 
-### Params Collections (C# 13)
+### Params Collections
 
 N# supports params with any collection type:
 
@@ -162,6 +182,16 @@ func printMessage(msg: string) {
     Console.WriteLine(msg)
 }
 ```
+
+Returning a value from a void function is an error:
+
+```n#
+func answer() {
+    return 42
+}
+```
+
+Write `func answer(): int` when the function should return `42`.
 
 ### Nullable Return Types
 
@@ -253,7 +283,7 @@ async func processFile(path: string): Task<string> {
 }
 ```
 
-Explicit `Task<T>` signatures use C# async return semantics: return the `T`
+Explicit `Task<T>` signatures use task-like async return semantics: return the `T`
 value from the body and N# wraps it in `Task<T>`. Explicit `Task` signatures
 are unit-returning async methods, so no `return` statement is required after the
 last `await`.
@@ -360,6 +390,45 @@ func process<T>(item: T): string where T : IFormattable {
 func compare<T>(a: T, b: T): bool where T : IComparable<T> {
     return a.CompareTo(b) == 0
 }
+```
+
+When the type argument is a **value type** (a `struct`), calls to a constrained
+interface method dispatch through a `constrained.` prefix — the receiver is **not
+boxed**, so there is no heap allocation and the struct's own method is invoked
+directly:
+
+```n#
+interface Shape {
+    func Area(): int
+}
+
+struct Square : Shape {
+    side: int
+    func Area(): int => side * side
+}
+
+func totalArea<T>(s: T): int where T : Shape {
+    return s.Area()   // dispatched without boxing when T is Square
+}
+
+totalArea(new Square { side: 3 })   // 9
+```
+
+This holds even when the called method is inherited from a **base interface** of
+the constraint. Given `interface Shape : HasArea`, a function constrained to
+`T : Shape` can still call the inherited `Area()` without boxing:
+
+```n#
+interface HasArea { func Area(): int }
+interface Shape : HasArea { func Name(): string }
+
+struct Square : Shape {
+    side: int
+    func Area(): int => side * side
+    func Name(): string => "square"
+}
+
+func totalArea<T>(s: T): int where T : Shape => s.Area()   // resolves HasArea.Area
 ```
 
 ### Multiple Constraints
@@ -658,10 +727,10 @@ func main() {
 
 - **[Types Guide](types.md)** - Learn about classes, unions, records, and interfaces
 - **[Pattern Matching](pattern-matching.md)** - Deep dive into pattern matching
-- **[Language Tour](language-tour.md)** - Comprehensive language overview including async
+- **[Language Tour: Async/Await](language-tour.md#asyncawait)** - Async functions and streams
+- **[Systems N#](systems.md)** - `[hot]` functions, `Result<T,E>`, and the performance lane
 
 ## Resources
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
-- [Examples](/examples)
-- [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
+- [Examples](/examples/)

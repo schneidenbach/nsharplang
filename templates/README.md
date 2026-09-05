@@ -16,7 +16,7 @@ Public users should install NSharpLang through the canonical installer, which in
 curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 ```
 
-Maintainers can still install this template package directly from a local feed while validating release artifacts, but that is not the public first-run path.
+Generated projects restore N# packages from `$NSHARP_INSTALL_DIR/packages`; the installer writes that environment variable to the N# env file it asks users to source. Maintainers can still install this template package directly from a local feed while validating release artifacts, but they must set `NSHARP_INSTALL_DIR` to the toolset root before creating or restoring projects. Direct package installation is not the public first-run path.
 
 ## Available Templates
 
@@ -128,6 +128,60 @@ nlc new MyApi --template webapi
 - `global.json` - SDK version pinning
 
 Open the generated folder in VS Code and run the `nsharp: build`, `nsharp: run`, or `nsharp: test` tasks. F5/debugging is intentionally hidden until N# has a real debugger-backed workflow.
+
+### Systems Console Application
+
+Creates a systems-profile console project with strict policy defaults, a hot span parser, a boundary adapter, warmup configuration, and a smoke test.
+
+<!-- quickstart:systems-console -->
+```bash
+dotnet new nsharp-systems-cli -o PacketTool
+cd PacketTool
+nlc check --systems-report
+nlc build --perf-report
+```
+
+Equivalent CLI scaffold:
+
+```bash
+nlc new systems-cli PacketTool
+```
+
+**Template short name:** `nsharp-systems-cli`
+
+**What's included:**
+- `Program.nl` - Hot parser, boundary adapter, warmup function, and entry point
+- `Systems.tests.nl` - Systems smoke test
+- `project.yml` - Systems strict configuration
+- `NuGet.config` - Package source configuration
+- `global.json` - SDK version pinning
+
+### Systems Library
+
+Creates a systems-profile library with a public hot API and boundary adapter suitable for CLR validation.
+
+<!-- quickstart:systems-library -->
+```bash
+dotnet new nsharp-systems-lib -o PacketCore
+cd PacketCore
+nlc check --systems-report
+nlc build --perf-report
+```
+
+Equivalent CLI scaffold:
+
+```bash
+nlc new systems-lib PacketCore
+```
+
+**Template short name:** `nsharp-systems-lib`
+
+**What's included:**
+- `PacketCore.nl` - Public hot parser API and boundary adapter
+- `PacketCore.tests.nl` - Systems smoke test
+- `project.yml` - Systems strict library configuration
+- `NuGet.config` - Package source configuration
+- `global.json` - SDK version pinning
 
 ## Uninstall
 

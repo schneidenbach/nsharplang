@@ -52,7 +52,7 @@ func Main() {
         checkedResult := checked(max + 1)
         print $"checked(MaxValue + 1) = {checkedResult}"
     } catch ex: OverflowException {
-        print $"checked(MaxValue + 1) threw {ex.GetType().Name}"
+        print "checked(MaxValue + 1) threw OverflowException"
     }
 
     print ""

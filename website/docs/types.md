@@ -19,6 +19,8 @@ This guide covers the type system in N#, including classes, structs, records, di
 - [Interfaces](#interfaces)
 - [Generics](#generics)
 - [Nullable Types](#nullable-types)
+- [Type Aliases](#type-aliases)
+- [Newtypes (Branded Types)](#newtypes-branded-types)
 
 ## Basic Types
 
@@ -64,7 +66,7 @@ class Person {
 }
 ```
 
-### Primary Constructors (C# 12)
+### Primary Constructors
 
 ```n#
 class Person(firstName: string, lastName: string, age: int) {
@@ -92,7 +94,7 @@ class Product {
     // Full property with getter and setter
     stock: int
     Stock: int {
-        get => stock
+        get { return stock }
         set {
             if value < 0 {
                 throw new ArgumentException("Stock cannot be negative")
@@ -105,10 +107,13 @@ class Product {
 
 ### Init-only Properties
 
+Mark a property `init` to make it settable in the object initializer but immutable
+afterward.
+
 ```n#
 class Configuration {
-    AppName: string { get; init; }
-    Version: string { get; init; }
+    init AppName: string
+    init Version: string
 }
 
 // Usage
@@ -324,8 +329,8 @@ func divide(a: double, b: double): Result<double> {
 result := divide(10, 2)
 
 message := match result {
-    Result.Success<double> { value: v } => $"Result: {v}",
-    Result.Failure<double> { error: e } => $"Error: {e}"
+    Result.Success { value: v } => $"Result: {v}",
+    Result.Failure { error: e } => $"Error: {e}"
 }
 ```
 
@@ -365,48 +370,26 @@ union Option<T> {
 func findUser(id: int): Option<User> {
     user := database.Find(id)
     if user == null {
-        return new Option.None<User> { }
+        return new Option.None
     }
     return new Option.Some<User> { value: user }
 }
 ```
 
-### How Unions Compile to C#
+### CLR Shape of Unions
 
-N# unions compile to C# class hierarchies:
+N# unions emit CLR class hierarchies. Case payload members follow N#'s naming
+conventions — PascalCase exports a public CLR field, camelCase stays
+assembly-internal — so name payloads PascalCase for public CLR surfaces:
 
 ```n#
 union Result<T> {
-    Success { value: T }
-    Failure { error: string }
+    Success { Value: T }
+    Failure { Error: string }
 }
 ```
 
-Compiles to:
-
-```csharp
-public abstract class Result<T>
-{
-    private Result() { }
-
-    public sealed class Success : Result<T>
-    {
-        public T Value { get; init; }
-    }
-
-    public sealed class Failure : Result<T>
-    {
-        public string Error { get; init; }
-    }
-}
-```
-
-This means C# code can use N# unions naturally:
-
-```csharp
-// C# code consuming N# union
-var result = new Result<int>.Success { Value = 42 };
-```
+The emitted shape is an abstract union base with sealed case types and public fields for exported payload members.
 
 ## Duck Interfaces
 
@@ -437,7 +420,16 @@ func processReader(reader: IReader) {
 // Both types work - they have the right shape!
 processReader(new FileReader())
 processReader(new HttpReader())
+
+readers := new System.Collections.Generic.List<IReader>()
+readers.Add(new FileReader())
+readers.Add(new HttpReader())
 ```
+
+Satisfaction is checked when a value flows to a duck-interface target, including
+function arguments, returns, fields, and generic APIs such as `List<IReader>.Add`.
+The source class does not declare `: IReader`; matching the required exported
+member signatures is the contract.
 
 ### Duck Interface Constraints
 
@@ -462,7 +454,9 @@ result := execute<string>(new StringProcessor(), "hello")
 
 ### How Duck Interfaces Compile
 
-Duck interfaces are compile-time only - they're erased at runtime:
+Duck interfaces use structural checking in N# source, but they are not erased.
+The compiler emits an internal CLR interface and records that exact interface on
+matching N# types:
 
 ```n#
 duck interface IReader {
@@ -472,68 +466,111 @@ duck interface IReader {
 
 Compiles to an internal interface:
 
-```csharp
+```text
 internal interface IReader
 {
     string Read();
 }
 ```
 
-And the compiler automatically implements it on matching types:
+For example, the emitted shape is equivalent to:
 
-```csharp
+```text
 // Original N#
 class FileReader {
     func Read(): string { ... }
 }
 
-// Generated C#
+// CLR shape
 class FileReader : IReader
 {
     public string Read() { ... }
 }
 ```
 
+That CLR shape makes ordinary interface dispatch reliable. A matching class
+flows to `IReader` by reference conversion; a matching struct is boxed when it
+becomes an interface value. N# keeps the source surface structural: you do not
+write an explicit implementation clause or use a cast to claim conformance.
+
 ## Enums
 
-N# supports string enums for better APIs:
+N# supports both string enums and numeric enums as first-class types:
 
 ```n#
-enum Status {
+enum Status: string {
     Active = "active",
     Inactive = "inactive",
     Pending = "pending"
 }
 
-enum Role {
-    Admin = "admin",
-    User = "user",
-    Guest = "guest"
+enum Priority {
+    Low = 0,
+    Medium = 1,
+    High = 2
 }
 ```
 
 ### Using Enums
 
-```n#
-userStatus: string = Status.Active
-userRole: string = Role.Admin
+String enums can be used as parameter types, return types, and record properties — just like numeric enums:
 
-// In functions
-func checkAccess(role: string): bool {
-    return role == Role.Admin
+```n#
+// As a parameter type
+func checkActive(status: Status): bool {
+    return status == Status.Active
+}
+
+// As a return type
+func getDefault(): Status {
+    return Status.Pending
+}
+
+// In records
+record User {
+    Name: string
+    CurrentStatus: Status
+}
+
+// Implicit conversion to string
+name: string = Status.Active  // "active"
+
+// Pattern matching
+func describe(status: Status): string {
+    return match status {
+        Status.Active => "Currently active",
+        Status.Inactive => "Not active",
+        Status.Pending => "Awaiting activation"
+    }
 }
 ```
 
 ### How Enums Compile
 
-String enums compile to static classes:
+String enums compile to readonly structs with implicit string conversion and JSON support:
 
-```csharp
-public static class Status
+```text
+[JsonConverter(typeof(StatusJsonConverter))]
+public readonly struct Status : IEquatable<Status>
 {
-    public const string Active = "active";
-    public const string Inactive = "inactive";
-    public const string Pending = "pending";
+    public static readonly Status Active = new Status("active");
+    public static readonly Status Inactive = new Status("inactive");
+    public static readonly Status Pending = new Status("pending");
+
+    public string Value { get; }
+    public static implicit operator string(Status value) => value.Value;
+    // ... equality, JSON converter
+}
+```
+
+Numeric enums emit CLR enums:
+
+```text
+public enum Priority
+{
+    Low = 0,
+    Medium = 1,
+    High = 2
 }
 ```
 
@@ -630,6 +667,18 @@ stringContainer := new Container<string>("hello")
 
 ### Generic Constraints
 
+A `where` clause constrains a type parameter, on a `class`, `struct`, `record`, `interface` or
+`union` alike, and on functions. It is written after the base and interface list and before the body:
+
+```n#
+class Node<T>(id: int): Base, IPrintable where T : struct {
+    Value: T
+}
+```
+
+The constraint reaches CLR metadata, so a constrained type is a constrained type to C# and every
+other .NET language, not only inside N#.
+
 ```n#
 // Class constraint
 class Repository<T> where T : class {
@@ -677,6 +726,38 @@ class Service<T> where T : class, IDisposable, new() {
 }
 ```
 
+One clause per constrained parameter — a two-parameter type takes two:
+
+```n#
+class Map<K, V> where K : class where V : struct {
+    Count: int
+}
+```
+
+### What is checked, and where
+
+A type argument is checked against its declaration's constraints when you **construct** the type:
+
+```n#
+class Box<T> where T : struct {
+    Value: T
+}
+
+b := new Box<string>()   // ERROR NL208: `string` is not a non-nullable value type, but type
+                         // parameter `T` of `Box` requires one (the `struct` constraint)
+```
+
+Two current limits, both being worked on:
+
+- **A constraint naming a BCL interface does not emit yet.** `where T : IComparable<T>` and
+  `where T : class, IDisposable, new()` — the `Processor` and `Service` examples above — are
+  refused at build time, because the emitter's supported-type list does not yet admit those
+  interfaces as constraint targets. Constraints naming your own interfaces and classes
+  (`where T : IIdentifiable`, `where T : Shape`) do emit. The same limit applies to functions.
+- **Only construction sites are checked.** A violating type argument written in a field,
+  parameter, return type, local or base list is not yet reported; the constraint is still recorded
+  in metadata, and the same argument is reported when you construct it.
+
 ## Nullable Types
 
 ### Nullable Reference Types
@@ -698,7 +779,9 @@ age: int? = null
 age = 25
 
 if age != null {
-    Console.WriteLine($"Age: {age.Value}")
+    // Direct null checks narrow nullable values inside this block.
+    definitelyAge: int = age
+    Console.WriteLine($"Age: {definitelyAge}")
 }
 
 // Null-coalescing operator
@@ -715,21 +798,63 @@ name := user?.Name  // null if user is null
 city := user?.Address?.City
 ```
 
-### Null-forgiving Operator
+### Null checks instead of null-forgiving
+
+N# does not use null-forgiving `!` as an escape hatch. Prefer a direct check, `??`, or `match` so the proof stays in the code:
 
 ```n#
-// When you know it's not null
-name: string = optionalName!
+optionalName: string? = GetName()
+
+if optionalName != null {
+    // `optionalName` is narrowed to `string` in this block.
+    name: string = optionalName
+}
+
+displayName := optionalName ?? "anonymous"
 ```
+
+`null!`, `default!`, and blind `.Value` access are not N# style. Replace suppression with explicit nullable handling.
 
 ## Type Aliases
 
+Create transparent type aliases (interchangeable with the underlying type):
+
 ```n#
-// Not yet supported in N# - use C# using directives
-// Future feature:
-// type UserId = Guid
-// type EmailAddress = string
+type UserId = int
+type StringDict = Dictionary<string, string>
+type Callback = Func<void>
 ```
+
+Type aliases are compile-time only — they do not create a distinct runtime type.
+
+## Newtypes (Branded Types)
+
+Create **distinct wrapper types** that prevent accidental type confusion:
+
+```n#
+type UserId = newtype int
+type OrderId = newtype int
+type Email = newtype string
+```
+
+Unlike type aliases, newtypes are **not interchangeable** with their underlying type:
+
+```n#
+id := UserId(42)           // Call-style construction
+let other = new UserId(7)  // `new` form is equivalent
+let raw: int = id.Value    // Explicit unwrapping
+
+// These are compile errors:
+// let x: int = id          // ERROR: UserId is not int
+// let y: UserId = 42       // ERROR: int is not UserId
+// let z: OrderId = id      // ERROR: UserId is not OrderId
+```
+
+Newtypes emit concrete `readonly record struct` wrappers for .NET interop, giving
+public consumers value equality, `ToString()`, and familiar value semantics.
+
+> **Construction:** Both the call-style shorthand `UserId(42)` and the explicit
+> `new UserId(42)` are supported and produce identical IL.
 
 ## Complete Example
 
@@ -815,13 +940,13 @@ func main() {
     // Retrieve and match
     result := repo.GetById(person.Id)
     match result {
-        Result.Success<Person> { value: p } => {
+        Result.Success { value: p } => {
             Console.WriteLine($"Found: {p.describe()}")
             if p.Address != null {
                 Console.WriteLine($"Lives in: {p.Address.City}")
             }
         },
-        Result.Failure<Person> { error: e } => {
+        Result.Failure { error: e } => {
             Console.WriteLine($"Error: {e}")
         }
     }
@@ -832,10 +957,8 @@ func main() {
 
 - **[Pattern Matching](pattern-matching.md)** - Deep dive into pattern matching with unions and more
 - **[Functions Guide](functions.md)** - Learn about functions, lambdas, and async
-- **[Interop Guide](interop.md)** - Using N# with C# and .NET libraries
 
 ## Resources
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
-- [Examples](/examples)
-- [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
+- [Examples](/examples/)

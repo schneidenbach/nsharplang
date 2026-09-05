@@ -1,6 +1,6 @@
 # Lexer Component
 
-**File:** `src/NSharpLang.Compiler/Lexer.cs`
+**File:** `src/NSharpLang.Compiler.BootstrapServices/Lexer.nl`
 
 ## Responsibility
 
@@ -13,23 +13,25 @@ Converts raw source code text into a stream of tokens for the parser.
 - **Important:** Token values include the quotes
   - Regular string: `"hello"` (not `hello`)
   - Interpolated: `$"hello {x}"` (full string)
-- This simplifies C# export logic (no need to re-add quotes)
+- The parser and semantic pipeline receive the source spelling unchanged.
 
-### Newline Filtering
-- Newlines are tokenized but filtered out before returning to parser
-- Makes parsing simpler (no need to handle newlines everywhere)
-- Line/column tracking still accurate
+### Newlines and indentation
+- Newline tokens are retained in the returned token list.
+- `InsertIndentationBraces` uses line starts and indentation to synthesize brace tokens outside
+  explicit braces/parentheses/brackets.
+- Line/column tracking remains 1-based.
 
 ### Comment Handling
 - Single-line comments: `// comment`
 - Multi-line comments: `/* comment */`
-- Comments are filtered out during tokenization
-- Not preserved in token stream (not needed for transpilation)
+- Comment tokens are removed from the main token list.
+- Comment trivia is preserved separately in `Lexer.Comments`, including line, column, text, and
+  multi-line classification.
 
 ### Numeric Literals
 - Integer literals: `42`, `1_000_000`
 - Float literals: `3.14`, `1.5e10`
-- Underscores allowed for readability (exported as-is to C#)
+- Underscores allowed for readability
 
 ### Operator Recognition
 - Single-char: `+`, `-`, `*`, `/`, `=`, `<`, `>`, etc.
@@ -38,7 +40,8 @@ Converts raw source code text into a stream of tokens for the parser.
 
 ## Token Types
 
-See `src/NSharpLang.Compiler/Token.cs` for complete list (50+ token types).
+See `src/NSharpLang.Compiler.BootstrapServices/Token.nl` for the complete live token model and
+token-type enum.
 
 Notable tokens:
 - **QuestionDot**: `?.` for null-conditional member access
@@ -62,7 +65,7 @@ Notable tokens:
 
 ### String Literal Storage
 Strings are stored with quotes included:
-```csharp
+```text
 // Source: "hello"
 // Token value: "hello" (includes quotes)
 
@@ -70,7 +73,7 @@ Strings are stored with quotes included:
 // Token value: $"hello {x}" (includes $ and quotes)
 ```
 
-This design decision simplifies the C# exporter - it can emit token values directly without quote wrapping.
+This design decision preserves source spelling for downstream compiler phases.
 
 ## Error Handling
 
@@ -83,7 +86,7 @@ Errors include file name, line, and column for precise reporting.
 
 ## Usage Example
 
-```csharp
+```text
 var source = "let x := 42";
 var lexer = new Lexer(source, "example.nl");
 var tokens = lexer.Tokenize(); // Returns List<Token>
@@ -96,12 +99,24 @@ var tokens = lexer.Tokenize(); // Returns List<Token>
 
 ## Testing
 
-Lexer has 33 unit tests covering:
-- All keywords
-- All operators
-- String interpolation
-- Numeric literals
-- Comments
-- Error cases
+The lexer's canonical contracts are **N#, not C#**: `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`,
+which replaced `tests/LexerTests.cs` in 020 slice 7. They cover:
+- **Every keyword** — all 85 are lexed individually and crossed through `KeywordTypeForText` and
+  back through `KeywordTextForType`; the remaining 63 `TokenType` members are proved reserved by
+  neither, and the two tables are proved to partition the whole 148-member enum
+- The 148 members partition a second way, and `ParserTokenFacts.tests.nl` asserts it: 85 reserved
+  keywords (`Lexer.IsReservedKeyword`), 36 SYMBOLIC operators (`ParserTokenFacts.IsOperator`) and 27
+  that are neither — the seven literal kinds, eleven delimiters, `Eof`, `Newline`, `Unknown`,
+  `Lifetime`, `Test`, the preprocessor directive and the three comment kinds. The two memberships are
+  DISJOINT: `is`, `as`, `and`, `or` and `not` are operators spelled as words and belong to the keyword
+  table alone. A token type added to the enum and forgotten by all three fails the partition
+- All operators and delimiters, by kind *and* by spelling (which is what pins the longest-match order)
+- String, triple-quote, interpolated and interpolated-raw literals, terminated and unterminated
+- Numeric literals: hex, binary, exponent, every float and integer suffix, underscore stripping,
+  and every malformed form that must answer `Unknown`
+- Comments — filtered out of the token stream and preserved on `Comments` as positioned trivia
+- Preprocessor directives, newline normalisation, and line/column tracking
+- Apostrophe disambiguation: `Lifetime` in a systems header, `CharLiteral` everywhere else
 
-See `tests/LexerTests.cs`.
+Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
+(restore with `-p:NSharpExcludeTests=false --force-evaluate` first).

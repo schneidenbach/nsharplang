@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using NSharpLang.Cli;
+using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Daemon;
@@ -62,14 +63,14 @@ public class DaemonServer
     /// </summary>
     public void Run()
     {
-        var pidPath = Path.Combine(Path.GetDirectoryName(_socketPath)!, "daemon.pid");
+        var pidPath = DaemonProtocolKernels.GetPidFilePath(_socketPath);
         var ownsSocket = false;
 
         if (File.Exists(_socketPath))
         {
             if (DaemonClient.IsRunning(_projectRoot))
             {
-                throw new InvalidOperationException($"A daemon is already running for {_projectRoot}.");
+                throw new InvalidOperationException(DaemonProtocolKernels.GetAlreadyRunningMessage(_projectRoot));
             }
 
             File.Delete(_socketPath);
@@ -91,9 +92,10 @@ public class DaemonServer
             // Write PID file only after bind/listen succeeds.
             File.WriteAllText(pidPath, Environment.ProcessId.ToString());
 
-            Console.Error.WriteLine($"[daemon] Listening on {_socketPath} (PID {Environment.ProcessId})");
-            Console.Error.WriteLine($"[daemon] Project: {_projectRoot}");
-            Console.Error.WriteLine($"[daemon] Idle timeout: {FormatDuration(_idleTimeout)}");
+            Console.Error.WriteLine(DaemonServerKernels.GetListeningMessage(_socketPath, Environment.ProcessId));
+            Console.Error.WriteLine(DaemonServerKernels.GetProjectMessage(_projectRoot));
+            Console.Error.WriteLine(DaemonServerKernels.GetIdleTimeoutMessage(
+                DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(_idleTimeout.TotalMilliseconds))));
 
             // Idle timeout thread
             var idleThread = new Thread(() =>
@@ -104,7 +106,8 @@ public class DaemonServer
                     var idle = DateTime.UtcNow - _lastActivity;
                     if (idle >= _idleTimeout)
                     {
-                        Console.Error.WriteLine($"[daemon] Idle timeout ({FormatDuration(_idleTimeout)}). Shutting down.");
+                        Console.Error.WriteLine(DaemonServerKernels.GetIdleTimeoutShutdownMessage(
+                            DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(_idleTimeout.TotalMilliseconds))));
                         _running = false;
                         // Connect to self to unblock Accept()
                         try
@@ -137,7 +140,7 @@ public class DaemonServer
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[daemon] Error: {ex.Message}");
+                    Console.Error.WriteLine(DaemonServerKernels.GetServerErrorMessage(ex.Message));
                 }
             }
         }
@@ -191,13 +194,13 @@ public class DaemonServer
             }
             catch (JsonException ex)
             {
-                SendResponse(client, Error(0, DaemonConstants.ErrorParse, "Malformed daemon request JSON.", new { ex.Path, ex.LineNumber, ex.BytePositionInLine }));
+                SendResponse(client, Error(0, DaemonConstants.ErrorParse, DaemonProtocolKernels.GetMalformedRequestJsonMessage(), new { ex.Path, ex.LineNumber, ex.BytePositionInLine }));
                 return;
             }
 
             if (request == null || string.IsNullOrWhiteSpace(request.Method))
             {
-                SendResponse(client, Error(request?.Id ?? 0, DaemonConstants.ErrorInvalidRequest, "Daemon request must include a method."));
+                SendResponse(client, Error(request?.Id ?? 0, DaemonConstants.ErrorInvalidRequest, DaemonProtocolKernels.GetMissingMethodMessage()));
                 return;
             }
 
@@ -209,7 +212,7 @@ public class DaemonServer
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[daemon] Client error: {ex.Message}");
+            Console.Error.WriteLine(DaemonServerKernels.GetClientErrorMessage(ex.Message));
         }
     }
 
@@ -217,32 +220,33 @@ public class DaemonServer
     {
         try
         {
+            var methodKind = DaemonProtocolKernels.GetMethodKind(request.Method);
+
             // Daemon control methods
-            switch (request.Method)
+            switch (methodKind)
             {
-                case DaemonConstants.MethodPing:
-                    return Ok(request.Id, "\"pong\"");
+                case DaemonMethodKind.Ping:
+                    return Ok(request.Id, DaemonProtocolKernels.GetPongResultJson());
 
-                case DaemonConstants.MethodShutdown:
+                case DaemonMethodKind.Shutdown:
                     _running = false;
-                    return Ok(request.Id, "\"shutting down\"");
+                    return Ok(request.Id, DaemonProtocolKernels.GetShutdownResultJson());
 
-                case DaemonConstants.MethodStatus:
+                case DaemonMethodKind.Status:
                     var uptime = DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime();
-                    var status = new DaemonStatus
-                    {
-                        Pid = Environment.ProcessId,
-                        Uptime = $"{uptime.Hours}h {uptime.Minutes}m {uptime.Seconds}s",
-                        ProjectRoot = _projectRoot,
-                        CachedFiles = _snapshot?.CompilationUnits.Count ?? 0,
-                        IdleTimeout = $"{DaemonConstants.IdleTimeoutMinutes}m"
-                    };
-                    return Ok(request.Id, JsonSerializer.Serialize(status));
+                    return Ok(
+                        request.Id,
+                        DaemonProtocolKernels.StatusResultJson(
+                            Environment.ProcessId,
+                            DaemonProtocolKernels.FormatUptime(uptime.Hours, uptime.Minutes, uptime.Seconds),
+                            _projectRoot,
+                            _snapshot?.CompilationUnits.Count ?? 0,
+                            DaemonProtocolKernels.FormatIdleTimeoutMinutes(DaemonConstants.IdleTimeoutMinutes)));
             }
 
-            if (!IsQueryMethod(request.Method))
+            if (!DaemonProtocolKernels.IsQueryMethod(methodKind))
             {
-                return Error(request.Id, DaemonConstants.ErrorMethodNotFound, $"Unknown method: {request.Method}");
+                return Error(request.Id, DaemonConstants.ErrorMethodNotFound, DaemonServerKernels.GetUnknownMethodMessage(request.Method));
             }
 
             // Ensure snapshot is loaded
@@ -250,17 +254,17 @@ public class DaemonServer
 
             if (_snapshot == null)
             {
-                return Error(request.Id, DaemonConstants.ErrorInternal, "Failed to load project");
+                return Error(request.Id, DaemonConstants.ErrorInternal, DaemonServerKernels.GetFailedLoadProjectMessage());
             }
 
-            if (request.Method == DaemonConstants.MethodBatch)
+            if (methodKind == DaemonMethodKind.Batch)
             {
                 var requests = GetParam<List<BatchQueryRequest>>(request.Params, "requests");
                 if (requests == null || requests.Count == 0)
                 {
                     return Ok(request.Id, OutputFormatter.ErrorToJson(
                         "batch",
-                        "Batch request payload did not contain any requests.",
+                        DaemonServerKernels.GetEmptyBatchPayloadMessage(),
                         _projectRoot,
                         "emptyBatch"));
                 }
@@ -286,30 +290,32 @@ public class DaemonServer
             var compact = GetParam<bool>(request.Params, "compact");
             var clusters = GetParam<bool>(request.Params, "clusters");
 
-            int line = 0, col = 0;
+            var line = 0;
+            var col = 0;
             if (posStr != null)
+                DaemonServerKernels.ParsePosition(posStr, out line, out col);
+
+            var parameterValidation = DaemonProtocolKernels.ValidateRequiredParameters(methodKind, file != null);
+            if (!parameterValidation.IsValid)
             {
-                var parts = posStr.Split(':');
-                if (parts.Length == 2)
-                {
-                    int.TryParse(parts[0], out line);
-                    int.TryParse(parts[1], out col);
-                }
+                return Ok(request.Id, OutputFormatter.ErrorToJson(
+                    parameterValidation.QueryCommand,
+                    parameterValidation.Message));
             }
 
             // Query methods
-            string result = request.Method switch
+            string result = methodKind switch
             {
-                DaemonConstants.MethodBatch => throw new InvalidOperationException("Batch queries should be handled before single-request dispatch."),
-                DaemonConstants.MethodSymbols => HandleSymbols(file, kind),
-                DaemonConstants.MethodOutline => HandleOutline(file),
-                DaemonConstants.MethodDiagnostics => HandleDiagnostics(file, severity, clusters),
-                DaemonConstants.MethodType => HandleType(file, line, col),
-                DaemonConstants.MethodDefinition => HandleDefinition(file, line, col, name),
-                DaemonConstants.MethodReferences => HandleReferences(file, line, col),
-                DaemonConstants.MethodCompletions => HandleCompletions(file, line, col, includeKeywords),
-                DaemonConstants.MethodInspect => HandleInspect(file, line, col, includeKeywords, summary || compact),
-                _ => throw new DaemonProtocolException(DaemonConstants.ErrorMethodNotFound, $"Unknown method: {request.Method}")
+                DaemonMethodKind.Batch => throw new InvalidOperationException(DaemonProtocolKernels.GetBatchDispatchAfterPrecheckMessage()),
+                DaemonMethodKind.Symbols => HandleSymbols(file, kind),
+                DaemonMethodKind.Outline => HandleOutline(file!),
+                DaemonMethodKind.Diagnostics => HandleDiagnostics(file, severity, clusters),
+                DaemonMethodKind.Type => HandleType(file!, line, col),
+                DaemonMethodKind.Definition => HandleDefinition(file!, line, col),
+                DaemonMethodKind.References => HandleReferences(file!, line, col),
+                DaemonMethodKind.Completions => HandleCompletions(file!, line, col, includeKeywords),
+                DaemonMethodKind.Inspect => HandleInspect(file!, line, col, includeKeywords, summary || compact),
+                _ => throw new DaemonProtocolException(DaemonConstants.ErrorMethodNotFound, DaemonServerKernels.GetUnknownMethodMessage(request.Method))
             };
 
             return Ok(request.Id, result);
@@ -329,16 +335,19 @@ public class DaemonServer
     private string HandleSymbols(string? file, string? kind)
     {
         NSharpLang.Compiler.CodeIntelligence.SymbolKind? kindFilter = null;
-        if (kind != null && Enum.TryParse<NSharpLang.Compiler.CodeIntelligence.SymbolKind>(kind, true, out var parsed))
-            kindFilter = parsed;
+        if (kind != null)
+        {
+            var parsedKind = QueryCommandKernels.ParseSymbolKind(kind);
+            if (parsedKind.HasValue)
+                kindFilter = parsedKind.GetValueOrDefault();
+        }
 
         var results = _service.GetSymbols(_snapshot!, file, kindFilter);
         return OutputFormatter.SymbolsToJson(results, _snapshot!.ProjectRoot);
     }
 
-    private string HandleOutline(string? file)
+    private string HandleOutline(string file)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("outline", "file parameter required");
         var result = _service.GetOutline(_snapshot!, file);
         return OutputFormatter.OutlineToJson(result);
     }
@@ -347,21 +356,20 @@ public class DaemonServer
     {
         var results = _service.GetDiagnostics(_snapshot!, file);
         if (severity != null)
-            results = results.Where(d => d.Severity.Equals(severity, StringComparison.OrdinalIgnoreCase)).ToList();
+            results = OutputFormatter.FilterDiagnosticsBySeverity(results, severity);
         return clusters
             ? OutputFormatter.DiagnosticClustersToJson(results, _snapshot!.ProjectRoot)
             : OutputFormatter.DiagnosticsToJson(results, _snapshot!.ProjectRoot);
     }
 
-    private string HandleType(string? file, int line, int col)
+    private string HandleType(string file, int line, int col)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("type", "file and pos parameters required");
         var result = _service.GetTypeAtPosition(_snapshot!, file, line, col);
         if (result == null)
         {
             return OutputFormatter.ErrorToJson(
                 "type",
-                $"No symbol found at {file}:{line}:{col}",
+                DaemonServerKernels.GetNoSymbolAtPositionMessage(file, line, col),
                 _snapshot!.ProjectRoot,
                 "noSymbol",
                 new
@@ -374,20 +382,14 @@ public class DaemonServer
         return OutputFormatter.TypeToJson(result, file, line, col);
     }
 
-    private string HandleDefinition(string? file, int line, int col, string? name)
+    private string HandleDefinition(string file, int line, int col)
     {
-        if (name != null)
-        {
-            var results = _service.FindDefinitionByName(_snapshot!, name);
-            return OutputFormatter.DefinitionSearchToJson(name, results);
-        }
-        if (file == null) return OutputFormatter.ErrorToJson("definition", "file+pos or name required");
         var result = _service.FindDefinition(_snapshot!, file, line, col);
         if (result == null)
         {
             return OutputFormatter.ErrorToJson(
                 "definition",
-                $"No symbol found at {file}:{line}:{col}",
+                DaemonServerKernels.GetNoSymbolAtPositionMessage(file, line, col),
                 _snapshot!.ProjectRoot,
                 "noSymbol",
                 new
@@ -400,17 +402,15 @@ public class DaemonServer
         return OutputFormatter.DefinitionToJson(result);
     }
 
-    private string HandleReferences(string? file, int line, int col)
+    private string HandleReferences(string file, int line, int col)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("references", "file and pos required");
-
         // Resolve symbol metadata (same as CLI path — don't hardcode placeholders)
         var definition = _service.FindDefinition(_snapshot!, file, line, col);
         if (definition == null)
         {
             return OutputFormatter.ErrorToJson(
                 "references",
-                $"No symbol found at {file}:{line}:{col}",
+                DaemonServerKernels.GetNoSymbolAtPositionMessage(file, line, col),
                 _snapshot!.ProjectRoot,
                 "noSymbol",
                 new
@@ -429,7 +429,7 @@ public class DaemonServer
         {
             return OutputFormatter.ErrorToJson(
                 "references",
-                "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
+                DaemonServerKernels.GetSemanticReferencesUnavailableMessage(),
                 _snapshot!.ProjectRoot,
                 "semanticReferencesUnavailable",
                 new
@@ -443,17 +443,14 @@ public class DaemonServer
         return OutputFormatter.ReferencesToJson(symbolName, symbolKind, definedAt, results);
     }
 
-    private string HandleCompletions(string? file, int line, int col, bool includeKeywords)
+    private string HandleCompletions(string file, int line, int col, bool includeKeywords)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("completions", "file and pos required");
         var result = _completionEngine.GetCompletions(_snapshot!, file, line, col, includeKeywords);
         return OutputFormatter.CompletionsToJson(result, file, line, col);
     }
 
-    private string HandleInspect(string? file, int line, int col, bool includeKeywords, bool summary)
+    private string HandleInspect(string file, int line, int col, bool includeKeywords, bool summary)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("inspect", "file and pos required");
-
         var type = _service.GetTypeAtPosition(_snapshot!, file, line, col);
         var definition = _service.FindDefinition(_snapshot!, file, line, col);
         var references = definition != null
@@ -465,7 +462,7 @@ public class DaemonServer
         {
             return OutputFormatter.ErrorToJson(
                 "inspect",
-                $"No symbol found at {file}:{line}:{col}",
+                DaemonServerKernels.GetNoSymbolAtPositionMessage(file, line, col),
                 _snapshot!.ProjectRoot,
                 "noSymbol",
                 new
@@ -509,7 +506,7 @@ public class DaemonServer
     {
         if (_snapshot != null && !_cacheInvalid) return;
 
-        Console.Error.WriteLine("[daemon] Loading project...");
+        Console.Error.WriteLine(DaemonServerKernels.GetLoadingProjectMessage());
         var sw = Stopwatch.StartNew();
 
         try
@@ -517,11 +514,13 @@ public class DaemonServer
             _snapshot = _service.LoadProject(_projectRoot);
             _cacheInvalid = false;
             sw.Stop();
-            Console.Error.WriteLine($"[daemon] Project loaded in {sw.ElapsedMilliseconds}ms ({_snapshot.CompilationUnits.Count} files)");
+            Console.Error.WriteLine(DaemonServerKernels.GetProjectLoadedMessage(
+                sw.ElapsedMilliseconds,
+                _snapshot.CompilationUnits.Count));
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[daemon] Failed to load project: {ex.Message}");
+            Console.Error.WriteLine(DaemonServerKernels.GetProjectLoadFailedTraceMessage(ex.Message));
             _snapshot = null;
         }
     }
@@ -544,29 +543,20 @@ public class DaemonServer
             _fileWatcher.Renamed += (_, e) => OnFileChanged(null, e);
 
             _fileWatcher.EnableRaisingEvents = true;
-            Console.Error.WriteLine("[daemon] File watcher started for *.nl, project.yml, .editorconfig");
+            Console.Error.WriteLine(DaemonServerKernels.GetFileWatcherStartedMessage());
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[daemon] File watcher failed: {ex.Message}");
+            Console.Error.WriteLine(DaemonServerKernels.GetFileWatcherFailedMessage(ex.Message));
         }
     }
 
     private void OnFileChanged(object? sender, FileSystemEventArgs e)
     {
-        // Skip .nlc directory changes
-        if (e.FullPath.Contains($"{Path.DirectorySeparatorChar}.nlc{Path.DirectorySeparatorChar}")) return;
+        if (!DaemonServerKernels.ShouldInvalidateForChangedPath(e.FullPath)) return;
 
-        var fileName = Path.GetFileName(e.FullPath);
-        var extension = Path.GetExtension(e.FullPath);
-
-        // Only invalidate on relevant files: .nl sources, project.yml, .editorconfig
-        if (!extension.Equals(".nl", StringComparison.OrdinalIgnoreCase) &&
-            !fileName.Equals("project.yml", StringComparison.OrdinalIgnoreCase) &&
-            !fileName.Equals(".editorconfig", StringComparison.OrdinalIgnoreCase))
-            return;
-
-        Console.Error.WriteLine($"[daemon] File changed: {fileName} — cache invalidated");
+        var fileName = DaemonServerKernels.GetChangedFileName(e.FullPath);
+        Console.Error.WriteLine(DaemonServerKernels.GetFileChangedMessage(fileName));
         _cacheInvalid = true;
     }
 
@@ -577,7 +567,7 @@ public class DaemonServer
         _fileWatcher?.Dispose();
         try { File.Delete(_socketPath); } catch { }
         try { File.Delete(pidPath); } catch { }
-        Console.Error.WriteLine("[daemon] Shutdown complete.");
+        Console.Error.WriteLine(DaemonServerKernels.GetShutdownCompleteMessage());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
@@ -601,15 +591,6 @@ public class DaemonServer
         SendAll(socket, responseBytes);
     }
 
-    private static string FormatDuration(TimeSpan duration)
-    {
-        if (duration.TotalMinutes >= 1)
-            return $"{duration.TotalMinutes:0.#}m";
-        if (duration.TotalSeconds >= 1)
-            return $"{duration.TotalSeconds:0.#}s";
-        return $"{duration.TotalMilliseconds:0}ms";
-    }
-
     private sealed class DaemonProtocolException : Exception
     {
         public DaemonProtocolException(int code, string message) : base(message)
@@ -620,26 +601,22 @@ public class DaemonServer
         public int Code { get; }
     }
 
-    private static bool IsQueryMethod(string method)
-    {
-        return method is DaemonConstants.MethodBatch
-            or DaemonConstants.MethodSymbols
-            or DaemonConstants.MethodOutline
-            or DaemonConstants.MethodDiagnostics
-            or DaemonConstants.MethodType
-            or DaemonConstants.MethodDefinition
-            or DaemonConstants.MethodReferences
-            or DaemonConstants.MethodCompletions
-            or DaemonConstants.MethodInspect;
-    }
-
     private static T? GetParam<T>(JsonElement? paramsElement, string key)
     {
         if (paramsElement == null || paramsElement.Value.ValueKind != JsonValueKind.Object) return default;
         if (paramsElement.Value.TryGetProperty(key, out var prop))
         {
             try { return JsonSerializer.Deserialize<T>(prop.GetRawText(), DaemonJsonOptions); }
-            catch { return default; }
+            catch (Exception ex)
+            {
+                // Tolerate the malformed param (caller treats it as absent) but leave a trace —
+                // a silently-dropped param turns protocol bugs into undebuggable client hangs.
+                Console.Error.WriteLine(DaemonServerKernels.GetMalformedRequestParamMessage(
+                    key,
+                    typeof(T).Name,
+                    ex.Message));
+                return default;
+            }
         }
         return default;
     }

@@ -1,0 +1,9 @@
+name: NSharpLang.QueryIntegration.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+dependencies:
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.BootstrapServices.dll

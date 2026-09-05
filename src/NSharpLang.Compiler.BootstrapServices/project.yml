@@ -1,0 +1,9 @@
+name: NSharpLang.Compiler.BootstrapServices
+backend: il
+outputType: library
+targetFramework: net10.0
+dependencies:
+  - nuget: YamlDotNet
+    version: 16.3.0
+  - nuget: System.Reflection.MetadataLoadContext
+    version: 10.0.5

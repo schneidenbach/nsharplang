@@ -5,7 +5,7 @@ title: CLI Reference
 
 # N# CLI Reference
 
-Updated: 2026-05-26
+Updated: 2026-06-01
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -18,9 +18,9 @@ Updated: 2026-05-26
 
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
-| `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--timings`, `--output` | `nlc build` |
-| `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
-| `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`) | `nlc new MyApp --template console` |
+| `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--output`, `--define` | `nlc build` |
+| `nlc run [file]` | Build and run a project or single file | `--define` | `nlc run` |
+| `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`, `systems-cli`, `systems-lib`), `--systems` | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
 | `nlc test` | Run `.tests.nl` suites through the xUnit/NUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
@@ -38,7 +38,6 @@ Updated: 2026-05-26
 | `nlc remove <package>` | Remove a dependency from `project.yml` | package name | `nlc remove Serilog` |
 | `nlc update [package]` | Update dependencies | optional package name | `nlc update` |
 | `nlc publish` | Publish framework-dependent deployment artifacts | `--project`, `--configuration`, `--output`, current-host `--runtime` | `nlc publish -c Release --output ./dist` |
-| `nlc export csharp` | Export N# sources without changing the IL toolchain | `--project`, `--output` | `nlc export csharp --project .` |
 | `nlc tree` | Show dependency tree | `--project`, `--depth`, `--json` | `nlc tree --json` |
 | `nlc audit` | Check dependencies for known vulnerabilities | `--project` | `nlc audit` |
 | `nlc env` | Show environment and toolchain info | `--json` | `nlc env --json` |
@@ -54,10 +53,11 @@ Updated: 2026-05-26
 | `nlc query batch --requests <file>` | Execute multiple semantic queries in one response | `nlc query batch --requests requests.json` |
 | `nlc query symbols` | List project symbols | `nlc query symbols --kind function` |
 | `nlc query outline <file>` | File structure and imports | `nlc query outline Program.nl` |
+| `nlc query ast` | Full parsed AST as stable, node-typed JSON (whole project, or one `--file`) | `nlc query ast --file Program.nl` |
 | `nlc query diagnostics` | Rich diagnostics envelope; add the `--clusters` flag for versioned diagnostic-cluster JSON with `category`, `recipe`, `risk`, `files`, `relatedDiagnostics`, and `nextCommand` | `nlc query diagnostics --clusters` |
 | `nlc query type --file <file> --pos <line:col>` | Type at a position | `nlc query type --file Program.nl --pos 5:12` |
 | `nlc query inspect --file <file> --pos <line:col>` | Symbol, type, definition, refs, and completions in one call; add `--compact` for token-efficient agent context (`--summary` is kept as an alias) | `nlc query inspect --compact --file Program.nl --pos 5:12` |
-| `nlc query definition` | Go-to-definition by position or name | `nlc query definition --name Person` |
+| `nlc query definition` | Go-to-definition by position | `nlc query definition --file Program.nl --pos 5:12` |
 | `nlc query def` | Alias for `definition` | `nlc query def --file Program.nl --pos 5:12` |
 | `nlc query references` | Find references to a symbol | `nlc query references --file Program.nl --pos 5:12` |
 | `nlc query refs` | Alias for `references` | `nlc query refs --file Program.nl --pos 5:12` |
@@ -66,7 +66,27 @@ Updated: 2026-05-26
 | `nlc query hover` | Signature and docs at a position | `nlc query hover --file Program.nl --pos 5:12` |
 | `nlc query call-graph` | Callers and callees of a function | `nlc query call-graph --function Main` |
 | `nlc query implementors` | Concrete types implementing an interface | `nlc query implementors --name IShape` |
+| `nlc query perf` | Explain allocation/dispatch/capture/ABI and systems effect facts at a position | `nlc query perf --file Program.nl --pos 5:12` |
+| `nlc query trusted` | Report governed Systems N# `[trusted]` wrappers | `nlc query trusted` |
 | `nlc query help` | Show query command help | `nlc query help` |
+
+## Systems N# CLI Surface
+
+Systems N# is exposed through existing stable commands rather than a separate `nlc systems` command family:
+
+```bash
+nlc new systems-cli PacketTool
+nlc new systems-lib PacketCore
+nlc new PacketTool --template console --systems
+nlc new PacketCore --template library --systems
+
+nlc check --systems-report
+nlc build --perf-report
+nlc query perf --file Program.nl --pos 12:8
+nlc query trusted
+```
+
+Systems templates set `language.profile: systems`, strict mode, `aotTarget: nativeaot`, `stackBudgetBytes: 4096`, a warmup function, a sample `[hot]` span parser, a `[boundary]` adapter, `Result<T,E>` use, and `.tests.nl` smoke tests.
 
 ## Browser Playground
 
@@ -97,7 +117,6 @@ nlc doctor --json --require-vscode
 
 # Documentation and automation
 nlc doc --json
-nlc export csharp --project . --output ./myapp-csharp
 nlc query inspect --compact --file Program.nl --pos 42:7
 
 nlc completion bash > /etc/bash_completion.d/nlc
@@ -106,12 +125,35 @@ nlc completion bash > /etc/bash_completion.d/nlc
 ## Build, Test, And Publish Truth
 
 - `nlc build --release` selects the Release configuration and `bin/Release/<targetFramework>` output layout unless `--output` is provided. The direct IL backend does not have a separate optimization mode yet.
+- **Conditional compilation.** `#if`/`#elif`/`#else`/`#endif` are evaluated by the compiler against the set of defined symbols; only the live branch is compiled (`#region`/`#endregion` remain organizational pass-through). `DEBUG` is defined for debug builds (`nlc run`, `nlc build`, `nlc test`) and omitted under `nlc build --release`. Project-wide symbols come from `defines:` in `project.yml`; ad-hoc symbols come from `--define <symbol>` / `-d <symbol>` (repeatable, and comma/semicolon lists are accepted). Conditions support symbols, `true`/`false`, `!`, `&&`, `||`, and parentheses, matching established preprocessor semantics. Symbol names are case-sensitive.
 - `nlc test --coverage` and `nlc test --coverage-report` are unavailable in the native test runner today. They exit 1 with a clear text error, or with the same message in the schemaVersion 1 JSON `error` field when `--json` is present.
+- `nlc test --json` result rows carry a stable vocabulary: `outcome` is exactly `passed`, `skipped` or `failed`, and `duration` is three decimal places and an `s` formatted with the invariant culture, so the envelope reads the same on every machine regardless of locale. `displayName` and `nsharpDescription` prefer the `test "…"` sentence over the generated method name.
 - `nlc publish` produces framework-dependent artifacts. Without `--runtime`, run the output with `dotnet <assembly>.dll` on a compatible .NET installation.
 - `nlc publish --runtime <rid>` is supported only when `<rid>` is the current host runtime. It adds a small framework-dependent launcher beside the `.dll`.
 - Cross-runtime publish requests fail before building and report both the requested RID and the current host RID.
 - `nlc publish --self-contained` is planned, not implemented. It exits 1 with guidance instead of producing an artifact that only appears self-contained.
 
+
+## Diagnostic Colour
+
+`nlc build` and `nlc run` write human-readable diagnostics to standard error and colour them with
+ANSI SGR sequences. Whether a run colours is decided by `DiagnosticColorPolicy`, in this precedence:
+
+| # | Signal | Effect |
+|---|---|---|
+| 1 | `--color=always` / `--color` / `--color=yes` / `--color=force` | colour, whatever the rest says |
+| 1 | `--color=never` / `--no-color` / `--color=no` / `--color=none` | no colour, whatever the rest says |
+| 2 | `NO_COLOR` set and non-empty | no colour |
+| 3 | `FORCE_COLOR` set and not `0` | colour, even into a pipe or file |
+| 4 | *(default)* | colour when standard error is a terminal, plain when it is redirected |
+
+`--color=auto`, and any `--color=<value>` that is not listed, fall back to row 4 rather than failing
+the run. When several colour flags appear, the last one wins. An empty `NO_COLOR` is treated as
+unset, per the [no-color.org](https://no-color.org) convention.
+
+The machine-readable surfaces never colour, under any setting: `nlc check` and every `--json` output
+are plain, and so is the diagnostic text embedded in a project-reference build failure's exception
+message.
 
 ## Exit Codes
 
@@ -127,6 +169,15 @@ nlc completion bash > /etc/bash_completion.d/nlc
 | `daemon` | Command succeeded | Daemon operation failed |
 | `tree` | Dependency tree emitted | Missing project root/config or dependency resolver failure |
 | `doctor` | Required install checks passed | One or more required checks failed |
+
+An unexpected exception escaping any command exits **`2`** and prints
+[NL924: internal compiler error](errors/NL924.md) to stderr. This is a bug in N#.
+The process boundary uses the same plain diagnostic for text and JSON requests and leaves stdout
+untouched; check the exit status before treating stdout as a complete response. Ordinary errors
+handled by a command retain the exit codes and JSON envelopes documented above.
+
+`nlc run` forwards the launched program's exit status, including `2`. In that case the number alone
+does not identify an internal compiler failure: NL924 on stderr supplies that distinction.
 
 ## JSON Examples
 
@@ -242,6 +293,8 @@ nlc completion bash > /etc/bash_completion.d/nlc
 
 ## Lint Rules
 
+N# is near-zero-warnings: every active lint rule is a build-blocking **error**. Correctness, safety, and hygiene are enforced; pure style is handled by `nlc format`, not by diagnostics.
+
 | Code | Severity | Description |
 |------|----------|-------------|
 | NL001 | error | Unused variable |
@@ -253,8 +306,24 @@ nlc completion bash > /etc/bash_completion.d/nlc
 | NL010 | error | Unused import |
 | NL011 | error | Empty catch block |
 | NL012 | error | Unused parameter |
-| NL016 | error | Redundant null check |
+| NL016 | error | Redundant null check on an always-non-null expression |
 | NL020 | error | Shadowed variable |
+
+Compiler safety diagnostics are likewise build-blocking errors: `NL905` (possible null access, flow-based), `NL903` (visibility convention), and `NL907` (nullability).
+
+Pure-style rules that used to emit `info`/`warning` diagnostics — `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014`/`NL906` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block) — have been removed and folded into `nlc format`.
+
+### Allocation, boxing and AOT diagnostics
+
+These are reported by the **systems analyzer**, under the `NSYS` codes, and only where a systems
+policy asks for them — `[hot]`, `alloc(none)`, a `[boundary]`, or an `aotTarget`. `NSYS010`
+(allocation), `NSYS020` (boxing), `NSYS030` (delegate or closure construction), `NSYS040` (runtime
+dispatch) and `NSYS060` (AOT/trim safety) are the codes to look for; see
+[Systems Programming](./systems.md).
+
+An earlier `NL950`–`NL954` / `NL960`–`NL963` band was documented here as "emitted by the optimizer".
+Nothing ever emitted it. Those rows were retired from the catalog rather than left as documentation
+for output no compiler produced.
 
 ## Inline Lint Suppression
 
@@ -314,11 +383,10 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Run single test | `-run` | name filter | `5` | `nlc test --filter` |
 | Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` shows individual test results |
 | Table-driven tests | struct slices | `#[case]` | `5` | `test "desc" with (params) [cases] { }` |
-| Test skip | `t.Skip()` | `#[ignore]` | `5` | `test "desc" skip "reason" { }` |
+| Test skip | `t.Skip()` | `#[ignore]` | None | No equivalent. A `skip "reason"` clause parses for forward compatibility but no backend emits it — `nlc test` reports `NL323`. Comment the test out, or select tests with `nlc test --filter` |
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
 | Test coverage | `-cover` | external tools | Planned | `nlc test --coverage` exits 1 with unsupported-feature guidance today |
-| Benchmark | `-bench` | `cargo bench` | `n/a` | No built-in runner by design: use BenchmarkDotNet directly on the compiled N# assembly. `nlc build --perf-report` and `nlc query perf` provide stable performance-fact envelopes. |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |
 | API docs | `godoc` | `cargo doc` | `4` | `nlc doc` now generates project HTML docs |
@@ -332,5 +400,5 @@ These remain intentionally out of scope for this pass:
 - A separate IL optimizer for release builds
 - Dependency tree visualization, including nested package-to-package edges for csproj-free `project.yml` dependency trees without an MSBuild project file
 - Native coverage reporting
-- Built-in cross-language benchmark execution
+- Built-in cross-language benchmark comparison
 - Machine-readable build timing reports

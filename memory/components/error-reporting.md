@@ -1,6 +1,9 @@
 # Error Reporting Component
 
-**File:** `src/NSharpLang.Compiler/ErrorReporting.cs`
+**Owner:** `src/NSharpLang.Compiler.BootstrapServices/CompilerError.nl`, `ErrorCode.nl`,
+`ErrorSeverity.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, `ErrorSuggestionHelpers.nl` (N#).
+The former C# `src/NSharpLang.Compiler/ErrorReporting.cs` was deleted with `Parser.cs` (task 016);
+the `ParseResult` record it held retired with the C# parser.
 
 ## Responsibility
 
@@ -19,10 +22,9 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 
 - **`CompilerError`** — Record with rich context fields (`HumanExplanation`, `ActualType`, `ExpectedType`, `ContextualHint`, `Suggestions`, `DocsUrl`)
 - **`DiagnosticCatalog`** — Central policy for diagnostic metadata, default severities, categories, and build-blocking behavior across compiler, linter, CLI, MSBuild, and LSP surfaces.
-- **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `ReturnValueRequiresReturnType`, `ReturnValueInVoidFunction`, `ReturnTypeMismatch`, `UndefinedVariable`, `UndefinedFunction`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`
+- **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `ReturnValueRequiresReturnType`, `ReturnValueInVoidFunction`, `ReturnTypeMismatch`, `UndefinedVariable`, `UndefinedFunction`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`, `ControlTransferOutOfFinally`, `LockRequiresReferenceType`
 - **`TypeConversionSuggester`** — Context-aware hints for type mismatches (string↔int, nullable, arrays)
 - **`SmartSuggester`** — Typo detection via Levenshtein distance with scoring
-- **`ErrorSuggestions`** — Fallback suggestions keyed by error code
 
 ### Formatting Paths
 
@@ -42,12 +44,12 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Compiler diagnostics carry authoritative `Line`, `Column`, and `Length` through `CompilerError`; LSP and Playground markers use those exact spans.
 - Linter diagnostics carry `Location` plus `Length`; VS Code, `nlc check`, `nlc lint`, and Playground markers must use the stored linter span instead of re-searching message text in the source line.
 - Shorthand declarations such as `message := "hi"` store the identifier column, so identifier-anchored diagnostics (including hygiene diagnostics like `NL001` unused-variable) underline `message`, not the `:=` operator or the tail of the identifier.
-- Name lookup diagnostics should underline the unresolved name itself: missing variables (`NL301`) and missing bare call targets (`NL412`) underline the identifier being resolved, while missing members (`NL303`) underline the requested member name, including symbols requested through file-import aliases such as `Lib.MissingThing`.
+- Name lookup diagnostics should underline the unresolved name itself: missing variables (`NL301`) and missing bare call targets (`NL412`) underline the identifier being resolved, while missing members (`NL303`) underline the requested member name, including symbols requested through file-import aliases such as `Lib.MissingThing`, unknown object-initializer member names (`new H { Itmes: ... }` — also covers closed generic instantiations, union case properties, and reliable BCL receivers, each with did-you-mean suggestions), and a union case construction naming a case the union doesn't declare (`new Result.Sucess<int>` underlines the qualified case reference).
 - File-import diagnostics (`NL701`, `NL702`, `NL703`, and file-import `NL010`) underline the quoted path token that the developer must edit; import collisions point at the later duplicate import path rather than `(0,0)` or the `import` keyword.
-- The Playground/WASM fallback analyzer still reports built-in member typos such as `"text".ToUp()` when reflection metadata is unavailable, while suppressing diagnostics for known valid built-in members such as `ToUpper` and `Length`.
 - Semantic diagnostics should mark the smallest useful token or expression: wrong argument type (`NL202`) underlines the offending argument expression, wrong argument count (`NL401`) underlines the callable name, and possible null access (`NL905`) underlines the nullable receiver path instead of punctuation such as `.` or `(`.
 - No matching overload diagnostics (`NL402`) underline the callable name for both CLR/reflection and N# overload groups, and should include available candidate signatures when the compiler has them.
-- General type mismatch diagnostics (`NL202`) should underline the value that has the wrong type, including local/field/assignment values, enum member initializer values, expression-bodied function/property values, non-boolean `if`/`while`/`for`/ternary conditions, mismatched array elements, mismatched match arm values, assigned void calls, and invalid returned values.
+- General type mismatch diagnostics (`NL202`) should underline the value that has the wrong type, including local/field/assignment values, enum member initializer values, object-initializer member values (`new T { Member: value }` — the member's declared type is the expected type, with closed-generic members like `Items: List<Pt>`, `Item: T` on `Box<Pt>`, and union case properties resolved under the instantiation's substitution), expression-bodied function/property values, non-boolean `if`/`while`/`for`/ternary conditions, mismatched array elements, mismatched match arm values, assigned void calls, and invalid returned values.
+- `stackalloc` lengths get full semantic analysis in every systems policy (including `[boundary]`/audit where `NSYS080` is only a warning): a non-int length (anything that doesn't widen implicitly from `byte`/`sbyte`/`short`/`ushort`/`char`) and a constant negative length are `NL202` at the length expression, and an undefined name inside the length is a normal `NL301`.
 - Operator type diagnostics (`NL202`) underline the single bad operand when only one side violates the operator contract, and underline the operator token when both sides make the operator itself the smallest useful location.
 - Operator declaration diagnostics underline the operator syntax, not the declaration fallback: missing `static` on an overload underlines the visible `operator` keyword, while unsupported operators and parameter-count errors underline the operator symbol/name such as `%` or `true`.
 - Missing required expressions after visible statement keywords (`if`, `while`, `assert`, `print`, `throw`, `yield`, `using`, `lock`, `switch`, and `in`) underline the owning keyword so VS Code shows a visible squiggle on the actionable keyword. Missing initializer or assignment values underline the owning variable or assignment target when available instead of a one-character `:=` or `=` token.
@@ -55,7 +57,6 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Missing closing brace diagnostics underline the visible owner token when available, such as a function/type name or a control-flow keyword, instead of the one-character opening brace.
 - Missing closing parenthesis diagnostics underline the visible owner token when available, such as the callable name in `print("hello"` or the function name in `func main(`, instead of an invisible end-of-line insertion slot.
 - Missing closing bracket diagnostics underline the visible owner token when available, such as the assigned variable in `nums := [1, 2` or the indexed receiver in `nums[0`, instead of the one-character opening bracket.
-- C#-style object initializer diagnostics underline the initializer member name, such as `Name` in `new User { Name = "Ada" }`, instead of the one-character `=` token.
 - Invalid `using let` tuple deconstruction diagnostics underline the tuple pattern, such as `(left, right)` in `using let (left, right) := getPair()`, instead of the following block opener or a synthetic `<error>` variable.
 - Parser, analyzer, and linter diagnostics that do not pass an explicit span length infer the full visible token from the source line before publishing to CLI, LSP, or Playground. Explicit one-character spans are reserved for true insertion points or single-character punctuation diagnostics.
 - Missing parameter separators such as `func greet(name string)`, member separators such as `Name string`, and function return separators such as `func answer() int` underline the owning parameter, field, or function name, not the whitespace insertion slot or following type token.
@@ -77,7 +78,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 
 ### Lint Diagnostics (001-099)
 
-N# is near-zero-warnings (see `docs/DESIGN.md` → Strictness). Correctness/safety/hygiene lint rules are build-blocking errors; pure-style rules have been deleted and folded into the formatter.
+N# is near-zero-warnings. Correctness/safety/hygiene lint rules are build-blocking errors; pure-style rules have been deleted and folded into the formatter.
 
 **Active linter rules (all build-blocking errors):**
 - `NL001`: Unused variable (prefix intentional unused locals with `_`)
@@ -98,7 +99,12 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 ### Syntax Errors (100-199)
 - `NL101`: UnexpectedToken
 - `NL102`: ExpectedToken
-- `NL103`: InvalidSyntax
+- `NL103`: InvalidSyntax. For required columnar-emission failures, the diagnostic keeps the stable first sentence
+  `Columnar emission is required for '<assembly>', but the columnar backend declined.` and appends a decline reason
+  sentence with the deepest stable site id, human-readable reason, enclosing member when known, and mapped
+  file/line/column. The `CompilerError.FileName`, `Line`, `Column`, and `Length` fields point at the declined source
+  span when the backend can map it. Set `NSHARP_COLUMNAR_DECLINE_LOG=1` to dump the full columnar decline trace to
+  stderr; `NSHARP_DEBUG_LOG=1` also mirrors the trace into `compile-debug.log`.
 - `NL104`: UnexpectedEndOfFile — emitted when `Consume`/`ConsumeIdentifier` reach EOF while a token is still required (e.g. `func`, `class Foo`, or a trailing `<expected>` with no body). The span anchors on the last visible owner token (the keyword/identifier), never on the empty EOF position, and the message reads "...but reached the end of the file" instead of exposing the empty `''` token.
 - `NL105`: InvalidLiteral, including unterminated string, character, triple-quoted, and interpolated raw string literals with spans on the literal opener/token
 - `NL106-108`: Missing closing brace/paren/bracket, with line-break and empty-list recovery pointing at visible owner tokens when available
@@ -108,35 +114,44 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 - Return-value diagnostics for functions with omitted return types underline the function name, because the missing annotation is fixed at the signature rather than at a one-character returned literal.
 
 ### Type Errors (200-299)
-- `NL201`: TypeNotFound
+- `NL201`: TypeNotFound — emitted at declared-type positions (parameter/return/field/property/variable annotations, type aliases, `new` expressions, generic type arguments) when a simple type name resolves through no channel (built-ins, declarations/scopes incl. generic type parameters, using aliases, MLC external types, project symbols, compiler-known generics like `Result`/`Task`/`Func` with the CLR arity-suffix probe). Includes a nearest-in-scope "Did you mean 'X'?" suggestion (Levenshtein ≤ 2). Deliberately lenient cases that do NOT report: dotted/qualified names (namespace-qualified externals, `new Union.Case`), pass-1 signature collection, and lazy cross-file member resolution (no generic type parameters in scope there). Visibility-blocked cross-file types report NL201 (they are not findable from that file); enriching that to an "exists but file-private" message is a known follow-up. Before this check, typos and missing references silently reached IL emission and crashed with a raw `InvalidOperationException`.
 - `NL202`: TypeMismatch (assignment, return, argument; return diagnostics distinguish omitted return type, explicit void, and wrong non-void return type)
 - `NL203`: CannotInferType
-- `NL204-208`: InvalidCast, AmbiguousType, CannotResolveType, InvalidTypeArgument, GenericConstraintViolation
+- `NL204`, `NL207`, `NL208`: InvalidCast, InvalidTypeArgument, GenericConstraintViolation
 
 ### Semantic Errors (300-399)
 - `NL301`: UndefinedVariable
-- `NL302`: UndefinedType
 - `NL303`: UndefinedMember
-- `NL304`: DefiniteAssignmentError — covers both constructor fields and locals. A local declared without an initializer (`let x: int`) that is read before it is definitely assigned on every path that reaches the read is an error; the squiggle underlines the offending READ of the variable.
+- `NL304`: DefiniteAssignmentError — covers constructor fields, locals AND `out` parameters. A local declared without an initializer (`let x: int`) that is read before it is definitely assigned on every path that reaches the read is an error; the squiggle underlines the offending READ of the variable. An `out` parameter is checked at every EXIT rather than at a read: each `return`, and falling off the end of the body (where the squiggle goes on the parameter that was never filled). A path that `throw`s owes nothing. The caller's half was always modelled — an `out` ARGUMENT marks its target assigned after the call — and the callee's half landed on the soundness arc.
 - `NL305`: MissingReturn
 - `NL306`: DuplicateDeclaration
-- `NL307-311`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired, InvalidModifier
+- `NL307-310`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired
+- `NL311`: InvalidModifier — the inheritance-modifier rule, in three parts. (1) A member declared `override` must have a base member of that name, and that base member must be `virtual`, `abstract`, or a non-`sealed` `override`; the two faults get two sentences ("has no base member of that name" / "is not marked 'virtual', 'abstract' or 'override'") and the span underlines the member NAME. The walk is CONSERVATIVE and silence is its default: it answers only over a source shape it can read, a CLR type it can reflect over, or the implicit `object` at the end of a source chain, and a base that resolves to nothing — or a `:` clause it could not resolve — reports nothing at all. `override func ToString()` on a class with no `:` clause is therefore silent (it takes `object.ToString`'s slot), while `override func GetType()` is an error because `object.GetType` is not virtual. (2) The same two sentences cover an `override` PROPERTY, through a separate pair of classifiers: the source one matches property members only (a base method of that name is not a property slot, and vice versa), and the metadata one walks `GetProperties` and tests the ACCESSORS for `IsVirtual && !IsFinal` — the method classifier structurally cannot answer, because it skips every `IsSpecialName` and a property accessor is one. So `override Message: string => …` on a `class : Exception` is silent while `override HResult: int => …` is an error. (3) A FIELD declared `virtual`, `abstract` or `override` is an error in its own sentence — "a field cannot be virtual, abstract or overridden" — because N# decides field-vs-property from what FOLLOWS the type and never from the modifiers: `virtual Label: string` is a field, and the emitted metadata makes it a CLR field, which can be none of those three. The suggestion names both ways out: give the member an accessor so it becomes a property, or drop the word. `static`, `readonly` and `required` fields are untouched.
+- `NL324`: AbstractMemberNotImplemented — a CONCRETE class must supply every `abstract` member it inherits. One diagnostic names every missing member (`'Circle' does not implement 2 inherited abstract members: 'Perimeter', 'Name'`), because a half-written subclass is a single mistake with a list attached; the singular sentence is separate so it does not read as a truncated plural, and the span underlines the CLASS name. Matching is by NAME and KIND — a function answers a function, a property answers a property, and a field named `Area` does not implement `abstract func Area()`. The base chain is walked nearest-first so an intermediate concrete override discharges the obligation; a CLR base is settled by one `GetMethods`/`GetProperties` pair, which already returns the most-derived implementation of each slot (so `class X : Stream` names all ten, and `class X : Exception` is silent). Exempt outright: no written base, an `abstract` class, any non-class form, and an unresolved base clause. The walk is STRICTER than NL311's about not guessing — if any link in the chain cannot be opened it abandons the whole report rather than issuing the members it did see.
+- `NL325`: InterfaceMemberNotImplemented — a CONCRETE class, struct or record must implement every member of every interface it declares. Same one-diagnostic-with-a-list shape as NL324, same TYPE-name span, its own sentence (`'English' declares an interface but does not implement 2 of its members: 'Farewell', 'Name'`). Three things this rule had to get right that NL324 did not. (1) WHERE THE INTERFACES ARE IS A SYNTACTIC ACCIDENT: the parser splits a class's `: A, B, C` by POSITION — `[0]` to `BaseClass`, the rest to `Interfaces` — so `class R : IDisposable` carries its interface in the base-CLASS slot; both slots are read and each kept only if it RESOLVES to an interface, and NL324 now steps aside when the base-class slot holds one. (2) A MEMBER WITH A BODY IS A DEFAULT IMPLEMENTATION and requires nothing — `DeclaredMemberInfo.HasBody` (defaulted trailing parameter, so no call site moved) is what tells a slot from a default. (3) A CLOSED GENERIC IS A WRAPPER: `IComparable<Version2>` resolves to a `GenericTypeInfo` and every question here is answered by NAME, so the wrapper is opened to its definition once. Supply includes everything inherited from the base-CLASS chain, with a CLR base settled by one `GetMethods`/`GetProperties` pair that excludes abstract members. Functions and VALUE members (fields and properties together — N# writes an interface's value member bare) are matched in separate sets. Exempt: no declared interface, an `abstract` class, an interface declaration, an unresolved or non-interface base entry. Overloads are not distinguished — a name with any concrete overload counts as supplied, the under-reporting direction, and unreachable from N# source, which cannot spell overloads in a class body.
 - `NL312`: UnreachableStatement (code after return/throw/exhaustive branches)
 - `NL313`: InvalidExpressionStatement (value/member expression written as a statement with no side effect)
 - `NL314`: UnverifiedErrorResult (error-tuple result used before the paired error is proven null)
 - `NL315`: DiscardedMustUseResult (bare call to a `[MustUse]`-annotated function/method whose result is silently discarded; use the value or discard explicitly with `_ = call()`). Span underlines the callee name.
 - `NL316`: ShadowedDeclaration — a local or parameter that shadows a local/parameter from an enclosing function/block scope is a hard, build-blocking error. This compiler check is authoritative: when it fires the file has a compiler error, which suppresses the linter's `NL020` for that file, so the user sees exactly one diagnostic. Shadowing a class member (field/property) is allowed, as are discards/underscore-prefixed names and sibling blocks that reuse a name without nesting.
+- `NL317`: EventRequiresOnOff — a .NET event used with `+=`/`-=`/`=` or as a bare value; events are used exclusively through `on`/`off`.
+- `NL318`: InvalidEventSubscription — `off` applied to something that is not a subscription returned by `on`.
+- `NL319`: ControlTransferOutOfFinally — the CS0157 analog. A `return` anywhere inside a `finally` block (depth-based: a return inside a try/lock/using nested in the finally still counts), or a `break`/`continue` whose target loop/switch was entered at a SHALLOWER finally depth, is an error — ECMA-335 forbids leaving a finally handler, and the emitted `leave` is invalid IL. Legal: `throw`, loops opened inside the finally, and returns inside lambdas/local functions declared in the finally (the analyzer's finally context resets at nested-body boundaries). The span underlines the full control keyword.
+- `NL320`: LockRequiresReferenceType — a `lock` whose lockee is a KNOWN value type (numeric/bool/char builtins, struct, enum, record struct, tuple, `T?` over a value type, reflection `IsValueType`) is an error: Monitor locks on object identity. An unconstrained/non-reference-constrained `T` lockee is also rejected with a constraint-specific hint (`where T: class`), because a boxed lock never provides mutual exclusion. The predicate is deliberately conservative — Unknown/External/`GenericTypeInfo` stay silent (never reuse `!IsReferenceType(...)` raw; it answers "can this be null" and would false-positive on external reference types). The span underlines the lockee expression.
+- `NL322`: MemberWriteThroughValueCopy — the CS1612 analog. A member WRITE (plain or compound) whose receiver chain passes through a VALUE-typed hop must be rooted in real storage: a local/parameter/`this` (or a bare field of one), a FIELD chain over one of those, or an ARRAY element. Any other value-typed receiver — a List indexer result, a call result, a property result — is a temporary copy: the store would land in the copy and be silently discarded. CONSERVATIVE by design: hops whose types/members cannot be resolved here (unknown generics, unresolved externals) never fire. Reference-typed receivers are storage handles — every expression shape is assignable through them. The span underlines the offending receiver expression.
+- `NL323`: FeatureNotImplemented — a language feature is syntactically recognized and represented in the AST, but is intentionally blocked from production builds until its implementation and verification gates land. Current use: non-generic `soa record` declarations for the compiler table-model port; `NSHARP_EXPERIMENTAL_SOA=1` enables only the temporary compiler table-migration proof slice.
 
 ### Function/Method Errors (400-499)
 - `NL401`: WrongArgumentCount
 - `NL402`: NoMatchingOverload
-- `NL403-410`: Various parameter errors
+- `NL405`, `NL407`, `NL409`, `NL410`: parameter errors (invalid parameter, `params` not last, a required parameter after an optional one, an invalid default value)
 - `NL411`: MethodGroupUsedAsValue (bare method reference used where a value is required; call it or pass it to a delegate parameter)
 - `NL412`: UndefinedFunction (bare call target cannot be resolved as a function, method, or callable value)
 
 ### Pattern Matching Errors (500-599)
 - `NL501`: NonExhaustiveMatch
 - `NL502-505`: UnreachablePattern, InvalidPattern, PatternTypeMismatch, GuardNotBoolean
+- `NL506`: ImpossiblePattern
 
 ### Operator Errors (600-699)
 - `NL601`: InvalidOperatorOverload, including operator overload declarations missing required `static`
@@ -148,37 +163,65 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 
 ### Compiler Diagnostics (900-999)
 
-Under the near-zero-warnings policy these are build-blocking **errors**, not warnings (see `docs/DESIGN.md` → Strictness):
-- `NL901`: UnusedVariable
-- `NL902`: UnreachableCode
+Under the near-zero-warnings policy these are build-blocking **errors**, not warnings:
 - `NL903`: VisibilityConvention (promoted from warning to error)
-- `NL904`: ObsoleteUsage (promoted from warning to error)
 - `NL905`: PossibleNullAccess — flow-based; unguarded nullable dereference/index/call is an error. Emitted from semantic analysis (visible through `nlc check`, `nlc query diagnostics`, and LSP), not the linter.
 - `NL907`: Nullability — nullability mismatch (promoted from warning to error)
+- `NL923`: ReferenceLoadFailure — **advisory warning, never build-blocking** (the one deliberate exception to the errors-only policy in this range). Emitted when a reference assembly failed to load or be fully inspected AND the same analysis produced unresolved-name/type errors, so a broken reference can't masquerade as a plain "not found". Healthy compilations stay quiet even if a best-effort probe failed.
 
 **Removed:** `NL906` (UnnecessaryTypeAnnotation) is deleted — redundant type annotations are pure style, handled by the formatter rather than a diagnostic. The `NL906` slot is retired and not reused.
 
+**Retired, 2026-09-03 — twenty-three codes with no producer.** A code the catalog published but
+nothing in the compiler ever reported is a promise of a diagnostic that cannot arrive, and each one
+carried a "Read more" link to a page that could not be written. Each was retired naming the code
+that actually enforces the rule:
+
+| Retired | Enforced instead by |
+|---|---|
+| `NL205` AmbiguousType | `NL303` (undefined member) / `NL704` (namespace not found) |
+| `NL206` CannotResolveType | `NL201` — it never had a builder at all |
+| `NL302` UndefinedType | `NL201` for a written type, `NL301` for a name in expression position; `ErrorMessageBuilder.UndefinedType` was called only by its own tests |
+| `NL403` MissingRequiredParameter | `NL401` (wrong argument count) |
+| `NL404` DuplicateParameter | `NL306` (duplicate declaration) |
+| `NL406` RefOutMismatch | `NL202` (type mismatch) |
+| `NL408` MultipleParams | `NL407` (`params` not last) |
+| `NL603` ComparisonOperatorPair, `NL604` ConversionOperatorInvalid | nothing — no rule was ever written |
+| `NL804` InterfaceImplementationMissing | `NL325` (interface member not implemented) |
+| `NL805` DuckInterfaceMismatch | `NL202`, at the argument that does not satisfy the duck interface |
+| `NL901` UnusedVariable | `NL001` (linter, build-blocking) |
+| `NL902` UnreachableCode | `NL006` (linter, build-blocking) |
+| `NL904` ObsoleteUsage | nothing — N# has no obsolete-member rule |
+| `NL950-954`, `NL960-963` | the systems analyzer: `NSYS010`/`NSYS020`/`NSYS030`/`NSYS040`/`NSYS060` |
+
+`tests/native/error-docs-contract` now refuses a catalog code that has no page, and
+`DiagnosticCatalog.tests.nl` pins the partition at 70 compiler + 10 linter with the Performance and
+AOT categories asserted at ZERO, so a row cannot come back without a producer.
+
 ## Severity Policy
 
-N# is **near-zero-warnings** (full rationale in `docs/DESIGN.md` → Strictness). The single rule: correctness/safety/hygiene issues are build-blocking errors; pure style is handled by `nlc format`, not by diagnostics. There is intentionally no large tier of ignorable warnings.
+N# is **near-zero-warnings**. The single rule: correctness/safety/hygiene issues are build-blocking errors; pure style is handled by `nlc format`, not by diagnostics. There is intentionally no large tier of ignorable warnings.
 
-`DiagnosticCatalog` (`src/NSharpLang.Compiler/DiagnosticCatalog.cs`) is the authoritative policy surface — default severity, category, and build-blocking behavior for every code across compiler, linter, CLI, MSBuild, and LSP.
+`DiagnosticCatalog` (`src/NSharpLang.Compiler.BootstrapServices/DiagnosticCatalog.nl`) is the authoritative policy surface — default severity, category, and build-blocking behavior for every code across compiler, linter, CLI, MSBuild, and LSP.
 
 ### New strict checks
 
 - **Strict null-flow:** an unguarded nullable dereference/index/call is an error (`NL905`). Narrowing via `if x != null`, `?.`, or `??` clears it. Null safety is flow-based, not syntactic.
 - **Unused-result enforcement:** a must-use or error-returning result must be used or explicitly discarded with `_ =`; silently dropping it is an error.
 - **Shadowing is a compiler error** (linter `NL020`): a local may not shadow a name in an enclosing scope.
-- **Definite-assignment hardening:** non-nullable fields and `out` parameters must be assigned on every path before use (`NL304`); gaps are errors.
+- **Definite-assignment hardening:** non-nullable fields must be assigned on every path before use (`NL304`); gaps are errors. **`out` PARAMETERS ARE NOT COVERED** — measured 2026-09-03 by probe: a function with an `out value: int` that assigns on only one branch checks clean. This line previously claimed they were; it was never true. Fields and locals are enforced, `out` parameters are a hole.
 
 ### Docs sync — affected NL codes
 
-Keep the `docs.n-sharp.dev/errors/<code>` pages aligned with these changes:
+Per-error docs pages live in-repo at `website/docs/errors/<code>.md`, and the sidebar's "Error
+Reference" category is AUTOGENERATED from that directory (`website/sidebars.js`), so a new page is
+reachable the moment it lands. `NL324` is the template; a new diagnostic ships its page in the same
+slice, and `tests/native/error-docs-contract` fails the build if it does not.
+
+Keep the `website/docs/errors/<code>.md` pages (published at `DiagnosticDocs.Base` + `<code>`) aligned with these changes:
 
 | Code | Source | Change | New severity |
 |------|--------|--------|--------------|
 | `NL903` VisibilityConvention | compiler | promoted | Error |
-| `NL904` ObsoleteUsage | compiler | promoted | Error |
 | `NL905` PossibleNullAccess | compiler | promoted + now flow-based | Error |
 | `NL907` Nullability | compiler | promoted | Error |
 | `NL906` UnnecessaryTypeAnnotation | compiler | **deleted** (folded into formatter) | — |
@@ -218,12 +261,15 @@ return type to `void`.
 
 Suggestion: Add a `return` statement, or change the return type to `void`
 
-See: https://docs.n-sharp.dev/errors/NL305
+See: https://schneidenbach.github.io/nsharplang/docs/errors/NL305
 ```
 
 ## Testing
 
-Error reporting tests are in `tests/ErrorReportingTests.cs` covering:
+Error reporting has no C# assertion layer. Its canonical contracts are N# and live beside their
+subjects in `src/NSharpLang.Compiler.BootstrapServices` — `CompilerError.tests.nl`,
+`ErrorSuggestions.tests.nl`, `ErrorSuggestionHelpers.tests.nl` and `ErrorMessageBuilder.tests.nl` —
+covering:
 - Error code formatting and DiagnosticId
 - Source snippet rendering with caret markers
 - All formatting paths (Elm, Rust, Tooling, MSBuild)

@@ -9,7 +9,7 @@ Welcome to N#! This guide covers the fundamental syntax and features of the N# p
 
 ## What is N#?
 
-N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. Think of it as "Go for .NET" - it combines Go's simplicity and clean syntax with the power of the .NET ecosystem.
+N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It shares Go's ethos of simplicity and clean syntax, but it is **not** "Go for .NET": N# pairs that small syntax with a much richer type system (discriminated unions, exhaustive pattern matching, structural typing) and an opt-in high-performance "systems" lane.
 
 **Key Features:**
 - Clean, minimal syntax (no semicolons!)
@@ -264,6 +264,10 @@ age := 30
 message := $"Hello, {name}! You are {age} years old."
 Console.WriteLine(message)
 ```
+
+Backslash escapes (`\n`, `\t`, `\e`, `\x1b`, `\u0041`, ...) are listed in the
+[language tour](./language-tour.md#escape-sequences). A backslash that starts no escape is an error
+([NL105](./errors/NL105.md)), so double it or use a raw `"""..."""` string.
 
 ## Imports and Packages
 

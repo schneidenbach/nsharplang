@@ -37,6 +37,24 @@ public class LoadProjectConfig : Task
     public string AssemblyName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Output: Version from project.yml
+    /// </summary>
+    [Output]
+    public string Version { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Output: CLR-compatible AssemblyVersion derived from Version.
+    /// </summary>
+    [Output]
+    public string AssemblyVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Output: CLR-compatible FileVersion derived from Version.
+    /// </summary>
+    [Output]
+    public string FileVersion { get; set; } = string.Empty;
+
+    /// <summary>
     /// Output: SDK type (e.g., "Microsoft.NET.Sdk", "Microsoft.NET.Sdk.Web")
     /// </summary>
     [Output]
@@ -48,37 +66,11 @@ public class LoadProjectConfig : Task
     [Output]
     public string TestFramework { get; set; } = "xunit";
 
-    /// <summary>
-    /// Output: NuGet package references (semicolon-separated "Package;Version" pairs)
-    /// </summary>
-    [Output]
-    public ITaskItem[] PackageReferences { get; set; } = Array.Empty<ITaskItem>();
-
-    /// <summary>
-    /// Output: Project references (paths to .csproj or project.yml files)
-    /// </summary>
-    [Output]
-    public ITaskItem[] ProjectReferences { get; set; } = Array.Empty<ITaskItem>();
-
-    /// <summary>
-    /// Output: Framework references (e.g., "Microsoft.AspNetCore.App")
-    /// </summary>
-    [Output]
-    public ITaskItem[] FrameworkReferences { get; set; } = Array.Empty<ITaskItem>();
-
     public override bool Execute()
     {
         try
         {
             var projectYmlPath = Path.Combine(ProjectDirectory, "project.yml");
-
-            // If no project.yml exists, use defaults
-            if (!File.Exists(projectYmlPath))
-            {
-                Log.LogMessage(MessageImportance.Low, "No project.yml found, using defaults");
-                SetDefaults();
-                return true;
-            }
 
             Log.LogMessage(MessageImportance.Low, $"Loading project configuration from {projectYmlPath}");
 
@@ -97,52 +89,10 @@ public class LoadProjectConfig : Task
             };
 
             AssemblyName = config.Name ?? Path.GetFileName(ProjectDirectory);
+            Version = config.Version ?? string.Empty;
+            SetClrVersionOutputs(Version);
             Sdk = config.Sdk;
             TestFramework = config.TestFramework;
-
-            // Convert dependencies to MSBuild items
-            var packageRefs = new System.Collections.Generic.List<ITaskItem>();
-            var projectRefs = new System.Collections.Generic.List<ITaskItem>();
-            var frameworkRefs = new System.Collections.Generic.List<ITaskItem>();
-
-            foreach (var dep in config.Dependencies)
-            {
-                switch (dep.Type)
-                {
-                    case ReferenceType.NuGet:
-                        var item = new TaskItem(dep.Nuget!);
-                        if (!string.IsNullOrEmpty(dep.Version))
-                        {
-                            item.SetMetadata("Version", dep.Version);
-                        }
-                        packageRefs.Add(item);
-                        break;
-
-                    case ReferenceType.Project:
-                        var projPath = Path.IsPathRooted(dep.Project!)
-                            ? dep.Project!
-                            : Path.Combine(ProjectDirectory, dep.Project!);
-                        projectRefs.Add(new TaskItem(projPath));
-                        break;
-
-                    case ReferenceType.Framework:
-                        frameworkRefs.Add(new TaskItem(dep.Framework!));
-                        break;
-
-                    case ReferenceType.Dll:
-                        // DLL references are handled differently - we'll add support later if needed
-                        Log.LogWarning($"DLL references not yet supported in SDK: {dep.Dll}");
-                        break;
-                }
-            }
-
-            PackageReferences = packageRefs.ToArray();
-            ProjectReferences = projectRefs.ToArray();
-            FrameworkReferences = frameworkRefs.ToArray();
-
-            Log.LogMessage(MessageImportance.Low,
-                $"Loaded config: {AssemblyName} ({OutputType}), framework={TargetFramework}, " +
-                $"{PackageReferences.Length} packages, {ProjectReferences.Length} projects");
 
             return true;
         }
@@ -153,14 +103,17 @@ public class LoadProjectConfig : Task
         }
     }
 
-    private void SetDefaults()
+    private void SetClrVersionOutputs(string? packageVersion)
     {
-        TargetFramework = "net10.0";
-        OutputType = "Exe";
-        AssemblyName = Path.GetFileName(ProjectDirectory);
-        Sdk = "Microsoft.NET.Sdk";
-        PackageReferences = Array.Empty<ITaskItem>();
-        ProjectReferences = Array.Empty<ITaskItem>();
-        FrameworkReferences = Array.Empty<ITaskItem>();
+        if (string.IsNullOrWhiteSpace(packageVersion))
+        {
+            AssemblyVersion = string.Empty;
+            FileVersion = string.Empty;
+            return;
+        }
+
+        var clrVersion = AssemblyVersionUtilities.GetAssemblyVersionOrDefault(packageVersion).ToString();
+        AssemblyVersion = clrVersion;
+        FileVersion = clrVersion;
     }
 }

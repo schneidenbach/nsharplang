@@ -13,21 +13,20 @@ public class CheckCommandTests
     private static readonly string HelloWorldProject = Path.Combine(FindExamplesDir(), "01-hello-world");
     private static readonly string MinimalApiProject = Path.Combine(FindExamplesDir(), "14-minimal-api");
 
+    private const string UnresolvedTypeProgram = """
+func Main() {
+    sb := new StringBuilder()
+}
+""";
+
     // ── Help ───────────────────────────────────────────────────────────
 
-    [Fact]
-    public void CheckCommand_ShortHelpFlag_ShowsHelp()
+    [Theory]
+    [InlineData("-h")]
+    [InlineData("help")]
+    public void CheckCommand_HelpEntryPoints_ShowHelp(string argument)
     {
-        var (exitCode, stdout, _) = CaptureConsole(() => CheckCommand.Execute(new[] { "-h" }));
-
-        Assert.Equal(0, exitCode);
-        Assert.Contains("Usage: nlc check", stdout);
-    }
-
-    [Fact]
-    public void CheckCommand_HelpSubcommand_ShowsHelp()
-    {
-        var (exitCode, stdout, _) = CaptureConsole(() => CheckCommand.Execute(new[] { "help" }));
+        var (exitCode, stdout, _) = CaptureConsole(() => CheckCommand.Execute(new[] { argument }));
 
         Assert.Equal(0, exitCode);
         Assert.Contains("Usage: nlc check", stdout);
@@ -38,12 +37,9 @@ public class CheckCommandTests
     {
         var (_, stdout, _) = CaptureConsole(() => CheckCommand.Execute(new[] { "--help" }));
 
-        Assert.Contains("--json", stdout);
-        Assert.Contains("--text", stdout);
-        Assert.Contains("--backend", stdout);
-        Assert.Contains("Compilation backend: il", stdout);
-        Assert.Contains("--project", stdout);
-        Assert.Contains("--help", stdout);
+        Assert.All(
+            new[] { "--json", "--text", "--backend", "Compilation backend: il", "--project", "--help" },
+            option => Assert.Contains(option, stdout));
     }
 
     // ── Exit codes ─────────────────────────────────────────────────────
@@ -115,11 +111,7 @@ func Main() {
         var tempDir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func Main() {
-    sb := new StringBuilder()
-}
-""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), UnresolvedTypeProgram);
 
             var (_, stdout, _) = CaptureConsole(() =>
                 CheckCommand.Execute(new[] { "--project", tempDir }));
@@ -141,24 +133,16 @@ func Main() {
         var tempDir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func Main() {
-    sb := new StringBuilder()
-}
-""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), UnresolvedTypeProgram);
 
             var (_, stdout, _) = CaptureConsole(() =>
                 CheckCommand.Execute(new[] { "--project", tempDir }));
 
             var doc = JsonDocument.Parse(stdout);
             var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
-            Assert.True(results.Length > 0);
-
             var first = results[0];
-            Assert.True(first.TryGetProperty("code", out _));
-            Assert.True(first.TryGetProperty("severity", out _));
-            Assert.True(first.TryGetProperty("message", out _));
-            Assert.True(first.TryGetProperty("file", out _));
+            Assert.All(new[] { "code", "severity", "message", "file" },
+                name => Assert.True(first.TryGetProperty(name, out _)));
         }
         finally
         {
@@ -181,17 +165,89 @@ func Main() {
             var (exitCode, stdout, _) = CaptureConsole(() =>
                 CheckCommand.Execute(new[] { "--project", tempDir }));
 
-            // NL001 (unused-variable) is a build-blocking error.
-            Assert.Equal(1, exitCode);
+            Assert.Equal(1, exitCode); // NL001 (unused-variable) is a build-blocking error.
 
             var doc = JsonDocument.Parse(stdout);
             var diagnostic = doc.RootElement.GetProperty("results").EnumerateArray()
                 .Single(result => result.GetProperty("code").GetString() == "NL001");
 
-            // The linter underlines the identifier itself using its stored length.
-            Assert.Equal(2, diagnostic.GetProperty("line").GetInt32());
+            Assert.Equal(2, diagnostic.GetProperty("line").GetInt32()); // Underlines the identifier itself, using its stored length.
             Assert.Equal(5, diagnostic.GetProperty("column").GetInt32());
             Assert.Equal("message".Length, diagnostic.GetProperty("length").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_LockOnValueType_ReportsNL320WithLockeeSpan()
+    {
+        // NL320 (the CS0185 analog): a value-typed lockee is a check-time error — before this rule the program built clean and segfaulted the whole process inside Monitor.Enter.
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    n := 5
+    lock n {
+        print(n)
+    }
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+
+            var doc = JsonDocument.Parse(stdout);
+            var diagnostic = doc.RootElement.GetProperty("results").EnumerateArray()
+                .Single(result => result.GetProperty("code").GetString() == "NL320");
+
+            Assert.Equal(3, diagnostic.GetProperty("line").GetInt32()); // Underlines the lockee expression itself.
+            Assert.Equal(10, diagnostic.GetProperty("column").GetInt32());
+            Assert.Equal(1, diagnostic.GetProperty("length").GetInt32());
+            Assert.Contains("'int'", diagnostic.GetProperty("message").GetString());
+            Assert.Equal("https://schneidenbach.github.io/nsharplang/docs/errors/NL320", diagnostic.GetProperty("docsUrl").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_ReturnInsideFinally_ReportsNL319OnTheKeyword()
+    {
+        // NL319 (the CS0157 analog): control may not leave a finally — before this rule the program built clean and threw InvalidProgramException on every call.
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    n := 0
+    try {
+        n = n + 1
+    } finally {
+        return
+    }
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+
+            var doc = JsonDocument.Parse(stdout);
+            var diagnostic = doc.RootElement.GetProperty("results").EnumerateArray()
+                .Single(result => result.GetProperty("code").GetString() == "NL319");
+
+            Assert.Equal(6, diagnostic.GetProperty("line").GetInt32()); // Underlines the full `return` keyword.
+            Assert.Equal("return".Length, diagnostic.GetProperty("length").GetInt32());
+            Assert.Equal("https://schneidenbach.github.io/nsharplang/docs/errors/NL319", diagnostic.GetProperty("docsUrl").GetString());
         }
         finally
         {
@@ -218,11 +274,7 @@ func Main() {
         var tempDir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func Main() {
-    sb := new StringBuilder()
-}
-""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), UnresolvedTypeProgram);
 
             var (exitCode, _, stderr) = CaptureConsole(() =>
                 CheckCommand.Execute(new[] { "--project", tempDir, "--text" }));
@@ -296,8 +348,20 @@ func Main() {
         Assert.Equal(0, exitCode);
         var doc = JsonDocument.Parse(stdout);
         Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.Contains(NormalizePath(Path.GetFullPath(HelloWorldProject)),
-            doc.RootElement.GetProperty("projectRoot").GetString());
+        Assert.Contains(NormalizePath(Path.GetFullPath(HelloWorldProject)), doc.RootElement.GetProperty("projectRoot").GetString());
+    }
+
+    [Fact]
+    public void CheckCommand_BackendOption_DoesNotBecomeProjectDir()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--backend", "il", HelloWorldProject }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        var doc = JsonDocument.Parse(stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Contains(NormalizePath(Path.GetFullPath(HelloWorldProject)), doc.RootElement.GetProperty("projectRoot").GetString());
     }
 
     // ── Diagnostics deduplication and ordering ─────────────────────────
@@ -335,18 +399,10 @@ func A() {
                 var fileA = results[i].GetProperty("file").GetString() ?? "";
                 var fileB = results[i + 1].GetProperty("file").GetString() ?? "";
                 var cmp = string.Compare(fileA, fileB, StringComparison.Ordinal);
-                if (cmp == 0)
-                {
-                    var lineA = results[i].GetProperty("line").GetInt32();
-                    var lineB = results[i + 1].GetProperty("line").GetInt32();
-                    Assert.True(lineA <= lineB,
-                        $"Diagnostics not sorted by line within {fileA}: line {lineA} before {lineB}");
-                }
-                else
-                {
-                    Assert.True(cmp < 0,
-                        $"Diagnostics not sorted by file: {fileA} before {fileB}");
-                }
+                var lineA = results[i].GetProperty("line").GetInt32();
+                var lineB = results[i + 1].GetProperty("line").GetInt32();
+                Assert.True(cmp < 0 || (cmp == 0 && lineA <= lineB),
+                    $"Diagnostics not sorted by file then line: {fileA}:{lineA} before {fileB}:{lineB}");
             }
         }
         finally
@@ -360,8 +416,7 @@ func A() {
     [Fact]
     public void CheckCommand_CleanProject_PassesWithIlVerification()
     {
-        // This test exercises the full pipeline: analysis + IL backend verification.
-        // If backend verification breaks, this test will fail even though analysis alone passes.
+        // This test exercises the full pipeline: analysis + IL backend verification. If backend verification breaks, it fails even though analysis alone passes.
         var (exitCode, stdout, _) = CaptureConsole(() =>
             CheckCommand.Execute(new[] { "--project", HelloWorldProject }));
 
@@ -378,6 +433,95 @@ func A() {
 
         Assert.Equal(0, exitCode);
         Assert.Contains("no errors", stderr);
+    }
+
+    [Fact]
+    public void CheckCommand_AotVerificationRequiresColumnarWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: AotCheckRequiresColumnar
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func countChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir, "--aot" }));
+
+            Assert.Equal(1, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            var messages = doc.RootElement.GetProperty("results").EnumerateArray()
+                .Select(result => result.GetProperty("message").GetString()).ToArray();
+            Assert.Contains(messages, message =>
+                message?.Contains("Columnar AOT emission is required", StringComparison.Ordinal) == true);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_AotProjectReferenceRequiresColumnarWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+
+            var sharedDir = Path.Combine(tempDir, "Shared");
+            Directory.CreateDirectory(sharedDir);
+            TestSdkFeed.WriteVersionedSdkProject(sharedDir, "SharedLib");
+            File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
+name: SharedLib
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(sharedDir, "Shared.nl"), """
+func CountChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+""");
+
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: App
+outputType: library
+targetFramework: net10.0
+dependencies:
+  - project: Shared/project.yml
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Root(): int {
+    return 1
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir, "--aot" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("AOT builds require successful N# columnar emission", stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
     }
 
     [Fact]
@@ -413,25 +557,42 @@ func main() {
     }
 
     [Fact]
-    public void CheckCommand_VerificationDoesNotRunWhenAnalysisHasErrors()
+    public void CheckCommand_ReceiverStyleGenericFunction_ReportsDiagnosticsInsteadOfCrashing()
     {
-        // When analysis already found errors, we skip the verification step entirely.
-        // This test ensures we don't crash or hang trying to verify broken code.
+        // Regression: the IL-verification step used to surface an unhandled NotImplementedException as the crash envelope "Check failed: The
+        // method or operation is not implemented." for any project declaring a receiver-style (`this`-parameter) generic function. The persisted-emit
+        // generic parameter T does not implement Type.IsSZArray, so preflight typing of `value.ToString()` receivers must probe it via
+        // IsSafeSzArrayType instead of the raw property. The shape is not yet modeled by the columnar backend, so the correct outcome is the
+        // normal diagnostic result shape carrying its NL103 decline.
         var tempDir = CreateTempDir();
         try
         {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ReceiverGenericCheck
+outputType: exe
+targetFramework: net10.0
+""");
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func Main() {
-    sb := new StringBuilder()
-}
+namespace W
+
+import System
+
+func Tag<T>(this value: T, note: string): string { return note + value.ToString() }
+func main() { Console.WriteLine(5.Tag("ok")) }
 """);
 
-            var (exitCode, stdout, _) = CaptureConsole(() =>
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
                 CheckCommand.Execute(new[] { "--project", tempDir }));
 
-            Assert.Equal(1, exitCode);
-            var doc = JsonDocument.Parse(stdout);
+            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.False(doc.RootElement.TryGetProperty("error", out _), stdout);
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(1, exitCode);
+
+            var decline = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray());
+            Assert.Equal("NL103", decline.GetProperty("code").GetString());
+            Assert.Contains("instance call 'T.ToString'", decline.GetProperty("message").GetString());
         }
         finally
         {
@@ -440,30 +601,20 @@ func Main() {
     }
 
     [Fact]
-    public void CheckCommand_RetiredTranspileBackend_ReturnsError()
+    public void CheckCommand_VerificationDoesNotRunWhenAnalysisHasErrors()
     {
+        // When analysis already found errors, we skip the verification step entirely; this ensures we don't crash or hang trying to verify broken code.
         var tempDir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: LegacyCheck
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func main() {
-    print "hello"
-}
-""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), UnresolvedTypeProgram);
 
             var (exitCode, stdout, _) = CaptureConsole(() =>
-                CheckCommand.Execute(new[] { "--project", tempDir, "--backend", "transpile" }));
+                CheckCommand.Execute(new[] { "--project", tempDir }));
 
             Assert.Equal(1, exitCode);
             var doc = JsonDocument.Parse(stdout);
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Contains("removed", doc.RootElement.GetProperty("error").GetProperty("message").GetString());
-            Assert.Contains("nlc export csharp", doc.RootElement.GetProperty("error").GetProperty("message").GetString());
         }
         finally
         {
@@ -515,9 +666,6 @@ func main() {
             if (parent == null) break;
             dir = parent.FullName;
         }
-
-        var fallback = "/Users/spencer/repos/nsharplang/examples";
-        if (Directory.Exists(fallback)) return fallback;
 
         throw new DirectoryNotFoundException("Could not find examples directory.");
     }

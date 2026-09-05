@@ -12,6 +12,7 @@ fi
 
 FORCE_RUN="${NSHARP_TEST_ALL_FORCE:-0}"
 KEEP_RUN="${NSHARP_TEST_KEEP_RUN:-0}"
+STEP_CACHE_OFF="${NSHARP_TEST_STEP_CACHE_OFF:-0}"
 FRESH_REASON=""
 CORE_ARGS=()
 
@@ -37,28 +38,39 @@ Options:
 
 Plain ./scripts/test-all.sh may return a validated cache hit for fast local
 development. Do not use a cached hit as a pre-commit or release verification.
+
+Within a plain fresh isolated development run, individual gate steps may be
+skipped when their ENTIRE input set is byte-identical to inputs that previously
+passed that step on the same toolchain (validated per-step cache). --commit,
+--release, --fresh, --no-cache, and --clean disable per-step skipping and run
+everything.
 EOF
             exit 0
             ;;
         --commit|--pre-commit)
             FORCE_RUN=1
             FRESH_REASON="pre-commit verification"
+            STEP_CACHE_OFF=1
             ;;
         --release)
             FORCE_RUN=1
             FRESH_REASON="release verification"
+            STEP_CACHE_OFF=1
             ;;
         --fresh)
             FORCE_RUN=1
             FRESH_REASON="explicit fresh verification"
+            STEP_CACHE_OFF=1
             ;;
         --no-cache|--rebuild-cache)
             FORCE_RUN=1
             FRESH_REASON="cache bypass requested"
+            STEP_CACHE_OFF=1
             ;;
         --clean)
             FORCE_RUN=1
             FRESH_REASON="clean verification"
+            STEP_CACHE_OFF=1
             CORE_ARGS+=("$arg")
             ;;
         *)
@@ -94,18 +106,19 @@ CACHE_ROOT="$(cache_root)"
 RESULTS_ROOT="$CACHE_ROOT/results"
 LOCKS_ROOT="$CACHE_ROOT/locks"
 SIGNATURE_FILE="$(mktemp "${TMPDIR:-/tmp}/nsharp-test-signature.XXXXXX")"
+DEPENDENCY_SIGNATURE_FILE="$(mktemp "${TMPDIR:-/tmp}/nsharp-test-dependencies.XXXXXX")"
 LOCK_STALE_SECONDS="${NSHARP_TEST_LOCK_STALE_SECONDS:-7200}"
 if ! [[ "$LOCK_STALE_SECONDS" =~ ^[0-9]+$ ]]; then
     LOCK_STALE_SECONDS=7200
 fi
 
 cleanup_signature() {
-    rm -f "$SIGNATURE_FILE"
+    rm -f "$SIGNATURE_FILE" "$DEPENDENCY_SIGNATURE_FILE"
 }
 trap cleanup_signature EXIT
 
 CACHE_KEY="$(
-    python3 - "$SOURCE_ROOT" "$SIGNATURE_FILE" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"} <<'PY'
+    python3 - "$SOURCE_ROOT" "$SIGNATURE_FILE" "$DEPENDENCY_SIGNATURE_FILE" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"} <<'PY'
 import hashlib
 import json
 import os
@@ -115,7 +128,8 @@ import sys
 
 root = os.path.realpath(sys.argv[1])
 signature_path = sys.argv[2]
-args = sys.argv[3:]
+dependency_signature_path = sys.argv[3]
+args = sys.argv[4:]
 
 
 def run_text(command):
@@ -157,9 +171,33 @@ def source_files():
         for name in files:
             yield os.path.relpath(os.path.join(current, name), root)
 
+def is_dependency_input(relative):
+    normalized = relative.replace(os.sep, "/")
+    name = os.path.basename(normalized).lower()
+    if name in {
+        "global.json",
+        "nuget.config",
+        "packages.lock.json",
+        "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "project.yml",
+    }:
+        return True
+    return normalized.endswith((
+        ".csproj",
+        ".fsproj",
+        ".vbproj",
+        ".props",
+        ".targets",
+        ".sln",
+        ".slnx",
+    ))
 
 content_hash = hashlib.sha256()
-for relative in sorted(set(source_files())):
+source_file_list = sorted(set(source_files()))
+for relative in source_file_list:
     path = os.path.join(root, relative)
     if not os.path.isfile(path):
         continue
@@ -178,13 +216,17 @@ tool_versions = {
     "code": (run_text(["code", "--version"]) or "").splitlines()[:2],
 }
 
+# Behavior-changing environment for the gate. Keep in sync with ENV_NAMES in
+# the per-step salt in tests/scripts/test-all-core.sh
+# (GateStepInputSetGuardTests enforces it).
 env_names = [
-    "VSCODE_TESTS",
+    "VSCODE_TESTS", "SYSTEMS_BENCH",
     "TEST_SUITE",
     "TEST_GREP",
     "TEST_ALL_JOBS",
     "NLC_MSBUILD_SINGLE_NODE",
     "DOTNET_ROOT",
+    "NSHARP_EXPERIMENTAL_SOA",
 ]
 
 signature = {
@@ -205,7 +247,58 @@ key = hashlib.sha256(encoded).hexdigest()
 with open(signature_path, "w", encoding="utf-8") as handle:
     json.dump(signature, handle, indent=2, sort_keys=True)
     handle.write("\n")
+
+dependency_hash = hashlib.sha256()
+for relative in source_file_list:
+    if not is_dependency_input(relative):
+        continue
+    path = os.path.join(root, relative)
+    if not os.path.isfile(path):
+        continue
+    normalized = relative.replace(os.sep, "/")
+    dependency_hash.update(normalized.encode("utf-8", "surrogateescape"))
+    dependency_hash.update(b"\0")
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            dependency_hash.update(chunk)
+    dependency_hash.update(b"\0")
+
+dependency_signature = {
+    "schemaVersion": 1,
+    "sourceHash": dependency_hash.hexdigest(),
+    "tools": tool_versions,
+    "platform": {
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "release": platform.release(),
+    },
+    "salt": os.environ.get("NSHARP_TEST_DEPENDENCY_CACHE_SALT"),
+}
+dependency_encoded = json.dumps(dependency_signature, sort_keys=True, separators=(",", ":")).encode("utf-8")
+dependency_key = hashlib.sha256(dependency_encoded).hexdigest()
+with open(dependency_signature_path, "w", encoding="utf-8") as handle:
+    json.dump(
+        {
+            "key": dependency_key,
+            "signature": dependency_signature,
+        },
+        handle,
+        indent=2,
+        sort_keys=True,
+    )
+    handle.write("\n")
+
 print(key)
+PY
+)"
+
+DEPENDENCY_KEY="$(
+    python3 - "$DEPENDENCY_SIGNATURE_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.load(handle)["key"])
 PY
 )"
 
@@ -334,7 +427,7 @@ RUN_ROOT="$(mktemp -d "$RUN_PARENT/nsharp-test-all.${CACHE_KEY:0:12}.XXXXXX")"
 RUN_REPO="$RUN_ROOT/repo"
 RUN_HOME="$RUN_ROOT/home"
 RUN_TMP="$RUN_ROOT/tmp"
-RUN_DEPS="$CACHE_ROOT/dependencies/$CACHE_KEY"
+RUN_DEPS="$CACHE_ROOT/dependencies/$DEPENDENCY_KEY"
 
 cleanup_run() {
     if ! is_enabled "$KEEP_RUN"; then
@@ -357,7 +450,7 @@ copy_source_tree() {
             --exclude='**/out/' \
             --exclude='**/server/' \
             --exclude='**/nsharp/' \
-            --exclude='.context/' \
+            --exclude='.context/' --exclude='.claude/' \
             --exclude='artifacts/' \
             --exclude='*.nupkg' \
             --exclude='*.vsix' \
@@ -372,7 +465,7 @@ copy_source_tree() {
                 --exclude='*/.vscode-test' \
                 --exclude='*/out' \
                 --exclude='*/server' \
-                --exclude='.context' \
+                --exclude='.context' --exclude='.claude' \
                 --exclude='artifacts' \
                 -cf - .
         ) | (
@@ -388,9 +481,24 @@ echo "  Run:    $RUN_ROOT"
 echo "  Cache:  $CACHE_ROOT"
 echo "  Deps:   $RUN_DEPS"
 echo "  Key:    ${CACHE_KEY:0:16}"
+echo "  DepKey: ${DEPENDENCY_KEY:0:16}"
 
 copy_source_tree
 mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_DEPS/nuget/packages" "$RUN_DEPS/npm-cache"
+
+BOOTSTRAP_NUGET_PACKAGES="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
+copy_bootstrap_nuget_package() {
+    local package_id="$1"
+    local package_dir="$BOOTSTRAP_NUGET_PACKAGES/$package_id"
+
+    if [ -d "$package_dir" ]; then
+        mkdir -p "$RUN_DEPS/nuget/packages"
+        cp -R "$package_dir" "$RUN_DEPS/nuget/packages/"
+    fi
+}
+
+copy_bootstrap_nuget_package nsharplang.sdk
+copy_bootstrap_nuget_package nsharplang.runtime
 
 START_TIME="$(date +%s)"
 
@@ -404,10 +512,19 @@ set +e
     export DOTNET_NOLOGO=1
     export NUGET_PACKAGES="$RUN_DEPS/nuget/packages"
     export NPM_CONFIG_CACHE="$RUN_DEPS/npm-cache"
+    export NSHARP_VSCODE_TEST_CACHE="$RUN_DEPS/vscode-test"
+    export NSHARP_VSCODE_PROFILE_ROOT="$RUN_TMP/vscode-profiles"
     export TMPDIR="$RUN_TMP"
     export TMP="$RUN_TMP"
     export TEMP="$RUN_TMP"
     export NSHARP_TEST_ALL_ISOLATED=1
+    export NSHARP_TEST_STEP_CACHE_ROOT="$CACHE_ROOT/steps"
+    export NSHARP_TEST_STEP_CACHE_OFF="$STEP_CACHE_OFF"
+    # Golden regeneration must never leak into the gate: the isolated copy is
+    # discarded, and NSHARP_UPDATE_DIAGNOSTIC_GOLDENS=1 makes golden tests
+    # self-satisfying (rewrite, then compare against the rewrite). Regenerate
+    # goldens with plain `dotnet test` in the working tree instead.
+    unset NSHARP_UPDATE_DIAGNOSTIC_GOLDENS
     "$RUN_REPO/tests/scripts/test-all-core.sh" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"}
 )
 CORE_EXIT=$?

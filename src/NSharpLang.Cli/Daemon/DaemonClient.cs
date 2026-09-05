@@ -25,9 +25,10 @@ public static class DaemonClient
     {
         var response = QueryResponse(projectRoot, method, parameters);
 
-        if (response?.Error != null)
+        var error = response?.Error;
+        if (error != null)
         {
-            Console.Error.WriteLine(JsonSerializer.Serialize(response));
+            Console.Error.WriteLine(DaemonProtocolKernels.ErrorResponseJson(response!.Id, error.Code, error.Message));
             return null;
         }
 
@@ -83,15 +84,15 @@ public static class DaemonClient
         catch (SocketException ex)
         {
             // Daemon not running or socket stale — clean up only when connect proved it stale.
-            if (ShouldDeleteStaleSocket(ex))
+            if (DaemonClientKernels.ShouldDeleteStaleSocket((int)ex.SocketErrorCode, (int)SocketError.TimedOut))
             {
-                try { File.Delete(socketPath); } catch { }
+                try { File.Delete(socketPath); } catch { /* best-effort cleanup of a stale socket */ }
             }
             return null;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[daemon] Connection error: {ex.Message}");
+            Console.Error.WriteLine(DaemonClientKernels.GetConnectionErrorMessage(ex.Message));
             return null;
         }
     }
@@ -128,9 +129,9 @@ public static class DaemonClient
         catch (SocketException ex)
         {
             // Socket exists but daemon is dead — clean up only when connect proved it stale.
-            if (ShouldDeleteStaleSocket(ex))
+            if (DaemonClientKernels.ShouldDeleteStaleSocket((int)ex.SocketErrorCode, (int)SocketError.TimedOut))
             {
-                try { File.Delete(socketPath); } catch { }
+                try { File.Delete(socketPath); } catch { /* best-effort cleanup of a stale socket */ }
             }
             return false;
         }
@@ -149,33 +150,22 @@ public static class DaemonClient
         var exePath = Process.GetCurrentProcess().MainModule?.FileName;
         if (exePath == null)
         {
-            Console.Error.WriteLine("Cannot determine executable path for daemon");
+            Console.Error.WriteLine(DaemonClientKernels.GetExecutablePathMissingMessage());
             return false;
         }
 
-        // Use dotnet run for development, but the real binary path for installed tools
+        var cliDir = DaemonClientKernels.ShouldProbeCliProject(exePath) ? FindCliProject() : null;
+        var startPlan = DaemonClientKernels.GetStartPlan(exePath, projectRoot, cliDir);
         var startInfo = new ProcessStartInfo
         {
-            FileName = exePath,
-            Arguments = $"daemon run --project \"{projectRoot}\"",
+            FileName = startPlan.FileName,
+            Arguments = startPlan.Arguments,
             UseShellExecute = false,
             RedirectStandardOutput = false,
             RedirectStandardError = false,
             CreateNoWindow = true,
             WorkingDirectory = projectRoot
         };
-
-        // If running via `dotnet run`, we need a different approach
-        if (exePath.Contains("dotnet"))
-        {
-            // Find the CLI project
-            var cliDir = FindCliProject();
-            if (cliDir != null)
-            {
-                startInfo.FileName = "dotnet";
-                startInfo.Arguments = $"run --project \"{cliDir}\" -- daemon run --project \"{projectRoot}\"";
-            }
-        }
 
         try
         {
@@ -184,19 +174,19 @@ public static class DaemonClient
 
             // Wait for socket to appear
             var socketPath = DaemonConstants.GetSocketPath(projectRoot);
-            for (int i = 0; i < 50; i++) // Up to 5 seconds
+            for (var i = 0; i < DaemonClientKernels.GetStartWaitAttemptCount(); i++)
             {
-                Thread.Sleep(100);
+                Thread.Sleep(DaemonClientKernels.GetStartWaitDelayMilliseconds());
                 if (File.Exists(socketPath) && IsRunning(projectRoot))
                     return true;
             }
 
-            Console.Error.WriteLine("Daemon started but not responding within 5 seconds");
+            Console.Error.WriteLine(DaemonClientKernels.GetStartTimeoutMessage());
             return false;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Failed to start daemon: {ex.Message}");
+            Console.Error.WriteLine(DaemonClientKernels.GetStartFailedWithReasonMessage(ex.Message));
             return false;
         }
     }
@@ -224,17 +214,12 @@ public static class DaemonClient
         var dir = Directory.GetCurrentDirectory();
         while (dir != null)
         {
-            var cliProj = Path.Combine(dir, "src", "NSharpLang.Cli", "Cli.csproj");
+            var cliProj = DaemonClientKernels.GetCliProjectPath(dir);
             if (File.Exists(cliProj))
-                return Path.GetDirectoryName(cliProj);
+                return DaemonClientKernels.GetCliProjectDirectory(cliProj);
             dir = Directory.GetParent(dir)?.FullName;
         }
         return null;
-    }
-
-    private static bool ShouldDeleteStaleSocket(SocketException ex)
-    {
-        return ex.SocketErrorCode != SocketError.TimedOut;
     }
 
     private static void SendAll(Socket socket, byte[] bytes)

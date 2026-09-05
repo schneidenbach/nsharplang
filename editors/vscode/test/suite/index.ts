@@ -1,6 +1,7 @@
 import * as path from 'path';
 import Mocha from 'mocha';
 import { glob } from 'glob';
+import * as vscode from 'vscode';
 
 export async function run(): Promise<void> {
     const mocha = new Mocha({
@@ -66,10 +67,22 @@ export async function run(): Promise<void> {
 
     return new Promise((resolve, reject) => {
         try {
-            mocha.run(failures => {
+            let runner: Mocha.Runner | undefined;
+            runner = mocha.run(failures => {
+                const total = runner?.total ?? 0;
+                if (total === 0) {
+                    reject(new Error(
+                        grepPattern
+                            ? `TEST_GREP "${grepPattern}" matched 0 tests.`
+                            : 'VS Code integration harness matched 0 tests.'
+                    ));
+                    return;
+                }
+
                 if (failures > 0) {
                     reject(new Error(`${failures} test(s) failed.`));
                 } else {
+                    void vscode.commands.executeCommand('workbench.action.closeWindow');
                     resolve();
                 }
             });

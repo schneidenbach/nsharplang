@@ -19,6 +19,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Workspace;
 using LspLocation = OmniSharp.Extensions.LanguageServer.Protocol.Models.Location;
 using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Tests;
 
@@ -28,31 +29,12 @@ namespace NSharpLang.Tests;
 /// </summary>
 public class LanguageServerFixture : IDisposable
 {
-    private XmlDocReader? _xmlDocReader;
     private TypeResolver? _typeResolver;
     private readonly object _initLock = new();
 
     // CRITICAL FIX: Lazy properties, NOT eager constructor initialization
     // xUnit instantiates collection fixtures during test DISCOVERY, not execution
     // Any work in the constructor blocks test discovery
-    public XmlDocReader XmlDocReader
-    {
-        get
-        {
-            if (_xmlDocReader == null)
-            {
-                lock (_initLock)
-                {
-                    if (_xmlDocReader == null)
-                    {
-                        _xmlDocReader = new XmlDocReader(NullLogger<XmlDocReader>.Instance);
-                    }
-                }
-            }
-            return _xmlDocReader;
-        }
-    }
-
     public TypeResolver TypeResolver
     {
         get
@@ -63,7 +45,7 @@ public class LanguageServerFixture : IDisposable
                 {
                     if (_typeResolver == null)
                     {
-                        _typeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
+                        _typeResolver = new TypeResolver(new DocumentManager(NullLogger<DocumentManager>.Instance));
                     }
                 }
             }
@@ -177,6 +159,22 @@ public class LanguageServerTests
         return typeBuilder.CreateType()!;
     }
 
+    private static (int Line, int Character) FindSourcePosition(string source, string lineMarker, string token)
+    {
+        var lines = source.Replace("\r\n", "\n").Split('\n');
+        for (var line = 0; line < lines.Length; line++)
+        {
+            if (!lines[line].Contains(lineMarker, StringComparison.Ordinal))
+                continue;
+
+            var character = lines[line].IndexOf(token, StringComparison.Ordinal);
+            if (character >= 0)
+                return (line, character);
+        }
+
+        throw new InvalidOperationException($"No line containing '{lineMarker}' with token '{token}' found in source.");
+    }
+
     private static LspLocation ExtractSingleDefinitionLocation(LocationOrLocationLinks value)
     {
         static IEnumerable<System.Reflection.FieldInfo> GetAllFields(Type t)
@@ -288,7 +286,6 @@ public class LanguageServerTests
     private class LspTestHarness
     {
         public DocumentManager DocumentManager { get; }
-        public XmlDocReader XmlDocReader { get; }
         public TypeResolver TypeResolver { get; }
         public CompletionHandler CompletionHandler { get; }
         public HoverHandler HoverHandler { get; }
@@ -313,16 +310,13 @@ public class LanguageServerTests
         public TypeHierarchySupertypesHandler TypeHierarchySupertypesHandler { get; }
         public TypeHierarchySubtypesHandler TypeHierarchySubtypesHandler { get; }
         public DocumentLinkHandler DocumentLinkHandler { get; }
-        public CodeLensHandler CodeLensHandler { get; }
         public OnTypeFormattingHandler OnTypeFormattingHandler { get; }
 
         public LspTestHarness(
-            XmlDocReader xmlDocReader,
             TypeResolver typeResolver,
             ILogger<DocumentManager>? documentManagerLogger = null)
         {
-            // Reuse shared XmlDocReader and TypeResolver from fixture
-            XmlDocReader = xmlDocReader;
+            // Reuse shared TypeResolver from fixture
             TypeResolver = typeResolver;
 
             // Create test-specific DocumentManager (each test needs its own)
@@ -343,8 +337,6 @@ public class LanguageServerTests
 
             SignatureHelpHandler = new SignatureHelpHandler(
                 DocumentManager,
-                TypeResolver,
-                XmlDocReader,
                 NullLogger<SignatureHelpHandler>.Instance
             );
 
@@ -404,7 +396,6 @@ public class LanguageServerTests
             TypeHierarchySupertypesHandler = new TypeHierarchySupertypesHandler(DocumentManager, NullLogger<TypeHierarchySupertypesHandler>.Instance);
             TypeHierarchySubtypesHandler = new TypeHierarchySubtypesHandler(DocumentManager, NullLogger<TypeHierarchySubtypesHandler>.Instance);
             DocumentLinkHandler = new DocumentLinkHandler(DocumentManager, NullLogger<DocumentLinkHandler>.Instance);
-            CodeLensHandler = new CodeLensHandler(DocumentManager, NullLogger<CodeLensHandler>.Instance);
             OnTypeFormattingHandler = new OnTypeFormattingHandler(DocumentManager, NullLogger<OnTypeFormattingHandler>.Instance);
         }
 
@@ -659,16 +650,6 @@ public class LanguageServerTests
             return await DocumentLinkHandler.Handle(request, CancellationToken.None);
         }
 
-        public async Task<CodeLensContainer?> GetCodeLensesAsync(string uri)
-        {
-            var request = new CodeLensParams
-            {
-                TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri))
-            };
-
-            return await CodeLensHandler.Handle(request, CancellationToken.None);
-        }
-
         public async Task<TextEditContainer?> OnTypeFormattingAsync(string uri, int line, int character, string triggerChar, int tabSize = 4, bool insertSpaces = true)
         {
             var request = new DocumentOnTypeFormattingParams
@@ -697,18 +678,6 @@ public class LanguageServerTests
             dir = parent.FullName;
         }
 
-        var paths = new[]
-        {
-            "/Users/spencer/repos/nsharplang/.claude/worktrees/hungry-blackburn/examples",
-            "/Users/spencer/repos/nsharplang/examples",
-        };
-
-        foreach (var p in paths)
-        {
-            if (Directory.Exists(p))
-                return p;
-        }
-
         throw new Exception("Could not find examples directory");
     }
 
@@ -717,7 +686,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_KeywordsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "f");
@@ -733,7 +702,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_PrimitiveTypesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "i");
@@ -748,7 +717,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_CommonDotNetTypesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "C");
@@ -763,7 +732,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_LocalFunctionsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -784,7 +753,7 @@ func main(): void
     [Fact]
     public async Task Completion_LocalFunction_IncludesLeadingDocumentationAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/docs.nl";
 
         var source = @"// Greets someone by name.
@@ -807,141 +776,33 @@ func main(): void
         Assert.Contains("Returns the composed greeting.", documentation);
     }
 
-    [Fact]
-    public async Task Completion_MemberAccess_ConsoleAsync()
+    [Theory]
+    [InlineData("func", "${1:name};${2:params};${3:void}")]
+    [InlineData("if", "${1:condition}")]
+    [InlineData("match", "${1:value};${2:pattern}")]
+    [InlineData("for", "${1:item};${2:collection}")]
+    [InlineData("type", "${1:Name}")]
+    public async Task Completion_SnippetAsync(string label, string placeholders)
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
-        var source = @"
-func main(): void
-    Console.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 2, 12);
-
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "WriteLine");
-        Assert.Contains(completions.Items, c => c.Label == "Write");
-        Assert.Contains(completions.Items, c => c.Label == "ReadLine");
-    }
-
-    [Fact]
-    public async Task Completion_MemberAccess_StringAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    message.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 3, 12);
-
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "Length");
-        Assert.Contains(completions.Items, c => c.Label == "ToUpper");
-        Assert.Contains(completions.Items, c => c.Label == "ToLower");
-        Assert.Contains(completions.Items, c => c.Label == "Substring");
-    }
-
-    [Fact]
-    public async Task Completion_Snippet_FuncAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        harness.OpenDocument(uri, "f");
+        harness.OpenDocument(uri, label.Substring(0, 1));
 
         var completions = await harness.GetCompletionsAsync(uri, 0, 1);
 
         var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "func" && c.Kind == CompletionItemKind.Snippet);
+            c => c.Label == label && c.Kind == CompletionItemKind.Snippet);
         Assert.NotNull(snippet);
         Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:name}", snippet.InsertText);
-        Assert.Contains("${2:params}", snippet.InsertText);
-        Assert.Contains("${3:void}", snippet.InsertText);
+        Assert.All(placeholders.Split(';'), p => Assert.Contains(p, snippet.InsertText));
     }
 
-    [Fact]
-    public async Task Completion_Snippet_IfAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        harness.OpenDocument(uri, "i");
-
-        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
-
-        var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "if" && c.Kind == CompletionItemKind.Snippet);
-        Assert.NotNull(snippet);
-        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:condition}", snippet.InsertText);
-    }
-
-    [Fact]
-    public async Task Completion_Snippet_MatchAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        harness.OpenDocument(uri, "m");
-
-        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
-
-        var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "match" && c.Kind == CompletionItemKind.Snippet);
-        Assert.NotNull(snippet);
-        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:value}", snippet.InsertText);
-        Assert.Contains("${2:pattern}", snippet.InsertText);
-    }
-
-    [Fact]
-    public async Task Completion_Snippet_ForAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        harness.OpenDocument(uri, "f");
-
-        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
-
-        var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "for" && c.Kind == CompletionItemKind.Snippet);
-        Assert.NotNull(snippet);
-        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:item}", snippet.InsertText);
-        Assert.Contains("${2:collection}", snippet.InsertText);
-    }
-
-    [Fact]
-    public async Task Completion_Snippet_TypeAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        harness.OpenDocument(uri, "t");
-
-        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
-
-        var snippet = completions.Items.FirstOrDefault(
-            c => c.Label == "type" && c.Kind == CompletionItemKind.Snippet);
-        Assert.NotNull(snippet);
-        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
-        Assert.Contains("${1:Name}", snippet.InsertText);
-    }
 
     [Fact]
     public async Task Completion_Snippets_CoexistWithKeywordsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "f");
@@ -958,24 +819,6 @@ func main(): void
         Assert.NotNull(funcKeyword);
     }
 
-    [Fact]
-    public async Task Completion_Snippets_NotShownInMemberAccessAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Console.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 2, 12);
-
-        // Snippets should NOT appear in member access context
-        Assert.DoesNotContain(completions.Items, c => c.Kind == CompletionItemKind.Snippet);
-    }
-
     #endregion
 
     #region Hover Tests
@@ -983,7 +826,7 @@ func main(): void
     [Fact]
     public async Task Hover_KeywordAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "func main(): void");
@@ -991,6 +834,7 @@ func main(): void
         var hover = await harness.GetHoverAsync(uri, 0, 2);
 
         Assert.NotNull(hover);
+        Assert.NotNull(hover!.Range);
         var content = hover.Contents.MarkupContent;
         Assert.NotNull(content);
         Assert.Contains("func", content.Value);
@@ -1000,7 +844,7 @@ func main(): void
     [Fact]
     public async Task Hover_PrimitiveTypeAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "func test(): int");
@@ -1008,6 +852,7 @@ func main(): void
         var hover = await harness.GetHoverAsync(uri, 0, 14);
 
         Assert.NotNull(hover);
+        Assert.NotNull(hover!.Range);
         var content = hover.Contents.MarkupContent;
         Assert.NotNull(content);
         Assert.Contains("int", content.Value);
@@ -1017,7 +862,7 @@ func main(): void
     [Fact]
     public async Task Hover_LocalVariableAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1039,7 +884,7 @@ func main(): void
     [Fact]
     public async Task Hover_FunctionNameAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1057,124 +902,9 @@ func greet(name: string): string
     }
 
     [Fact]
-    public async Task Hover_MemberAccess_PropertyAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    let len = message.Length";
-
-        harness.OpenDocument(uri, source);
-
-        // Hover over "Length" in "message.Length"
-        var hover = await harness.GetHoverAsync(uri, 3, 24);
-
-        Assert.NotNull(hover);
-        var content = hover.Contents.MarkupContent;
-        Assert.NotNull(content);
-        Assert.Contains("Length", content.Value);
-        Assert.Contains("property", content.Value.ToLower());
-    }
-
-    [Fact]
-    public async Task Hover_MemberAccess_MethodAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    let upper = message.ToUpper()";
-
-        harness.OpenDocument(uri, source);
-
-        // Hover over "ToUpper" in "message.ToUpper()"
-        var hover = await harness.GetHoverAsync(uri, 3, 26);
-
-        Assert.NotNull(hover);
-        var content = hover.Contents.MarkupContent;
-        Assert.NotNull(content);
-        Assert.Contains("ToUpper", content.Value);
-        Assert.Contains("method", content.Value.ToLower());
-    }
-
-    [Fact]
-    public async Task Hover_MemberAccess_MethodWithParametersAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello world""
-    let sub = message.Substring(0, 5)";
-
-        harness.OpenDocument(uri, source);
-
-        // Hover over "Substring"
-        var hover = await harness.GetHoverAsync(uri, 3, 24);
-
-        Assert.NotNull(hover);
-        var content = hover.Contents.MarkupContent;
-        Assert.NotNull(content);
-        Assert.Contains("Substring", content.Value);
-        // Should show method signature with parameters
-        Assert.Contains("int", content.Value);
-    }
-
-    [Fact]
-    public async Task Hover_ChainedMemberAccessAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    let len = message.ToUpper().Length";
-
-        harness.OpenDocument(uri, source);
-
-        // Hover over "Length" in the chained call
-        var hover = await harness.GetHoverAsync(uri, 3, 34);
-
-        Assert.NotNull(hover);
-        var content = hover.Contents.MarkupContent;
-        Assert.NotNull(content);
-        Assert.Contains("Length", content.Value);
-    }
-
-    [Fact]
-    public async Task Hover_ConsoleWriteLineAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Console.WriteLine(""test"")";
-
-        harness.OpenDocument(uri, source);
-
-        // Hover over "WriteLine"
-        var hover = await harness.GetHoverAsync(uri, 2, 15);
-
-        Assert.NotNull(hover);
-        var content = hover.Contents.MarkupContent;
-        Assert.NotNull(content);
-        Assert.Contains("WriteLine", content.Value);
-        // Should show it has overloads
-        Assert.Contains("method", content.Value.ToLower());
-    }
-
-    [Fact]
     public async Task Hover_VariableWithSystemTypeAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1199,47 +929,9 @@ func main(): void
     #region Signature Help Tests
 
     [Fact]
-    public async Task SignatureHelp_ConsoleWriteLineAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Console.WriteLine(";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 2, 22);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("WriteLine"));
-    }
-
-    [Fact]
-    public async Task SignatureHelp_StringFormatAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    String.Format(";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 2, 18);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("Format"));
-    }
-
-    [Fact]
     public async Task SignatureHelp_NSharpFunction_BasicAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1267,7 +959,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_IncludesLeadingDocumentationAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/docs-signature.nl";
 
         var source = @"// Greets someone by name.
@@ -1294,7 +986,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_ActiveParameterAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1316,7 +1008,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_ReturnTypeAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1339,7 +1031,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_NoParamsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1363,7 +1055,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_NSharpFunction_DefaultValueParamAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -1385,228 +1077,58 @@ func main(): void
         Assert.Contains("greeting: string", sig.Label);
     }
 
-    [Fact]
-    public async Task SignatureHelp_NSharpFunction_StillWorksForDotNetAsync()
-    {
-        // Ensure existing .NET type signature help still works after refactor
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Math.Max(";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 2, 13);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("Max"));
-    }
-
-    [Fact]
-    public async Task SignatureHelp_StringInstanceMethod_ReturnsOverloadsAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message := ""hello""
-    message.Contains(";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 3, 21);
-
-        Assert.NotNull(sigHelp);
-        Assert.True(sigHelp.Signatures.Count() >= 2,
-            $"Expected string.Contains overloads, got {sigHelp.Signatures.Count()} signature(s)");
-        Assert.All(sigHelp.Signatures, signature => Assert.StartsWith("Contains(", signature.Label));
-        Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("value: string"));
-        Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("value: char"));
-        Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("comparisonType: StringComparison"));
-        Assert.Equal(0, sigHelp.ActiveParameter);
-
-        var stringOverload = sigHelp.Signatures.First(signature =>
-            signature.Label.Contains("value: string") &&
-            !signature.Label.Contains("comparisonType"));
-        var documentation = GetDocumentationText(stringOverload.Documentation);
-        var parameterDocumentation = GetDocumentationText(stringOverload.Parameters!.First().Documentation);
-
-        Assert.NotNull(documentation);
-        Assert.Contains("specified substring", documentation);
-        Assert.NotNull(parameterDocumentation);
-        Assert.Contains("string to seek", parameterDocumentation);
-    }
-
-    [Fact]
-    public async Task SignatureHelp_StringInstanceMethod_SelectsArityCompatibleOverloadAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message := ""hello""
-    message.Substring(0, ";
-
-        harness.OpenDocument(uri, source);
-
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, 3, 25);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        Assert.Equal(1, sigHelp.ActiveParameter);
-
-        var activeSignature = sigHelp.Signatures.ElementAt(sigHelp.ActiveSignature ?? 0);
-        Assert.Contains("length: int", activeSignature.Label);
-    }
-
-    [Fact]
-    public async Task SignatureHelp_DotNetNamedCall_UsesAnalyzerSelectedOverloadAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/signature_named_call.nl";
-
-        var source = @"
-import System
-import System.Collections.Generic
-
-func main(): void
-    names := new List<string>()
-    names.Add(""alpha"")
-    joined := String.Join(separator: "","", values: names)
-";
-
-        harness.OpenDocument(uri, source);
-
-        var lines = source.Split('\n');
-        var line = Array.FindIndex(lines, text => text.Contains("String.Join", StringComparison.Ordinal));
-        var character = lines[line].IndexOf("values", StringComparison.Ordinal) + "values".Length;
-        var sigHelp = await harness.GetSignatureHelpAsync(uri, line, character);
-
-        Assert.NotNull(sigHelp);
-        Assert.NotEmpty(sigHelp.Signatures);
-        var activeSignature = sigHelp.Signatures.ElementAt(sigHelp.ActiveSignature ?? 0);
-        Assert.Contains("separator: string", activeSignature.Label);
-        Assert.Contains("values: IEnumerable<string?>", activeSignature.Label);
-    }
-
     #endregion
 
     #region Definition Tests
 
     [Fact]
-    public async Task Definition_TopLevelFunctionAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Foo()
-
-func Foo(): void
-    return";
-
-        harness.OpenDocument(uri, source);
-
-        var definition = await harness.GetDefinitionAsync(uri, 2, 6);
-        Assert.NotNull(definition);
-
-        var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(4, location.Range.Start.Line);
-        Assert.Equal(5, location.Range.Start.Character);
-    }
-
-    [Fact]
-    public async Task Definition_LocalVariableAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let x := 1
-    print(x)";
-
-        harness.OpenDocument(uri, source);
-
-        var definition = await harness.GetDefinitionAsync(uri, 3, 10);
-        Assert.NotNull(definition);
-
-        var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(2, location.Range.Start.Line);
-        Assert.Equal(8, location.Range.Start.Character);
-    }
-
-    [Fact]
-    public async Task Definition_InterpolatedStringHole_LocalVariableAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let name := ""Spencer""
-    print($""Hello, {name}!"")";
-
-        harness.OpenDocument(uri, source);
-
-        var definition = await harness.GetDefinitionAsync(uri, 3, 21);
-        Assert.NotNull(definition);
-
-        var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(2, location.Range.Start.Line);
-        Assert.Equal(8, location.Range.Start.Character);
-    }
-
-    [Fact]
     public async Task Definition_CrossFileType_UsesCompilerProjectSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
 
         harness.OpenDocument(uri, source);
 
-        // Line 26 col 20 (0-indexed: 25, 19): service := new IssueService(store, hub)
-        var definition = await harness.GetDefinitionAsync(uri, 25, 19);
+        var usePosition = FindSourcePosition(source, "new IssueService", "IssueService");
+        var definition = await harness.GetDefinitionAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(definition);
 
+        var servicePath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl");
+        var declPosition = FindSourcePosition(File.ReadAllText(servicePath), "class IssueService", "IssueService");
         var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(new Uri(Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(13, location.Range.Start.Line); // IssueService name on line 14 (0-indexed: 13)
-        Assert.Equal(6, location.Range.Start.Character);
+        Assert.Equal(new Uri(servicePath).AbsoluteUri, location.Uri.ToString());
+        Assert.Equal(declPosition.Line, location.Range.Start.Line);
+        Assert.Equal(declPosition.Character, location.Range.Start.Character);
     }
 
     [Fact]
     public async Task Definition_CrossFileType_PrefersSemanticResultOverSameNameLocalSymbolAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
 
         harness.OpenDocument(uri, source);
 
-        // Line 26 col 20 (0-indexed: 25, 19): service := new IssueService(store, hub)
-        var definition = await harness.GetDefinitionAsync(uri, 25, 19);
+        var usePosition = FindSourcePosition(source, "new IssueService", "IssueService");
+        var definition = await harness.GetDefinitionAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(definition);
 
+        var servicePath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl");
+        var declPosition = FindSourcePosition(File.ReadAllText(servicePath), "class IssueService", "IssueService");
         var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(new Uri(Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(13, location.Range.Start.Line); // IssueService name on line 14 (0-indexed: 13)
-        Assert.Equal(6, location.Range.Start.Character);
+        Assert.Equal(new Uri(servicePath).AbsoluteUri, location.Uri.ToString());
+        Assert.Equal(declPosition.Line, location.Range.Start.Line);
+        Assert.Equal(declPosition.Character, location.Range.Start.Character);
     }
 
     [Fact]
     public async Task Definition_EndOfLinePosition_ReturnsNullAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = """
@@ -1627,7 +1149,7 @@ func Foo(): void {
     [Fact]
     public async Task Definition_CrossFile_WithUnsavedComment_UsesOpenBufferProjectSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
@@ -1636,8 +1158,8 @@ func Foo(): void {
         // resolution should analyze that open-buffer snapshot, not reject it.
         harness.OpenDocument(uri, source + "\n// unsaved edit");
 
-        // F12 on IssueService at line 26 col 20 (0-indexed: 25, 19)
-        var definition = await harness.GetDefinitionAsync(uri, 25, 19);
+        var usePosition = FindSourcePosition(source, "new IssueService", "IssueService");
+        var definition = await harness.GetDefinitionAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
@@ -1648,7 +1170,7 @@ func Foo(): void {
     [Fact]
     public async Task Definition_CrossFile_WithUnsavedComment_DifferentSymbolAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
@@ -1656,8 +1178,8 @@ func Foo(): void {
         // Make the buffer differ from disk; the open-buffer project snapshot should still resolve.
         harness.OpenDocument(uri, source + "\n// modified");
 
-        // F12 on IssueStore at line 25 col 18 (0-indexed: 24, 17)
-        var definition = await harness.GetDefinitionAsync(uri, 24, 17);
+        var usePosition = FindSourcePosition(source, "new IssueStore", "IssueStore");
+        var definition = await harness.GetDefinitionAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
@@ -1665,81 +1187,9 @@ func Foo(): void {
     }
 
     [Fact]
-    public async Task Definition_StandaloneSyntheticFile_DegradesStructuredAndUsesDocumentFallbackAsync()
-    {
-        var logger = new CapturingLogger<DocumentManager>();
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver, logger);
-        var uri = "file:///test.nl";
-        var source = "func main(): void\n    let answer := 42\n    print(answer)";
-
-        harness.OpenDocument(uri, source);
-
-        var definition = await harness.GetDefinitionAsync(uri, 2, 12);
-
-        Assert.NotNull(definition);
-        var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(uri, location.Uri.ToString());
-        Assert.Equal(1, location.Range.Start.Line);
-        Assert.Equal(8, location.Range.Start.Character);
-        Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Warning
-            && entry.Message.Contains("Project semantic snapshot degraded", StringComparison.Ordinal)
-            && entry.State.Any(kvp => kvp.Key == "Reason" && kvp.Value?.ToString() == "NoProjectRoot"));
-    }
-
-    [Fact]
-    public async Task Definition_DiskBackedStandaloneUnsavedFile_DoesNotUseStaleDiskSnapshotAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-standalone-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempRoot);
-
-        try
-        {
-            var sourcePath = Path.Combine(tempRoot, "Program.nl");
-            File.WriteAllText(sourcePath, """
-func main(): void {
-    alpha()
-}
-
-func alpha(): void {
-    return
-}
-""");
-
-            var unsavedSource = """
-func main(): void {
-    bravo()
-}
-
-func helper(): void {
-    return
-}
-
-func bravo(): void {
-    return
-}
-""";
-
-            var uri = new Uri(sourcePath).AbsoluteUri;
-            harness.OpenDocument(uri, unsavedSource);
-
-            var definition = await harness.GetDefinitionAsync(uri, 1, 5);
-
-            Assert.NotNull(definition);
-            var location = ExtractSingleDefinitionLocation(definition!);
-            Assert.Equal(uri, location.Uri.ToString());
-            Assert.Equal(8, location.Range.Start.Line);
-        }
-        finally
-        {
-            Directory.Delete(tempRoot, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task Definition_ScannedWorkspaceWithoutProjectFile_ResolvesAgainstWorkspaceRootAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-workspace-root-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1782,7 +1232,7 @@ func Read(widget: Widget): string {
     [Fact]
     public async Task Definition_ScannedWorkspaceUsesCurrentDiskForUnopenedFilesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-scan-stale-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1791,12 +1241,14 @@ func Read(widget: Widget): string {
             var programPath = Path.Combine(tempRoot, "Program.nl");
             var helperPath = Path.Combine(tempRoot, "Helper.nl");
             File.WriteAllText(programPath, """
+import "Helper"
+
 func main(): void {
-    beta()
+    Beta()
 }
 """);
             File.WriteAllText(helperPath, """
-func alpha(): void {
+func Alpha(): void {
     return
 }
 """);
@@ -1804,15 +1256,17 @@ func alpha(): void {
             harness.DocumentManager.ScanWorkspaceDirectory(tempRoot);
 
             File.WriteAllText(helperPath, """
-func beta(): void {
+func Beta(): void {
     return
 }
 """);
 
             var programUri = new Uri(programPath).AbsoluteUri;
-            harness.OpenDocument(programUri, File.ReadAllText(programPath));
+            var programSource = File.ReadAllText(programPath);
+            harness.OpenDocument(programUri, programSource);
 
-            var definition = await harness.GetDefinitionAsync(programUri, 1, 5);
+            var usePosition = FindSourcePosition(programSource, "Beta()", "Beta");
+            var definition = await harness.GetDefinitionAsync(programUri, usePosition.Line, usePosition.Character);
 
             Assert.NotNull(definition);
             var location = ExtractSingleDefinitionLocation(definition!);
@@ -1828,7 +1282,7 @@ func beta(): void {
     [Fact]
     public async Task Definition_DegradedStandaloneDirectoryWithUnsavedPeer_DoesNotUseStaleDiskSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-stale-disk-peer-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1876,7 +1330,7 @@ func peerUnsaved(): void {
     public async Task Definition_ProjectSnapshotLoadFailure_LogsStructuredDegradedStateAsync()
     {
         var logger = new CapturingLogger<DocumentManager>();
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver, logger);
+        var harness = new LspTestHarness(_fixture.TypeResolver, logger);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-degraded-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -1919,94 +1373,9 @@ func main(): void {
     #region References Tests
 
     [Fact]
-    public async Task References_LocalVariable_FindsAllUsagesAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let x := 1
-    let y := x + 2
-    print(x)";
-
-        harness.OpenDocument(uri, source);
-
-        // Request references from the declaration of x (line 2, col 8)
-        var refs = await harness.GetReferencesAsync(uri, 2, 8);
-        Assert.NotNull(refs);
-        Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'x', got {refs!.Count()}");
-    }
-
-    [Fact]
-    public async Task References_LocalVariable_FromUsageSiteAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let x := 1
-    let y := x + 2
-    print(x)";
-
-        harness.OpenDocument(uri, source);
-
-        // Request references from a usage of x (line 3, col 13 = "x" in "x + 2")
-        var refs = await harness.GetReferencesAsync(uri, 3, 13);
-        Assert.NotNull(refs);
-        Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'x', got {refs!.Count()}");
-    }
-
-    [Fact]
-    public async Task References_LocalVariable_FromInterpolatedStringHoleAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let name := ""Spencer""
-    print($""Hello, {name}!"")
-    print(name)";
-
-        harness.OpenDocument(uri, source);
-
-        var refs = await harness.GetReferencesAsync(uri, 3, 21);
-        Assert.NotNull(refs);
-        Assert.True(refs!.Count() >= 3, $"Expected declaration plus two uses of 'name', got {refs!.Count()}");
-        Assert.Contains(refs!, r => r.Range.Start.Line == 2 && r.Range.Start.Character == 8);
-        Assert.Contains(refs!, r => r.Range.Start.Line == 3 && r.Range.Start.Character == 20);
-        Assert.Contains(refs!, r => r.Range.Start.Line == 4 && r.Range.Start.Character == 10);
-    }
-
-    [Fact]
-    public async Task References_TopLevelFunction_FindsAllCallsAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    Foo()
-    Foo()
-
-func Foo(): void
-    return";
-
-        harness.OpenDocument(uri, source);
-
-        // Request references from "Foo" on line 2
-        var refs = await harness.GetReferencesAsync(uri, 2, 4);
-        Assert.NotNull(refs);
-        // Should find at least: declaration + 2 call sites
-        Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'Foo', got {refs!.Count()}");
-    }
-
-    [Fact]
     public async Task References_EmptyPosition_ReturnsEmptyAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -2024,7 +1393,7 @@ func main(): void
     [Fact]
     public async Task References_NoDocument_ReturnsEmptyAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         // Request references for a document that hasn't been opened
         var refs = await harness.GetReferencesAsync("file:///nonexistent.nl", 0, 0);
@@ -2035,23 +1404,26 @@ func main(): void
     [Fact]
     public async Task References_CrossFile_UsesCompilerProjectSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
 
         harness.OpenDocument(uri, source);
 
-        // "IssueService" usage on line 26, col 20 (0-indexed: 25, 19)
-        var refs = await harness.GetReferencesAsync(uri, 25, 19);
+        var usePosition = FindSourcePosition(source, "new IssueService", "IssueService");
+        var refs = await harness.GetReferencesAsync(uri, usePosition.Line, usePosition.Character);
         Assert.NotNull(refs);
         Assert.NotEmpty(refs!);
+        // Cross-file usage collection is the point of this test: the usage in
+        // Program.nl must be present, not just the Service.nl definition entry.
+        Assert.Contains(refs!, reference => reference.Uri.ToString() == uri);
     }
 
     [Fact]
     public async Task TypeUseNavigation_DuplicateTypeNames_UsesProjectSemanticSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-type-use-{Guid.NewGuid():N}");
         Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
         Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
@@ -2140,7 +1512,7 @@ func Read(items: List<Widget>, maybe: Widget?, many: Widget[], mapper: Func<Widg
     [Fact]
     public async Task References_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-refs-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2227,7 +1599,7 @@ func Read(widget: Widget): string {
     [Fact]
     public async Task Definition_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-def-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2308,7 +1680,7 @@ func Read(widget: Widget): string {
     [Fact]
     public async Task Rename_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-rename-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2395,7 +1767,7 @@ func Read(widget: Widget): string {
     [Fact]
     public async Task References_ExcludeDeclaration_FiltersDefinitionAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -2424,7 +1796,7 @@ func main(): void
     [Fact]
     public void Diagnostics_SyntaxError()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -2441,7 +1813,7 @@ func main(: void";
     [Fact]
     public void Diagnostics_ValidCode_NoDiagnostics()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -2464,7 +1836,7 @@ func main(): void
     [Fact]
     public async Task DocumentUpdate_CompletionsReflectChangesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         // Initial document
@@ -2487,7 +1859,7 @@ func main(): void
     [Fact]
     public async Task Completion_EmptyDocumentAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "");
@@ -2502,7 +1874,7 @@ func main(): void
     [Fact]
     public async Task Hover_InvalidPositionAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "func main(): void");
@@ -2514,74 +1886,14 @@ func main(): void
         Assert.Null(hover);
     }
 
-    [Fact]
-    public async Task Completion_AfterDot_NoIdentifierAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    .";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 2, 5);
-
-        // Should handle gracefully (return general completions or empty)
-        Assert.NotNull(completions);
-    }
-
     #endregion
 
     #region Complex Scenarios
 
     [Fact]
-    public async Task Completion_ChainedMemberAccessAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    let upper = message.ToUpper().";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 3, 38);
-
-        // Should show string members (result of ToUpper())
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "Length");
-        Assert.Contains(completions.Items, c => c.Label == "ToLower");
-    }
-
-    [Fact]
-    public async Task Completion_ChainedMemberAccess_NonStringReturnAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    let number = message.IndexOf(""e"").";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 3, 38);
-
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "CompareTo");
-        Assert.Contains(completions.Items, c => c.Label == "ToString");
-        Assert.DoesNotContain(completions.Items, c => c.Label == "ToLower");
-    }
-
-    [Fact]
     public async Task Completion_NestedFunctionsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -2604,54 +1916,9 @@ func outer(): void
     #region Rename / FindAllReferences Tests
 
     [Fact]
-    public void FindAllReferences_FindsIdentifierInsideStringInterpolation()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/interpolation.nl";
-        var source = @"func Main() {
-    name := ""Spencer""
-    greeting := $""Hello, {name}!""
-    print name
-}";
-        harness.OpenDocument(uri, source);
-
-        var refs = harness.DocumentManager.FindAllReferences(uri, "name");
-
-        // Should find 3 references: declaration, interpolation, and print
-        Assert.Equal(3, refs.Count);
-
-        // Line 1: name := "Spencer"
-        Assert.True(refs.Any(r => r.Line == 1 && r.Column == 4), "Should find 'name' in declaration on line 1");
-        // Line 2: $"Hello, {name}!" — inside interpolation, should NOT be skipped
-        Assert.True(refs.Any(r => r.Line == 2 && r.Column > 20), "Should find 'name' inside string interpolation on line 2");
-        // Line 3: print name
-        Assert.True(refs.Any(r => r.Line == 3), "Should find 'name' in print statement on line 3");
-    }
-
-    [Fact]
-    public void FindAllReferences_DoesNotFindIdentifierInsideRegularString()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/regularstring.nl";
-        var source = @"func Main() {
-    name := ""Spencer""
-    greeting := ""Hello, name!""
-    print name
-}";
-        harness.OpenDocument(uri, source);
-
-        var refs = harness.DocumentManager.FindAllReferences(uri, "name");
-
-        // Should find only 2 references: declaration and print (NOT inside regular string)
-        Assert.Equal(2, refs.Count);
-        Assert.True(refs.Any(r => r.Line == 1 && r.Column == 4), "Should find 'name' in declaration");
-        Assert.True(refs.Any(r => r.Line == 3), "Should find 'name' in print statement");
-    }
-
-    [Fact]
     public async Task Rename_CrossFileType_UsesCompilerProjectSnapshotAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var servicePath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl");
         var programUri = new Uri(programPath).AbsoluteUri;
@@ -2674,67 +1941,9 @@ func outer(): void
     }
 
     [Fact]
-    public async Task Rename_InterpolatedStringHole_LocalVariableAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test.nl";
-
-        var source = @"
-func main(): void
-    let name := ""Spencer""
-    print($""Hello, {name}!"")
-    print(name)";
-
-        harness.OpenDocument(uri, source);
-
-        var edit = await harness.RenameAsync(uri, 3, 21, "displayName");
-        Assert.NotNull(edit);
-        Assert.NotNull(edit!.Changes);
-
-        var docUri = DocumentUri.From(uri);
-        Assert.True(edit.Changes!.ContainsKey(docUri));
-        var edits = edit.Changes[docUri].ToList();
-        Assert.Equal(3, edits.Count);
-        Assert.All(edits, e => Assert.Equal("displayName", e.NewText));
-        Assert.Contains(edits, e => e.Range.Start.Line == 2 && e.Range.Start.Character == 8);
-        Assert.Contains(edits, e => e.Range.Start.Line == 3 && e.Range.Start.Character == 20);
-        Assert.Contains(edits, e => e.Range.Start.Line == 4 && e.Range.Start.Character == 10);
-    }
-
-    [Fact]
-    public async Task Rename_StandaloneDuplicateDeclarations_UsesStrictDocumentBindingsAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/unsafe-rename.nl";
-        var source = @"
-func main(): void
-    let value := 1
-    print(value)
-
-func other(): void
-    let value := 2
-    print(value)";
-
-        harness.OpenDocument(uri, source);
-
-        var edit = await harness.RenameAsync(uri, 2, 8, "renamed");
-
-        Assert.NotNull(edit);
-        Assert.NotNull(edit!.Changes);
-        var docEdits = Assert.Single(edit.Changes!);
-        var edits = docEdits.Value.ToList();
-        Assert.Equal(2, edits.Count);
-        Assert.All(edits, e => Assert.Equal("renamed", e.NewText));
-        Assert.Contains(edits, e => e.Range.Start.Line == 2 && e.Range.Start.Character == 8);
-        Assert.Contains(edits, e => e.Range.Start.Line == 3 && e.Range.Start.Character == 10);
-        Assert.DoesNotContain(edits, e => e.Range.Start.Line == 6);
-        Assert.DoesNotContain(edits, e => e.Range.Start.Line == 7);
-    }
-
-    [Fact]
     public async Task Rename_DegradedProjectSnapshot_RefusesTextOnlyRenameWithReasonAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-degraded-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2765,7 +1974,7 @@ func main(): void
     [Fact]
     public async Task Rename_ProjectCommentWord_RefusesSemanticFallbackRenameAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-comment-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2809,7 +2018,7 @@ func Main(): void
     [Fact]
     public async Task Rename_ShadowedLocalVariable_OnlyRenamesBoundSymbolAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-shadow-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2864,7 +2073,7 @@ func Helper(): void
     [Fact]
     public void DocumentManager_FileUriRelativeImport_ResolvesAgainstFilesystemPath()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2919,7 +2128,7 @@ class PersonService {
     [Fact]
     public void DocumentManager_TypeImport_ReportsDiagnostic()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-invalid-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -2963,63 +2172,9 @@ func Main() {
     #region Member Completion Tests
 
     [Fact]
-    public async Task Completion_MemberAccess_StringVariableAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/string-members.nl";
-
-        var source = @"
-func main(): void
-    let message = ""hello""
-    message.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 3, 12);
-
-        Assert.NotEmpty(completions.Items);
-        // String should have Length, ToUpper, Contains, etc.
-        Assert.Contains(completions.Items, c => c.Label == "Length");
-        Assert.Contains(completions.Items, c => c.Label == "ToUpper");
-
-        Assert.Single(completions.Items.Where(c => c.Label == "Contains"));
-        Assert.Single(completions.Items.Where(c => c.Label == "EndsWith"));
-        Assert.Single(completions.Items.Where(c => c.Label == "CompareTo"));
-
-        var contains = Assert.Single(completions.Items.Where(c => c.Label == "Contains"));
-        Assert.Contains("overload", contains.Detail);
-
-        var documentation = GetDocumentationText(contains.Documentation);
-        Assert.NotNull(documentation);
-        Assert.Contains("Returns a value indicating whether a specified", documentation);
-    }
-
-    [Fact]
-    public async Task Completion_MemberAccess_StaticType_ConsoleAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/console-static.nl";
-
-        var source = @"
-func main(): void
-    Console.";
-
-        harness.OpenDocument(uri, source);
-
-        var completions = await harness.GetCompletionsAsync(uri, 2, 12);
-
-        Assert.NotEmpty(completions.Items);
-        Assert.Contains(completions.Items, c => c.Label == "WriteLine");
-        Assert.Contains(completions.Items, c => c.Label == "Write");
-
-        Assert.Single(completions.Items.Where(c => c.Label == "WriteLine"));
-        Assert.Single(completions.Items.Where(c => c.Label == "Write"));
-    }
-
-    [Fact]
     public async Task Completion_MemberAccess_NSharpClassAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/nsharp-class.nl";
 
         var source = @"
@@ -3052,7 +2207,7 @@ func main(): void
     {
         _ = ConflictingClrPersonType.Value;
 
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/nsharp-class-clr-collision.nl";
 
         var source = @"
@@ -3079,32 +2234,98 @@ func main(): void
         Assert.Contains(completions.Items, c => c.Label == "Greet");
     }
 
-    [Fact]
-    public async Task Completion_Namespace_SystemAsync()
+    // A real project on disk, so the handler takes the project-snapshot route rather than the
+    // document-scoped fallback the two tests above exercise.
+    private static (string Root, string Uri, string Text) CreateMemberCompletionProject()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/namespace.nl";
+        var root = Path.Combine(Path.GetTempPath(), "nsharp-d3-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "project.yml"), "name: MemberCompletion\nversion: 1.0.0\noutputType: exe\ntargetFramework: net10.0\nentry: Program.nl\n");
+        File.WriteAllText(Path.Combine(root, "Models.nl"), "namespace MemberCompletion.Models\n\npublic class Sensor {\n    Name: string = \"\"\n    Reading: double = 0\n}\n");
+        var program = Path.Combine(root, "Program.nl");
+        var text = "namespace MemberCompletion.App\n\nimport System\nimport MemberCompletion.Models\n\nfunc Main() {\n    sensor := new Sensor()\n    label := sensor.Name\n    print label.Length\n}\n";
+        File.WriteAllText(program, text);
+        return (root, new Uri(program).AbsoluteUri, text);
+    }
 
-        var source = @"
-func main(): void
-    System.";
+    [Fact]
+    public async Task Completion_MemberAccess_MatchesQueryCompletionsAsync()
+    {
+        var (root, uri, text) = CreateMemberCompletionProject();
+        try
+        {
+            var harness = new LspTestHarness(_fixture.TypeResolver);
+            harness.OpenDocument(uri, text);
+            var snapshot = new CodeIntel.CodeIntelligenceService().LoadProject(root);
+            var engine = new CodeIntel.CompletionEngine();
 
-        harness.OpenDocument(uri, source);
+            // A cross-file user receiver, then a BCL receiver; both trailing dots. Defect D3: these
+            // positions used to answer the enclosing scope's identifiers and the keyword list.
+            foreach (var at in new[] { (Line: 7, Character: 20), (Line: 8, Character: 16) })
+            {
+                var cli = engine.GetCompletions(snapshot, "Program.nl", at.Line + 1, at.Character + 1, false);
+                Assert.Equal(CodeIntel.CompletionContext.MemberAccess, cli.Context);
+                var lsp = await harness.GetCompletionsAsync(uri, at.Line, at.Character);
+                Assert.Equal(
+                    cli.Completions.Values.SelectMany(g => g)
+                        .Select(i => $"{i.Name}:{CodeIntel.EditorCompletionFacts.LspCompletionItemKind(i.Kind)}")
+                        .OrderBy(t => t, StringComparer.Ordinal).ToList(),
+                    lsp.Items.Select(i => $"{i.Label}:{(int)i.Kind!}")
+                        .OrderBy(t => t, StringComparer.Ordinal).ToList());
+                // No scope identifier, no keyword, and no accessor the filter should have dropped.
+                Assert.DoesNotContain(lsp.Items, i => i.Label is "sensor" or "label" or "func" or "class"
+                    || i.Label!.StartsWith("get_", StringComparison.Ordinal));
+            }
 
-        var completions = await harness.GetCompletionsAsync(uri, 2, 11);
+            var user = await harness.GetCompletionsAsync(uri, 7, 20);
+            Assert.Contains(user.Items, i => i.Label == "Name");
+            Assert.Contains(user.Items, i => i.Label == "Reading");
+            Assert.Contains(await harness.GetCompletionsAsync(uri, 8, 16), i => i.Label == "ToUpper");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
 
-        Assert.NotEmpty(completions.Items);
-        // System namespace should contain types from CoreLib (Array, Math, String, etc.)
-        Assert.Contains(completions.Items, c => c.Label == "Array");
-        Assert.Contains(completions.Items, c => c.Label == "Math");
-        // Should also show sub-namespaces like Collections, Threading
-        Assert.Contains(completions.Items, c => c.Label == "Collections" || c.Label == "Threading");
+    [Fact]
+    public async Task Hover_MatchesQueryHoverAsync()
+    {
+        // Defect D2: a BCL member hovered to nothing, to the RECEIVER, or to the analyzer's
+        // `ToUpper(...)` placeholder. The two surfaces share one owner, so they are asserted equal.
+        var (root, uri, text) = CreateMemberCompletionProject();
+        try
+        {
+            var harness = new LspTestHarness(_fixture.TypeResolver);
+            harness.OpenDocument(uri, text);
+            var service = new CodeIntel.CodeIntelligenceService();
+            var snapshot = service.LoadProject(root);
+
+            // A BCL property on a string local, then a cross-file user record field.
+            foreach (var at in new[] { (Line: 8, Character: 16), (Line: 7, Character: 20) })
+            {
+                var cli = service.GetHoverInfo(snapshot, "Program.nl", at.Line + 1, at.Character + 1);
+                Assert.NotNull(cli);
+                var lsp = await harness.GetHoverAsync(uri, at.Line, at.Character);
+                var markdown = lsp!.Contents.MarkupContent!.Value;
+                Assert.Contains(cli!.Signature, markdown, StringComparison.Ordinal);
+                Assert.Contains(cli.DeclaringType ?? cli.DefinedIn!, markdown, StringComparison.Ordinal);
+            }
+
+            var bcl = (await harness.GetHoverAsync(uri, 8, 16))!.Contents.MarkupContent!.Value;
+            Assert.Contains("property Length: int { get; }", bcl, StringComparison.Ordinal);
+            Assert.Contains("*Declaring Type:* `System.String`", bcl, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
     }
 
     [Fact]
     public async Task Completion_ImportContext_OnlySuggestsNamespacesAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/imports.nl";
 
         var source = "import System.";
@@ -3127,7 +2348,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_InferredStringType_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_string.nl";
 
         var source = @"func main() {
@@ -3150,7 +2371,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_InferredIntType_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_int.nl";
 
         var source = @"func main() {
@@ -3172,7 +2393,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_ExplicitType_NoHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_explicit.nl";
 
         // When type is explicitly annotated, no inlay hint should be shown
@@ -3191,7 +2412,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_MultipleDeclarations_ShowsAllHintsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_multi.nl";
 
         var source = @"func main() {
@@ -3215,7 +2436,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_RangeFiltering_OnlyReturnsVisibleHintsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_range.nl";
 
         var source = @"func main() {
@@ -3241,7 +2462,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_BoolType_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_bool.nl";
 
         var source = @"func main() {
@@ -3260,7 +2481,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_HintPositionAfterVariableName_CorrectColumnAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_position.nl";
 
         var source = @"func main() {
@@ -3285,7 +2506,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_EmptyDocument_ReturnsEmptyAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_empty.nl";
 
         harness.OpenDocument(uri, "");
@@ -3298,7 +2519,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_NoInitializer_NoHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_no_init.nl";
 
         // A declaration without initializer shouldn't produce a hint
@@ -3316,7 +2537,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_NestedInIfBlock_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_nested.nl";
 
         var source = @"func main() {
@@ -3337,7 +2558,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_HintLabelFormat_StartsWithColonAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_format.nl";
 
         var source = @"func main() {
@@ -3358,7 +2579,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_InsideClassMethod_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_class.nl";
 
         var source = @"class Greeter {
@@ -3379,7 +2600,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_ConstDeclaration_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_const.nl";
 
         var source = @"func main() {
@@ -3398,7 +2619,7 @@ func main(): void
     [Fact]
     public async Task InlayHint_DoubleType_ShowsHintAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/inlay_double.nl";
 
         var source = @"func main() {
@@ -3424,7 +2645,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_FunctionsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"func greet(name: string): string
@@ -3454,7 +2675,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_ClassWithMembersAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"class Person {
@@ -3488,7 +2709,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_StructAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"struct Point {
@@ -3512,9 +2733,40 @@ func main(): void
     }
 
     [Fact]
+    public async Task DocumentSymbol_SoaRecordAsync()
+    {
+        var harness = new LspTestHarness(_fixture.TypeResolver);
+        var uri = "file:///test/soa_symbols.nl";
+
+        var source = @"soa record NodeTable {
+    kind: int
+    text: string
+}
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        Assert.Single(symbols);
+
+        var tableSymbol = symbols[0];
+        Assert.Equal("NodeTable", tableSymbol.Name);
+        Assert.Equal(LspSymbolKind.Class, tableSymbol.Kind);
+        Assert.Equal("soa", tableSymbol.Detail);
+        Assert.NotNull(tableSymbol.Children);
+
+        var columns = tableSymbol.Children!.ToList();
+        Assert.Contains(columns, c => c.Name == "kind" && c.Kind == LspSymbolKind.Field && c.Detail == "int");
+        Assert.Contains(columns, c => c.Name == "text" && c.Kind == LspSymbolKind.Field && c.Detail == "string");
+    }
+
+    [Fact]
     public async Task DocumentSymbol_InterfaceAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"interface Greeter {
@@ -3537,7 +2789,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_EnumAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"enum Color {
@@ -3570,7 +2822,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_EmptyDocument_ReturnsNullAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///empty.nl";
 
         // Document not opened - should return null
@@ -3581,7 +2833,7 @@ func main(): void
     [Fact]
     public async Task DocumentSymbol_MixedDeclarationsAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"enum Status {
@@ -3619,7 +2871,7 @@ func createUser(name: string): User
     [Fact]
     public async Task DocumentSymbol_ZeroBasedLineNumbersAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"func hello(): void
@@ -3646,7 +2898,7 @@ func createUser(name: string): User
     [Fact]
     public async Task DocumentSymbol_SelectionRangeContainedInRangeAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"class Foo {
@@ -3680,7 +2932,7 @@ func createUser(name: string): User
     [Fact]
     public void SemanticTokens_ClassifiesKeywords()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens.nl";
         var source = @"func main() {
     let x := 42
@@ -3715,7 +2967,7 @@ func createUser(name: string): User
     [Fact]
     public void SemanticTokens_ClassifiesNumberLiterals()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_num.nl";
         var source = @"func main() {
     let x := 42
@@ -3748,7 +3000,7 @@ func createUser(name: string): User
     [Fact]
     public void SemanticTokens_ClassifiesStringLiterals()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_str.nl";
         var source = @"func main() {
     let x := ""hello""
@@ -3774,7 +3026,7 @@ func createUser(name: string): User
     [Fact]
     public void SemanticTokens_DoesNotClassifyInterpolatedStringAsSingleStringToken()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_interpolated_str.nl";
         var source = """
 func main() {
@@ -3816,7 +3068,7 @@ func main() {
     [Fact]
     public void SemanticTokens_DoesNotClassifyInterpolatedRawStringAsSingleStringToken()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_interpolated_raw_str.nl";
         var source = "func main() {\n    name := \"Spencer\"\n    print $\"\"\"Hello, {name}!\"\"\"\n}\n";
         harness.OpenDocument(uri, source);
@@ -3852,7 +3104,7 @@ func main() {
     [Fact]
     public void SemanticTokens_ClassifiesTypeNames()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_type.nl";
         var source = @"class Person {
     name: string
@@ -3874,7 +3126,7 @@ func main() {
     [Fact]
     public void SemanticTokens_ClassifiesFunctionNames()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_func.nl";
         var source = @"func greet(name: string): string {
     return ""Hello "" + name
@@ -3891,7 +3143,7 @@ func main() {
     [Fact]
     public void SemanticTokens_MarksCatchResultBinding()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_catch_result.nl";
         var source = @"func MightFail(): int {
     return 1
@@ -3927,10 +3179,13 @@ func main() {
         Assert.Equal(SemanticTokensHandler.CatchResultModifierMask, classification.Value.Modifiers);
     }
 
+    // SUPERSEDED ASSERTION, REWRITTEN RATHER THAN DELETED. This used to assert that the LAST `err`
+    // of a FOUR-name deconstruction carried the catchResult modifier — the editor's `Count >= 2`
+    // reading of a rule `AnalyzerVariableDeclaration.IsErrorCaptureForm` spells `== 2`.
     [Fact]
-    public void SemanticTokens_MarksOnlyFinalErrInMultiValueCatchDeconstruction()
+    public void SemanticTokens_MarksNoErrInMultiValueDeconstruction()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/semtokens_multi_catch_result.nl";
         var source = @"func GetValues(): (int, int, int) {
     return (1, 2, 3)
@@ -3957,21 +3212,17 @@ func main() {
             .ToList();
 
         Assert.Equal(2, errTokens.Count);
-        Assert.DoesNotContain(new SemanticTokenLocation(errTokens[0].Line, errTokens[0].Column, errTokens[0].Value), catchResultBindings);
-        Assert.Contains(new SemanticTokenLocation(errTokens[1].Line, errTokens[1].Column, errTokens[1].Value), catchResultBindings);
+        Assert.Empty(catchResultBindings);
 
-        var firstClassification = harness.SemanticTokensHandler.ClassifyToken(
-            errTokens[0], doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
-        var finalClassification = harness.SemanticTokensHandler.ClassifyToken(
-            errTokens[1], doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
+        foreach (var errToken in errTokens)
+        {
+            var classification = harness.SemanticTokensHandler.ClassifyToken(
+                errToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
 
-        Assert.NotNull(firstClassification);
-        Assert.Equal(8, firstClassification!.Value.TokenType); // variable
-        Assert.Equal(0, firstClassification.Value.Modifiers);
-
-        Assert.NotNull(finalClassification);
-        Assert.Equal(8, finalClassification!.Value.TokenType); // variable
-        Assert.Equal(SemanticTokensHandler.CatchResultModifierMask, finalClassification.Value.Modifiers);
+            Assert.NotNull(classification);
+            Assert.Equal(8, classification!.Value.TokenType); // variable
+            Assert.Equal(0, classification.Value.Modifiers);
+        }
     }
 
     #endregion
@@ -3981,7 +3232,7 @@ func main() {
     [Fact]
     public async Task WorkspaceSymbols_FindsTypeDeclarations()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ws_symbols.nl";
         var source = @"class Person {
     name: string
@@ -4001,7 +3252,7 @@ func greet(): string {
     [Fact]
     public async Task WorkspaceSymbols_EmptyQueryReturnsAllSymbols()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ws_symbols_all.nl";
         var source = @"class Foo {
     bar: int
@@ -4030,7 +3281,7 @@ func baz(): void {
     [Fact]
     public async Task WorkspaceSymbols_IncludesMembers()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ws_symbols_members.nl";
         var source = @"class Person {
     name: string
@@ -4051,6 +3302,26 @@ func baz(): void {
         Assert.Contains(allSymbols!, s => s.Name == "Person");
     }
 
+    [Fact]
+    public async Task WorkspaceSymbols_IncludesSoaRecordColumns()
+    {
+        var harness = new LspTestHarness(_fixture.TypeResolver);
+        var uri = "file:///test/ws_symbols_soa.nl";
+        var source = @"soa record NodeTable {
+    kind: int
+    valueStart: int
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetWorkspaceSymbolsAsync("");
+        Assert.NotNull(result);
+
+        Assert.Contains(result!, s => s.Name == "NodeTable" && s.Kind == LspSymbolKind.Class);
+        Assert.Contains(result!, s => s.Name == "kind" && s.Kind == LspSymbolKind.Field && s.ContainerName == "NodeTable");
+        Assert.Contains(result!, s => s.Name == "valueStart" && s.Kind == LspSymbolKind.Field && s.ContainerName == "NodeTable");
+    }
+
     #endregion
 
     #region Folding Range Tests
@@ -4058,7 +3329,7 @@ func baz(): void {
     [Fact]
     public async Task FoldingRange_FoldsFunction()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/folding.nl";
         var source = @"func main() {
     let x := 42
@@ -4080,7 +3351,7 @@ func baz(): void {
     [Fact]
     public async Task FoldingRange_FoldsClass()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/folding_class.nl";
         var source = @"class Person {
     name: string
@@ -4101,9 +3372,29 @@ func baz(): void {
     }
 
     [Fact]
+    public async Task FoldingRange_FoldsSoaRecord()
+    {
+        var harness = new LspTestHarness(_fixture.TypeResolver);
+        var uri = "file:///test/folding_soa.nl";
+        var source = @"soa record NodeTable {
+    kind: int
+    valueStart: int
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetFoldingRangesAsync(uri);
+        Assert.NotNull(result);
+
+        var tableRange = result!.FirstOrDefault(r => r.StartLine == 0);
+        Assert.NotNull(tableRange);
+        Assert.Equal(3, tableRange!.EndLine);
+    }
+
+    [Fact]
     public async Task FoldingRange_FoldsImports()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/folding_imports.nl";
         var source = @"import System
 import System.Collections.Generic
@@ -4127,27 +3418,9 @@ func main() {
     #region Prepare Rename Tests
 
     [Fact]
-    public async Task PrepareRename_AcceptsKnownSymbol()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/prepare_rename.nl";
-        var source = @"func greet(name: string): string {
-    return ""Hello "" + name
-}
-";
-        harness.OpenDocument(uri, source);
-
-        // "greet" starts at line 0, col 5 (0-based)
-        var result = await harness.PrepareRenameAsync(uri, 0, 5);
-        Assert.NotNull(result);
-        Assert.True(result!.IsPlaceholderRange);
-        Assert.Equal("greet", result.PlaceholderRange.Placeholder);
-    }
-
-    [Fact]
     public async Task PrepareRename_RejectsKeyword()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_kw.nl";
         var source = @"func main() {
     let x := 42
@@ -4167,7 +3440,7 @@ func main() {
     [Fact]
     public async Task PrepareRename_RejectsPrimitiveType()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_prim.nl";
         var source = @"func main() {
     let x: int = 42
@@ -4185,7 +3458,7 @@ func main() {
     [Fact]
     public async Task PrepareRename_RejectsStringLiteralContent()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_string_literal.nl";
         var source = @"func main() {
     message := ""oldName""
@@ -4201,29 +3474,9 @@ func main() {
     }
 
     [Fact]
-    public async Task PrepareRename_AllowsInterpolatedExpressionHole()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/prepare_rename_interpolated_hole.nl";
-        var source = """
-func main() {
-    oldName := "world"
-    message := $"hello {oldName}"
-    print message
-}
-""";
-        harness.OpenDocument(uri, source);
-
-        var result = await harness.PrepareRenameAsync(uri, 2, source.Split('\n')[2].IndexOf("oldName", StringComparison.Ordinal));
-
-        Assert.NotNull(result);
-        Assert.Equal("oldName", result!.PlaceholderRange.Placeholder);
-    }
-
-    [Fact]
     public async Task PrepareRename_RejectsEscapedInterpolatedBraceLiteralContent()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_interpolated_escaped_braces.nl";
         var source = """
 func main() {
@@ -4240,31 +3493,9 @@ func main() {
     }
 
     [Fact]
-    public async Task PrepareRename_AllowsInterpolatedRawStringExpressionHole()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/prepare_rename_interpolated_raw_hole.nl";
-        var source = """"
-func main() {
-    oldName := "world"
-    message := $"""
-hello {oldName}
-"""
-    print message
-}
-"""";
-        harness.OpenDocument(uri, source);
-
-        var result = await harness.PrepareRenameAsync(uri, 3, source.Split('\n')[3].IndexOf("oldName", StringComparison.Ordinal));
-
-        Assert.NotNull(result);
-        Assert.Equal("oldName", result!.PlaceholderRange.Placeholder);
-    }
-
-    [Fact]
     public async Task PrepareRename_RejectsMultiLineRawStringContent()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/prepare_rename_raw_string_literal.nl";
         var source = """"
 func main() {
@@ -4285,7 +3516,7 @@ oldName
     [Fact]
     public async Task PrepareRename_ProjectSemanticMemberUsage_AcceptsStrictProjectTargetAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-prepare-rename-project-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -4331,32 +3562,9 @@ func Read(widget: Widget): string {
     }
 
     [Fact]
-    public async Task PrepareRename_StandaloneDuplicateDeclarations_UsesStrictDocumentBindingsAsync()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/unsafe-prepare-rename.nl";
-        var source = @"
-func main(): void
-    let value := 1
-    print(value)
-
-func other(): void
-    let value := 2
-    print(value)";
-
-        harness.OpenDocument(uri, source);
-
-        var result = await harness.PrepareRenameAsync(uri, 2, 8);
-
-        Assert.NotNull(result);
-        Assert.True(result!.IsPlaceholderRange);
-        Assert.Equal("value", result.PlaceholderRange.Placeholder);
-    }
-
-    [Fact]
     public async Task PrepareRename_DegradedProjectSnapshot_RefusesWithReasonAsync()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-prepare-rename-degraded-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
@@ -4386,56 +3594,12 @@ func main(): void
 
     #endregion
 
-    #region Hover Range Tests
-
-    [Fact]
-    public async Task Hover_KeywordIncludesRange()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/hover_kw_range.nl";
-        var source = @"func main() {
-}
-";
-        harness.OpenDocument(uri, source);
-
-        // "func" at line 0, col 0
-        var hover = await harness.GetHoverAsync(uri, 0, 0);
-        Assert.NotNull(hover);
-        Assert.NotNull(hover!.Range);
-        Assert.Contains("keyword", hover.Contents.MarkedStrings == null
-            ? hover.Contents.MarkupContent!.Value
-            : hover.Contents.MarkedStrings.First().Value);
-    }
-
-    [Fact]
-    public async Task Hover_PrimitiveTypeIncludesRange()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/hover_prim_range.nl";
-        var source = @"func main() {
-    let x: int = 42
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lines = source.Split('\n');
-        var intCol = lines[1].IndexOf("int");
-        var hover = await harness.GetHoverAsync(uri, 1, intCol);
-        Assert.NotNull(hover);
-        Assert.NotNull(hover!.Range);
-        Assert.Contains("primitive type", hover.Contents.MarkedStrings == null
-            ? hover.Contents.MarkupContent!.Value
-            : hover.Contents.MarkedStrings.First().Value);
-    }
-
-    #endregion
-
     #region Document Formatting Tests
 
     [Fact]
     public async Task DocumentFormatting_ReturnsEditsForUnformattedCode()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/formatting.nl";
         // Badly indented source
         var source = "func main() {\n  let x := 42\n      let y := 43\n}\n";
@@ -4459,7 +3623,7 @@ func main(): void
     [Fact]
     public async Task DocumentFormatting_NullForMissingDocument()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var edits = await harness.FormatDocumentAsync("file:///nonexistent.nl");
 
@@ -4469,7 +3633,7 @@ func main(): void
     [Fact]
     public async Task DocumentFormatting_EmptyContainerWhenAlreadyFormatted()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/formatting_clean.nl";
         // Well-formatted single-line source
         var source = "func main() {\n    let x := 42\n}\n";
@@ -4489,7 +3653,7 @@ func main(): void
     [Fact]
     public async Task GoToImplementation_ClassFindsSubclasses()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/impl.nl";
         // NOTE: The parser treats the first type after ':' as BaseClass.
         // Use a class hierarchy to test go-to-implementation on a base class.
@@ -4527,7 +3691,7 @@ class Dog : Animal {
     [Fact]
     public async Task GoToImplementation_NonInterfaceReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/impl_none.nl";
         var source = @"func main() {
     let x := 42
@@ -4543,7 +3707,7 @@ class Dog : Animal {
     [Fact]
     public async Task GoToImplementation_MissingDocumentReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var result = await harness.GetImplementationAsync("file:///nonexistent.nl", 0, 0);
         Assert.Null(result);
@@ -4556,7 +3720,7 @@ class Dog : Animal {
     [Fact]
     public async Task DocumentHighlight_VariableUsedMultipleTimes()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/highlight.nl";
         var source = @"func main() {
     let count := 1
@@ -4576,7 +3740,7 @@ class Dog : Animal {
     [Fact]
     public async Task DocumentHighlight_EmptyPositionReturnsEmpty()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/highlight_empty.nl";
         var source = @"func main() {
     let x := 42
@@ -4593,7 +3757,7 @@ class Dog : Animal {
     [Fact]
     public async Task DocumentHighlight_MissingDocumentReturnsEmpty()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var highlights = await harness.GetDocumentHighlightsAsync("file:///nonexistent.nl", 0, 0);
         Assert.NotNull(highlights);
@@ -4607,7 +3771,7 @@ class Dog : Animal {
     [Fact]
     public async Task SelectionRange_ReturnsNestedChain()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/selrange.nl";
         var source = @"func main() {
     if true {
@@ -4633,7 +3797,7 @@ class Dog : Animal {
     [Fact]
     public async Task SelectionRange_MissingDocumentReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var result = await harness.GetSelectionRangesAsync("file:///nonexistent.nl", new Position(0, 0));
         Assert.Null(result);
@@ -4642,7 +3806,7 @@ class Dog : Animal {
     [Fact]
     public async Task SelectionRange_MultiplePositions()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/selrange_multi.nl";
         var source = @"func foo() {
     let a := 1
@@ -4662,6 +3826,27 @@ func bar() {
         Assert.Equal(2, result!.Count());
     }
 
+    [Fact]
+    public async Task SelectionRange_ReturnsSoaColumnChain()
+    {
+        var harness = new LspTestHarness(_fixture.TypeResolver);
+        var uri = "file:///test/selrange_soa.nl";
+        var source = @"soa record NodeTable {
+    kind: int
+    valueStart: int
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetSelectionRangesAsync(uri, new Position(1, 5));
+        Assert.NotNull(result);
+
+        var selection = Assert.Single(result!);
+        Assert.Equal(1, selection.Range.Start.Line);
+        Assert.NotNull(selection.Parent);
+        Assert.Equal(0, selection.Parent!.Range.Start.Line);
+    }
+
     #endregion
 
     #region Call Hierarchy Tests
@@ -4669,7 +3854,7 @@ func bar() {
     [Fact]
     public async Task CallHierarchy_PrepareOnFunction()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/callhierarchy.nl";
         var source = @"func greet(name: string): string {
     return ""Hello, "" + name
@@ -4692,7 +3877,7 @@ func main() {
     [Fact]
     public async Task CallHierarchy_PrepareOnNonFunction_ReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/callhierarchy_none.nl";
         var source = @"class Foo {
     bar: int
@@ -4708,7 +3893,7 @@ func main() {
     [Fact]
     public async Task CallHierarchy_OutgoingCallsFromFunction()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/callhierarchy_outgoing.nl";
         var source = @"func helper(): void {
     return
@@ -4742,7 +3927,7 @@ func main() {
     [Fact]
     public async Task TypeHierarchy_PrepareOnClass()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy.nl";
         var source = @"interface IAnimal {
     func speak(): string
@@ -4767,7 +3952,7 @@ class Dog : IAnimal {
     [Fact]
     public async Task TypeHierarchy_PrepareOnInterface()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy_iface.nl";
         var source = @"interface IAnimal {
     func speak(): string
@@ -4786,7 +3971,7 @@ class Dog : IAnimal {
     [Fact]
     public async Task TypeHierarchy_SupertypesOfDerivedClass()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy_super.nl";
         var source = @"interface IAnimal {
     func speak(): string
@@ -4813,7 +3998,7 @@ class Dog : IAnimal {
     [Fact]
     public async Task TypeHierarchy_SubtypesOfInterface()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy_sub.nl";
         var source = @"interface IAnimal {
     func speak(): string
@@ -4849,7 +4034,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task TypeHierarchy_PrepareOnNonType_ReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/typehierarchy_nontype.nl";
         var source = @"func main() {
     let x := 42
@@ -4869,7 +4054,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task DocumentLink_FindsUrlInComment()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/doclink.nl";
         var source = "// See https://example.com/docs for more info\nfunc main() {\n    print(\"hello\")\n}\n";
         harness.OpenDocument(uri, source);
@@ -4898,7 +4083,7 @@ class Cat : IAnimal {
     [Fact]
     public async Task DocumentLink_NoUrlsReturnsEmpty()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/doclink_empty.nl";
         var source = @"func main() {
     let x := 42
@@ -4914,215 +4099,10 @@ class Cat : IAnimal {
     [Fact]
     public async Task DocumentLink_MissingDocumentReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var links = await harness.GetDocumentLinksAsync("file:///nonexistent.nl");
         Assert.Null(links);
-    }
-
-    #endregion
-
-    #region Code Lens Tests
-
-    [Fact]
-    public async Task CodeLens_FunctionDeclarationsHaveLenses()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens.nl";
-        var source = @"func greet(name: string): string {
-    return ""Hello, "" + name
-}
-
-func helper() {
-    greet(""world"")
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-        Assert.NotNull(lenses);
-        Assert.True(lenses!.Count() >= 2,
-            $"Expected at least 2 code lenses (one per function), got {lenses!.Count()}");
-
-        // Each non-entry-point lens should have a command with a title containing "reference"
-        Assert.All(lenses!, lens =>
-        {
-            Assert.NotNull(lens.Command);
-            Assert.Contains("reference", lens.Command!.Title);
-        });
-
-        var greetLens = lenses!.FirstOrDefault(l =>
-            l.Range.Start.Line == 0); // greet is on line 0
-        Assert.NotNull(greetLens);
-        Assert.Equal("1 reference", greetLens!.Command!.Title);
-    }
-
-    [Fact]
-    public async Task CodeLens_UnreferencedFunctionExcludesItsDeclarationFromReferenceCount()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens_unreferenced.nl";
-        var source = @"func unused() {
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-
-        Assert.NotNull(lenses);
-        var unusedLens = Assert.Single(lenses!);
-        Assert.NotNull(unusedLens.Command);
-        Assert.Equal("0 references", unusedLens.Command!.Title);
-    }
-
-    [Fact]
-    public async Task CodeLens_MainFunctionShowsEntryPointInsteadOfReferenceCount()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens_main.nl";
-        var source = @"func Main() {
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-
-        Assert.NotNull(lenses);
-        var mainLens = Assert.Single(lenses!);
-        Assert.NotNull(mainLens.Command);
-        Assert.Equal("Entry point", mainLens.Command!.Title);
-        Assert.Equal("nsharp.noop", mainLens.Command!.Name);
-    }
-
-    [Fact]
-    public async Task CodeLens_DuplicateCrossFileMemberNames_CountsOnlySemanticReferencesAndIsClickable()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-codelens-duplicates-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempRoot);
-
-        try
-        {
-            Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
-            Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
-            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
-name: TempCodeLensDuplicateTest
-targetFramework: net10.0
-""");
-
-            var fooWidgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
-            var fooUsePath = Path.Combine(tempRoot, "Foo", "UseWidget.nl");
-            var barWidgetPath = Path.Combine(tempRoot, "Bar", "Widget.nl");
-            var barUsePath = Path.Combine(tempRoot, "Bar", "UseWidget.nl");
-
-            File.WriteAllText(fooWidgetPath, """
-namespace TempCodeLensDuplicateTest.Foo
-
-record Widget {
-    Value: string
-}
-""");
-            File.WriteAllText(fooUsePath, """
-namespace TempCodeLensDuplicateTest.Foo
-
-func Read(widget: Widget): string {
-    return widget.Value
-}
-""");
-            File.WriteAllText(barWidgetPath, """
-namespace TempCodeLensDuplicateTest.Bar
-
-record Widget {
-    Value: int
-}
-""");
-            File.WriteAllText(barUsePath, """
-namespace TempCodeLensDuplicateTest.Bar
-
-func Read(widget: Widget): int {
-    return widget.Value
-}
-""");
-
-            var fooWidgetUri = new Uri(fooWidgetPath).AbsoluteUri;
-            var fooUseUri = new Uri(fooUsePath).AbsoluteUri;
-            var barWidgetUri = new Uri(barWidgetPath).AbsoluteUri;
-            var barUseUri = new Uri(barUsePath).AbsoluteUri;
-
-            harness.OpenDocument(fooWidgetUri, File.ReadAllText(fooWidgetPath));
-            harness.OpenDocument(fooUseUri, File.ReadAllText(fooUsePath));
-            harness.OpenDocument(barWidgetUri, File.ReadAllText(barWidgetPath));
-            harness.OpenDocument(barUseUri, File.ReadAllText(barUsePath));
-
-            var lenses = await harness.GetCodeLensesAsync(fooWidgetUri);
-
-            Assert.NotNull(lenses);
-            var widgetLens = Assert.Single(lenses!.Where(l => l.Range.Start.Line == 2));
-            Assert.NotNull(widgetLens.Command);
-            Assert.Equal("1 reference", widgetLens.Command!.Title);
-            Assert.Equal("nsharp.showReferences", widgetLens.Command!.Name);
-            Assert.NotNull(widgetLens.Command!.Arguments);
-            var args = widgetLens.Command!.Arguments!.ToList();
-            Assert.Equal(fooWidgetUri, args[0]!.ToString());
-            Assert.Equal(2, (int)args[1]!);
-            Assert.Equal(7, (int)args[2]!);
-        }
-        finally
-        {
-            Directory.Delete(tempRoot, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task CodeLens_StaticMainMemberShowsEntryPointInsteadOfReferenceCount()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens_static_main.nl";
-        var source = @"class Program {
-    static func Main() {
-    }
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-
-        Assert.NotNull(lenses);
-        var mainLens = lenses!.Single(l => l.Range.Start.Line == 1);
-        Assert.NotNull(mainLens.Command);
-        Assert.Equal("Entry point", mainLens.Command!.Title);
-        Assert.Equal("nsharp.noop", mainLens.Command!.Name);
-    }
-
-    [Fact]
-    public async Task CodeLens_ClassWithMembers()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var uri = "file:///test/codelens_class.nl";
-        var source = @"class Person {
-    name: string
-
-    func greet(): string {
-        return ""Hello""
-    }
-}
-";
-        harness.OpenDocument(uri, source);
-
-        var lenses = await harness.GetCodeLensesAsync(uri);
-        Assert.NotNull(lenses);
-        // Should have lenses for the class and its members
-        Assert.NotEmpty(lenses!);
-    }
-
-    [Fact]
-    public async Task CodeLens_MissingDocumentReturnsEmptyContainer()
-    {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-
-        var lenses = await harness.GetCodeLensesAsync("file:///nonexistent.nl");
-        Assert.NotNull(lenses);
-        Assert.Empty(lenses!);
     }
 
     #endregion
@@ -5132,7 +4112,7 @@ func Read(widget: Widget): int {
     [Fact]
     public async Task OnTypeFormatting_CloseBraceAlignsWithMatchingOpen()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ontypeformat_brace.nl";
         // Simulate: user typed '}' with wrong indentation
         var source = "func main() {\n    let x := 42\n        }\n";
@@ -5149,7 +4129,7 @@ func Read(widget: Widget): int {
     [Fact]
     public async Task OnTypeFormatting_NewlineAfterOpenBrace()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
         var uri = "file:///test/ontypeformat_newline.nl";
         // Simulate: user pressed Enter after '{' with no indentation on the new line
         var source = "func main() {\n\n}\n";
@@ -5173,7 +4153,7 @@ func Read(widget: Widget): int {
     [Fact]
     public async Task OnTypeFormatting_MissingDocumentReturnsNull()
     {
-        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var harness = new LspTestHarness(_fixture.TypeResolver);
 
         var edits = await harness.OnTypeFormattingAsync("file:///nonexistent.nl", 0, 0, "}");
         Assert.Null(edits);

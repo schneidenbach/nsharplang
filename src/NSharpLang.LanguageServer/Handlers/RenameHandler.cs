@@ -91,12 +91,8 @@ public class RenameHandler : RenameHandlerBase
                     "Save or fix the project files and retry; refusing text-only rename to avoid editing unrelated symbols.");
             }
 
-            // Verify the symbol exists in our symbol locations or semantic model before
-            // falling back to same-document text edits for synthetic/non-project files.
             var isKnownSymbol = false;
             if (doc.SymbolLocations?.ContainsKey(oldName) == true)
-                isKnownSymbol = true;
-            else if (doc.SemanticModel?.LookupIdentifier(oldName) != null)
                 isKnownSymbol = true;
 
             if (!isKnownSymbol)
@@ -105,36 +101,9 @@ public class RenameHandler : RenameHandlerBase
                 return Task.FromResult<WorkspaceEdit?>(null);
             }
 
-            // Find strict semantic references in the standalone document. Text-only
-            // document-wide rename is intentionally refused because it can edit
-            // unrelated symbols that happen to share the same spelling.
-            var references = _documentManager.FindStrictDocumentReferences(uri, request.Position.Line, request.Position.Character);
-
-            if (references == null || references.Count == 0)
-            {
                 throw RenameRefused(
                     $"Rename for '{oldName}' is unavailable because semantic resolution could not safely identify the selected symbol. " +
                     "No edits were applied; refusing text-only rename to avoid editing unrelated symbols.");
-            }
-
-            _logger.LogInformation("Found {Count} references to '{Name}'", references.Count, oldName);
-
-            // Build text edits for each strict semantic reference
-            var edits = references.Select(r => new TextEdit
-            {
-                Range = new LspRange(r.Line - 1, r.Column - 1, r.Line - 1, r.Column - 1 + r.Length),
-                NewText = newName
-            }).ToList();
-
-            var workspaceEdit = new WorkspaceEdit
-            {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [DocumentUri.From(uri)] = edits
-                }
-            };
-
-            return Task.FromResult<WorkspaceEdit?>(workspaceEdit);
         }
         catch (RequestFailedException)
         {

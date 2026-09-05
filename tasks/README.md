@@ -1,32 +1,71 @@
-# N# Vertical Task Files
+# N# compiler ownership queue
 
-Last audited: 2026-05-25
+This is the authoritative execution order for the systems-language closeout. The former broad
+track notebooks were replaced by vertical ownership prompts on 2026-07-10.
 
-Each task file is a thread-sized vertical slice framed around a shippable user or tool workflow. Tasks that touch the same functionality are combined so one thread can carry the feature end to end. Tasks stay split when the combined slice would cross too many risky systems or bury a distinct product decision.
+Run one numbered task at a time. Every task embeds the complete execution contract before its
+slice-specific prompt. Do not batch multiple numbered files into one implementation turn.
 
-## P0: Trustworthy Semantics And Runtime Basics
+## Queue protocol
 
-- [001-semantic-authoring-and-navigation.md](001-semantic-authoring-and-navigation.md)
+1. Read `systems-language-closeout/STATUS.md` and open the first unchecked task below.
+2. Revalidate its named code and accept set against the current tree and recent history.
+3. Complete one terminal vertical slice, including N# implementation, direct production routing,
+   native tests, C# deletion, required gates, commit, repin, and documentation.
+4. Mark a non-repeatable task complete only after all of its stated exit conditions pass.
+5. Tasks 015–020 are iterative owner burn-downs. One goal turn completes one concrete sub-slice.
+   Keep the task unchecked and record the next exact sub-slice in STATUS.md until its named owner
+   is gone or is a reviewed zero-policy mechanical host.
+6. Update this checklist and STATUS.md in the same commit as the completed slice. Never mark work
+   complete based on preparatory code or tests alone.
 
-## P1: IDE Product Workflows
+## Ordered tasks
 
-- [004-workspace-diagnostics-lifecycle.md](004-workspace-diagnostics-lifecycle.md)
-- [005-vscode-editing-and-workflow-evidence.md](005-vscode-editing-and-workflow-evidence.md)
-- [015-query-and-package-completion-parity.md](015-query-and-package-completion-parity.md)
+- [x] [001 — External static fields and properties](001-external-static-fields-and-properties.md)
+- [x] [002 — Bound identifier reads](002-bound-identifier-reads.md)
+- [x] [003 — Instance fields and properties](003-instance-fields-and-properties.md)
+- [x] [004 — Fixed-arity direct calls](004-fixed-arity-direct-calls.md)
+- [x] [005 — Construction and array literals](005-construction-and-array-literals.md)
+- [x] [006 — Primitive binary expressions](006-primitive-binary-expressions.md)
+- [x] [007 — Conditional and short-circuit expressions](007-conditional-and-short-circuit-expressions.md)
+- [x] [008 — Complete range/index owner deletion](008-range-index-owner-deletion.md)
+- [x] [009 — External base and interface resolution](009-external-base-interface-resolution.md)
+- [x] [010 — Lambda definition placement and visibility](010-lambda-definition-placement.md)
+- [x] [011 — Record-with lowering for value receivers](011-record-with-value-receivers.md)
+- [x] [012 — Readonly-field initialization placement](012-readonly-field-initialization.md)
+- [x] [013 — Synchronous iterators](013-synchronous-iterators.md)
+- [x] [014 — Async iterators](014-async-iterators.md)
+- [ ] [015 — Remaining emitter decisions](015-remaining-emitter-decisions.md)
+- [x] [016 — Parser and syntax-diagnostic ownership](016-parser-and-syntax-diagnostics.md)
+- [x] [017 — Semantic analyzer ownership](017-semantic-analyzer-ownership.md)
+- [x] [018 — Systems analyzer ownership](018-systems-analyzer-ownership.md)
+- [x] [019 — Compiler-contained tooling ownership](019-compiler-contained-tooling.md)
+- [x] [020 — Native N# test-runner capabilities](020-native-test-runner-capabilities.md)
+- [ ] [021 — Final compiler ownership audit](021-final-compiler-ownership-audit.md)
+- [ ] [022 — One external type universe, and a NativeAOT `nlc`](022-one-type-universe-native-aot.md)
+- [ ] [023 — The ECMA-335 metadata writer: the second executor over the plan rows](023-ecma335-metadata-writer.md)
 
-## P1: Nullability Workflows
+The order is deliberate. If current code proves a dependency has changed, update the queue in a
+small documentation commit with concrete evidence before reordering; do not silently skip ahead.
 
-- [015-nullable-ide-and-must-message-polish.md](015-nullable-ide-and-must-message-polish.md)
-- [015-csharp-flow-attribute-narrowing.md](015-csharp-flow-attribute-narrowing.md)
-- [016-csharp-generic-nullability-substitution.md](016-csharp-generic-nullability-substitution.md)
+## 021 terminal state — audit recorded, box deliberately unchecked
 
-## P2: CLI, Release, Evidence, Docs
+The original twelve-slice audit at `6fcb41f64` found that surviving C# was non-growing and classified,
+but the declaration/body emitter still owned compiler decisions. The end state remains unchanged:
+one N# production owner for IL generation, with any surviving host pre-existing, non-growing,
+mechanical, and explicitly reviewed against its N# owner.
 
-- [009-install-release-and-ci-setup.md](009-install-release-and-ci-setup.md)
-- [010-library-publishing-workflow.md](010-library-publishing-workflow.md)
-- [013-benchmarks-and-launch-evidence.md](013-benchmarks-and-launch-evidence.md)
-- [014-public-playground.md](014-public-playground.md)
-- [015-build-and-test-warning-hygiene.md](015-build-and-test-warning-hygiene.md)
-- [015-dependency-commands-project-yml-parity.md](015-dependency-commands-project-yml-parity.md)
-- [015-native-test-coverage.md](015-native-test-coverage.md)
-- [016-target-runtime-publish-and-apphost.md](016-target-runtime-publish-and-apphost.md)
+Current measured route and boundaries are in [STATUS §1](../systems-language-closeout/STATUS.md):
+
+1. `ColumnarIlEmitter.cs` remains 20,714 lines / 19,703 nonblank after S2.1(h). Task 023 builds
+   explicit declaration rows and an N# ECMA-335 writer, then removes Reflection.Emit and the old emitter.
+2. The external scan/catalog and editor type catalog are N#-owned; Analyzer.cs is 2,357 lines and
+   TypeResolver.cs is 61. One metadata universe through emission and NativeAOT still depend on the
+   writer (023/3, then 022/5). The old Reflection.Emit-only plan is superseded.
+3. Visual IDE verification is available and has been performed, including the 2026-09-04 package
+   catalog growth, completion import acceptance, NL002 quick fix, and fresh-server lifetime checks.
+   It is no longer accurately described as unavailable. [Evidence](../systems-language-closeout/decodes/2026-09-04-takeover-verification.md).
+
+The 2026-09-03 handoff snapshot was retired after its four streams landed; current ownership,
+remaining source/tooling chips, verification procedure, and owner choices are carried in STATUS §1.
+The 015, 021, 022, and 023 boxes stay unchecked until their actual terminal conditions pass.

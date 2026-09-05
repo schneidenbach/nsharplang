@@ -15,7 +15,7 @@ class Person {
     }
 }
 
-// 2. InlineArray attribute for C# 12 inline arrays (fully qualified)
+// 2. InlineArray attribute for CLR inline arrays (fully qualified)
 
 struct Buffer10 {
 

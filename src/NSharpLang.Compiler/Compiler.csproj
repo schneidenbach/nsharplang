@@ -10,21 +10,25 @@
     <PackageId>NSharpLang.Compiler</PackageId>
     <Version>1.0.0</Version>
     <Authors>N# Team</Authors>
-    <Description>N# compiler API - Parse, analyze, emit IL, and export N# code to C#</Description>
     <PackageProjectUrl>https://github.com/schneidenbach/nsharplang</PackageProjectUrl>
     <RepositoryUrl>https://github.com/schneidenbach/nsharplang</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>nsharp;dotnet;compiler;il;csharp;export</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="9.0.0" />
+    <PackageReference Include="System.Text.Json" Version="10.0.5" PrivateAssets="all" ExcludeAssets="all" NoWarn="NU1510" />
+    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="10.0.5" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../NSharpLang.Compiler.BootstrapServices/NSharpLang.Compiler.BootstrapServices.csproj" />
     <ProjectReference Include="../NSharpLang.Runtime/NSharpLang.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tests" />
   </ItemGroup>
 
   <ItemGroup>

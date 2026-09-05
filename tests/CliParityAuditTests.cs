@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
+using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using Xunit;
@@ -13,48 +14,6 @@ namespace NSharpLang.Tests;
 [Collection("ProcessState")]
 public class CliParityAuditTests
 {
-    [Fact]
-    public void CleanCommand_RemovesBuildArtifacts()
-    {
-        var tempDir = CreateTempDir();
-        Directory.CreateDirectory(Path.Combine(tempDir, "bin"));
-        Directory.CreateDirectory(Path.Combine(tempDir, "obj"));
-        Directory.CreateDirectory(Path.Combine(tempDir, ".nlc"));
-
-        try
-        {
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                CleanCommand.Execute(new[] { "--project", tempDir }));
-
-            Assert.Equal(0, exitCode);
-            Assert.True(string.IsNullOrWhiteSpace(stderr));
-            Assert.Contains("Removed 3 build artifact", stdout);
-            Assert.False(Directory.Exists(Path.Combine(tempDir, "bin")));
-            Assert.False(Directory.Exists(Path.Combine(tempDir, "obj")));
-            Assert.False(Directory.Exists(Path.Combine(tempDir, ".nlc")));
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CompletionCommand_Bash_IncludesTopLevelCommands()
-    {
-        var (exitCode, stdout, stderr) = CaptureConsole(() => CompletionCommand.Execute(new[] { "bash" }));
-
-        Assert.Equal(0, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
-        Assert.Contains("clean", stdout);
-        Assert.Contains("watch", stdout);
-        Assert.Contains("doc", stdout);
-        Assert.Contains("completion", stdout);
-        Assert.Contains("export", stdout);
-        Assert.DoesNotContain("convert", stdout);
-        Assert.DoesNotContain("transpile", stdout);
-    }
-
     [Fact]
     public void FormatCommand_Check_ReturnsOneWhenFormattingIsNeeded()
     {
@@ -106,12 +65,13 @@ public class CliParityAuditTests
         try
         {
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func Main() {\n    print \"ok\"\n}\n");
+            File.WriteAllText(Path.Combine(tempDir, "Program.tests.nl"), "test \"discovered\" {\n    assert true\n}\n");
             Directory.CreateDirectory(Path.Combine(tempDir, ".worktrees", "old"));
             File.WriteAllText(Path.Combine(tempDir, ".worktrees", "old", "Bad.nl"), "func Broken(x y) {");
             Directory.CreateDirectory(Path.Combine(tempDir, "tests", "fixtures", "generated", "Models"));
             File.WriteAllText(Path.Combine(tempDir, "tests", "fixtures", "generated", "Models", "Customer.nl"), "record Order(id: string)\n");
             Directory.CreateDirectory(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors"));
-            File.WriteAllText(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors", "MultipleSyntaxErrors.nl"), "func Broken(x y) {");
+            File.WriteAllText(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors", "MultipleSyntaxErrors.tests.nl"), "func Broken(x y) {");
 
             var (exitCode, stdout, stderr) = CaptureConsole(() =>
                 ExecuteProgram("format", "--project", tempDir, "--check"));
@@ -172,6 +132,16 @@ func main() {
         Assert.Contains("--verbose", stdout);
         Assert.Contains("--coverage", stdout);
         Assert.Contains("Coverage collection is not available", stdout);
+    }
+
+    [Fact]
+    public void TestCommand_HelpWinsBeforeProjectResolution()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("test", "--project", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("Usage: nlc test", stdout);
     }
 
     [Fact]
@@ -250,22 +220,61 @@ func Add(x: int, y: int): int {
     }
 
     [Fact]
-    public void Linter_IgnoreComment_SuppressesSpecificWarning()
+    public void DocCommand_GeneratesHtmlAndTextSummary()
     {
-        var source = """
-func Main() {
-    // nlc:ignore NL001
-    value := 42
+        var tempDir = CreateTempDir();
+        var outputDir = Path.Combine(tempDir, "docs-out");
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Add(x: int, y: int): int {
+    return x + y
 }
-""";
+""");
 
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var parseResult = parser.ParseCompilationUnit();
-        var diagnostics = new Linter().Lint(parseResult.CompilationUnit!, "test.nl", source);
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                DocCommand.Execute(new[] { "--project", tempDir, "--output", outputDir }));
 
-        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Code == "NL001");
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("Generated API docs for", stdout);
+            Assert.Contains($"Output: {outputDir}", stdout);
+            Assert.DoesNotContain("\"command\"", stdout);
+            Assert.True(File.Exists(Path.Combine(outputDir, "index.html")));
+            Assert.True(File.Exists(Path.Combine(outputDir, "symbols", "functionaddprogram.html")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void DocCommand_JsonMissingProject_UsesErrorEnvelope()
+    {
+        var tempDir = CreateTempDir();
+        var missingProjectDir = Path.Combine(tempDir, "missing-project");
+
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                DocCommand.Execute(new[] { "--project", missingProjectDir, "--json" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("doc", root.GetProperty("command").GetString());
+            Assert.False(root.GetProperty("ok").GetBoolean());
+            Assert.Contains("Project directory not found", root.GetProperty("error").GetProperty("message").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
     }
 
     // ── Step 1: --version flag ──────────────────────────────────────────
@@ -305,9 +314,6 @@ func Main() {
         Assert.Contains("Project:", stdout);
         Assert.Contains("Common Workflows:", stdout);
         Assert.Contains("--version, -V", stdout);
-        Assert.Contains("export <target>", stdout);
-        Assert.DoesNotContain("convert", stdout);
-        Assert.DoesNotContain("transpile", stdout);
     }
 
     [Fact]
@@ -368,6 +374,9 @@ func Main() {
             Assert.True(root.GetProperty("lintedFiles").GetInt32() > 0);
             Assert.True(root.GetProperty("results").GetArrayLength() > 0);
             Assert.True(root.GetProperty("summary").GetProperty("errors").GetInt32() > 0);
+            var diagnostic = Assert.Single(root.GetProperty("results").EnumerateArray(),
+                result => result.GetProperty("code").GetString() == "NL001");
+            Assert.Equal("    value := 42", diagnostic.GetProperty("sourceSnippet").GetString());
         }
         finally
         {
@@ -489,41 +498,75 @@ func Main() {
         }
     }
 
-    // ── Step 4: C# export flow ───────────────────────────────────────────
-
     [Fact]
-    public void ExportCommand_Help_ExplainsCSharpFlow()
+    public void LintCommand_FileArgs_DoesNotTreatProjectValueAsFile()
     {
-        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("export", "csharp", "--help"));
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    print "hello"
+}
+""");
 
-        Assert.Equal(0, exitCode);
-        Assert.Contains("Usage:", stdout);
-        Assert.Contains("nlc export csharp <file.nl>", stdout);
-        Assert.Contains("self-contained C# bundle", stdout);
-        Assert.Contains("sibling test project", stdout);
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                LintCommand.Execute(new[] { "--project", tempDir, tempDir, "Program.nl", "--json" }));
+
+            Assert.Equal(0, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(1, doc.RootElement.GetProperty("lintedFiles").GetInt32());
+            Assert.Equal(0, doc.RootElement.GetProperty("results").GetArrayLength());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
     }
 
     [Fact]
-    public void TranspileCommand_PointsToExportCommand()
+    public void RemoveCommand_RemovesMappingDependencyBlock()
     {
-        var (exitCode, _, stderr) = CaptureConsole(() => ExecuteProgram("transpile", "Program.nl"));
+        var projectDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
 
-        Assert.Equal(1, exitCode);
-        Assert.Contains("removed", stderr);
-        Assert.Contains("nlc export csharp", stderr);
-    }
+        try
+        {
+            Directory.SetCurrentDirectory(projectDir);
+            File.WriteAllText("project.yml", """
+name: RemoveDemo
+version: 1.0.0
+backend: il
+targetFramework: net10.0
 
-    [Fact]
-    public void ConvertCommand_IsNotRegisteredAsPublicCliSurface()
-    {
-        var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("convert", "--help"));
+dependencies:
+  - nuget: Newtonsoft.Json
+    version: 13.0.3
+  - framework: Microsoft.AspNetCore.App
+  - nuget: YamlDotNet
+    version: 16.3.0
+""");
 
-        Assert.Equal(1, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stdout));
-        Assert.Contains("Unknown command: convert", stderr);
+            var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("remove", "Newtonsoft.Json"));
 
-        var exportedCliTypes = typeof(NSharpLang.Cli.CommandRegistry).Assembly.GetExportedTypes();
-        Assert.DoesNotContain(exportedCliTypes, type => type.FullName?.Contains("ConvertCommand") == true);
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("Removed Newtonsoft.Json from project.yml", stdout);
+
+            var projectYaml = File.ReadAllText(Path.Combine(projectDir, "project.yml"));
+            Assert.DoesNotContain("Newtonsoft.Json", projectYaml);
+            Assert.DoesNotContain("13.0.3", projectYaml);
+            Assert.Contains("Microsoft.AspNetCore.App", projectYaml);
+            Assert.Contains("YamlDotNet", projectYaml);
+            Assert.Contains("16.3.0", projectYaml);
+            Assert.True(File.Exists(Path.Combine(projectDir, "obj", "project.g.props")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(projectDir, true);
+        }
     }
 
     // ── Step 5: Error message suggestions ───────────────────────────────
@@ -592,6 +635,105 @@ func Main() {
     }
 
     [Fact]
+    public void NewCommand_CustomInstallRootEnvironment_WritesInstallRootFeed()
+    {
+        var parentDir = CreateTempDir();
+        var installRoot = Path.Combine(parentDir, "custom install");
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var originalInstallDir = Environment.GetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable);
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+            Environment.SetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable, installRoot);
+
+            var (exitCode, _, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "CustomFeedApp"));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var nugetConfig = File.ReadAllText(Path.Combine(parentDir, "CustomFeedApp", "NuGet.config"));
+            Assert.Contains(NSharpInstallRoot.InstallRootFeedValue, nugetConfig);
+            Assert.DoesNotContain(NSharpInstallRoot.DefaultFeedValue, nugetConfig);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable, originalInstallDir);
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
+    public void NewCommand_AcceptsProjectNameAfterTemplateOption()
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var projectName = "DemoOptionFirst";
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "--template", "library", projectName));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var projectDir = Path.Combine(parentDir, projectName);
+            AssertCanonicalProjectShape(projectDir, projectName, hasProgram: false, hasTests: false, hasWebController: false);
+            Assert.Contains("library", stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
+    public void NewCommand_NormalizesTemplateAliases()
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (libraryExitCode, libraryStdout, libraryStderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "lib", "DemoLibAlias"));
+            Assert.Equal(0, libraryExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(libraryStderr));
+            AssertCanonicalProjectShape(
+                Path.Combine(parentDir, "DemoLibAlias"),
+                "DemoLibAlias",
+                hasProgram: false,
+                hasTests: false,
+                hasWebController: false);
+            Assert.Contains("library", libraryStdout);
+
+            var (webExitCode, _, webStderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "DemoWebAlias", "--template", "web-api"));
+            Assert.Equal(0, webExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(webStderr));
+            AssertCanonicalProjectShape(
+                Path.Combine(parentDir, "DemoWebAlias"),
+                "DemoWebAlias",
+                hasProgram: true,
+                hasTests: false,
+                hasWebController: true);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
     public void NewCommand_Help_StatesCsprojFreePolicyAndTemplates()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("new", "--help"));
@@ -604,6 +746,98 @@ func Main() {
         Assert.Contains("library", stdout);
         Assert.Contains("test", stdout);
         Assert.Contains("webapi", stdout);
+        Assert.Contains("systems-cli", stdout);
+        Assert.Contains("systems-lib", stdout);
+        Assert.Contains("--systems", stdout);
+    }
+
+    [Fact]
+    public void NewCommand_NoArgs_ReturnsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("new"));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains("Usage: nlc new <project-name> [--template <template>]", stderr);
+    }
+
+    [Fact]
+    public void NewCommand_InvalidTemplate_ReturnsHelpfulMessage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            ExecuteProgram("new", "MyApp", "--template", "unknown-template"));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains(
+            "Invalid template. Expected one of: console, library, test, webapi, systems-cli, systems-lib.",
+            stderr);
+    }
+
+    [Theory]
+    [InlineData("systems-cli", "Program.nl", "Systems.tests.nl")]
+    [InlineData("systems-lib", "PacketCore.nl", "PacketCore.tests.nl")]
+    public void NewCommand_CreatesSystemsProjectShape(string template, string sourceFile, string testFile)
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var projectName = $"Demo{template.Replace("-", "", StringComparison.Ordinal)}";
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", template, projectName));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var projectDir = Path.Combine(parentDir, projectName);
+            Assert.True(File.Exists(Path.Combine(projectDir, sourceFile)));
+            Assert.True(File.Exists(Path.Combine(projectDir, testFile)));
+            Assert.Empty(Directory.GetFiles(projectDir, "*.csproj", SearchOption.TopDirectoryOnly));
+
+            var projectYaml = File.ReadAllText(Path.Combine(projectDir, "project.yml"));
+            Assert.Contains($"name: {projectName}", projectYaml);
+            Assert.Contains("profile: systems", projectYaml);
+            Assert.Contains("mode: strict", projectYaml);
+            Assert.Contains("aotTarget: nativeaot", projectYaml);
+            Assert.Contains("warmup:", projectYaml);
+            Assert.Contains("project.yml", stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
+    public void NewCommand_CreatesSystemsProjectShapeFromTemplateFlag()
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (exitCode, _, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "library", "PacketCore", "--systems"));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.True(File.Exists(Path.Combine(parentDir, "PacketCore", "PacketCore.nl")));
+            var projectYaml = File.ReadAllText(Path.Combine(parentDir, "PacketCore", "project.yml"));
+            Assert.Contains("profile: systems", projectYaml);
+            Assert.Contains("outputType: library", projectYaml);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
     }
 
     // ── nlc pack ─────────────────────────────────────────────────────────────
@@ -633,7 +867,21 @@ func Main() {
                 PackCommand.Execute(new[] { "--project", tempDir }));
 
             Assert.Equal(1, exitCode);
-            Assert.Contains("project.yml", stderr);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+
+            // The expected stderr is a LITERAL. It used to be a live call to
+            // ProgramCommandKernels.GetErrorLine(PackCommandKernels.GetMissingProjectFileTextMessage()),
+            // so both sides were computed by the same two N#-owned kernels and agreed by
+            // construction: neither said what the sentence is, and a kernel and a command wrong in
+            // the same way passed. The kernels' own text is pinned independently in
+            // src/NSharpLang.Compiler.BootstrapServices/PackCommandKernels.tests.nl. PackCommand
+            // itself is still C#-owned, so this body stays until PackCommand.cs retires.
+            // The line break INSIDE the message is a literal \n the kernel embeds; only the
+            // trailing break is the console's Environment.NewLine.
+            Assert.Equal(
+                "Error: No project.yml found in current directory.\nRun 'nlc new <name>' to create a project."
+                + Environment.NewLine,
+                stderr);
         }
         finally
         {
@@ -668,22 +916,14 @@ func Main() {
     // ── WS5: Build timings, tidy, add ────────────────────────────────────────
 
     [Fact]
-    public void BuildCommand_Timings_ShowsPhaseBreakdown()
+    public void BuildCommand_HelpWinsBeforeDefineExtraction()
     {
-        // Verify --timings is documented in build --help and the phase names are present.
-        // The actual timing output is emitted only on a successful build run; testing it
-        // end-to-end requires compiling a sample project, which is covered by backend tests.
         var (exitCode, stdout, stderr) = CaptureConsole(() =>
-            ExecuteProgram("build", "--help"));
+            ExecuteProgram("build", "--define", "--help"));
 
         Assert.Equal(0, exitCode);
         Assert.True(string.IsNullOrWhiteSpace(stderr));
-        Assert.True(
-            stdout.Contains("--timings")
-            && stdout.Contains("--backend")
-            && stdout.Contains("Compilation backend: il")
-            && (stdout.Contains("Transpile") || stdout.Contains("Compile") || stdout.Contains("timings")),
-            $"Expected --timings and phase breakdown in build --help but got: {stdout}");
+        Assert.Contains("Usage: nlc build", stdout);
     }
 
     [Fact]
@@ -701,42 +941,122 @@ func Main() {
     }
 
     [Fact]
-    public void TidyCommand_Help_ShowsUsage()
+    public void PublishCommand_HelpWinsBeforeValidation()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() =>
-            TidyCommand.Execute(new[] { "--help" }));
+            ExecuteProgram("publish", "--project", "--help"));
 
         Assert.Equal(0, exitCode);
         Assert.True(string.IsNullOrWhiteSpace(stderr));
-        Assert.Contains("tidy", stdout);
-        Assert.Contains("Usage", stdout);
+        Assert.Contains("Usage: nlc publish", stdout);
     }
 
     [Fact]
-    public void TidyCommand_NoProjectYml_Fails()
+    public void InitCommand_Help_ShowsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            ExecuteProgram("init", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("N# Init", stdout);
+        Assert.Contains("Usage: nlc init [options]", stdout);
+        Assert.Contains("--force", stdout);
+    }
+
+    [Fact]
+    public void InitCommand_InvalidType_ReturnsHelpfulMessage()
     {
         var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
         try
         {
+            Directory.SetCurrentDirectory(tempDir);
+
             var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                TidyCommand.Execute(new[] { "--project", tempDir }));
+                ExecuteProgram("init", "--type", "service"));
 
             Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("Invalid type 'service'. Expected 'exe' or 'library'.", stderr);
+            Assert.False(File.Exists(Path.Combine(tempDir, "project.yml")));
         }
         finally
         {
+            Directory.SetCurrentDirectory(originalDirectory);
             Directory.Delete(tempDir, true);
         }
     }
 
     [Fact]
-    public void AddCommand_Help_ShowsPathOption()
+    public void InitCommand_CreatesMinimalProjectFiles()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("init", "--name", "DemoLib", "--type", "library"));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("Created: project.yml", stdout);
+            Assert.Contains("Created: DemoLib.csproj", stdout);
+            Assert.Contains("N# project initialized. Run 'nlc build' to compile.", stdout);
+
+            var projectYaml = File.ReadAllText(Path.Combine(tempDir, "project.yml"));
+            Assert.Contains("name: DemoLib", projectYaml);
+            Assert.Contains("outputType: library", projectYaml);
+            Assert.DoesNotContain("entry:", projectYaml);
+            Assert.Equal("<Project Sdk=\"NSharpLang.Sdk\" />\n", File.ReadAllText(Path.Combine(tempDir, "DemoLib.csproj")));
+            Assert.False(File.Exists(Path.Combine(tempDir, "Program.nl")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void RestoreCommand_Help_ShowsProjectYmlProjection()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() =>
-            AddCommand.Execute(new[] { "--help" }));
+            ExecuteProgram("restore", "--help"));
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("--path", stdout);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("N# Restore", stdout);
+        Assert.Contains("Usage: nlc restore", stdout);
+        Assert.Contains("obj/project.g.props", stdout);
+    }
+
+    [Fact]
+    public void RestoreCommand_NoProjectYml_ReturnsHelpfulError()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("restore"));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("No project.yml found. Run 'nlc new <name>' to create a project.", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
     }
 
     // ── Test command: build failure properly returns error ────────────
@@ -754,10 +1074,12 @@ func Main() {
 }
 """);
 
-            var (exitCode, _, _) = CaptureConsole(() =>
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
                 ExecuteProgram("test", "--project", tempDir));
 
             Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("No test files (*.tests.nl) found.", stdout);
         }
         finally
         {

@@ -1,4 +1,4 @@
-// Primary Constructors (C# 12 Feature)
+// Primary Constructors
 // Simple demonstration showing the syntax
 class Logger(name: string) {
     logName: string = name

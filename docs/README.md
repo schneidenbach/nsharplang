@@ -4,14 +4,18 @@ Welcome to the N# programming language documentation. N# is an active pre-releas
 
 ## What is N#?
 
-N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It's designed as "Go for .NET" - combining Go's simplicity and clean syntax with normal .NET ecosystem interop as a design constraint.
+N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It shares Go's
+ethos — tight syntax, fast tooling, performance as a first-class concern — but it is **not**
+"Go for .NET": N# has a much richer type system (discriminated unions, exhaustive pattern
+matching, structural/duck interfaces, newtypes) and an opt-in systems lane for hot-path code.
 
 ### Key Features
 
 - **Clean Syntax**: No semicolons, short variable declarations with `:=`, convention-based visibility
-- **.NET Interop**: C#-consumable assemblies and common .NET interop paths where covered by tests/examples
-- **Modern Type System**: String enums, type inference, and pragmatic nullability
-- **Pattern Matching**: Powerful match expressions for cleaner code
+- **.NET Interop**: CLR assemblies and common .NET interop paths where covered by tests/examples
+- **Rich Type System**: Discriminated unions, exhaustive pattern matching, duck (structural) interfaces, generics, string enums, newtypes, type inference, and pragmatic nullability
+- **Pattern Matching**: Powerful match expressions with compiler-enforced exhaustiveness
+- **Systems N#**: An opt-in performance lane with `[hot]`/`[boundary]` cost contracts, allocation-free `Result<T,E>`, spans/`ref struct`, governed `unsafe`, and SIMD auto-vectorization for supported reduction kernels
 - **Tooling**: `nlc` CLI, query/diagnostic JSON, formatting/testing commands, and VS Code support in active development
 
 ## Getting Started
@@ -56,33 +60,24 @@ nlc run
 
 ### Start Here
 
-- **[Getting Started](guide/getting-started.md)** - Install, create a project, build and run in under 5 minutes
-- **[Language Tour](guide/language-tour.md)** - Main implemented language surfaces with runnable examples
+- **[Getting Started](../website/docs/getting-started.md)** - Install, create a project, build and run in under 5 minutes
+- **[Language Tour](../website/docs/language-tour.md)** - Main implemented language surfaces with runnable examples
 
 ### Coming From Another Language
 
-- **[For C# Developers](guide/for-csharp-developers.md)** - Side-by-side syntax comparison for 20 common patterns
-- **[For Go Developers](guide/for-go-developers.md)** - How Go concepts map to N#
+- **[For Go Developers](../website/docs/for-go-developers.md)** - How Go concepts map to N#
 
 ### Language Reference
 
-- **[Basics](guide/basics.md)** - Variables, functions, control flow, and core syntax
-- **[Functions](guide/functions.md)** - Deep dive into functions, lambdas, async, and generics
-- **[Types](guide/types.md)** - Classes, unions, records, duck interfaces, and the type system
-- **[Pattern Matching](guide/pattern-matching.md)** - Master pattern matching with exhaustiveness checking
-
-### Interop
-
-- **[Interop Guide](guide/interop.md)** - Using N# with C# and .NET libraries
+- **[Basics](../website/docs/basics.md)** - Variables, functions, control flow, and core syntax
+- **[Functions](../website/docs/functions.md)** - Deep dive into functions, lambdas, async, and generics
+- **[Types](../website/docs/types.md)** - Classes, unions, records, duck interfaces, and the type system
+- **[Pattern Matching](../website/docs/pattern-matching.md)** - Master pattern matching with exhaustiveness checking
+- **[Systems N#](../website/docs/systems.md)** - The high-performance lane: `[hot]` cost contracts, `Result<T,E>`, spans, governed `unsafe`, SIMD
 
 ### Development & Deployment
 
-- **[CI/CD Guide](guide/ci-cd.md)** - Setting up continuous integration and deployment with GitHub Actions, Azure Pipelines, and Docker
-
-### Design Notes
-
-- **[Performance Compiler Refactor](design/performance-compiler-refactor.md)** - Compiler architecture plan for making N# performance-by-default while documenting CLR interop tradeoffs
-- **[Native Object Initialization](design/native-object-initialization.md)** - Object initialization design details
+- **[CI/CD Guide](../website/docs/ci-cd.md)** - Setting up continuous integration and deployment with GitHub Actions, Azure Pipelines, and Docker
 
 ### Examples
 
@@ -207,13 +202,13 @@ N# follows these principles:
 
 1. **Simplicity First**: Minimal constructs, clear syntax
 2. **Pragmatic**: Embrace .NET realities (including null)
-3. **Practical interop**: C# interoperability in covered scenarios, with limitations called out
+3. **Practical interop**: CLR/.NET interoperability in covered scenarios, with limitations called out
 4. **Concrete over Abstract**: Encourage concrete implementations
-5. **Better Type System**: Improve .NET ergonomics while preserving practical C# interop
+5. **Better Type System**: Improve .NET ergonomics while preserving practical CLR interop
 
 ## Contributing
 
-N# is an active project. Contributions should preserve truthful docs, current CLI parity, and the direct-N# language direction.
+N# is an active project. Contributions should preserve truthful docs, current CLI behavior, and the direct-N# language direction.
 
 - Report bugs in the project repository
 - Submit pull requests

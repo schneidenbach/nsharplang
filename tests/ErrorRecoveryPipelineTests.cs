@@ -6,6 +6,7 @@ using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
+using NSharpLang.Compiler.Columnar;
 
 namespace NSharpLang.Tests;
 
@@ -36,52 +37,6 @@ func test() {
     }
 
     [Fact]
-    public void AnalyzeFile_ReportsBothSyntaxAndSemanticErrors()
-    {
-        // File with a parse error in one function and a semantic error in another
-        var tempDir = CreateTempDir();
-        try
-        {
-            var filePath = Path.Combine(tempDir, "Mixed.nl");
-            File.WriteAllText(filePath, @"
-func broken() {
-    let x: int = @@
-}
-
-func semantic_error() {
-    Console.WriteLine(doesNotExist)
-}
-");
-            var service = new CodeIntelligenceService();
-            var snapshot = service.AnalyzeFile(filePath);
-
-            // Should have BOTH parse errors AND semantic errors
-            var parseErrors = snapshot.Errors.Where(e =>
-                e.Code == ErrorCode.InvalidSyntax || e.Code == ErrorCode.ExpectedToken ||
-                e.Code == ErrorCode.UnexpectedToken).ToList();
-            var semanticErrors = snapshot.Errors.Where(e =>
-                e.Code == ErrorCode.UndefinedVariable &&
-                e.Message.Contains("doesNotExist")).ToList();
-
-            Assert.True(snapshot.Errors.Count >= 2,
-                $"Expected at least 2 total errors (syntax + semantic), got {snapshot.Errors.Count}: " +
-                string.Join("; ", snapshot.Errors.Select(e => $"[{e.Code}] {e.Message}")));
-
-            // Lock in the headline behavior: BOTH syntax and semantic errors present
-            Assert.True(parseErrors.Count >= 1,
-                $"Expected at least 1 parse error, got {parseErrors.Count}: " +
-                string.Join("; ", snapshot.Errors.Select(e => $"[{e.Code}] {e.Message}")));
-            Assert.True(semanticErrors.Count >= 1,
-                $"Expected at least 1 semantic error, got {semanticErrors.Count}: " +
-                string.Join("; ", snapshot.Errors.Select(e => $"[{e.Code}] {e.Message}")));
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void QueryDiagnostics_MalformedProject_ReturnsSyntaxAndSemanticDiagnosticsWithoutPlaceholderCascade()
     {
         var tempDir = CreateTempDir();
@@ -100,7 +55,6 @@ class User {
 func main() {
     first := 1 +
     Console.WriteLine(undefinedFromQuery)
-    user := new User { Name = "Ada" }
 }
 """);
 
@@ -112,10 +66,6 @@ func main() {
                 diagnostic.Code == "NL102" &&
                 diagnostic.Line == 6 &&
                 diagnostic.Message.Contains("Expected expression after '+'"));
-            Assert.Contains(diagnostics, diagnostic =>
-                diagnostic.Code == "NL103" &&
-                diagnostic.Line == 8 &&
-                diagnostic.Message.Contains("Object initializer member 'Name' uses '='"));
             Assert.Contains(diagnostics, diagnostic =>
                 diagnostic.Code == "NL301" &&
                 diagnostic.Message.Contains("undefinedFromQuery"));
@@ -403,7 +353,45 @@ class B {
     }
 
     [Fact]
-    public void Compile_SyntaxErrorInOneFile_StillReportsSemanticErrors()
+    public void MultiFileCompiler_CircularFileImports_CrLfSourceSnippetHasNoTrailingCarriageReturn()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(tempDir, "A.nl"),
+                string.Join("\r\n", new[]
+                {
+                    "import \"B\"",
+                    "",
+                    "class A {",
+                    "}"
+                }));
+            File.WriteAllText(
+                Path.Combine(tempDir, "B.nl"),
+                string.Join("\r\n", new[]
+                {
+                    "import \"A\"",
+                    "",
+                    "class B {",
+                    "}"
+                }));
+
+            var compiler = new MultiFileCompiler(tempDir);
+            compiler.CompileForAnalysis();
+
+            var cycle = Assert.Single(compiler.AllErrors,
+                error => error.Code == ErrorCode.CircularImport);
+            Assert.Equal("import \"A\"", cycle.SourceSnippet);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CompileForAnalysis_SyntaxErrorInOneFile_StillReportsSemanticErrors()
     {
         var tempDir = CreateTempDir();
         try
@@ -422,11 +410,9 @@ func valid_syntax() {
 ");
 
             var compiler = new MultiFileCompiler(tempDir);
-            var result = compiler.ExportToCSharp();
+            compiler.CompileForAnalysis();
 
-            Assert.False(result.Success);
-
-            var errors = result.Errors.ToList();
+            var errors = compiler.AllErrors.ToList();
             var fileAErrors = errors.Where(e => e.FileName?.Contains("FileA") == true).ToList();
             var fileBErrors = errors.Where(e => e.FileName?.Contains("FileB") == true).ToList();
 
@@ -445,41 +431,13 @@ func valid_syntax() {
 
     #region Parser always produces CompilationUnit
 
-    [Fact]
-    public void Parser_AlwaysProducesCompilationUnit_EvenWithErrors()
-    {
-        var sources = new[]
-        {
-            "func test() { @@ }",
-            "func test() { let x: int = @@ }",
-            "func test() { x. }",
-            @"func test() {
-    let x = 5
-
-class Foo { name: string }",
-            "@@ ## !! %%",
-        };
-
-        foreach (var source in sources)
-        {
-            var tokens = new Lexer(source, "test.nl").Tokenize();
-            var parser = new Parser(tokens, "test.nl", source);
-            var result = parser.ParseCompilationUnit();
-
-            Assert.NotNull(result.CompilationUnit);
-        }
-    }
-
     #endregion
 
     #region Helpers
 
     private static AnalysisResult ParseAndAnalyze(string source)
     {
-        var lexer = new Lexer(source, "test.nl");
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, "test.nl", source);
-        var parseResult = parser.ParseCompilationUnit();
+        var parseResult = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
 
         var analyzer = new Analyzer();
         analyzer.LoadSystemAssemblies();

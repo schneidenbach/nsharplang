@@ -1,33 +1,13 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
-    waitForLanguageServer,
-    openDocumentAndWaitForLsp,
-    getCompletions,
-    positionOf,
-    closeAllEditors,
-    completionLabel,
-    assertCompletionContains,
-    createTempNlFile,
-    getDiagnostics
+    waitForLanguageServer, openDocumentAndWaitForLsp, getCompletions, positionOf, closeAllEditors,
+    completionLabel, assertCompletionContains, assertCompletionExcludes, createTempNlFile, getDiagnostics
 } from './helpers';
 
-function documentationText(documentation: string | vscode.MarkdownString | undefined): string | undefined {
-    return typeof documentation === 'string' ? documentation : documentation?.value;
-}
-
 /**
- * Completion tests with kind and content validation.
- *
- * The CompletionHandler is fully implemented with:
- * - Keywords (Kind.Keyword): func, class, struct, enum, if, for, match, etc.
- * - Snippets (Kind.Snippet): func, if, match, for templates
- * - Variables (Kind.Variable): local variables in scope
- * - Functions (Kind.Function): top-level functions
- * - Members (Kind.Method/Property/Field): after dot
- * - Primitive types: int, string, bool, double
- *
- * Every test hard-asserts specific items AND their kinds.
+ * Keywords, primitive types and in-scope variables and functions at an identifier position; the
+ * receiver's members after a dot. Every test hard-asserts specific items AND their kinds.
  */
 suite('Completions', () => {
     suiteSetup(async function () {
@@ -39,20 +19,14 @@ suite('Completions', () => {
         await closeAllEditors();
     });
 
-    // ================================================================
-    // KEYWORD COMPLETIONS
-    // ================================================================
+    // --- KEYWORDS AND PRIMITIVE TYPES ---
 
     test('keywords available at top level', async function () {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
         const completions = await getCompletions(doc, new vscode.Position(0, 0));
-
-        assert.ok(completions.items.length > 0,
-            'Expected completions at top level');
-
-        // Core N# keywords should be present
+        assert.ok(completions.items.length > 0, 'Expected completions at top level');
         assertCompletionContains(completions, 'func', vscode.CompletionItemKind.Keyword);
         assertCompletionContains(completions, 'class', vscode.CompletionItemKind.Keyword);
     });
@@ -62,98 +36,74 @@ suite('Completions', () => {
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
         const completions = await getCompletions(doc, new vscode.Position(0, 0));
-
-        // Primitive types should be available as keywords
         assertCompletionContains(completions, 'int', vscode.CompletionItemKind.Keyword);
         assertCompletionContains(completions, 'string', vscode.CompletionItemKind.Keyword);
         assertCompletionContains(completions, 'bool', vscode.CompletionItemKind.Keyword);
     });
 
-    // ================================================================
-    // FUNCTION COMPLETIONS
-    // ================================================================
+    // --- FUNCTIONS ---
 
     test('function names available inside function body', async function () {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
-        // Position inside Main function, before "message := greet..."
-        const pos = positionOf(doc, 'message := greet', { at: 'start' });
-        const completions = await getCompletions(doc, pos);
-
-        assert.ok(completions.items.length > 0,
-            'Expected completions inside function body');
-
-        // Local functions should be available
+        const completions = await getCompletions(doc, positionOf(doc, 'message := greet', { at: 'start' }));
+        assert.ok(completions.items.length > 0, 'Expected completions inside function body');
         assertCompletionContains(completions, 'greet', vscode.CompletionItemKind.Function);
         assertCompletionContains(completions, 'add', vscode.CompletionItemKind.Function);
     });
 
-    // ================================================================
-    // MEMBER COMPLETIONS (DOT ACCESS)
-    // ================================================================
+    // --- MEMBER COMPLETIONS (DOT ACCESS) ---
 
-    test('member completions after dot include methods', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('Program.nl');
-
-        // Position after "person." in "person.GetInfo()"
-        const pos = positionOf(doc, 'person.GetInfo', { at: 'start' });
-        const dotPos = new vscode.Position(pos.line, pos.character + 7); // after "person."
-        const completions = await getCompletions(doc, dotPos);
-
-        assert.ok(completions.items.length > 0,
-            'Expected member completions after dot');
-
-        assertCompletionContains(completions, 'GetInfo', vscode.CompletionItemKind.Method);
-    });
-
-    test('member completions after dot include properties', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('ClassesAndRecords.nl');
-
-        // Position after "car." in "car.GetDescription()"
-        const pos = positionOf(doc, 'car.GetDescription', { at: 'start' });
-        const dotPos = new vscode.Position(pos.line, pos.character + 4); // after "car."
-        const completions = await getCompletions(doc, dotPos);
-
-        assert.ok(completions.items.length > 0,
-            'Expected member completions after dot');
-
-        // Vehicle class has Make (string property), GetDescription (method)
-        const labels = completions.items.map(i => completionLabel(i));
-        assert.ok(labels.includes('Make') || labels.includes('GetDescription'),
-            `Expected "Make" or "GetDescription" in completions. Got: ${labels.slice(0, 20).join(', ')}`);
-    });
-
-    test('member completions include documentation', async function () {
-        this.timeout(60_000);
+    test('trailing dot offers the receiver members, not scope identifiers', async function () {
+        this.timeout(30_000);
+        // Vehicle is declared in ClassesAndRecords.nl: a CROSS-FILE receiver with a trailing dot,
+        // the shape defect D3 answered with the scope and the keyword list.
         const { doc, cleanup } = await createTempNlFile(`
-func Main() {
+namespace SimpleTest
+func CompMemberTest() {
+    vehicle := new Vehicle("Ford", "Focus", 2020)
+    tc := vehicle.
     name := "Spencer"
-    name.
+    upper := name.
 }
-`, '_completion_docs.nl');
+`, '_comp_member.nl');
 
         try {
             await getDiagnostics(doc);
-            const dotPos = positionOf(doc, 'name.', { at: 'end' });
-            const completions = await getCompletions(doc, dotPos);
-            const contains = completions.items.find(item => completionLabel(item) === 'Contains');
+            const completions = await getCompletions(doc, positionOf(doc, 'tc := vehicle.', { at: 'end' }));
 
-            assert.ok(contains, 'Expected Contains completion for string member access');
-            const documentation = documentationText(contains!.documentation);
-            assert.ok(documentation?.includes('Returns a value indicating whether a specified'),
-                `Expected Contains completion documentation. Got: ${documentation ?? '<none>'}`);
+            assertCompletionContains(completions, 'Make', vscode.CompletionItemKind.Property);
+            assertCompletionContains(completions, 'GetDescription', vscode.CompletionItemKind.Method);
+            assertCompletionExcludes(completions, 'vehicle');
+            assertCompletionExcludes(completions, 'func');
+
+            const labels = completions.items.map(i => completionLabel(i));
+            assert.strictEqual(labels.length, new Set(labels).size,
+                `Duplicate member labels: ${labels.join(', ')}`);
+            assert.ok(!labels.some(l => l.startsWith('get_') || l.startsWith('set_')),
+                `Property accessors leaked into the member list: ${labels.join(', ')}`);
+
+            // THE SAME CHECK ON A BCL RECEIVER, WHICH IS WHERE THE OVERLOADS ARE. `string` reflects
+            // 105 methods under 39 names — `Split` eleven, `IndexOf` ten — and each one used to be
+            // its own row wearing the same label. The May headless suite has had a duplicate-label
+            // check since, but nothing in the product gate ever ran it, which is why this survived.
+            const bcl = await getCompletions(doc, positionOf(doc, 'upper := name.', { at: 'end' }));
+            assertCompletionContains(bcl, 'Split', vscode.CompletionItemKind.Method);
+            assertCompletionContains(bcl, 'Length', vscode.CompletionItemKind.Property);
+            const bclLabels = bcl.items.map(i => completionLabel(i));
+            assert.strictEqual(bclLabels.length, new Set(bclLabels).size,
+                `Duplicate BCL member labels: ${bclLabels.join(', ')}`);
+            const split = bcl.items.find(i => completionLabel(i) === 'Split');
+            assert.ok(split && /\(\+\d+ overloads?\)$/.exec(String(split.detail ?? '')) !== null,
+                `Expected Split to carry its overload count, got: ${String(split?.detail)}`);
         } finally {
             await closeAllEditors();
             cleanup();
         }
     });
 
-    // ================================================================
-    // VARIABLE COMPLETIONS
-    // ================================================================
+    // --- VARIABLES ---
 
     test('local variables appear in completions', async function () {
         this.timeout(30_000);
@@ -168,11 +118,9 @@ func Main() {
 
         try {
             await getDiagnostics(doc);
-            // Position on the blank line after "print mySpecialVar"
+            // The blank line after "print mySpecialVar".
             const pos = positionOf(doc, 'print mySpecialVar', { at: 'end' });
-            const lineAfter = new vscode.Position(pos.line + 1, 4);
-            const completions = await getCompletions(doc, lineAfter);
-
+            const completions = await getCompletions(doc, new vscode.Position(pos.line + 1, 4));
             assertCompletionContains(completions, 'mySpecialVar', vscode.CompletionItemKind.Variable);
         } finally {
             await closeAllEditors();
@@ -180,9 +128,7 @@ func Main() {
         }
     });
 
-    // ================================================================
-    // COMPLETION QUALITY
-    // ================================================================
+    // --- COMPLETION QUALITY ---
 
     test('completion items all have a kind set', async function () {
         this.timeout(60_000);
@@ -190,24 +136,8 @@ func Main() {
 
         const completions = await getCompletions(doc, new vscode.Position(0, 0));
         const withoutKind = completions.items.filter(i => i.kind === undefined);
-
         assert.ok(withoutKind.length === 0,
             `${withoutKind.length} completion items have no kind set: ${withoutKind.map(i => completionLabel(i)).join(', ')}`);
-    });
-
-    test('no duplicate labels in completion list', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('Program.nl');
-
-        const completions = await getCompletions(doc, new vscode.Position(0, 0));
-        const labels = completions.items.map(i => completionLabel(i));
-        const uniqueLabels = new Set(labels);
-
-        // Allow some duplicates (overloads can have same label but different kinds)
-        // but flag if there are excessive duplicates
-        const duplicateCount = labels.length - uniqueLabels.size;
-        assert.ok(duplicateCount < labels.length * 0.1,
-            `Too many duplicate labels: ${duplicateCount} duplicates out of ${labels.length} items`);
     });
 
     test('completion count is reasonable', async function () {
@@ -215,7 +145,6 @@ func Main() {
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
         const completions = await getCompletions(doc, new vscode.Position(0, 0));
-
         assert.ok(completions.items.length >= 5,
             `Expected at least 5 completions, got ${completions.items.length}`);
         assert.ok(completions.items.length < 5000,

@@ -30,6 +30,7 @@ let maxRetries := 3
 ## Functions
 
 Functions use the `func` keyword. Parameters are `name: type`, return type comes after the parameter list.
+If a function returns a value, declare the return type. No return type means `void`.
 
 ```n#
 func add(a: int, b: int): int {
@@ -56,6 +57,21 @@ func main() {
     greet("World")           // Hello, World!
     print double(21)         // 42
     print connect("localhost")  // localhost:8080
+}
+```
+
+### Function Overloading
+
+Declare multiple functions with the same name but different parameter lists. The compiler
+resolves the call by argument count and types.
+
+```n#
+func area(side: int): int => side * side
+func area(width: int, height: int): int => width * height
+
+func main() {
+    print area(5)       // 25
+    print area(3, 4)    // 12
 }
 ```
 
@@ -217,7 +233,7 @@ func handleResponse(resp: HttpResponse): string {
 
 ### Regular Interfaces
 
-Regular interfaces require explicit implementation with `:` syntax, just like C#. They support default implementations.
+Regular interfaces require explicit implementation with `:` syntax. They support default implementations.
 
 ```n#
 interface IShape {
@@ -277,10 +293,10 @@ func main() {
 
 ### String Enums
 
-String enums map enum members to string values — no more `const string` hacks.
+String enums map enum members to string values, so status names stay typed instead of copied as `const string` sets. Annotate the backing type with `: string`.
 
 ```n#
-enum Status {
+enum Status: string {
     Pending = "pending",
     Active = "active",
     Done = "done"
@@ -294,7 +310,7 @@ func main() {
 
 ### Int Enums
 
-Standard integer enums work like C#.
+Standard integer enums emit CLR enum values.
 
 ```n#
 enum Priority {
@@ -351,6 +367,13 @@ func main() {
 }
 ```
 
+**Performance:** The success path of `result, err :=` is exception-free at runtime. The
+compiler lowers the pattern to a value carrier (`err`, initialized to `null`) plus a single
+exception-capture region; when the call does not throw, the catch is never entered and no
+exception is thrown or unwound — the cost is essentially the call plus a null check. A CLR
+exception is only paid on the failure path, when the call actually throws and `err` captures
+it. This keeps ordinary `(result, err)` control flow off the expensive exception path.
+
 ## Async/Await
 
 Async functions are declared with `async func`. The return type is automatically wrapped in `Task` or `ValueTask`.
@@ -402,7 +425,7 @@ import System.Linq
 func main() {
     numbers := [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-    // LINQ — same as C#
+    // LINQ
     evens := numbers.Where(x => x % 2 == 0).ToList()
     doubled := numbers.Select(x => x * 2).ToList()
     sum := numbers.Sum()
@@ -425,7 +448,7 @@ func main() {
 
 ## Generics
 
-N# generics use the same `<T>` syntax as C#, with full constraint support.
+N# generics use `<T>` syntax with full constraint support.
 
 ```n#
 import System
@@ -458,6 +481,261 @@ func main() {
     stack.Push(2)
     stack.Push(3)
     print stack.Pop()   // 3
+}
+```
+
+## Properties: Required and Init-Only
+
+Mark a property `required` to force callers to set it in the object initializer, and `init`
+to make it settable only during construction (immutable afterward). `required init`
+combines both.
+
+```n#
+class Product {
+    required init Id: int      // must be set, immutable after creation
+    init Name: string          // optional, immutable after creation
+    Price: double = 0.0        // mutable
+
+    func Describe(): string => $"#{Id} {Name} (${Price})"
+}
+
+func main() {
+    p := new Product { Id: 1, Name: "Widget" }
+    print p.Describe()   // #1 Widget ($0)
+    // p.Id = 2          // compile error: init-only
+}
+```
+
+## Indexers
+
+Give a type `[]` access with an indexer. Declare it as `func this[key: K]: V` with `get`
+and `set` accessors.
+
+```n#
+class Grid {
+    storage: Dictionary<string, int> = new()
+
+    func this[key: string]: int {
+        get { return storage[key] }
+        set { storage[key] = value }
+    }
+}
+
+func main() {
+    g := new Grid()
+    g["score"] = 42
+    print g["score"]    // 42
+}
+```
+
+## Operator Overloading
+
+Define operators on your own types with `static func operator <op>`. Comparison operators
+must be defined in pairs (`==`/`!=`).
+
+```n#
+class Vec {
+    X: int
+    Y: int
+
+    static func operator +(a: Vec, b: Vec): Vec => new Vec { X: a.X + b.X, Y: a.Y + b.Y }
+    static func operator ==(a: Vec, b: Vec): bool => a.X == b.X && a.Y == b.Y
+    static func operator !=(a: Vec, b: Vec): bool => !(a == b)
+}
+
+func main() {
+    sum := (new Vec { X: 1, Y: 2 }) + (new Vec { X: 3, Y: 4 })
+    print $"({sum.X}, {sum.Y})"   // (4, 6)
+}
+```
+
+## Conversion Operators
+
+Define `implicit` (always safe) and `explicit` (requires a cast) conversions between types.
+
+```n#
+struct Celsius {
+    Value: double
+
+    implicit operator Fahrenheit(c: Celsius) => new Fahrenheit { Value: c.Value * 9.0 / 5.0 + 32.0 }
+    explicit operator Kelvin(c: Celsius) => new Kelvin { Value: c.Value + 273.15 }
+}
+
+struct Fahrenheit { Value: double }
+struct Kelvin { Value: double }
+
+func main() {
+    boiling := new Celsius { Value: 100.0 }
+    f: Fahrenheit = boiling       // implicit — no cast
+    k := (Kelvin)boiling          // explicit — cast required
+    print $"{f.Value}°F  {k.Value}K"   // 212°F  373.15K
+}
+```
+
+## Type Aliases
+
+Create a transparent alias for a longer type — fully interchangeable with the underlying
+type.
+
+```n#
+type UserId = int
+type StringDict = Dictionary<string, string>
+type Callback = Func<void>
+
+func main() {
+    id: UserId = 7
+    print id    // 7
+}
+```
+
+N# also has `newtype` for *distinct* branded types that are **not** interchangeable with
+their underlying type (`type Email = newtype string`) — see the
+[Types guide](types.md#newtypes-branded-types).
+
+## Subscribing to .NET Events
+
+Subscribe to a .NET event with `on` and detach with `off`. `on` returns a subscription handle
+you can hold onto — unsubscribing a lambda just works, no need to stash the delegate.
+
+```n#
+import System
+
+func main() {
+    sub := on AppDomain.CurrentDomain.ProcessExit (sender, args) => {
+        print "bye"
+    }
+    off sub        // detach again
+}
+```
+
+`+=`/`-=` on an event is a compile error that points you to `on`/`off` (it used to compile and
+then crash at runtime). On a real `Func`/`Action` field, `+=`/`-=` still combine/remove
+delegates.
+
+## Working With Nullable Values
+
+Use `?` to mark a type nullable, and `must` to assert a nullable value is non-null,
+unwrapping it (it throws if the value is actually null). N# does **not** have a
+null-forgiving `!` operator — prefer explicit checks, `??`, or `must`.
+
+```n#
+func find(items: int[], target: int): int? {
+    for i := 0; i < items.Length; i++ {
+        if items[i] == target { return i }
+    }
+    return null
+}
+
+func main() {
+    idx := must find([10, 20, 30], 20)   // unwrap int? -> int
+    print idx                            // 1
+
+    name: string? = "Ada"
+    greeting := name ?? "stranger"       // null-coalescing
+    print greeting                       // Ada
+}
+```
+
+## Resource Management and Locking
+
+`lock` takes a mutual-exclusion lock for a critical section (parentheses optional). Use it
+to guard shared state across threads.
+
+```n#
+class Counter {
+    count: int = 0
+    sync: object = new object()
+
+    func Increment() {
+        lock sync {
+            count++
+        }
+    }
+
+    func Value(): int => count
+}
+```
+
+The lockee must be a **reference type** — locking on a value type (`int`, a struct, an enum,
+`int?`) is a compile-time error ([NL320](https://schneidenbach.github.io/nsharplang/docs/errors/NL320)). `Monitor`
+locks on object identity, and a value would be boxed into a fresh object on every `lock`, so
+the lock would guard nothing. The same applies to a generic `T` unless it is constrained to a
+reference type (`where T: class`). Lock on a dedicated `object` field, as `Counter` does above.
+
+Inside a `finally` block, control transfers that would leave the block — `return`, or
+`break`/`continue` targeting a loop outside it — are compile-time errors
+([NL319](https://schneidenbach.github.io/nsharplang/docs/errors/NL319)): the runtime must always finish running a
+`finally`. `throw` is allowed, and loops opened inside the `finally` can still
+`break`/`continue` normally.
+
+## Checked and Unchecked Arithmetic
+
+Control integer overflow behavior explicitly. `checked` throws `OverflowException` on
+overflow; `unchecked` wraps (the .NET default).
+
+```n#
+func main() {
+    max := 2147483647            // int.MaxValue
+    print unchecked(max + 1)     // -2147483648 (wraps)
+
+    try {
+        print checked(max + 1)   // throws
+    } catch ex: OverflowException {
+        print "overflow caught"
+    }
+}
+```
+
+## Reflection Operators
+
+`nameof` and `typeof` are compile-time operators. `typeof` resolves type names through the current
+source scope, imports, aliases, and referenced assembly catalog. External classes, structs,
+interfaces, enums, and closed generic types do not need a separate compiler allow-list; for example,
+`typeof(Guid)`, `typeof(Math)`, and `typeof(Queue<int>)` use their resolved type identities.
+
+```n#
+class Person {
+    Name: string = ""
+}
+
+func main() {
+    print nameof(Person)        // Person
+    print typeof(Person).Name   // Person
+}
+```
+
+## File-Scoped Types
+
+Mark a type `file` to keep it visible only within the file that declares it — useful for
+internal helpers that should never leak into the public surface.
+
+```n#
+file class Helper {
+    func Shout(s: string): string => s + "!"
+}
+
+func main() {
+    print new Helper().Shout("hi")   // hi!
+}
+```
+
+## Systems N#
+
+For high-performance code, N# has an opt-in **systems profile** with explicit, checkable
+runtime costs: `[hot]`/`[boundary]` effect contracts, allocation-free `Result<T,E>`, `alloc`
+and `stackalloc`, `ref struct` and lifetime-checked spans, governed `unsafe`, and SIMD
+auto-vectorization for counted-reduction kernels. See the dedicated
+**[Systems N# guide](systems.md)**.
+
+```n#
+[hot]
+func checksum(values: int[]): int {
+    sum := 0
+    len := values.Length
+    for i := 0; i < len; i++ {
+        sum = sum + values[i]
+    }
+    return sum
 }
 ```
 
@@ -500,7 +778,8 @@ test "should throw on divide by zero" {
 
 ### Table-Driven Tests
 
-Run the same test body with multiple sets of inputs (Go-style):
+Run the same test body with multiple sets of inputs (Go-style). Each parameter is declared
+`name: Type` after `with`, and each row supplies one literal value per parameter:
 
 ```n#
 test "should add correctly" with (a: int, b: int, expected: int) [
@@ -513,16 +792,43 @@ test "should add correctly" with (a: int, b: int, expected: int) [
 }
 ```
 
-### Skip Tests
+**Every row is its own test.** A row is not a loop iteration — it compiles to an independent test
+that binds the row's values as locals of the declared types, so it runs, reports and fails on its
+own. The four rows above are reported as four tests:
 
-Mark a test as skipped with a reason:
-
-```n#
-test "needs network" skip "CI has no network" {
-    response := HttpClient.Get("https://api.example.com")
-    assert response.StatusCode == 200
-}
+```text
+should add correctly (1, 2, 3)
+should add correctly (0, 0, 0)
+should add correctly (-1, 1, 0)
+should add correctly (100, -100, 0)
 ```
+
+That name is the case's identity everywhere: `nlc test --verbose` prints it, `nlc test --json`
+carries it as each result's `displayName`, and `--filter` matches against it. One bad row names
+itself instead of hiding the other three behind a single failure.
+
+Row values must be literals — `int`, `float`, `char`, `string`, `bool` or `null`. A computed
+expression is reported as `NL310`, and a row whose value count does not match the parameter count is
+reported as `NL202`.
+
+### Skipping a Test
+
+**There is no runnable skip.** N# parses a `skip "reason"` clause after a test's description for
+forward compatibility, and the formatter and the editor tooling understand it, but no backend emits
+it — so `nlc test` refuses a file that contains one:
+
+```text
+error NL323: test 'needs network' declares 'skip', which is parsed for forward compatibility but is not compiled by 'nlc test'
+  --> Network.tests.nl:3:1
+   |
+  3 | test "needs network" skip "CI has no network" {
+   | ^^^^
+   |
+help: Delete the skip clause and its reason, or comment out the whole test declaration — nlc test cannot report a skipped test.
+```
+
+To leave a test out of a run, comment out the whole declaration, or use `nlc test --filter` to
+select the tests you want. A `skip` clause is not a way to keep an unfinished test in the file.
 
 ### Setup Blocks
 
@@ -544,6 +850,11 @@ test "should list tasks" {
     assert service.GetTasks().Count == 1
 }
 ```
+
+:::caution Not yet runnable
+`setup` and `teardown` parse and are understood by the editor tooling, but `nlc test` does not yet
+compile a file that contains one. Call the shared setup from inside each test until they land.
+:::
 
 ### Smart Assert Patterns
 
@@ -605,7 +916,7 @@ func main() {
 
 ## String Interpolation
 
-Use `$"..."` for interpolated strings, same as C#.
+Use `$"..."` for interpolated strings.
 
 ```n#
 name := "Alice"
@@ -614,6 +925,82 @@ print $"Name: {name}, Age: {age}"
 print $"Next year: {age + 1}"
 print $"Pi: {3.14159:F2}"             // Pi: 3.14
 ```
+
+### Escape Sequences
+
+Inside a `"..."` or `$"..."` literal (and inside a character literal), a backslash begins an escape.
+N# admits exactly these, and nothing else:
+
+| Escape | Character | Notes |
+|---|---|---|
+| `\'` | `'` (U+0027) | |
+| `\"` | `"` (U+0022) | |
+| `\\` | `\` (U+005C) | |
+| `\0` | null (U+0000) | |
+| `\a` | alert (U+0007) | |
+| `\b` | backspace (U+0008) | |
+| `\t` | tab (U+0009) | |
+| `\n` | line feed (U+000A) | |
+| `\v` | vertical tab (U+000B) | |
+| `\f` | form feed (U+000C) | |
+| `\r` | carriage return (U+000D) | |
+| `\e` | escape (U+001B) | the ANSI/VT escape character |
+| `\x` *H* to *HHHH* | that code unit | **one to four** hex digits, read greedily |
+| `\u` *HHHH* | that code unit | **exactly four** hex digits |
+| `\U` *HHHHHHHH* | that code point | **exactly eight** hex digits; above U+FFFF it becomes a surrogate pair |
+
+Hex digits are ASCII only (`0`-`9`, `a`-`f`, `A`-`F`).
+
+```n#
+red := "\x1b[1;31m"        // ESC [ 1 ; 3 1 m  — seven characters
+same := "\e[1;31m"         // the same seven
+unit := "\u001b"           // and the same again
+grin := "\U0001F600"       // one code point, two UTF-16 code units
+```
+
+A backslash followed by anything else is not an escape and is reported as
+[NL105](./errors/NL105.md), so a Windows path or a regular expression must double its backslashes —
+`"C:\\temp"`, `"\\d+"` — or use a raw string, which has no escapes at all. Note that `\t` in
+`"C:\temp"` *is* a valid escape and becomes a tab, so that path is silently wrong rather than
+rejected.
+
+### Raw String Literals
+
+Triple-quoted raw strings (`"""..."""`) span multiple lines and have no escapes at all —
+quotes, backslashes and every sequence in the table above are taken literally. Prefix with `$` to interpolate.
+
+```n#
+name := "Ada"
+sql := $"""
+SELECT * FROM users
+WHERE name = '{name}'
+  AND active = true
+"""
+print sql
+```
+
+In a raw interpolated string, `{expr}` is an interpolation hole exactly as in `$"..."` —
+including right after a colon, so JSON templating works naturally:
+
+```n#
+json := $"""
+{
+    "name": "{person.Name}",
+    "age": {person.Age}
+}
+"""
+```
+
+Two leniencies make embedded JSON and templates pleasant, with no `{{` escaping needed
+for structural braces:
+
+- A `{` that opens a **multi-line** brace group — like the outer JSON braces above — is
+  literal text. Only a brace group that opens and closes on one line is a hole.
+- A `{` with no closing `}` before the end of the string is literal text.
+
+To write a *single-line* literal brace group, escape with doubled braces: `{{` and `}}`
+each produce one literal brace. Format specifiers work inside holes as usual:
+`{price:F2}`.
 
 ## Imports and Packages
 
@@ -636,7 +1023,7 @@ class UserService {
 
 ## Visibility
 
-N# uses Go-style naming conventions for visibility — do not write C# `public`/`private` keywords for ordinary code. The formatter removes redundant `public`/`private` when casing already expresses the same visibility.
+N# uses Go-style naming conventions for visibility — do not write `public`/`private` keywords for ordinary code. The formatter removes redundant `public`/`private` when casing already expresses the same visibility.
 
 | Convention | Visibility |
 |------------|-----------|
@@ -668,8 +1055,8 @@ Enum cases are part of the containing enum's value set. Export is controlled by 
 
 ## Next Steps
 
-- **[For C# Developers](for-csharp-developers.md)** — Side-by-side syntax comparison
 - **[For Go Developers](for-go-developers.md)** — How Go concepts map to N#
 - **[Pattern Matching Guide](pattern-matching.md)** — Deep dive into pattern matching
 - **[Types Guide](types.md)** — Advanced type system features
-- **[Examples](/examples)** — curated example projects
+- **[Systems N#](systems.md)** — The high-performance lane: `[hot]`, `Result<T,E>`, spans, SIMD
+- **[Examples](/examples/)** — curated example projects

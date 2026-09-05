@@ -156,6 +156,18 @@ public class SelectionRangeHandler : SelectionRangeHandlerBase
             }
         }
 
+        if (decl is SoaRecordDeclaration soaRecord)
+        {
+            foreach (var column in soaRecord.Columns)
+            {
+                if (column.Line > 0 && column.Line == targetLine)
+                {
+                    chain.Add(MakeLspRange(column.Line, column.Line, sourceLines));
+                    return true;
+                }
+            }
+        }
+
         // Try to descend into function body
         if (decl is FunctionDeclaration func && func.Body != null)
         {

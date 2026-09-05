@@ -5,49 +5,6 @@ import CodeBlock from '@theme/CodeBlock';
 
 const installCommand = 'curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"';
 
-const csharpCode = `using System;
-using System.Linq;
-
-namespace MyApp;
-
-public class Program
-{
-    public static void Main()
-    {
-        var name = "World";
-        Console.WriteLine($"Hello, {name}!");
-
-        var numbers = new[] { 1, 2, 3, 4, 5 };
-        var doubled = numbers
-            .Select(x => x * 2)
-            .ToList();
-
-        foreach (var num in doubled)
-        {
-            Console.WriteLine(num);
-        }
-    }
-}`;
-
-const nsharpCode = `import System
-import System.Linq
-
-
-
-func Main() {
-    name := "World"
-    print $"Hello, {name}!"
-
-    let numbers = [1, 2, 3, 4, 5]
-    doubled := numbers
-        .Select(x => x * 2)
-        .ToList()
-
-    foreach num in doubled {
-        print num
-    }
-}`;
-
 const features = [
   {
     icon: '\u2726',
@@ -98,24 +55,6 @@ func Process(r: IReader) {
     }
 
     print $"{name}: {count}"   // string interpolation
-}`,
-  },
-  {
-    icon: '\u21C4',
-    title: 'Pragmatic C# Interop',
-    desc: 'Use NuGet packages and call C# libraries in covered interop scenarios. N# is designed for CLR integration, with limitations documented instead of hidden.',
-    code: `import Microsoft.AspNetCore.Builder
-
-func main(args: string[]) {
-    builder := WebApplication.CreateBuilder(args)
-    app := builder.Build()
-
-    app.MapGet("/", () => "Hello from N#!")
-    app.MapGet("/json", () => new {
-        Message: "Works with ASP.NET Core"
-    })
-
-    app.Run()
 }`,
   },
 ];
@@ -304,7 +243,7 @@ export default function Home() {
   return (
     <Layout
       title="Simple by design. Powerful by .NET."
-      description="N# — A pragmatic language with Go-inspired syntax, discriminated unions, duck interfaces, and practical C# interop.">
+      description="N# — A pragmatic language with Go-inspired syntax, discriminated unions, duck interfaces, and strong CLR tooling.">
 
       {/* Hero */}
       <header className="hero--nsharp">
@@ -318,30 +257,6 @@ export default function Home() {
               <Link className="btn--secondary" to="/docs/getting-started">Get started</Link>
               <Link className="btn--secondary" to="/examples">Examples</Link>
               <a className="btn--secondary" href="https://github.com/schneidenbach/nsharplang" target="_blank" rel="noopener noreferrer">GitHub</a>
-            </div>
-          </div>
-
-          {/* C# vs N# comparison */}
-          <div className="comparison">
-            <div className="comparison__grid">
-              <div className="comparison__panel">
-                <div className="comparison__header">
-                  <span className="comparison__header-dot comparison__header-dot--csharp" />
-                  C#
-                </div>
-                <div className="comparison__code">
-                  <CodeBlock language="csharp">{csharpCode}</CodeBlock>
-                </div>
-              </div>
-              <div className="comparison__panel">
-                <div className="comparison__header">
-                  <span className="comparison__header-dot comparison__header-dot--nsharp" />
-                  N#
-                </div>
-                <div className="comparison__code">
-                  <CodeBlock language="nsharp">{nsharpCode}</CodeBlock>
-                </div>
-              </div>
             </div>
           </div>
         </div>

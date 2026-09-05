@@ -50,7 +50,7 @@ age: int            // field name and type highlighted
 ```
 
 #### 6. **Preprocessor Directives**
-Support for C#-style preprocessor directives:
+Support for preprocessor directives:
 ```nsharp
 #region Type Declarations
 #if DEBUG

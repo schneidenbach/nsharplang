@@ -25,6 +25,7 @@ async func ConsumeNumbersAsync() {
     await foreach n in GetNumbersAsync() {
         print n
     }
+
     print "Done consuming numbers!"
 }
 
@@ -36,6 +37,7 @@ async func ProcessAndDisplayAsync() {
     await foreach processed in ProcessDataAsync(items) {
         print processed
     }
+
     print "All items processed!"
 }
 

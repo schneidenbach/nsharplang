@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -314,28 +316,6 @@ public class DaemonCommandTests
         Assert.Equal("test error", deserialized.Error.Message);
     }
 
-    [Fact]
-    public void DaemonStatus_Serialization_HasExpectedPropertyNames()
-    {
-        var status = new DaemonStatus
-        {
-            Pid = 12345,
-            Uptime = "1h 2m 3s",
-            ProjectRoot = "/tmp/test",
-            CachedFiles = 10,
-            IdleTimeout = "30m"
-        };
-
-        var json = JsonSerializer.Serialize(status);
-        using var doc = JsonDocument.Parse(json);
-
-        Assert.Equal(12345, doc.RootElement.GetProperty("pid").GetInt32());
-        Assert.Equal("1h 2m 3s", doc.RootElement.GetProperty("uptime").GetString());
-        Assert.Equal("/tmp/test", doc.RootElement.GetProperty("projectRoot").GetString());
-        Assert.Equal(10, doc.RootElement.GetProperty("cachedFiles").GetInt32());
-        Assert.Equal("30m", doc.RootElement.GetProperty("idleTimeout").GetString());
-    }
-
     // ── PID file path convention ──────────────────────────────────────
 
     [Fact]
@@ -384,11 +364,11 @@ public class DaemonCommandTests
 
             var statusJson = DaemonClient.GetStatus(projectDir);
             Assert.NotNull(statusJson);
-            var status = JsonSerializer.Deserialize<DaemonStatus>(statusJson!);
-            Assert.NotNull(status);
-            Assert.Equal(projectDir, status!.ProjectRoot);
-            Assert.Equal(pid, status.Pid);
-            Assert.Equal("30m", status.IdleTimeout);
+            using var statusDocument = JsonDocument.Parse(statusJson!);
+            var statusRoot = statusDocument.RootElement;
+            Assert.Equal(projectDir, statusRoot.GetProperty(DaemonProtocolKernels.GetStatusProjectRootField()).GetString());
+            Assert.Equal(pid, statusRoot.GetProperty(DaemonProtocolKernels.GetStatusPidField()).GetInt32());
+            Assert.Equal(DaemonProtocolKernels.FormatIdleTimeoutMinutes(DaemonConstants.IdleTimeoutMinutes), statusRoot.GetProperty(DaemonProtocolKernels.GetStatusIdleTimeoutField()).GetString());
 
             Assert.True(DaemonClient.StopDaemon(projectDir));
             Assert.True(WaitUntil(() => !File.Exists(socketPath) && !File.Exists(pidPath), TimeSpan.FromSeconds(5)));
@@ -412,7 +392,11 @@ public class DaemonCommandTests
             Assert.NotNull(unknown!.Error);
             Assert.Equal("2.0", unknown.JsonRpc);
             Assert.Equal(DaemonConstants.ErrorMethodNotFound, unknown.Error!.Code);
-            Assert.Contains("Unknown method", unknown.Error.Message);
+            // The expected sentence is the LITERAL, not a live call to the kernel that produces it:
+            // that pairing agreed by construction and never said what the wire message is. The kernel
+            // side is pinned independently in
+            // the compiler-service estate's daemon kernel contracts.
+            Assert.Equal("Unknown method: daemon/nope", unknown.Error.Message);
 
             var malformedJson = SendRawDaemonRequest(projectDir, "{not json");
             var malformed = JsonSerializer.Deserialize<DaemonResponse>(malformedJson);
@@ -440,7 +424,8 @@ public class DaemonCommandTests
             Assert.NotNull(unknown);
             Assert.NotNull(unknown!.Error);
             Assert.Equal(DaemonConstants.ErrorMethodNotFound, unknown.Error!.Code);
-            Assert.Contains("Unknown method", unknown.Error.Message);
+            // The LITERAL, for the same reason as above.
+            Assert.Equal("Unknown method: query/not-real", unknown.Error.Message);
         }
         finally
         {
@@ -483,6 +468,69 @@ func Main() {
             Assert.True(doc.RootElement.TryGetProperty("clusters", out var clusters));
             Assert.True(clusters.ValueKind == JsonValueKind.Array);
             Assert.False(doc.RootElement.TryGetProperty("results", out _));
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void DaemonServer_QueryPositionsUseDogfoodCompatibilityParser()
+    {
+        var projectDir = CreateTempProject();
+        try
+        {
+            using var server = DaemonTestServer.Start(projectDir);
+
+            var lineFallback = DaemonClient.Query(projectDir, DaemonConstants.MethodType, new Dictionary<string, object?>
+            {
+                ["file"] = "Program.nl",
+                ["pos"] = "bad:5"
+            });
+            Assert.NotNull(lineFallback);
+
+            using var lineDoc = JsonDocument.Parse(lineFallback!);
+            var linePosition = lineDoc.RootElement.GetProperty("error").GetProperty("details").GetProperty("position");
+            Assert.Equal(0, linePosition.GetProperty("line").GetInt32());
+            Assert.Equal(5, linePosition.GetProperty("column").GetInt32());
+
+            var columnFallback = DaemonClient.Query(projectDir, DaemonConstants.MethodType, new Dictionary<string, object?>
+            {
+                ["file"] = "Program.nl",
+                ["pos"] = "5:bad"
+            });
+            Assert.NotNull(columnFallback);
+
+            using var columnDoc = JsonDocument.Parse(columnFallback!);
+            var columnPosition = columnDoc.RootElement.GetProperty("error").GetProperty("details").GetProperty("position");
+            Assert.Equal(5, columnPosition.GetProperty("line").GetInt32());
+            Assert.Equal(0, columnPosition.GetProperty("column").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void DaemonServer_SymbolKindParsingUsesQueryKernel()
+    {
+        var projectDir = CreateTempProject();
+        try
+        {
+            using var server = DaemonTestServer.Start(projectDir);
+
+            var symbolsJson = DaemonClient.Query(projectDir, DaemonConstants.MethodSymbols, new Dictionary<string, object?>
+            {
+                ["kind"] = "class"
+            });
+            Assert.NotNull(symbolsJson);
+
+            using var doc = JsonDocument.Parse(symbolsJson!);
+            var symbols = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            Assert.NotEmpty(symbols);
+            Assert.All(symbols, symbol => Assert.Equal("class", symbol.GetProperty("kind").GetString()));
         }
         finally
         {
@@ -587,9 +635,8 @@ func Main() {
     {
         var statusJson = DaemonClient.GetStatus(projectDir);
         Assert.NotNull(statusJson);
-        var status = JsonSerializer.Deserialize<DaemonStatus>(statusJson!);
-        Assert.NotNull(status);
-        return status!.CachedFiles;
+        using var document = JsonDocument.Parse(statusJson!);
+        return document.RootElement.GetProperty(DaemonProtocolKernels.GetStatusCachedFilesField()).GetInt32();
     }
 
     private static string SendRawDaemonRequest(string projectDir, string requestJson)

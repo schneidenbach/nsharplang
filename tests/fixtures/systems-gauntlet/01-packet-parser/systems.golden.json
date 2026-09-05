@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "case": "packet parser over ReadOnlySpan<byte>",
+  "expected": {
+    "hot": "pass",
+    "bclHotSummary": ["BinaryPrimitives", "ReadOnlySpan.Slice"],
+    "errors": []
+  }
+}

@@ -8,31 +8,34 @@ namespace NSharpLang.Cli.Commands;
 
 public static class WatchCommand
 {
-    private static readonly string[] SupportedCommands = { "check", "build", "test", "lint", "format" };
-    private static readonly string[] WatchOptionsWithValues = { "--project", "--debounce-ms", "--max-runs" };
-
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || args.Length == 0 || args[0] == "help")
-            return ShowHelp();
+        var options = WatchCommandKernels.GetOptionSummary(args);
+        if (options.ShowHelp)
+        {
+            Console.WriteLine(WatchCommandKernels.GetHelpText());
+            return 0;
+        }
 
-        var watchedCommand = args[0].ToLowerInvariant();
-        if (!SupportedCommands.Contains(watchedCommand, StringComparer.Ordinal))
-            return Error($"Unsupported watch target '{watchedCommand}'. Expected check, build, test, lint, or format.");
+        var targetSummary = WatchCommandKernels.GetTargetSummary(args);
+        var targetNameForError = WatchCommandKernels.GetUnsupportedTargetName(args);
+        if (targetSummary.TargetKind == 0)
+            return Error(WatchCommandKernels.GetUnsupportedTargetMessage(targetNameForError));
 
-        var forwardedArgs = GetForwardedArgs(args.Skip(1).ToArray());
-        var projectRoot = GetOption(args, "--project") ?? Directory.GetCurrentDirectory();
-        projectRoot = Path.GetFullPath(projectRoot);
+        var watchedCommand = WatchCommandKernels.GetTargetCommandName(targetSummary.TargetKind);
+
+        var forwardedArgs = WatchCommandKernels.GetForwardedArgs(args);
+        var projectRoot = WatchCommandKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory());
 
         if (!Directory.Exists(projectRoot))
-            return Error($"Project directory not found: {projectRoot}");
+            return Error(WatchCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot));
 
-        var debounceMs = ParsePositiveInt(GetOption(args, "--debounce-ms"), 250, "--debounce-ms");
+        var debounceMs = ParsePositiveInt(options.DebounceMsOption, WatchCommandKernels.GetDefaultDebounceMilliseconds(), "--debounce-ms");
         if (debounceMs == null)
             return 1;
 
-        var maxRuns = ParsePositiveInt(GetOption(args, "--max-runs"), null, "--max-runs");
-        if (GetOption(args, "--max-runs") != null && maxRuns == null)
+        var maxRuns = ParsePositiveInt(options.MaxRunsOption, null, "--max-runs");
+        if (options.MaxRunsOption != null && maxRuns == null)
             return 1;
 
         var wakeSignal = new AutoResetEvent(false);
@@ -43,7 +46,7 @@ public static class WatchCommand
         var lastExitCode = RunWatchedCommand(projectRoot, watchedCommand, forwardedArgs);
         var runCount = 1;
 
-        if (maxRuns.HasValue && runCount >= maxRuns.Value)
+        if (WatchCommandKernels.ShouldStopAfterRun(runCount, maxRuns.HasValue, maxRuns.GetValueOrDefault()))
             return lastExitCode;
 
         using var watcher = new FileSystemWatcher(projectRoot)
@@ -54,7 +57,7 @@ public static class WatchCommand
 
         void HandleChange(string path)
         {
-            if (!ShouldWatch(path))
+            if (!WatchCommandKernels.ShouldTriggerForChangedPath(path))
                 return;
 
             lock (sync)
@@ -72,7 +75,7 @@ public static class WatchCommand
         watcher.Renamed += (_, eventArgs) => HandleChange(eventArgs.FullPath);
         watcher.EnableRaisingEvents = true;
 
-        Console.WriteLine($"Watching {projectRoot} for N# changes. Press Ctrl+C to stop.");
+        Console.WriteLine(WatchCommandKernels.GetStartedMessage(projectRoot));
 
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
@@ -101,11 +104,11 @@ public static class WatchCommand
                     continue;
 
                 Console.WriteLine();
-                Console.WriteLine($"Change detected at {DateTime.Now:T}. Re-running `nlc {watchedCommand}`.");
+                Console.WriteLine(WatchCommandKernels.GetChangeDetectedMessage(DateTime.Now.ToString(WatchCommandKernels.GetChangeTimeFormat()), watchedCommand));
                 lastExitCode = RunWatchedCommand(projectRoot, watchedCommand, forwardedArgs);
                 runCount++;
 
-                if (maxRuns.HasValue && runCount >= maxRuns.Value)
+                if (WatchCommandKernels.ShouldStopAfterRun(runCount, maxRuns.HasValue, maxRuns.GetValueOrDefault()))
                     return lastExitCode;
             }
 
@@ -131,90 +134,17 @@ public static class WatchCommand
         }
     }
 
-    private static string[] GetForwardedArgs(string[] args)
-    {
-        var forwarded = new List<string>();
-
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (WatchOptionsWithValues.Contains(args[i], StringComparer.Ordinal))
-            {
-                i++;
-                continue;
-            }
-
-            if (args[i] == "--help" || args[i] == "-h")
-                continue;
-
-            forwarded.Add(args[i]);
-        }
-
-        return forwarded.ToArray();
-    }
-
-    private static bool ShouldWatch(string path)
-    {
-        var fileName = Path.GetFileName(path);
-        if (fileName.Equals("project.yml", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Equals(".editorconfig", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        var extension = Path.GetExtension(path);
-        return extension.Equals(".nl", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static int? ParsePositiveInt(string? value, int? defaultValue, string flag)
     {
-        if (string.IsNullOrWhiteSpace(value))
-            return defaultValue;
+        var parsed = WatchCommandKernels.ParsePositiveIntOption(
+            value,
+            defaultValue.HasValue,
+            defaultValue.GetValueOrDefault());
+        if (parsed.IsValid)
+            return WatchCommandKernels.GetParsedOptionalIntValue(parsed);
 
-        if (int.TryParse(value, out var parsed) && parsed > 0)
-            return parsed;
-
-        Error($"{flag} expects a positive integer.");
+        Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
         return null;
-    }
-
-    private static string? GetOption(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == flag)
-                return args[i + 1];
-        }
-
-        return null;
-    }
-
-    private static int ShowHelp()
-    {
-        Console.WriteLine(@"N# Watch
-
-Usage: nlc watch <check|build|test|lint|format> [command-options]
-
-Re-run an N# command when `.nl`, `project.yml`, or `.editorconfig` files change.
-
-Options:
-  --project <dir>      Project root directory to watch (default: current directory)
-  --debounce-ms <ms>   Debounce window before rerunning (default: 250)
-  --max-runs <count>   Exit after N command executions (useful for scripts and tests)
-  --help, -h           Show this help text
-
-Examples:
-  nlc watch check
-  nlc watch build
-  nlc watch test --filter AddPerson
-  nlc watch lint
-  nlc watch format --check
-  nlc watch check --project examples/16-task-cli --max-runs 2
-
-Exit codes:
-  0  Watch finished and the last run succeeded
-  1  Invalid usage or the last watched run failed");
-
-        return 0;
     }
 
     private static int Error(string message)

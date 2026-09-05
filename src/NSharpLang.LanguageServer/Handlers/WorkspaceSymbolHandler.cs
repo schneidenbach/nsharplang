@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NSharpLang.Compiler.Ast;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol;
@@ -163,18 +162,6 @@ public class WorkspaceSymbolHandler : WorkspaceSymbolsHandlerBase
             if (first != null) return (first.Line, first.Column);
         }
 
-        // Fallback: search AST
-        if (doc.CompilationUnit != null)
-        {
-            foreach (var decl in doc.CompilationUnit.Declarations)
-            {
-                if (GetDeclarationName(decl) == name)
-                {
-                    return (decl.Line, decl.Column);
-                }
-            }
-        }
-
         return (1, 1);
     }
 
@@ -187,68 +174,6 @@ public class WorkspaceSymbolHandler : WorkspaceSymbolsHandlerBase
             if (match != null) return (match.Line, match.Column);
         }
 
-        if (doc.CompilationUnit != null)
-        {
-            foreach (var decl in doc.CompilationUnit.Declarations)
-            {
-                if (GetDeclarationName(decl) != typeName) continue;
-
-                // Check class/struct/record/interface members
-                var members = GetDeclarationMembers(decl);
-                if (members != null)
-                {
-                    foreach (var member in members)
-                    {
-                        if (GetDeclarationName(member) == memberName)
-                        {
-                            return (member.Line, member.Column);
-                        }
-                    }
-                }
-
-                // Check enum members
-                if (decl is EnumDeclaration enumDecl)
-                {
-                    foreach (var enumMember in enumDecl.Members)
-                    {
-                        if (enumMember.Name == memberName)
-                        {
-                            return (enumMember.Line, enumMember.Column);
-                        }
-                    }
-                }
-            }
-        }
-
         return (1, 1);
-    }
-
-    private static string? GetDeclarationName(Declaration decl)
-    {
-        return decl switch
-        {
-            FunctionDeclaration f => f.Name,
-            ClassDeclaration c => c.Name,
-            StructDeclaration s => s.Name,
-            RecordDeclaration r => r.Name,
-            InterfaceDeclaration i => i.Name,
-            EnumDeclaration e => e.Name,
-            UnionDeclaration u => u.Name,
-            FieldDeclaration fd => fd.Name,
-            PropertyDeclaration pd => pd.Name,
-            _ => null
-        };
-    }
-
-    private static List<Declaration>? GetDeclarationMembers(Declaration decl)
-    {
-        return decl switch
-        {
-            ClassDeclaration c => c.Members,
-            StructDeclaration s => s.Members,
-            RecordDeclaration r => r.Members,
-            InterfaceDeclaration i => i.Members,
-            _ => null
-        };
     }
 }
