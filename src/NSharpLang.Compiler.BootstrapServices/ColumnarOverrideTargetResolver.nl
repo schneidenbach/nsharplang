@@ -1,60 +1,163 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 
-// WHICH METHOD AN `override` OVERRIDES, FOUND BY WALKING THE BASE CHAIN.
-//
-// What stood here was a three-name list in the C# emit host — `ToString()`, `Equals(object)` and
-// `GetHashCode()`, each looked up on `typeof(object)`. Any other override target returned false, and
-// the caller returned false without recording a decline, so `override` on a method declared by a BASE
-// CLASS failed with no site, no file and no reason. `class R : MetadataAssemblyResolver` overriding
-// `Resolve`, and `class C : StringComparer` overriding `Compare`, both died that way — measured, and
-// neither has anything to do with `System.Object`.
-//
-// The rule is the ordinary one: walk the declared base and its ancestors, take the first accessible
-// virtual-or-abstract method whose name and signature match. Sealed (`Final`) slots, statics and
-// generic methods are not override targets. `DeclaredOnly` is deliberate: each level is asked for its
-// OWN methods so the walk decides the order, and an override target is attributed to the type that
-// actually declares it rather than to the most-derived re-declaration.
-//
-// TYPE IDENTITY IS BY NAME, NEVER BY `==`. The base chain can be read from a different type universe
-// than the signature types were resolved in, and two objects for one type compare unequal there — the
-// mistake this task exists to remove.
-class ColumnarOverrideTargetResolver {
-    static func TryFindOverrideTarget(baseType: Type?, name: string, returnType: Type, parameterTypes: Type[], out target: MethodInfo?): bool {
-        target = null
-        if name == null || name.Length == 0 || returnType == null || parameterTypes == null {
-            return false
-        }
+class ColumnarBaseMethodMatchParameter {
+    readonly parameterValue: ParameterInfo
+    readonly runtimeTypeValue: Type
 
-        current := baseType
-        if current == null {
-            current = typeof(object)
-        }
+    Parameter: ParameterInfo => parameterValue
+    RuntimeType: Type => runtimeTypeValue
 
-        while current != null {
-            candidates := DeclaredMethodsOrEmpty(current)
-            index := 0
-            while index < candidates.Length {
-                candidate := candidates[index]
-                if IsOverridableTarget(candidate, name) && SignatureMatches(candidate, returnType, parameterTypes) {
-                    target = candidate
-                    return true
+    constructor(parameter: ParameterInfo, runtimeType: Type) {
+        if parameter == null || runtimeType == null {
+            throw new InvalidOperationException("A base-method match parameter cannot be null.")
+        }
+        parameterValue = parameter
+        runtimeTypeValue = runtimeType
+    }
+}
+
+// One candidate signature comparison. Reflection reads retain the old order: parameters and arity,
+// return type, then parameters from left to right. The successful row keeps the exact ParameterInfo
+// and Type values that were compared; a losing row never acquires structural identity.
+class ColumnarBaseMethodSignatureMatch {
+    readonly targetValue: MethodInfo
+    readonly effectiveReturnRuntimeTypeValue: Type
+    readonly parametersValue: IReadOnlyList<object>
+    readonly parameterCountValue: int
+    readonly matchedValue: bool
+
+    Target: MethodInfo => targetValue
+    EffectiveReturnRuntimeType: Type => effectiveReturnRuntimeTypeValue
+    ParameterCount: int => parameterCountValue
+    Matched: bool => matchedValue
+
+    constructor(target: MethodInfo, returnType: Type, parameterTypes: Type[]) {
+        effectiveReturn := typeof(object)
+        parameters := new List<object>()
+        matched := false
+        reflectedParameters := target.GetParameters()
+        if reflectedParameters != null && reflectedParameters.Length == parameterTypes.Length {
+            effectiveReturn = target.get_ReturnType()
+            matched = ColumnarBaseMethodMatch.SameTypeIdentity(effectiveReturn, returnType)
+            if matched {
+                index := 0
+                while index < reflectedParameters.Length {
+                    parameter := reflectedParameters[index]
+                    if parameter == null {
+                        matched = false
+                        break
+                    }
+                    effectiveParameter := parameter.get_ParameterType()
+                    if !ColumnarBaseMethodMatch.SameTypeIdentity(effectiveParameter, parameterTypes[index]) {
+                        matched = false
+                        break
+                    }
+                    parameters.Add(new ColumnarBaseMethodMatchParameter(parameter, effectiveParameter))
+                    index += 1
                 }
-
-                index = index + 1
             }
-
-            current = BaseTypeOrNull(current)
         }
 
-        return false
+        targetValue = target
+        effectiveReturnRuntimeTypeValue = effectiveReturn
+        parametersValue = parameters.AsReadOnly()
+        parameterCountValue = parameters.Count
+        matchedValue = matched
     }
 
-    // A builder-backed base is not asked: Reflection.Emit metadata is mutable and a partially populated
-    // type would answer differently at a different phase. Source-declared overrides are wired by the
-    // declaration host from its own registry, not from here.
+    func EffectiveParameter(index: int): ColumnarBaseMethodMatchParameter {
+        parameter := parametersValue.get_Item(index) as ColumnarBaseMethodMatchParameter
+        if parameter == null {
+            throw new InvalidOperationException("Base-method match parameter storage is invalid.")
+        }
+        return parameter
+    }
+}
+
+// The deriving base lookup. It owns the complete policy once: null-base Object fallback, declared
+// methods at each level, the public virtual/non-final/non-generic filter, and assembly-qualified-name
+// signature equality. A successful attempt records the actual level that supplied the MethodInfo.
+class ColumnarBaseMethodMatch {
+    readonly targetValue: MethodInfo?
+    readonly foundContextValue: Type?
+    readonly signatureValue: ColumnarBaseMethodSignatureMatch?
+    readonly matchedValue: bool
+
+    Target: MethodInfo? => targetValue
+    FoundContext: Type? => foundContextValue
+    Signature: ColumnarBaseMethodSignatureMatch? => signatureValue
+    Matched: bool => matchedValue
+
+    constructor(baseType: Type?, name: string, returnType: Type, parameterTypes: Type[]) {
+        target: MethodInfo? = null
+        foundContext: Type? = null
+        signature: ColumnarBaseMethodSignatureMatch? = null
+        matched := false
+
+        if name != null && name.Length > 0 && returnType != null && parameterTypes != null {
+            current := baseType
+            if current == null {
+                current = typeof(object)
+            }
+
+            while current != null && !matched {
+                candidates := DeclaredMethodsOrEmpty(current)
+                index := 0
+                while index < candidates.Length {
+                    candidate := candidates[index]
+                    if IsOverridableTarget(candidate, name) {
+                        candidateSignature := new ColumnarBaseMethodSignatureMatch(candidate, returnType, parameterTypes)
+                        if candidateSignature.Matched {
+                            target = candidate
+                            foundContext = current
+                            signature = candidateSignature
+                            matched = true
+                            break
+                        }
+                    }
+                    index += 1
+                }
+
+                if !matched {
+                    current = BaseTypeOrNull(current)
+                }
+            }
+        }
+
+        targetValue = target
+        foundContextValue = foundContext
+        signatureValue = signature
+        matchedValue = matched
+    }
+
+    func RequiredTarget(): MethodInfo {
+        target := targetValue
+        if !matchedValue || target == null {
+            throw new InvalidOperationException("A successful base-method match requires its target.")
+        }
+        return target
+    }
+
+    func RequiredFoundContext(): Type {
+        context := foundContextValue
+        if !matchedValue || context == null {
+            throw new InvalidOperationException("A successful base-method match requires its found context.")
+        }
+        return context
+    }
+
+    func RequiredSignature(): ColumnarBaseMethodSignatureMatch {
+        signature := signatureValue
+        if !matchedValue || signature == null || !signature.Matched {
+            throw new InvalidOperationException("A successful base-method match requires its observed signature.")
+        }
+        return signature
+    }
+
     static func DeclaredMethodsOrEmpty(owner: Type): MethodInfo[] {
         if owner is TypeBuilder {
             return new MethodInfo[](0)
@@ -66,7 +169,6 @@ class ColumnarOverrideTargetResolver {
             if methods == null {
                 return new MethodInfo[](0)
             }
-
             return methods
         } catch {
             return new MethodInfo[](0)
@@ -81,67 +183,76 @@ class ColumnarOverrideTargetResolver {
         }
     }
 
-    // Private slots are invisible to a derived type, so a private method of the same name is not a
-    // target and must not stop the walk.
-    //
-    // PUBLIC ONLY, AND THE LIMIT IS DELIBERATE RATHER THAN OVERLOOKED. A protected (`family`) slot is
-    // also a legitimate override target, but `MethodBase::get_IsFamily` is not on the modeled member
-    // table, and adding the row AND using it in one commit cannot compile: the estate is built by the
-    // packaged SDK, whose table would not yet carry it. Neither target this slice needs
-    // (`MetadataAssemblyResolver.Resolve`, `StringComparer.Compare`) is protected, so the row and the
-    // widening belong to a later, republish-gated commit.
     static func IsOverridableTarget(candidate: MethodInfo, name: string): bool {
         if candidate == null || candidate.get_Name() != name {
             return false
         }
-
         if candidate.get_IsStatic() || !candidate.get_IsVirtual() || candidate.get_IsFinal() {
             return false
         }
-
         if candidate.get_IsGenericMethod() || candidate.get_IsGenericMethodDefinition() {
             return false
         }
-
         return candidate.get_IsPublic()
     }
 
-    static func SignatureMatches(candidate: MethodInfo, returnType: Type, parameterTypes: Type[]): bool {
-        parameters := candidate.GetParameters()
-        if parameters == null || parameters.Length != parameterTypes.Length {
-            return false
-        }
-
-        if !SameTypeIdentity(candidate.get_ReturnType(), returnType) {
-            return false
-        }
-
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
-            if parameter == null || !SameTypeIdentity(parameter.get_ParameterType(), parameterTypes[index]) {
-                return false
-            }
-
-            index = index + 1
-        }
-
-        return true
-    }
-
-    // Reference equality first because it is free and correct within one universe; the assembly-qualified
-    // name is the answer that survives crossing universes.
     static func SameTypeIdentity(left: Type, right: Type): bool {
         if left == null || right == null {
             return false
         }
-
         if Object.ReferenceEquals(left, right) {
             return true
         }
-
         leftName := left.get_AssemblyQualifiedName()
         rightName := right.get_AssemblyQualifiedName()
         return leftName != null && rightName != null && leftName == rightName
+    }
+}
+
+class ColumnarBaseMethodBinding {
+    readonly descriptorValue: ColumnarExternalMethodDescriptor
+    readonly targetValue: MethodInfo
+
+    Descriptor: ColumnarExternalMethodDescriptor => descriptorValue
+    Target: MethodInfo => targetValue
+
+    constructor(matchedBase: ColumnarBaseMethodMatch, table: ColumnarStructuralTypeReferenceTable) {
+        if matchedBase == null || table == null || !matchedBase.Matched {
+            throw new InvalidOperationException("A base-method binding requires a successful lookup and emission table.")
+        }
+        target := matchedBase.RequiredTarget()
+        descriptor := new ColumnarExternalMethodDescriptor(matchedBase, table)
+        if !Object.ReferenceEquals(descriptor.Target, target) {
+            throw new InvalidOperationException("A base-method descriptor changed its resolved target.")
+        }
+        descriptorValue = descriptor
+        targetValue = target
+    }
+
+    func ValidatedTarget(expectedTable: ColumnarStructuralTypeReferenceTable): MethodInfo {
+        if expectedTable == null || !descriptorValue.Validate(expectedTable) || !Object.ReferenceEquals(descriptorValue.Target, targetValue) {
+            throw new InvalidOperationException("The base-method binding does not belong to this emission context.")
+        }
+        return targetValue
+    }
+}
+
+class ColumnarOverrideTargetResolver {
+    static func DeclaredMethodsOrEmpty(owner: Type): MethodInfo[] {
+        return ColumnarBaseMethodMatch.DeclaredMethodsOrEmpty(owner)
+    }
+
+    static func SameTypeIdentity(left: Type, right: Type): bool {
+        return ColumnarBaseMethodMatch.SameTypeIdentity(left, right)
+    }
+
+    static func TryFindOverrideTarget(baseType: Type?, name: string, returnType: Type, parameterTypes: Type[], out target: MethodInfo?): bool {
+        target = null
+        matchedBase := new ColumnarBaseMethodMatch(baseType, name, returnType, parameterTypes)
+        if !matchedBase.Matched {
+            return false
+        }
+        target = matchedBase.Target
+        return target != null
     }
 }

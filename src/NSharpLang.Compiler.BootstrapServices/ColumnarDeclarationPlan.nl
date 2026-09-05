@@ -130,11 +130,13 @@ class ColumnarResolvedMethodOverride {
     readonly ReturnCanonical: string
     readonly ParameterCanonicals: string[]
     readonly targetValue: MethodInfo
+    readonly baseMethodBindingValue: ColumnarBaseMethodBinding?
     readonly sourceInterfaceBindingValue: ColumnarSourceInterfaceMethodBinding?
     readonly closedSourceInterfaceBindingValue: ColumnarClosedSourceInterfaceMethodBinding?
     readonly externalInterfaceBindingValue: ColumnarExternalInterfaceMethodBinding?
 
     Target: MethodInfo => targetValue
+    BaseMethodBinding: ColumnarBaseMethodBinding? => baseMethodBindingValue
     SourceInterfaceBinding: ColumnarSourceInterfaceMethodBinding? => sourceInterfaceBindingValue
     ClosedSourceInterfaceBinding: ColumnarClosedSourceInterfaceMethodBinding? => closedSourceInterfaceBindingValue
     ExternalInterfaceBinding: ColumnarExternalInterfaceMethodBinding? => externalInterfaceBindingValue
@@ -150,6 +152,7 @@ class ColumnarResolvedMethodOverride {
         ReturnCanonical = returnCanonical
         ParameterCanonicals = parameterCanonicals
         targetValue = target
+        baseMethodBindingValue = null
         sourceInterfaceBindingValue = null
         closedSourceInterfaceBindingValue = null
         externalInterfaceBindingValue = null
@@ -166,6 +169,7 @@ class ColumnarResolvedMethodOverride {
         ReturnCanonical = returnCanonical
         ParameterCanonicals = parameterCanonicals
         targetValue = binding.Target
+        baseMethodBindingValue = null
         sourceInterfaceBindingValue = binding
         closedSourceInterfaceBindingValue = null
         externalInterfaceBindingValue = null
@@ -186,6 +190,7 @@ class ColumnarResolvedMethodOverride {
         ReturnCanonical = returnCanonical
         ParameterCanonicals = parameterCanonicals
         targetValue = target
+        baseMethodBindingValue = null
         sourceInterfaceBindingValue = null
         closedSourceInterfaceBindingValue = binding
         externalInterfaceBindingValue = null
@@ -202,20 +207,43 @@ class ColumnarResolvedMethodOverride {
         ReturnCanonical = returnCanonical
         ParameterCanonicals = parameterCanonicals
         targetValue = binding.Target
+        baseMethodBindingValue = null
         sourceInterfaceBindingValue = null
         closedSourceInterfaceBindingValue = null
         externalInterfaceBindingValue = binding
     }
 
+    constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], binding: ColumnarBaseMethodBinding) {
+        if memberName == null || returnCanonical == null || parameterCanonicals == null || binding == null || binding.Target == null {
+            throw new InvalidOperationException("Resolved base-method override facts cannot be null.")
+        }
+
+        TargetKind = targetKind
+        TargetOrdinal = targetOrdinal
+        MemberName = memberName
+        ReturnCanonical = returnCanonical
+        ParameterCanonicals = parameterCanonicals
+        targetValue = binding.Target
+        baseMethodBindingValue = binding
+        sourceInterfaceBindingValue = null
+        closedSourceInterfaceBindingValue = null
+        externalInterfaceBindingValue = null
+    }
+
     func ValidatedTarget(expectedTable: ColumnarStructuralTypeReferenceTable?): MethodInfo {
-        if sourceInterfaceBindingValue == null && closedSourceInterfaceBindingValue == null && externalInterfaceBindingValue == null {
+        if baseMethodBindingValue == null && sourceInterfaceBindingValue == null && closedSourceInterfaceBindingValue == null && externalInterfaceBindingValue == null {
             return targetValue
         }
         if expectedTable == null {
+            if baseMethodBindingValue != null {
+                throw new InvalidOperationException("A structural base-method override requires its consuming emission table.")
+            }
             throw new InvalidOperationException("A structural interface override requires its consuming emission table.")
         }
         validated: MethodInfo = targetValue
-        if sourceInterfaceBindingValue != null {
+        if baseMethodBindingValue != null {
+            validated = baseMethodBindingValue.ValidatedTarget(expectedTable)
+        } else if sourceInterfaceBindingValue != null {
             validated = sourceInterfaceBindingValue.ValidatedTarget(expectedTable)
         } else if closedSourceInterfaceBindingValue != null {
             validated = closedSourceInterfaceBindingValue.ValidatedTarget(expectedTable)
@@ -223,6 +251,9 @@ class ColumnarResolvedMethodOverride {
             validated = externalInterfaceBindingValue.ValidatedTarget(expectedTable)
         }
         if !Object.ReferenceEquals(validated, targetValue) {
+            if baseMethodBindingValue != null {
+                throw new InvalidOperationException("A base-method override target no longer matches its captured binding.")
+            }
             throw new InvalidOperationException("An interface override target no longer matches its captured binding.")
         }
         return validated
@@ -238,10 +269,17 @@ class ColumnarMethodOverrideCompletion {
     readonly DeclineMessage: string
     readonly DeclineOwnerName: string
     readonly MethodAttributes: int
+    readonly declarationNameValue: string?
+    readonly declarationReturnTypeValue: Type?
+    readonly declarationParameterTypesValue: IReadOnlyList<object>
+    readonly declarationParameterCountValue: int
     readonly targetsValue: IReadOnlyList<object>
     readonly targetCountValue: int
 
     Targets: ColumnarResolvedMethodOverride[] => CopyTargets()
+    DeclarationName: string? => declarationNameValue
+    DeclarationReturnType: Type? => declarationReturnTypeValue
+    DeclarationParameterCount: int => declarationParameterCountValue
 
     constructor(isValid: bool, declineCode: string, declineMessage: string, declineOwnerName: string, methodAttributes: int, targets: ColumnarResolvedMethodOverride[]) {
         IsValid = isValid
@@ -249,6 +287,10 @@ class ColumnarMethodOverrideCompletion {
         DeclineMessage = declineMessage
         DeclineOwnerName = declineOwnerName
         MethodAttributes = methodAttributes
+        declarationNameValue = null
+        declarationReturnTypeValue = null
+        declarationParameterTypesValue = new List<object>().AsReadOnly()
+        declarationParameterCountValue = 0
         targetCopy := new List<object>()
         index := 0
         while index < targets.Length {
@@ -260,6 +302,80 @@ class ColumnarMethodOverrideCompletion {
         }
         targetsValue = targetCopy.AsReadOnly()
         targetCountValue = targets.Length
+    }
+
+    constructor(
+        isValid: bool,
+        declineCode: string,
+        declineMessage: string,
+        declineOwnerName: string,
+        methodAttributes: int,
+        declarationName: string,
+        declarationReturnType: Type,
+        declarationParameterTypes: Type[],
+        targets: ColumnarResolvedMethodOverride[]
+    ) {
+        if declarationName == null || declarationReturnType == null || declarationParameterTypes == null {
+            throw new InvalidOperationException("A realized method declaration requires its resolved signature.")
+        }
+        IsValid = isValid
+        DeclineCode = declineCode
+        DeclineMessage = declineMessage
+        DeclineOwnerName = declineOwnerName
+        MethodAttributes = methodAttributes
+        declarationNameValue = declarationName
+        declarationReturnTypeValue = declarationReturnType
+        parameterCopy := new List<object>()
+        parameterIndex := 0
+        while parameterIndex < declarationParameterTypes.Length {
+            parameterType := declarationParameterTypes[parameterIndex]
+            if parameterType == null {
+                throw new InvalidOperationException("A realized method declaration parameter type cannot be null.")
+            }
+            parameterCopy.Add(parameterType)
+            parameterIndex += 1
+        }
+        declarationParameterTypesValue = parameterCopy.AsReadOnly()
+        declarationParameterCountValue = declarationParameterTypes.Length
+        targetCopy := new List<object>()
+        index := 0
+        while index < targets.Length {
+            if targets[index] == null {
+                throw new InvalidOperationException("A completed override target cannot be null.")
+            }
+            targetCopy.Add(targets[index])
+            index += 1
+        }
+        targetsValue = targetCopy.AsReadOnly()
+        targetCountValue = targets.Length
+    }
+
+    func DeclarationParameterType(index: int): Type {
+        parameterType := declarationParameterTypesValue.get_Item(index) as Type
+        if parameterType == null {
+            throw new InvalidOperationException("Realized method declaration parameter storage is invalid.")
+        }
+        return parameterType
+    }
+
+    func DefineMethod(owner: TypeBuilder): MethodBuilder {
+        declarationName := declarationNameValue
+        declarationReturnType := declarationReturnTypeValue
+        if !IsValid || owner == null || declarationName == null || declarationReturnType == null {
+            throw new InvalidOperationException("Only a valid captured method declaration can be realized.")
+        }
+        parameterTypes := new Type[](declarationParameterCountValue)
+        index := 0
+        while index < parameterTypes.Length {
+            parameterTypes[index] = DeclarationParameterType(index)
+            index += 1
+        }
+        return owner.DefineMethod(
+            declarationName,
+            (MethodAttributes)MethodAttributes,
+            declarationReturnType,
+            parameterTypes
+        )
     }
 
     func Apply(owner: TypeBuilder, body: MethodBuilder) {
@@ -469,17 +585,46 @@ class ColumnarMethodOverrideDeclaration {
     }
 
     func Complete(baseType: Type?, returnType: Type, parameterTypes: Type[]): ColumnarMethodOverrideCompletion {
+        return CompleteCore(baseType, null, returnType, parameterTypes, null, false)
+    }
+
+    func Complete(
+        baseType: Type?,
+        declarationName: string,
+        returnType: Type,
+        parameterTypes: Type[],
+        table: ColumnarStructuralTypeReferenceTable
+    ): ColumnarMethodOverrideCompletion {
+        return CompleteCore(baseType, declarationName, returnType, parameterTypes, table, true)
+    }
+
+    func CompleteCore(
+        baseType: Type?,
+        declarationName: string?,
+        returnType: Type,
+        parameterTypes: Type[],
+        table: ColumnarStructuralTypeReferenceTable?,
+        captureDeclaration: bool
+    ): ColumnarMethodOverrideCompletion {
         baseTarget: MethodInfo? = null
-        if RequestsBaseOverride && (!ColumnarOverrideTargetResolver.TryFindOverrideTarget(baseType, MemberName, returnType, parameterTypes, out baseTarget) || baseTarget == null) {
-            message := "no overridable base member matches '" + MemberName + "' for '" + DeclineOwnerName + "'"
-            return new ColumnarMethodOverrideCompletion(
-                false,
-                "emit.declaration.override-target",
-                message,
-                DeclineOwnerName,
-                BaseMethodAttributes,
-                new ColumnarResolvedMethodOverride[](0)
-            )
+        baseBinding: ColumnarBaseMethodBinding? = null
+        if RequestsBaseOverride {
+            matchedBase := new ColumnarBaseMethodMatch(baseType, MemberName, returnType, parameterTypes)
+            if !matchedBase.Matched {
+                message := "no overridable base member matches '" + MemberName + "' for '" + DeclineOwnerName + "'"
+                return new ColumnarMethodOverrideCompletion(
+                    false,
+                    "emit.declaration.override-target",
+                    message,
+                    DeclineOwnerName,
+                    BaseMethodAttributes,
+                    new ColumnarResolvedMethodOverride[](0)
+                )
+            }
+            baseTarget = matchedBase.RequiredTarget()
+            if table != null {
+                baseBinding = new ColumnarBaseMethodBinding(matchedBase, table)
+            }
         }
 
         attributes := BaseMethodAttributes
@@ -497,7 +642,11 @@ class ColumnarMethodOverrideDeclaration {
         targets := new ColumnarResolvedMethodOverride[](targetCount)
         cursor := 0
         if baseTarget != null {
-            targets[cursor] = CreateResolvedTarget(BaseTargetKind(), 0, baseTarget)
+            if baseBinding != null {
+                targets[cursor] = CreateResolvedBaseTarget(BaseTargetKind(), 0, baseBinding)
+            } else {
+                targets[cursor] = CreateResolvedTarget(BaseTargetKind(), 0, baseTarget)
+            }
             cursor = cursor + 1
         }
 
@@ -531,6 +680,24 @@ class ColumnarMethodOverrideDeclaration {
             index = index + 1
         }
 
+        if captureDeclaration {
+            declarationNameValue := declarationName
+            tableValue := table
+            if declarationNameValue == null || tableValue == null {
+                throw new InvalidOperationException("A structural method completion requires declaration facts and its emission table.")
+            }
+            return new ColumnarMethodOverrideCompletion(
+                true,
+                "",
+                "",
+                DeclineOwnerName,
+                attributes,
+                declarationNameValue,
+                returnType,
+                parameterTypes,
+                targets
+            )
+        }
         return new ColumnarMethodOverrideCompletion(true, "", "", DeclineOwnerName, attributes, targets)
     }
 
@@ -542,6 +709,17 @@ class ColumnarMethodOverrideDeclaration {
             ReturnCanonical,
             ParameterCanonicals,
             target
+        )
+    }
+
+    func CreateResolvedBaseTarget(kind: int, ordinal: int, binding: ColumnarBaseMethodBinding): ColumnarResolvedMethodOverride {
+        return new ColumnarResolvedMethodOverride(
+            kind,
+            ordinal,
+            MemberName,
+            ReturnCanonical,
+            ParameterCanonicals,
+            binding
         )
     }
 

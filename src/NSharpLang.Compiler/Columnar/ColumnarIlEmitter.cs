@@ -3476,11 +3476,10 @@ internal sealed class ColumnarIlEmitter
                     mSignatureReturn,
                     mParamTypes,
                     typeResolution.Structs.StructuralTypeReferences);
-                var methodOverrideCompletion = methodOverride.Complete(def.ExactBaseType, mSignatureReturn, mParamTypes);
+                var methodOverrideCompletion = methodOverride.Complete(def.ExactBaseType, m.Name, mSignatureReturn, mParamTypes, typeResolution.Structs.StructuralTypeReferences);
                 if (!methodOverrideCompletion.IsValid)
                     return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName);
-                var mb = def.Builder.DefineMethod(
-                    m.Name, (MethodAttributes)methodOverrideCompletion.MethodAttributes, mSignatureReturn, mParamTypes);
+                var mb = methodOverrideCompletion.DefineMethod(def.Builder);
                 if (!DefineMethodParameterMetadata(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
                     return false;
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences);

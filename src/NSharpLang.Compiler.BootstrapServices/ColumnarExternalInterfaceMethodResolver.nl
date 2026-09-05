@@ -261,9 +261,13 @@ class ColumnarExternalMethodDescriptor {
     StructuralTypeReferences: ColumnarStructuralTypeReferenceTable => tableValue
     Target: MethodInfo => targetValue
     LookupContext: ColumnarSelectedTypeReference => lookupContextValue
+    LookupContextRuntimeType: Type => lookupContextRuntimeTypeValue
     ReflectedContext: ColumnarSelectedTypeReference => reflectedContextValue
+    ReflectedContextRuntimeType: Type => reflectedContextRuntimeTypeValue
     DeclaringContext: ColumnarSelectedTypeReference => declaringContextValue
+    DeclaringContextRuntimeType: Type => declaringContextRuntimeTypeValue
     OpenDeclaringType: ColumnarSelectedTypeReference => openDeclaringTypeValue
+    OpenDeclaringRuntimeType: Type => openDeclaringRuntimeTypeValue
     OpenMethod: MethodInfo => openMethodValue
     ModuleVersionId: string => moduleVersionIdValue
     MethodMetadataToken: int => methodMetadataTokenValue
@@ -388,6 +392,128 @@ class ColumnarExternalMethodDescriptor {
         parameterCountValue = parameters.Count
         genericParametersValue = genericParameters.AsReadOnly()
         genericParameterCountValue = genericParameters.Count
+    }
+
+    // Base-method capture starts from the deriving base walk's successful snapshot. It does not
+    // manufacture an interface match or reread the effective return/parameter types that decided
+    // the winner. Open MethodDef and modifier reflection begins only after the full base match.
+    constructor(
+        matchedBase: ColumnarBaseMethodMatch,
+        table: ColumnarStructuralTypeReferenceTable
+    ) {
+        if matchedBase == null || table == null || !matchedBase.Matched {
+            throw new InvalidOperationException("A base method descriptor requires its successful reflected lookup.")
+        }
+        target := matchedBase.RequiredTarget()
+        lookupContext := matchedBase.RequiredFoundContext()
+        matchedSignature := matchedBase.RequiredSignature()
+        if !Object.ReferenceEquals(matchedSignature.Target, target) {
+            throw new InvalidOperationException("A base method's target and observed signature disagree.")
+        }
+        reflectedContext := RequiredType(target.get_ReflectedType(), "reflected lookup context")
+        if !ColumnarBaseMethodMatch.SameTypeIdentity(reflectedContext, lookupContext) {
+            throw new InvalidOperationException("A base method target does not belong to its winning lookup context.")
+        }
+        declaringContext := RequiredType(target.get_DeclaringType(), "declaring context")
+        openDeclaringType := declaringContext
+        if declaringContext.get_IsGenericType() && !declaringContext.get_IsGenericTypeDefinition() {
+            openDeclaringType = declaringContext.GetGenericTypeDefinition()
+        }
+        openMethod := RecoverOpenMethod(target, openDeclaringType)
+
+        targetGenericArguments := target.GetGenericArguments()
+        openGenericArguments := openMethod.GetGenericArguments()
+        if targetGenericArguments.Length != 0 || openGenericArguments.Length != 0 || target.get_IsGenericMethod() || target.get_IsGenericMethodDefinition() || openMethod.get_IsGenericMethod() || openMethod.get_IsGenericMethodDefinition() || target.get_Name() != openMethod.get_Name() || target.get_IsStatic() != openMethod.get_IsStatic() || Convert.ToInt32(target.get_CallingConvention()) != Convert.ToInt32(openMethod.get_CallingConvention()) {
+            throw new InvalidOperationException("A base method's open and effective metadata identity disagree.")
+        }
+
+        sameOpenTarget := Object.ReferenceEquals(openMethod, target)
+        openParameters := new ParameterInfo[](matchedSignature.ParameterCount)
+        if sameOpenTarget {
+            snapshotIndex := 0
+            while snapshotIndex < openParameters.Length {
+                openParameters[snapshotIndex] = matchedSignature.EffectiveParameter(snapshotIndex).Parameter
+                snapshotIndex += 1
+            }
+        } else {
+            openParameters = openMethod.GetParameters()
+        }
+        if openParameters.Length != matchedSignature.ParameterCount {
+            throw new InvalidOperationException("A base method's open and effective parameter counts disagree.")
+        }
+        openReturnParameter := openMethod.get_ReturnParameter()
+        effectiveReturnParameter := target.get_ReturnParameter()
+        openReturnRuntimeType := matchedSignature.EffectiveReturnRuntimeType
+        if !sameOpenTarget {
+            openReturnRuntimeType = openMethod.get_ReturnType()
+        }
+        openReturn := new ColumnarExternalMethodSignatureTypeDescriptor(
+            table,
+            openReturnRuntimeType,
+            openReturnParameter.GetRequiredCustomModifiers(),
+            openReturnParameter.GetOptionalCustomModifiers(),
+            true
+        )
+        effectiveReturn := new ColumnarExternalMethodSignatureTypeDescriptor(
+            table,
+            matchedSignature.EffectiveReturnRuntimeType,
+            effectiveReturnParameter.GetRequiredCustomModifiers(),
+            effectiveReturnParameter.GetOptionalCustomModifiers(),
+            false
+        )
+
+        parameters := new List<object>()
+        index := 0
+        while index < openParameters.Length {
+            openParameter := openParameters[index]
+            effectiveMatchParameter := matchedSignature.EffectiveParameter(index)
+            effectiveParameter := effectiveMatchParameter.Parameter
+            openParameterRuntimeType := effectiveMatchParameter.RuntimeType
+            if !sameOpenTarget {
+                openParameterRuntimeType = openParameter.get_ParameterType()
+            }
+            parameters.Add(new ColumnarExternalMethodParameterDescriptor(
+                new ColumnarExternalMethodSignatureTypeDescriptor(
+                    table,
+                    openParameterRuntimeType,
+                    openParameter.GetRequiredCustomModifiers(),
+                    openParameter.GetOptionalCustomModifiers(),
+                    true
+                ),
+                new ColumnarExternalMethodSignatureTypeDescriptor(
+                    table,
+                    effectiveMatchParameter.RuntimeType,
+                    effectiveParameter.GetRequiredCustomModifiers(),
+                    effectiveParameter.GetOptionalCustomModifiers(),
+                    false
+                )
+            ))
+            index += 1
+        }
+
+        tableValue = table
+        targetValue = target
+        lookupContextValue = table.SelectRuntimeType(lookupContext)
+        lookupContextRuntimeTypeValue = lookupContext
+        reflectedContextValue = table.SelectRuntimeType(reflectedContext)
+        reflectedContextRuntimeTypeValue = reflectedContext
+        declaringContextValue = table.SelectRuntimeType(declaringContext)
+        declaringContextRuntimeTypeValue = declaringContext
+        openDeclaringTypeValue = table.SelectRuntimeType(openDeclaringType)
+        openDeclaringRuntimeTypeValue = openDeclaringType
+        openMethodValue = openMethod
+        moduleVersionIdValue = ReadModuleVersionId(openMethod)
+        methodMetadataTokenValue = openMethod.get_MetadataToken()
+        methodNameValue = openMethod.get_Name()
+        methodGenericArityValue = 0
+        methodCallingConventionValue = Convert.ToInt32(openMethod.get_CallingConvention())
+        methodIsStaticValue = openMethod.get_IsStatic()
+        openReturnValue = openReturn
+        effectiveReturnValue = effectiveReturn
+        parametersValue = parameters.AsReadOnly()
+        parameterCountValue = parameters.Count
+        genericParametersValue = new List<object>().AsReadOnly()
+        genericParameterCountValue = 0
     }
 
     func Parameter(index: int): ColumnarExternalMethodParameterDescriptor {

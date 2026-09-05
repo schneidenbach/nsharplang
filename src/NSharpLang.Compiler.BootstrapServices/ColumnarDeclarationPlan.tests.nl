@@ -903,6 +903,34 @@ test "ordinary override completion owns all four exact MethodAttributes outcomes
     combined.AddSourceTarget(objectToString)
     combinedCompletion := combined.Complete(typeof(Exception), typeof(string), noParameters)
     assert combinedCompletion.MethodAttributes == 230
+
+    table := new ColumnarStructuralTypeReferenceTable()
+    realizedCompletion := baseOnly.Complete(
+        typeof(Exception),
+        "RealizedToString",
+        typeof(string),
+        noParameters,
+        table
+    )
+    assert realizedCompletion.IsValid
+    assert realizedCompletion.MethodAttributes == 198
+    assert realizedCompletion.Targets.Length == 1
+    assert realizedCompletion.Targets[0].BaseMethodBinding != null
+    owner := TypeOfCreateSourceBuilder("DeclarationPlanRealizedOverride", false)
+    body := realizedCompletion.DefineMethod(owner)
+    bodyIl := TypeOfMethodBuilderIL(body)
+    bodyIl.Emit(OpCodes.Ldstr, "realized")
+    bodyIl.Emit(OpCodes.Ret)
+    runtimeOwner := IdentityBake(owner)
+    runtimeBody := ExecutorRequiredMethod(
+        runtimeOwner,
+        "RealizedToString",
+        noParameters
+    )
+    assert runtimeBody.get_Name() == "RealizedToString"
+    assert runtimeBody.get_ReturnType() == typeof(string)
+    assert runtimeBody.GetParameters().Length == 0
+    assert Convert.ToInt32(runtimeBody.get_Attributes()) == 198
 }
 
 test "source and external interface targets deduplicate independently and retain first occurrence" {
@@ -999,13 +1027,21 @@ test "ordinary override completion orders base, source, then external targets wi
     row.AddSourceTarget(sourceFirst)
     row.AddSourceTarget(sourceSecond)
     row.AddExternalTarget(external)
-    completion := row.Complete(typeof(Exception), typeof(string), noParameters)
+    table := new ColumnarStructuralTypeReferenceTable()
+    completion := row.Complete(
+        typeof(Exception),
+        "ToString",
+        typeof(string),
+        noParameters,
+        table
+    )
 
     assert completion.IsValid
     assert completion.Targets.Length == 4
     assert completion.Targets[0].TargetKind == ColumnarMethodOverrideDeclaration.BaseTargetKind()
     assert completion.Targets[0].TargetOrdinal == 0
     assert completion.Targets[0].Target.get_Name() == "ToString"
+    assert completion.Targets[0].BaseMethodBinding != null
     assert completion.Targets[1].TargetKind == ColumnarMethodOverrideDeclaration.SourceInterfaceTargetKind()
     assert completion.Targets[1].TargetOrdinal == 0
     assert Object.ReferenceEquals(completion.Targets[1].Target, sourceFirst)
@@ -1021,7 +1057,13 @@ test "ordinary override completion orders base, source, then external targets wi
 
 test "a requested base override publishes the exact late decline payload" {
     row := DeclarationPlanOverrideDeclaration("Missing", "void", true)
-    completion := row.Complete(typeof(Exception), ExecutorVoidType(), new Type[](0))
+    completion := row.Complete(
+        typeof(Exception),
+        "MissingHost",
+        ExecutorVoidType(),
+        new Type[](0),
+        new ColumnarStructuralTypeReferenceTable()
+    )
     assert !completion.IsValid
     assert completion.DeclineCode == "emit.declaration.override-target"
     assert completion.DeclineMessage == "no overridable base member matches 'Missing' for 'Worker'"
