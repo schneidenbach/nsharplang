@@ -615,3 +615,193 @@ test "custom test attribute rows retain empty and long SerString payloads" {
     assert Convert.ToInt32(longBlob[150]) == 0
     assert Convert.ToInt32(longBlob[151]) == 0
 }
+
+func DeclarationPlanPInvokeMethod(name: string, isStatic: bool, isBodyless: bool): ColumnarFunctionInput {
+    method := DeclarationPlanMethodInput(name, "int", isStatic)
+    method.IsBodylessNativeImport = isBodyless
+    // Literal input flag: changing the parser helper and this planner together must not erase it.
+    method.ModifierFlags = 131072
+    method.NativeImportLibraryName = "c"
+    method.NativeImportEntryPoint = "abs"
+    return method
+}
+
+func DeclarationPlanPInvokeProgram(method: ColumnarFunctionInput): ColumnarProgramInput {
+    methods := new List<ColumnarFunctionInput>()
+    methods.Add(method)
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanMethodStruct("Native", methods))
+    return DeclarationPlanTypeDefProgram("namespace Demo\n", structs, new List<ColumnarInterfaceInput>())
+}
+
+func DeclarationPlanPInvokeRow(method: ColumnarFunctionInput): ColumnarPInvokeDeclaration {
+    program := DeclarationPlanPInvokeProgram(method)
+    rows := ColumnarDeclarationPlanner.BuildPInvokes(program, ColumnarDeclarationPlanner.BuildMethods(program))
+    return rows.Methods[0][0]
+}
+
+test "PInvoke rows preserve sparse source ordinals and exclude ordinary and nonstatic methods" {
+    empty := DeclarationPlanEmptyProgramInput("", new List<ColumnarEnumInput>())
+    assert ColumnarDeclarationPlanner.BuildAssemblyAndEnums(empty, "Empty").PInvokes.Methods.Length == 0
+    firstMethods := new List<ColumnarFunctionInput>()
+    firstMethods.Add(DeclarationPlanPInvokeMethod("Managed", true, false))
+    firstMethods.Add(DeclarationPlanPInvokeMethod("Abs", true, true))
+    firstMethods.Add(DeclarationPlanPInvokeMethod("Instance", false, true))
+    lastMethods := new List<ColumnarFunctionInput>()
+    lastMethods.Add(DeclarationPlanPInvokeMethod("Other", true, true))
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanMethodStruct("First", firstMethods))
+    structs.Add(DeclarationPlanMethodStruct("Empty", new List<ColumnarFunctionInput>()))
+    structs.Add(DeclarationPlanMethodStruct("Last", lastMethods))
+    plan := ColumnarDeclarationPlanner.BuildAssemblyAndEnums(DeclarationPlanTypeDefProgram("", structs, new List<ColumnarInterfaceInput>()), "NativeRows")
+    rows := plan.PInvokes.Methods
+    assert rows.Length == 3
+    assert rows[0].Length == 3
+    assert rows[1].Length == 0
+    assert rows[2].Length == 1
+    assert rows[0][0] == null
+    assert rows[0][1].IsValid
+    assert rows[0][1].MethodName == "Abs"
+    assert rows[0][2] == null
+    assert rows[2][0].IsValid
+    assert rows[2][0].MethodName == "Other"
+    assert plan.Methods.StructMethodAttributeWords[0][1] == 150
+}
+
+test "PInvoke validity reuses the native modifier bit and ignores unrelated modifier bits" {
+    method := DeclarationPlanPInvokeMethod("Abs", true, true)
+    method.ModifierFlags = 1
+    row := DeclarationPlanPInvokeRow(method)
+    assert !row.IsValid
+    assert row.DeclineCode == "emit.declaration.native-import"
+    assert row.DeclineMessage == "native import metadata was invalid for 'Native.Abs'"
+    assert row.DeclineOwnerName == "Native"
+    method.ModifierFlags = 131073
+    row = DeclarationPlanPInvokeRow(method)
+    assert row.IsValid
+    assert row.DeclineCode == ""
+    assert row.DeclineMessage == ""
+}
+
+test "PInvoke validity rejects null and empty metadata names while preserving whitespace names" {
+    method := DeclarationPlanPInvokeMethod("Abs", true, true)
+    method.NativeImportLibraryName = null
+    assert !DeclarationPlanPInvokeRow(method).IsValid
+    method.NativeImportLibraryName = ""
+    assert !DeclarationPlanPInvokeRow(method).IsValid
+    method.NativeImportLibraryName = " "
+    assert DeclarationPlanPInvokeRow(method).IsValid
+    method.NativeImportEntryPoint = null
+    assert !DeclarationPlanPInvokeRow(method).IsValid
+    method.NativeImportEntryPoint = ""
+    assert !DeclarationPlanPInvokeRow(method).IsValid
+    method.NativeImportEntryPoint = " "
+    row := DeclarationPlanPInvokeRow(method)
+    assert row.IsValid
+    assert row.LibraryName == " "
+    assert row.EntryPointName == " "
+}
+
+test "PInvoke validity rejects generic methods and async methods without restricting their declaring type" {
+    method := DeclarationPlanPInvokeMethod("Abs", true, true)
+    method.TypeParamNames = ["T"]
+    assert !DeclarationPlanPInvokeRow(method).IsValid
+    method.TypeParamNames = new string[](0)
+    method.IsAsync = true
+    assert !DeclarationPlanPInvokeRow(method).IsValid
+    method.IsAsync = false
+    program := DeclarationPlanPInvokeProgram(method)
+    declaringType := program.Structs[0]
+    declaringType.TypeParamNames = ["T"]
+    rows := ColumnarDeclarationPlanner.BuildPInvokes(program, ColumnarDeclarationPlanner.BuildMethods(program))
+    assert rows.Methods[0][0].IsValid
+}
+
+test "PInvoke rows retain literal metadata words and consume the supplied method attribute rows" {
+    method := DeclarationPlanPInvokeMethod("Abs", true, true)
+    row := DeclarationPlanPInvokeRow(method)
+    assert row.MethodAttributes == 8342
+    assert row.ManagedCallingConvention == 1
+    assert row.UnmanagedCallingConvention == 2
+    assert row.CharacterSet == 2
+    assert row.ImplementationFlagsMask == 128
+    method.Name = "op_Addition"
+    assert DeclarationPlanPInvokeRow(method).MethodAttributes == 10390
+    method.Name = "Abs"
+    program := DeclarationPlanPInvokeProgram(method)
+    methods := ColumnarDeclarationPlanner.BuildMethods(program)
+    // A supplied extra word must survive; recomputing BuildMethods inside BuildPInvokes loses it.
+    methods.StructMethodAttributeWords[0][0] = 32918
+    rows := ColumnarDeclarationPlanner.BuildPInvokes(program, methods)
+    assert rows.Methods[0][0].MethodAttributes == 41110
+}
+
+test "PInvoke PreserveSig merges current implementation flags instead of overwriting them" {
+    row := DeclarationPlanPInvokeRow(DeclarationPlanPInvokeMethod("Abs", true, true))
+    assert row.MergeImplementationFlags(0) == 128
+    assert row.MergeImplementationFlags(128) == 128
+    assert row.MergeImplementationFlags(256) == 384
+    assert row.MergeImplementationFlags(72) == 200
+    assert row.MergeImplementationFlags(328) == 456
+}
+
+test "PInvoke rows capture names and deferred decline text without snapshotting shared signature data" {
+    method := DeclarationPlanPInvokeMethod("Abs", true, true)
+    program := DeclarationPlanPInvokeProgram(method)
+    methods := ColumnarDeclarationPlanner.BuildMethods(program)
+    row := ColumnarDeclarationPlanner.BuildPInvokes(program, methods).Methods[0][0]
+    method.ModifierFlags = 0
+    invalid := ColumnarDeclarationPlanner.BuildPInvokes(program, methods).Methods[0][0]
+    method.Name = "Changed"
+    method.NativeImportLibraryName = "other"
+    method.NativeImportEntryPoint = "renamed"
+    declaringType := program.Structs[0]
+    declaringType.Name = "OtherOwner"
+    assert row.IsValid
+    assert row.MethodName == "Abs"
+    assert row.LibraryName == "c"
+    assert row.EntryPointName == "abs"
+    assert row.DeclineOwnerName == "Native"
+    assert !invalid.IsValid
+    assert invalid.DeclineMessage == "native import metadata was invalid for 'Native.Abs'"
+    assert invalid.DeclineOwnerName == "Native"
+}
+
+func DeclarationPlanParsedPInvoke(attributeText: string, methodName: string): ColumnarFunctionInput {
+    source := attributeText + "\nstatic func " + methodName + "(): int\n"
+    capacity := source.Length * 3 + 16
+    rawKinds := new int[](capacity)
+    rawStarts := new int[](capacity)
+    rawLengths := new int[](capacity)
+    kinds := new int[](capacity)
+    starts := new int[](capacity)
+    lengths := new int[](capacity)
+    counts := new int[](2)
+    count := TokenizeColumnarSourceInto(source, rawKinds, rawStarts, rawLengths, kinds, starts, lengths, counts)
+    funcStart := source.IndexOf("func", StringComparison.Ordinal)
+    member := 0
+    while member < count && starts[member] != funcStart {
+        member = member + 1
+    }
+    assert member < count
+    texts := new string[](2)
+    assert ParseColumnarNativeImportInfoInto(source, kinds, starts, lengths, count, member, methodName, texts) == 1
+    method := DeclarationPlanPInvokeMethod(methodName, true, true)
+    method.NativeImportLibraryName = texts[0]
+    method.NativeImportEntryPoint = texts[1]
+    return method
+}
+
+test "PInvoke rows preserve parsed explicit and default entry points without inventing a fallback" {
+    explicitRow := DeclarationPlanPInvokeRow(DeclarationPlanParsedPInvoke("[LibraryImport(\"c\", EntryPoint = \"abs\")]", "Abs"))
+    assert explicitRow.MethodName == "Abs"
+    assert explicitRow.LibraryName == "c"
+    assert explicitRow.EntryPointName == "abs"
+    defaulted := DeclarationPlanPInvokeRow(DeclarationPlanParsedPInvoke("[LibraryImport(\"fast_hash\")]", "Hash64"))
+    assert defaulted.MethodName == "Hash64"
+    assert defaulted.LibraryName == "fast_hash"
+    assert defaulted.EntryPointName == "Hash64"
+    missing := DeclarationPlanPInvokeMethod("Abs", true, true)
+    missing.NativeImportEntryPoint = ""
+    assert !DeclarationPlanPInvokeRow(missing).IsValid
+}

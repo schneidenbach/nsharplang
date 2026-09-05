@@ -82,6 +82,15 @@ class ColumnarFunctionInput {
     NativeImportEntryPoint: string
     LocalFunctions: List<ColumnarLocalFunctionInput>?
 
+    // The parser and declaration planner share this input flag. It is not a Modifiers enum member.
+    static func NativeImportModifierFlag(): int {
+        return 131072
+    }
+
+    static func HasNativeImportModifier(flags: int): bool {
+        return (flags & NativeImportModifierFlag()) != 0
+    }
+
     constructor(name: string, returnCanonical: string, paramNames: string[], paramCanonicals: string[], bodyNodes: ColumnarNodeTable, bodyRoot: int, isStatic: bool = false, typeParamNames: string[]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, returnTupleElementNames: string[]? = null, paramTupleElementNames: string[][]? = null, paramModifierKinds: int[]? = null, paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isAsync: bool = false, modifierFlags: int = 0, sourceFileId: int = 0, isBodylessNativeImport: bool = false, nativeImportLibraryName: string = "", nativeImportEntryPoint: string = "") {
         Name = name
         ReturnCanonical = returnCanonical

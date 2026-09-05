@@ -468,7 +468,7 @@ internal static class ColumnarProgramInputBuilder
                             isStatic: global::Program.ColumnarStructMethodFlagIsStatic(methodModifierFlags),
                             isAsync: global::Program.ColumnarStructMethodFlagIsAsync(methodModifierFlags),
                             modifierFlags: methodModifierFlags,
-                            isBodylessNativeImport: global::Program.ColumnarStructMethodFlagIsNativeImport(methodModifierFlags)))
+                            isBodylessNativeImport: ColumnarFunctionInput.HasNativeImportModifier(methodModifierFlags)))
                     {
                         return DeclineAtToken(ColumnarParseDeclines.StructMethod, cs, cv, outMethodFuncIndices[m], structName);
                     }
