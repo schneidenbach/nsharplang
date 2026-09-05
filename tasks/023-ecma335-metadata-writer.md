@@ -146,6 +146,15 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   Strict diagnostics remain 259; audit 18/18. Pure first-hit source-definition discovery is the
   next contingent prerequisite, before coupled constrained-call admission and remaining type/local/
   maxstack work. [Integration proof](../systems-language-closeout/decodes/2026-09-05-s22f-parity-proof.md).
+  **S2.2(g0) storage prerequisite at `504946215`, native controls `958bffd63`:** a genuine
+  IEnumerator<T> closed over an admitted source element is storable while remaining outside collection
+  classification. Exact Current/disposal IL is verified; the old compiler's same-source local declines
+  and the new compiler passes1/1. Canonical estate 7,757; fixed94-image/2,179-test corpus parity and
+  compatible103-test/48-MethodImpl controls match; strict259 unchanged, audit18/18. No C# owner moved
+  in g0. Require the fresh gate and verified SDK repin before S2.2(g) consumes this shape. Preserve
+  explicit finally, first-hit/out timing and closed argument reads; covariance/bare-for drafts were
+  rejected. Source discovery/call admission and the rest of S2.2 remain open.
+  [Prerequisite proof](../systems-language-closeout/decodes/2026-09-05-s22g0-parity-proof.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

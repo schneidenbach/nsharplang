@@ -51,5 +51,6 @@ The emitted proof DLL is `a891aa86af0ffef854f0c7e83055a172d24f94158985e6407c703c
 and its IL text is `202eb39353ca0702ffe5a26987e1a45b94385cfc15ce3731ed9cccd51d26c164`.
 
 The coordinator owns the fresh prerequisite gate, local compiler seed provenance, and continuation of
-S2.2(g) from that accepted compiler. This checkpoint does not restore the discovery routing, publish
-an SDK, run a full product gate, or push.
+S2.2(g) from that accepted compiler. The worker evidence ends before the coordinator gate and seed repin; the
+[integration proof](2026-09-05-s22g0-parity-proof.md) identifies their actual receipts. Discovery routing
+remains at the next cursor.
