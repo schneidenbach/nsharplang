@@ -54,9 +54,10 @@ failure. The legacy lookup path retains its original short-circuit and catch beh
 
 The consumed all-N# probe at
 `/private/tmp/nsharp-s22f-executor-logs/stage0-base-capture-1` covers runtime and
-`MetadataLoadContext` closed `Comparer<int>` winners, MethodDef recovery, return/parameter modifier
-access, and the MethodBuilder returned by `DefineMethod`. The compiled probe does not inspect an
-unbaked MethodBuilder signature; that unrelated getter still throws before its owner is baked.
+`MetadataLoadContext` closed `Comparer<int>` winners, MethodDef recovery, open return modifier
+access, observed parameter types, and the MethodBuilder returned by `DefineMethod`. The full binding
+contracts below exercise the later effective signature/modifier capture. The consumer does not
+introspect an unbaked MethodBuilder's parameter list.
 
 Direct contracts cover the runtime and metadata closed-base forms, an actual ancestor winner, the
 TypeBuilder skip, foreign tables, independently corrupted runtime companions, readonly storage,
@@ -70,8 +71,8 @@ all four attribute outcomes, exact missing-base decline data and ordinary no-sel
 |---|---|---|
 | `./scripts/dev.sh Columnar` on final product source | **12 passed, 0 failed** | `/private/tmp/nsharp-s22f-executor-logs/dev-final-stable.log` |
 | BootstrapServices estate on final formatted owned source | **7,749 passed, 0 failed** | `/private/tmp/nsharp-s22f-executor-logs/estate-final-stable.log` |
-| Immutable baseline CLI check during implementation | **259 existing errors, no new findings** | `/private/tmp/nsharp-s22f-executor-logs/check-binding-initial.json` |
-| N# formatter over all five owned N# files | Exit 0; formatted 0 files | `/private/tmp/nsharp-s22f-executor-logs/final-format/check-after.log` |
+| Exact pre/post strict check on final integrated source | **259 unchanged findings; byte-identical JSON** | `/private/tmp/nsharp-023-s22f-proof-20260905/strict-final-product/strict-comparison.json` |
+| N# formatter over all five owned N# files | Exit 0; formatted 0 files | `/private/tmp/nsharp-s22f-executor-logs/final-format/check-final-stable.log` |
 | `git diff --check` | Exit 0 | Reproducible on this diff |
 
 `ColumnarIlEmitter.cs` decreases from **19,485 / 18,506 / 1,014,696** total lines,
@@ -82,3 +83,6 @@ in their existing owners.
 The coordinator owns immutable exact-source corpus replay, final strict-source mapping, physical
 `MethodImpl` parity, ownership-ratchet and task/status documentation, the fresh backend gate and push.
 This slice does not publish an SDK or run a product gate.
+
+The combined source, exact parity, sensitivity and checkpoint evidence is in
+[the integration proof](2026-09-05-s22f-parity-proof.md); its 7,756-test result includes both workers.

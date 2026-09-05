@@ -138,6 +138,14 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   42+117 physical MethodImpl rows equal. Base descriptors, source discovery/call admission, remaining
   type consumers, ambient locals and maxstack remain open. See STATUS and the
   [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22e-iterator-declaration-members.md).
+  **S2.2(f) implemented at `86c88c496`, controls at `453e467b8` / `f6191720f`:** the existing
+  base walk now derives consumed immutable base bindings; ordinary completion captures declaration
+  handles and realizes DefineMethod. The actual ancestor, open VAR/closed context, AQN policy and
+  prevalidation/default phases remain. C# shrinks by one line and 38 bytes; combined estate 7,756,
+  native declarations 99; 94-image/2,177-test corpus parity and exact 45+5 MethodImpl rows match.
+  Strict diagnostics remain 259; audit 18/18. Pure first-hit source-definition discovery is the
+  next contingent prerequisite, before coupled constrained-call admission and remaining type/local/
+  maxstack work. [Integration proof](../systems-language-closeout/decodes/2026-09-05-s22f-parity-proof.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
