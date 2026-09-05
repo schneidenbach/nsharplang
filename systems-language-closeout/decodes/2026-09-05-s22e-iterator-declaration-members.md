@@ -12,8 +12,9 @@ exact host-created interface context, validates it against the consuming structu
 `ResolvedBinding` and `ResolvedTarget`, and then calls `DefineMethodOverride`.
 
 The C# host forwards one handle-only context for the synchronous machine and one for the asynchronous
-machine. It no longer performs the five direct method lookups, two property/getter lookups or five
-generic member rebindings. Each of the eleven calls remains immediately after its original
+machine. It no longer performs the five direct method lookups, one direct property/getter lookup,
+four rebound method lookups or one rebound property/getter lookup. The five rebindings and two
+property/getter paths overlap as operation categories. Each of the eleven calls remains immediately after its original
 `DefineMethod`; its body plan still runs immediately after attachment. The async core body still runs
 before the first async override. Factory-side and body-side iterator member resolution remain
 unchanged, including the generic factory's distinct method-MVAR context.
