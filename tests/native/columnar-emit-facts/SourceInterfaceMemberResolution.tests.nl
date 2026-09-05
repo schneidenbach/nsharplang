@@ -7,7 +7,6 @@ import System.Reflection
 // The unique names make the parent ECMA-335 reader's MethodImpl rows directly attributable.
 // Each successful shape is compiled by the real product backend, then dispatches through the
 // resulting CLR interface map; no alternate member-selection path is introduced by this test.
-
 interface SourceInterfaceOwnAncestor {
     func OwnWins(): int
 }
@@ -24,6 +23,7 @@ interface SourceInterfaceFallbackAncestor {
     func FallThrough(): int
 }
 interface SourceInterfaceFallbackDerived: SourceInterfaceFallbackAncestor {
+
     // The direct member has the same name but the wrong signature for the class method below.
     // It remains a default body so the ancestor is the only abstract obligation.
     func FallThrough(value: int): int {
@@ -279,9 +279,13 @@ test "source and external same-signature slots both remain dispatchable" {
     assert SourceInterfaceRequiredDeclaringType(externalPair.TargetMethod) == typeof(SourceInterfaceExternalImplementation)
 }
 
-test "missing and signature-mismatched source members reach the emitter and decline without a located row" {
+test "matching source members emit while missing and signature-mismatched members decline without a located row" {
     missing := "interface SourceInterfaceMissing {\n    func Required(value: int): int\n}\nclass SourceInterfaceMissingImplementation: SourceInterfaceMissing {\n    func Other(value: int): int { return value }\n}\n"
+    matchingMissing := "interface SourceInterfaceMissing {\n    func Required(value: int): int\n}\nclass SourceInterfaceMissingImplementation: SourceInterfaceMissing {\n    func Required(value: int): int { return value }\n}\n"
     mismatch := "interface SourceInterfaceMismatch {\n    func Required(value: int): int\n}\nclass SourceInterfaceMismatchImplementation: SourceInterfaceMismatch {\n    func Required(value: string): int { return 0 }\n}\n"
+    matchingMismatch := "interface SourceInterfaceMismatch {\n    func Required(value: int): int\n}\nclass SourceInterfaceMismatchImplementation: SourceInterfaceMismatch {\n    func Required(value: int): int { return value }\n}\n"
+    assert SourceInterfaceEmitOutcome(matchingMissing) == "success"
     assert SourceInterfaceEmitOutcome(missing) == "false without decline"
+    assert SourceInterfaceEmitOutcome(matchingMismatch) == "success"
     assert SourceInterfaceEmitOutcome(mismatch) == "false without decline"
 }
