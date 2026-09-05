@@ -109,8 +109,28 @@ audit passes **18/18**. The emitter is **19,613 lines / 18,622 nonblank** (−16
 Receipts are `ratchet-before.json`, `ratchet-after.json`, `root-cli.log`, `root-ownership-audit.log`
 and `root-format.log`.
 
+The first fresh gate of `e30e1e6d` failed only
+`SetupLocalScriptTests.SetupLocalScriptDryRunStillSkipsVscodeByDefault`: the dry-run exited 1
+mid-command printing (`dotnet pack`), with empty stderr. The complete original gate ran to its
+one-failure verdict in 445 seconds; all other steps passed, including the 7,714 compiler estate,
+85 declaration controls and 68-assembly IL verification. The same already-compiled failing test
+then passed 1/1, and the entire compiled unit suite passed 593/593. These replays use the parent
+environment and the gate repository cwd; they are not represented as identical isolated gate runs.
+The failure remains unexplained and is retained at
+`/private/tmp/gate-20260905-goal-s22b-r1/failure-receipt.json`; no assertion, test or installer code
+was changed to obtain a pass. The earlier takeover recorded the same intermittent test failure.
+
+A bounded read-only investigation found a plausible upstream match: the
+[GNU Bash 4.2 release notes](https://lists.gnu.org/archive/html/bug-bash/2011-02/msg00003.html)
+record a fix for SIGCHLD interrupting echo/printf output. This host runs Apple Bash 3.2.57, and
+the failing printf is inside an asynchronous package-spec process-substitution loop. Twenty
+concurrent traced dry runs passed, so this remains a hypothesis, not a demonstrated root cause.
+Traces and summary: `/private/tmp/nsharp-s22b-installer-investigation/traced-20/`.
+The fixture also inherits NSHARP_INSTALL_DIR despite setting a temporary HOME; that separate
+isolation issue does not explain the observed dry-run printing failure. Neither issue is waived.
+
 The fresh backend gate lives outside the committed snapshot at
-`/private/tmp/gate-20260905-goal-s22b-r1/`. Its `source.json` identifies the exact archived commit;
+`/private/tmp/gate-20260905-goal-s22b-r2/`. Its `source.json` identifies the exact archived commit;
 `gate.log` and `exit-code.txt` provide the actual verdict. `acceptance.json` is written only after
 successful verification and an exact-SHA push. This document does not substitute for that result.
 The command is `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`, with fresh steps. Workers are

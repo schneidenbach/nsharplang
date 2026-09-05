@@ -154,11 +154,16 @@ Final formatted estate **7,714/7,714**, native declarations **85/85**, iterators
 [parity proof](decodes/2026-09-05-s22b-parity-proof.md) identify the exact receipts and known limits.
 
 The fresh backend integration run is recorded outside the committed source snapshot at
-`/private/tmp/gate-20260905-goal-s22b-r1/`: `source.json` identifies its exact revision, `gate.log`
+`/private/tmp/gate-20260905-goal-s22b-r2/`: `source.json` identifies its exact revision, `gate.log`
 carries the fresh run, and `exit-code.txt` is its terminal result. Read that actual verdict before
 advancing or pushing; this ledger does not substitute for the gate. The prior S2.2(a) checkpoint
 was freshly gated and pushed at `d29eac35`; retained receipt:
 `/private/tmp/gate-20260904-goal-s22a-r1/acceptance.json`.
+The first S2.2(b) gate (`e30e1e6d`, r1) finished with one installer dry-run failure: exit 1
+while printing `dotnet pack`, empty stderr. All other steps passed, including estate 7,714 and
+IL verification of 68 assemblies. The same compiled failing test passed 1/1 and the complete unit
+suite 593/593 on replay; the original cause remains unproven. No test or assertion was changed.
+Raw failure and replay scope: `/private/tmp/gate-20260905-goal-s22b-r1/failure-receipt.json`.
 Astra owns planning/review/integration; Sol and Terra execute bounded work. All terminal
 015/021/022/023 boxes remain open. No SDK republish or IDE behavior change is claimed here.
 
@@ -176,6 +181,8 @@ newly admitted shapes. 022/5 NativeAOT and 015-B17 remain parked; 021 is re-audi
 
 **Remaining follow-ups:** estate import hygiene through semantic lint (306 test files and 215 literal
 `import System` lines at `5ac4faa79`, not an unused-import count) plus gate-lint consistency;
+installer dry-run Bash SIGCHLD/printf race hypothesis and inherited install-directory override
+(see the S2.2(b) proof; twenty traced dry runs passed, cause unconfirmed);
 external-call constant conversion at the call site;
 isolated gate commit stamping (`cliCommit` currently unavailable inside its inner copy).
 Source chips to re-measure: qualified static receivers, `DateTime.TryParse`, `default`, dotted unresolved
