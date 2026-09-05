@@ -1133,7 +1133,7 @@ class ColumnarTypeOfPlanner {
         // Assembly.GetType. Its existing collection/task/result/union rebinding lowerings own these
         // structural shapes; the catalog rule below applies to complete external identities.
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType)
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1365,6 +1365,23 @@ class ColumnarTypeOfPlanner {
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
         return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.Stack`1" || name == "System.Collections.Generic.IReadOnlyList`1" || name == "System.Collections.Generic.IReadOnlyCollection`1" || name == "System.Collections.Generic.IReadOnlySet`1" || name == "System.Collections.Generic.IReadOnlyDictionary`2" || name == "System.Collections.Generic.IEnumerable`1"
+    }
+
+    // IEnumerator<T> is storable protocol state, not a collection expression or foreach source.
+    // Iterator state machines already construct this exact handle for hoisted enumeration. Source
+    // discovery needs the same narrow shape as a local so it can preserve the typed Current slot and
+    // explicit disposal around an early first-hit return.
+    static func IsSupportedEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredEnumeratorDefinition().get_AssemblyQualifiedName() ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 1 && IsAdmissibleCollectionElement(arguments[0])
     }
 
     // The element/value types a collection may close over (the builder-element rebind rung):
@@ -1706,6 +1723,14 @@ class ColumnarTypeOfPlanner {
         result := Type.GetType("System.Nullable`1")
         if result == null {
             throw new InvalidOperationException("System.Nullable<T> runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.IEnumerator`1")
+        if result == null {
+            throw new InvalidOperationException("System.Collections.Generic.IEnumerator<T> runtime type was not found.")
         }
         return result
     }
