@@ -1,5 +1,9 @@
 namespace NSharpLang.Compiler
 
+import System
+import System.Collections.Generic
+import NSharpLang.Compiler.Columnar
+
 
 // THE RULES THAT TURN A `where` CLAUSE INTO METADATA, CROSSED WITHOUT AN EMITTER.
 //
@@ -149,4 +153,70 @@ test "missing type-constraint rows share one empty array and present rows retain
     assert Object.ReferenceEquals(first, repeated)
     assert Object.ReferenceEquals(present, ColumnarGenericConstraintPlanner.TypeConstraintsAt(shortRows, 0))
     assert !Object.ReferenceEquals(present, first)
+}
+
+func GenericConstraintPlannerParameter(ownerName: string, parameterIndex: int): Type {
+    builder := TypeOfCreateBuilder(
+        "ConstraintPlanner" + ownerName,
+        "ColumnarGenericConstraintPlannerTests." + ownerName,
+        parameterIndex + 1
+    )
+    parameters := builder.GetGenericArguments()
+    if parameters.Length <= parameterIndex {
+        throw new InvalidOperationException("The constraint-planner fixture did not define its requested parameter.")
+    }
+    return parameters[parameterIndex]
+}
+
+test "call constraints prefer the supplied map exact hit and retain even a null value" {
+    weakKey := GenericConstraintPlannerParameter("ExactWeak", 0)
+    requested := GenericConstraintPlannerParameter("ExactRequested", 0)
+    weakValue := new Type[](1)
+    weakValue[0] = typeof(string)
+    exactValue := new Type[](1)
+    exactValue[0] = typeof(int)
+    map := new Dictionary<Type, Type[]>()
+    map[weakKey] = weakValue
+    map[requested] = exactValue
+
+    assert Object.ReferenceEquals(
+        ColumnarGenericConstraintPlanner.ResolveCallConstraints(map, requested),
+        exactValue
+    )
+
+    nullMap := new Dictionary<Type, Type[]>()
+    nullMap.Add(requested, null)
+    assert ColumnarGenericConstraintPlanner.ResolveCallConstraints(nullMap, requested) == null
+}
+
+test "call constraints preserve the first live same-name same-ordinal fallback" {
+    firstKey := GenericConstraintPlannerParameter("WeakFirst", 0)
+    secondKey := GenericConstraintPlannerParameter("WeakSecond", 0)
+    requested := GenericConstraintPlannerParameter("WeakRequested", 0)
+    firstValue := new Type[](1)
+    firstValue[0] = typeof(string)
+    secondValue := new Type[](1)
+    secondValue[0] = typeof(int)
+    map := new Dictionary<Type, Type[]>()
+    map[firstKey] = firstValue
+    map[secondKey] = secondValue
+
+    assert Object.ReferenceEquals(
+        ColumnarGenericConstraintPlanner.ResolveCallConstraints(map, requested),
+        firstValue
+    )
+}
+
+test "call constraints reflect only after a completed weak miss" {
+    requested := typeof(Nullable<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    wrongName := GenericConstraintPlannerParameter("ReflectionMiss", 1)
+    wrongValue := new Type[](1)
+    wrongValue[0] = typeof(string)
+    map := new Dictionary<Type, Type[]>()
+    map[wrongName] = wrongValue
+
+    reflected := ColumnarGenericConstraintPlanner.ResolveCallConstraints(map, requested)
+    assert reflected.Length == 1
+    assert reflected[0] == typeof(ValueType)
+    assert !Object.ReferenceEquals(reflected, wrongValue)
 }

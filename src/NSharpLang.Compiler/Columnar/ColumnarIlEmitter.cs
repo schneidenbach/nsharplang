@@ -17156,16 +17156,7 @@ internal sealed class ColumnarIlEmitter
     }
 
     private Type[] GetGenericInterfaceConstraints(Type type)
-    {
-        if (_genericInterfaceConstraints.TryGetValue(type, out var constraints))
-            return constraints;
-        foreach (var pair in _genericInterfaceConstraints)
-        {
-            if (GenericParameterIdentityMatches(pair.Key, type))
-                return pair.Value;
-        }
-        return GetSafeGenericParameterConstraints(type);
-    }
+        => ColumnarGenericConstraintPlanner.ResolveCallConstraints(_genericInterfaceConstraints, type);
 
     private static IReadOnlyDictionary<Type, Type[]> BuildGenericInterfaceConstraintMap(
         Type[] typeParams,
@@ -17182,40 +17173,6 @@ internal sealed class ColumnarIlEmitter
             (map ??= new Dictionary<Type, Type[]>())[typeParams[i]] = interfaceConstraints[i];
         }
         return map ?? s_noGenericInterfaceConstraints;
-    }
-
-    private static bool GenericParameterIdentityMatches(Type left, Type right)
-    {
-        if (!left.IsGenericParameter || !right.IsGenericParameter || left.Name != right.Name)
-            return false;
-        try
-        {
-            return left.GenericParameterPosition == right.GenericParameterPosition;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
-        catch (NotImplementedException)
-        {
-            return false;
-        }
-    }
-
-    private static Type[] GetSafeGenericParameterConstraints(Type type)
-    {
-        try
-        {
-            return type.GetGenericParameterConstraints();
-        }
-        catch (NotSupportedException)
-        {
-            return Array.Empty<Type>();
-        }
-        catch (NotImplementedException)
-        {
-            return Array.Empty<Type>();
-        }
     }
 
     private bool TrySelectClosedInterfaceMethodForCall(

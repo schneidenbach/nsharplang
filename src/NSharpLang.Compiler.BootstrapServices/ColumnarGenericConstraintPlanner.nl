@@ -1,6 +1,8 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections
+import System.Collections.Generic
 
 
 // WHAT A `where` CLAUSE BECOMES IN METADATA, DECIDED ONCE FOR BOTH GENERIC-PARAMETER OWNERS.
@@ -16,6 +18,81 @@ class ColumnarGenericConstraintPlanner {
 
     static func createEmptyTypeConstraints(): string[] {
         return new string[](0)
+    }
+
+    // Resolve the constraints used by a constrained receiver without rebuilding the declaration
+    // map. An exact dictionary hit retains the supplied map's comparer and exact array value. The
+    // weak fallback deliberately compares only a live parameter name and ordinal, matching the
+    // historical lookup across distinct Reflection.Emit handles.
+    static func ResolveCallConstraints(
+        map: IReadOnlyDictionary<Type, Type[]>,
+        requested: Type
+    ): Type[] {
+        exact: Type[] = null
+        if map.TryGetValue(requested, out exact) {
+            return exact
+        }
+
+        weak: Type[] = null
+        if TryFindWeakCallConstraints(map, requested, out weak) {
+            return weak
+        }
+
+        try {
+            return requested.GetGenericParameterConstraints()
+        } catch ex: NotSupportedException {
+            return System.Type.EmptyTypes
+        } catch ex: NotImplementedException {
+            return System.Type.EmptyTypes
+        }
+    }
+
+    // The IReadOnlyDictionary's inherited enumerable view is passed directly by the caller. This
+    // keeps the exact IEnumerator<KeyValuePair<Type, Type[]>> Current slot while permitting explicit
+    // disposal around an early first-match return.
+    static func TryFindWeakCallConstraints(
+        entries: IEnumerable<KeyValuePair<Type, Type[]>>,
+        requested: Type,
+        out constraints: Type[]
+    ): bool {
+        enumerator := entries.GetEnumerator()
+        movement := enumerator as IEnumerator
+        try {
+            if movement == null {
+                throw new NullReferenceException()
+            }
+
+            while movement.MoveNext() {
+                pair := enumerator.get_Current()
+                left := pair.get_Key()
+                if GenericParameterIdentityMatches(left, requested) {
+                    constraints = pair.get_Value()
+                    return true
+                }
+            }
+        } finally {
+            disposable := enumerator as IDisposable
+            if disposable != null {
+                disposable.Dispose()
+            }
+        }
+
+        constraints = null
+        return false
+    }
+
+    static func GenericParameterIdentityMatches(left: Type, right: Type): bool {
+        if !left.get_IsGenericParameter() || !right.get_IsGenericParameter() || left.get_Name() != right.get_Name() {
+            return false
+        }
+
+        try {
+            return left.get_GenericParameterPosition() == right.get_GenericParameterPosition()
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
     }
 
     // `GenericParameterAttributes` (ECMA-335 II.23.1.7), as integers because the emitter's own bits are
