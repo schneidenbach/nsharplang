@@ -298,6 +298,10 @@ class ColumnarExternalBindingPlans {
             return StaticMember(ColumnarExternalStaticMemberKind.Field, primitiveTypeName, memberName, primitiveTypeName)
         }
 
+        if MatchesOwner(typeName, "Type", "System.Type") && memberName == "EmptyTypes" {
+            return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.Type", memberName, "System.Type[]")
+        }
+
         if (typeName == "OpCodes" || typeName == "System.Reflection.Emit.OpCodes") && IsSupportedOpCodeMemberName(memberName) {
             return StaticMember(ColumnarExternalStaticMemberKind.Field, "System.Reflection.Emit.OpCodes", memberName, "System.Reflection.Emit.OpCode")
         }

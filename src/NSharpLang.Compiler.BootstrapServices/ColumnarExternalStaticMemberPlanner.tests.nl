@@ -530,6 +530,31 @@ test "external static-member planner owns fully qualified fields and properties"
     )
 }
 
+test "external static-member planner binds Type.EmptyTypes through the exact field and respects shadows" {
+    tree := ExternalStaticMemberTree("Type", "EmptyTypes")
+    ExternalStampScope(tree, "import System\n")
+    plan := ExternalPlan(tree, ColumnarRangePlannerEmptyBindings())
+    assert plan.ResultType == typeof(Type[])
+    assert plan.FieldCount == 1
+    assert plan.MethodCount == 0
+    assert plan.OperationCount == 1
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldsfld()
+    assert plan.Fields[0].get_Name() == "EmptyTypes"
+    assert plan.Fields[0].get_DeclaringType() == typeof(Type)
+    assert plan.Fields[0].get_FieldType() == typeof(Type[])
+    assert ExecutorRunV3ScalarPlan(plan, typeof(Type[])) == "System.Type[]"
+
+    localShadow := ExternalStaticMemberTree("Type", "EmptyTypes")
+    ExternalStampScope(localShadow, "import System\n")
+    localBindings := ExternalBindings(null, null, null, null, null)
+    ColumnarRangePlannerAddParameter(localBindings, "Type", 0, typeof(string))
+    ExternalAssertDeclines(localShadow, localBindings)
+
+    sourceShadow := ExternalStaticMemberTree("Type", "EmptyTypes")
+    ExternalStampScope(sourceShadow, "import System\nclass Type {}\n")
+    ExternalAssertDeclines(sourceShadow, ColumnarRangePlannerEmptyBindings())
+}
+
 test "external static-member planner fails closed and rolls unsupported shapes back" {
     unsupported := ExternalStaticMemberTree("Environment", "Missing")
     ExternalStampScope(unsupported, unsupported.Source)

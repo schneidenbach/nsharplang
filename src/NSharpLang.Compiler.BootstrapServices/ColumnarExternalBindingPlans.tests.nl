@@ -305,6 +305,28 @@ test "external static selections accept short and fully qualified owner names" {
     assert ColumnarExternalBindingPlans.GetStaticMemberPlan("Environment.SpecialFolder", "UserProfile").IsSupported
 }
 
+test "System.Type.EmptyTypes has one exact static field identity" {
+    shortPlan := ColumnarExternalBindingPlans.GetStaticMemberPlan("Type", "EmptyTypes")
+    qualifiedPlan := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "System.Type",
+        "EmptyTypes"
+    )
+
+    assert shortPlan.IsSupported
+    assert qualifiedPlan.IsSupported
+    assert shortPlan.Kind == ColumnarExternalStaticMemberKind.Field
+    assert qualifiedPlan.Kind == ColumnarExternalStaticMemberKind.Field
+    assert shortPlan.DeclaringTypeName == "System.Type, System.Private.CoreLib"
+    assert shortPlan.ValueTypeName == "System.Type[], System.Private.CoreLib"
+    assert shortPlan.MemberName == "EmptyTypes"
+    assert qualifiedPlan.DeclaringTypeName == shortPlan.DeclaringTypeName
+    assert qualifiedPlan.ValueTypeName == shortPlan.ValueTypeName
+    assert qualifiedPlan.MemberName == shortPlan.MemberName
+
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("Type", "EmptyType").IsSupported
+    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("Array", "EmptyTypes").IsSupported
+}
+
 // 023/1b -- THE ECMA-335 WRITER'S TYPES ARE ON THE ADMITTED-TYPE LIST, AND ONLY THE TWO KINDS THAT
 // HAVE TO BE. The list is a closed allow-list and is a defect of the same class as the construction
 // allow-list 022/3a-i replaced and the enum half of `GetStaticMemberPlan` that 023/1a deleted; the rule
