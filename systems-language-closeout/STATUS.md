@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | slice 1 complete; constant-conversion owner 1e landed. S2.0 census and S2.1(a)–(f) landed, including the shared-empty correction. **S2.1(g) is merged at `4f2a8e63` from `f6ebcf42`: N# attribute rows/application, 94 assemblies with zero IL/output-set/outcome differences, estate 7,658, merged audit 18/18**. S2.1(h)–(i), resolution S2.2, declarations S2.3, body encoder S2.4, coverage S2.5 and harness S2.6 remain. The fresh backend integration checkpoint is identified below — §4.12 |
+| 023 | slice 1, constant-conversion owner 1e, S2.0 and S2.1(a)–(g) landed. **S2.1(h) is integrated from `0cde66a0`: N# P/Invoke rows, 94 assemblies with zero IL/output-set/outcome differences, estate 7,666, native declarations 66/66 and merged audit 18/18**. S2.1(i), resolution S2.2, declarations S2.3, body encoder S2.4, coverage S2.5 and harness S2.6 remain. The exact fresh backend integration checkpoint is identified below — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,29 +123,36 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** S2.1(h) P/Invoke, then (i) method overrides, each over
-explicit declaration rows and with whole-PE control-first parity. Continue S2.2 resolved type-reference
+**Next writer slice:** [S2.1(i) method overrides](decodes/2026-09-04-s21i-overrides-next-cut.md),
+over explicit declaration rows with whole-PE control-first parity. Fourteen C# attachment sites remain;
+iterator `MemberOverrides` strings exist but are not consumed in production. Continue S2.2 resolved type-reference
 keys, S2.3 declaration writer, S2.4 body encoding, S2.5 remaining bodies and S2.6 metadata-writer parity
 harness. Task 023/3 then gives the writer its unified metadata universe and removes runtime emit lookups
 and the Cecil corelib-to-contract rewrite. Task 023/4 flips the product default and deletes
 Reflection.Emit and `ColumnarIlEmitter.cs`.
 
-**Goal checkpoint (2026-09-04):** S2.1(g) moved all four custom-attribute attachment sites
-(`IsByRefLike`, `IsReadOnly`, description `Trait`, and `Fact`) to N# declaration records and N#
-application. The shared description key is independently literal-pinned with its CLI readers;
-constructor resolution/failure timing remains S2.2. C# is 20,722 / 19,710 nonblank lines. The merged
-ownership head is `head-v1:3d58ab0370b44a15`; the audit passed 18/18 after its observed two-key repin.
-The fixed `5ac4faa79` corpus passed 2,138 native tests per arm with zero differences across 94 images.
-[Completed parity proof](decodes/2026-09-04-s21g-parity-proof.md). The initial live-working-directory
-harness arms were rejected and all three arms rerun from their corpus roots.
+**Goal checkpoint (2026-09-04):** S2.1(h), implemented at `0cde66a0`, moves native-import
+selection, validity/decline data, names, metadata words and PreserveSig merging to N# declaration
+records. Signature/default metadata still runs at its original phase. The shared flag helpers were
+relocated onto `ColumnarFunctionInput` after strict checking caught a new NL412 from a global call;
+there is one production flag literal and both old global helpers are deleted. C# emitter totals are
+20,714 / 19,703 nonblank; InputBuilder remains 1,044 / 975 with its one expression nine bytes shorter.
+The observed two-file ownership repin gives `head-v1:1a04757c9e9e81ad`, audit **18/18**.
 
-The fresh backend integration run for this checkpoint is recorded outside the source snapshot at
-`/private/tmp/gate-20260904-goal-s21g-r1/`: `source.json` identifies the exact committed revision,
-`gate.log` carries the full fresh run, and `exit-code.txt` is its terminal result. Read that actual
-verdict before advancing or pushing; this ledger does not substitute for the gate. After it passes,
-the next writer cut is the [P/Invoke record plan](decodes/2026-09-04-s21h-pinvoke-next-cut.md).
+The fixed `54faf94a` corpus passes **2,138 native tests per arm**, with zero differences across
+**94 images** and project outcomes. The exact seven new native controls pass on both compilers;
+current declaration suite **66/66**, estate **7,666/7,666**. Both an IL operand mutation and a native
+library-name mutation change the predicted image bytes and runtime behavior.
+[Completed parity proof](decodes/2026-09-04-s21h-parity-proof.md).
+
+The fresh backend integration run is recorded outside the committed source snapshot at
+`/private/tmp/gate-20260904-goal-s21h-r1/`: `source.json` identifies the exact revision, `gate.log`
+carries the full fresh run, and `exit-code.txt` is its terminal result. Read that actual verdict
+before advancing or pushing; this ledger does not substitute for the gate. The prior S2.1(g)
+checkpoint was pushed at `54faf94a` after its fresh gate passed in 7m54s; its retained acceptance
+record is `/private/tmp/gate-20260904-goal-s21g-r1/acceptance.json`.
 Astra owns planning/integration and assigns one emitter writer at a time. Static-call and
-self-hosting decodes below are independent candidates; no implementation is claimed for them.
+self-hosting decodes below remain independent candidates, with no new implementation claimed.
 
 **Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
 `TryEmitStaticCall` already calls the N# planner; its 865-line method includes source dispatch and an
@@ -251,13 +258,13 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
 
 | measure | value |
 |---|---|
-| unit suite (`tests/Tests.csproj`) | **593/593** in fresh gate r26 at `a0380b68` (595 at `27a6d24f6`; the error-docs arc's two retired-code assertions) |
-| BootstrapServices estate (`.tests.nl` blocks) | **7,650/7,650** in fresh gate r26 at `a0380b68`; preceding r23 at `1cd8ec19c` had 7,630 |
+| unit suite (`tests/Tests.csproj`) | **593/593** in the fresh S2.1(g) gate at `54faf94a`; current checkpoint source/verdict is recorded in the S2.1(h) gate directory above |
+| BootstrapServices estate (`.tests.nl` blocks) | **7,666/7,666** in the complete focused run at `0cde66a0`; prior fresh gate `54faf94a` had 7,658. Current checkpoint gate source/verdict is recorded above |
 | native projects | 46 `project.yml` under `tests/native`; 75 tracked corpus projects, with pin 74 excluding the compile-time benchmark itself |
-| live-tree strict `nlc check` on BootstrapServices | `f6ebcf42`: 425 files / 259 results, exit 1; all 259 retained rows match the prior source walk, with one unused import removed. `1527e823` was 425 / 260 and takeover `6ea697316` was 423 / 261. Raw comparisons `/private/tmp/nsharp-s21g-check-*.json` and `/private/tmp/nsharp-takeover-live-check/`; self-hosting remains open |
-| `ColumnarIlEmitter.cs` | 20722 lines / 19710 non-blank after S2.1(g), `4f2a8e63`; `Analyzer.cs` 2357 (2,798 before 3b; 3b removed 441 lines) |
+| live-tree strict `nlc check` on BootstrapServices | `0cde66a0`: 425 files / 259 results, exit 1; both compilers/current source arrays match exactly. All baseline findings remain; four ColumnarInputs rows move +9 lines with two matching explanation-line changes. `1527e823` was 425 / 260 and takeover `6ea697316` was 423 / 261. Raw comparisons `/private/tmp/nsharp-s21h-check-*.json`, prior `/private/tmp/nsharp-s21g-check-*.json` and `/private/tmp/nsharp-takeover-live-check/`; self-hosting remains open |
+| `ColumnarIlEmitter.cs` | 20714 lines / 19703 non-blank after S2.1(h), `0cde66a0`; `Analyzer.cs` 2357 (2,798 before 3b; 3b removed 441 lines) |
 | compiler C# files (`src/NSharpLang.Compiler`, excl. obj/bin) | 10 |
-| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:3d58ab0370b44a15` (observed after S2.1(g), `4f2a8e63`; when two streams repin, keep per row the side that SHRANK the file — ceilings never rise — then `OWN008` prints the observed head; derive the repin LAST, at the commit's own tree, never carry it through a rebase) |
+| growth-ratchet head (BOTH keys: manifest header AND `OwnershipAudit.nl`) | `head-v1:1a04757c9e9e81ad` (observed on integrated S2.1(h), `0cde66a0`; when two streams repin, keep per row the side that SHRANK the file — ceilings never rise — then `OWN008` prints the observed head; derive the repin LAST, at the commit's own tree, never carry it through a rebase) |
 | ratchet epoch triple (immutable) | 381 / `pathset-v1:8a26e1529863444b` / `epochfacts-v1:1b3090747e517fc1` |
 | ratchet manifest | 391 lines, no BOM |
 | corpus IL harness | 68 projects / 64 built / 3,669 rows / 3,590 keys / door-marker floor 461 keys (B16 re-measure: mirrored paths + a tip-built dep snapshot; the 4 misses are 2 pre-existing NL402 template declines and 2 needing a Playground dll) |
@@ -402,6 +409,8 @@ touching git or launching anything long. Attribution is the first finder plus th
 matter; an entry that a later slice OVERTURNED keeps the overturn.
 
 ### 2.1 `lang` — shapes the N# toolchain rejects, and the spelling that works
+
+- A namespaced call to a global free helper can emit under stage-0 yet fail strict analysis with NL412. S2.1(h) moved the shared native-flag bodies onto the existing named `ColumnarFunctionInput`, deleted the global helpers and updated callers; keep strict-source comparison beside compiled tests.
 
 **Reserved words.** A reserved word used as a local, parameter or `out` name declines the WHOLE enclosing
 declaration and the position is reported at the CLASS or `test` header, naming nothing about the identifier.
@@ -3001,6 +3010,8 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| 023/S2.1(h) — P/Invoke declarations | `0cde66a0`; this integration commit | N# sparse source-ordinal rows own native selection/validity/declines/names/flags/conventions and PreserveSig OR; C# consumes after signature resolution. Shared flag helpers move to existing ColumnarFunctionInput, with one shorter InputBuilder expression | Stage-0 green did not imply strict-source green: an added NL412 exposed the global helper boundary and was removed without duplicating its flag. Parser-only negative probes were rejected; retained N# tests mutate parsed metadata to reach actual return → parameter → native → default failure order | Emitter 20,714/19,703; builder 1,044/975, −9 bytes. Estate 7,666; native declarations 66; both-CLI new controls 7/7. Three-arm parity 94 images/2,138 native tests each, zero differences; audit 18/18, `head-v1:1a04757c9e9e81ad`. [Proof](decodes/2026-09-04-s21h-parity-proof.md) |
+| 023/S2.1(g) — custom attributes | `f6ebcf42`, merge `4f2a8e63`, checkpoint `54faf94a` | Four attribute families' selection, blobs and ordered attachment live in N#; four C# SetCustomAttribute calls removed | Corpus commands must use their archived corpus root; all three arms were rerun after rejecting the live-cwd harness. Constructor resolution remains S2.2 | Estate 7,658; 94 images/2,138 native tests per arm, zero differences; audit 18/18. Fresh backend gate 474 s on exact pushed `54faf94a`. [Proof](decodes/2026-09-04-s21g-parity-proof.md) |
 | 023/S2.1(f) — shared empty constraint rows | `08c67e468` | The existing generic-constraint planner keeps one static readonly empty array; missing-row reads reuse it, and present rows retain their original identity. One reference-identity contract; zero C# changes | `dc3131202` allocated per missing row where the host used `Array.Empty<string>()`. That generic BCL call declines; a field initialized by a factory emits one `.cctor` allocation plus `ldsfld` reads. The lowercase cache/factory names still emit CLR-public metadata under the existing declaration policy | Focused estate **3/3**; identity probe **0/1 before, 1/1 after**; full estate **7,633/7,633**. Four-arm whole-PE proof **94 assemblies, IL_DIFFS=0**, identical path sets and outcomes; each arm **73/75 projects, 2,117 native tests passed**, only two identical systems-template declines. Root format clean; [proof](decodes/2026-09-04-s21f-parity-proof.md) |
 | 023/S2.1(f) — generic constraint guards, proof completed | `dc3131202` (implementation); this commit (evidence) | The two where-site bounds guards moved to the existing N# planner; their historical whole-PE proof is now complete against `51fa6592b` | Both compilers and corpus sources come from committed trees. Repo-shaped CLI snapshots preserve subprocess root discovery; committed Playground/LanguageServer outputs and both refint/runtime halves eliminate missing-dependency exclusions. Copied dependencies are excluded from the emitted-output count | Pristine control and pre/post: **94 assemblies, IL_DIFFS=0, no missing paths or outcome differences**. Historical estate **7,632/7,632**; native tests **2,117/2,117**. One-byte IL mutation changes exactly one assembly and the predicted stdout. Integration gate remains coordinator-owned; [proof and reproducible harness](decodes/2026-09-04-s21f-parity-proof.md) |
 | 023/2 S2.0 — what a second executor can execute (measurement + decode; the F2 fork DECIDED) | this commit (branch `stream/023-s2-writer` off `8a144587b`) | ZERO product files across four commits: one decode, `decodes/2026-09-03-writer-second-executor-decode.md`. The method-body key harness REBUILT OUTSIDE the repo (`nl23_bodykey.py`, front-ended by `ilspycmd -il`, **zero C# written**) because the B-arc's comparator survives in NEITHER `nl98keep` NOR `nl97keep` NOR any live worktree, and `nl89-ilcompare.py` is whole-PE and cannot serve an A/B between two writers. Corpus swept three times (baseline, a two-marker and a three-marker scratch mutation, each reverted) | **THERE IS NO DECLARATION PLAN-ROW IR AT ALL, AND THE FORK IS DECIDED BY A STATIC CENSUS RATHER THAN BY THE CORPUS RATE.** `TryEmitColumnarAssembly` walks `ColumnarProgramInput` — a SOURCE-shaped table whose type references are canonical STRINGS — and calls Reflection.Emit imperatively; the 26 N# owners it consults answer QUESTIONS, not rows. **FORK VERDICT (B), the plan-recording sink, coordinator-accepted**, with four binding constraints recorded in §4.4 of the decode: the sink is N#-OWNED beside `ColumnarCodePlan` and emits the SAME schema; the C# change is one field's type plus six locals with its before/after size DECLARED for the ratchet; every recorded body passes `ValidateMethodBodyStack` so maxstack and the region semantics come from ONE place for both producers; and a body the validator refuses is a LOCATED finding, never a silent skip. **THE READING THAT LOOKED LIKE A RESULT AND WAS NOT ONE:** `ALL − DOOR` is not "synthesized bodies" — `Execute` has FOURTEEN FRAGMENT-GRANULAR callers in N# that emit an expression's rows onto the host's own `_il` mid-body, so **the SCHEMA is the discriminator and the call site is not**; the two-marker design answered the wrong question and was rebuilt as three. **F6 RE-DERIVED:** `MethodBodyStreamEncoder`'s two non-`InstructionEncoder` `AddMethodBody` overloads and all six `ExceptionRegionEncoder` members carry no byref and no `Action<T>`, so slice 1's blanket "the body layer is REFUSED" does not describe them — they decline as CATALOG rows — and the writer needs neither: `AddMethodDefinition` takes a plain int `bodyOffset` and the whole `BlobBuilder` byte surface passes and RUNS, so byte-level bodies cost **no catalog row and no republish**. **THE INSTRUMENT CAUGHT ITS OWN MUTATION**: the marker arm's only build difference was `tests/native/ownership-audit` failing, because the growth ratchet refused the one C# line the marker added | Corpus at `8a144587b`: **73 targets, BUILT 66, 67 N#-emitted assemblies, 4,331 keys, 4,320 bodies**. **WHOLLY row-described (schema v4) 774 = 17.9%** (DOOR-claimed 566 = **13.1%**, synthesized 208 = 4.8%); partially row-described 3,243 = 75.1%; **ANY plan row 4,017 = 93.0%**; NONE 303 = 7.0%. The door figure CORROBORATES the inherited 461/3,590 = 12.8%. `DOOR ⊂ WHOLE` True; `DOOR ∩ FRAG` predicted 0, measured **2**, both CONSTRUCTORS whose field initialisers are fragment-planned and whose body is door-claimed — a real property, not an instrument fault. Fork census over `ColumnarIlEmitter.cs`: **1,104 `.Emit` sites** (235 no-operand / 869 operand), **88 distinct opcodes, only 37 operand-carrying**, **8 sink members**, **6 new opcode constants** (`Bge`, `Constrained`, `Ldftn`, `Ldobj`, `Stobj`, `Stind_Ref`), **0 new operand kinds**; plan publishes 109, union **123** (task text says 124 — OPEN, unattributed). **Three harness defects found by measuring, all fixed**: the deny list tested the FLATTENED collected filename so ~11,700 third-party bodies inflated the denominator (14,255 vs 2,531 — the first run's 16.0%/3.5% are VOID); repo-relative `dll:` deps broke in the archive copy, costing 23 of 72 projects (now linked: **49/72 → 66/73 built**, +1,789 bodies incl. the 1,059-body `AnalyzerCleanSource`); and the two-marker design itself. **NEW LANGUAGE DEFECT FILED**: the lone `U` (uint) literal suffix does not emit at any magnitude while `UL`/`L` do — owner `ColumnarScalarLiteralPlanner.TryParseIntegerLiteral`, and the rejection was CONTRACT-PINNED as a fact at `invalidIntegers[4] = "1U"` |

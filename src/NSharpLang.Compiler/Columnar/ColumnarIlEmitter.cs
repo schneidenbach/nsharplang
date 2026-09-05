@@ -146,7 +146,6 @@ internal sealed class ColumnarIlEmitter
 
     private const int NSharpModifierGenerator = 4096; // `func*`; must mirror Modifiers.Generator
     private const int NSharpModifierOverride = 65536;
-    private const int NSharpModifierNativeImport = 131072;
     private const int NSharpParameterModifierParams = 3;
     private const int NSharpParameterModifierThis = 4;
     private const int ColumnarNamedArgumentExpressionKind = 60;
@@ -4420,29 +4419,22 @@ internal sealed class ColumnarIlEmitter
                     }
                     var staticMethodAttributes = (MethodAttributes)declarationPlan.Methods.StructMethodAttributeWords[s][mi];
                     var sSignatureReturn = sAsyncWrappedReturn ?? sReturn;
-                    if (m.IsBodylessNativeImport)
+                    var nativeImport = declarationPlan.PInvokes.Methods[s][mi];
+                    if (nativeImport != null)
                     {
-                        if ((m.ModifierFlags & NSharpModifierNativeImport) == 0
-                            || string.IsNullOrEmpty(m.NativeImportLibraryName)
-                            || string.IsNullOrEmpty(m.NativeImportEntryPoint)
-                            || m.TypeParamNames.Length > 0
-                            || m.IsAsync)
-                        {
-                            return DeclineStatic("emit.declaration.native-import", "native import metadata was invalid for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
-                        }
-
-                        var pInvokeAttributes = staticMethodAttributes | MethodAttributes.PinvokeImpl;
+                        if (!nativeImport.IsValid)
+                            return DeclineStatic(nativeImport.DeclineCode, nativeImport.DeclineMessage, nativeImport.DeclineOwnerName);
                         var pmb = def.Builder.DefinePInvokeMethod(
-                            m.Name,
-                            m.NativeImportLibraryName,
-                            m.NativeImportEntryPoint,
-                            pInvokeAttributes,
-                            CallingConventions.Standard,
+                            nativeImport.MethodName,
+                            nativeImport.LibraryName,
+                            nativeImport.EntryPointName,
+                            (MethodAttributes)nativeImport.MethodAttributes,
+                            (CallingConventions)nativeImport.ManagedCallingConvention,
                             sSignatureReturn,
                             sParamTypes,
-                            CallingConvention.Cdecl,
-                            CharSet.Ansi);
-                        pmb.SetImplementationFlags(pmb.GetMethodImplementationFlags() | MethodImplAttributes.PreserveSig);
+                            (CallingConvention)nativeImport.UnmanagedCallingConvention,
+                            (CharSet)nativeImport.CharacterSet);
+                        pmb.SetImplementationFlags((MethodImplAttributes)nativeImport.MergeImplementationFlags((int)pmb.GetMethodImplementationFlags()));
                         if (!DefineMethodParameterMetadata(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
                             return false;
                         overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn));

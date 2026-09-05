@@ -75,8 +75,16 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   **(g) implemented at `f6ebcf42`, integrated at `4f2a8e63`:** N# owns the four attribute families'
   selection, blob data and application order; all four C# attachment calls are removed. The corrected
   control-first proof compares 94 assemblies with no IL, output-set or outcome differences and 2,138
-  native tests per arm. Constructor resolution remains S2.2; (h) is next. See STATUS for the exact
-  fresh integration-gate record and the dated parity proof.
+  native tests per arm. Constructor resolution remains S2.2; (h) follows below. See STATUS for the
+  exact fresh integration-gate record and the dated parity proof.
+  **(h) implemented at `0cde66a0`, integrated in the current checkpoint:** N# P/Invoke rows own
+  selection, validity/declines, names, attribute/convention words and implementation-bit merging.
+  Shared native-flag bodies move onto ColumnarFunctionInput after strict analysis exposed a global
+  helper visibility problem. No new C# policy; emitter −8 lines, InputBuilder expression −9 bytes.
+  Three-arm proof: 94 images and 2,138 native tests per arm, zero image/output/outcome differences.
+  Estate 7,666; native declarations 66; audit 18/18. **(i) is next**; fourteen C# override attachment
+  sites remain, and existing iterator override strings are not routed. See STATUS's gate pointer
+  and the dated h proof/i next-cut documents. Shared signature/default metadata remains later work.
 - **S2.2 — resolution moves to N#**: the 57 `TryResolveType` sites emit a resolved type-reference KEY, `AddType` gains its
   structural form, the override resolver returns a descriptor beside its `MethodInfo`, maxstack becomes a plan column
   from `ValidateMethodBodyStack`'s heights, ambient locals become slot indices.

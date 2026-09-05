@@ -1,6 +1,7 @@
 import System
 import System.Text
 import NSharpLang.Compiler
+import NSharpLang.Compiler.Columnar
 
 
 // Static columnar parser kernels formerly emitted through the Dogfood assembly.
@@ -9450,14 +9451,6 @@ func ParseMemberModifierPrefixCore(tokens: ParserDeclarationTokenTable, count: i
     return pos
 }
 
-func ColumnarStructNativeImportModifierFlag(): int {
-    return 131072
-}
-
-func ColumnarStructMethodFlagIsNativeImport(flags: int): bool {
-    return (flags & ColumnarStructNativeImportModifierFlag()) != 0
-}
-
 // The declaration scan reports `func*` as a 0/1 generator column; the MODIFIER word a generator
 // carries is `Modifiers.Generator` (4096, DeclarationEnums.nl). Turning the column into the word is
 // a decision about this file's own output, so it is answered here rather than mirrored by a caller.
@@ -10439,7 +10432,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                     return -1
                 }
 
-                methodFlags = methodFlags | ColumnarStructNativeImportModifierFlag()
+                methodFlags = methodFlags | ColumnarFunctionInput.NativeImportModifierFlag()
                 decl.MethodFuncIndices[methodCount] = memberStart
                 decl.MethodStaticFlags[methodCount] = methodFlags
                 if decl.MethodModifierFlags.Length > methodCount {
@@ -13317,7 +13310,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
 
     for i := 0; i < methodCount; i++ {
         result.Values[8] = 0
-        nativeImportMethod := ColumnarStructMethodFlagIsNativeImport(outputs.MethodStaticFlags[i])
+        nativeImportMethod := ColumnarFunctionInput.HasNativeImportModifier(outputs.MethodStaticFlags[i])
         paramCount := 0
         if nativeImportMethod {
             if !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {

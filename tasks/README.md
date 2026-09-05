@@ -57,7 +57,7 @@ mechanical, and explicitly reviewed against its N# owner.
 
 Current measured route and boundaries are in [STATUS §1](../systems-language-closeout/STATUS.md):
 
-1. `ColumnarIlEmitter.cs` remains 20,722 lines / 19,710 nonblank after S2.1(g). Task 023 builds
+1. `ColumnarIlEmitter.cs` remains 20,714 lines / 19,703 nonblank after S2.1(h). Task 023 builds
    explicit declaration rows and an N# ECMA-335 writer, then removes Reflection.Emit and the old emitter.
 2. The external scan/catalog and editor type catalog are N#-owned; Analyzer.cs is 2,357 lines and
    TypeResolver.cs is 61. One metadata universe through emission and NativeAOT still depend on the

@@ -165,7 +165,53 @@ class ColumnarCustomAttributeRows {
     }
 }
 
+// P/INVOKE declarations retain source struct/method ordinals. A null slot is an ordinary method;
+// selected records capture native metadata, including a deferred decline, but no runtime types.
+// Signature resolution and shared parameter/default metadata still run at their existing phases.
+class ColumnarPInvokeDeclaration {
+    IsValid: bool
+    DeclineCode: string
+    DeclineMessage: string
+    DeclineOwnerName: string
+    MethodName: string
+    LibraryName: string
+    EntryPointName: string
+    MethodAttributes: int
+    ManagedCallingConvention: int
+    UnmanagedCallingConvention: int
+    CharacterSet: int
+    ImplementationFlagsMask: int
+
+    constructor(isValid: bool, declineCode: string, declineMessage: string, declineOwnerName: string, methodName: string, libraryName: string, entryPointName: string, methodAttributes: int, managedCallingConvention: int, unmanagedCallingConvention: int, characterSet: int, implementationFlagsMask: int) {
+        IsValid = isValid
+        DeclineCode = declineCode
+        DeclineMessage = declineMessage
+        DeclineOwnerName = declineOwnerName
+        MethodName = methodName
+        LibraryName = libraryName
+        EntryPointName = entryPointName
+        MethodAttributes = methodAttributes
+        ManagedCallingConvention = managedCallingConvention
+        UnmanagedCallingConvention = unmanagedCallingConvention
+        CharacterSet = characterSet
+        ImplementationFlagsMask = implementationFlagsMask
+    }
+
+    func MergeImplementationFlags(currentFlags: int): int {
+        return currentFlags | ImplementationFlagsMask
+    }
+}
+
+class ColumnarPInvokeRows {
+    Methods: ColumnarPInvokeDeclaration[][]
+
+    constructor(methods: ColumnarPInvokeDeclaration[][]) {
+        Methods = methods
+    }
+}
+
 class ColumnarDeclarationPlan {
+    PInvokes: ColumnarPInvokeRows
     CustomAttributes: ColumnarCustomAttributeRows
     Properties: ColumnarPropertyRows
     Methods: ColumnarMethodRows
@@ -182,6 +228,7 @@ class ColumnarDeclarationPlan {
     EnumMemberStringValues: string[][]
 
     constructor(
+        pInvokes: ColumnarPInvokeRows,
         customAttributes: ColumnarCustomAttributeRows,
         properties: ColumnarPropertyRows,
         methods: ColumnarMethodRows,
@@ -197,6 +244,7 @@ class ColumnarDeclarationPlan {
         enumMemberValues: int[][],
         enumMemberStringValues: string[][]
     ) {
+        PInvokes = pInvokes
         CustomAttributes = customAttributes
         Properties = properties
         Methods = methods
@@ -215,6 +263,56 @@ class ColumnarDeclarationPlan {
 }
 
 class ColumnarDeclarationPlanner {
+    static func IsValidPInvoke(method: ColumnarFunctionInput): bool {
+        return ColumnarFunctionInput.HasNativeImportModifier(method.ModifierFlags) && !string.IsNullOrEmpty(method.NativeImportLibraryName) && !string.IsNullOrEmpty(method.NativeImportEntryPoint) && method.TypeParamNames.Length == 0 && !method.IsAsync
+    }
+
+    static func BuildPInvokes(program: ColumnarProgramInput, methodRows: ColumnarMethodRows): ColumnarPInvokeRows {
+        structs := program.Structs
+        rows := new ColumnarPInvokeDeclaration[][](structs.Count)
+        index := 0
+        while index < structs.Count {
+            owner := structs[index]
+            methods := owner.Methods
+            declarations := new ColumnarPInvokeDeclaration[](methods.Count)
+            member := 0
+            while member < methods.Count {
+                method := methods[member]
+                // The native branch exists only in the static-method walk. Do not admit a bodyless
+                // instance method here or impose a new restriction on generic declaring types.
+                if method.IsStatic && method.IsBodylessNativeImport {
+                    valid := IsValidPInvoke(method)
+                    declineCode := ""
+                    declineMessage := ""
+                    if !valid {
+                        declineCode = "emit.declaration.native-import"
+                        declineMessage = "native import metadata was invalid for '" + owner.Name + "." + method.Name + "'"
+                    }
+                    // MethodAttributes.PinvokeImpl=8192; CallingConventions.Standard=1;
+                    // CallingConvention.Cdecl=2; CharSet.Ansi=2; MethodImplAttributes.PreserveSig=128.
+                    declarations[member] = new ColumnarPInvokeDeclaration(
+                        valid,
+                        declineCode,
+                        declineMessage,
+                        owner.Name,
+                        method.Name,
+                        method.NativeImportLibraryName,
+                        method.NativeImportEntryPoint,
+                        methodRows.StructMethodAttributeWords[index][member] | 8192,
+                        1,
+                        2,
+                        2,
+                        128
+                    )
+                }
+                member = member + 1
+            }
+            rows[index] = declarations
+            index = index + 1
+        }
+        return new ColumnarPInvokeRows(rows)
+    }
+
     static func BuildCustomAttributes(program: ColumnarProgramInput): ColumnarCustomAttributeRows {
         empty := new byte[][](0)
         noArgument: byte[] = null
@@ -733,10 +831,14 @@ class ColumnarDeclarationPlanner {
             index = index + 1
         }
 
+        customAttributes := BuildCustomAttributes(program)
+        properties := BuildProperties(program)
+        methods := BuildMethods(program)
         return new ColumnarDeclarationPlan(
-            BuildCustomAttributes(program),
-            BuildProperties(program),
-            BuildMethods(program),
+            BuildPInvokes(program, methods),
+            customAttributes,
+            properties,
+            methods,
             BuildFields(program),
             BuildTypeDefs(program),
             assemblyName,
