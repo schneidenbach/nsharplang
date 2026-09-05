@@ -1,6 +1,9 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
 import NSharpLang.Compiler
 
 // THE DECLARATION-ROW IR — THE SECOND HALF OF THE PLAN-ROW IR, WHICH DID NOT EXIST.
@@ -115,6 +118,212 @@ class ColumnarMethodRows {
     }
 }
 
+// One resolved MethodImpl target. The runtime handle remains explicit debt for S2.2, but it is no
+// longer an unlabelled value in the C# host: N# retains the target family, stable family ordinal and
+// the already-known source signature beside it. Reading MethodInfo signature metadata here would
+// move lookup failures earlier for unbaked MethodBuilder/TypeBuilder handles, so this row performs no
+// reflection.
+class ColumnarResolvedMethodOverride {
+    TargetKind: int
+    TargetOrdinal: int
+    MemberName: string
+    ReturnCanonical: string
+    ParameterCanonicals: string[]
+    Target: MethodInfo
+
+    constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], target: MethodInfo) {
+        if memberName == null || returnCanonical == null || parameterCanonicals == null || target == null {
+            throw new InvalidOperationException("Resolved method-override facts cannot be null.")
+        }
+
+        TargetKind = targetKind
+        TargetOrdinal = targetOrdinal
+        MemberName = memberName
+        ReturnCanonical = returnCanonical
+        ParameterCanonicals = parameterCanonicals
+        Target = target
+    }
+}
+
+// The completed ordinary-method row. Targets are already in ECMA-335 MethodImpl application order:
+// an explicit base slot first, then source-interface slots, then external-interface slots. The N#
+// executor is the sole owner of DefineMethodOverride calls.
+class ColumnarMethodOverrideCompletion {
+    IsValid: bool
+    DeclineCode: string
+    DeclineMessage: string
+    DeclineOwnerName: string
+    MethodAttributes: int
+    Targets: ColumnarResolvedMethodOverride[]
+
+    constructor(isValid: bool, declineCode: string, declineMessage: string, declineOwnerName: string, methodAttributes: int, targets: ColumnarResolvedMethodOverride[]) {
+        IsValid = isValid
+        DeclineCode = declineCode
+        DeclineMessage = declineMessage
+        DeclineOwnerName = declineOwnerName
+        MethodAttributes = methodAttributes
+        Targets = targets
+    }
+
+    func Apply(owner: TypeBuilder, body: MethodBuilder) {
+        if !IsValid || owner == null || body == null {
+            throw new InvalidOperationException("Only a valid method-override completion can be applied.")
+        }
+
+        index := 0
+        while index < Targets.Length {
+            owner.DefineMethodOverride(body, Targets[index].Target)
+            index = index + 1
+        }
+    }
+}
+
+// A source-ordinal ordinary-method row. Successful resolver handles are offered in the host's
+// existing discovery order. N# owns both equality domains: direct and closed source-interface
+// matches share one HashSet<MethodInfo>; external matches use another. Completion resolves a base
+// override only when the source requested one and computes the final MethodAttributes word.
+class ColumnarMethodOverrideDeclaration {
+    BaseMethodAttributes: int
+    RequestsBaseOverride: bool
+    DeclineOwnerName: string
+    MemberName: string
+    ReturnCanonical: string
+    ParameterCanonicals: string[]
+    sourceTargets: List<MethodInfo>
+    externalTargets: List<MethodInfo>
+    seenSourceTargets: HashSet<MethodInfo>
+    seenExternalTargets: HashSet<MethodInfo>
+
+    SourceTargetCount: int => sourceTargets.Count
+    ExternalTargetCount: int => externalTargets.Count
+
+    constructor(baseMethodAttributes: int, requestsBaseOverride: bool, declineOwnerName: string, memberName: string, returnCanonical: string, parameterCanonicals: string[]) {
+        if declineOwnerName == null || memberName == null || returnCanonical == null || parameterCanonicals == null {
+            throw new InvalidOperationException("Method-override declaration facts cannot be null.")
+        }
+
+        BaseMethodAttributes = baseMethodAttributes
+        RequestsBaseOverride = requestsBaseOverride
+        DeclineOwnerName = declineOwnerName
+        MemberName = memberName
+        ReturnCanonical = returnCanonical
+        ParameterCanonicals = CopyStrings(parameterCanonicals)
+        sourceTargets = new List<MethodInfo>()
+        externalTargets = new List<MethodInfo>()
+        seenSourceTargets = new HashSet<MethodInfo>()
+        seenExternalTargets = new HashSet<MethodInfo>()
+    }
+
+    static func BaseTargetKind(): int {
+        return 0
+    }
+
+    static func SourceInterfaceTargetKind(): int {
+        return 1
+    }
+
+    static func ExternalInterfaceTargetKind(): int {
+        return 2
+    }
+
+    func AddSourceTarget(target: MethodInfo) {
+        if target == null {
+            throw new InvalidOperationException("A source-interface override target cannot be null.")
+        }
+        if seenSourceTargets.Add(target) {
+            sourceTargets.Add(target)
+        }
+    }
+
+    func AddExternalTarget(target: MethodInfo) {
+        if target == null {
+            throw new InvalidOperationException("An external-interface override target cannot be null.")
+        }
+        if seenExternalTargets.Add(target) {
+            externalTargets.Add(target)
+        }
+    }
+
+    func Complete(baseType: Type?, returnType: Type, parameterTypes: Type[]): ColumnarMethodOverrideCompletion {
+        baseTarget: MethodInfo? = null
+        if RequestsBaseOverride && (!ColumnarOverrideTargetResolver.TryFindOverrideTarget(baseType, MemberName, returnType, parameterTypes, out baseTarget) || baseTarget == null) {
+            message := "no overridable base member matches '" + MemberName + "' for '" + DeclineOwnerName + "'"
+            return new ColumnarMethodOverrideCompletion(
+                false,
+                "emit.declaration.override-target",
+                message,
+                DeclineOwnerName,
+                BaseMethodAttributes,
+                new ColumnarResolvedMethodOverride[](0)
+            )
+        }
+
+        attributes := BaseMethodAttributes
+        if sourceTargets.Count > 0 || externalTargets.Count > 0 {
+            attributes = attributes | 64 | 32 | 256
+        }
+        if RequestsBaseOverride {
+            attributes = (attributes | 64) & ~256
+        }
+
+        targetCount := sourceTargets.Count + externalTargets.Count
+        if baseTarget != null {
+            targetCount = targetCount + 1
+        }
+        targets := new ColumnarResolvedMethodOverride[](targetCount)
+        cursor := 0
+        if baseTarget != null {
+            targets[cursor] = CreateResolvedTarget(BaseTargetKind(), 0, baseTarget)
+            cursor = cursor + 1
+        }
+
+        index := 0
+        while index < sourceTargets.Count {
+            targets[cursor] = CreateResolvedTarget(SourceInterfaceTargetKind(), index, sourceTargets[index])
+            cursor = cursor + 1
+            index = index + 1
+        }
+
+        index = 0
+        while index < externalTargets.Count {
+            targets[cursor] = CreateResolvedTarget(ExternalInterfaceTargetKind(), index, externalTargets[index])
+            cursor = cursor + 1
+            index = index + 1
+        }
+
+        return new ColumnarMethodOverrideCompletion(true, "", "", DeclineOwnerName, attributes, targets)
+    }
+
+    func CreateResolvedTarget(kind: int, ordinal: int, target: MethodInfo): ColumnarResolvedMethodOverride {
+        return new ColumnarResolvedMethodOverride(
+            kind,
+            ordinal,
+            MemberName,
+            ReturnCanonical,
+            ParameterCanonicals,
+            target
+        )
+    }
+
+    static func CopyStrings(values: string[]): string[] {
+        copy := new string[](values.Length)
+        index := 0
+        while index < values.Length {
+            copy[index] = values[index]
+            index = index + 1
+        }
+        return copy
+    }
+}
+
+class ColumnarMethodOverrideRows {
+    Methods: ColumnarMethodOverrideDeclaration[][]
+
+    constructor(methods: ColumnarMethodOverrideDeclaration[][]) {
+        Methods = methods
+    }
+}
+
 // The PROPERTY family, jagged by declaring struct. A property is not a member the CLR emits directly:
 // it is a name plus a pair of ACCESSOR METHODS, so the row carries the accessor word, both accessor
 // names and the setter's `value` ordinal.
@@ -215,6 +424,7 @@ class ColumnarDeclarationPlan {
     CustomAttributes: ColumnarCustomAttributeRows
     Properties: ColumnarPropertyRows
     Methods: ColumnarMethodRows
+    MethodOverrides: ColumnarMethodOverrideRows
     Fields: ColumnarFieldRows
     TypeDefs: ColumnarTypeDefRows
     AssemblyName: string
@@ -232,6 +442,7 @@ class ColumnarDeclarationPlan {
         customAttributes: ColumnarCustomAttributeRows,
         properties: ColumnarPropertyRows,
         methods: ColumnarMethodRows,
+        methodOverrides: ColumnarMethodOverrideRows,
         fields: ColumnarFieldRows,
         typeDefs: ColumnarTypeDefRows,
         assemblyName: string,
@@ -248,6 +459,7 @@ class ColumnarDeclarationPlan {
         CustomAttributes = customAttributes
         Properties = properties
         Methods = methods
+        MethodOverrides = methodOverrides
         Fields = fields
         TypeDefs = typeDefs
         AssemblyName = assemblyName
@@ -663,6 +875,35 @@ class ColumnarDeclarationPlanner {
         )
     }
 
+    static func BuildMethodOverrides(program: ColumnarProgramInput, methodRows: ColumnarMethodRows): ColumnarMethodOverrideRows {
+        structs := program.Structs
+        rows := new ColumnarMethodOverrideDeclaration[][](structs.Count)
+        index := 0
+        while index < structs.Count {
+            owner := structs[index]
+            methods := owner.Methods
+            declarations := new ColumnarMethodOverrideDeclaration[](methods.Count)
+            member := 0
+            while member < methods.Count {
+                method := methods[member]
+                if !method.IsStatic {
+                    declarations[member] = new ColumnarMethodOverrideDeclaration(
+                        methodRows.StructMethodAttributeWords[index][member],
+                        ColumnarFunctionInput.HasOverrideModifier(method.ModifierFlags),
+                        owner.Name,
+                        method.Name,
+                        method.ReturnCanonical,
+                        method.ParamCanonicals
+                    )
+                }
+                member = member + 1
+            }
+            rows[index] = declarations
+            index = index + 1
+        }
+        return new ColumnarMethodOverrideRows(rows)
+    }
+
     static func PublicFieldAttribute(): int {
         return 6
     }
@@ -839,6 +1080,7 @@ class ColumnarDeclarationPlanner {
             customAttributes,
             properties,
             methods,
+            BuildMethodOverrides(program, methods),
             BuildFields(program),
             BuildTypeDefs(program),
             assemblyName,

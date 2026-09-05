@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler.Ast
 
 class ColumnarEnumInput {
     nameValue: string
@@ -81,6 +82,16 @@ class ColumnarFunctionInput {
     NativeImportLibraryName: string
     NativeImportEntryPoint: string
     LocalFunctions: List<ColumnarLocalFunctionInput>?
+
+    // The declaration planner owns the override request. It is not a Reflection.Emit attribute:
+    // this is the source modifier bit carried by the parser input.
+    static func OverrideModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Override)
+    }
+
+    static func HasOverrideModifier(flags: int): bool {
+        return (flags & OverrideModifierFlag()) != 0
+    }
 
     // The parser and declaration planner share this input flag. It is not a Modifiers enum member.
     static func NativeImportModifierFlag(): int {

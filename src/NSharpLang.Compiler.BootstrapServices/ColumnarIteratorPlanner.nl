@@ -9,12 +9,43 @@ import System.Reflection.Emit
 // every structural decision — element type, field layout, state numbering, member/override identities,
 // dispatch shape, and the precise decline classification for shapes it cannot lower. It produces FACTS
 // only; sub-slice 3b builds each member body as a schema-4 code plan against exactly these facts, and the
-// C# emitter host is mechanical (DefineNestedType/DefineField/DefineMethod/DefineMethodOverride/Execute).
+// C# emitter host defines and resolves handles while this N# owner applies each override at that member's
+// existing attachment point.
 //
 // State numbering: 0 = initial (ready to start), 1..N = resume points (one per `yield return`), -1 =
 // running (set while MoveNext executes), -2 = done. Field layout order (hoist ordering): the state field,
 // the current field, then each captured parameter in signature order, then each hoisted local in first
 // declaration order.
+class ColumnarIteratorOverrideDeclaration {
+    MemberOrdinal: int
+    DeclarationIdentity: string
+    LookupName: string
+    ResolvedTarget: MethodInfo?
+
+    constructor(memberOrdinal: int, declarationIdentity: string, lookupName: string) {
+        if memberOrdinal < 0 || declarationIdentity == null || declarationIdentity.Length == 0 || lookupName == null || lookupName.Length == 0 {
+            throw new InvalidOperationException("Iterator method-override declaration facts are invalid.")
+        }
+
+        MemberOrdinal = memberOrdinal
+        DeclarationIdentity = declarationIdentity
+        LookupName = lookupName
+        ResolvedTarget = null
+    }
+
+    func Apply(owner: TypeBuilder, body: MethodBuilder, target: MethodInfo) {
+        if owner == null || body == null || target == null {
+            throw new InvalidOperationException("Iterator method-override handles cannot be null.")
+        }
+
+        // Retain the canonical declaration identity beside the live handle. Replacing that handle
+        // with the writer's structural descriptor remains S2.2; do not reflect over an unfinished
+        // MethodBuilder here because doing so changes lookup-failure timing.
+        ResolvedTarget = target
+        owner.DefineMethodOverride(body, target)
+    }
+}
+
 class ColumnarIteratorShape {
     Supported: bool
     DeclineSite: string
@@ -32,7 +63,7 @@ class ColumnarIteratorShape {
     MemberCount: int
     MemberNames: string[]
     MemberSignatures: string[]
-    MemberOverrides: string[]
+    MemberOverrideRows: ColumnarIteratorOverrideDeclaration[]
     // Async-iterator classification facts (`async func*` returning IAsyncEnumerable<T>). IsAsync marks a
     // shape produced by the async classification path; AwaitResumeCount is the number of `await` suspension
     // points in the body. Each await, like each `yield return`, is a resume state — the state machine
@@ -42,7 +73,7 @@ class ColumnarIteratorShape {
     IsAsync: bool
     AwaitResumeCount: int
 
-    constructor(supported: bool, declineSite: string, declineMessage: string, typeName: string, elementCanonical: string, yieldReturnCount: int, fieldCount: int, fieldNames: string[], fieldCanonicals: string[], fieldRoles: int[], memberCount: int, memberNames: string[], memberSignatures: string[], memberOverrides: string[], isAsync: bool, awaitResumeCount: int) {
+    constructor(supported: bool, declineSite: string, declineMessage: string, typeName: string, elementCanonical: string, yieldReturnCount: int, fieldCount: int, fieldNames: string[], fieldCanonicals: string[], fieldRoles: int[], memberCount: int, memberNames: string[], memberSignatures: string[], memberOverrideRows: ColumnarIteratorOverrideDeclaration[], isAsync: bool, awaitResumeCount: int) {
         Supported = supported
         DeclineSite = declineSite
         DeclineMessage = declineMessage
@@ -59,7 +90,7 @@ class ColumnarIteratorShape {
         MemberCount = memberCount
         MemberNames = memberNames
         MemberSignatures = memberSignatures
-        MemberOverrides = memberOverrides
+        MemberOverrideRows = memberOverrideRows
         IsAsync = isAsync
         AwaitResumeCount = awaitResumeCount
     }
@@ -357,9 +388,9 @@ class ColumnarIteratorPlanner {
         typeName := "<" + funcName + ">d__" + funcOrdinal.ToString()
         memberNames := BuildMemberNames()
         memberSignatures := BuildMemberSignatures(element)
-        memberOverrides := BuildMemberOverrides()
+        memberOverrideRows := BuildMemberOverrideRows()
 
-        return new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrides, false, 0)
+        return new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrideRows, false, 0)
     }
 
     // The async state-machine shape (`async func*` returning IAsyncEnumerable<T>). Field layout extends
@@ -417,8 +448,8 @@ class ColumnarIteratorPlanner {
         typeName := "<" + funcName + ">d__" + funcOrdinal.ToString()
         memberNames := BuildAsyncMemberNames()
         memberSignatures := BuildAsyncMemberSignatures(element)
-        memberOverrides := BuildAsyncMemberOverrides()
-        return new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrides, true, state.AwaitCount)
+        memberOverrideRows := BuildAsyncMemberOverrideRows()
+        return new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrideRows, true, state.AwaitCount)
     }
 
     // The six async state-machine members. MoveNextCore is the plain synchronous-step method (no
@@ -446,15 +477,13 @@ class ColumnarIteratorPlanner {
         return signatures
     }
 
-    static func BuildAsyncMemberOverrides(): string[] {
-        overrides := new string[](6)
-        overrides[0] = ""
-        overrides[1] = ""
-        overrides[2] = "System.Collections.Generic.IAsyncEnumerator<T>.MoveNextAsync"
-        overrides[3] = "System.Collections.Generic.IAsyncEnumerator<T>.get_Current"
-        overrides[4] = "System.IAsyncDisposable.DisposeAsync"
-        overrides[5] = "System.Collections.Generic.IAsyncEnumerable<T>.GetAsyncEnumerator"
-        return overrides
+    static func BuildAsyncMemberOverrideRows(): ColumnarIteratorOverrideDeclaration[] {
+        rows := new ColumnarIteratorOverrideDeclaration[](6)
+        rows[2] = new ColumnarIteratorOverrideDeclaration(2, "System.Collections.Generic.IAsyncEnumerator<T>.MoveNextAsync", "MoveNextAsync")
+        rows[3] = new ColumnarIteratorOverrideDeclaration(3, "System.Collections.Generic.IAsyncEnumerator<T>.get_Current", "Current")
+        rows[4] = new ColumnarIteratorOverrideDeclaration(4, "System.IAsyncDisposable.DisposeAsync", "DisposeAsync")
+        rows[5] = new ColumnarIteratorOverrideDeclaration(5, "System.Collections.Generic.IAsyncEnumerable<T>.GetAsyncEnumerator", "GetAsyncEnumerator")
+        return rows
     }
 
     // The eight state-machine members plus the constructor: the fixed interface surface of every
@@ -486,21 +515,20 @@ class ColumnarIteratorPlanner {
         return signatures
     }
 
-    static func BuildMemberOverrides(): string[] {
-        overrides := new string[](8)
-        overrides[0] = ""
-        overrides[1] = "System.Collections.IEnumerator.MoveNext"
-        overrides[2] = "System.Collections.Generic.IEnumerator<T>.get_Current"
-        overrides[3] = "System.Collections.IEnumerator.get_Current"
-        overrides[4] = "System.Collections.IEnumerator.Reset"
-        overrides[5] = "System.IDisposable.Dispose"
-        overrides[6] = "System.Collections.Generic.IEnumerable<T>.GetEnumerator"
-        overrides[7] = "System.Collections.IEnumerable.GetEnumerator"
-        return overrides
+    static func BuildMemberOverrideRows(): ColumnarIteratorOverrideDeclaration[] {
+        rows := new ColumnarIteratorOverrideDeclaration[](8)
+        rows[1] = new ColumnarIteratorOverrideDeclaration(1, "System.Collections.IEnumerator.MoveNext", "MoveNext")
+        rows[2] = new ColumnarIteratorOverrideDeclaration(2, "System.Collections.Generic.IEnumerator<T>.get_Current", "get_Current")
+        rows[3] = new ColumnarIteratorOverrideDeclaration(3, "System.Collections.IEnumerator.get_Current", "Current")
+        rows[4] = new ColumnarIteratorOverrideDeclaration(4, "System.Collections.IEnumerator.Reset", "Reset")
+        rows[5] = new ColumnarIteratorOverrideDeclaration(5, "System.IDisposable.Dispose", "Dispose")
+        rows[6] = new ColumnarIteratorOverrideDeclaration(6, "System.Collections.Generic.IEnumerable<T>.GetEnumerator", "GetEnumerator")
+        rows[7] = new ColumnarIteratorOverrideDeclaration(7, "System.Collections.IEnumerable.GetEnumerator", "GetEnumerator")
+        return rows
     }
 
     static func Declined(site: string, message: string): ColumnarIteratorShape {
-        return new ColumnarIteratorShape(false, site, message, "", "", 0, 0, new string[](0), new string[](0), new int[](0), 0, new string[](0), new string[](0), new string[](0), false, 0)
+        return new ColumnarIteratorShape(false, site, message, "", "", 0, 0, new string[](0), new string[](0), new int[](0), 0, new string[](0), new string[](0), new ColumnarIteratorOverrideDeclaration[](0), false, 0)
     }
 
     // ---- body walk (single forward pass; collects locals + counts yields + classifies declines) ----
