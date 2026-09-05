@@ -131,9 +131,11 @@ class ColumnarResolvedMethodOverride {
     readonly ParameterCanonicals: string[]
     readonly targetValue: MethodInfo
     readonly sourceInterfaceBindingValue: ColumnarSourceInterfaceMethodBinding?
+    readonly closedSourceInterfaceBindingValue: ColumnarClosedSourceInterfaceMethodBinding?
 
     Target: MethodInfo => targetValue
     SourceInterfaceBinding: ColumnarSourceInterfaceMethodBinding? => sourceInterfaceBindingValue
+    ClosedSourceInterfaceBinding: ColumnarClosedSourceInterfaceMethodBinding? => closedSourceInterfaceBindingValue
 
     constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], target: MethodInfo) {
         if memberName == null || returnCanonical == null || parameterCanonicals == null || target == null {
@@ -147,6 +149,7 @@ class ColumnarResolvedMethodOverride {
         ParameterCanonicals = parameterCanonicals
         targetValue = target
         sourceInterfaceBindingValue = null
+        closedSourceInterfaceBindingValue = null
     }
 
     constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], binding: ColumnarSourceInterfaceMethodBinding) {
@@ -161,16 +164,41 @@ class ColumnarResolvedMethodOverride {
         ParameterCanonicals = parameterCanonicals
         targetValue = binding.Target
         sourceInterfaceBindingValue = binding
+        closedSourceInterfaceBindingValue = null
+    }
+
+    constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], binding: ColumnarClosedSourceInterfaceMethodBinding) {
+        if binding == null {
+            throw new InvalidOperationException("Resolved closed source-interface override facts cannot be null.")
+        }
+        target := binding.Target
+        if memberName == null || returnCanonical == null || parameterCanonicals == null || !binding.Matched || target == null {
+            throw new InvalidOperationException("Resolved closed source-interface override facts cannot be null.")
+        }
+
+        TargetKind = targetKind
+        TargetOrdinal = targetOrdinal
+        MemberName = memberName
+        ReturnCanonical = returnCanonical
+        ParameterCanonicals = parameterCanonicals
+        targetValue = target
+        sourceInterfaceBindingValue = null
+        closedSourceInterfaceBindingValue = binding
     }
 
     func ValidatedTarget(expectedTable: ColumnarStructuralTypeReferenceTable?): MethodInfo {
-        if sourceInterfaceBindingValue == null {
+        if sourceInterfaceBindingValue == null && closedSourceInterfaceBindingValue == null {
             return targetValue
         }
         if expectedTable == null {
             throw new InvalidOperationException("A structural source-interface override requires its consuming emission table.")
         }
-        validated := sourceInterfaceBindingValue.ValidatedTarget(expectedTable)
+        validated: MethodInfo = targetValue
+        if sourceInterfaceBindingValue != null {
+            validated = sourceInterfaceBindingValue.ValidatedTarget(expectedTable)
+        } else if closedSourceInterfaceBindingValue != null {
+            validated = closedSourceInterfaceBindingValue.ValidatedTarget(expectedTable)
+        }
         if !Object.ReferenceEquals(validated, targetValue) {
             throw new InvalidOperationException("A source-interface override target no longer matches its captured binding.")
         }
@@ -271,6 +299,7 @@ class ColumnarMethodOverrideDeclaration {
     ParameterCanonicals: string[]
     readonly sourceTargets: List<MethodInfo>
     readonly sourceTargetBindings: List<ColumnarSourceInterfaceMethodBinding?>
+    readonly closedSourceTargetBindings: List<ColumnarClosedSourceInterfaceMethodBinding?>
     readonly externalTargets: List<MethodInfo>
     readonly seenSourceTargets: HashSet<MethodInfo>
     readonly seenExternalTargets: HashSet<MethodInfo>
@@ -291,6 +320,7 @@ class ColumnarMethodOverrideDeclaration {
         ParameterCanonicals = CopyStrings(parameterCanonicals)
         sourceTargets = new List<MethodInfo>()
         sourceTargetBindings = new List<ColumnarSourceInterfaceMethodBinding?>()
+        closedSourceTargetBindings = new List<ColumnarClosedSourceInterfaceMethodBinding?>()
         externalTargets = new List<MethodInfo>()
         seenSourceTargets = new HashSet<MethodInfo>()
         seenExternalTargets = new HashSet<MethodInfo>()
@@ -315,6 +345,7 @@ class ColumnarMethodOverrideDeclaration {
         if seenSourceTargets.Add(target) {
             sourceTargets.Add(target)
             sourceTargetBindings.Add(null)
+            closedSourceTargetBindings.Add(null)
         }
     }
 
@@ -326,6 +357,22 @@ class ColumnarMethodOverrideDeclaration {
         if seenSourceTargets.Add(target) {
             sourceTargets.Add(target)
             sourceTargetBindings.Add(binding)
+            closedSourceTargetBindings.Add(null)
+        }
+    }
+
+    func AddSourceTarget(binding: ColumnarClosedSourceInterfaceMethodBinding) {
+        if binding == null {
+            throw new InvalidOperationException("A structural closed source-interface override target cannot be null.")
+        }
+        target := binding.Target
+        if !binding.Matched || target == null {
+            throw new InvalidOperationException("A structural closed source-interface override target cannot be null.")
+        }
+        if seenSourceTargets.Add(target) {
+            sourceTargets.Add(target)
+            sourceTargetBindings.Add(null)
+            closedSourceTargetBindings.Add(binding)
         }
     }
 
@@ -339,6 +386,30 @@ class ColumnarMethodOverrideDeclaration {
         binding: ColumnarSourceInterfaceMethodBinding? = null
         if !ColumnarSourceInterfaceMethodResolver.TryFind(
             interfaceDefinition,
+            memberName,
+            returnType,
+            parameterTypes,
+            table,
+            out binding
+        ) || binding == null {
+            return false
+        }
+        AddSourceTarget(binding)
+        return true
+    }
+
+    func TryAddClosedSourceInterfaceTarget(
+        closedInterfaceType: Type,
+        mappingOpenDefinition: ColumnarStructDef,
+        memberName: string,
+        returnType: Type,
+        parameterTypes: Type[],
+        table: ColumnarStructuralTypeReferenceTable
+    ): bool {
+        binding: ColumnarClosedSourceInterfaceMethodBinding? = null
+        if !ColumnarClosedGenericMemberResolver.TryFindSourceInterfaceMethod(
+            closedInterfaceType,
+            mappingOpenDefinition,
             memberName,
             returnType,
             parameterTypes,
@@ -396,10 +467,16 @@ class ColumnarMethodOverrideDeclaration {
         index := 0
         while index < sourceTargets.Count {
             sourceBinding := sourceTargetBindings[index]
-            if sourceBinding == null {
-                targets[cursor] = CreateResolvedTarget(SourceInterfaceTargetKind(), index, sourceTargets[index])
-            } else {
+            closedSourceBinding := closedSourceTargetBindings[index]
+            if sourceBinding != null && closedSourceBinding != null {
+                throw new InvalidOperationException("A source-interface target cannot retain two structural bindings.")
+            }
+            if sourceBinding != null {
                 targets[cursor] = CreateResolvedSourceTarget(SourceInterfaceTargetKind(), index, sourceBinding)
+            } else if closedSourceBinding != null {
+                targets[cursor] = CreateResolvedClosedSourceTarget(SourceInterfaceTargetKind(), index, closedSourceBinding)
+            } else {
+                targets[cursor] = CreateResolvedTarget(SourceInterfaceTargetKind(), index, sourceTargets[index])
             }
             cursor = cursor + 1
             index = index + 1
@@ -427,6 +504,17 @@ class ColumnarMethodOverrideDeclaration {
     }
 
     func CreateResolvedSourceTarget(kind: int, ordinal: int, binding: ColumnarSourceInterfaceMethodBinding): ColumnarResolvedMethodOverride {
+        return new ColumnarResolvedMethodOverride(
+            kind,
+            ordinal,
+            MemberName,
+            ReturnCanonical,
+            ParameterCanonicals,
+            binding
+        )
+    }
+
+    func CreateResolvedClosedSourceTarget(kind: int, ordinal: int, binding: ColumnarClosedSourceInterfaceMethodBinding): ColumnarResolvedMethodOverride {
         return new ColumnarResolvedMethodOverride(
             kind,
             ordinal,

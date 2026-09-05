@@ -603,9 +603,7 @@ internal sealed class ColumnarIlEmitter
     // resolution on a TypeBuilderInstantiation — the legacy emitter's TryGetDeclaredGeneratedRuntimeMethod /
     // BindRuntimeConstructorCall idiom); fully baked instantiations resolve the closed runtime handle.
     private static MethodInfo ResolveClosedGenericMethod(Type closedType, MethodInfo openMethod)
-        => ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedType)
-            ? TypeBuilder.GetMethod(closedType, openMethod)
-            : (MethodInfo)MethodBase.GetMethodFromHandle(openMethod.MethodHandle, closedType.TypeHandle)!;
+        => ColumnarClosedGenericMemberResolver.ResolveMethod(closedType, openMethod);
 
     private static ConstructorInfo ResolveClosedGenericCtor(Type closedType, ConstructorInfo openCtor)
         => ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedType)
@@ -3470,8 +3468,13 @@ internal sealed class ColumnarIlEmitter
                         || implementedInterfaceType.IsGenericTypeDefinition
                         || !TryResolveUserInterfaceDef(implementedInterfaceType, typeResolution.Structs.Values, out var implementedInterfaceDef))
                         continue;
-                    if (TryFindClosedInterfaceMethod(implementedInterfaceType, implementedInterfaceDef, m.Name, mSignatureReturn, mParamTypes, out var interfaceMember))
-                        methodOverride.AddSourceTarget(interfaceMember);
+                    methodOverride.TryAddClosedSourceInterfaceTarget(
+                        implementedInterfaceType,
+                        implementedInterfaceDef,
+                        m.Name,
+                        mSignatureReturn,
+                        mParamTypes,
+                        typeResolution.Structs.StructuralTypeReferences);
                 }
                 foreach (var externalInterface in def.ExternalInterfaces)
                 {
@@ -3516,7 +3519,7 @@ internal sealed class ColumnarIlEmitter
                             && ReferenceEquals(closedInterfaceDef, implementedInterface))
                         {
                             hasClosedImplementations = true;
-                            if (!ClosedInterfaceMembersSatisfied(def, implementedInterface, implementedInterfaceType))
+                            if (!ColumnarClosedGenericMemberResolver.SourceInterfaceMembersSatisfied(def, implementedInterface, implementedInterfaceType))
                                 return false;
                         }
                     }
@@ -17363,7 +17366,7 @@ internal sealed class ColumnarIlEmitter
                 continue;
             var closedParams = new Type[overload.ParamTypes.Length];
             for (var i = 0; i < closedParams.Length; i++)
-                closedParams[i] = CloseInterfaceMemberType(overload.ParamTypes[i], openInterfaceDef, closedInterfaceType);
+                closedParams[i] = ColumnarClosedGenericMemberResolver.SubstituteInterfaceMemberType(overload.ParamTypes[i], closedInterfaceType);
             if (!CanDeclaredCallArgumentsMatch(callIdx, closedParams, allowLambdaLiteral: true))
                 continue;
 
@@ -17373,7 +17376,7 @@ internal sealed class ColumnarIlEmitter
                 ? ResolveClosedGenericMethod(closedInterfaceType, overload.Builder)
                 : overload.Builder;
             paramTypes = closedParams;
-            returnType = CloseInterfaceMemberType(overload.ReturnType, openInterfaceDef, closedInterfaceType);
+            returnType = ColumnarClosedGenericMemberResolver.SubstituteInterfaceMemberType(overload.ReturnType, closedInterfaceType);
             selected = true;
         }
 
@@ -18155,105 +18158,6 @@ internal sealed class ColumnarIlEmitter
                 return false;
         }
         return true;
-    }
-
-    private static bool TryFindClosedInterfaceMethod(
-        Type closedInterfaceType,
-        ColumnarStructDef openInterfaceDef,
-        string name,
-        Type returnType,
-        Type[] paramTypes,
-        out MethodInfo method)
-    {
-        if (openInterfaceDef.Methods.TryGetValue(name, out var own)
-            && ClosedInterfaceMethodMatches(closedInterfaceType, openInterfaceDef, own, returnType, paramTypes))
-        {
-            method = closedInterfaceType.IsGenericType && !closedInterfaceType.IsGenericTypeDefinition
-                ? ResolveClosedGenericMethod(closedInterfaceType, own.Builder)
-                : own.Builder;
-            return true;
-        }
-
-        foreach (var baseInterface in openInterfaceDef.InterfaceBases)
-        {
-            if (TryFindClosedInterfaceMethod(closedInterfaceType, baseInterface, name, returnType, paramTypes, out method))
-                return true;
-        }
-
-        method = null!;
-        return false;
-    }
-
-    private static bool ClosedInterfaceMethodMatches(
-        Type closedInterfaceType,
-        ColumnarStructDef openInterfaceDef,
-        ColumnarInstanceMethodDef member,
-        Type returnType,
-        Type[] paramTypes)
-    {
-        if (!TypesEquivalent(CloseInterfaceMemberType(member.ReturnType, openInterfaceDef, closedInterfaceType), returnType))
-            return false;
-        if (member.ParamTypes.Length != paramTypes.Length)
-            return false;
-        for (var i = 0; i < paramTypes.Length; i++)
-        {
-            if (!TypesEquivalent(CloseInterfaceMemberType(member.ParamTypes[i], openInterfaceDef, closedInterfaceType), paramTypes[i]))
-                return false;
-        }
-        return true;
-    }
-
-    private static bool ClosedInterfaceMembersSatisfied(
-        ColumnarStructDef implementer,
-        ColumnarStructDef openInterfaceDef,
-        Type closedInterfaceType)
-    {
-        var requiredInterfaces = new List<ColumnarStructDef>();
-        ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(openInterfaceDef, requiredInterfaces);
-        foreach (var requiredInterface in requiredInterfaces)
-        {
-            foreach (var (memberName, member) in requiredInterface.Methods)
-            {
-                if (requiredInterface.DefaultInterfaceMethodNames.Contains(memberName))
-                    continue;
-                if (!implementer.Methods.TryGetValue(memberName, out var impl)
-                    || !ClosedInterfaceMethodMatches(closedInterfaceType, requiredInterface, member, impl.ReturnType, impl.ParamTypes))
-                    return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static Type CloseInterfaceMemberType(Type memberType, ColumnarStructDef openInterfaceDef, Type closedInterfaceType)
-    {
-        if (!closedInterfaceType.IsGenericType || closedInterfaceType.IsGenericTypeDefinition)
-            return memberType;
-
-        if (memberType.IsGenericParameter)
-        {
-            var closedArguments = closedInterfaceType.GetGenericArguments();
-            var position = memberType.GenericParameterPosition;
-            if (position >= 0 && position < closedArguments.Length)
-                return closedArguments[position];
-            return memberType;
-        }
-
-        if (memberType.IsSZArray)
-            return CloseInterfaceMemberType(memberType.GetElementType()!, openInterfaceDef, closedInterfaceType).MakeArrayType();
-        if (memberType.IsByRef)
-            return CloseInterfaceMemberType(memberType.GetElementType()!, openInterfaceDef, closedInterfaceType).MakeByRefType();
-
-        if (memberType.IsGenericType && memberType.ContainsGenericParameters)
-        {
-            var args = memberType.GetGenericArguments();
-            var closedArgs = new Type[args.Length];
-            for (var i = 0; i < args.Length; i++)
-                closedArgs[i] = CloseInterfaceMemberType(args[i], openInterfaceDef, closedInterfaceType);
-            return memberType.GetGenericTypeDefinition().MakeGenericType(closedArgs);
-        }
-
-        return memberType;
     }
 
     private static bool ColumnarStructInputSatisfiesDuckInterface(
