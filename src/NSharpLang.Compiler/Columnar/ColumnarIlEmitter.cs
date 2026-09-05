@@ -3459,7 +3459,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (!implementedInterfaceType.IsGenericType
                         || implementedInterfaceType.IsGenericTypeDefinition
-                        || !TryResolveUserInterfaceDef(implementedInterfaceType, typeResolution.Structs.Values, out var implementedInterfaceDef))
+                        || !ColumnarSourceDefinitionResolver.TryResolveInterface(implementedInterfaceType, typeResolution.Structs.Values, out var implementedInterfaceDef))
                         continue;
                     methodOverride.TryAddClosedSourceInterfaceTarget(
                         implementedInterfaceType,
@@ -3506,7 +3506,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         if (implementedInterfaceType.IsGenericType
                             && !implementedInterfaceType.IsGenericTypeDefinition
-                            && TryResolveUserInterfaceDef(implementedInterfaceType, structRegistry.Values, out var closedInterfaceDef)
+                            && ColumnarSourceDefinitionResolver.TryResolveInterface(implementedInterfaceType, structRegistry.Values, out var closedInterfaceDef)
                             && ReferenceEquals(closedInterfaceDef, implementedInterface))
                         {
                             hasClosedImplementations = true;
@@ -7928,18 +7928,10 @@ internal sealed class ColumnarIlEmitter
 
     // The registered struct/record/class def whose TypeBuilder IS this builder, or null.
     private ColumnarStructDef? FindDefByBuilder(TypeBuilder builder)
-    {
-        foreach (var d in _structRegistry.Values)
-        {
-            if (d.Builder == builder)
-                return d;
-        }
-
-        return null;
-    }
+        => ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, builder);
 
     private ColumnarStructDef? FindDefByType(Type type)
-        => type is TypeBuilder builder ? FindDefByBuilder(builder) : null;
+        => ColumnarSourceDefinitionResolver.FindDirectType(_structRegistry, type);
 
     // THE ONE PLACE A `where` CLAUSE REACHES THE CLR, for the method site and the six type sites. Every
     // DECISION is `ColumnarGenericConstraintPlanner` (N#) — the attribute word, what one resolved
@@ -7974,7 +7966,7 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 var isParam = ct.IsGenericParameter;
                 var kind = ColumnarGenericConstraintPlanner.ClassifyConstraint(isParam,
-                    !isParam && TryResolveUserInterfaceDef(ct, typeResolution.Structs.Values, out _),
+                    !isParam && ColumnarSourceDefinitionResolver.TryResolveInterface(ct, typeResolution.Structs.Values, out _),
                     !isParam && ColumnarBaseTypePlanner.IsRuntimeInterfaceType(ct),
                     !isParam && ct is TypeBuilder, !isParam && ct.IsValueType,
                     !isParam && ct.Assembly is AssemblyBuilder,
@@ -8012,85 +8004,6 @@ internal sealed class ColumnarIlEmitter
         for (var g = 0; g < gps.Length; g++)
             gps[g] = (GenericTypeParameterBuilder)genericParams[typeParamNames[g]];
         return TryApplyGenericParameterConstraints(gps, specials, typeConstraints, genericParams, gps, typeResolution, out _, out _, out _);
-    }
-
-    private static bool TryResolveUserInterfaceDef(
-        Type interfaceType,
-        IEnumerable<ColumnarStructDef> structDefinitions,
-        out ColumnarStructDef def)
-    {
-        if (TryResolveUserStructDef(interfaceType, structDefinitions, out var candidate)
-            && candidate.IsInterface)
-        {
-            def = candidate;
-            return true;
-        }
-
-        def = null!;
-        return false;
-    }
-
-    private static bool TryResolveUserStructDef(
-        Type sourceType,
-        IEnumerable<ColumnarStructDef> structDefinitions,
-        out ColumnarStructDef def)
-    {
-        if (sourceType is TypeBuilder builder
-            && TryFindDefByBuilder(structDefinitions, builder, out def))
-            return true;
-
-        var isGenericType = false;
-        try
-        {
-            isGenericType = sourceType.IsGenericType;
-        }
-        catch (NotSupportedException)
-        {
-            isGenericType = false;
-        }
-        catch (NotImplementedException)
-        {
-            isGenericType = false;
-        }
-
-        if (isGenericType)
-        {
-            try
-            {
-                if (sourceType.GetGenericTypeDefinition() is TypeBuilder openBuilder
-                    && TryFindDefByBuilder(structDefinitions, openBuilder, out def))
-                    return true;
-            }
-            catch (NotSupportedException)
-            {
-                // Some builder-backed instantiations expose only a narrow reflection surface.
-            }
-            catch (NotImplementedException)
-            {
-                // Some builder-backed instantiations expose only a narrow reflection surface.
-            }
-        }
-
-        def = null!;
-        return false;
-    }
-
-    private static bool TryFindDefByBuilder(
-        IEnumerable<ColumnarStructDef> structDefinitions,
-        TypeBuilder builder,
-        out ColumnarStructDef def)
-    {
-        foreach (var candidate in structDefinitions)
-        {
-            if (candidate.Builder == builder)
-            {
-                def = candidate;
-                return true;
-            }
-        }
-
-        def = null!;
-        return false;
     }
 
     // PASS 0e bodies — the legacy emitter's synthesized record members VERBATIM (EmitRecordEquals /
@@ -9334,11 +9247,7 @@ internal sealed class ColumnarIlEmitter
                         type = structReceiverType.GetGenericArguments()[member == "Key" ? 0 : 1];
                         return true;
                     }
-                    ColumnarStructDef? fieldStruct = null;
-                    foreach (var d in _structRegistry.Values)
-                    {
-                        if (d.Builder == structReceiverType) { fieldStruct = d; break; }
-                    }
+                    var fieldStruct = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, structReceiverType);
                     if (fieldStruct == null)
                     {
                         // A CLOSED user-generic receiver (`Box<int>`): resolve on the OPEN definition (own
@@ -15677,23 +15586,7 @@ internal sealed class ColumnarIlEmitter
     // Member tokens on the closed type are rebound via TypeBuilder.GetField/GetMethod; member TYPES
     // substitute the closed arguments positionally.
     private bool TryGetClosedReceiverDef(Type receiverType, out ColumnarStructDef def, out Type[] closedArguments)
-    {
-        def = null!;
-        closedArguments = System.Array.Empty<Type>();
-        if (!ColumnarTypeOfPlanner.IsClosedSourceGeneric(receiverType))
-            return false;
-        var definition = receiverType.GetGenericTypeDefinition();
-        foreach (var d in _structRegistry.Values)
-        {
-            if (d.Builder == definition)
-            {
-                def = d;
-                closedArguments = receiverType.GetGenericArguments();
-                return true;
-            }
-        }
-        return false;
-    }
+        => ColumnarSourceDefinitionResolver.TryResolveClosedReceiver(receiverType, _structRegistry, out def, out closedArguments);
 
     private static bool TryGetEnumerableElementType(Type receiverType, out Type elementType)
     {
@@ -17232,7 +17125,7 @@ internal sealed class ColumnarIlEmitter
         var constraints = GetGenericInterfaceConstraints(receiverType);
         foreach (var constraint in constraints)
         {
-            if (!TryResolveUserInterfaceDef(constraint, _structRegistry.Values, out var interfaceDef))
+            if (!ColumnarSourceDefinitionResolver.TryResolveInterface(constraint, _structRegistry.Values, out var interfaceDef))
                 continue;
             if (!TrySelectClosedInterfaceMethodForCall(
                     constraint,
