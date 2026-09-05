@@ -360,6 +360,37 @@ test "explicit external signature selection ignores forged legacy source registr
     assert table.ValidatePair(legacySelected, externalParameter)
     assert table.ValidatePair(externalSelected, externalParameter)
 
+    forgedParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+    forgedParameters[externalParameter.get_Name()] = externalParameter
+    table.RegisterGenericParameters(
+        forgedParameters,
+        ColumnarStructuralGenericOwnerIdentity.SourceType(
+            402,
+            "Legacy.Forged.ParameterOwner"
+        )
+    )
+    sourceLabelledSelected := table.SelectRuntimeType(externalParameter)
+    externalAfterRegistration := table.SelectExternalSignatureType(externalParameter)
+    sourceLabelledKey := ExternalGenericIdentityRequiredKey(
+        sourceLabelledSelected,
+        "source-labelled metadata VAR"
+    )
+    externalAfterRegistrationKey := ExternalGenericIdentityRequiredKey(
+        externalAfterRegistration,
+        "external metadata VAR after source registration"
+    )
+    assert sourceLabelledKey.Kind == ColumnarStructuralTypeReferenceKind.TypeGenericParameter
+    assert sourceLabelledKey.GenericOwnerKind == ColumnarStructuralGenericOwnerKind.SourceType
+    assert Object.ReferenceEquals(sourceLabelledKey.EmissionIdentity, table.Identity)
+    assert externalAfterRegistrationKey.GenericOwnerKind == ColumnarStructuralGenericOwnerKind.ExternalType
+    assert externalAfterRegistrationKey.EmissionIdentity == null
+    assert !ColumnarStructuralTypeKeyFacts.KeysEqual(
+        sourceLabelledKey,
+        externalAfterRegistrationKey
+    )
+    assert table.ValidatePair(sourceLabelledSelected, externalParameter)
+    assert table.ValidatePair(externalAfterRegistration, externalParameter)
+
     sourceDefinition := TypeOfCreateBuilder(
         "Models.ActualSource`1",
         "ExternalGenericIdentity.ActualSource",
