@@ -111,6 +111,15 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   strict source retains 259 findings. Closed-source, external/base/iterator member resolution,
   remaining type consumers, ambient locals and maxstack remain open. See STATUS and the
   [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22b-source-interface-member-resolution.md).
+  **S2.2(c) implemented at `0813c1ac`, controls integrated at `93ecaf6d`:** closed source-interface
+  matching, completeness and signature substitution are N#-owned, as is the shared generic method
+  rebinder. Four C# helpers are deleted; successful immutable open/context/effective bindings remain
+  consumed through override execution. Original source facts are snapshotted and validated without
+  a second closure. Emitter 19,517 / 18,537 nonblank (−96 / −85); estate 7,726, native declarations 89;
+  strict 259 unchanged. Three-arm parity covers 94 images and 2,165 tests per arm with zero differences;
+  exact controls pass 20/20 with all 24 MethodImpl rows equal. External/base/iterator members,
+  source discovery/call admission, remaining type consumers, ambient locals and maxstack remain open.
+  See STATUS and the [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22c-closed-source-interface-members.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

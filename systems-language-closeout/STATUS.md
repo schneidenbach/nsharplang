@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), and **S2.2(a)–(b) landed**. `4b592311` moves ordinary source-interface member resolution into N# and consumes structural bindings before override attachment; the C# helper is deleted. Retained identity storage is corrected to readonly fields/read-only collections. Estate 7,714; native declarations 85; merged audit 18/18; 94 images and all corpus outcomes match. **Remaining S2.2 member families, type consumers, ambient locals and maxstack precede S2.3–S2.6.** The fresh backend checkpoint is identified below — §4.12 |
+| 023 | slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), and **S2.2(a)–(c) landed**. `0813c1ac` moves the closed source-interface family and shared generic substitution/rebinding into N#; four C# helpers are deleted and immutable closed bindings are consumed before override attachment. Estate 7,726; native declarations 89; audit 18/18; 94 images and all corpus outcomes match. **Remaining S2.2 member families, type consumers, ambient locals and maxstack precede S2.3–S2.6.** The fresh backend checkpoint is identified below — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,47 +123,46 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** continue S2.2 after the ordinary source-interface cut at `4b592311`.
-Revalidate the closed-source-interface resolver and its generic-substitution dependency closure as
-one bounded candidate; substitution also serves constrained calls, so do not delete only one caller.
-External/base/iterator member families remain separate policies. Attachment rows landed in S2.1(i),
-and ordinary source matching/descriptors are now consumed; neither route should be repeated.
-Then finish remaining type-pool consumers, ambient-local slots and retained maxstack before S2.3
-through S2.6. Task 023/3 removes runtime emit lookups/Cecil rewriting; 023/4 deletes Reflection.Emit
-and ColumnarIlEmitter.cs. The corrected pool census remains 36 calls in 12 files: one keyed and 35
-handle-only; this cut changes no AddType call. The separate loaded-external-type probe remains in C#.
+**Next writer slice:** continue S2.2 after closed source-interface resolution at `0813c1ac`.
+Revalidate external-interface matching and target selection as the next bounded candidate;
+base and iterator member families retain separate policies. Ordinary and closed source matching,
+shared generic substitution/rebinding and their consumed descriptors are now N#-owned; do not repeat
+those routes. Source-definition discovery and constrained-call argument admission remain explicit
+debt. Then finish remaining type-pool consumers, ambient-local slots and retained maxstack before
+S2.3 through S2.6. Task 023/3 removes runtime emit lookups/Cecil rewriting; 023/4 deletes Reflection.Emit
+and ColumnarIlEmitter.cs. The pool census remains 36 calls in 12 files: one keyed and 35 handle-only;
+this cut changes no AddType call. The separate loaded-external-type probe remains in C#.
 
-**Goal checkpoint (2026-09-05):** S2.2(b), implemented at `4b592311` with production controls at
-`ad303387`, removes the ordinary C# source-interface lookup helper. N# preserves first Methods row,
-CLR Type equality and own-first/depth-first order, then captures the actual found declaration,
-signature identity and independent runtime companions in the shared emission table. All direct
-bindings validate before the first override attachment; source/closed deduplication order is retained.
-A required S2.2(a) correction replaces mutable retained backing fields/arrays with readonly fields
-and copied BCL read-only collections. Three controls fail on the old representation and pass here.
-Emitter totals are **19,613 / 18,622 nonblank** (−16 / −15), with observed merged head
-`head-v1:8ff51ba796192fbc`, audit **18/18**; no ceiling is raised.
+**Goal checkpoint (2026-09-05):** S2.2(c), implemented at `0813c1ac`, with direct controls at
+`417f66e71` and production controls at `93ecaf6d`, removes all four C# closed-interface helpers.
+N# preserves first Methods row, TypesEquivalent matching, return/arity/parameter order, original
+closed-context ordinal substitution and shared runtime/builder rebinding. A deriving match retains
+original open facts and the exact successful effective handles; descriptor construction checks its
+source snapshot, and all bindings validate against the consuming table before any attachment.
+Emitter totals are **19,517 / 18,537 nonblank** (−96 / −85), with observed merged head
+`head-v1:3e5ff5c7c0070ed0`, audit **18/18**; no ceiling is raised.
 
-Fixed `d29eac35` corpus: **94 images and 2,159 native tests per arm**, zero whole-PE/output-set/outcome
-differences in pre/pre and pre/post. Sixteen exact production controls pass on both immutable
-compilers; their images and all nineteen physical MethodImpl rows match, with six literal source
-slots/order checked. Both operand and MethodImpl one-byte mutants change the predicted dispatch.
-Final formatted estate **7,714/7,714**, native declarations **85/85**, iterators **25/25**, dev Columnar
-**12/12**. Strict source retains the identical **259 existing findings** across 428 files (baseline
-427); pre/post compilers return byte-identical JSON on final source, with no changed finding rows.
-[Implementation](decodes/2026-09-05-s22b-source-interface-member-resolution.md) and
-[parity proof](decodes/2026-09-05-s22b-parity-proof.md) identify the exact receipts and known limits.
+Fixed `aff32a9e` corpus: **94 images and 2,165 native tests per arm**, zero whole-PE/output-set/outcome
+differences in pre/pre and pre/post. Twenty exact production controls pass on both immutable
+compilers; their images and all twenty-four physical MethodImpl rows match, with five literal closed
+parent/open VAR signatures checked. Operand and closed-generic MethodImpl one-byte mutants change
+the predicted dispatch. Final formatted estate **7,726/7,726**, native declarations **89/89**, dev
+Columnar **12/12**. Strict source retains the identical **259 existing findings** across 429 files
+(baseline 428); pre/post compilers return byte-identical JSON on final source, with no changed rows.
+Astra's final immutable-post review links all seven relevant class IL blocks to the approved worker
+artifact, including actual readonly fields and copied BCL read-only storage.
+[Implementation](decodes/2026-09-05-s22c-closed-source-interface-members.md) and
+[parity proof](decodes/2026-09-05-s22c-parity-proof.md) identify receipts and retained limits.
 
-The fresh backend integration run is recorded outside the committed source snapshot at
-`/private/tmp/gate-20260905-goal-s22b-r2/`: `source.json` identifies its exact revision, `gate.log`
-carries the fresh run, and `exit-code.txt` is its terminal result. Read that actual verdict before
-advancing or pushing; this ledger does not substitute for the gate. The prior S2.2(a) checkpoint
-was freshly gated and pushed at `d29eac35`; retained receipt:
-`/private/tmp/gate-20260904-goal-s22a-r1/acceptance.json`.
-The first S2.2(b) gate (`e30e1e6d`, r1) finished with one installer dry-run failure: exit 1
-while printing `dotnet pack`, empty stderr. All other steps passed, including estate 7,714 and
-IL verification of 68 assemblies. The same compiled failing test passed 1/1 and the complete unit
-suite 593/593 on replay; the original cause remains unproven. No test or assertion was changed.
-Raw failure and replay scope: `/private/tmp/gate-20260905-goal-s22b-r1/failure-receipt.json`.
+The fresh backend integration run is recorded outside the committed snapshot at
+`/private/tmp/gate-20260905-goal-s22c-r1/`: `source.json` identifies its exact revision, `gate.log`
+carries the fresh run, and `exit-code.txt` is its terminal result. Read the actual verdict before
+advancing or pushing; this ledger does not substitute for the gate. The prior S2.2(b) checkpoint
+was freshly gated and pushed at `aff32a9e`; receipt:
+`/private/tmp/gate-20260905-goal-s22b-r2/acceptance.json`.
+Its first gate failed one installer dry-run test mid-printf; compiled replays and the full fresh
+retry passed. The cause remains unproven; no test/assertion workaround was made. Retained failure:
+`/private/tmp/gate-20260905-goal-s22b-r1/failure-receipt.json` and the b proof's investigation record.
 Astra owns planning/review/integration; Sol and Terra execute bounded work. All terminal
 015/021/022/023 boxes remain open. No SDK republish or IDE behavior change is claimed here.
 
@@ -3027,6 +3026,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| 023/S2.2(c) — closed source-interface members | `0813c1ac`; controls `417f66e71` / `93ecaf6d`; this integration commit | Closed matching/completeness/substitution and shared generic method rebinding move to N#; four C# helpers deleted, immutable open/context/effective bindings consumed | Preserve TypesEquivalent, first Methods row, original ordinal context and reflection branch. Derive signature once; snapshot source facts and validate every binding before attachment | Emitter 19,517/18,537 (−96/−85); estate 7,726; declarations 89. Three-arm parity 94 images/2,165 tests each, zero differences; exact controls 20/20 and 24 MethodImpl rows each; strict 259 unchanged; audit 18/18, `head-v1:3e5ff5c7c0070ed0`. [Proof](decodes/2026-09-05-s22c-parity-proof.md) |
 | 023/S2.2(b) — ordinary source-interface members | `4b592311`; controls `ad303387`; this integration commit | Ordinary source-interface lookup moves to N# and produces an actual declaring/signature binding consumed before override attachment; C# recursive helper deleted | Preserve CLR Type equality, first Methods row and depth-first order. Validate against the consuming table with independent runtime companions before all attachments. Readonly storage correction closes the prior backing-field/array mutation gap | Emitter 19,613/18,622 (−16/−15); estate 7,714; declarations 85; iterators 25. Three-arm parity 94 images/2,159 tests each, zero differences; exact controls 16/16 and 19 MethodImpl rows each; strict 259 unchanged; audit 18/18, `head-v1:8ff51ba796192fbc`. [Proof](decodes/2026-09-05-s22b-parity-proof.md) |
 | 023/S2.2(a) — canonical structural resolution | `77686382`; this integration commit | Ordinary/generic-aware canonical resolution and dependency closure move into N#; thirteen C# helpers are deleted. The typeof pool/executor consumes the selected key/runtime pair | Fresh emission tokens, distinct source/synthesized and VAR/MVAR owners, erased-enum provenance and pre-IL validation. Actual pool census 36/12 corrects the earlier name-only count; 35 handle-only consumers remain | Emitter 19,629/18,637 (−1,059/−1,040); estate 7,703; declarations 79; iterators 25. Three-arm parity 94 images/2,155 tests each, zero differences; exact new controls 14/14 each; audit 18/18, `head-v1:0693c72e2dad21ec`. [Proof](decodes/2026-09-04-s22a-parity-proof.md) |
 | 023/S2.1(i) — method overrides | `75fa5a77`; this integration commit | All fourteen C# attachments move to consumed ordinary/iterator N# records; two MethodInfo equality domains, final flags, deferred decline and target order are N#-owned | Runtime handles are retained without eager MethodBuilder reflection. Physical MethodImpl table order differs from attachment call order; both are preserved. Fixture typeof/default-argument failures were measured and fixed without the discarded reflection wrapper | Emitter 20,688/19,677 (−26 each); estate 7,676; native declarations 76; both-CLI new controls 10/10. Three-arm parity 94 images/2,145 native tests each, zero differences; audit 18/18, `head-v1:dc4ce2dde3db9257`. [Proof](decodes/2026-09-04-s21i-parity-proof.md) |
