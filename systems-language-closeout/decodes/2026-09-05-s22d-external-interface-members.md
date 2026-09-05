@@ -50,7 +50,8 @@ The structural key schema now has explicit `ExternalType` and `ExternalMethod` g
 external VAR records its actual open `ExternalNamedDefinition` owner and flattened generic ordinal,
 including nested definitions. An external MVAR additionally records the declaring module MVID,
 MethodDef token, name, generic arity, calling convention and static flag. Runtime and
-`MetadataLoadContext` representations of the same metadata owner intern to the same key; overloads,
+`MetadataLoadContext` representations of the same metadata image (assembly identity, MVID and MethodDef
+token checked by the contracts) intern to the same key; overloads,
 type owners, nested positions and method owners remain distinct.
 
 Open metadata signatures use `SelectExternalSignatureType`, which derives VAR/MVAR ownership from the
@@ -110,7 +111,7 @@ deletes 34. The final formatted resolver SHA256 is
 `0fcf1871cb185476725afc0bd71eebe2c028e3af0d2135b4d9ef531ec48bce77`, and the structural table
 SHA256 is `7f491b2c2e5ed2f8c3f463a4073fd1f02fd85b7b6c8ec088881a37ec5992e94e`.
 
-Base-interface and iterator member resolution remain later S2.2 work. This slice deliberately retains
+Base-method and iterator member resolution remain later S2.2 work. This slice deliberately retains
 raw reflection exceptions, `GetMethods()` ordering, first-`Methods` completeness, external default
 requirements, the absence of inherited-interface recursion and the separate source/external dedup
 domains. Modifier interleaving and the remaining handle-only type-pool consumers remain writer debt.

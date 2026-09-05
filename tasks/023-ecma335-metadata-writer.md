@@ -120,6 +120,15 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   exact controls pass 20/20 with all 24 MethodImpl rows equal. External/base/iterator members,
   source discovery/call admission, remaining type consumers, ambient locals and maxstack remain open.
   See STATUS and the [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22c-closed-source-interface-members.md).
+  **S2.2(d) implemented at `405483ca4`, controls integrated at `7009a190d`:** external-interface
+  enumeration, matching and completeness are N#-owned; the C# matcher and both loops are deleted.
+  Consumed descriptors retain actual external VAR/MVAR ownership, open/context/effective types and
+  ordered required/optional custom modifiers. Original unfiltered GetMethods and first-Methods policy
+  remains. Emitter 19,492 / 18,513 nonblank (−25 / −24); estate 7,736, native declarations 93; strict
+  259 unchanged. Three-arm parity covers 94 images and 2,169 tests per arm with zero differences;
+  exact controls pass 24/24 with all 31 MethodImpl rows equal. Base/iterator descriptors, source
+  discovery/call admission, remaining type consumers, ambient locals and maxstack remain open.
+  See STATUS and the [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22d-external-interface-members.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
