@@ -2,6 +2,10 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.IO
+import System.Reflection
+import System.Reflection.Emit
+import System.Runtime.InteropServices
 import NSharpLang.Compiler
 
 func DeclarationPlanEmptyProgramInput(source: string, enums: IReadOnlyList<ColumnarEnumInput>): ColumnarProgramInput {
@@ -804,4 +808,239 @@ test "PInvoke rows preserve parsed explicit and default entry points without inv
     missing := DeclarationPlanPInvokeMethod("Abs", true, true)
     missing.NativeImportEntryPoint = ""
     assert !DeclarationPlanPInvokeRow(missing).IsValid
+}
+
+func DeclarationPlanOverrideDeclaration(name: string, returnCanonical: string, requestsBaseOverride: bool): ColumnarMethodOverrideDeclaration {
+    return new ColumnarMethodOverrideDeclaration(
+        134,
+        requestsBaseOverride,
+        "Worker",
+        name,
+        returnCanonical,
+        new string[](0)
+    )
+}
+
+test "override rows are sparse by source ordinal, exclude static methods, and capture source identity" {
+    staticMethod := DeclarationPlanMethodInput("Static", "void", true)
+    parameterNames := new string[](1)
+    parameterNames[0] = "value"
+    parameterCanonicals := new string[](1)
+    parameterCanonicals[0] = "int"
+    instanceMethod := new ColumnarFunctionInput(
+        "Transform",
+        "string",
+        parameterNames,
+        parameterCanonicals,
+        DeclarationPlanEmptyBody(),
+        0,
+        false
+    )
+    instanceMethod.ModifierFlags = ColumnarFunctionInput.OverrideModifierFlag()
+    ordinaryMethod := DeclarationPlanMethodInput("Ordinary", "void", false)
+    methods := new List<ColumnarFunctionInput>()
+    methods.Add(staticMethod)
+    methods.Add(instanceMethod)
+    methods.Add(ordinaryMethod)
+    structs := new List<ColumnarStructInput>()
+    structInput := DeclarationPlanMethodStruct("Worker", methods)
+    structs.Add(structInput)
+    plan := ColumnarDeclarationPlanner.BuildAssemblyAndEnums(
+        DeclarationPlanTypeDefProgram("", structs, new List<ColumnarInterfaceInput>()),
+        "OverrideRows"
+    )
+    rows := plan.MethodOverrides.Methods
+    assert rows.Length == 1
+    assert rows[0].Length == 3
+    assert rows[0][0] == null
+    assert rows[0][1].BaseMethodAttributes == 134
+    assert rows[0][1].RequestsBaseOverride
+    assert rows[0][1].DeclineOwnerName == "Worker"
+    assert rows[0][1].MemberName == "Transform"
+    assert rows[0][1].ReturnCanonical == "string"
+    assert rows[0][1].ParameterCanonicals.Length == 1
+    assert rows[0][1].ParameterCanonicals[0] == "int"
+    assert !rows[0][2].RequestsBaseOverride
+
+    instanceMethod.Name = "Changed"
+    instanceMethod.ReturnCanonical = "bool"
+    parameterCanonicals[0] = "long"
+    structInput.Name = "Other"
+    assert rows[0][1].DeclineOwnerName == "Worker"
+    assert rows[0][1].MemberName == "Transform"
+    assert rows[0][1].ReturnCanonical == "string"
+    assert rows[0][1].ParameterCanonicals[0] == "int"
+}
+
+test "the named override modifier owner preserves the parser bit without admitting adjacent bits" {
+    assert ColumnarFunctionInput.OverrideModifierFlag() == 65536
+    assert !ColumnarFunctionInput.HasOverrideModifier(0)
+    assert ColumnarFunctionInput.HasOverrideModifier(65536)
+    assert ColumnarFunctionInput.HasOverrideModifier(65537)
+    assert !ColumnarFunctionInput.HasOverrideModifier(ColumnarFunctionInput.NativeImportModifierFlag())
+}
+
+test "ordinary override completion owns all four exact MethodAttributes outcomes" {
+    noParameters := new Type[](0)
+    voidType := ExecutorVoidType()
+    plain := DeclarationPlanOverrideDeclaration("Plain", "void", false)
+    plainCompletion := plain.Complete(null, voidType, noParameters)
+    assert plainCompletion.MethodAttributes == 134
+
+    interfaceOnly := DeclarationPlanOverrideDeclaration("Dispose", "void", false)
+    disposableType := TypeOfRequiredRuntimeType(typeof(Type), "System.IDisposable")
+    dispose := ExecutorRequiredMethod(disposableType, "Dispose", noParameters)
+    interfaceOnly.AddSourceTarget(dispose)
+    interfaceCompletion := interfaceOnly.Complete(null, voidType, noParameters)
+    assert interfaceCompletion.MethodAttributes == 486
+
+    baseOnly := DeclarationPlanOverrideDeclaration("ToString", "string", true)
+    baseCompletion := baseOnly.Complete(typeof(Exception), typeof(string), noParameters)
+    assert baseCompletion.MethodAttributes == 198
+
+    combined := DeclarationPlanOverrideDeclaration("ToString", "string", true)
+    objectToString := ExecutorRequiredMethod(typeof(object), "ToString", noParameters)
+    combined.AddSourceTarget(objectToString)
+    combinedCompletion := combined.Complete(typeof(Exception), typeof(string), noParameters)
+    assert combinedCompletion.MethodAttributes == 230
+}
+
+test "source and external interface targets deduplicate independently and retain first occurrence" {
+    unbakedOwner := TypeOfCreateSourceBuilder("UnbakedOverrideTarget", false)
+    noParameters := new Type[](0)
+    voidType := ExecutorVoidType()
+    target := unbakedOwner.DefineMethod("Pending", (MethodAttributes)486, voidType, noParameters)
+    row := DeclarationPlanOverrideDeclaration("Pending", "void", false)
+    row.AddSourceTarget(target)
+    row.AddSourceTarget(target)
+    row.AddExternalTarget(target)
+    row.AddExternalTarget(target)
+    completion := row.Complete(null, voidType, noParameters)
+
+    assert row.SourceTargetCount == 1
+    assert row.ExternalTargetCount == 1
+    assert completion.Targets.Length == 2
+    assert completion.Targets[0].TargetKind == ColumnarMethodOverrideDeclaration.SourceInterfaceTargetKind()
+    assert completion.Targets[0].TargetOrdinal == 0
+    assert Object.ReferenceEquals(completion.Targets[0].Target, target)
+    assert completion.Targets[1].TargetKind == ColumnarMethodOverrideDeclaration.ExternalInterfaceTargetKind()
+    assert completion.Targets[1].TargetOrdinal == 0
+    assert Object.ReferenceEquals(completion.Targets[1].Target, target)
+}
+
+test "default MethodInfo equality retains same-signature handles from distinct declaring interfaces" {
+    nongenericList := TypeOfRequiredRuntimeType(typeof(Type), "System.Collections.IList")
+    genericListDefinition := TypeOfRequiredRuntimeType(
+        typeof(Type),
+        "System.Collections.Generic.IList`1"
+    )
+    genericArguments := new Type[](1)
+    genericArguments[0] = typeof(int)
+    genericList := genericListDefinition.MakeGenericType(genericArguments)
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(int)
+    nongeneric := ExecutorRequiredMethod(nongenericList, "RemoveAt", parameterTypes)
+    generic := ExecutorRequiredMethod(genericList, "RemoveAt", parameterTypes)
+    assert nongeneric.get_Name() == generic.get_Name()
+    assert nongeneric.GetParameters().Length == 1
+    assert generic.GetParameters().Length == 1
+    assert !Object.ReferenceEquals(nongeneric, generic)
+
+    row := DeclarationPlanOverrideDeclaration("RemoveAt", "void", false)
+    row.AddSourceTarget(nongeneric)
+    row.AddSourceTarget(generic)
+    completion := row.Complete(null, ExecutorVoidType(), parameterTypes)
+    assert row.SourceTargetCount == 2
+    assert completion.Targets.Length == 2
+    assert Object.ReferenceEquals(completion.Targets[0].Target, nongeneric)
+    assert Object.ReferenceEquals(completion.Targets[1].Target, generic)
+}
+
+test "default MethodInfo equality retains runtime and MetadataLoadContext twins" {
+    noParameters := new Type[](0)
+    disposableType := TypeOfRequiredRuntimeType(typeof(Type), "System.IDisposable")
+    resolver := new PathAssemblyResolver(
+        Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll")
+    )
+    context := new MetadataLoadContext(
+        resolver,
+        AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName()
+    )
+    metadataCore := context.LoadFromAssemblyName("System.Runtime")
+    metadataDisposable := metadataCore.GetType("System.IDisposable")
+    if metadataDisposable == null {
+        throw new InvalidOperationException("Metadata System.IDisposable was not found.")
+    }
+    runtimeTarget := ExecutorRequiredMethod(disposableType, "Dispose", noParameters)
+    metadataTarget := ExecutorRequiredMethod(metadataDisposable, "Dispose", noParameters)
+    assert runtimeTarget.get_Name() == metadataTarget.get_Name()
+    assert !Object.ReferenceEquals(runtimeTarget, metadataTarget)
+
+    row := DeclarationPlanOverrideDeclaration("Dispose", "void", false)
+    row.AddExternalTarget(runtimeTarget)
+    row.AddExternalTarget(metadataTarget)
+    completion := row.Complete(null, ExecutorVoidType(), noParameters)
+    assert row.ExternalTargetCount == 2
+    assert completion.Targets.Length == 2
+    assert Object.ReferenceEquals(completion.Targets[0].Target, runtimeTarget)
+    assert Object.ReferenceEquals(completion.Targets[1].Target, metadataTarget)
+    context.Dispose()
+}
+
+test "ordinary override completion orders base, source, then external targets without reflecting over handles" {
+    noParameters := new Type[](0)
+    disposableType := TypeOfRequiredRuntimeType(typeof(Type), "System.IDisposable")
+    enumeratorType := TypeOfRequiredRuntimeType(typeof(Type), "System.Collections.IEnumerator")
+    enumerableType := TypeOfRequiredRuntimeType(typeof(Type), "System.Collections.IEnumerable")
+    sourceFirst := ExecutorRequiredMethod(disposableType, "Dispose", noParameters)
+    sourceSecond := ExecutorRequiredMethod(enumeratorType, "Reset", noParameters)
+    external := ExecutorRequiredMethod(enumerableType, "GetEnumerator", noParameters)
+    row := DeclarationPlanOverrideDeclaration("ToString", "string", true)
+    row.AddSourceTarget(sourceFirst)
+    row.AddSourceTarget(sourceSecond)
+    row.AddExternalTarget(external)
+    completion := row.Complete(typeof(Exception), typeof(string), noParameters)
+
+    assert completion.IsValid
+    assert completion.Targets.Length == 4
+    assert completion.Targets[0].TargetKind == ColumnarMethodOverrideDeclaration.BaseTargetKind()
+    assert completion.Targets[0].TargetOrdinal == 0
+    assert completion.Targets[0].Target.get_Name() == "ToString"
+    assert completion.Targets[1].TargetKind == ColumnarMethodOverrideDeclaration.SourceInterfaceTargetKind()
+    assert completion.Targets[1].TargetOrdinal == 0
+    assert Object.ReferenceEquals(completion.Targets[1].Target, sourceFirst)
+    assert completion.Targets[2].TargetKind == ColumnarMethodOverrideDeclaration.SourceInterfaceTargetKind()
+    assert completion.Targets[2].TargetOrdinal == 1
+    assert Object.ReferenceEquals(completion.Targets[2].Target, sourceSecond)
+    assert completion.Targets[3].TargetKind == ColumnarMethodOverrideDeclaration.ExternalInterfaceTargetKind()
+    assert completion.Targets[3].TargetOrdinal == 0
+    assert Object.ReferenceEquals(completion.Targets[3].Target, external)
+    assert completion.Targets[3].MemberName == "ToString"
+    assert completion.Targets[3].ReturnCanonical == "string"
+}
+
+test "a requested base override publishes the exact late decline payload" {
+    row := DeclarationPlanOverrideDeclaration("Missing", "void", true)
+    completion := row.Complete(typeof(Exception), ExecutorVoidType(), new Type[](0))
+    assert !completion.IsValid
+    assert completion.DeclineCode == "emit.declaration.override-target"
+    assert completion.DeclineMessage == "no overridable base member matches 'Missing' for 'Worker'"
+    assert completion.DeclineOwnerName == "Worker"
+    assert completion.Targets.Length == 0
+}
+
+test "ordinary override execution consumes its ordered NSharp target row" {
+    owner := TypeOfCreateSourceBuilder("OrdinaryOverrideExecutor", false)
+    noParameters := new Type[](0)
+    voidType := ExecutorVoidType()
+    disposableType := TypeOfRequiredRuntimeType(typeof(Type), "System.IDisposable")
+    owner.AddInterfaceImplementation(disposableType)
+    body := owner.DefineMethod("Dispose", (MethodAttributes)486, voidType, noParameters)
+    target := ExecutorRequiredMethod(disposableType, "Dispose", noParameters)
+    row := DeclarationPlanOverrideDeclaration("Dispose", "void", false)
+    row.AddExternalTarget(target)
+    completion := row.Complete(null, voidType, noParameters)
+    completion.Apply(owner, body)
+    assert completion.Targets.Length == 1
+    assert Object.ReferenceEquals(completion.Targets[0].Target, target)
 }

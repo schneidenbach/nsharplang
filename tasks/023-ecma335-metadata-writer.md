@@ -77,17 +77,23 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   control-first proof compares 94 assemblies with no IL, output-set or outcome differences and 2,138
   native tests per arm. Constructor resolution remains S2.2; (h) follows below. See STATUS for the
   exact fresh integration-gate record and the dated parity proof.
-  **(h) implemented at `0cde66a0`, integrated in the current checkpoint:** N# P/Invoke rows own
+  **(h) implemented at `0cde66a0`, integrated at checkpoint `69ad857b`:** N# P/Invoke rows own
   selection, validity/declines, names, attribute/convention words and implementation-bit merging.
   Shared native-flag bodies move onto ColumnarFunctionInput after strict analysis exposed a global
   helper visibility problem. No new C# policy; emitter −8 lines, InputBuilder expression −9 bytes.
   Three-arm proof: 94 images and 2,138 native tests per arm, zero image/output/outcome differences.
-  Estate 7,666; native declarations 66; audit 18/18. **(i) is next**; fourteen C# override attachment
-  sites remain, and existing iterator override strings are not routed. See STATUS's gate pointer
-  and the dated h proof/i next-cut documents. Shared signature/default metadata remains later work.
-- **S2.2 — resolution moves to N#**: the 57 `TryResolveType` sites emit a resolved type-reference KEY, `AddType` gains its
+  Estate 7,666; native declarations 66; audit 18/18. Shared signature/default metadata remains later work.
+  **(i) implemented at `75fa5a77`, integrated in the current checkpoint:** all fourteen C# override
+  attachment sites move to consumed ordinary/iterator N# records. Exact target order, equality
+  domains, flags, late errors and iterator reflection phases are preserved. Emitter −26 lines;
+  estate 7,676, native declarations 76, audit 18/18. Three-arm parity compares 94 images and 2,145
+  native tests per arm with zero differences; exact new controls pass 10/10 on both compilers.
+  See STATUS's fresh gate pointer and [i proof](../systems-language-closeout/decodes/2026-09-04-s21i-parity-proof.md).
+- **S2.2 — resolution moves to N#**: the revalidated 56 ordinary and 30 type-parameter-aware resolver calls (definitions excluded) emit a resolved type-reference KEY, `AddType` gains its
   structural form, the override resolver returns a descriptor beside its `MethodInfo`, maxstack becomes a plan column
-  from `ValidateMethodBodyStack`'s heights, ambient locals become slot indices.
+  from `ValidateMethodBodyStack`'s heights, ambient locals become slot indices. The first connected
+  resolver cut and required production key consumer are specified in the
+  [next-cut decode](../systems-language-closeout/decodes/2026-09-04-s22-resolution-next-cut.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

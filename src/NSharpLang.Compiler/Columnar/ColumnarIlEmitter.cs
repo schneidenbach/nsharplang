@@ -145,7 +145,6 @@ internal sealed class ColumnarIlEmitter
         ?? throw new InvalidOperationException("ValueTuple<int,int>.Item2 not found.");
 
     private const int NSharpModifierGenerator = 4096; // `func*`; must mirror Modifiers.Generator
-    private const int NSharpModifierOverride = 65536;
     private const int NSharpParameterModifierParams = 3;
     private const int NSharpParameterModifierThis = 4;
     private const int ColumnarNamedArgumentExpressionKind = 60;
@@ -3671,34 +3670,41 @@ internal sealed class ColumnarIlEmitter
             | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
 
         var moveNext = sm.DefineMethod(shape.MemberNames[1], publicImpl, typeof(bool), Type.EmptyTypes);
-        sm.DefineMethodOverride(moveNext, typeof(System.Collections.IEnumerator).GetMethod("MoveNext")!);
+        var moveNextOverride = shape.MemberOverrideRows[1];
+        moveNextOverride.Apply(sm, moveNext, typeof(System.Collections.IEnumerator).GetMethod(moveNextOverride.LookupName)!);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator());
 
         var getCurrent = sm.DefineMethod(
             shape.MemberNames[2], publicImpl | MethodAttributes.SpecialName, elementType, Type.EmptyTypes);
-        sm.DefineMethodOverride(getCurrent, ResolveClosedGenericMethod(enumeratorOfT, typeof(IEnumerator<>).GetMethod("get_Current")!));
+        var getCurrentOverride = shape.MemberOverrideRows[2];
+        getCurrentOverride.Apply(sm, getCurrent, ResolveClosedGenericMethod(enumeratorOfT, typeof(IEnumerator<>).GetMethod(getCurrentOverride.LookupName)!));
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator());
 
         var interfaceCurrent = sm.DefineMethod(
             shape.MemberNames[3], explicitImpl | MethodAttributes.SpecialName, typeof(object), Type.EmptyTypes);
-        sm.DefineMethodOverride(interfaceCurrent, typeof(System.Collections.IEnumerator).GetProperty("Current")!.GetGetMethod()!);
+        var interfaceCurrentOverride = shape.MemberOverrideRows[3];
+        interfaceCurrentOverride.Apply(sm, interfaceCurrent, typeof(System.Collections.IEnumerator).GetProperty(interfaceCurrentOverride.LookupName)!.GetGetMethod()!);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildInterfaceGetCurrentPlan(context), interfaceCurrent.GetILGenerator());
 
         var reset = sm.DefineMethod(shape.MemberNames[4], explicitImpl, typeof(void), Type.EmptyTypes);
-        sm.DefineMethodOverride(reset, typeof(System.Collections.IEnumerator).GetMethod("Reset")!);
+        var resetOverride = shape.MemberOverrideRows[4];
+        resetOverride.Apply(sm, reset, typeof(System.Collections.IEnumerator).GetMethod(resetOverride.LookupName)!);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildResetPlan(), reset.GetILGenerator());
 
         var dispose = sm.DefineMethod(shape.MemberNames[5], explicitImpl, typeof(void), Type.EmptyTypes);
-        sm.DefineMethodOverride(dispose, typeof(IDisposable).GetMethod("Dispose")!);
+        var disposeOverride = shape.MemberOverrideRows[5];
+        disposeOverride.Apply(sm, dispose, typeof(IDisposable).GetMethod(disposeOverride.LookupName)!);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposePlan(context), dispose.GetILGenerator());
 
         var getEnumerator = sm.DefineMethod(shape.MemberNames[6], publicImpl, enumeratorOfT, Type.EmptyTypes);
-        sm.DefineMethodOverride(getEnumerator, ResolveClosedGenericMethod(enumerableOfT, typeof(IEnumerable<>).GetMethod("GetEnumerator")!));
+        var getEnumeratorOverride = shape.MemberOverrideRows[6];
+        getEnumeratorOverride.Apply(sm, getEnumerator, ResolveClosedGenericMethod(enumerableOfT, typeof(IEnumerable<>).GetMethod(getEnumeratorOverride.LookupName)!));
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetEnumeratorPlan(context), getEnumerator.GetILGenerator());
 
         var interfaceGetEnumerator = sm.DefineMethod(
             shape.MemberNames[7], explicitImpl, typeof(System.Collections.IEnumerator), Type.EmptyTypes);
-        sm.DefineMethodOverride(interfaceGetEnumerator, typeof(System.Collections.IEnumerable).GetMethod("GetEnumerator")!);
+        var interfaceGetEnumeratorOverride = shape.MemberOverrideRows[7];
+        interfaceGetEnumeratorOverride.Apply(sm, interfaceGetEnumerator, typeof(System.Collections.IEnumerable).GetMethod(interfaceGetEnumeratorOverride.LookupName)!);
         ColumnarCodePlanExecutor.Execute(
             ColumnarIteratorBodyPlanner.BuildInterfaceGetEnumeratorPlan(context), interfaceGetEnumerator.GetILGenerator());
 
@@ -3803,22 +3809,26 @@ internal sealed class ColumnarIlEmitter
 
         var moveNextAsync = sm.DefineMethod(
             shape.MemberNames[2], publicImpl, typeof(System.Threading.Tasks.ValueTask<bool>), Type.EmptyTypes);
-        sm.DefineMethodOverride(moveNextAsync, ResolveClosedGenericMethod(asyncEnumerator, typeof(IAsyncEnumerator<>).GetMethod("MoveNextAsync")!));
+        var moveNextAsyncOverride = shape.MemberOverrideRows[2];
+        moveNextAsyncOverride.Apply(sm, moveNextAsync, ResolveClosedGenericMethod(asyncEnumerator, typeof(IAsyncEnumerator<>).GetMethod(moveNextAsyncOverride.LookupName)!));
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextAsyncPlan(context), moveNextAsync.GetILGenerator());
 
         var getCurrent = sm.DefineMethod(
             shape.MemberNames[3], publicImpl | MethodAttributes.SpecialName, elementType, Type.EmptyTypes);
-        sm.DefineMethodOverride(getCurrent, ResolveClosedGenericMethod(asyncEnumerator, typeof(IAsyncEnumerator<>).GetProperty("Current")!.GetGetMethod()!));
+        var getCurrentOverride = shape.MemberOverrideRows[3];
+        getCurrentOverride.Apply(sm, getCurrent, ResolveClosedGenericMethod(asyncEnumerator, typeof(IAsyncEnumerator<>).GetProperty(getCurrentOverride.LookupName)!.GetGetMethod()!));
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator());
 
         var disposeAsync = sm.DefineMethod(
             shape.MemberNames[4], publicImpl, typeof(System.Threading.Tasks.ValueTask), Type.EmptyTypes);
-        sm.DefineMethodOverride(disposeAsync, typeof(IAsyncDisposable).GetMethod("DisposeAsync")!);
+        var disposeAsyncOverride = shape.MemberOverrideRows[4];
+        disposeAsyncOverride.Apply(sm, disposeAsync, typeof(IAsyncDisposable).GetMethod(disposeAsyncOverride.LookupName)!);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposeAsyncPlan(context), disposeAsync.GetILGenerator());
 
         var getAsyncEnumerator = sm.DefineMethod(
             shape.MemberNames[5], publicImpl, asyncEnumerator, new[] { typeof(System.Threading.CancellationToken) });
-        sm.DefineMethodOverride(getAsyncEnumerator, ResolveClosedGenericMethod(asyncEnumerable, typeof(IAsyncEnumerable<>).GetMethod("GetAsyncEnumerator")!));
+        var getAsyncEnumeratorOverride = shape.MemberOverrideRows[5];
+        getAsyncEnumeratorOverride.Apply(sm, getAsyncEnumerator, ResolveClosedGenericMethod(asyncEnumerable, typeof(IAsyncEnumerable<>).GetMethod(getAsyncEnumeratorOverride.LookupName)!));
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetAsyncEnumeratorPlan(context), getAsyncEnumerator.GetILGenerator());
 
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(context), factoryIl);
@@ -4308,7 +4318,7 @@ internal sealed class ColumnarIlEmitter
         // PASS 0a'' (duck interfaces): N# interfaces are structurally assignable. When a class/record/struct
         // declares the exact instance methods an interface requires, emit real CLR interface metadata so later
         // value-flow sites (for example `List<INotifier>.Add(new ConsoleNotifier())`) are verifiable and the
-        // method declaration pass below can wire DefineMethodOverride.
+        // method declaration pass below can resolve the matching slots.
         for (var s = 0; s < structs.Count; s++)
         {
             var st = structs[s];
@@ -4480,25 +4490,14 @@ internal sealed class ColumnarIlEmitter
                     mOrdinals[m.ParamNames[i]] = i + 1;
                     mParamTypeMap[m.ParamNames[i]] = pt;
                 }
-                // An IMPLEMENTING method (name + exact signature matches a member of any directly implemented
-                // interface, or one of its inherited interfaces) gets Virtual|Final|NewSlot +
-                // DefineMethodOverride for every matching slot — the legacy emitter's DeclareMethod rule
-                // (implementing methods are FORCED virtual-final).
-                var methodAttributes = (MethodAttributes)declarationPlan.Methods.StructMethodAttributeWords[s][mi];
-                List<MethodInfo>? overriddenInterfaceMethods = null;
-                List<MethodInfo>? overriddenExternalInterfaceMethods = null;
-                MethodInfo? overriddenObjectMethod = null;
-                var seenOverriddenInterfaceMethods = new HashSet<MethodInfo>();
-                var seenOverriddenExternalInterfaceMethods = new HashSet<MethodInfo>();
+                // Resolution remains at the declaration phase because source builders and closed handles
+                // do not exist when the initial rows are planned. N# owns target deduplication, final
+                // attributes, base-target resolution and application order.
+                var methodOverride = declarationPlan.MethodOverrides.Methods[s][mi];
                 foreach (var implementedInterface in def.ImplementedInterfaces)
                 {
-                    if (TryFindInterfaceMethod(implementedInterface, m.Name, mSignatureReturn, mParamTypes, out var interfaceMember)
-                        && seenOverriddenInterfaceMethods.Add(interfaceMember))
-                    {
-                        methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
-                        overriddenInterfaceMethods ??= new List<MethodInfo>();
-                        overriddenInterfaceMethods.Add(interfaceMember);
-                    }
+                    if (TryFindInterfaceMethod(implementedInterface, m.Name, mSignatureReturn, mParamTypes, out var interfaceMember))
+                        methodOverride.AddSourceTarget(interfaceMember);
                 }
                 foreach (var implementedInterfaceType in def.ImplementedInterfaceTypes)
                 {
@@ -4506,50 +4505,25 @@ internal sealed class ColumnarIlEmitter
                         || implementedInterfaceType.IsGenericTypeDefinition
                         || !TryResolveUserInterfaceDef(implementedInterfaceType, typeResolution.Structs.Values, out var implementedInterfaceDef))
                         continue;
-                    if (TryFindClosedInterfaceMethod(implementedInterfaceType, implementedInterfaceDef, m.Name, mSignatureReturn, mParamTypes, out var interfaceMember)
-                        && seenOverriddenInterfaceMethods.Add(interfaceMember))
-                    {
-                        methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
-                        overriddenInterfaceMethods ??= new List<MethodInfo>();
-                        overriddenInterfaceMethods.Add(interfaceMember);
-                    }
+                    if (TryFindClosedInterfaceMethod(implementedInterfaceType, implementedInterfaceDef, m.Name, mSignatureReturn, mParamTypes, out var interfaceMember))
+                        methodOverride.AddSourceTarget(interfaceMember);
                 }
                 foreach (var externalInterface in def.ExternalInterfaces)
                 {
                     foreach (var externalMethod in externalInterface.GetMethods())
                     {
-                        if (ExternalInterfaceMethodMatches(externalMethod, m.Name, mSignatureReturn, mParamTypes)
-                            && seenOverriddenExternalInterfaceMethods.Add(externalMethod))
-                        {
-                            methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
-                            overriddenExternalInterfaceMethods ??= new List<MethodInfo>();
-                            overriddenExternalInterfaceMethods.Add(externalMethod);
-                        }
+                        if (ExternalInterfaceMethodMatches(externalMethod, m.Name, mSignatureReturn, mParamTypes))
+                            methodOverride.AddExternalTarget(externalMethod);
                     }
                 }
-                if ((m.ModifierFlags & NSharpModifierOverride) != 0)
-                {
-                    if (!ColumnarOverrideTargetResolver.TryFindOverrideTarget(
-                            def.ExactBaseType, m.Name, mSignatureReturn, mParamTypes, out overriddenObjectMethod))
-                        return DeclineStatic("emit.declaration.override-target", "no overridable base member matches '" + m.Name + "' for '" + structs[s].Name + "'", structs[s].Name);
-                    methodAttributes |= MethodAttributes.Virtual;
-                    methodAttributes &= ~MethodAttributes.NewSlot;
-                }
-                var mb = def.Builder.DefineMethod(m.Name, methodAttributes, mSignatureReturn, mParamTypes);
+                var methodOverrideCompletion = methodOverride.Complete(def.ExactBaseType, mSignatureReturn, mParamTypes);
+                if (!methodOverrideCompletion.IsValid)
+                    return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName);
+                var mb = def.Builder.DefineMethod(
+                    m.Name, (MethodAttributes)methodOverrideCompletion.MethodAttributes, mSignatureReturn, mParamTypes);
                 if (!DefineMethodParameterMetadata(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
                     return false;
-                if (overriddenObjectMethod != null)
-                    def.Builder.DefineMethodOverride(mb, overriddenObjectMethod);
-                if (overriddenInterfaceMethods != null)
-                {
-                    foreach (var overriddenInterfaceMethod in overriddenInterfaceMethods)
-                        def.Builder.DefineMethodOverride(mb, overriddenInterfaceMethod);
-                }
-                if (overriddenExternalInterfaceMethods != null)
-                {
-                    foreach (var overriddenExternalInterfaceMethod in overriddenExternalInterfaceMethods)
-                        def.Builder.DefineMethodOverride(mb, overriddenExternalInterfaceMethod);
-                }
+                methodOverrideCompletion.Apply(def.Builder, mb);
                 AddInstanceMethod(def, m.Name,
                     new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn));
                 structMethodJobs.Add((def, m, mb, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, mParamTypeMap, false));
