@@ -418,13 +418,13 @@ class ColumnarExternalMethodDescriptor {
         if !expectedTable.ValidatePair(lookupContextValue, lookupContextRuntimeTypeValue) || !expectedTable.ValidatePair(reflectedContextValue, reflectedContextRuntimeTypeValue) || !expectedTable.ValidatePair(declaringContextValue, declaringContextRuntimeTypeValue) || !expectedTable.ValidatePair(openDeclaringTypeValue, openDeclaringRuntimeTypeValue) || !ColumnarStructuralTypeKeyFacts.KeysEqual(lookupKey, reflectedKey) {
             return false
         }
-        if !DeclaringContextMatchesOpenDefinition() || !openReturnValue.Validate(expectedTable) || !effectiveReturnValue.Validate(expectedTable) || !SignatureTypesRelate(openReturnValue, effectiveReturnValue) {
+        if !ColumnarExternalMethodSignatureRelation.DeclaringContextMatchesOpenDefinition(openDeclaringTypeValue, declaringContextValue) || !openReturnValue.Validate(expectedTable) || !effectiveReturnValue.Validate(expectedTable) || !ColumnarExternalMethodSignatureRelation.SignatureTypesRelate(openReturnValue, effectiveReturnValue, openDeclaringTypeValue, declaringContextValue) {
             return false
         }
         index := 0
         while index < parameterCountValue {
             parameter := Parameter(index)
-            if !parameter.Open.Validate(expectedTable) || !parameter.Effective.Validate(expectedTable) || !SignatureTypesRelate(parameter.Open, parameter.Effective) {
+            if !parameter.Open.Validate(expectedTable) || !parameter.Effective.Validate(expectedTable) || !ColumnarExternalMethodSignatureRelation.SignatureTypesRelate(parameter.Open, parameter.Effective, openDeclaringTypeValue, declaringContextValue) {
                 return false
             }
             index += 1
@@ -432,77 +432,12 @@ class ColumnarExternalMethodDescriptor {
         index = 0
         while index < genericParameterCountValue {
             parameter := GenericParameter(index)
-            if !expectedTable.ValidatePair(parameter.OpenType, parameter.OpenRuntimeType) || !expectedTable.ValidatePair(parameter.EffectiveType, parameter.EffectiveRuntimeType) || !KeysRelate(parameter.OpenType.Key, parameter.EffectiveType.Key) {
+            if !expectedTable.ValidatePair(parameter.OpenType, parameter.OpenRuntimeType) || !expectedTable.ValidatePair(parameter.EffectiveType, parameter.EffectiveRuntimeType) || !ColumnarExternalMethodSignatureRelation.KeysRelate(parameter.OpenType.Key, parameter.EffectiveType.Key, openDeclaringTypeValue.Key, declaringContextValue.Key) {
                 return false
             }
             index += 1
         }
         return true
-    }
-
-    func DeclaringContextMatchesOpenDefinition(): bool {
-        openKey := openDeclaringTypeValue.Key
-        declaringKey := declaringContextValue.Key
-        if openKey == null || declaringKey == null {
-            return false
-        }
-        if declaringKey.Kind == ColumnarStructuralTypeReferenceKind.ConstructedGeneric {
-            return declaringKey.ChildCount > 0 && ColumnarStructuralTypeKeyFacts.KeysEqual(openKey, declaringKey.Child(0))
-        }
-        return ColumnarStructuralTypeKeyFacts.KeysEqual(openKey, declaringKey)
-    }
-
-    func SignatureTypesRelate(openSignature: ColumnarExternalMethodSignatureTypeDescriptor, effectiveSignature: ColumnarExternalMethodSignatureTypeDescriptor): bool {
-        if !KeysRelate(openSignature.Type.Key, effectiveSignature.Type.Key) || openSignature.RequiredModifierCount != effectiveSignature.RequiredModifierCount || openSignature.OptionalModifierCount != effectiveSignature.OptionalModifierCount {
-            return false
-        }
-        index := 0
-        while index < openSignature.RequiredModifierCount {
-            if !KeysRelate(openSignature.RequiredModifier(index).Type.Key, effectiveSignature.RequiredModifier(index).Type.Key) {
-                return false
-            }
-            index += 1
-        }
-        index = 0
-        while index < openSignature.OptionalModifierCount {
-            if !KeysRelate(openSignature.OptionalModifier(index).Type.Key, effectiveSignature.OptionalModifier(index).Type.Key) {
-                return false
-            }
-            index += 1
-        }
-        return true
-    }
-
-    func KeysRelate(openKey: ColumnarStructuralTypeKey?, effectiveKey: ColumnarStructuralTypeKey?): bool {
-        if openKey == null || effectiveKey == null {
-            return false
-        }
-        if openKey.Kind == ColumnarStructuralTypeReferenceKind.TypeGenericParameter && openKey.GenericOwnerKind == ColumnarStructuralGenericOwnerKind.ExternalType {
-            owner := openKey.ExternalGenericOwner
-            openDeclaringKey := openDeclaringTypeValue.Key
-            declaringKey := declaringContextValue.Key
-            if owner != null && openDeclaringKey != null && declaringKey != null && ColumnarStructuralTypeKeyFacts.KeysEqual(owner.DeclaringType, openDeclaringKey) {
-                if declaringKey.Kind == ColumnarStructuralTypeReferenceKind.ConstructedGeneric {
-                    argumentIndex := openKey.GenericParameterOrdinal + 1
-                    return argumentIndex > 0 && argumentIndex < declaringKey.ChildCount && ColumnarStructuralTypeKeyFacts.KeysEqual(declaringKey.Child(argumentIndex), effectiveKey)
-                }
-                return ColumnarStructuralTypeKeyFacts.KeysEqual(openKey, effectiveKey)
-            }
-        }
-        if openKey.Kind == effectiveKey.Kind && (openKey.Kind == ColumnarStructuralTypeReferenceKind.ConstructedGeneric || openKey.Kind == ColumnarStructuralTypeReferenceKind.SzArray || openKey.Kind == ColumnarStructuralTypeReferenceKind.ByRef) {
-            if openKey.ChildCount != effectiveKey.ChildCount {
-                return false
-            }
-            index := 0
-            while index < openKey.ChildCount {
-                if !KeysRelate(openKey.Child(index), effectiveKey.Child(index)) {
-                    return false
-                }
-                index += 1
-            }
-            return true
-        }
-        return ColumnarStructuralTypeKeyFacts.KeysEqual(openKey, effectiveKey)
     }
 
     static func RecoverOpenMethod(target: MethodInfo, openDeclaringType: Type): MethodInfo {

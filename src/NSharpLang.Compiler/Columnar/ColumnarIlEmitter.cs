@@ -2621,47 +2621,42 @@ internal sealed class ColumnarIlEmitter
             fn.BodyNodes, functionSource, fn.BodyRoot, shape, memberSmType, elementType, shape.FieldNames, memberFields, memberCtor,
             enclosingType, enclosingFieldNames, enclosingFields, enclosingFieldCanonicals,
             enclosingMethodNames, enclosingMethods, knownTypeNames.ToArray(), knownTypes.ToArray());
+        var overrideContext = ColumnarIteratorOverrideContext.ForSync(
+            typeResolution.StructuralTypeReferences, elementType, enumerableOfT, enumeratorOfT);
         const MethodAttributes publicImpl = MethodAttributes.Public | MethodAttributes.Virtual
             | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
         const MethodAttributes explicitImpl = MethodAttributes.Private | MethodAttributes.Virtual
             | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
 
         var moveNext = sm.DefineMethod(shape.MemberNames[1], publicImpl, typeof(bool), Type.EmptyTypes);
-        var moveNextOverride = shape.MemberOverrideRows[1];
-        moveNextOverride.Apply(sm, moveNext, typeof(System.Collections.IEnumerator).GetMethod(moveNextOverride.LookupName)!);
+        shape.MemberOverrideRows[1].Apply(overrideContext, sm, moveNext);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator());
 
         var getCurrent = sm.DefineMethod(
             shape.MemberNames[2], publicImpl | MethodAttributes.SpecialName, elementType, Type.EmptyTypes);
-        var getCurrentOverride = shape.MemberOverrideRows[2];
-        getCurrentOverride.Apply(sm, getCurrent, ResolveClosedGenericMethod(enumeratorOfT, typeof(IEnumerator<>).GetMethod(getCurrentOverride.LookupName)!));
+        shape.MemberOverrideRows[2].Apply(overrideContext, sm, getCurrent);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator());
 
         var interfaceCurrent = sm.DefineMethod(
             shape.MemberNames[3], explicitImpl | MethodAttributes.SpecialName, typeof(object), Type.EmptyTypes);
-        var interfaceCurrentOverride = shape.MemberOverrideRows[3];
-        interfaceCurrentOverride.Apply(sm, interfaceCurrent, typeof(System.Collections.IEnumerator).GetProperty(interfaceCurrentOverride.LookupName)!.GetGetMethod()!);
+        shape.MemberOverrideRows[3].Apply(overrideContext, sm, interfaceCurrent);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildInterfaceGetCurrentPlan(context), interfaceCurrent.GetILGenerator());
 
         var reset = sm.DefineMethod(shape.MemberNames[4], explicitImpl, typeof(void), Type.EmptyTypes);
-        var resetOverride = shape.MemberOverrideRows[4];
-        resetOverride.Apply(sm, reset, typeof(System.Collections.IEnumerator).GetMethod(resetOverride.LookupName)!);
+        shape.MemberOverrideRows[4].Apply(overrideContext, sm, reset);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildResetPlan(), reset.GetILGenerator());
 
         var dispose = sm.DefineMethod(shape.MemberNames[5], explicitImpl, typeof(void), Type.EmptyTypes);
-        var disposeOverride = shape.MemberOverrideRows[5];
-        disposeOverride.Apply(sm, dispose, typeof(IDisposable).GetMethod(disposeOverride.LookupName)!);
+        shape.MemberOverrideRows[5].Apply(overrideContext, sm, dispose);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposePlan(context), dispose.GetILGenerator());
 
         var getEnumerator = sm.DefineMethod(shape.MemberNames[6], publicImpl, enumeratorOfT, Type.EmptyTypes);
-        var getEnumeratorOverride = shape.MemberOverrideRows[6];
-        getEnumeratorOverride.Apply(sm, getEnumerator, ResolveClosedGenericMethod(enumerableOfT, typeof(IEnumerable<>).GetMethod(getEnumeratorOverride.LookupName)!));
+        shape.MemberOverrideRows[6].Apply(overrideContext, sm, getEnumerator);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetEnumeratorPlan(context), getEnumerator.GetILGenerator());
 
         var interfaceGetEnumerator = sm.DefineMethod(
             shape.MemberNames[7], explicitImpl, typeof(System.Collections.IEnumerator), Type.EmptyTypes);
-        var interfaceGetEnumeratorOverride = shape.MemberOverrideRows[7];
-        interfaceGetEnumeratorOverride.Apply(sm, interfaceGetEnumerator, typeof(System.Collections.IEnumerable).GetMethod(interfaceGetEnumeratorOverride.LookupName)!);
+        shape.MemberOverrideRows[7].Apply(overrideContext, sm, interfaceGetEnumerator);
         ColumnarCodePlanExecutor.Execute(
             ColumnarIteratorBodyPlanner.BuildInterfaceGetEnumeratorPlan(context), interfaceGetEnumerator.GetILGenerator());
 
@@ -2761,6 +2756,8 @@ internal sealed class ColumnarIlEmitter
         var context = new ColumnarIteratorEmitContext(
             fn.BodyNodes, functionSource, fn.BodyRoot, shape, sm, elementType, shape.FieldNames, fields, ctor,
             null, null, null, null, null, null, null, null, core);
+        var overrideContext = ColumnarIteratorOverrideContext.ForAsync(
+            typeResolution.StructuralTypeReferences, elementType, asyncEnumerable, asyncEnumerator);
         const MethodAttributes publicImpl = MethodAttributes.Public | MethodAttributes.Virtual
             | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
 
@@ -2768,26 +2765,22 @@ internal sealed class ColumnarIlEmitter
 
         var moveNextAsync = sm.DefineMethod(
             shape.MemberNames[2], publicImpl, typeof(System.Threading.Tasks.ValueTask<bool>), Type.EmptyTypes);
-        var moveNextAsyncOverride = shape.MemberOverrideRows[2];
-        moveNextAsyncOverride.Apply(sm, moveNextAsync, ResolveClosedGenericMethod(asyncEnumerator, typeof(IAsyncEnumerator<>).GetMethod(moveNextAsyncOverride.LookupName)!));
+        shape.MemberOverrideRows[2].Apply(overrideContext, sm, moveNextAsync);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextAsyncPlan(context), moveNextAsync.GetILGenerator());
 
         var getCurrent = sm.DefineMethod(
             shape.MemberNames[3], publicImpl | MethodAttributes.SpecialName, elementType, Type.EmptyTypes);
-        var getCurrentOverride = shape.MemberOverrideRows[3];
-        getCurrentOverride.Apply(sm, getCurrent, ResolveClosedGenericMethod(asyncEnumerator, typeof(IAsyncEnumerator<>).GetProperty(getCurrentOverride.LookupName)!.GetGetMethod()!));
+        shape.MemberOverrideRows[3].Apply(overrideContext, sm, getCurrent);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator());
 
         var disposeAsync = sm.DefineMethod(
             shape.MemberNames[4], publicImpl, typeof(System.Threading.Tasks.ValueTask), Type.EmptyTypes);
-        var disposeAsyncOverride = shape.MemberOverrideRows[4];
-        disposeAsyncOverride.Apply(sm, disposeAsync, typeof(IAsyncDisposable).GetMethod(disposeAsyncOverride.LookupName)!);
+        shape.MemberOverrideRows[4].Apply(overrideContext, sm, disposeAsync);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposeAsyncPlan(context), disposeAsync.GetILGenerator());
 
         var getAsyncEnumerator = sm.DefineMethod(
             shape.MemberNames[5], publicImpl, asyncEnumerator, new[] { typeof(System.Threading.CancellationToken) });
-        var getAsyncEnumeratorOverride = shape.MemberOverrideRows[5];
-        getAsyncEnumeratorOverride.Apply(sm, getAsyncEnumerator, ResolveClosedGenericMethod(asyncEnumerable, typeof(IAsyncEnumerable<>).GetMethod(getAsyncEnumeratorOverride.LookupName)!));
+        shape.MemberOverrideRows[5].Apply(overrideContext, sm, getAsyncEnumerator);
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetAsyncEnumeratorPlan(context), getAsyncEnumerator.GetILGenerator());
 
         ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(context), factoryIl);

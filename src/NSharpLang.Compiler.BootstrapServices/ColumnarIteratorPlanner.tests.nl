@@ -734,26 +734,39 @@ test "iterator planner publishes all seven ordered override records and excludes
     assert probe.Shape.MemberOverrideRows[1].MemberOrdinal == 1
     assert probe.Shape.MemberOverrideRows[1].DeclarationIdentity == "System.Collections.IEnumerator.MoveNext"
     assert probe.Shape.MemberOverrideRows[1].LookupName == "MoveNext"
+    assert probe.Shape.MemberOverrideRows[1].TargetKind == ColumnarIteratorOverrideTargetKind.SyncMoveNext
     assert probe.Shape.MemberOverrideRows[1].ResolvedTarget == null
     assert probe.Shape.MemberNames[2] == "get_Current"
     assert probe.Shape.MemberSignatures[2] == "():int"
     assert probe.Shape.MemberOverrideRows[2].DeclarationIdentity == "System.Collections.Generic.IEnumerator<T>.get_Current"
     assert probe.Shape.MemberOverrideRows[2].LookupName == "get_Current"
+    assert probe.Shape.MemberOverrideRows[2].MemberOrdinal == 2
+    assert probe.Shape.MemberOverrideRows[2].TargetKind == ColumnarIteratorOverrideTargetKind.SyncGenericCurrent
     assert probe.Shape.MemberOverrideRows[3].DeclarationIdentity == "System.Collections.IEnumerator.get_Current"
     assert probe.Shape.MemberOverrideRows[3].LookupName == "Current"
+    assert probe.Shape.MemberOverrideRows[3].MemberOrdinal == 3
+    assert probe.Shape.MemberOverrideRows[3].TargetKind == ColumnarIteratorOverrideTargetKind.SyncObjectCurrent
     assert probe.Shape.MemberOverrideRows[4].DeclarationIdentity == "System.Collections.IEnumerator.Reset"
     assert probe.Shape.MemberOverrideRows[4].LookupName == "Reset"
+    assert probe.Shape.MemberOverrideRows[4].MemberOrdinal == 4
+    assert probe.Shape.MemberOverrideRows[4].TargetKind == ColumnarIteratorOverrideTargetKind.SyncReset
     assert probe.Shape.MemberOverrideRows[5].DeclarationIdentity == "System.IDisposable.Dispose"
     assert probe.Shape.MemberOverrideRows[5].LookupName == "Dispose"
+    assert probe.Shape.MemberOverrideRows[5].MemberOrdinal == 5
+    assert probe.Shape.MemberOverrideRows[5].TargetKind == ColumnarIteratorOverrideTargetKind.SyncDispose
     assert probe.Shape.MemberNames[6] == "GetEnumerator"
     assert probe.Shape.MemberSignatures[6] == "():IEnumerator<int>"
     assert probe.Shape.MemberOverrideRows[6].DeclarationIdentity == "System.Collections.Generic.IEnumerable<T>.GetEnumerator"
     assert probe.Shape.MemberOverrideRows[6].LookupName == "GetEnumerator"
+    assert probe.Shape.MemberOverrideRows[6].MemberOrdinal == 6
+    assert probe.Shape.MemberOverrideRows[6].TargetKind == ColumnarIteratorOverrideTargetKind.SyncGenericGetEnumerator
     assert probe.Shape.MemberOverrideRows[7].DeclarationIdentity == "System.Collections.IEnumerable.GetEnumerator"
     assert probe.Shape.MemberOverrideRows[7].LookupName == "GetEnumerator"
+    assert probe.Shape.MemberOverrideRows[7].MemberOrdinal == 7
+    assert probe.Shape.MemberOverrideRows[7].TargetKind == ColumnarIteratorOverrideTargetKind.SyncObjectGetEnumerator
 }
 
-test "iterator override execution retains its canonical identity beside the resolved MethodInfo" {
+test "iterator override execution derives and retains its canonical binding beside the resolved MethodInfo" {
     owner := TypeOfCreateSourceBuilder("IteratorOverrideExecutor", false)
     noParameters := new Type[](0)
     disposableType := TypeOfRequiredRuntimeType(typeof(Type), "System.IDisposable")
@@ -761,10 +774,22 @@ test "iterator override execution retains its canonical identity beside the reso
     body := owner.DefineMethod("Dispose", (MethodAttributes)486, ExecutorVoidType(), noParameters)
     target := ExecutorRequiredMethod(disposableType, "Dispose", noParameters)
 
-    row := new ColumnarIteratorOverrideDeclaration(5, "System.IDisposable.Dispose", "Dispose")
+    row := new ColumnarIteratorOverrideDeclaration(
+        5,
+        "System.IDisposable.Dispose",
+        "Dispose",
+        ColumnarIteratorOverrideTargetKind.SyncDispose
+    )
+    context := IteratorMemberSyncContext(
+        new ColumnarStructuralTypeReferenceTable(),
+        typeof(int)
+    )
     assert row.ResolvedTarget == null
-    row.Apply(owner, body, target)
+    assert row.ResolvedBinding == null
+    row.Apply(context, owner, body)
     assert Object.ReferenceEquals(row.ResolvedTarget, target)
+    assert row.ResolvedBinding != null
+    assert row.ResolvedBinding.Validate(context.StructuralTypeReferences)
     assert row.DeclarationIdentity == "System.IDisposable.Dispose"
 }
 
@@ -2109,18 +2134,25 @@ test "async iterator planner publishes four ordered override records and exclude
     assert probe.Shape.MemberOverrideRows[2].MemberOrdinal == 2
     assert probe.Shape.MemberOverrideRows[2].DeclarationIdentity == "System.Collections.Generic.IAsyncEnumerator<T>.MoveNextAsync"
     assert probe.Shape.MemberOverrideRows[2].LookupName == "MoveNextAsync"
+    assert probe.Shape.MemberOverrideRows[2].TargetKind == ColumnarIteratorOverrideTargetKind.AsyncMoveNext
     assert probe.Shape.MemberNames[3] == "get_Current"
     assert probe.Shape.MemberSignatures[3] == "():int"
     assert probe.Shape.MemberOverrideRows[3].DeclarationIdentity == "System.Collections.Generic.IAsyncEnumerator<T>.get_Current"
     assert probe.Shape.MemberOverrideRows[3].LookupName == "Current"
+    assert probe.Shape.MemberOverrideRows[3].MemberOrdinal == 3
+    assert probe.Shape.MemberOverrideRows[3].TargetKind == ColumnarIteratorOverrideTargetKind.AsyncCurrent
     assert probe.Shape.MemberNames[4] == "DisposeAsync"
     assert probe.Shape.MemberSignatures[4] == "():ValueTask"
     assert probe.Shape.MemberOverrideRows[4].DeclarationIdentity == "System.IAsyncDisposable.DisposeAsync"
     assert probe.Shape.MemberOverrideRows[4].LookupName == "DisposeAsync"
+    assert probe.Shape.MemberOverrideRows[4].MemberOrdinal == 4
+    assert probe.Shape.MemberOverrideRows[4].TargetKind == ColumnarIteratorOverrideTargetKind.AsyncDispose
     assert probe.Shape.MemberNames[5] == "GetAsyncEnumerator"
     assert probe.Shape.MemberSignatures[5] == "(CancellationToken):IAsyncEnumerator<int>"
     assert probe.Shape.MemberOverrideRows[5].DeclarationIdentity == "System.Collections.Generic.IAsyncEnumerable<T>.GetAsyncEnumerator"
     assert probe.Shape.MemberOverrideRows[5].LookupName == "GetAsyncEnumerator"
+    assert probe.Shape.MemberOverrideRows[5].MemberOrdinal == 5
+    assert probe.Shape.MemberOverrideRows[5].TargetKind == ColumnarIteratorOverrideTargetKind.AsyncGetEnumerator
 }
 
 test "async iterator planner declines a generic async iterator" {

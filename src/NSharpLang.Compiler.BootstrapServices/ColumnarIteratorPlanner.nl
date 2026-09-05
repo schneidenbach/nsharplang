@@ -20,9 +20,11 @@ class ColumnarIteratorOverrideDeclaration {
     MemberOrdinal: int
     DeclarationIdentity: string
     LookupName: string
+    TargetKind: ColumnarIteratorOverrideTargetKind
     ResolvedTarget: MethodInfo?
+    ResolvedBinding: ColumnarIteratorMemberBinding?
 
-    constructor(memberOrdinal: int, declarationIdentity: string, lookupName: string) {
+    constructor(memberOrdinal: int, declarationIdentity: string, lookupName: string, targetKind: ColumnarIteratorOverrideTargetKind) {
         if memberOrdinal < 0 || declarationIdentity == null || declarationIdentity.Length == 0 || lookupName == null || lookupName.Length == 0 {
             throw new InvalidOperationException("Iterator method-override declaration facts are invalid.")
         }
@@ -30,17 +32,19 @@ class ColumnarIteratorOverrideDeclaration {
         MemberOrdinal = memberOrdinal
         DeclarationIdentity = declarationIdentity
         LookupName = lookupName
+        TargetKind = targetKind
         ResolvedTarget = null
+        ResolvedBinding = null
     }
 
-    func Apply(owner: TypeBuilder, body: MethodBuilder, target: MethodInfo) {
+    func Apply(context: ColumnarIteratorOverrideContext, owner: TypeBuilder, body: MethodBuilder) {
+        binding := new ColumnarIteratorMemberBinding(TargetKind, LookupName, context)
+        target := binding.ValidatedTarget(context.StructuralTypeReferences)
         if owner == null || body == null || target == null {
             throw new InvalidOperationException("Iterator method-override handles cannot be null.")
         }
 
-        // Retain the canonical declaration identity beside the live handle. Replacing that handle
-        // with the writer's structural descriptor remains S2.2; do not reflect over an unfinished
-        // MethodBuilder here because doing so changes lookup-failure timing.
+        ResolvedBinding = binding
         ResolvedTarget = target
         owner.DefineMethodOverride(body, target)
     }
@@ -479,10 +483,10 @@ class ColumnarIteratorPlanner {
 
     static func BuildAsyncMemberOverrideRows(): ColumnarIteratorOverrideDeclaration[] {
         rows := new ColumnarIteratorOverrideDeclaration[](6)
-        rows[2] = new ColumnarIteratorOverrideDeclaration(2, "System.Collections.Generic.IAsyncEnumerator<T>.MoveNextAsync", "MoveNextAsync")
-        rows[3] = new ColumnarIteratorOverrideDeclaration(3, "System.Collections.Generic.IAsyncEnumerator<T>.get_Current", "Current")
-        rows[4] = new ColumnarIteratorOverrideDeclaration(4, "System.IAsyncDisposable.DisposeAsync", "DisposeAsync")
-        rows[5] = new ColumnarIteratorOverrideDeclaration(5, "System.Collections.Generic.IAsyncEnumerable<T>.GetAsyncEnumerator", "GetAsyncEnumerator")
+        rows[2] = new ColumnarIteratorOverrideDeclaration(2, "System.Collections.Generic.IAsyncEnumerator<T>.MoveNextAsync", "MoveNextAsync", ColumnarIteratorOverrideTargetKind.AsyncMoveNext)
+        rows[3] = new ColumnarIteratorOverrideDeclaration(3, "System.Collections.Generic.IAsyncEnumerator<T>.get_Current", "Current", ColumnarIteratorOverrideTargetKind.AsyncCurrent)
+        rows[4] = new ColumnarIteratorOverrideDeclaration(4, "System.IAsyncDisposable.DisposeAsync", "DisposeAsync", ColumnarIteratorOverrideTargetKind.AsyncDispose)
+        rows[5] = new ColumnarIteratorOverrideDeclaration(5, "System.Collections.Generic.IAsyncEnumerable<T>.GetAsyncEnumerator", "GetAsyncEnumerator", ColumnarIteratorOverrideTargetKind.AsyncGetEnumerator)
         return rows
     }
 
@@ -517,13 +521,13 @@ class ColumnarIteratorPlanner {
 
     static func BuildMemberOverrideRows(): ColumnarIteratorOverrideDeclaration[] {
         rows := new ColumnarIteratorOverrideDeclaration[](8)
-        rows[1] = new ColumnarIteratorOverrideDeclaration(1, "System.Collections.IEnumerator.MoveNext", "MoveNext")
-        rows[2] = new ColumnarIteratorOverrideDeclaration(2, "System.Collections.Generic.IEnumerator<T>.get_Current", "get_Current")
-        rows[3] = new ColumnarIteratorOverrideDeclaration(3, "System.Collections.IEnumerator.get_Current", "Current")
-        rows[4] = new ColumnarIteratorOverrideDeclaration(4, "System.Collections.IEnumerator.Reset", "Reset")
-        rows[5] = new ColumnarIteratorOverrideDeclaration(5, "System.IDisposable.Dispose", "Dispose")
-        rows[6] = new ColumnarIteratorOverrideDeclaration(6, "System.Collections.Generic.IEnumerable<T>.GetEnumerator", "GetEnumerator")
-        rows[7] = new ColumnarIteratorOverrideDeclaration(7, "System.Collections.IEnumerable.GetEnumerator", "GetEnumerator")
+        rows[1] = new ColumnarIteratorOverrideDeclaration(1, "System.Collections.IEnumerator.MoveNext", "MoveNext", ColumnarIteratorOverrideTargetKind.SyncMoveNext)
+        rows[2] = new ColumnarIteratorOverrideDeclaration(2, "System.Collections.Generic.IEnumerator<T>.get_Current", "get_Current", ColumnarIteratorOverrideTargetKind.SyncGenericCurrent)
+        rows[3] = new ColumnarIteratorOverrideDeclaration(3, "System.Collections.IEnumerator.get_Current", "Current", ColumnarIteratorOverrideTargetKind.SyncObjectCurrent)
+        rows[4] = new ColumnarIteratorOverrideDeclaration(4, "System.Collections.IEnumerator.Reset", "Reset", ColumnarIteratorOverrideTargetKind.SyncReset)
+        rows[5] = new ColumnarIteratorOverrideDeclaration(5, "System.IDisposable.Dispose", "Dispose", ColumnarIteratorOverrideTargetKind.SyncDispose)
+        rows[6] = new ColumnarIteratorOverrideDeclaration(6, "System.Collections.Generic.IEnumerable<T>.GetEnumerator", "GetEnumerator", ColumnarIteratorOverrideTargetKind.SyncGenericGetEnumerator)
+        rows[7] = new ColumnarIteratorOverrideDeclaration(7, "System.Collections.IEnumerable.GetEnumerator", "GetEnumerator", ColumnarIteratorOverrideTargetKind.SyncObjectGetEnumerator)
         return rows
     }
 
