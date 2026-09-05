@@ -58,14 +58,20 @@ test "typeof consults exact aliases and refuses an unresolved qualified tail" {
     scope := ExactTypeSingleScope("import System.Text as Text\ntype Selected = Text.StringBuilder\n")
     bindings := ExactTypeEmptyBindings()
     aliasTree := CatalogTypeOfTree("Selected", scope)
-    target := typeof(object)
-    assert ColumnarTypeOfPlanner.TryResolveTarget(aliasTree.Nodes, aliasTree.Source, aliasTree.Root, bindings, out target)
-    assert target == typeof(System.Text.StringBuilder)
+    selected := ColumnarSelectedTypeReference.Missing(
+        bindings.StructuralTypeReferences
+    )
+    assert ColumnarTypeOfPlanner.TryResolveTarget(aliasTree.Nodes, aliasTree.Source, aliasTree.Root, bindings, out selected)
+    assert selected.RuntimeType == typeof(System.Text.StringBuilder)
+    assert bindings.StructuralTypeReferences.ValidatePair(
+        selected,
+        typeof(System.Text.StringBuilder)
+    )
     missingTree := CatalogTypeOfTree("Unrelated.StringBuilder", scope)
-    assert !ColumnarTypeOfPlanner.TryResolveTarget(missingTree.Nodes, missingTree.Source, missingTree.Root, bindings, out target)
+    assert !ColumnarTypeOfPlanner.TryResolveTarget(missingTree.Nodes, missingTree.Source, missingTree.Root, bindings, out selected)
     brokenScope := ExactTypeSingleScope("type StringBuilder = Missing.Target\n")
     brokenTree := CatalogTypeOfTree("StringBuilder", brokenScope)
-    assert !ColumnarTypeOfPlanner.TryResolveTarget(brokenTree.Nodes, brokenTree.Source, brokenTree.Root, bindings, out target)
+    assert !ColumnarTypeOfPlanner.TryResolveTarget(brokenTree.Nodes, brokenTree.Source, brokenTree.Root, bindings, out selected)
 }
 
 test "typeof preserves a source identity that shares a BCL name" {
@@ -73,14 +79,22 @@ test "typeof preserves a source identity that shares a BCL name" {
     definitions := new List<ColumnarStructDef>()
     definitions.Add(ExactTypeDefinition(builder, "Scope.DateTime"))
     bindings := ExactTypeBindings(definitions)
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "Scope.DateTime",
+        builder,
+        false
+    )
     scope := ExactTypeSingleScope("namespace Scope\nclass DateTime {}\n")
     tree := CatalogTypeOfTree("DateTime", scope)
-    target := typeof(object)
-    assert ColumnarTypeOfPlanner.TryResolveTarget(tree.Nodes, tree.Source, tree.Root, bindings, out target)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(target, builder)
-    assert target != typeof(DateTime)
+    selected := ColumnarSelectedTypeReference.Missing(
+        bindings.StructuralTypeReferences
+    )
+    assert ColumnarTypeOfPlanner.TryResolveTarget(tree.Nodes, tree.Source, tree.Root, bindings, out selected)
+    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selected.RuntimeType, builder)
+    assert selected.RuntimeType != typeof(DateTime)
+    assert selected.SourceProvenanceName == "Scope.DateTime"
     missing := CatalogTypeOfTree("Unrelated.DateTime", scope)
-    assert !ColumnarTypeOfPlanner.TryResolveTarget(missing.Nodes, missing.Source, missing.Root, bindings, out target)
+    assert !ColumnarTypeOfPlanner.TryResolveTarget(missing.Nodes, missing.Source, missing.Root, bindings, out selected)
 }
 
 // These closures have no assembly-qualified identity that Assembly.GetType can materialize while

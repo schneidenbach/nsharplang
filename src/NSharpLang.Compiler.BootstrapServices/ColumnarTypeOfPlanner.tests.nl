@@ -663,6 +663,29 @@ test "typeof planner emits exact schema v3 type-handle plan and executes" {
     assert plan.TypeCount == 1
     assert plan.MethodCount == 1
     assert plan.Types[0] == typeof(string)
+    assert plan.TypeUsesStructuralReference[0]
+    structuralEntry := plan.TypeStructuralReferences[0]
+    assert structuralEntry != null
+    if structuralEntry == null {
+        throw new InvalidOperationException(
+            "The typeof type-pool row did not retain its structural reference."
+        )
+    }
+    assert ColumnarConstructionPlanner.SameObject(
+        structuralEntry.Table,
+        bindings.StructuralTypeReferences
+    )
+    assert structuralEntry.Selected.RuntimeType == typeof(string)
+    structuralKey := structuralEntry.Selected.Key
+    assert structuralKey != null
+    if structuralKey == null {
+        throw new InvalidOperationException(
+            "The typeof type-pool row did not retain its structural key."
+        )
+    }
+    assert structuralKey.Kind == ColumnarStructuralTypeReferenceKind.Primitive
+    assert structuralKey.PrimitiveName == "string"
+    assert plan.ValidatedTypeAt(0) == typeof(string)
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldtoken()
     assert plan.OperandKinds[0] == ColumnarCodePlanContract.TypeOperand()
     assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
@@ -753,6 +776,21 @@ test "typeof planner resolves live source struct union and closed generic builde
     unions := new ColumnarUnionDef[](1)
     unions[0] = new ColumnarUnionDef(unionBuilder)
     bindings.SourceUnionDefinitions = unions
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfSourceRecord",
+        sourceBuilder,
+        false
+    )
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfSourceChoice",
+        unionBuilder,
+        false
+    )
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfSourceBox",
+        genericBuilder,
+        false
+    )
 
     sourceTree := TypeOfSimpleTree("TypeOfSourceRecord")
     TypeOfAssertTarget(sourceTree, bindings, sourceBuilder)
@@ -820,6 +858,41 @@ test "typeof source lookup honors exact qualified names and deterministic short 
     unions[1] = new ColumnarUnionDef(secondUnion)
     unions[2] = new ColumnarUnionDef(genericChoiceUnion, 1)
     bindings.SourceUnionDefinitions = unions
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfScopeB.Widget",
+        secondType,
+        false
+    )
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "Widget",
+        unqualifiedType,
+        false
+    )
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfScopeA.Choice",
+        choiceStruct,
+        false
+    )
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfScopeB.Choice",
+        secondUnion,
+        false
+    )
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "DateTime",
+        dateTimeSource,
+        false
+    )
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfScopeA.Box",
+        firstGeneric,
+        false
+    )
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfScopeA.GenericChoice",
+        genericChoiceType,
+        false
+    )
 
     qualifiedWidgetTree := TypeOfSimpleTree("TypeOfScopeB.Widget")
     TypeOfAssertTarget(qualifiedWidgetTree, bindings, secondType)
@@ -874,6 +947,11 @@ test "typeof rejects structurally equivalent source array union arms" {
     definitions := new ColumnarStructDef[](1)
     definitions[0] = TypeOfSourceDefinition(sourceBuilder)
     bindings.SourceTypeDefinitions = definitions
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfArrayArm",
+        sourceBuilder,
+        false
+    )
 
     tree := TypeOfArrayUnionTree("TypeOfArrayArm")
     plan := new ColumnarCodePlan()
@@ -893,6 +971,11 @@ test "typeof delegate target keeps direct emit broader than receiver preflight" 
     definitions := new ColumnarStructDef[](1)
     definitions[0] = TypeOfSourceDefinition(sourceBuilder)
     bindings.SourceTypeDefinitions = definitions
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "TypeOfDelegateElement",
+        sourceBuilder,
+        false
+    )
     tree := TypeOfDelegateWithSourceCollectionTree("TypeOfDelegateElement")
 
     direct := TypeOfPlan(tree, bindings)

@@ -249,7 +249,8 @@ func MethodBodyFactsPlanBody(nodes: ColumnarNodeTable, source: string, returnTyp
         new Dictionary<string, Type>(StringComparer.Ordinal),
         false,
         new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal),
-        plan
+        plan,
+        null
     )
 }
 
@@ -772,7 +773,8 @@ test "the bound identifier owner appends into a method body and still refuses th
         new string[](0),
         new string[](0),
         new string[](0),
-        new Dictionary<string, Type>(StringComparer.Ordinal)
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        null
     )
 
     // v4, no fragment: accepted.
@@ -978,7 +980,8 @@ func MethodBodyFactsEmptyBindings(): ColumnarFragmentBindings {
         new string[](0),
         new string[](0),
         new string[](0),
-        new Dictionary<string, Type>(StringComparer.Ordinal)
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        null
     )
 }
 
@@ -1897,7 +1900,7 @@ test "the statement loop refuses a shadowing declaration and an unclaimable loca
     assert !enclosing.IsVisibleBindingName("q")
     outerNames := new string[](1)
     outerNames[0] = "q"
-    enclosingBound := ColumnarFragmentBindings.FromRawFacts(MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal), null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), outerNames, new string[](0), new string[](0), new Dictionary<string, Type>(StringComparer.Ordinal))
+    enclosingBound := ColumnarFragmentBindings.FromRawFacts(MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal), null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), outerNames, new string[](0), new string[](0), new Dictionary<string, Type>(StringComparer.Ordinal), null)
     assert enclosingBound.IsVisibleBindingName("q")
 
     // The type gate is the host's, in the host's order: an open generic parameter and an array of one
@@ -2103,7 +2106,8 @@ func MethodBodyFactsPlanCallBody(tree: ColumnarRangePlannerTestTree, returnType:
         new Dictionary<string, Type>(StringComparer.Ordinal),
         false,
         siblingCallables,
-        plan
+        plan,
+        null
     )
 }
 
@@ -3307,7 +3311,8 @@ func MethodBodyFactsPlanMemberBody(tree: ColumnarRangePlannerTestTree, returnTyp
         new Dictionary<string, Type>(StringComparer.Ordinal),
         false,
         new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal),
-        plan
+        plan,
+        null
     )
 }
 

@@ -574,6 +574,8 @@ class ColumnarCodePlan {
 
     TypeCount: int
     Types: Type[]
+    TypeStructuralReferences: ColumnarStructuralTypePoolEntry?[]
+    TypeUsesStructuralReference: bool[]
     Int32Count: int
     Int32Values: int[]
     Int64Count: int
@@ -664,6 +666,8 @@ class ColumnarCodePlan {
 
         TypeCount = 0
         Types = new Type[](0)
+        TypeStructuralReferences = new ColumnarStructuralTypePoolEntry?[](0)
+        TypeUsesStructuralReference = new bool[](0)
         Int32Count = 0
         Int32Values = new int[](0)
         Int64Count = 0
@@ -886,8 +890,39 @@ class ColumnarCodePlan {
         EnsureTypeCapacity(TypeCount + 1)
         index := TypeCount
         Types[index] = value
+        TypeStructuralReferences[index] = null
+        TypeUsesStructuralReference[index] = false
         TypeCount = TypeCount + 1
         return index
+    }
+
+    func AddType(selected: ColumnarSelectedTypeReference, table: ColumnarStructuralTypeReferenceTable): int {
+        EnsureV2Building()
+        if selected == null || table == null || !table.ValidatePair(selected, selected.RuntimeType) {
+            throw new InvalidOperationException("A keyed type-pool row requires a valid structural key/runtime pair.")
+        }
+        EnsureTypeCapacity(TypeCount + 1)
+        index := TypeCount
+        Types[index] = selected.RuntimeType
+        TypeStructuralReferences[index] = new ColumnarStructuralTypePoolEntry(table, selected)
+        TypeUsesStructuralReference[index] = true
+        TypeCount = TypeCount + 1
+        return index
+    }
+
+    func ValidatedTypeAt(index: int): Type {
+        if index < 0 || index >= TypeCount || Types == null || index >= Types.Length || Types[index] == null || TypeStructuralReferences == null || index >= TypeStructuralReferences.Length || TypeUsesStructuralReference == null || index >= TypeUsesStructuralReference.Length {
+            throw new InvalidOperationException("A code-plan type-pool row is invalid.")
+        }
+        structuralEntry := TypeStructuralReferences[index]
+        if TypeUsesStructuralReference[index] {
+            if structuralEntry == null || !structuralEntry.MatchesRuntime(Types[index]) {
+                throw new InvalidOperationException("A code-plan structural type-pool pair is invalid.")
+            }
+        } else if structuralEntry != null {
+            throw new InvalidOperationException("A legacy type-pool row cannot retain stale structural metadata.")
+        }
+        return Types[index]
     }
 
     func AddInt32(value: int): int {
@@ -1752,7 +1787,7 @@ class ColumnarCodePlan {
     }
 
     func HasValidV2ColumnsAndPools(): bool {
-        if OperationCount <= 0 || TypeCount < 0 || Int32Count < 0 || ArgumentCount < 0 || AmbientLocalCount < 0 || MethodCount < 0 || ConstructorCount < 0 || FieldCount < 0 || PlanLocalCount < 0 || LabelCount < 0 || FragmentCount <= 0 || OperationKinds == null || OpCodeValues == null || OperandKinds == null || OperandIndices == null || OperationOwnerFragmentIndices == null || OperationKinds.Length < OperationCount || OpCodeValues.Length < OperationCount || OperandKinds.Length < OperationCount || OperandIndices.Length < OperationCount || OperationOwnerFragmentIndices.Length < OperationCount || Types == null || Types.Length < TypeCount || Int32Values == null || Int32Values.Length < Int32Count || ArgumentOrdinals == null || ArgumentTypeIndices == null || ArgumentIsAddress == null || ArgumentOrdinals.Length < ArgumentCount || ArgumentTypeIndices.Length < ArgumentCount || ArgumentIsAddress.Length < ArgumentCount || AmbientLocals == null || AmbientLocals.Length < AmbientLocalCount || Methods == null || Methods.Length < MethodCount || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < MethodCount || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < MethodCount || MethodReturnTypes == null || MethodReturnTypes.Length < MethodCount || MethodParameterTypes == null || MethodParameterTypes.Length < MethodCount || MethodIsStatic == null || MethodIsStatic.Length < MethodCount || MethodIsAbstract == null || MethodIsAbstract.Length < MethodCount || Constructors == null || Constructors.Length < ConstructorCount || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < ConstructorCount || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < ConstructorCount || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < ConstructorCount || Fields == null || Fields.Length < FieldCount || FieldUsesDeclaredSignature == null || FieldUsesDeclaredSignature.Length < FieldCount || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < FieldCount || FieldValueTypes == null || FieldValueTypes.Length < FieldCount || FieldIsStatic == null || FieldIsStatic.Length < FieldCount || PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < PlanLocalCount || PlanLocalIsMirror == null || PlanLocalIsMirror.Length < PlanLocalCount {
+        if OperationCount <= 0 || TypeCount < 0 || Int32Count < 0 || ArgumentCount < 0 || AmbientLocalCount < 0 || MethodCount < 0 || ConstructorCount < 0 || FieldCount < 0 || PlanLocalCount < 0 || LabelCount < 0 || FragmentCount <= 0 || OperationKinds == null || OpCodeValues == null || OperandKinds == null || OperandIndices == null || OperationOwnerFragmentIndices == null || OperationKinds.Length < OperationCount || OpCodeValues.Length < OperationCount || OperandKinds.Length < OperationCount || OperandIndices.Length < OperationCount || OperationOwnerFragmentIndices.Length < OperationCount || Types == null || Types.Length < TypeCount || TypeStructuralReferences == null || TypeStructuralReferences.Length < TypeCount || TypeUsesStructuralReference == null || TypeUsesStructuralReference.Length < TypeCount || Int32Values == null || Int32Values.Length < Int32Count || ArgumentOrdinals == null || ArgumentTypeIndices == null || ArgumentIsAddress == null || ArgumentOrdinals.Length < ArgumentCount || ArgumentTypeIndices.Length < ArgumentCount || ArgumentIsAddress.Length < ArgumentCount || AmbientLocals == null || AmbientLocals.Length < AmbientLocalCount || Methods == null || Methods.Length < MethodCount || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < MethodCount || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < MethodCount || MethodReturnTypes == null || MethodReturnTypes.Length < MethodCount || MethodParameterTypes == null || MethodParameterTypes.Length < MethodCount || MethodIsStatic == null || MethodIsStatic.Length < MethodCount || MethodIsAbstract == null || MethodIsAbstract.Length < MethodCount || Constructors == null || Constructors.Length < ConstructorCount || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < ConstructorCount || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < ConstructorCount || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < ConstructorCount || Fields == null || Fields.Length < FieldCount || FieldUsesDeclaredSignature == null || FieldUsesDeclaredSignature.Length < FieldCount || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < FieldCount || FieldValueTypes == null || FieldValueTypes.Length < FieldCount || FieldIsStatic == null || FieldIsStatic.Length < FieldCount || PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < PlanLocalCount || PlanLocalIsMirror == null || PlanLocalIsMirror.Length < PlanLocalCount {
             return false
         }
 
@@ -2000,8 +2035,18 @@ class ColumnarCodePlan {
     }
 
     func EnsureTypeCapacity(minimum: int) {
-        if Types == null || Types.Length < minimum {
-            Types = GrowTypeArray(Types, NextCapacity(Types == null ? 0 : Types.Length, minimum))
+        if Types == null || Types.Length < minimum || TypeStructuralReferences == null || TypeStructuralReferences.Length < minimum || TypeUsesStructuralReference == null || TypeUsesStructuralReference.Length < minimum || Types.Length != TypeStructuralReferences.Length || Types.Length != TypeUsesStructuralReference.Length {
+            current := Types == null ? 0 : Types.Length
+            if TypeStructuralReferences != null && TypeStructuralReferences.Length > current {
+                current = TypeStructuralReferences.Length
+            }
+            if TypeUsesStructuralReference != null && TypeUsesStructuralReference.Length > current {
+                current = TypeUsesStructuralReference.Length
+            }
+            capacity := NextCapacity(current, minimum)
+            Types = GrowTypeArray(Types, capacity)
+            TypeStructuralReferences = GrowStructuralTypeReferenceArray(TypeStructuralReferences, capacity)
+            TypeUsesStructuralReference = GrowBoolArray(TypeUsesStructuralReference, capacity)
         }
     }
 
@@ -2230,6 +2275,19 @@ class ColumnarCodePlan {
 
     static func GrowTypeArray(values: Type[], capacity: int): Type[] {
         result := new Type[](capacity)
+        if values != null {
+            count := values.Length < capacity ? values.Length : capacity
+            i := 0
+            while i < count {
+                result[i] = values[i]
+                i += 1
+            }
+        }
+        return result
+    }
+
+    static func GrowStructuralTypeReferenceArray(values: ColumnarStructuralTypePoolEntry?[], capacity: int): ColumnarStructuralTypePoolEntry?[] {
+        result := new ColumnarStructuralTypePoolEntry?[](capacity)
         if values != null {
             count := values.Length < capacity ? values.Length : capacity
             i := 0

@@ -350,24 +350,25 @@ class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Brfalse, labels[operandIndex])
             }
         } else if operandKind == ColumnarCodePlanContract.TypeOperand() {
+            operandType := plan.ValidatedTypeAt(operandIndex)
             if opCodeValue == ColumnarCodePlanContract.Ldtoken() {
-                il.Emit(OpCodes.Ldtoken, plan.Types[operandIndex])
+                il.Emit(OpCodes.Ldtoken, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Box() {
-                il.Emit(OpCodes.Box, plan.Types[operandIndex])
+                il.Emit(OpCodes.Box, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Castclass() {
-                il.Emit(OpCodes.Castclass, plan.Types[operandIndex])
+                il.Emit(OpCodes.Castclass, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Isinst() {
-                il.Emit(OpCodes.Isinst, plan.Types[operandIndex])
+                il.Emit(OpCodes.Isinst, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.UnboxAny() {
-                il.Emit(OpCodes.Unbox_Any, plan.Types[operandIndex])
+                il.Emit(OpCodes.Unbox_Any, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
-                il.Emit(OpCodes.Initobj, plan.Types[operandIndex])
+                il.Emit(OpCodes.Initobj, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Newarr() {
-                il.Emit(OpCodes.Newarr, plan.Types[operandIndex])
+                il.Emit(OpCodes.Newarr, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Stelem() {
-                il.Emit(OpCodes.Stelem, plan.Types[operandIndex])
+                il.Emit(OpCodes.Stelem, operandType)
             } else {
-                il.Emit(OpCodes.Ldelem, plan.Types[operandIndex])
+                il.Emit(OpCodes.Ldelem, operandType)
             }
         }
     }
@@ -1085,7 +1086,7 @@ class ColumnarCodePlanExecutor {
     static func ValidateValuePools(plan: ColumnarCodePlan, schemaName: string, allowVoidMethodReturns: bool) {
         i := 0
         while i < plan.TypeCount {
-            ValidateStorableType(plan.Types[i], "type pool", schemaName)
+            ValidateStorableType(plan.ValidatedTypeAt(i), "type pool", schemaName)
             i += 1
         }
 
@@ -1100,7 +1101,7 @@ class ColumnarCodePlanExecutor {
         usedArgumentOrdinals := new bool[](maximumArgumentOrdinal + 1)
         i = 0
         while i < plan.ArgumentCount {
-            argumentType := plan.Types[plan.ArgumentTypeIndices[i]]
+            argumentType := plan.ValidatedTypeAt(plan.ArgumentTypeIndices[i])
             ValidateStorableType(argumentType, "argument", schemaName)
             ordinal := plan.ArgumentOrdinals[i]
             if usedArgumentOrdinals[ordinal] {
@@ -1119,7 +1120,7 @@ class ColumnarCodePlanExecutor {
 
         i = 0
         while i < plan.PlanLocalCount {
-            ValidateStorableType(plan.Types[plan.PlanLocalTypeIndices[i]], "plan local", schemaName)
+            ValidateStorableType(plan.ValidatedTypeAt(plan.PlanLocalTypeIndices[i]), "plan local", schemaName)
             i += 1
         }
 

@@ -31,7 +31,8 @@ func BindingRawTypeParameters(typeParameters: Dictionary<string, Type>): Columna
         emptyNames,
         emptyNames,
         emptyNames,
-        typeParameters
+        typeParameters,
+        null
     )
 }
 

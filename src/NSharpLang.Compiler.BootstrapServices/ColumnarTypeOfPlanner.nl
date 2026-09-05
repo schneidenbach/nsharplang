@@ -47,8 +47,8 @@ class ColumnarTypeOfPlanner {
     static func TryGetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         ValidateInputs(nodes, source, node, bindings, plan)
         candidate := UnwrapParentheses(nodes, node)
-        targetType := typeof(object)
-        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression() && (!TryResolveTarget(nodes, source, candidate, bindings, out targetType) || !IsSupportedType(targetType)) {
+        selected := ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression() && (!TryResolveTarget(nodes, source, candidate, bindings, out selected) || !IsSupportedType(selected.RuntimeType)) {
             plan.PrepareV3()
             resultType = typeof(Type)
             return false
@@ -137,13 +137,13 @@ class ColumnarTypeOfPlanner {
 
         checkpoint := plan.CreateCheckpoint()
         try {
-            targetType := typeof(object)
-            if !TryResolveTarget(nodes, source, node, bindings, out targetType) {
+            selected := ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
+            if !TryResolveTarget(nodes, source, node, bindings, out selected) {
                 plan.Rollback(checkpoint)
                 return false
             }
 
-            targetIndex := plan.AddType(targetType)
+            targetIndex := plan.AddType(selected, bindings.StructuralTypeReferences)
             plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldtoken(), targetIndex)
 
             handleParameters := new Type[](1)
@@ -161,11 +161,12 @@ class ColumnarTypeOfPlanner {
         }
     }
 
-    static func TryResolveTarget(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out targetType: Type): bool {
-        targetType = typeof(object)
+    static func TryResolveTarget(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out selected: ColumnarSelectedTypeReference): bool {
+        selected = null
         if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression() || nodes.ChildCount(node) != 1 {
             return false
         }
+        selected = ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
         canonical := ""
         if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), 0, out canonical) {
             return false
@@ -173,11 +174,24 @@ class ColumnarTypeOfPlanner {
         scope := nodes.BindingScope
         if scope != null && !canonical.Contains("|") {
             claimed := false
-            return scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out targetType, out claimed)
+            targetType := typeof(object)
+            resolved := scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out targetType, out claimed)
+            if resolved {
+                exactSourceName := ""
+                sourceClaimed := false
+                scope.TryResolveExactSourceDeclarationNameInContext(nodes.EnclosingTypeName, canonical, out exactSourceName, out sourceClaimed)
+                selected = bindings.StructuralTypeReferences.SelectResolvedRuntimeType(targetType, exactSourceName)
+            }
+            return resolved
         }
         // Anonymous unions retain their dedicated structural resolver. Detached planner facts have
         // no source/import catalog; the standalone resolver remains their explicit input surface.
-        return TryResolveType(canonical, bindings, out targetType)
+        targetType := typeof(object)
+        resolved := TryResolveType(canonical, bindings, out targetType)
+        if resolved {
+            selected = bindings.StructuralTypeReferences.SelectRuntimeType(targetType)
+        }
+        return resolved
     }
 
     static func TryBuildTypeCanonical(nodes: ColumnarNodeTable, source: string, node: int, depth: int, out canonical: string): bool {

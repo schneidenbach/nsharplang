@@ -129,6 +129,96 @@ test "semantic type resolution catalog caches each exact view identity" {
     )
 }
 
+test "semantic type resolution catalog creates a fresh structural emission for reused parsed input" {
+    sources := new string[](1)
+    fileNames := new string[](1)
+    sources[0] = "namespace Reemit\nclass Shared {}\n"
+    fileNames[0] = "semantic-registry/reemit-shared.nl"
+    program := ExactTypeProgram(sources, fileNames)
+
+    firstBuilder := TypeOfCreateSourceBuilder("Reemit.Shared", false)
+    firstDefinition := ExactTypeDefinition(firstBuilder, "Reemit.Shared")
+    firstStructs := SemanticEmptyStructs()
+    firstStructs[firstDefinition.DeclaredTypeName] = firstDefinition
+    firstCatalog := new ColumnarSemanticTypeResolutionCatalog(
+        program,
+        SemanticEmptyEnums(),
+        firstStructs,
+        SemanticEmptyUnions()
+    )
+    firstResolution := firstCatalog.For(0, null, null)
+    firstSelected := ColumnarSelectedTypeReference.Missing(
+        firstResolution.StructuralTypeReferences
+    )
+    firstClaimed := false
+    assert firstResolution.Structs.Resolver.TryResolveSelected(
+        "Shared",
+        out firstSelected,
+        out firstClaimed
+    )
+    assert firstClaimed
+    assert firstSelected.SourceProvenanceName == "Reemit.Shared"
+    assert firstResolution.StructuralTypeReferences.ValidatePair(
+        firstSelected,
+        firstBuilder
+    )
+    retainedPlan := new ColumnarCodePlan()
+    retainedPlan.PrepareMethodBody()
+    retainedIndex := retainedPlan.AddType(
+        firstSelected,
+        firstResolution.StructuralTypeReferences
+    )
+
+    secondBuilder := TypeOfCreateSourceBuilder("Reemit.Shared", false)
+    secondDefinition := ExactTypeDefinition(secondBuilder, "Reemit.Shared")
+    secondStructs := SemanticEmptyStructs()
+    secondStructs[secondDefinition.DeclaredTypeName] = secondDefinition
+    secondCatalog := new ColumnarSemanticTypeResolutionCatalog(
+        program,
+        SemanticEmptyEnums(),
+        secondStructs,
+        SemanticEmptyUnions()
+    )
+    secondResolution := secondCatalog.For(0, null, null)
+    secondSelected := ColumnarSelectedTypeReference.Missing(
+        secondResolution.StructuralTypeReferences
+    )
+    secondClaimed := false
+    assert secondResolution.Structs.Resolver.TryResolveSelected(
+        "Shared",
+        out secondSelected,
+        out secondClaimed
+    )
+    assert secondClaimed
+
+    firstIdentity := firstResolution.StructuralTypeReferences.Identity
+    secondIdentity := secondResolution.StructuralTypeReferences.Identity
+    assert !ColumnarConstructionPlanner.SameObject(firstIdentity, secondIdentity)
+    firstKey := firstSelected.Key
+    secondKey := secondSelected.Key
+    assert !ColumnarConstructionPlanner.SameObject(firstKey, secondKey)
+    assert firstSelected.SourceProvenanceName == secondSelected.SourceProvenanceName
+    retainedEntry := StructuralPoolRequiredEntry(retainedPlan, retainedIndex)
+    retainedTable := retainedEntry.Table
+    firstTable := firstResolution.StructuralTypeReferences
+    secondTable := secondResolution.StructuralTypeReferences
+    assert ColumnarConstructionPlanner.SameObject(retainedTable, firstTable)
+    retainedRuntime := retainedPlan.ValidatedTypeAt(retainedIndex)
+    assert ColumnarConstructionPlanner.SameObject(retainedRuntime, firstBuilder)
+    assert firstTable.ValidatePair(
+        firstSelected,
+        firstBuilder
+    )
+    assert !secondTable.ValidatePair(
+        firstSelected,
+        firstBuilder
+    )
+    assert secondTable.ValidatePair(
+        secondSelected,
+        secondBuilder
+    )
+}
+
 test "semantic type resolution catalog preserves exact maps behind source aliases" {
     boxBuilder := TypeOfCreateSourceBuilder("Catalog.Box", true)
     boxDefinition := ExactTypeDefinition(boxBuilder, "Catalog.Box")
@@ -417,7 +507,6 @@ test "semantic registry treats ambiguous source claims as terminal negative cach
         null,
         ""
     )
-
     selectedType := typeof(object)
     claimed := false
     assert !resolution.Structs.Resolver.TryResolve(
@@ -472,12 +561,46 @@ test "semantic enum registry preserves erased source identity before runtime ide
         null,
         ""
     )
-
     selected := left
     assert resolution.Enums.TryGetValue("SemanticState", out selected)
     assert ColumnarConstructionPlanner.SameObject(selected, right)
     assert selected.StringConstants != null
     assert selected.StringConstants["Ready"] == "right"
+
+    rightReference := ColumnarSelectedTypeReference.Missing(
+        resolution.StructuralTypeReferences
+    )
+    rightClaimed := false
+    assert resolution.Enums.Resolver.TryResolveSelected(
+        "SemanticState",
+        out rightReference,
+        out rightClaimed
+    )
+    assert rightClaimed
+    assert rightReference.Key.Kind == ColumnarStructuralTypeReferenceKind.Primitive
+    assert rightReference.RuntimeType == typeof(string)
+    assert rightReference.SourceProvenanceName == "Right.SemanticState"
+
+    leftReference := ColumnarSelectedTypeReference.Missing(
+        resolution.StructuralTypeReferences
+    )
+    leftClaimed := false
+    assert resolution.Enums.Resolver.TryResolveSelected(
+        "Left.SemanticState",
+        out leftReference,
+        out leftClaimed
+    )
+    assert leftClaimed
+    assert Object.ReferenceEquals(leftReference.Key, rightReference.Key)
+    assert leftReference.SourceProvenanceName == "Left.SemanticState"
+    assert resolution.StructuralTypeReferences.ValidatePair(
+        rightReference,
+        typeof(string)
+    )
+    assert resolution.StructuralTypeReferences.ValidatePair(
+        leftReference,
+        typeof(string)
+    )
 }
 
 test "semantic enum registry distinguishes source declarations from erased runtime aliases" {
@@ -782,6 +905,13 @@ test "synthesized semantic views fence type parameters owned by another type" {
         typeParameters,
         ""
     )
+    resolution.StructuralTypeReferences.RegisterGenericParameters(
+        typeParameters,
+        ColumnarStructuralGenericOwnerIdentity.SourceType(
+            0,
+            "SemanticGenericOwner"
+        )
+    )
 
     visible := typeof(object)
     visibleClaimed := false
@@ -936,6 +1066,10 @@ test "synthesized program views reject parent method type parameters in signatur
         SemanticEmptyUnions(),
         typeParameters,
         ""
+    )
+    resolution.StructuralTypeReferences.RegisterGenericParameters(
+        typeParameters,
+        ColumnarStructuralGenericOwnerIdentity.SourceMethod(0, 0)
     )
 
     visibleArray := typeof(object)

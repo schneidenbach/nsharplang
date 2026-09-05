@@ -49,3 +49,27 @@ test "typeof production source matches the 38 shape catalog contract" {
         Directory.Delete(directory, true)
     }
 }
+
+test "canonical collection resolution preserves source head shadowing" {
+    directory := NewTempDirectory("nsharp-canonical-shadow")
+    try {
+        File.WriteAllText(Path.Combine(directory, "project.yml"), "name: CanonicalShadowProbe\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Probe.nl"),
+            "namespace CanonicalShadowProbe\n\nimport System.Collections.Generic\n\nclass List<T> {\n    Value: T\n}\n\nclass Consumer {\n    Values: List<int>\n}\n"
+        )
+        shadowed := Nlc("build --project \"" + directory + "\"")
+        assert shadowed.ExitCode == 1
+        assert shadowed.Stderr.Contains("requires successful N# columnar emission")
+
+        File.WriteAllText(
+            Path.Combine(directory, "Probe.nl"),
+            "namespace CanonicalShadowProbe\n\nimport System.Collections.Generic\n\nclass Consumer {\n    Values: List<int>\n}\n"
+        )
+        unshadowed := Nlc("build --project \"" + directory + "\"")
+        assert unshadowed.ExitCode == 0
+        assert unshadowed.Stdout.Contains("Build successful")
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}

@@ -196,7 +196,7 @@ class ColumnarMethodBodyPlanner {
     // and they do not weaken that argument: they are declared in the PLAN's own local pool rather than
     // through the emitter, so the driver still touches none of the host's live state and a declined
     // body leaves every one of the caller's maps exactly as it found them.
-    static func TryPlanBody(nodes: ColumnarNodeTable, source: string, bodyRoot: int, returnType: Type, isVoid: bool, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, exactSourceTypes: Dictionary<string, Type>, overflowCheckingEnabled: bool, siblingCallables: Dictionary<string, ColumnarSiblingCallFacts>, plan: ColumnarCodePlan): bool {
+    static func TryPlanBody(nodes: ColumnarNodeTable, source: string, bodyRoot: int, returnType: Type, isVoid: bool, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, enclosingTypeDefinition: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, siblingNames: IEnumerable<string>, visibleLocalFunctionNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, exactSourceTypes: Dictionary<string, Type>, overflowCheckingEnabled: bool, siblingCallables: Dictionary<string, ColumnarSiblingCallFacts>, plan: ColumnarCodePlan, structuralTypeReferences: ColumnarStructuralTypeReferenceTable? = null): bool {
         if nodes == null || source == null || returnType == null || plan == null {
             return false
         }
@@ -280,7 +280,7 @@ class ColumnarMethodBodyPlanner {
         //                           empty map sends a bare sibling name down the delegate-invoke or the
         //                           decline arm instead of the sibling arm
         value := nodes.Child(statement, 0)
-        bindings := ColumnarFragmentBindings.FromRawFacts(parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters)
+        bindings := ColumnarFragmentBindings.FromRawFacts(parameterOrdinals, parameterTypes, locals, enums, liftedLocals, boxedCaptures, currentInstance, sourceTypeDefinitions, sourceUnionDefinitions, tupleNames, enclosingNames, siblingNames, visibleLocalFunctionNames, typeParameters, structuralTypeReferences)
         bindings.ExactSourceTypes = exactSourceTypes
         bindings.OverflowCheckingEnabled = overflowCheckingEnabled
         if siblingCallables != null {

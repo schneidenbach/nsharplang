@@ -484,6 +484,36 @@ class ColumnarBindingScopeFacts {
         return TryResolveExactSourceDeclarationNameAtFile(activeSourceFileId, canonical, activeAliases, 0, out exactName, out claimed)
     }
 
+    func TryResolveExactSourceDeclarationNameInContext(enclosingTypeName: string, canonical: string, out exactName: string, out claimed: bool): bool {
+        exactName = ""
+        claimed = false
+        if canonical == null || canonical.Length == 0 || canonical.Contains(".") || enclosingTypeName == null || enclosingTypeName.Length == 0 {
+            return TryResolveExactSourceDeclarationName(canonical, out exactName, out claimed)
+        }
+
+        ownerName := enclosingTypeName
+        activeAliases := new HashSet<string>(StringComparer.Ordinal)
+        while ownerName.Length > 0 {
+            candidateName := ownerName + "." + canonical
+            candidateClaimed := false
+            if TryResolveExactSourceDeclarationNameAtFile(activeSourceFileId, candidateName, activeAliases, 0, out exactName, out candidateClaimed) {
+                claimed = true
+                return true
+            }
+            if candidateClaimed {
+                claimed = true
+                return false
+            }
+
+            separator := ownerName.Length - 1
+            while separator >= 0 && ownerName[separator] != '.' {
+                separator -= 1
+            }
+            ownerName = separator < 0 ? "" : ownerName.Substring(0, separator)
+        }
+        return TryResolveExactSourceDeclarationName(canonical, out exactName, out claimed)
+    }
+
     func TryResolveExactSourceDeclarationNameAtFile(sourceFileId: int, canonical: string, activeAliases: HashSet<string>, depth: int, out exactName: string, out claimed: bool): bool {
         exactName = ""
         claimed = false

@@ -70,12 +70,12 @@ class ColumnarSemanticTypeRegistryBridge {
 class ColumnarExactTypeResolutionCacheEntry {
     Resolved: bool
     Claimed: bool
-    Type: Type
+    Selected: ColumnarSelectedTypeReference
 
-    constructor(resolved: bool, claimed: bool, selectedType: Type) {
+    constructor(resolved: bool, claimed: bool, selected: ColumnarSelectedTypeReference) {
         Resolved = resolved
         Claimed = claimed
-        Type = selectedType
+        Selected = selected
     }
 }
 
@@ -100,12 +100,14 @@ class ColumnarExactTypeResolver {
     typeParameters: Dictionary<string, Type>
     blockedTypeParameterNames: HashSet<string>
     enclosingSourceDeclarationName: string
+    structuralTypeReferences: ColumnarStructuralTypeReferenceTable
     cache: Dictionary<string, ColumnarExactTypeResolutionCacheEntry>
     sourceNameCache: Dictionary<string, ColumnarSourceNameResolutionCacheEntry>
 
     ExactSourceTypes: Dictionary<string, Type> => exactSourceTypes
+    StructuralTypeReferences: ColumnarStructuralTypeReferenceTable => structuralTypeReferences
 
-    constructor(program: ColumnarProgramInput, sourceFileId: int, bindings: ColumnarFragmentBindings, sourceDefinitionTypes: List<Type>, exactSourceTypes: Dictionary<string, Type>, typeParameters: Dictionary<string, Type>, blockedTypeParameterNames: IEnumerable<string>?, enclosingSourceDeclarationName: string?) {
+    constructor(program: ColumnarProgramInput, sourceFileId: int, bindings: ColumnarFragmentBindings, sourceDefinitionTypes: List<Type>, exactSourceTypes: Dictionary<string, Type>, typeParameters: Dictionary<string, Type>, blockedTypeParameterNames: IEnumerable<string>?, enclosingSourceDeclarationName: string?, structuralTypeReferences: ColumnarStructuralTypeReferenceTable) {
         this.program = program
         this.sourceFileId = sourceFileId
         this.bindings = bindings
@@ -113,6 +115,7 @@ class ColumnarExactTypeResolver {
         this.exactSourceTypes = exactSourceTypes
         this.typeParameters = typeParameters
         this.enclosingSourceDeclarationName = enclosingSourceDeclarationName ?? ""
+        this.structuralTypeReferences = structuralTypeReferences
         this.blockedTypeParameterNames = new HashSet<string>(StringComparer.Ordinal)
         if blockedTypeParameterNames != null {
             for name in blockedTypeParameterNames {
@@ -124,22 +127,34 @@ class ColumnarExactTypeResolver {
     }
 
     func TryResolve(canonical: string, out selectedType: Type, out claimed: bool): bool {
-        cached := new ColumnarExactTypeResolutionCacheEntry(false, false, typeof(object))
+        selected := ColumnarSelectedTypeReference.Missing(structuralTypeReferences)
+        resolved := TryResolveSelected(canonical, out selected, out claimed)
+        selectedType = selected.RuntimeType
+        return resolved
+    }
+
+    func TryResolveSelected(canonical: string, out selectedReference: ColumnarSelectedTypeReference, out claimed: bool): bool {
+        cached := new ColumnarExactTypeResolutionCacheEntry(false, false, ColumnarSelectedTypeReference.Missing(structuralTypeReferences))
         if !cache.TryGetValue(canonical, out cached) {
-            selected := typeof(object)
+            selected := ColumnarSelectedTypeReference.Missing(structuralTypeReferences)
             resolved := false
             claimed = false
             syntaxTerminal := false
             if ContainsBlockedTypeParameter(canonical) {
                 claimed = true
             } else if canonical.EndsWith("[]", StringComparison.Ordinal) {
-                elementType := typeof(object)
-                resolved = TryResolve(canonical.Substring(0, canonical.Length - 2), out elementType, out claimed)
+                element := ColumnarSelectedTypeReference.Missing(structuralTypeReferences)
+                resolved = TryResolveSelected(canonical.Substring(0, canonical.Length - 2), out element, out claimed)
                 if resolved {
+                    runtimeArray := typeof(object)
                     try {
-                        selected = elementType.MakeArrayType()
+                        runtimeArray = element.RuntimeType.MakeArrayType()
                     } catch {
                         resolved = false
+                        selected = ColumnarSelectedTypeReference.Missing(structuralTypeReferences)
+                    }
+                    if resolved {
+                        selected = structuralTypeReferences.SelectSzArray(runtimeArray, element)
                     }
                 }
             } else if TryClassifySyntaxOwnedShape(canonical, out syntaxTerminal) {
@@ -148,7 +163,7 @@ class ColumnarExactTypeResolver {
                 typeParameter := typeof(object)
                 if typeParameters.TryGetValue(canonical, out typeParameter) {
                     claimed = true
-                    selected = typeParameter
+                    selected = structuralTypeReferences.SelectRuntimeType(typeParameter)
                     resolved = true
                 } else if HasVisibleTypeParameterRoot(canonical) {
                     claimed = true
@@ -164,14 +179,26 @@ class ColumnarExactTypeResolver {
                         // replace a lexically selected nested declaration.
                         sourceType := typeof(object)
                         if exactSourceTypes.TryGetValue(exactSourceName, out sourceType) && !sourceType.get_IsGenericTypeDefinition() {
-                            selected = sourceType
+                            selected = structuralTypeReferences.SelectSourceDefinition(exactSourceName, sourceType)
                             resolved = true
                         } else {
                             ignoredClaim := false
-                            resolved = TryResolveExactExplicitType(canonical, out selected, out ignoredClaim)
+                            selectedType := typeof(object)
+                            resolved = TryResolveExactExplicitType(canonical, out selectedType, out ignoredClaim)
+                            if resolved {
+                                selected = structuralTypeReferences.SelectRuntimeType(selectedType)
+                            } else if selectedType != null && !Object.ReferenceEquals(selectedType, typeof(object)) {
+                                selected = ColumnarSelectedTypeReference.RejectedWithRuntime(structuralTypeReferences, selectedType)
+                            }
                         }
                     } else {
-                        resolved = TryResolveExactExplicitType(canonical, out selected, out claimed)
+                        selectedType := typeof(object)
+                        resolved = TryResolveExactExplicitType(canonical, out selectedType, out claimed)
+                        if resolved {
+                            selected = structuralTypeReferences.SelectRuntimeType(selectedType)
+                        } else if selectedType != null && !Object.ReferenceEquals(selectedType, typeof(object)) {
+                            selected = ColumnarSelectedTypeReference.RejectedWithRuntime(structuralTypeReferences, selectedType)
+                        }
                     }
                 }
             }
@@ -179,7 +206,7 @@ class ColumnarExactTypeResolver {
             cache[canonical] = cached
         }
 
-        selectedType = cached.Type
+        selectedReference = cached.Selected
         claimed = cached.Claimed
         return cached.Resolved
     }
@@ -216,7 +243,7 @@ class ColumnarExactTypeResolver {
         }
         narrowedBindings := ColumnarFragmentBindings.CreateTypeResolutionBindings(bindings.Enums, bindings.SourceTypeDefinitions, bindings.SourceUnionDefinitions, owned)
         narrowedBindings.ExactSourceTypes = exactSourceTypes
-        return new ColumnarExactTypeResolver(program, sourceFileId, narrowedBindings, sourceDefinitionTypes, exactSourceTypes, owned, blocked, enclosingSourceDeclarationName)
+        return new ColumnarExactTypeResolver(program, sourceFileId, narrowedBindings, sourceDefinitionTypes, exactSourceTypes, owned, blocked, enclosingSourceDeclarationName, structuralTypeReferences)
     }
 
     func ClaimsTypeParameterShape(canonical: string): bool {
@@ -948,6 +975,7 @@ class ColumnarSemanticRegistry<TDefinition> {
     rejectedLookupCache: HashSet<string>
 
     Resolver: ColumnarExactTypeResolver => resolver
+    StructuralTypeReferences: ColumnarStructuralTypeReferenceTable => resolver.StructuralTypeReferences
     Keys: List<string> => index.Keys
     Values: List<TDefinition> => index.Values
     Count: int => index.Count
@@ -1068,18 +1096,20 @@ class ColumnarSemanticTypeResolution {
     Enums: ColumnarSemanticRegistry<ColumnarEnumDef>
     Structs: ColumnarSemanticRegistry<ColumnarStructDef>
     Unions: ColumnarSemanticRegistry<ColumnarUnionDef>
+    StructuralTypeReferences: ColumnarStructuralTypeReferenceTable
 
-    constructor(program: ColumnarProgramInput, sourceFileId: int, enums: Dictionary<string, ColumnarEnumDef>, structs: Dictionary<string, ColumnarStructDef>, unions: Dictionary<string, ColumnarUnionDef>, enumIndex: ColumnarSemanticDefinitionIndex<ColumnarEnumDef>, structIndex: ColumnarSemanticDefinitionIndex<ColumnarStructDef>, unionIndex: ColumnarSemanticDefinitionIndex<ColumnarUnionDef>, sourceDefinitionTypes: List<Type>, exactSourceTypes: Dictionary<string, Type>, suppliedTypeParameters: Dictionary<string, Type>?, enclosingSourceDeclarationName: string? = null) {
+    constructor(program: ColumnarProgramInput, sourceFileId: int, enums: Dictionary<string, ColumnarEnumDef>, structs: Dictionary<string, ColumnarStructDef>, unions: Dictionary<string, ColumnarUnionDef>, enumIndex: ColumnarSemanticDefinitionIndex<ColumnarEnumDef>, structIndex: ColumnarSemanticDefinitionIndex<ColumnarStructDef>, unionIndex: ColumnarSemanticDefinitionIndex<ColumnarUnionDef>, sourceDefinitionTypes: List<Type>, exactSourceTypes: Dictionary<string, Type>, suppliedTypeParameters: Dictionary<string, Type>?, enclosingSourceDeclarationName: string?, structuralTypeReferences: ColumnarStructuralTypeReferenceTable) {
         typeParameters := suppliedTypeParameters
         if typeParameters == null {
             typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
         }
         bindings := ColumnarFragmentBindings.CreateTypeResolutionBindings(enums, structs, unions, typeParameters)
         bindings.ExactSourceTypes = exactSourceTypes
-        exactResolver := new ColumnarExactTypeResolver(program, sourceFileId, bindings, sourceDefinitionTypes, exactSourceTypes, typeParameters, null, enclosingSourceDeclarationName)
+        exactResolver := new ColumnarExactTypeResolver(program, sourceFileId, bindings, sourceDefinitionTypes, exactSourceTypes, typeParameters, null, enclosingSourceDeclarationName, structuralTypeReferences)
         Enums = new ColumnarSemanticRegistry<ColumnarEnumDef>(enumIndex, exactResolver)
         Structs = new ColumnarSemanticRegistry<ColumnarStructDef>(structIndex, exactResolver)
         Unions = new ColumnarSemanticRegistry<ColumnarUnionDef>(unionIndex, exactResolver)
+        StructuralTypeReferences = structuralTypeReferences
     }
 }
 
@@ -1112,6 +1142,9 @@ class ColumnarSemanticTypeResolutionCatalog {
     exactSourceTypes: Dictionary<string, Type>
     nongenericViews: Dictionary<int, Dictionary<string, ColumnarSemanticTypeResolution>>
     genericViews: Dictionary<int, Dictionary<string, List<ColumnarSemanticTypeResolutionCatalogEntry>>>
+    structuralTypeReferences: ColumnarStructuralTypeReferenceTable
+
+    StructuralTypeReferences: ColumnarStructuralTypeReferenceTable => structuralTypeReferences
 
     constructor(program: ColumnarProgramInput, enums: Dictionary<string, ColumnarEnumDef>, structs: Dictionary<string, ColumnarStructDef>, unions: Dictionary<string, ColumnarUnionDef>) {
         this.program = program
@@ -1121,6 +1154,7 @@ class ColumnarSemanticTypeResolutionCatalog {
         enumIndex = ColumnarSemanticDefinitionIndexes.Enums(enums)
         structIndex = ColumnarSemanticDefinitionIndexes.Structs(structs)
         unionIndex = ColumnarSemanticDefinitionIndexes.Unions(unions)
+        structuralTypeReferences = new ColumnarStructuralTypeReferenceTable()
         sourceDefinitionTypes = new List<Type>()
         for definition in enumIndex.Values {
             sourceDefinitionTypes.Add(definition.EnumType)
@@ -1134,13 +1168,17 @@ class ColumnarSemanticTypeResolutionCatalog {
         exactSourceTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
         for pair in enumIndex.ExactPairs {
             exactSourceTypes[pair.Key] = pair.Value.EnumType
+            structuralTypeReferences.RegisterSourceDefinition(pair.Key, pair.Value.EnumType, pair.Value.IsStringBacked)
         }
         for pair in structIndex.ExactPairs {
             exactSourceTypes[pair.Key] = pair.Value.Builder
+            structuralTypeReferences.RegisterSourceDefinition(pair.Key, pair.Value.Builder, false)
         }
         for pair in unionIndex.ExactPairs {
             exactSourceTypes[pair.Key] = pair.Value.Base
+            structuralTypeReferences.RegisterSourceDefinition(pair.Key, pair.Value.Base, false)
         }
+        RegisterDeclaredTypeParameters()
         nongenericViews = new Dictionary<int, Dictionary<string, ColumnarSemanticTypeResolution>>()
         genericViews = new Dictionary<int, Dictionary<string, List<ColumnarSemanticTypeResolutionCatalogEntry>>>()
     }
@@ -1184,7 +1222,57 @@ class ColumnarSemanticTypeResolutionCatalog {
         return createdGeneric
     }
 
+    func ForSourceMethod(sourceFileId: int, typeParameters: Dictionary<string, Type>, methodOrdinal: int): ColumnarSemanticTypeResolution {
+        structuralTypeReferences.RegisterGenericParameters(typeParameters, ColumnarStructuralGenericOwnerIdentity.SourceMethod(sourceFileId, methodOrdinal))
+        return For(sourceFileId, typeParameters, null)
+    }
+
+    func RegisterUnionCase(sourceFileId: int, unionName: string, caseName: string, caseOrdinal: int, caseType: Type, typeParameters: Dictionary<string, Type>?): ColumnarSemanticTypeResolution {
+        exactCaseName := unionName + "." + caseName
+        structuralTypeReferences.RegisterSourceDefinition(exactCaseName, caseType, false)
+        structuralTypeReferences.RegisterGenericParameters(typeParameters, ColumnarStructuralGenericOwnerIdentity.SourceUnionCase(sourceFileId, unionName, caseOrdinal))
+        return For(sourceFileId, typeParameters, unionName)
+    }
+
     func Create(sourceFileId: int, typeParameters: Dictionary<string, Type>?, enclosingDeclaration: string): ColumnarSemanticTypeResolution {
-        return new ColumnarSemanticTypeResolution(program, sourceFileId, enums, structs, unions, enumIndex, structIndex, unionIndex, sourceDefinitionTypes, exactSourceTypes, typeParameters, enclosingDeclaration)
+        return new ColumnarSemanticTypeResolution(program, sourceFileId, enums, structs, unions, enumIndex, structIndex, unionIndex, sourceDefinitionTypes, exactSourceTypes, typeParameters, enclosingDeclaration, structuralTypeReferences)
+    }
+
+    func RegisterDeclaredTypeParameters() {
+        sourceOwnerFiles := new Dictionary<string, int>(StringComparer.Ordinal)
+        unionParameterNames := new Dictionary<string, string[]>(StringComparer.Ordinal)
+        for iface in program.Interfaces {
+            exactName := program.ExactTypeNameForFile(iface.Name, iface.SourceFileId)
+            if !sourceOwnerFiles.ContainsKey(exactName) {
+                sourceOwnerFiles.Add(exactName, iface.SourceFileId)
+            }
+        }
+        for input in program.Structs {
+            exactName := program.ExactStructTypeName(input)
+            if !sourceOwnerFiles.ContainsKey(exactName) {
+                sourceOwnerFiles.Add(exactName, input.SourceFileId)
+            }
+        }
+        for input in program.Unions {
+            exactName := program.ExactTypeNameForFile(input.Name, input.SourceFileId)
+            if !sourceOwnerFiles.ContainsKey(exactName) {
+                sourceOwnerFiles.Add(exactName, input.SourceFileId)
+                unionParameterNames.Add(exactName, input.TypeParamNames)
+            }
+        }
+
+        for pair in structIndex.ExactPairs {
+            sourceFileId := -1
+            if sourceOwnerFiles.TryGetValue(pair.Key, out sourceFileId) {
+                structuralTypeReferences.RegisterGenericParameters(pair.Value.GenericParameters, ColumnarStructuralGenericOwnerIdentity.SourceType(sourceFileId, pair.Key))
+            }
+        }
+        for pair in unionIndex.ExactPairs {
+            sourceFileId := -1
+            parameterNames := new string[](0)
+            if sourceOwnerFiles.TryGetValue(pair.Key, out sourceFileId) && unionParameterNames.TryGetValue(pair.Key, out parameterNames) && parameterNames.Length > 0 {
+                structuralTypeReferences.RegisterTypeGenericParameters(sourceFileId, pair.Key, parameterNames, pair.Value.Base)
+            }
+        }
     }
 }
