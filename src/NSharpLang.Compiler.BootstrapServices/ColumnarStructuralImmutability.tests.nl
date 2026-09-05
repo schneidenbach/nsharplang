@@ -159,6 +159,7 @@ test "structural keys snapshot caller nested-name arrays before exposing immutab
         "",
         -1,
         -1,
+        null,
         new ColumnarStructuralTypeKey[](0)
     )
     selected := new ColumnarSelectedTypeReference(

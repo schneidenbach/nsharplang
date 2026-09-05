@@ -132,10 +132,12 @@ class ColumnarResolvedMethodOverride {
     readonly targetValue: MethodInfo
     readonly sourceInterfaceBindingValue: ColumnarSourceInterfaceMethodBinding?
     readonly closedSourceInterfaceBindingValue: ColumnarClosedSourceInterfaceMethodBinding?
+    readonly externalInterfaceBindingValue: ColumnarExternalInterfaceMethodBinding?
 
     Target: MethodInfo => targetValue
     SourceInterfaceBinding: ColumnarSourceInterfaceMethodBinding? => sourceInterfaceBindingValue
     ClosedSourceInterfaceBinding: ColumnarClosedSourceInterfaceMethodBinding? => closedSourceInterfaceBindingValue
+    ExternalInterfaceBinding: ColumnarExternalInterfaceMethodBinding? => externalInterfaceBindingValue
 
     constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], target: MethodInfo) {
         if memberName == null || returnCanonical == null || parameterCanonicals == null || target == null {
@@ -150,6 +152,7 @@ class ColumnarResolvedMethodOverride {
         targetValue = target
         sourceInterfaceBindingValue = null
         closedSourceInterfaceBindingValue = null
+        externalInterfaceBindingValue = null
     }
 
     constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], binding: ColumnarSourceInterfaceMethodBinding) {
@@ -165,6 +168,7 @@ class ColumnarResolvedMethodOverride {
         targetValue = binding.Target
         sourceInterfaceBindingValue = binding
         closedSourceInterfaceBindingValue = null
+        externalInterfaceBindingValue = null
     }
 
     constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], binding: ColumnarClosedSourceInterfaceMethodBinding) {
@@ -184,23 +188,42 @@ class ColumnarResolvedMethodOverride {
         targetValue = target
         sourceInterfaceBindingValue = null
         closedSourceInterfaceBindingValue = binding
+        externalInterfaceBindingValue = null
+    }
+
+    constructor(targetKind: int, targetOrdinal: int, memberName: string, returnCanonical: string, parameterCanonicals: string[], binding: ColumnarExternalInterfaceMethodBinding) {
+        if memberName == null || returnCanonical == null || parameterCanonicals == null || binding == null || binding.Target == null {
+            throw new InvalidOperationException("Resolved external-interface override facts cannot be null.")
+        }
+
+        TargetKind = targetKind
+        TargetOrdinal = targetOrdinal
+        MemberName = memberName
+        ReturnCanonical = returnCanonical
+        ParameterCanonicals = parameterCanonicals
+        targetValue = binding.Target
+        sourceInterfaceBindingValue = null
+        closedSourceInterfaceBindingValue = null
+        externalInterfaceBindingValue = binding
     }
 
     func ValidatedTarget(expectedTable: ColumnarStructuralTypeReferenceTable?): MethodInfo {
-        if sourceInterfaceBindingValue == null && closedSourceInterfaceBindingValue == null {
+        if sourceInterfaceBindingValue == null && closedSourceInterfaceBindingValue == null && externalInterfaceBindingValue == null {
             return targetValue
         }
         if expectedTable == null {
-            throw new InvalidOperationException("A structural source-interface override requires its consuming emission table.")
+            throw new InvalidOperationException("A structural interface override requires its consuming emission table.")
         }
         validated: MethodInfo = targetValue
         if sourceInterfaceBindingValue != null {
             validated = sourceInterfaceBindingValue.ValidatedTarget(expectedTable)
         } else if closedSourceInterfaceBindingValue != null {
             validated = closedSourceInterfaceBindingValue.ValidatedTarget(expectedTable)
+        } else if externalInterfaceBindingValue != null {
+            validated = externalInterfaceBindingValue.ValidatedTarget(expectedTable)
         }
         if !Object.ReferenceEquals(validated, targetValue) {
-            throw new InvalidOperationException("A source-interface override target no longer matches its captured binding.")
+            throw new InvalidOperationException("An interface override target no longer matches its captured binding.")
         }
         return validated
     }
@@ -301,6 +324,7 @@ class ColumnarMethodOverrideDeclaration {
     readonly sourceTargetBindings: List<ColumnarSourceInterfaceMethodBinding?>
     readonly closedSourceTargetBindings: List<ColumnarClosedSourceInterfaceMethodBinding?>
     readonly externalTargets: List<MethodInfo>
+    readonly externalTargetBindings: List<ColumnarExternalInterfaceMethodBinding?>
     readonly seenSourceTargets: HashSet<MethodInfo>
     readonly seenExternalTargets: HashSet<MethodInfo>
 
@@ -322,6 +346,7 @@ class ColumnarMethodOverrideDeclaration {
         sourceTargetBindings = new List<ColumnarSourceInterfaceMethodBinding?>()
         closedSourceTargetBindings = new List<ColumnarClosedSourceInterfaceMethodBinding?>()
         externalTargets = new List<MethodInfo>()
+        externalTargetBindings = new List<ColumnarExternalInterfaceMethodBinding?>()
         seenSourceTargets = new HashSet<MethodInfo>()
         seenExternalTargets = new HashSet<MethodInfo>()
     }
@@ -428,6 +453,18 @@ class ColumnarMethodOverrideDeclaration {
         }
         if seenExternalTargets.Add(target) {
             externalTargets.Add(target)
+            externalTargetBindings.Add(null)
+        }
+    }
+
+    func AddExternalTarget(binding: ColumnarExternalInterfaceMethodBinding) {
+        if binding == null || binding.Target == null {
+            throw new InvalidOperationException("A structural external-interface override target cannot be null.")
+        }
+        target := binding.Target
+        if seenExternalTargets.Add(target) {
+            externalTargets.Add(target)
+            externalTargetBindings.Add(binding)
         }
     }
 
@@ -484,7 +521,12 @@ class ColumnarMethodOverrideDeclaration {
 
         index = 0
         while index < externalTargets.Count {
-            targets[cursor] = CreateResolvedTarget(ExternalInterfaceTargetKind(), index, externalTargets[index])
+            externalBinding := externalTargetBindings[index]
+            if externalBinding != null {
+                targets[cursor] = CreateResolvedExternalTarget(ExternalInterfaceTargetKind(), index, externalBinding)
+            } else {
+                targets[cursor] = CreateResolvedTarget(ExternalInterfaceTargetKind(), index, externalTargets[index])
+            }
             cursor = cursor + 1
             index = index + 1
         }
@@ -515,6 +557,17 @@ class ColumnarMethodOverrideDeclaration {
     }
 
     func CreateResolvedClosedSourceTarget(kind: int, ordinal: int, binding: ColumnarClosedSourceInterfaceMethodBinding): ColumnarResolvedMethodOverride {
+        return new ColumnarResolvedMethodOverride(
+            kind,
+            ordinal,
+            MemberName,
+            ReturnCanonical,
+            ParameterCanonicals,
+            binding
+        )
+    }
+
+    func CreateResolvedExternalTarget(kind: int, ordinal: int, binding: ColumnarExternalInterfaceMethodBinding): ColumnarResolvedMethodOverride {
         return new ColumnarResolvedMethodOverride(
             kind,
             ordinal,

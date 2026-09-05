@@ -20,7 +20,9 @@ enum ColumnarStructuralGenericOwnerKind {
     SourceType = 0,
     SourceMethod = 1,
     SourceUnionCase = 2,
-    SynthesizedType = 3
+    SynthesizedType = 3,
+    ExternalType = 4,
+    ExternalMethod = 5
 }
 
 // Reference identity is intentional. One parsed ColumnarProgramInput may be emitted more than once,
@@ -76,6 +78,53 @@ class ColumnarStructuralGenericParameterIdentity {
     }
 }
 
+// External generic parameters are owned by portable CLR metadata identity rather than an emission
+// registration. A VAR names its exact open declaring definition. An MVAR additionally names its
+// MethodDef within that definition; the token is retained together with the module, name, arity and
+// calling-convention facts rather than being treated as a substitute for the method signature.
+class ColumnarStructuralExternalGenericOwnerIdentity {
+    readonly kindValue: ColumnarStructuralGenericOwnerKind
+    readonly declaringTypeValue: ColumnarStructuralTypeKey
+    readonly moduleVersionIdValue: string
+    readonly methodMetadataTokenValue: int
+    readonly methodNameValue: string
+    readonly methodGenericArityValue: int
+    readonly methodCallingConventionValue: int
+    readonly methodIsStaticValue: bool
+
+    Kind: ColumnarStructuralGenericOwnerKind => kindValue
+    DeclaringType: ColumnarStructuralTypeKey => declaringTypeValue
+    ModuleVersionId: string => moduleVersionIdValue
+    MethodMetadataToken: int => methodMetadataTokenValue
+    MethodName: string => methodNameValue
+    MethodGenericArity: int => methodGenericArityValue
+    MethodCallingConvention: int => methodCallingConventionValue
+    MethodIsStatic: bool => methodIsStaticValue
+
+    constructor(
+        kind: ColumnarStructuralGenericOwnerKind,
+        declaringType: ColumnarStructuralTypeKey,
+        moduleVersionId: string,
+        methodMetadataToken: int,
+        methodName: string,
+        methodGenericArity: int,
+        methodCallingConvention: int,
+        methodIsStatic: bool
+    ) {
+        if declaringType == null || moduleVersionId == null || methodName == null {
+            throw new InvalidOperationException("External generic-owner identity values cannot be null.")
+        }
+        kindValue = kind
+        declaringTypeValue = declaringType
+        moduleVersionIdValue = moduleVersionId
+        methodMetadataTokenValue = methodMetadataToken
+        methodNameValue = methodName
+        methodGenericArityValue = methodGenericArity
+        methodCallingConventionValue = methodCallingConvention
+        methodIsStaticValue = methodIsStatic
+    }
+}
+
 // The key contains metadata identity only. Constructor inputs are copied into BCL read-only
 // collections whose mutable List backing is never retained by a caller.
 class ColumnarStructuralTypeKey {
@@ -93,6 +142,7 @@ class ColumnarStructuralTypeKey {
     readonly genericOwnerDeclaringTypeNameValue: string
     readonly genericOwnerMemberOrdinalValue: int
     readonly genericParameterOrdinalValue: int
+    readonly externalGenericOwnerValue: ColumnarStructuralExternalGenericOwnerIdentity?
     readonly childrenValue: IReadOnlyList<object>
     readonly childCountValue: int
 
@@ -108,6 +158,7 @@ class ColumnarStructuralTypeKey {
     GenericOwnerDeclaringTypeName: string => genericOwnerDeclaringTypeNameValue
     GenericOwnerMemberOrdinal: int => genericOwnerMemberOrdinalValue
     GenericParameterOrdinal: int => genericParameterOrdinalValue
+    ExternalGenericOwner: ColumnarStructuralExternalGenericOwnerIdentity? => externalGenericOwnerValue
     NestedNameCount: int => nestedNameCountValue
     ChildCount: int => childCountValue
 
@@ -125,6 +176,7 @@ class ColumnarStructuralTypeKey {
         genericOwnerDeclaringTypeName: string,
         genericOwnerMemberOrdinal: int,
         genericParameterOrdinal: int,
+        externalGenericOwner: ColumnarStructuralExternalGenericOwnerIdentity?,
         children: ColumnarStructuralTypeKey[]
     ) {
         if primitiveName == null || sourceDeclarationName == null || assemblyIdentity == null || namespaceName == null || genericOwnerDeclaringTypeName == null || nestedNames == null || children == null {
@@ -153,6 +205,7 @@ class ColumnarStructuralTypeKey {
         genericOwnerDeclaringTypeNameValue = genericOwnerDeclaringTypeName
         genericOwnerMemberOrdinalValue = genericOwnerMemberOrdinal
         genericParameterOrdinalValue = genericParameterOrdinal
+        externalGenericOwnerValue = externalGenericOwner
         childrenCopy := new List<object>()
         i = 0
         while i < children.Length {
@@ -315,6 +368,9 @@ class ColumnarStructuralTypeReferenceTable {
         if owner == null {
             throw new InvalidOperationException("Structural generic parameters require a known owner identity.")
         }
+        if owner.Kind == ColumnarStructuralGenericOwnerKind.ExternalType || owner.Kind == ColumnarStructuralGenericOwnerKind.ExternalMethod {
+            throw new InvalidOperationException("External generic-parameter owners are derived from their runtime metadata identity.")
+        }
         for pair in parameters {
             parameter := pair.Value
             if !parameter.get_IsGenericParameter() {
@@ -399,10 +455,10 @@ class ColumnarStructuralTypeReferenceTable {
         }
         parameterIdentity := new ColumnarStructuralGenericParameterIdentity(ColumnarStructuralGenericOwnerIdentity.SourceMethod(-1, -1), -1)
         if runtimeType.get_IsGenericParameter() {
-            if !genericParameters.TryGetValue(runtimeType, out parameterIdentity) {
-                throw new InvalidOperationException("A generic parameter reached structural selection without a registered source owner.")
+            if genericParameters.TryGetValue(runtimeType, out parameterIdentity) {
+                return Selected(ColumnarStructuralTypeKeyFacts.GenericParameterKey(identityValue, parameterIdentity), runtimeType)
             }
-            return Selected(ColumnarStructuralTypeKeyFacts.GenericParameterKey(identityValue, parameterIdentity), runtimeType)
+            return Selected(ColumnarStructuralTypeKeyFacts.ExternalGenericParameterKey(runtimeType), runtimeType)
         }
         sourceName := ""
         if uniqueSourceNamesByType.TryGetValue(runtimeType, out sourceName) && !ambiguousSourceTypes.Contains(runtimeType) {
@@ -447,6 +503,45 @@ class ColumnarStructuralTypeReferenceTable {
             throw new InvalidOperationException("An unregistered AssemblyBuilder-backed type cannot be classified as an external metadata identity.")
         }
         return Selected(ColumnarStructuralTypeKeyFacts.ExternalNamedKey(runtimeType), runtimeType)
+    }
+
+    // Open external member signatures derive VAR/MVAR ownership from the metadata parameter itself,
+    // even if a caller has separately registered that Type under a source-fixture owner. Composite
+    // open-signature shapes recurse through this door; effective/context shapes use SelectRuntimeType
+    // so real source generic arguments retain their registered emission owners.
+    func SelectExternalSignatureType(runtimeType: Type): ColumnarSelectedTypeReference {
+        if runtimeType == null {
+            throw new InvalidOperationException("An external signature type requires a runtime companion.")
+        }
+        if runtimeType.get_IsGenericParameter() {
+            return Selected(ColumnarStructuralTypeKeyFacts.ExternalGenericParameterKey(runtimeType), runtimeType)
+        }
+        if ColumnarTypeEquivalenceFacts.IsSzArrayType(runtimeType) {
+            elementType := ColumnarTypeEquivalenceFacts.TryGetElementType(runtimeType)
+            if elementType == null {
+                throw new InvalidOperationException("An external signature SZ-array has no element type.")
+            }
+            return SelectSzArray(runtimeType, SelectExternalSignatureType(elementType))
+        }
+        if ColumnarTypeEquivalenceFacts.IsByRefType(runtimeType) {
+            elementType := ColumnarTypeEquivalenceFacts.TryGetElementType(runtimeType)
+            if elementType == null {
+                throw new InvalidOperationException("An external signature byref has no element type.")
+            }
+            return SelectByRef(runtimeType, SelectExternalSignatureType(elementType))
+        }
+        if runtimeType.get_IsGenericType() && !runtimeType.get_IsGenericTypeDefinition() {
+            definition := SelectRuntimeType(runtimeType.GetGenericTypeDefinition())
+            argumentTypes := runtimeType.GetGenericArguments()
+            arguments := new ColumnarSelectedTypeReference[](argumentTypes.Length)
+            index := 0
+            while index < argumentTypes.Length {
+                arguments[index] = SelectExternalSignatureType(argumentTypes[index])
+                index += 1
+            }
+            return SelectConstructedGeneric(runtimeType, definition, arguments)
+        }
+        return SelectRuntimeType(runtimeType)
     }
 
     func SelectConstructedGeneric(runtimeType: Type, definition: ColumnarSelectedTypeReference, arguments: ColumnarSelectedTypeReference[]): ColumnarSelectedTypeReference {
@@ -510,7 +605,7 @@ class ColumnarStructuralTypeReferenceTable {
 class ColumnarStructuralTypeKeyFacts {
     static func KeyMatchesRuntime(emissionIdentity: ColumnarStructuralTypeEmissionIdentity, sourceTypesByName: Dictionary<string, Type>, synthesizedTypeNames: HashSet<string>, genericParameters: Dictionary<Type, ColumnarStructuralGenericParameterIdentity>, key: ColumnarStructuralTypeKey, runtimeType: Type): bool {
         blankNamedIdentity := key.PrimitiveName == "" && key.SourceDeclarationName == "" && key.AssemblyIdentity == "" && key.NamespaceName == "" && key.NestedNameCount == 0
-        blankGenericIdentity := key.GenericOwnerKind == ColumnarStructuralGenericOwnerKind.SourceType && key.GenericOwnerSourceFileId == -1 && key.GenericOwnerDeclaringTypeName == "" && key.GenericOwnerMemberOrdinal == -1 && key.GenericParameterOrdinal == -1
+        blankGenericIdentity := key.GenericOwnerKind == ColumnarStructuralGenericOwnerKind.SourceType && key.GenericOwnerSourceFileId == -1 && key.GenericOwnerDeclaringTypeName == "" && key.GenericOwnerMemberOrdinal == -1 && key.GenericParameterOrdinal == -1 && key.ExternalGenericOwner == null
         if key.Kind == ColumnarStructuralTypeReferenceKind.Primitive {
             return key.EmissionIdentity == null && key.PrimitiveName.Length > 0 && key.SourceDeclarationName == "" && key.AssemblyIdentity == "" && key.NamespaceName == "" && key.NestedNameCount == 0 && !key.IsValueType && blankGenericIdentity && key.ChildCount == 0 && key.PrimitiveName == PrimitiveIdentity(runtimeType)
         }
@@ -551,22 +646,35 @@ class ColumnarStructuralTypeKeyFacts {
             return key.EmissionIdentity == null && blankNamedIdentity && !key.IsValueType && blankGenericIdentity && expectedShape && key.ChildCount == 1 && element != null && KeyMatchesRuntime(emissionIdentity, sourceTypesByName, synthesizedTypeNames, genericParameters, key.Child(0), element)
         }
         if key.Kind == ColumnarStructuralTypeReferenceKind.TypeGenericParameter || key.Kind == ColumnarStructuralTypeReferenceKind.MethodGenericParameter {
-            if !runtimeType.get_IsGenericParameter() || !Object.ReferenceEquals(key.EmissionIdentity, emissionIdentity) || !blankNamedIdentity || key.IsValueType || key.ChildCount != 0 {
-                return false
-            }
-            registered := new ColumnarStructuralGenericParameterIdentity(ColumnarStructuralGenericOwnerIdentity.SourceMethod(-1, -1), -1)
-            if !genericParameters.TryGetValue(runtimeType, out registered) || !GenericParameterKeyMatches(key, registered) || runtimeType.get_GenericParameterPosition() != key.GenericParameterOrdinal {
+            if !runtimeType.get_IsGenericParameter() || !blankNamedIdentity || key.IsValueType || key.ChildCount != 0 {
                 return false
             }
             runtimeIsMethod := runtimeType.get_IsGenericMethodParameter()
             runtimeIsType := runtimeType.get_IsGenericTypeParameter()
-            return runtimeIsMethod != runtimeIsType && (key.Kind == ColumnarStructuralTypeReferenceKind.MethodGenericParameter) == runtimeIsMethod
+            if runtimeIsMethod == runtimeIsType || (key.Kind == ColumnarStructuralTypeReferenceKind.MethodGenericParameter) != runtimeIsMethod || runtimeType.get_GenericParameterPosition() != key.GenericParameterOrdinal {
+                return false
+            }
+
+            keyHasExternalOwner := key.GenericOwnerKind == ColumnarStructuralGenericOwnerKind.ExternalType || key.GenericOwnerKind == ColumnarStructuralGenericOwnerKind.ExternalMethod
+            if keyHasExternalOwner {
+                if key.EmissionIdentity != null || key.GenericOwnerSourceFileId != -1 || key.GenericOwnerDeclaringTypeName != "" || key.GenericOwnerMemberOrdinal != -1 || key.ExternalGenericOwner == null {
+                    return false
+                }
+                expectedOwnerKind := runtimeIsMethod ? ColumnarStructuralGenericOwnerKind.ExternalMethod : ColumnarStructuralGenericOwnerKind.ExternalType
+                return key.GenericOwnerKind == expectedOwnerKind && ExternalGenericOwnerMatchesRuntime(key.ExternalGenericOwner, runtimeType)
+            }
+
+            registered := new ColumnarStructuralGenericParameterIdentity(ColumnarStructuralGenericOwnerIdentity.SourceMethod(-1, -1), -1)
+            if key.ExternalGenericOwner != null || !Object.ReferenceEquals(key.EmissionIdentity, emissionIdentity) || !genericParameters.TryGetValue(runtimeType, out registered) {
+                return false
+            }
+            return GenericParameterKeyMatches(key, registered)
         }
         return false
     }
 
     static func KeysEqual(left: ColumnarStructuralTypeKey, right: ColumnarStructuralTypeKey): bool {
-        if left == null || right == null || left.Kind != right.Kind || !Object.ReferenceEquals(left.EmissionIdentity, right.EmissionIdentity) || left.PrimitiveName != right.PrimitiveName || left.SourceDeclarationName != right.SourceDeclarationName || left.AssemblyIdentity != right.AssemblyIdentity || left.NamespaceName != right.NamespaceName || left.IsValueType != right.IsValueType || left.GenericOwnerKind != right.GenericOwnerKind || left.GenericOwnerSourceFileId != right.GenericOwnerSourceFileId || left.GenericOwnerDeclaringTypeName != right.GenericOwnerDeclaringTypeName || left.GenericOwnerMemberOrdinal != right.GenericOwnerMemberOrdinal || left.GenericParameterOrdinal != right.GenericParameterOrdinal || left.NestedNameCount != right.NestedNameCount || left.ChildCount != right.ChildCount {
+        if left == null || right == null || left.Kind != right.Kind || !Object.ReferenceEquals(left.EmissionIdentity, right.EmissionIdentity) || left.PrimitiveName != right.PrimitiveName || left.SourceDeclarationName != right.SourceDeclarationName || left.AssemblyIdentity != right.AssemblyIdentity || left.NamespaceName != right.NamespaceName || left.IsValueType != right.IsValueType || left.GenericOwnerKind != right.GenericOwnerKind || left.GenericOwnerSourceFileId != right.GenericOwnerSourceFileId || left.GenericOwnerDeclaringTypeName != right.GenericOwnerDeclaringTypeName || left.GenericOwnerMemberOrdinal != right.GenericOwnerMemberOrdinal || left.GenericParameterOrdinal != right.GenericParameterOrdinal || !ExternalGenericOwnersEqual(left.ExternalGenericOwner, right.ExternalGenericOwner) || left.NestedNameCount != right.NestedNameCount || left.ChildCount != right.ChildCount {
             return false
         }
         i := 0
@@ -606,13 +714,27 @@ class ColumnarStructuralTypeKeyFacts {
     }
 
     static func CompositeKey(kind: ColumnarStructuralTypeReferenceKind, children: ColumnarStructuralTypeKey[]): ColumnarStructuralTypeKey {
-        return new ColumnarStructuralTypeKey(kind, null, "", "", "", "", new string[](0), false, ColumnarStructuralGenericOwnerKind.SourceType, -1, "", -1, -1, children)
+        return new ColumnarStructuralTypeKey(kind, null, "", "", "", "", new string[](0), false, ColumnarStructuralGenericOwnerKind.SourceType, -1, "", -1, -1, null, children)
     }
 
     static func GenericParameterKey(emissionIdentity: ColumnarStructuralTypeEmissionIdentity, identity: ColumnarStructuralGenericParameterIdentity): ColumnarStructuralTypeKey {
         owner := identity.Owner
         kind := owner.Kind == ColumnarStructuralGenericOwnerKind.SourceMethod ? ColumnarStructuralTypeReferenceKind.MethodGenericParameter : ColumnarStructuralTypeReferenceKind.TypeGenericParameter
-        return new ColumnarStructuralTypeKey(kind, emissionIdentity, "", "", "", "", new string[](0), false, owner.Kind, owner.SourceFileId, owner.DeclaringTypeName, owner.MemberOrdinal, identity.ParameterOrdinal, new ColumnarStructuralTypeKey[](0))
+        return new ColumnarStructuralTypeKey(kind, emissionIdentity, "", "", "", "", new string[](0), false, owner.Kind, owner.SourceFileId, owner.DeclaringTypeName, owner.MemberOrdinal, identity.ParameterOrdinal, null, new ColumnarStructuralTypeKey[](0))
+    }
+
+    static func ExternalGenericParameterKey(runtimeType: Type): ColumnarStructuralTypeKey {
+        if runtimeType == null || !runtimeType.get_IsGenericParameter() {
+            throw new InvalidOperationException("An external generic-parameter key requires an actual generic parameter.")
+        }
+        runtimeIsMethod := runtimeType.get_IsGenericMethodParameter()
+        runtimeIsType := runtimeType.get_IsGenericTypeParameter()
+        if runtimeIsMethod == runtimeIsType {
+            throw new InvalidOperationException("An external generic parameter must identify either a declaring type or method.")
+        }
+        owner := ExternalGenericOwner(runtimeType)
+        kind := runtimeIsMethod ? ColumnarStructuralTypeReferenceKind.MethodGenericParameter : ColumnarStructuralTypeReferenceKind.TypeGenericParameter
+        return new ColumnarStructuralTypeKey(kind, null, "", "", "", "", new string[](0), false, owner.Kind, -1, "", -1, runtimeType.get_GenericParameterPosition(), owner, new ColumnarStructuralTypeKey[](0))
     }
 
     static func ExternalNamedKey(runtimeType: Type): ColumnarStructuralTypeKey {
@@ -621,11 +743,124 @@ class ColumnarStructuralTypeKeyFacts {
             throw new InvalidOperationException("An external structural type requires an exact assembly identity.")
         }
         names := ExternalNestedNames(runtimeType)
-        return new ColumnarStructuralTypeKey(ColumnarStructuralTypeReferenceKind.ExternalNamedDefinition, null, "", "", assemblyIdentity, runtimeType.get_Namespace() ?? "", names, runtimeType.get_IsValueType(), ColumnarStructuralGenericOwnerKind.SourceType, -1, "", -1, -1, new ColumnarStructuralTypeKey[](0))
+        return new ColumnarStructuralTypeKey(ColumnarStructuralTypeReferenceKind.ExternalNamedDefinition, null, "", "", assemblyIdentity, runtimeType.get_Namespace() ?? "", names, runtimeType.get_IsValueType(), ColumnarStructuralGenericOwnerKind.SourceType, -1, "", -1, -1, null, new ColumnarStructuralTypeKey[](0))
+    }
+
+    static func ExternalGenericOwner(runtimeType: Type): ColumnarStructuralExternalGenericOwnerIdentity {
+        if runtimeType.get_IsGenericMethodParameter() {
+            declaringMethodBase := runtimeType.get_DeclaringMethod()
+            if declaringMethodBase == null {
+                throw new InvalidOperationException("A generic parameter reached structural selection without a registered source owner.")
+            }
+            declaringMethodObject: object? = declaringMethodBase
+            declaringMethod := (MethodInfo)declaringMethodObject
+            declaringType := declaringMethod.get_DeclaringType()
+            if declaringType == null {
+                throw new InvalidOperationException("A generic parameter reached structural selection without a registered source owner.")
+            }
+            declaringTypeObject: object? = declaringType
+            openDeclaringType := OpenExternalDefinition((Type)declaringTypeObject)
+            EnsureExternalGenericOwner(openDeclaringType)
+            module := declaringMethod.get_Module()
+            moduleVersionId := module.get_ModuleVersionId().ToString()
+            return new ColumnarStructuralExternalGenericOwnerIdentity(
+                ColumnarStructuralGenericOwnerKind.ExternalMethod,
+                ExternalNamedKey(openDeclaringType),
+                moduleVersionId,
+                declaringMethod.get_MetadataToken(),
+                declaringMethod.get_Name(),
+                declaringMethod.GetGenericArguments().Length,
+                Convert.ToInt32(declaringMethod.get_CallingConvention()),
+                declaringMethod.get_IsStatic()
+            )
+        }
+
+        declaringType := runtimeType.get_DeclaringType()
+        if declaringType == null {
+            throw new InvalidOperationException("A generic parameter reached structural selection without a registered source owner.")
+        }
+        declaringTypeObject: object? = declaringType
+        openDeclaringType := OpenExternalDefinition((Type)declaringTypeObject)
+        EnsureExternalGenericOwner(openDeclaringType)
+        return new ColumnarStructuralExternalGenericOwnerIdentity(
+            ColumnarStructuralGenericOwnerKind.ExternalType,
+            ExternalNamedKey(openDeclaringType),
+            "",
+            -1,
+            "",
+            -1,
+            -1,
+            false
+        )
+    }
+
+    static func OpenExternalDefinition(declaringType: Type): Type {
+        if declaringType.get_IsGenericType() && !declaringType.get_IsGenericTypeDefinition() {
+            return declaringType.GetGenericTypeDefinition()
+        }
+        return declaringType
+    }
+
+    static func EnsureExternalGenericOwner(declaringType: Type) {
+        if declaringType == null || ColumnarTypeOfPlanner.IsAssemblyBuilderBacked(declaringType) {
+            throw new InvalidOperationException("A generic parameter reached structural selection without a registered source owner.")
+        }
+    }
+
+    static func ExternalGenericOwnerMatchesRuntime(owner: ColumnarStructuralExternalGenericOwnerIdentity, runtimeType: Type): bool {
+        if owner == null || runtimeType == null || !runtimeType.get_IsGenericParameter() {
+            return false
+        }
+        runtimeIsMethod := runtimeType.get_IsGenericMethodParameter()
+        runtimeIsType := runtimeType.get_IsGenericTypeParameter()
+        if runtimeIsMethod == runtimeIsType {
+            return false
+        }
+
+        declaringType: Type? = null
+        declaringMethod: MethodInfo? = null
+        if runtimeIsMethod {
+            declaringMethodBase := runtimeType.get_DeclaringMethod()
+            if declaringMethodBase == null {
+                return false
+            }
+            declaringMethodObject: object? = declaringMethodBase
+            declaringMethod = (MethodInfo)declaringMethodObject
+            declaringType = declaringMethod.get_DeclaringType()
+        } else {
+            declaringType = runtimeType.get_DeclaringType()
+        }
+        if declaringType == null {
+            return false
+        }
+        declaringTypeObject: object? = declaringType
+        openDeclaringType := OpenExternalDefinition((Type)declaringTypeObject)
+        declaringKey := owner.DeclaringType
+        canonicalDeclaringKey := declaringKey.Kind == ColumnarStructuralTypeReferenceKind.ExternalNamedDefinition && declaringKey.EmissionIdentity == null && declaringKey.PrimitiveName == "" && declaringKey.SourceDeclarationName == "" && declaringKey.AssemblyIdentity.Length > 0 && declaringKey.NestedNameCount > 0 && declaringKey.GenericOwnerKind == ColumnarStructuralGenericOwnerKind.SourceType && declaringKey.GenericOwnerSourceFileId == -1 && declaringKey.GenericOwnerDeclaringTypeName == "" && declaringKey.GenericOwnerMemberOrdinal == -1 && declaringKey.GenericParameterOrdinal == -1 && declaringKey.ExternalGenericOwner == null && declaringKey.ChildCount == 0
+        if !canonicalDeclaringKey || ColumnarTypeOfPlanner.IsAssemblyBuilderBacked(openDeclaringType) || !ExternalIdentityMatches(declaringKey, openDeclaringType) {
+            return false
+        }
+
+        if runtimeIsType {
+            return owner.Kind == ColumnarStructuralGenericOwnerKind.ExternalType && owner.ModuleVersionId == "" && owner.MethodMetadataToken == -1 && owner.MethodName == "" && owner.MethodGenericArity == -1 && owner.MethodCallingConvention == -1 && !owner.MethodIsStatic
+        }
+        if declaringMethod == null {
+            return false
+        }
+        module := declaringMethod.get_Module()
+        moduleVersionId := module.get_ModuleVersionId().ToString()
+        return owner.Kind == ColumnarStructuralGenericOwnerKind.ExternalMethod && owner.ModuleVersionId == moduleVersionId && owner.MethodMetadataToken == declaringMethod.get_MetadataToken() && owner.MethodName == declaringMethod.get_Name() && owner.MethodGenericArity == declaringMethod.GetGenericArguments().Length && owner.MethodCallingConvention == Convert.ToInt32(declaringMethod.get_CallingConvention()) && owner.MethodIsStatic == declaringMethod.get_IsStatic()
+    }
+
+    static func ExternalGenericOwnersEqual(left: ColumnarStructuralExternalGenericOwnerIdentity?, right: ColumnarStructuralExternalGenericOwnerIdentity?): bool {
+        if left == null || right == null {
+            return left == null && right == null
+        }
+        return left.Kind == right.Kind && KeysEqual(left.DeclaringType, right.DeclaringType) && left.ModuleVersionId == right.ModuleVersionId && left.MethodMetadataToken == right.MethodMetadataToken && left.MethodName == right.MethodName && left.MethodGenericArity == right.MethodGenericArity && left.MethodCallingConvention == right.MethodCallingConvention && left.MethodIsStatic == right.MethodIsStatic
     }
 
     static func EmptyKey(kind: ColumnarStructuralTypeReferenceKind, emission: ColumnarStructuralTypeEmissionIdentity?, primitiveName: string, sourceName: string): ColumnarStructuralTypeKey {
-        return new ColumnarStructuralTypeKey(kind, emission, primitiveName, sourceName, "", "", new string[](0), false, ColumnarStructuralGenericOwnerKind.SourceType, -1, "", -1, -1, new ColumnarStructuralTypeKey[](0))
+        return new ColumnarStructuralTypeKey(kind, emission, primitiveName, sourceName, "", "", new string[](0), false, ColumnarStructuralGenericOwnerKind.SourceType, -1, "", -1, -1, null, new ColumnarStructuralTypeKey[](0))
     }
 
     static func ExternalNestedNames(runtimeType: Type): string[] {

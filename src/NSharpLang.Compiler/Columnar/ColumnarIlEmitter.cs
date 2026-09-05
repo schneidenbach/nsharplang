@@ -3476,14 +3476,13 @@ internal sealed class ColumnarIlEmitter
                         mParamTypes,
                         typeResolution.Structs.StructuralTypeReferences);
                 }
-                foreach (var externalInterface in def.ExternalInterfaces)
-                {
-                    foreach (var externalMethod in externalInterface.GetMethods())
-                    {
-                        if (ExternalInterfaceMethodMatches(externalMethod, m.Name, mSignatureReturn, mParamTypes))
-                            methodOverride.AddExternalTarget(externalMethod);
-                    }
-                }
+                ColumnarExternalInterfaceMethodResolver.AddMatchingTargets(
+                    methodOverride,
+                    def.ExternalInterfaces,
+                    m.Name,
+                    mSignatureReturn,
+                    mParamTypes,
+                    typeResolution.Structs.StructuralTypeReferences);
                 var methodOverrideCompletion = methodOverride.Complete(def.ExactBaseType, mSignatureReturn, mParamTypes);
                 if (!methodOverrideCompletion.IsValid)
                     return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName);
@@ -3544,17 +3543,8 @@ internal sealed class ColumnarIlEmitter
                     }
                 }
             }
-            foreach (var externalInterface in def.ExternalInterfaces)
-            {
-                foreach (var externalMethod in externalInterface.GetMethods())
-                {
-                    if (!def.Methods.TryGetValue(externalMethod.Name, out var impl)
-                        || !ExternalInterfaceMethodMatches(externalMethod, externalMethod.Name, impl.ReturnType, impl.ParamTypes))
-                    {
-                        return false;
-                    }
-                }
-            }
+            if (!ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(def, def.ExternalInterfaces))
+                return false;
         }
 
         // PASS 0b' (property accessors): declare each computed property as a `get_Name` instance
@@ -18140,21 +18130,6 @@ internal sealed class ColumnarIlEmitter
         for (var i = 0; i < a.Length; i++)
         {
             if (a[i] != b[i])
-                return false;
-        }
-        return true;
-    }
-
-    private static bool ExternalInterfaceMethodMatches(MethodInfo method, string name, Type returnType, Type[] paramTypes)
-    {
-        if (method.Name != name || !TypesEquivalent(method.ReturnType, returnType))
-            return false;
-        var parameters = method.GetParameters();
-        if (parameters.Length != paramTypes.Length)
-            return false;
-        for (var i = 0; i < parameters.Length; i++)
-        {
-            if (!TypesEquivalent(parameters[i].ParameterType, paramTypes[i]))
                 return false;
         }
         return true;

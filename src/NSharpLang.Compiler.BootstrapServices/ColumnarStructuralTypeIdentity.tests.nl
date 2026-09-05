@@ -575,6 +575,7 @@ test "structural keys snapshot caller arrays and reject an altered constructed c
         "",
         -1,
         -1,
+        null,
         emptyChildren
     )
     mutableNames[0] = "Altered"
@@ -627,6 +628,7 @@ test "structural keys snapshot caller arrays and reject an altered constructed c
         "",
         -1,
         -1,
+        null,
         mutableChildren
     )
     mutableChildren[1] = stringKey
@@ -659,6 +661,7 @@ test "structural keys snapshot caller arrays and reject an altered constructed c
         "",
         -1,
         -1,
+        null,
         alteredChildren
     )
     alteredSelected := new ColumnarSelectedTypeReference(
