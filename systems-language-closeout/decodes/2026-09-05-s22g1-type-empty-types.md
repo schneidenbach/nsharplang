@@ -23,10 +23,15 @@ same value through its `Type[]&` parameter.
 
 ## Compatibility and focused evidence
 
-The immutable `f54385d5` pre compiler declines the final fixture before any test runs at
-`TypeEmptyTypesShortRead`'s return expression. The trace is retained at
-`/private/tmp/nsharp-s22g-controls-logs/type-empty-types/final/frozen-pre-native.stderr`; this is the
-expected missing-binding boundary rather than a test failure.
+The worker's frozen pre compiler was `70a84bc72`, retained at
+`/private/tmp/nsharp-023-s22g-proof-20260905/cli/pre/Cli.dll`; its final fixture decline trace is
+`/private/tmp/nsharp-s22g-controls-logs/type-empty-types/final/frozen-pre-native.stderr`. The original
+worker decode mislabeled that compiler f543. Root independently rebuilt the actual accepted f543
+compiler and replayed the exact final fixture: it also declines before any test runs at
+`TypeEmptyTypesShortRead`'s return expression. The immutable f243 compiler passes1/1 on that same source.
+The authoritative root commands, dependency hashes, streams and four-field-read IL are in
+`/private/tmp/nsharp-023-s22g-seeded-proof-20260905/g1-capability/verdict.json`. These are measured
+missing-binding declines, not executed-test failures.
 
 The fresh compiler built from this source passes the full native `columnar-emit-facts` project,
 **105 passed, 0 failed**, and the forced BootstrapServices estate, **7,759 passed, 0 failed**. The

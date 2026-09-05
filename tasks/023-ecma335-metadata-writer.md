@@ -155,6 +155,15 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   explicit finally, first-hit/out timing and closed argument reads; covariance/bare-for drafts were
   rejected. Source discovery/call admission and the rest of S2.2 remain open.
   [Prerequisite proof](../systems-language-closeout/decodes/2026-09-05-s22g0-parity-proof.md).
+  **S2.2(g1) BCL field prerequisite at `f243d421` (worker `765776ce`):** four N# lines bind
+  Type.EmptyTypes through the unchanged semantic static-field planner. Four native read forms preserve
+  actual Array.Empty<Type>() reference identity, including typed out assignment. Estate7,759 and native
+  declarations105 pass; fixed accepted-f543 corpus94 images/2,184 native tests per arm matches; strict259
+  unchanged. No C# owner moved. Require fresh gate and live SDK field-probe receipts at
+  `/private/tmp/gate-20260905-goal-s22g1-r1/` before consuming this field. Corrected discovery doors
+  delay registry.Values until after their existing guards/head reads. The throwing-disposal fixture
+  replacement remains unexecuted; actual discovery migration and all later S2.2 work remain open.
+  [Field prerequisite proof](../systems-language-closeout/decodes/2026-09-05-s22g1-parity-proof.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
