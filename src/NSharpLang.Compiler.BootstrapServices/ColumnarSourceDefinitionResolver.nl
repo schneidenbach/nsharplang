@@ -100,7 +100,11 @@ class ColumnarSourceDefinitionResolver {
                     }
                 }
             } catch ex: NotSupportedException {
+                definition = null
+                return false
             } catch ex: NotImplementedException {
+                definition = null
+                return false
             }
         }
         // Some builder-backed instantiations expose only a narrow reflection surface.
