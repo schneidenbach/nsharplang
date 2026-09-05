@@ -372,9 +372,27 @@ test "override target identity admits same-image MLC signatures and rejects anot
         assert firstTwin.get_AssemblyQualifiedName() != secondTwin.get_AssemblyQualifiedName()
         assert !ColumnarOverrideTargetResolver.SameTypeIdentity(firstTwin, secondTwin)
         signatureOwner := OverrideResolverBakedReferenceSignatureOwner(firstTwin, firstTwin)
+        sameParameters := new Type[](1)
+        sameParameters[0] = firstTwin
+        sameTarget: MethodInfo? = null
+        if !ColumnarOverrideTargetResolver.TryFindOverrideTarget(
+            signatureOwner,
+            "Twin",
+            firstTwin,
+            sameParameters,
+            out sameTarget
+        ) || sameTarget == null {
+            throw new InvalidOperationException("The same-Twin signature did not select its virtual method.")
+        }
+        sameTargetParameters := sameTarget.GetParameters()
+        if sameTarget.get_DeclaringType() != signatureOwner || !sameTarget.get_IsVirtual() || sameTarget.get_ReturnType() != firstTwin || sameTargetParameters.Length != 1 || sameTargetParameters[0].get_ParameterType() != firstTwin {
+            throw new InvalidOperationException("The same-Twin signature did not retain its actual virtual companions.")
+        }
+
+        OverrideResolverAssertMissing(signatureOwner, "Twin", secondTwin, sameParameters)
         foreignParameters := new Type[](1)
         foreignParameters[0] = secondTwin
-        OverrideResolverAssertMissing(signatureOwner, "Twin", secondTwin, foreignParameters)
+        OverrideResolverAssertMissing(signatureOwner, "Twin", firstTwin, foreignParameters)
     } finally {
         scan.Dispose()
     }
@@ -415,6 +433,16 @@ test "override targets skip unbaked builders and catch a closed builder member-r
     declaredOnClosed := ColumnarOverrideTargetResolver.DeclaredMethodsOrEmpty(closed)
     if declaredOnClosed.Length != 0 {
         throw new InvalidOperationException("The resolver did not catch the closed builder GetMethods refusal.")
+    }
+    closedTarget: MethodInfo? = null
+    if !ColumnarOverrideTargetResolver.TryFindOverrideTarget(
+        closed,
+        "ToString",
+        typeof(string),
+        noParameters,
+        out closedTarget
+    ) || closedTarget == null || closedTarget.get_DeclaringType() != typeof(object) {
+        throw new InvalidOperationException("The caught closed builder read did not continue to Object.ToString.")
     }
     OverrideResolverAssertMissing(closed, "NoSuchUnbakedBuilderTarget", typeof(string), noParameters)
 }
