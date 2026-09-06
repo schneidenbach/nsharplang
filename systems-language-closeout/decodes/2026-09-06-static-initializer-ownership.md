@@ -71,3 +71,19 @@ files plus an integer control and passed 3/3. IL names the exact four BCL calls.
 `5e8b271fadc349bf6c50d00746910fe5db01af5e2d7df4f8ef3ad4f204e7998d`. Receipt:
 `/private/tmp/nsharp-static-initializer-ownership-20260906/seed/acceptance.json`. The full initializer
 owner and canonical assertion migration now resume; this prerequisite is not area completion.
+
+Integrated complete owner at `a81ec8de9` (worker `7b91d6deb`): N# now owns the `.cctor` driver,
+all seven connected helper methods, and pending initializer/sibling signature data. Three production
+calls route directly into N#; the C# driver, helpers and Array.Exists callback are deleted. Surviving
+C# changes construct/pass the N# data objects at the original producers and update their parameter
+types; they add no compiler decisions. The rest of the containing emitter remains compiler debt.
+
+Fresh focused N# controls pass 6/6 after formatting. Three new native contracts cover the historical
+coverage gap; the exact same final source passes baseline and candidate with identical six selected
+names/outcomes (three related existing tests are also selected). Runtime/metadata checks cover class,
+struct and record fields, literal values, same-owner/sibling calls and declaration-order effects.
+Root independently reviewed emitted IL and source; primitive equality, unchecked conversion/negation,
+exact BCL calls, lookup failures, lazy construction and load/store/Ret sequencing are preserved.
+Integrated dev build passed. Emitter shrinks 18,447→18,213 lines and 17,532→17,308 nonblank;
+all 380 other ratchet rows and all epoch values remain unchanged. New head is
+`head-v1:109c7a7ac6bb731e`. Final integration verification remains pending.
