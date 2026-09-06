@@ -38,6 +38,15 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
+**Active area, parameter metadata and constructor defaults:** move complete method/constructor
+parameter declaration, default-presence and constant-setting methods, string/integer enum-default
+resolvers, and both constructor-default eligibility/emission callers (eight methods plus their shared
+constant). Preserve metadata and call-default differences, read/failure order and partial emission.
+Sol Max owns production/native migration, Terra Max canonical controls, Astra integrates/reviews.
+[Boundary](decodes/2026-09-06-parameter-default-ownership.md). Baseline clean/pushed `7dc37d982`;
+verified compiler and prior gate at `/private/tmp/nsharp-parameter-default-ownership-20260906/baseline.json`.
+No C# decisions or adapters are added. The full proposed N# source must prove any prerequisite.
+
 **Accepted area, complete static-field initializer emission:** integrated `a81ec8de9` removes the
 C# `.cctor` driver and seven connected helper decisions, including the identifier predicate’s
 receiver-chain callback. Three production calls route directly to N#. Pending initializer and sibling
