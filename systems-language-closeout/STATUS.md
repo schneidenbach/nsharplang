@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(h)** and the g0/g1 language prerequisites landed. Generic-constraint lookup is N#-owned at `47d0a062d`; emitter −43 lines. Fresh h gate at `e170415204`: 593 unit / 7,787 canonical / 107 native declaration tests; fixed 94-image corpus unchanged. Next: record synthesis and five structural type consumers, then remaining call admission/type consumers and locals/maxstack before S2.3–S2.6. — §4.12 |
+| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(i)** and the g0/g1 language prerequisites landed. Record synthesis is N#-owned at `1b067f203`; emitter −70 lines and all five record type consumers keyed. Fresh i gate at `2d156b43b`: 593 unit / 7,794 canonical / 107 native declaration tests; fixed 94-image corpus unchanged. Next: connected sync/async iterator realization and its 15 type consumers, then remaining call admission/type consumers and locals/maxstack before S2.3–S2.6. — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,59 +123,51 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** S2.2(i), the connected record PASS 0e synthesis driver and its five
-structural type-pool consumers. The [source-reviewed plan](decodes/2026-09-05-s22i-record-next-cut.md)
-moves the complete driver to `ColumnarRecordValueMemberPlanner`, reuses authoritative N# member
-declarations and removes both C# synthesis helpers. First prove the real driver with the accepted
-seed; preserve field/member ordering, clone flags and publication, and consume the existing table at
-each former AddType point. The planned 70-line C# shrink and six keyed consumers are projections,
-not accepted implementation. General/constrained call admission, other type-pool consumers and
-locals/maxstack remain open; S2.3–S2.6 supplies the writer before 022/5 NativeAOT and terminal audit.
+**Next writer slice:** S2.2(j), complete sync/async iterator realization and its fifteen consumed
+type rows. The [source-reviewed plan](decodes/2026-09-05-s22j-iterator-next-cut.md) moves both drivers
+and their exclusive canonical helper closure into N#, retaining only mechanical decline forwards.
+First prove real generic T/T[] captures with distinct machine VAR and factory MVAR owners, including
+the actual rebound field type. Preserve declaration/member/body/factory order and both raw constructor
+phases; no eager structural selections or C# callbacks. The four old declarations span 318 lines.
+Measure the final shrink after replacement wrappers; 21 keyed / 15 handle-only consumers is a
+projection, not accepted implementation. Member-iterator
+discovery/admission, other calls/type consumers and locals/maxstack remain open, then S2.3–S2.6
+before 022/5 NativeAOT and terminal ownership audit.
 
-**Goal checkpoint (2026-09-05):** S2.2(h), product `47d0a062d` (Sol `231ad51e`), native controls
-`68c0a8387`, getter controls `16a0f27f`, map/lifecycle controls `5a5b3f001` + `18c079268`, and ratchet
-`e170415204`. `ColumnarGenericConstraintPlanner` owns exact-map lookup, first live weak name/ordinal
-fallback and final safe reflection. `GetGenericInterfaceConstraints` is one direct N# forward;
-`GenericParameterIdentityMatches` and `GetSafeGenericParameterConstraints` are deleted. The C# emitter
-shrinks **43 lines / 41 nonblank / 1,128 bytes** to **19,334 / 18,366 / 1,010,884 bytes**. Ratchet
-`head-v1:3535178e0c882670` changes only this shrinking file and the reviewed head; no epoch or assertion
-count changes. AddType remains 36 calls / 12 files / one keyed / 35 handle-only.
+**Goal checkpoint (2026-09-05):** S2.2(i), product `1b067f203` (Sol `c7ea0d434`), native controls
+`0d3c14c35` (Terra `e63811dee`), direct controls `2d156b43b` (Terra `a03c59079`) and ratchet
+`5dde45f26`. PASS 0e calls the N# record owner directly; both C# synthesis helpers are deleted.
+Emitter shrinks **70 lines / 66 nonblank / 3,479 bytes** to **19,264 / 18,300 / 1,007,405 bytes**.
+Ratchet `head-v1:aa711599f6919ff9` changes only the shrinking row and reviewed head;381 rows and
+epoch/assertion ceilings remain enforced. AddType census **36 /12 files /6 keyed /30 handle-only**.
 
-The N# owner preserves the supplied map's comparer and exact array identity, including null, then
-borrows that same map through its exact inherited generic enumerable interface. Acquisition precedes
-try; generic Current, guard order, first-match return, out writes and disposal retain their phases.
-Only ordinal reads catch NotSupportedException/NotImplementedException during the weak scan. Raw
-reflection begins after completed miss/disposal, returns the actual array and maps those two reflection
-faults to the actual BCL Type.EmptyTypes. Cross-owner weak name/ordinal matching is deliberately
-preserved. Map construction and connected member/argument admission remain C# deletion debt.
+The owner preserves live selection, nonnull generic-map skip, captured field order and early builder
+break, Equals→Hash→clone phases, clone flags134/BCL EmptyTypes and publication after execution.
+All five old record type sites select from the existing table at their original evaluation point.
+Canonical controls add **7 =3+4**. Malformed later-row controls execute the retained Equals body after
+failure and the clean later twin's three bodies; builder publication alone was insufficient. Actual
+old one-record helper witness1/1 pins exception and partial-progress behavior without claiming the
+deleted outer loop. The keyed-Hash mutation causes exactly its predicted1 failure with2 controls green.
 
-Fixed accepted-f543 corpus: **75 targets / 73 successful projects / 94 normalized images / 2,184 native
-passes per arm**, no image/set/full-outcome differences and the same two NL402 template refusals.
-The new constraint-order twins pass **107/107** with both immutable compilers; whole IL and normalized
-PE match, including actual constrained.!T + interface Select callvirt. Strict replay covers 433 files;
-**259 → 258** removes one old NL010 because System is now used. All other diagnostics retain order and
-mapped locations; both compilers produce identical bytes on the same final source.
+Fixed accepted-f543 corpus: **75 targets /73 successful projects /94 normalized images /2,184 native
+passes per arm**, zero image/set/full-outcome differences and the same two NL402 template refusals.
+Fresh record twins pass **15/15** on both immutable compilers with identical whole IL, normalized PE,
+normalized JSON and stderr. Earlier native invocation provenance was incomplete; its amended receipt is historical
+and the fully recorded fresh pair supplies acceptance. Strict **258** errors across433 checked files
+remain ordered and mapped; both compilers on final source produce identical bytes.
 
-Actual old private-query witness passes 3/3. The weak-array mutation causes exactly its predicted one
-failure with two positive controls still green. New canonical controls total **18 = 3 lookup + 5
-reflection + 10 map/lifecycle**, not 21: the eight-test getter filter includes the original three.
-The final lifecycle controls observe the real shared trace Dispose→reflection; a miss followed by
-throwing Dispose records only Dispose. Earlier final-counter-only and hit-before-throw controls did
-not prove that boundary and were replaced before acceptance.
+The exclusive fresh backend gate tested **`2d156b43b282807f9ce0909b711f9c88da584ff6`** and passed in
+**452 seconds**: **593 unit /7,794 canonical /107 native declaration /15 native record /18 ownership
+tests**,52 native projects and68 IL-verified assemblies. Benchmark correctness passed; timing was unjudged because of host load.
+`/private/tmp/gate-20260905-goal-s22i-r1/gate-result.json` records the tested source and retained
+diagnostics. The Markdown-only follow-up is separately checked against that source; acceptance.json
+records its final revision and verified remote after push. [Integration proof](decodes/2026-09-05-s22i-parity-proof.md).
 
-The exclusive fresh backend gate tested **`e1704152049b54b93c457ed634303bfcd7fd9482`** and passed in
-**453 seconds**: **593 unit / 7,787 canonical / 107 native declaration / 18 ownership tests**, 52 native
-projects and 68 IL-verified assemblies. Benchmark correctness passed; host load prevented a timing
-judgment. `/private/tmp/gate-20260905-goal-s22h-r1/gate-result.json` records the tested source and
-retained diagnostics. This documentation-only follow-up is separately checked against that source;
-`acceptance.json` records its final revision and verified remote after push. No source/gate claim is
-made for an untested later implementation. [Integration proof](decodes/2026-09-05-s22h-parity-proof.md).
-
-Predecessor g is accepted/pushed at `2ce6915544ebd8e55faac47e5177d9788783c729`; its fresh 448-second
-gate passed 593/7,769/105 plus 18 ownership, 52 native projects and 68 IL assemblies. The accepted
-g1 SDK 0.1.0 seed at `1e3d8cb` remains unchanged (12 live payload hashes verified); h needs no repin.
-Seed acceptance: `/private/tmp/gate-20260905-goal-s22g1-r1/seed-repin/acceptance.json`.
-All terminal 015/021/022/023 boxes remain open. Astra plans, reviews and integrates; Sol and Terra
+Predecessor h is accepted/pushed at `b1abca5841924382006644d5fa5bdba26e77778f` (fresh453-second
+gate593/7,787/107). Accepted g1 SDK0.1.0 at `1e3d8cb` remains unchanged: all12 live payload hashes
+verify and i requires no repin. Seed receipt remains
+`/private/tmp/gate-20260905-goal-s22g1-r1/seed-repin/acceptance.json`.
+All terminal015/021/022/023 boxes remain open. Astra plans, reviews and integrates; Sol and Terra
 execute. This backend-only slice changes no IDE behavior.
 
 **Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
@@ -899,6 +891,9 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
 
 ### 2.3 `instrument` — comparators, censuses, harnesses, and how each one lied
 
+- **A published MethodBuilder is not an emitted body.** S2.2(i) now bakes and executes the later
+  retained Equals after a Hash guard fails, plus all three clean later-row bodies. A legacy private
+  helper witness must use its matching compiler/service universe; it does not prove the outer loop.
 - **Final counters do not prove event order.** S2.2(h)'s final controls record actual Dispose and
   Type.GetGenericParameterConstraints in one shared trace. The throwing-disposal twin must exhaust
   the map so reflection would otherwise run; a hit makes that negative control vacuous. Catch-scope
@@ -3043,6 +3038,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| 023/S2.2(i) — record synthesis | `1b067f203`; native `0d3c14c35`; direct/tested `2d156b43b`; ratchet `5dde45f26` | Complete PASS 0e driver and five structural type consumers become N#-owned; two C# helpers deleted | Later-row partial progress must execute the retained body, not merely observe its builder; old helper witness uses matching immutable dependencies | Emitter19,264/18,300 (−70/−66/−3,479bytes);6 keyed/30 handle-only; fixed94 images/2,184tests each equal; strict258 unchanged; native15/15 both; old witness1/1, mutation2pass/1fail. Fresh452s gate593/7,794/107, audit18; ratchet `head-v1:aa711599f6919ff9`. [Proof](decodes/2026-09-05-s22i-parity-proof.md) |
 | 023/S2.2(h) — generic-constraint lookup | `47d0a062d`; controls `68c0a8387`, `16a0f27f`, `5a5b3f001`, `18c079268`; tested `e170415204` | Exact-map/weak name+ordinal/reflection lookup becomes N#-owned; two C# helpers deleted and one direct forward | Same-map generic enumeration preserves array identity, guard/catch phases and disposal-before-reflection; real shared event trace replaces insufficient counters | Emitter19,334/18,366 (−43/−41/−1,128bytes); fixed94 images/2,184tests each equal; strict259→258 removes old unused-System NL010; old witness3/3, predicted mutation2pass/1fail. Fresh453s gate593/7,787/107, audit18; ratchet `head-v1:3535178e0c882670`. [Proof](decodes/2026-09-05-s22h-parity-proof.md) |
 | 023/S2.2(g) — live source-definition discovery | `770482e8e`; controls `de83c4197`; catch correction `096968ae7`; this integration commit | First-hit Builder identity, direct/struct/interface/closed discovery move to N#; three C# helpers deleted, eight direct routes | Exact generic Current, disposal/out timing and delayed Values are consumed IL; generator witness had to observe the cloned enumerator; empty generic catches now explicitly return false | Emitter19,377/18,407 (−107/−98/−2,646bytes); fixed94images/2,184tests each equal; strict 259 unchanged after measured NL011 correction; old private-helper witness 3/3 and predicted2-red mutation. Ratchet `head-v1:5605ce87ef5e4440`. [Proof](decodes/2026-09-05-s22g-parity-proof.md) |
 | 023/S2.2(g1) — BCL empty type-array field prerequisite | `f243d421` (worker `765776ce`); this integration commit | Four N# lines bind Type.EmptyTypes through the existing semantic static-field owner | Preserve the BCL empty-array identity and delayed registry.Values reads in the pending discovery cut; exact ldsfld and typed out assignment verified | No C# or ratchet change; estate 7,759; native declarations105; fixed corpus94 images/2,184 tests each equal; actual f543 same-source declines/f243 passes1; strict259 unchanged. Gate/live seed remain receipt-gated. [Proof](decodes/2026-09-05-s22g1-parity-proof.md) |

@@ -189,6 +189,20 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   actual driver with that seed. Map production, connected call admission and later writer work remain
   open. [Lookup proof](../systems-language-closeout/decodes/2026-09-05-s22h-parity-proof.md) and
   [next cut](../systems-language-closeout/decodes/2026-09-05-s22i-record-next-cut.md).
+  **S2.2(i) record synthesis at `1b067f203`, controls `0d3c14c35` / `2d156b43b`:** the complete
+  PASS 0e driver and five record type consumers are N#-owned. Both C# synthesis helpers are deleted;
+  emitter −70 lines /−66 nonblank /−3,479 bytes to19,264/18,300. Same-table keyed census6/36 across
+  12 files; clone/field/member and partial-progress phases remain. Seven new canonical controls,
+  native record twins15/15 with identical whole IL, normalized PE and normalized output, actual old-helper witness1/1 and exact
+  predicted one-red keyed-Hash mutation pass. Fixed94-image/2,184-test corpus unchanged; strict258
+  unchanged across433 files. Fresh452s gate at `2d156b43b` passes593 unit /7,794 canonical /
+  107 native declarations,15 native records,18 audit,52 native projects and68 IL assemblies.
+  `/private/tmp/gate-20260905-goal-s22i-r1/` distinguishes tested source from the Markdown-only
+  acceptance follow-up. Existing g1 SDK remains unchanged. Next S2.2(j): sync/async iterator realization,
+  exclusive canonical helpers and all15 iterator type consumers, first gated by an exact generic
+  machine/factory owner proof. Member discovery, remaining call/type/local/maxstack and later writer
+  work remain open. [Proof](../systems-language-closeout/decodes/2026-09-05-s22i-parity-proof.md) and
+  [next cut](../systems-language-closeout/decodes/2026-09-05-s22j-iterator-next-cut.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
