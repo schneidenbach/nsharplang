@@ -372,6 +372,107 @@ func main() {
     )
 }
 
+// Canonical reference-coercion integration assertions formerly lived in
+// CompilationBackendTests.cs. These exact programs exercise the production conversion sites:
+// a source class flowing into a source interface constructor slot, and value/object flows through
+// explicit generic LINQ calls. Keep success, process exit, and normalized stdout together.
+test "constructor-chain source interface coercion compiles and executes" {
+    AssertGenericCallProgram(
+        "ConstructorChainArgumentsProject",
+        """
+interface ICache {
+    func Get(key: string): string?
+}
+
+class MemoryCache: ICache {
+    func Get(key: string): string? {
+        return null
+    }
+}
+
+class Person {
+    readonly Name: string
+    readonly Age: int
+    readonly Email: string
+
+    constructor(name: string, age: int, email: string) {
+        Name = name
+        Age = age
+        Email = email
+    }
+
+    constructor(name: string, email: string): this(name, 0, email) {
+    }
+
+    constructor(name: string): this(name, 0, "") {
+    }
+
+    func Info(): string {
+        return $"{Name}:{Age}:{Email}"
+    }
+}
+
+class Service {
+    readonly Cache: ICache
+    readonly Config: string
+
+    constructor(cache: ICache, config: string) {
+        Cache = cache
+        Config = config
+    }
+
+    constructor(): this(new MemoryCache(), "default") {
+    }
+
+    func Info(): string {
+        return Config
+    }
+}
+
+func main() {
+    p1 := new Person("Ada", 37, "ada@example.com")
+    p2 := new Person("Bob", "bob@example.com")
+    p3 := new Person("Cy")
+    service := new Service()
+
+    print p1.Info()
+    print p2.Info()
+    print p3.Info()
+    print service.Info()
+}
+""",
+        "Ada:37:ada@example.com\nBob:0:bob@example.com\nCy:0:\ndefault"
+    )
+}
+
+test "explicit generic LINQ object boxing compiles and executes" {
+    AssertGenericCallProgram(
+        "GenericLinqProject",
+        """
+import System.Collections.Generic
+import System.Linq
+
+func main() {
+    numbers: int[] = [1, 2, 3]
+    objects := numbers.Cast<object>().ToList()
+
+    mixed := new List<object>()
+    mixed.Add(1)
+    mixed.Add("two")
+    mixed.Add(3)
+
+    justNumbers := mixed.OfType<int>().ToList()
+    justStrings := mixed.OfType<string>().ToList()
+
+    print objects.Count
+    print justNumbers.Count
+    print justStrings.Count
+}
+""",
+        "3\n2\n1"
+    )
+}
+
 // -----------------------------------------------------------------------------------------------
 // Executed proofs (compiled through the columnar pipeline as this project builds).
 // -----------------------------------------------------------------------------------------------
