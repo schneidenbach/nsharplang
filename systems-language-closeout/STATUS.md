@@ -38,7 +38,20 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
-**Selected area, integrated and verified at `be3defa12`:** generic-constraint declaration/application plus consumed-map
+**Active area, sibling-call constraint validation:** move the complete
+`TryValidateGenericSiblingConstraints`, `HasPublicParameterlessConstructorForConstraint`,
+`BoundSatisfiesBaseConstraint`, `BoundSatisfiesInterfaceConstraint`,
+`TrySubstituteGenericTypeArguments`, `InterfaceEqualsOrExtends` and
+`AnyInterfaceEqualsOrExtends` decision group. Use the existing N# definition resolver lazily;
+its surviving C# forwarding wrapper is mechanical and not an alternate decision owner. Preserve
+callee positional rows, first-hit source identities, recursive substitution, reflection/lookup
+failure phases and source interface inheritance scans. Sol Max implements in an isolated worktree;
+Terra Max supplies canonical N# controls. Root integrates, owns ratchet/seed/gates and pushes.
+Baseline: clean/pushed `087d6d9e1`, verified prior gate and immutable CLI receipt
+`/private/tmp/nsharp-sibling-constraint-ownership-20260906/baseline.json`. The independent editor
+VS Code-enabled gate is live; preserve it and coordinate any new full gate or seed publication.
+
+**Last verified area, generic-constraint application at `be3defa12`:** generic-constraint declaration/application plus consumed-map
 construction: `TryApplyGenericParameterConstraints`, `TryApplyDeclaredTypeConstraints` and
 `BuildGenericInterfaceConstraintMap`, including necessary dependencies, move to N# with direct
 production calls and canonical assertions. This replaces the map-only next cut; preserve attribute,
