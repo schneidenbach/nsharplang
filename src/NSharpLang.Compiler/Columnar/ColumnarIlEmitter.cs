@@ -384,12 +384,6 @@ internal sealed class ColumnarIlEmitter
     // checked before every other resolution tier (a boxed name is never also a lambda param or local).
     private readonly Dictionary<string, (FieldInfo BoxField, Type ValueType)>? _boxedCaptures;
 
-    // By-ref types are valid only in PARAMETER slots for this slice. The element type must already be part of the
-    // supported value/reference surface so ref/out locals can be loaded by the same addressability paths as writes.
-    private static bool IsSupportedParameterType(Type t) =>
-        ColumnarTypeOfPlanner.IsSupportedType(t)
-        || (t.IsByRef && ColumnarCanonicalTypeResolver.IsSupportedByRefElementType(t.GetElementType()!));
-
     private static bool TryResolveResultReadableProperty(Type receiverType, string member, out MethodInfo getter, out Type propertyType)
     {
         getter = null!;
@@ -519,60 +513,6 @@ internal sealed class ColumnarIlEmitter
         if (openGetter == null)
             return false;
         getter = ResolveClosedGenericMethod(countOwner, openGetter);
-        return true;
-    }
-
-    // ASYNC return shape (the legacy emitter's GetDeclaredFunctionReturnType + WrapAsyncReturnType): the
-    // declared canonical resolves to the INNER type (`void` for unit); the METHOD's CLR return is
-    // the wrap — ValueTask/ValueTask<T> by default, Task/Task<T> for `main` (case-insensitive, the
-    // legacy emitter's IsEntryPointFunction rule). An EXPLICIT task-like annotation keeps its declared
-    // family with its declared inner. Unresolvable/unsupported inners decline.
-    private static bool TryComputeAsyncReturnShape(string name, string canonical,
-        ColumnarSemanticRegistry<ColumnarEnumDef> enumRegistry,
-        ColumnarSemanticRegistry<ColumnarStructDef> structRegistry,
-        ColumnarSemanticRegistry<ColumnarUnionDef> unionRegistry,
-        out Type inner, out Type wrapped)
-    {
-        inner = typeof(void);
-        wrapped = null!;
-        var isEntryPoint = string.Equals(name, "main", StringComparison.OrdinalIgnoreCase);
-        if (canonical == "Task")
-        {
-            wrapped = typeof(System.Threading.Tasks.Task);
-            return true;
-        }
-        if (canonical == "ValueTask")
-        {
-            wrapped = typeof(System.Threading.Tasks.ValueTask);
-            return true;
-        }
-        if (canonical.StartsWith("Task<", StringComparison.Ordinal) && canonical[^1] == '>')
-        {
-            if (!ColumnarCanonicalTypeResolver.TryResolveType(canonical.Substring(5, canonical.Length - 6), enumRegistry, structRegistry, unionRegistry, out inner)
-                || !ColumnarTypeOfPlanner.IsSupportedType(inner))
-                return false;
-            wrapped = typeof(System.Threading.Tasks.Task<>).MakeGenericType(inner);
-            return true;
-        }
-        if (canonical.StartsWith("ValueTask<", StringComparison.Ordinal) && canonical[^1] == '>')
-        {
-            if (!ColumnarCanonicalTypeResolver.TryResolveType(canonical.Substring(10, canonical.Length - 11), enumRegistry, structRegistry, unionRegistry, out inner)
-                || !ColumnarTypeOfPlanner.IsSupportedType(inner))
-                return false;
-            wrapped = typeof(System.Threading.Tasks.ValueTask<>).MakeGenericType(inner);
-            return true;
-        }
-        if (canonical == "void")
-        {
-            wrapped = isEntryPoint ? typeof(System.Threading.Tasks.Task) : typeof(System.Threading.Tasks.ValueTask);
-            return true;
-        }
-        if (!ColumnarCanonicalTypeResolver.TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out inner)
-            || !ColumnarTypeOfPlanner.IsSupportedType(inner))
-            return false;
-        wrapped = isEntryPoint
-            ? typeof(System.Threading.Tasks.Task<>).MakeGenericType(inner)
-            : typeof(System.Threading.Tasks.ValueTask<>).MakeGenericType(inner);
         return true;
     }
 
@@ -2245,7 +2185,7 @@ internal sealed class ColumnarIlEmitter
                     if (!(interfaceDef.GenericParameters != null
                              ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(iface.MethodParamCanonicals[m][p], interfaceDef.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out memberParams[p])
                              : ColumnarCanonicalTypeResolver.TryResolveType(iface.MethodParamCanonicals[m][p], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out memberParams[p]))
-                        || !IsSupportedParameterType(memberParams[p]))
+                        || !ColumnarInterfaceRealization.IsSupportedParameterType(memberParams[p]))
                         return false;
                 }
                 var hasDefaultBody = iface.MethodBodies[m] != null;
@@ -2272,15 +2212,8 @@ internal sealed class ColumnarIlEmitter
                 }
             }
         }
-        var interfaceDepths = new int[interfaceDefsInOrder.Count];
-        var interfaceDepthMemo = new Dictionary<ColumnarStructDef, int>();
-        for (var i = 0; i < interfaceDefsInOrder.Count; i++)
-        {
-            var depth = InterfaceDepthOrMinusOne(interfaceDefsInOrder[i], interfaceDepthMemo, new HashSet<ColumnarStructDef>());
-            if (depth < 0)
-                return false; // interface inheritance cycle.
-            interfaceDepths[i] = depth;
-        }
+        if (!ColumnarInterfaceRealization.TryComputeInterfaceDepths(interfaceDefsInOrder, out var interfaceDepths))
+            return false; // interface inheritance cycle.
         var pendingStaticFieldInits = new List<ColumnarStaticFieldInitializer>();
         var structTypeResolutions = new ColumnarSemanticTypeResolution[structs.Count];
         for (var s = 0; s < structs.Count; s++)
@@ -2365,46 +2298,12 @@ internal sealed class ColumnarIlEmitter
             }
         }
 
-        // PASS 0a'' (duck interfaces): N# interfaces are structurally assignable. When a class/record/struct
-        // declares the exact instance methods an interface requires, emit real CLR interface metadata so later
-        // value-flow sites (for example `List<INotifier>.Add(new ConsoleNotifier())`) are verifiable and the
-        // method declaration pass below can resolve the matching slots.
-        for (var s = 0; s < structs.Count; s++)
-        {
-            var st = structs[s];
-            var def = structDefsInOrder[s];
-            var typeResolution = structTypeResolutions[s];
-            var implementedBuilders = new HashSet<TypeBuilder>();
-            foreach (var implementedInterface in def.ImplementedInterfaces)
-            {
-                var inheritedInterfaces = new List<ColumnarStructDef>();
-                ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(implementedInterface, inheritedInterfaces);
-                foreach (var inherited in inheritedInterfaces)
-                    implementedBuilders.Add(inherited.Builder);
-            }
-
-            foreach (var interfaceDef in interfaceDefsInOrder)
-            {
-                if (implementedBuilders.Contains(interfaceDef.Builder))
-                    continue;
-                if (!ColumnarStructInputSatisfiesDuckInterface(
-                        st,
-                        def,
-                        interfaceDef,
-                        typeResolution.Enums,
-                        typeResolution.Structs,
-                        typeResolution.Unions))
-                    continue;
-                def.ImplementedInterfaces.Add(interfaceDef);
-                var duckImplementedInterfaces = new List<ColumnarStructDef>();
-                ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(interfaceDef, duckImplementedInterfaces);
-                foreach (var implemented in duckImplementedInterfaces)
-                {
-                    if (implementedBuilders.Add(implemented.Builder))
-                        def.Builder.AddInterfaceImplementation(implemented.Builder);
-                }
-            }
-        }
+        // PASS 0a'' (duck interfaces): N# owns the complete structural registration pass.
+        ColumnarInterfaceRealization.RegisterDuckInterfaces(
+            structs,
+            structDefsInOrder,
+            structTypeResolutions,
+            interfaceDefsInOrder);
 
         // Chain-depth per type: 0 for no base, base's depth + 1 otherwise. A chain longer than the type count is a
         // CYCLE (A: B, B: A) — decline before any IL references the malformed hierarchy.
@@ -2447,7 +2346,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         if (m.TypeParamNames.Length > 0)
                             return DeclineStatic("emit.declaration.method-return", "generic async static method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
-                        if (!TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn))
+                        if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn))
                         {
                             return DeclineStatic("emit.declaration.method-return", "async static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
                         }
@@ -2464,7 +2363,7 @@ internal sealed class ColumnarIlEmitter
                     var sParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                     for (var i = 0; i < m.ParamNames.Length; i++)
                     {
-                        if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ParamCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var pt) || !IsSupportedParameterType(pt))
+                        if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ParamCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt))
                         {
                             return DeclineStatic("emit.declaration.method-param", "static method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
                         }
@@ -2514,7 +2413,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (m.TypeParamNames.Length > 0)
                         return DeclineStatic("emit.declaration.method-return", "generic async method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
-                    if (!TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn, out mAsyncWrappedReturn))
+                    if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn, out mAsyncWrappedReturn))
                     {
                         return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
                     }
@@ -2532,7 +2431,7 @@ internal sealed class ColumnarIlEmitter
                 var mParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                 for (var i = 0; i < m.ParamNames.Length; i++)
                 {
-                    if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var pt) || !IsSupportedParameterType(pt))
+                    if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt))
                     {
                         return DeclineStatic("emit.declaration.method-param", "method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name);
                     }
@@ -2587,55 +2486,9 @@ internal sealed class ColumnarIlEmitter
             }
         }
 
-        // COMPLETENESS: every member of every implemented interface must be matched by an
-        // implementing method — the pipeline compiles missing members with ZERO diagnostics and the
-        // assembly throws TypeLoadException at LOAD (known defect #26); columnar declines instead
-        // (never emit an unloadable assembly).
-        for (var s = 0; s < structs.Count; s++)
-        {
-            var def = structDefsInOrder[s];
-            var seenRequiredInterfaces = new HashSet<ColumnarStructDef>();
-            if (def.ImplementedInterfaces.Count > 0)
-            {
-                foreach (var implementedInterface in def.ImplementedInterfaces)
-                {
-                    var hasClosedImplementations = false;
-                    foreach (var implementedInterfaceType in def.ImplementedInterfaceTypes)
-                    {
-                        if (implementedInterfaceType.IsGenericType
-                            && !implementedInterfaceType.IsGenericTypeDefinition
-                            && ColumnarSourceDefinitionResolver.TryResolveInterface(implementedInterfaceType, structRegistry.Values, out var closedInterfaceDef)
-                            && ReferenceEquals(closedInterfaceDef, implementedInterface))
-                        {
-                            hasClosedImplementations = true;
-                            if (!ColumnarClosedGenericMemberResolver.SourceInterfaceMembersSatisfied(def, implementedInterface, implementedInterfaceType))
-                                return false;
-                        }
-                    }
-                    if (hasClosedImplementations)
-                        continue;
-
-                    var requiredInterfaces = new List<ColumnarStructDef>();
-                    ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(implementedInterface, requiredInterfaces);
-                    foreach (var requiredInterface in requiredInterfaces)
-                    {
-                        if (!seenRequiredInterfaces.Add(requiredInterface))
-                            continue;
-                        foreach (var (memberName, member) in requiredInterface.Methods)
-                        {
-                            if (requiredInterface.DefaultInterfaceMethodNames.Contains(memberName))
-                                continue;
-                            if (!def.Methods.TryGetValue(memberName, out var impl)
-                                || impl.ReturnType != member.ReturnType
-                                || !ParamTypesMatch(member.ParamTypes, impl.ParamTypes))
-                                return false;
-                        }
-                    }
-                }
-            }
-            if (!ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(def, def.ExternalInterfaces))
-                return false;
-        }
+        // COMPLETENESS: N# validates source, closed-generic, default, and external interface members.
+        if (!ColumnarInterfaceRealization.InterfacesSatisfied(structs, structDefsInOrder, structRegistry))
+            return false;
 
         // PASS 0b' (property accessors): declare each computed property as a `get_Name` instance
         // method (no params, returning the property type) and — when the property has a setter — a `set_Name` method
@@ -2819,7 +2672,7 @@ internal sealed class ColumnarIlEmitter
                 var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                 for (var i = 0; i < ctor.Body.ParamNames.Length; i++)
                 {
-                    if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(ctor.Body.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var pt) || !IsSupportedParameterType(pt))
+                    if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(ctor.Body.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt))
                         return DeclineStatic("emit.ctor.param-type", "constructor parameter type is not modeled", def.Builder.Name + ".constructor");
                     cParamTypes[i] = pt;
                     cOrdinals[ctor.Body.ParamNames[i]] = i + 1;
@@ -3150,7 +3003,7 @@ internal sealed class ColumnarIlEmitter
                 // annotations keep their declared family.
                 if (fn.TypeParamNames.Length > 0)
                     return false;
-                if (!TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn))
+                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn))
                     return DeclineStatic("emit.declaration.function-return", "async function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name);
             }
             else if (fn.ReturnCanonical == "void")
@@ -3193,10 +3046,10 @@ internal sealed class ColumnarIlEmitter
                 if (typeParamMap != null)
                 {
                     if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(fn.ParamCanonicals[i], typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt)
-                        || !(pt.IsGenericParameter || (pt.IsSZArray && pt.GetElementType()!.IsGenericParameter) || IsSupportedParameterType(pt)))
+                        || !(pt.IsGenericParameter || (pt.IsSZArray && pt.GetElementType()!.IsGenericParameter) || ColumnarInterfaceRealization.IsSupportedParameterType(pt)))
                         return DeclineStatic("emit.declaration.function-param", "generic function parameter type '" + fn.ParamCanonicals[i] + "' could not be resolved for '" + fn.Name + "'", fn.Name);
                 }
-                else if (!ColumnarCanonicalTypeResolver.TryResolveType(fn.ParamCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !IsSupportedParameterType(pt))
+                else if (!ColumnarCanonicalTypeResolver.TryResolveType(fn.ParamCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt))
                     return DeclineStatic("emit.declaration.function-param", "function parameter type '" + fn.ParamCanonicals[i] + "' could not be resolved for '" + fn.Name + "'", fn.Name);
                 paramTypes[i] = pt;
                 ordinals[fn.ParamNames[i]] = i;
@@ -3683,14 +3536,7 @@ internal sealed class ColumnarIlEmitter
         // defined, so CreateType bakes the type metadata; methods that reference un-finalized builders resolve to
         // the finalized types at Save. Enums were baked in pass 0 because no later user type can affect them.
         // Interfaces bake BEFORE their implementers, and base interfaces bake before derived interfaces.
-        for (var depth = 0; depth <= interfaces.Count; depth++)
-        {
-            for (var i = 0; i < interfaceDefsInOrder.Count; i++)
-            {
-                if (interfaceDepths[i] == depth)
-                    interfaceDefsInOrder[i].Builder.CreateType();
-            }
-        }
+        ColumnarInterfaceRealization.FinalizeInterfaces(interfaces, interfaceDefsInOrder, interfaceDepths);
         // Struct/class types bake BASE-BEFORE-DERIVED (depth ascending): CreateType on a derived TypeBuilder
         // requires its parent to be created first. Depth 0 (no base) covers every value-type struct and standalone
         // class, so the no-inheritance ordering is unchanged.
@@ -16456,128 +16302,6 @@ internal sealed class ColumnarIlEmitter
             || TryEmitAnonymousUnionConversion(valueType, targetType)
             || TryEmitUserDefinedConversion(valueType, targetType, allowExplicit: false);
         return assignable;
-    }
-
-    private static bool ParamTypesMatch(Type[] a, Type[] b)
-    {
-        if (a.Length != b.Length)
-            return false;
-        for (var i = 0; i < a.Length; i++)
-        {
-            if (a[i] != b[i])
-                return false;
-        }
-        return true;
-    }
-
-    private static bool ColumnarStructInputSatisfiesDuckInterface(
-        ColumnarStructInput source,
-        ColumnarStructDef sourceDef,
-        ColumnarStructDef interfaceDef,
-        ColumnarSemanticRegistry<ColumnarEnumDef> enumRegistry,
-        ColumnarSemanticRegistry<ColumnarStructDef> structRegistry,
-        ColumnarSemanticRegistry<ColumnarUnionDef> unionRegistry)
-    {
-        var requiredInterfaces = new List<ColumnarStructDef>();
-        ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(interfaceDef, requiredInterfaces);
-        foreach (var requiredInterface in requiredInterfaces)
-        {
-            foreach (var (memberName, member) in requiredInterface.Methods)
-            {
-                if (requiredInterface.DefaultInterfaceMethodNames.Contains(memberName))
-                    continue;
-                if (!ColumnarStructInputHasDuckMethod(
-                        source,
-                        sourceDef,
-                        memberName,
-                        member.ReturnType,
-                        member.ParamTypes,
-                        enumRegistry,
-                        structRegistry,
-                        unionRegistry))
-                    return false;
-            }
-        }
-        return true;
-    }
-
-    private static bool ColumnarStructInputHasDuckMethod(
-        ColumnarStructInput source,
-        ColumnarStructDef sourceDef,
-        string name,
-        Type returnType,
-        Type[] paramTypes,
-        ColumnarSemanticRegistry<ColumnarEnumDef> enumRegistry,
-        ColumnarSemanticRegistry<ColumnarStructDef> structRegistry,
-        ColumnarSemanticRegistry<ColumnarUnionDef> unionRegistry)
-    {
-        foreach (var method in source.Methods)
-        {
-            if (method.IsStatic
-                || method.Name != name
-                || method.ParamCanonicals.Length != paramTypes.Length
-                || method.TypeParamNames.Length > 0)
-                continue;
-
-            Type candidateReturn;
-            if (method.IsAsync)
-            {
-                if (!TryComputeAsyncReturnShape(method.Name, method.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out _, out candidateReturn))
-                    return false;
-            }
-            else if (method.ReturnCanonical == "void")
-            {
-                candidateReturn = typeof(void);
-            }
-            else if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(method.ReturnCanonical, sourceDef, enumRegistry, structRegistry, unionRegistry, out candidateReturn)
-                     || !ColumnarTypeOfPlanner.IsSupportedType(candidateReturn))
-            {
-                return false;
-            }
-
-            if (!TypesEquivalent(candidateReturn, returnType))
-                continue;
-
-            var parametersMatch = true;
-            for (var i = 0; i < method.ParamCanonicals.Length; i++)
-            {
-                if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(method.ParamCanonicals[i], sourceDef, enumRegistry, structRegistry, unionRegistry, out var candidateParam)
-                    || !IsSupportedParameterType(candidateParam)
-                    || !TypesEquivalent(candidateParam, paramTypes[i]))
-                {
-                    parametersMatch = false;
-                    break;
-                }
-            }
-            if (parametersMatch)
-                return true;
-        }
-        return false;
-    }
-
-    private static int InterfaceDepthOrMinusOne(
-        ColumnarStructDef interfaceDef,
-        Dictionary<ColumnarStructDef, int> memo,
-        HashSet<ColumnarStructDef> visiting)
-    {
-        if (memo.TryGetValue(interfaceDef, out var cached))
-            return cached;
-        if (!visiting.Add(interfaceDef))
-            return -1;
-        var depth = 0;
-        foreach (var baseInterface in interfaceDef.InterfaceBases)
-        {
-            var baseDepth = InterfaceDepthOrMinusOne(baseInterface, memo, visiting);
-            if (baseDepth < 0)
-            {
-                visiting.Remove(interfaceDef);
-                return -1;
-            }
-            depth = Math.Max(depth, baseDepth + 1);
-        }
-        visiting.Remove(interfaceDef);
-        memo[interfaceDef] = depth;
-        return depth;
     }
 
     // INTERFACE upcast at value-flow boundaries (the legacy emitter's EmitValueCoercion interface arm,
