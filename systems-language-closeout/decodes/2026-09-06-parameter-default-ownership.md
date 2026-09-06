@@ -48,3 +48,29 @@ compiled the exact committed native source plus an integer control and passed 2/
 `2a0244f1ae94ee5c7e1f6256c7e9b8da46cc36d459e39dc5f139946d141adb7b`.
 Receipt: `/private/tmp/nsharp-parameter-default-ownership-20260906/seed/acceptance.json`.
 The complete owner and seven direct canonical controls now resume; the area remains open.
+
+Exact full owner builds with the accepted seed (`full-owner-r6`). Root IL review confirms both
+metadata loops preserve flags/name/ordinal and partial writes, exact boxed primitive constants,
+all three invariant integer parser calls, source-before-runtime enum resolution, and separate
+short/full-name runtime reflection reads. Constructor-call failure resets the output type before
+work and assigns it only after emitted IL.
+
+Seven new direct N# controls plus three existing selected controls pass 10/10 against one fresh
+emitted assembly (`bss-controls-r7-partial-final.log`, `bss-controls-r8-all-no-build.log`). The fixture
+uses DayOfWeek instead of an unsupported test-only enum spelling. Actual BCL observation corrected
+two fixture expectations: Friday is 5; a parameter row whose constant was never set has Optional
+(attribute 16), without HasDefault, while the untouched next row is unnamed and nonoptional. Both
+method and constructor twins measured 4114/16/0. The assertions preserve these distinctions; temporary
+observation code is removed. No production behavior change was required.
+
+Integrated owner `05aa07853` (worker `e03bb1c9`) removes all eight C# definitions and their shared
+constant. Thirteen production sites route directly into N#: eight method metadata declarations,
+one constructor metadata declaration, two default-eligibility checks and two default IL emissions.
+Surviving C# only supplies the existing builders/types/default columns, enum registry and IL stream
+at these routes; its other compiler decisions remain separate debt. Existing canonical coverage
+was already N#; no live C# parameter-default assertions remained to migrate.
+
+Focused final owner controls pass 10/10 (seven new plus three existing). Unchanged native declaration
+and constructor suites pass 121/121 and 7/7, matching verified baseline sources. Emitter shrinks
+18,213→18,001 lines and 17,308→17,113 nonblank; all 380 other ratchet rows and epoch values unchanged.
+New ratchet head `head-v1:52dd4405924e3517`. Final integration verification is pending.
