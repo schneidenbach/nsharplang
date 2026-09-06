@@ -54,3 +54,10 @@ Root emitted-IL review confirms identity, MakeGenericType/GetField failure seman
 collection constructors/key-view order, unboxed enumerators/finally and lazy ref-state mutation.
 The member arity helper assigns a local out slot before publishing a success, preserving the original
 outer slot when a later base lookup throws. All discovery substitutions are removed from owner source.
+
+The first fresh seed gate at `6bb61b9e` completed in 417s with one bootstrap-order failure:
+canonical BSS runtime tests used the new HashSet copy constructor before the seed was installed.
+No seed was published. Preserve that failure receipt; move all three runtime tests and their
+necessary helpers into native emission coverage, keeping the two compiler decision controls in
+BSS. Old-seed BSS 2/2 and candidate-packaged native 5/5 pass; every assertion is retained and
+unused helpers are removed. The next gate must be fresh and use this corrected test placement.
