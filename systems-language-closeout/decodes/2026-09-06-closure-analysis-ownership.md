@@ -80,3 +80,11 @@ extension-call programs 17/17, ownership audit 18/18. Both owner classes emit id
 IL after method-address normalization. Preserve no-test/wrong-entrypoint attempts separately;
 only the corrected exact seven-test result is accepted. Final fresh backend integration gate
 and push remain open. Remaining recursive lambda body/display-class lowering is C# compiler debt.
+
+The first complete-owner gate at `d9a666316` exposed only a test-source formatting issue:
+three ref argument lists used multiline layout. Existing `FormatterWalk.ArgumentsCanBeginLines`
+and `FormatterSourceText` require ref-bearing calls on one line; this is resolved by the
+layout-only `86d50ad13` (worker `2c2dc004`), without a parser/formatter/production change.
+Formatting and fresh accepted-SDK direct controls pass 7/7; the affected test method retains
+all 204 emitted instructions, including the original three ldloca ref calls. Preserve the
+failed gate receipt and run the final corrected source through a fresh gate.
