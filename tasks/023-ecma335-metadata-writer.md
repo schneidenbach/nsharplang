@@ -203,6 +203,19 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   machine/factory owner proof. Member discovery, remaining call/type/local/maxstack and later writer
   work remain open. [Proof](../systems-language-closeout/decodes/2026-09-05-s22i-parity-proof.md) and
   [next cut](../systems-language-closeout/decodes/2026-09-05-s22j-iterator-next-cut.md).
+  **S2.2(j0) continuation binding at `74e0c908a`, wording `9be5346d4`, native/tested `b57676617`:**
+  N# admits only the BCL Ldftn field through the existing planner; no C# or iterator driver changed.
+  Explicit MethodInfo/FieldInfo constructor controls preserve the old decline, then bake/invoke a real
+  continuation and verify its bound target, field mutation and decoded core token. Two new canonical
+  controls; focused 3/3, native 6/6. Fixed 94-image/2,184-test corpus and strict 258 findings across 433 files
+  unchanged. Fresh 455s gate 593 unit / 7,796 canonical / 107 declarations / 6 Reflection.Emit
+  bootstrap / 15 records / 18 audit, 52 projects and 68 IL assemblies. Installed SDK 0.1.0 repinned from
+  the gated source and passes 1/1 with all 12 live payloads verified before/after the standalone build.
+  Gate and seed receipts: `/private/tmp/gate-20260906-goal-s22j0-r1/`. Legacy validation remains debt.
+  Next j preserves the real source T[] refusal and first measures direct declarations plus actual
+  internal rebased T/T[] field companions under that seed; frozen 109/109 controls `86405783` are not
+  integrated here. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j0-parity-proof.md) and
+  [corrected next cut](../systems-language-closeout/decodes/2026-09-05-s22j-iterator-next-cut.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
