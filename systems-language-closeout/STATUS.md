@@ -38,6 +38,13 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
+**Active area, complete interface realization:** move inheritance-depth calculation, structural
+interface registration, member-completeness validation and ordered interface finalization with their
+matching, async return-shape and parameter-type dependencies. Preserve metadata mutation and failure
+ordering; remove complete C# passes/helpers and route directly through N#. Sol Max implements,
+Terra Max owns canonical coverage, Astra reviews/integrates. [Boundary](decodes/2026-09-06-interface-realization-ownership.md).
+Baseline clean/pushed `f0a527d69`; evidence `/private/tmp/nsharp-interface-realization-ownership-20260906`.
+
 **Accepted area, compiler reference type resolution:** integrated `c938be178` and `f3fabaacf`
 replace all five complete test-framework, referenced-type, loaded-external, ASP.NET reference and
 HttpContext resolution methods. Fourteen production sites route directly to N#; all old C# definitions
