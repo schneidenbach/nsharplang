@@ -62,3 +62,12 @@ methods retain their existing owner. Numeric admission pins the exact by-referen
 Double IFormatProvider formal; native assertions cover signed extrema, unsigned max/overflow, and
 failure out resets. The initializer owner must retain null-overload lookup failure rather than
 silently consulting siblings. These review controls accompany the complete ownership area.
+
+Prerequisite seed accepted at `9b01b93bf`: one fresh backend gate passed in 449s with 590 unit,
+7,854 canonical, 52 native projects, 12 throughput cells and 68 IL assemblies. Official setup
+published the tested package set; both feeds match, all 10 tool payloads match Release and all
+12 SDK/cache payloads match. A normal minimal SDK project compiled the exact two native prerequisite
+files plus an integer control and passed 3/3. IL names the exact four BCL calls. SDK SHA-256:
+`5e8b271fadc349bf6c50d00746910fe5db01af5e2d7df4f8ef3ad4f204e7998d`. Receipt:
+`/private/tmp/nsharp-static-initializer-ownership-20260906/seed/acceptance.json`. The full initializer
+owner and canonical assertion migration now resume; this prerequisite is not area completion.

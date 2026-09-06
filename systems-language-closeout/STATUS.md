@@ -50,7 +50,10 @@ canonical end-to-end migration, Terra Max direct canonical controls, Astra revie
 Baseline clean/pushed `4269be784`; verified immutable CLI and prior gate receipt under
 `/private/tmp/nsharp-static-initializer-ownership-20260906/baseline.json`.
 [Boundary](decodes/2026-09-06-static-initializer-ownership.md). Full-source compilation must prove
-any prerequisite; no SDK change is assumed. The compiler-only goal remains active.
+any prerequisite. The four proven BCL call prerequisites are integrated at `9b01b93bf`; fresh
+backend gate449s590/7,854/52native/12throughput/68IL and normal packaged probe3/3 passed.
+All12 SDK/cache payloads match the published seed. The complete owner resumes against that seed;
+the selected area and compiler-only goal remain active.
 
 **Accepted area, generic-call binding and return substitution:** moved complete `TryUnifyTypeParam`,
 `TryUnifyGenericCallArgument`, `TryUnifyGenericContainer`, `TrySubstituteReturnType` and their
