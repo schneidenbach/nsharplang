@@ -463,6 +463,24 @@ func main() {
     )
 }
 
+test "a contextual read-only capture compiles and executes" {
+    AssertGenericCallProgram(
+        "ContextualCaptureReadProject",
+        """
+class Cell {
+    Value: int = 1
+}
+
+func main() {
+    cell := new Cell()
+    read: Func<int> = () => cell.Value
+    print read()
+}
+""",
+        "1"
+    )
+}
+
 test "a contextual capture with a member-rooted structural write declines" {
     compilation := CompileNamedExtensionCallFixture(
         "StructuralCaptureWriteProject",
