@@ -10,6 +10,51 @@ import System.Reflection.Emit
 // that N# admits in one place so overload selection and sealed-plan validation cannot drift.
 class ColumnarReferenceConversionFacts {
 
+    // The emitter's complete reference-conversion decision. Reflection.Emit cannot answer
+    // IsAssignableFrom for every closed shell that still contains an unbaked source builder, so the
+    // guarded runtime question is followed by the exact collection edges already owned by emission.
+    // Keep TypesEquivalent here: emission historically accepts its richer builder-aware equivalence,
+    // while IsExactKnownUpcast below deliberately uses the stricter structural identity predicate.
+    static func TryEmitReferenceConversion(sourceType: Type, targetType: Type): bool {
+        if sourceType == ColumnarTypeOfPlanner.RequiredVoidType() || sourceType.get_IsValueType() || targetType.get_IsValueType() {
+            return false
+        }
+        try {
+            if targetType.IsAssignableFrom(sourceType) {
+                return true
+            }
+        } catch ex: NotSupportedException {
+        }
+
+        if sourceType.get_IsSZArray() && targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
+            targetDefinition := targetType.GetGenericTypeDefinition()
+            if (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0]) {
+                return true
+            }
+        }
+
+        if sourceType.get_IsGenericType() && !sourceType.get_IsGenericTypeDefinition() && targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
+            sourceDefinition := sourceType.GetGenericTypeDefinition()
+            targetDefinition := targetType.GetGenericTypeDefinition()
+            sourceArguments := sourceType.GetGenericArguments()
+            targetArguments := targetType.GetGenericArguments()
+            if targetArguments.Length == 1 && sourceArguments.Length >= 1 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], targetArguments[0]) && ((sourceDefinition == typeof(List<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(HashSet<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(Stack<int>).GetGenericTypeDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) {
+                return true
+            }
+            // Dictionary<TKey, TValue>.ValueCollection retains both declaring-type arguments while
+            // IEnumerable<T> carries only TValue. Compare the second source slot at the same phase as
+            // the other closed-generic emission conversions.
+            if targetArguments.Length == 1 && sourceArguments.Length == 2 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[1], targetArguments[0]) && sourceDefinition == ColumnarTypeOfPlanner.RequiredDictionaryValueCollectionDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
+                return true
+            }
+            if targetArguments.Length == 2 && sourceArguments.Length == 2 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], targetArguments[0]) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[1], targetArguments[1]) && ColumnarGenericCallBindingPlanner.IsReadOnlyDictionaryCollectionDefinition(targetDefinition) && ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(sourceDefinition) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     // Source interface identity lives in the declaration registry while its TypeBuilders are
     // still unbaked. Reflection.Emit assignability is not a reliable semantic oracle there:
     // use only the exact source definitions populated by the explicit/duck-interface pass.
@@ -245,6 +290,15 @@ class ColumnarReferenceConversionFacts {
 
         sourceArguments := sourceType.GetGenericArguments()
         targetArguments := targetType.GetGenericArguments()
+        // Dictionary<K,V>.ValueCollection is a live IEnumerable<V>. The nested view keeps both
+        // declaring-type arguments, so compare its VALUE slot to the target's sole element slot.
+        if sourceArguments.Length == 2 && targetArguments.Length == 1 && ExactTypeShapeMatches(sourceArguments[1], targetArguments[0]) {
+            sourceDefinition := sourceType.GetGenericTypeDefinition()
+            targetDefinition := targetType.GetGenericTypeDefinition()
+            if sourceDefinition == ColumnarTypeOfPlanner.RequiredDictionaryValueCollectionDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
+                return true
+            }
+        }
         // The one two-argument upcast: Dictionary<K,V>/SortedDictionary<K,V> -> IReadOnlyDictionary<K,V>,
         // the two-argument mirror of List<T> -> IReadOnlyList<T> below. Both arguments must match exactly.
         if targetArguments.Length == 2 && sourceArguments.Length == 2 && (targetType.GetGenericTypeDefinition().FullName ?? "") == "System.Collections.Generic.IReadOnlyDictionary`2" && ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) && ExactTypeShapeMatches(sourceArguments[1], targetArguments[1]) {

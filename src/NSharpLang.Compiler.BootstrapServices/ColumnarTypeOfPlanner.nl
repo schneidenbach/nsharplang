@@ -823,7 +823,7 @@ class ColumnarTypeOfPlanner {
                 keyCanonical = argumentCanonicals[0]
                 valueCanonical = argumentCanonicals[1]
             }
-            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? ContainsBuilderBoundType(key) : ContainsNonEnumBuilderBoundType(key)) || !IsAdmissibleCollectionElement(value) {
+            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? ContainsBuilderBoundType(key) : !IsAdmissibleDictionaryKey(key)) || !IsAdmissibleCollectionElement(value) {
                 return false
             }
             definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
@@ -1133,7 +1133,7 @@ class ColumnarTypeOfPlanner {
         // Assembly.GetType. Its existing collection/task/result/union rebinding lowerings own these
         // structural shapes; the catalog rule below applies to complete external identities.
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType)
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1400,6 +1400,44 @@ class ColumnarTypeOfPlanner {
         return arguments.Length == 1 && IsAdmissibleCollectionElement(arguments[0])
     }
 
+    // Dictionary<TKey, TValue>.Values is the live value view returned by the concrete Dictionary
+    // getter. Compiler realization passes that exact view to source-definition scans so its delayed
+    // getter, live enumeration, and mutation behavior remain intact even when TValue is unbaked.
+    static func IsSupportedDictionaryValueCollectionType(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryValueCollectionDefinition().get_AssemblyQualifiedName() ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+    }
+
+    // Dictionary<TKey, TValue>.GetEnumerator returns this concrete mutable struct. Keeping it
+    // unboxed preserves one receiver across MoveNext/Current/Dispose and the BCL's mutation check.
+    static func IsSupportedDictionaryEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryEnumeratorDefinition().get_AssemblyQualifiedName() ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+    }
+
+    // A closed KeyValuePair<TKey, TValue> is the concrete Dictionary foreach value. Preserve the
+    // emitter's complete historical predicate: the exact runtime definition and closed shell are the
+    // whole question here; its key/value member owners validate their individual substituted slots.
+    static func IsSupportedKeyValuePairType(valueType: Type): bool {
+        return valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && !(valueType is TypeBuilder) && valueType.GetGenericTypeDefinition() == typeof(KeyValuePair<int, int>).GetGenericTypeDefinition()
+    }
+
     // Dictionary.Values exposes this concrete value-type enumerator. Entry-point discovery keeps
     // that exact struct in a local so Current and Dispose operate on the same unboxed state. Its
     // two generic arguments retain Dictionary's existing key and value admissibility boundaries.
@@ -1413,7 +1451,7 @@ class ColumnarTypeOfPlanner {
             return false
         }
         arguments := valueType.GetGenericArguments()
-        return arguments.Length == 2 && IsSupportedType(arguments[0]) && !ContainsNonEnumBuilderBoundType(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
     }
 
     // The element/value types a collection may close over (the builder-element rebind rung):
@@ -1445,11 +1483,21 @@ class ColumnarTypeOfPlanner {
         return IsSupportedType(valueType) && !ContainsBuilderBoundType(valueType)
     }
 
-    // HashSet<T> elements are keys: accepting builder-bound elements would make lookup behaviour depend
-    // on generated Equals/GetHashCode synthesis before that key path has parity evidence. A source ENUM
-    // is the one builder-bound shape that stays, because its underlying integral value is what is hashed.
+    // HashSet<T> elements are keys. A complete non-generic source reference declaration now has direct
+    // identity/equality coverage; source value types, open definitions, and constructed builder-bound
+    // shapes remain outside this key surface. Source enums retain their underlying integral semantics.
     static func IsAdmissibleHashSetElement(valueType: Type): bool {
-        return IsAdmissibleCollectionElement(valueType) && !ContainsNonEnumBuilderBoundType(valueType)
+        return IsAdmissibleCollectionElement(valueType) && (IsAdmissibleSourceReferenceKey(valueType) || !ContainsNonEnumBuilderBoundType(valueType))
+    }
+
+    // Dictionary shares the direct source-reference key admission. Keep the exception at the direct
+    // builder leaf so arrays and constructed shapes cannot inherit it accidentally.
+    static func IsAdmissibleDictionaryKey(valueType: Type): bool {
+        return IsAdmissibleSourceReferenceKey(valueType) || !ContainsNonEnumBuilderBoundType(valueType)
+    }
+
+    static func IsAdmissibleSourceReferenceKey(valueType: Type): bool {
+        return valueType is TypeBuilder && !IsEnumBuilder(valueType) && !valueType.get_IsGenericTypeDefinition() && !valueType.get_IsValueType()
     }
 
     static func IsSupportedDelegateType(valueType: Type): bool {
@@ -1771,6 +1819,22 @@ class ColumnarTypeOfPlanner {
         result := Type.GetType("System.Collections.Generic.List`1+Enumerator")
         if result == null {
             throw new InvalidOperationException("List<T>.Enumerator runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryValueCollectionDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+ValueCollection")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.ValueCollection runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+Enumerator")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.Enumerator runtime type was not found.")
         }
         return result
     }

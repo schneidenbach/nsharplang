@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Reflection
 
 
 // Construct the exact nested concrete enumerator through the public Dictionary Values property.
@@ -31,6 +32,21 @@ func DictionaryValueEnumeratorControlValuesType(
     return values.get_PropertyType()
 }
 
+func DictionaryValueCollectionControlExactType(
+    key: Type,
+    value: Type
+): Type {
+    runtimeValues := DictionaryValueEnumeratorControlValuesType(
+        typeof(string),
+        typeof(ColumnarStructDef)
+    )
+    definition := runtimeValues.GetGenericTypeDefinition()
+    arguments := new Type[](2)
+    arguments[0] = key
+    arguments[1] = value
+    return definition.MakeGenericType(arguments)
+}
+
 func DictionaryValueEnumeratorControlExactType(
     key: Type,
     value: Type
@@ -46,6 +62,26 @@ func DictionaryValueEnumeratorControlExactType(
     getEnumerator := valuesType.GetMethod("GetEnumerator", noTypes)
     if getEnumerator == null {
         throw new InvalidOperationException("Dictionary Values.GetEnumerator was not found.")
+    }
+    definition := getEnumerator.get_ReturnType().GetGenericTypeDefinition()
+    arguments := new Type[](2)
+    arguments[0] = key
+    arguments[1] = value
+    return definition.MakeGenericType(arguments)
+}
+
+func DictionaryEntryEnumeratorControlExactType(
+    key: Type,
+    value: Type
+): Type {
+    dictionary := DictionaryValueEnumeratorControlClosedDictionary(
+        typeof(string),
+        typeof(ColumnarStructDef)
+    )
+    noTypes := new Type[](0)
+    getEnumerator := dictionary.GetMethod("GetEnumerator", noTypes)
+    if getEnumerator == null {
+        throw new InvalidOperationException("Dictionary.GetEnumerator was not found.")
     }
     definition := getEnumerator.get_ReturnType().GetGenericTypeDefinition()
     arguments := new Type[](2)
@@ -138,6 +174,28 @@ func DictionaryValueEnumeratorControlForeignSameName(
     return foreignOpen.MakeGenericType(arguments)
 }
 
+func DictionaryNestedControlForeignSameName(
+    nestedName: string,
+    key: Type,
+    value: Type
+): Type {
+    dictionary := TypeOfCreateBuilder(
+        "System.Collections.Generic.Dictionary`2",
+        "ColumnarDictionaryNestedControls.Foreign." + nestedName,
+        2
+    )
+    nested := DictionaryValueEnumeratorControlDefineNested(
+        dictionary,
+        nestedName,
+        2
+    )
+    foreignOpen := IdentityBake(nested)
+    arguments := new Type[](2)
+    arguments[0] = key
+    arguments[1] = value
+    return foreignOpen.MakeGenericType(arguments)
+}
+
 test "dictionary Values enumerator admission requires the exact BCL nested definition" {
     exact := DictionaryValueEnumeratorControlExactType(
         typeof(string),
@@ -182,11 +240,11 @@ test "dictionary Values enumerator admission retains dictionary argument and sib
         typeof(string),
         sourceBuilder
     )
-    keyRejected := DictionaryValueEnumeratorControlExactType(
+    sourceKeyAllowed := DictionaryValueEnumeratorControlExactType(
         sourceBuilder,
         typeof(ColumnarStructDef)
     )
-    keyRejectedDictionary := DictionaryValueEnumeratorControlClosedDictionary(
+    sourceKeyDictionary := DictionaryValueEnumeratorControlClosedDictionary(
         sourceBuilder,
         typeof(ColumnarStructDef)
     )
@@ -247,10 +305,10 @@ test "dictionary Values enumerator admission retains dictionary argument and sib
         throw new InvalidOperationException("Required Dictionary collection enumerator was not found.")
     }
 
-    // The new exact predicate reuses Dictionary's key/value policy: source builders remain valid
-    // VALUES, while a non-enum source builder is not a Dictionary KEY.
+    // Source reference builders are now proven Dictionary keys as well as values. Constructed and
+    // open builder-bound key shapes remain outside this direct identity-key admission.
     assert ColumnarTypeOfPlanner.IsSupportedDictionaryValueEnumeratorType(valueAllowed)
-    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryValueEnumeratorType(keyRejected)
+    assert ColumnarTypeOfPlanner.IsSupportedDictionaryValueEnumeratorType(sourceKeyAllowed)
     assert !ColumnarTypeOfPlanner.IsSupportedDictionaryValueEnumeratorType(valueRejected)
     assert !ColumnarTypeOfPlanner.IsSupportedDictionaryValueEnumeratorType(genericKey)
     assert !ColumnarTypeOfPlanner.IsSupportedDictionaryValueEnumeratorType(openKey)
@@ -271,5 +329,114 @@ test "dictionary Values enumerator admission retains dictionary argument and sib
     // The broad storable-type question is different: a closed Dictionary can already be accepted
     // by an existing collection/catalog route.  This must not be used as evidence for the exact
     // concrete-enumerator predicate above.
-    assert ColumnarTypeOfPlanner.IsSupportedType(keyRejectedDictionary)
+    assert ColumnarTypeOfPlanner.IsSupportedType(sourceKeyDictionary)
+}
+
+test "source reference types are direct Dictionary keys and HashSet elements only at the builder leaf" {
+    sourceBuilder := TypeOfCreateBuilder(
+        "SourceCollectionIdentityControls.Source",
+        "ColumnarSourceCollectionIdentityControls.Source",
+        0
+    )
+    sourceArray := sourceBuilder.MakeArrayType()
+    sourceGenericDefinition := TypeOfCreateBuilder(
+        "SourceCollectionIdentityControls.Box`1",
+        "ColumnarSourceCollectionIdentityControls.Box",
+        1
+    )
+    sourceArguments := new Type[](1)
+    sourceArguments[0] = typeof(int)
+    sourceGenericDefinitionType: Type = sourceGenericDefinition
+    sourceGeneric: Type = sourceGenericDefinitionType.MakeGenericType(sourceArguments)
+    valueTypeBase := TypeOfRequiredRuntimeType(typeof(AssemblyName), "System.ValueType")
+    sourceStruct := ExternalGuardPersistedBuilder(
+        "SourceCollectionIdentityControls.SourceStruct",
+        0,
+        valueTypeBase
+    )
+
+    assert ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceBuilder)
+    assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceBuilder)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceGenericDefinition)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceGenericDefinition)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceStruct)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceStruct)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceArray)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceArray)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceGeneric)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceGeneric)
+}
+
+test "dictionary live Values and entry enumerators require the exact closed BCL nested definitions" {
+    sourceBuilder := TypeOfCreateBuilder(
+        "DictionaryNestedControls.Source",
+        "ColumnarDictionaryNestedControls.Source",
+        0
+    )
+    values := DictionaryValueCollectionControlExactType(typeof(string), sourceBuilder)
+    entryEnumerator := DictionaryEntryEnumeratorControlExactType(typeof(string), sourceBuilder)
+    openValues := values.GetGenericTypeDefinition()
+    openEntryEnumerator := entryEnumerator.GetGenericTypeDefinition()
+    foreignValues := DictionaryNestedControlForeignSameName(
+        "ValueCollection",
+        typeof(string),
+        sourceBuilder
+    )
+    foreignEntryEnumerator := DictionaryNestedControlForeignSameName(
+        "Enumerator",
+        typeof(string),
+        sourceBuilder
+    )
+    sourceArray := sourceBuilder.MakeArrayType()
+    rejectedValues := DictionaryValueCollectionControlExactType(typeof(string), sourceArray)
+    rejectedEntryEnumerator := DictionaryEntryEnumeratorControlExactType(typeof(string), sourceArray)
+    enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    enumerableArguments := new Type[](1)
+    sourceBuilderType: Type = sourceBuilder
+    enumerableArguments[0] = sourceBuilderType
+    sourceEnumerable := enumerableDefinition.MakeGenericType(enumerableArguments)
+    rejectedEnumerableArguments := new Type[](1)
+    rejectedEnumerableArguments[0] = typeof(string)
+    rejectedEnumerable := enumerableDefinition.MakeGenericType(rejectedEnumerableArguments)
+
+    assert ColumnarTypeOfPlanner.IsSupportedDictionaryValueCollectionType(values)
+    assert ColumnarTypeOfPlanner.IsSupportedType(values)
+    assert ColumnarTypeOfPlanner.IsSupportedDictionaryEnumeratorType(entryEnumerator)
+    assert ColumnarTypeOfPlanner.IsSupportedType(entryEnumerator)
+    assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(values, sourceEnumerable)
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(values, rejectedEnumerable)
+    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryValueCollectionType(openValues)
+    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryEnumeratorType(openEntryEnumerator)
+    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryValueCollectionType(foreignValues)
+    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryEnumeratorType(foreignEntryEnumerator)
+    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryValueCollectionType(rejectedValues)
+    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryEnumeratorType(rejectedEntryEnumerator)
+}
+
+test "KeyValuePair admission keeps the exact closed runtime definition and builder-bound slots" {
+    sourceBuilder := TypeOfCreateBuilder(
+        "KeyValuePairControls.Source",
+        "ColumnarKeyValuePairControls.Source",
+        0
+    )
+    arguments := new Type[](2)
+    arguments[0] = typeof(string)
+    sourceBuilderType: Type = sourceBuilder
+    arguments[1] = sourceBuilderType
+    definition := typeof(KeyValuePair<int, int>).GetGenericTypeDefinition()
+    pair := definition.MakeGenericType(arguments)
+
+    foreignBuilder := TypeOfCreateBuilder(
+        "System.Collections.Generic.KeyValuePair`2",
+        "ColumnarKeyValuePairControls.Foreign",
+        2
+    )
+    foreignDefinition: Type = foreignBuilder
+    foreign := foreignDefinition.MakeGenericType(arguments)
+
+    assert ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(pair)
+    assert ColumnarTypeOfPlanner.IsSupportedType(pair)
+    assert !ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(definition)
+    assert !ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(sourceBuilder)
+    assert !ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(foreign)
 }

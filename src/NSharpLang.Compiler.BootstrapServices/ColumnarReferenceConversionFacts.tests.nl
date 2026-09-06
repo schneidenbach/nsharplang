@@ -10,6 +10,82 @@ func ReferenceConversionClosedType(definition: Type, argument: Type): Type {
     return definition.MakeGenericType(arguments)
 }
 
+func ReferenceConversionClosedType2(
+    definition: Type,
+    first: Type,
+    second: Type
+): Type {
+    arguments := new Type[](2)
+    arguments[0] = first
+    arguments[1] = second
+    return definition.MakeGenericType(arguments)
+}
+
+test "emission reference conversions preserve rich type equivalence and every exact collection edge" {
+    elementDefinitionBuilder := TypeOfCreateBuilder(
+        "ReferenceConversionEmissionElement",
+        "ColumnarReferenceConversionTests.EmissionElement",
+        1
+    )
+    elementDefinition: Type = elementDefinitionBuilder
+    firstElement := ReferenceConversionClosedType(elementDefinition, typeof(int))
+    secondElement := ReferenceConversionClosedType(elementDefinition, typeof(int))
+    wrongElement := ReferenceConversionClosedType(elementDefinition, typeof(long))
+    assert !ColumnarConstructionPlanner.SameObject(firstElement, secondElement)
+    assert ColumnarTypeEquivalenceFacts.TypesEquivalent(firstElement, secondElement)
+
+    enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    readOnlyListDefinition := typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
+    readOnlyCollectionDefinition := typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()
+    readOnlySetDefinition := typeof(IReadOnlySet<int>).GetGenericTypeDefinition()
+    list := ReferenceConversionClosedType(typeof(List<int>).GetGenericTypeDefinition(), firstElement)
+    hashSet := ReferenceConversionClosedType(typeof(HashSet<int>).GetGenericTypeDefinition(), firstElement)
+    stack := ReferenceConversionClosedType(typeof(Stack<int>).GetGenericTypeDefinition(), firstElement)
+    enumerable := ReferenceConversionClosedType(enumerableDefinition, secondElement)
+    readOnlyList := ReferenceConversionClosedType(readOnlyListDefinition, secondElement)
+    readOnlyCollection := ReferenceConversionClosedType(readOnlyCollectionDefinition, secondElement)
+    readOnlySet := ReferenceConversionClosedType(readOnlySetDefinition, secondElement)
+    wrongEnumerable := ReferenceConversionClosedType(enumerableDefinition, wrongElement)
+
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(typeof(string), typeof(object))
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(typeof(int), typeof(object))
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(ColumnarTypeOfPlanner.RequiredVoidType(), typeof(object))
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(firstElement.MakeArrayType(), enumerable)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(firstElement.MakeArrayType(), readOnlyList)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(list, enumerable)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(list, readOnlyList)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(list, readOnlyCollection)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(hashSet, enumerable)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(hashSet, readOnlySet)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(stack, enumerable)
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(list, wrongEnumerable)
+
+    dictionary := ReferenceConversionClosedType2(
+        typeof(Dictionary<int, int>).GetGenericTypeDefinition(),
+        typeof(string),
+        firstElement
+    )
+    sortedDictionary := ReferenceConversionClosedType2(
+        typeof(SortedDictionary<int, int>).GetGenericTypeDefinition(),
+        typeof(string),
+        firstElement
+    )
+    readOnlyDictionary := ReferenceConversionClosedType2(
+        ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition(),
+        typeof(string),
+        secondElement
+    )
+    valueCollection := ReferenceConversionClosedType2(
+        ColumnarTypeOfPlanner.RequiredDictionaryValueCollectionDefinition(),
+        typeof(string),
+        firstElement
+    )
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(dictionary, readOnlyDictionary)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sortedDictionary, readOnlyDictionary)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueCollection, enumerable)
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueCollection, wrongEnumerable)
+}
+
 test "structural reference facts classify exact source interface edges and boxing" {
     target := SourceCallInterfaceDefinition(
         "ReferenceConversionSourceTarget"
