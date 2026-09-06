@@ -17,6 +17,10 @@ class ColumnarAsyncProbeMachine {
     Fields: FieldInfo[]
     StateConstructor: ConstructorInfo
     Shape: ColumnarIteratorShape
+    StructuralTypeReferences: ColumnarStructuralTypeReferenceTable
+    PlanningContext: ColumnarIteratorEmitContext
+    StructuralRowsValidated: bool
+    AwaiterStructuralRowRetained: bool
 
     constructor(probe: ColumnarIteratorShapeProbe, probeName: string) {
         shape := probe.Shape
@@ -138,6 +142,9 @@ class ColumnarAsyncProbeMachine {
             voidType,
             noParameterTypes
         )
+        structuralTypeReferences := new ColumnarStructuralTypeReferenceTable()
+        structuralTypeReferences.RegisterIteratorType(0, 0, shape.TypeName, typeBuilder, null)
+        StructuralTypeReferences = structuralTypeReferences
         context := new ColumnarIteratorEmitContext(
             probe.Nodes,
             probe.Source,
@@ -147,6 +154,7 @@ class ColumnarAsyncProbeMachine {
             typeof(int),
             shape.FieldNames,
             fieldBuilders,
+            structuralTypeReferences,
             (ConstructorInfo)ctorBuilder,
             null,
             null,
@@ -158,9 +166,18 @@ class ColumnarAsyncProbeMachine {
             null,
             (MethodInfo)coreBox
         )
+        PlanningContext = context
 
+        corePlan := ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context)
+        AssertIteratorPlanTypesAreKeyed(corePlan, structuralTypeReferences)
+        assert IteratorPlanHasRuntimeType(corePlan, context.StateMachineType)
+        assert IteratorPlanHasRuntimeType(corePlan, typeof(Exception))
+        AwaiterStructuralRowRetained = IteratorPlanHasRuntimeType(
+            corePlan,
+            typeof(System.Runtime.CompilerServices.TaskAwaiter)
+        )
         coreIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, coreBox, new object[](0))
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context), coreIl)
+        ColumnarCodePlanExecutor.Execute(corePlan, coreIl)
 
         valueTaskOfBool := AsyncProbeValueTaskOfBoolType()
         moveNextAsyncBox := AsyncProbeDefineMethod(
@@ -171,8 +188,11 @@ class ColumnarAsyncProbeMachine {
             valueTaskOfBool,
             noParameterTypes
         )
+        moveNextAsyncPlan := ColumnarIteratorBodyPlanner.BuildMoveNextAsyncPlan(context)
+        AssertIteratorPlanTypesAreKeyed(moveNextAsyncPlan, structuralTypeReferences)
+        assert IteratorPlanHasRuntimeType(moveNextAsyncPlan, context.StateMachineType)
         moveNextAsyncIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, moveNextAsyncBox, new object[](0))
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextAsyncPlan(context), moveNextAsyncIl)
+        ColumnarCodePlanExecutor.Execute(moveNextAsyncPlan, moveNextAsyncIl)
 
         disposeAsyncBox := AsyncProbeDefineMethod(
             defineMethodMethod,
@@ -182,8 +202,12 @@ class ColumnarAsyncProbeMachine {
             AsyncProbeRuntimeType("System.Threading.Tasks.ValueTask"),
             noParameterTypes
         )
+        disposeAsyncPlan := ColumnarIteratorBodyPlanner.BuildDisposeAsyncPlan(context)
+        AssertIteratorPlanTypesAreKeyed(disposeAsyncPlan, structuralTypeReferences)
+        assert IteratorPlanHasRuntimeType(disposeAsyncPlan, context.StateMachineType)
+        assert IteratorPlanHasRuntimeType(disposeAsyncPlan, typeof(System.Threading.Tasks.ValueTask))
         disposeAsyncIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, disposeAsyncBox, new object[](0))
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposeAsyncPlan(context), disposeAsyncIl)
+        ColumnarCodePlanExecutor.Execute(disposeAsyncPlan, disposeAsyncIl)
 
         // The probe's clone view is parameterless and object-typed: the plan ignores the token and the
         // probe type does not implement the async interfaces the real host declares.
@@ -195,8 +219,14 @@ class ColumnarAsyncProbeMachine {
             typeof(object),
             noParameterTypes
         )
+        clonePlan := ColumnarIteratorBodyPlanner.BuildGetAsyncEnumeratorPlan(context)
+        AssertIteratorPlanTypesAreKeyed(clonePlan, structuralTypeReferences)
         cloneIl := (ILGenerator)AsyncProbeInvoke(methodIlMethod, cloneBox, new object[](0))
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetAsyncEnumeratorPlan(context), cloneIl)
+        ColumnarCodePlanExecutor.Execute(clonePlan, cloneIl)
+
+        factoryPlan := ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(context)
+        AssertIteratorPlanTypesAreKeyed(factoryPlan, structuralTypeReferences)
+        StructuralRowsValidated = true
 
         createTypeMethod := AsyncProbeMethod(typeBuilderType, "CreateType", new Type[](0))
         bakedBox := AsyncProbeInvoke(createTypeMethod, typeBuilderBox, new object[](0))
@@ -609,6 +639,10 @@ func IteratorNoStrings(): string[] {
     return new string[](0)
 }
 
+func IteratorStructuralTypeReferences(): ColumnarStructuralTypeReferenceTable {
+    return new ColumnarStructuralTypeReferenceTable()
+}
+
 func IteratorOne(a: string): string[] {
     values := new string[](1)
     values[0] = a
@@ -985,7 +1019,8 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
@@ -1044,7 +1079,9 @@ func IteratorVoidType(): Type {
     return voidType
 }
 
-func IteratorCloneProbeContext(): ColumnarIteratorEmitContext {
+func IteratorCloneProbeContextWithTable(
+    table: ColumnarStructuralTypeReferenceTable
+): ColumnarIteratorEmitContext {
     source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n while i < n { yield i\n i = i + 1 } }"
     probe := new ColumnarIteratorShapeProbe(
         source,
@@ -1075,8 +1112,13 @@ func IteratorCloneProbeContext(): ColumnarIteratorEmitContext {
         typeof(int),
         probe.Shape.FieldNames,
         fields,
+        table,
         smConstructor
     )
+}
+
+func IteratorCloneProbeContext(): ColumnarIteratorEmitContext {
+    return IteratorCloneProbeContextWithTable(IteratorStructuralTypeReferences())
 }
 
 test "iterator planner dispose plan marks the machine done" {
@@ -1216,7 +1258,8 @@ test "iterator planner guard yield break plans run for both branch outcomes" {
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
@@ -1275,7 +1318,8 @@ test "iterator planner while body ending in yield break omits the back edge" {
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
@@ -1376,7 +1420,8 @@ func IteratorArrayProbeContext(source: string): ColumnarIteratorEmitContext {
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
 }
 
@@ -1468,7 +1513,8 @@ test "iterator planner throw plans classify and raise the constructed exception"
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
     moveNext := MakeIteratorDynamicMethod("ThrowMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
@@ -1533,7 +1579,8 @@ test "iterator planner reuses the hoisted slot for same-typed disjoint redeclara
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
     moveNext := MakeIteratorDynamicMethod("SlotReuseMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
@@ -1611,6 +1658,12 @@ func IteratorEnumProbeContext(source: string): ColumnarIteratorEmitContext {
     fields[2] = smType.GetField("xs")
     fields[3] = smType.GetField("en")
     fields[4] = smType.GetField("item")
+    ctorTypes := new Type[](1)
+    ctorTypes[0] = typeof(int)
+    smConstructor := smType.GetConstructor(ctorTypes)
+    if smConstructor == null {
+        throw new InvalidOperationException("ColumnarIteratorEnumProbe.ctor(int) was not found.")
+    }
     return new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -1619,7 +1672,9 @@ func IteratorEnumProbeContext(source: string): ColumnarIteratorEmitContext {
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences(),
+        smConstructor
     )
 }
 
@@ -1752,7 +1807,8 @@ test "iterator planner generic repeat plans run over a closed instantiation" {
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
 
     moveNext := MakeIteratorDynamicMethod("GenericMoveNext", typeof(bool), smType)
@@ -1854,6 +1910,7 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
         typeof(int),
         shape.FieldNames,
         fields,
+        IteratorStructuralTypeReferences(),
         null,
         hostType,
         memberNames,
@@ -2420,6 +2477,7 @@ test "async iterator machine clone, dispose, and factory keep the sync machine d
         typeof(int),
         probe.Shape.FieldNames,
         host.Fields,
+        host.StructuralTypeReferences,
         host.StateConstructor
     )
     factoryPlan := ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(factoryContext)
@@ -2623,7 +2681,8 @@ test "iterator planner classic for plans run the counting sequence" {
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
     moveNext := MakeIteratorDynamicMethod("ForMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
@@ -2676,7 +2735,8 @@ test "iterator planner postfix yield value steps after producing the old value" 
         smType,
         typeof(int),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
     moveNext := MakeIteratorDynamicMethod("StepMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
@@ -2731,7 +2791,8 @@ test "iterator planner string call plans transform each yielded element" {
         smType,
         typeof(string),
         probe.Shape.FieldNames,
-        fields
+        fields,
+        IteratorStructuralTypeReferences()
     )
     moveNext := MakeIteratorDynamicMethod("UpMoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
@@ -2790,4 +2851,194 @@ test "async iterator machine drives a classic for body with fast-path awaits" {
     assert results[1] == 1
     assert results[2] == 2
     assert host.ReadInt(machine, "<>__state") == -2
+}
+
+func IteratorPlanHasRuntimeType(plan: ColumnarCodePlan, runtimeType: Type): bool {
+    i := 0
+    while i < plan.TypeCount {
+        if Object.ReferenceEquals(plan.Types[i], runtimeType) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+func AssertIteratorPlanTypesAreKeyed(plan: ColumnarCodePlan, table: ColumnarStructuralTypeReferenceTable) {
+    i := 0
+    while i < plan.TypeCount {
+        assert plan.TypeUsesStructuralReference[i]
+        entry := StructuralPoolRequiredEntry(plan, i)
+        selected := entry.Selected
+        selectedIdentity := selected.EmissionIdentity
+        selectedRuntimeType := selected.RuntimeType
+        expected := table.SelectRuntimeType(plan.Types[i])
+        assert Object.ReferenceEquals(entry.Table, table)
+        assert Object.ReferenceEquals(selectedIdentity, table.Identity)
+        assert Object.ReferenceEquals(selectedRuntimeType, plan.Types[i])
+        assert ColumnarConstructionPlanner.SameObject(selected.Key, expected.Key)
+        assert entry.MatchesRuntime(plan.Types[i])
+        assert Object.ReferenceEquals(plan.ValidatedTypeAt(i), plan.Types[i])
+        i = i + 1
+    }
+}
+
+test "iterator body plans retain all fifteen consumed structural type rows" {
+    syncContext := IteratorCloneProbeContext()
+    syncTable := syncContext.StructuralTypeReferences
+    syncMoveNext := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(syncContext)
+    syncCurrent := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(syncContext)
+    syncInterfaceCurrent := ColumnarIteratorBodyPlanner.BuildInterfaceGetCurrentPlan(syncContext)
+    syncDispose := ColumnarIteratorBodyPlanner.BuildDisposePlan(syncContext)
+    syncFactory := ColumnarIteratorBodyPlanner.BuildFactoryPlan(syncContext)
+    syncClone := ColumnarIteratorBodyPlanner.BuildGetEnumeratorPlan(syncContext)
+    AssertIteratorPlanTypesAreKeyed(syncMoveNext, syncTable)
+    AssertIteratorPlanTypesAreKeyed(syncCurrent, syncTable)
+    AssertIteratorPlanTypesAreKeyed(syncInterfaceCurrent, syncTable)
+    AssertIteratorPlanTypesAreKeyed(syncDispose, syncTable)
+    AssertIteratorPlanTypesAreKeyed(syncFactory, syncTable)
+    AssertIteratorPlanTypesAreKeyed(syncClone, syncTable)
+    assert IteratorPlanHasRuntimeType(syncMoveNext, syncContext.StateMachineType)
+    assert IteratorPlanHasRuntimeType(syncCurrent, syncContext.StateMachineType)
+    assert IteratorPlanHasRuntimeType(syncInterfaceCurrent, syncContext.StateMachineType)
+    assert IteratorPlanHasRuntimeType(syncInterfaceCurrent, typeof(int))
+    assert IteratorPlanHasRuntimeType(syncDispose, syncContext.StateMachineType)
+    assert IteratorPlanHasRuntimeType(syncFactory, typeof(int))
+    assert IteratorPlanHasRuntimeType(syncClone, syncContext.StateMachineType)
+
+    guardedContext := IteratorEnumProbeContext(
+        "func* Pass(xs: List<int>): IEnumerable<int> { for item in xs { yield item } }"
+    )
+    guardedMoveNext := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(guardedContext)
+    guardedFactory := ColumnarIteratorBodyPlanner.BuildFactoryPlan(guardedContext)
+    AssertIteratorPlanTypesAreKeyed(guardedMoveNext, guardedContext.StructuralTypeReferences)
+    AssertIteratorPlanTypesAreKeyed(guardedFactory, guardedContext.StructuralTypeReferences)
+    assert IteratorPlanHasRuntimeType(guardedMoveNext, guardedContext.StateMachineType)
+    assert IteratorPlanHasRuntimeType(guardedMoveNext, typeof(bool))
+    capturedType := guardedContext.FieldForName("xs").get_FieldType()
+    assert guardedFactory.TypeCount == 1
+    assert Object.ReferenceEquals(guardedFactory.Types[0], capturedType)
+    assert !Object.ReferenceEquals(capturedType, guardedContext.ElementType)
+    assert !Object.ReferenceEquals(capturedType, guardedContext.StateMachineType)
+    capturedEntry := StructuralPoolRequiredEntry(guardedFactory, 0)
+    capturedExpected := guardedContext.StructuralTypeReferences.SelectRuntimeType(capturedType)
+    assert ColumnarConstructionPlanner.SameObject(capturedEntry.Selected.Key, capturedExpected.Key)
+
+    asyncProbe := new ColumnarIteratorShapeProbe(
+        "async func* Capture(n: int): IAsyncEnumerable<int> { await Task.Delay(0)\n yield n }",
+        "IAsyncEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+    asyncHost := new ColumnarAsyncProbeMachine(asyncProbe, "AsyncStructuralRowsProbe")
+    assert asyncHost.StructuralRowsValidated
+    assert asyncHost.AwaiterStructuralRowRetained
+}
+
+test "iterator structural rows remain conditional and the table is consumed lazily" {
+    referenceSource := "func* Up(xs: string[]): IEnumerable<string> { for x in xs { yield x } }"
+    referenceProbe := new ColumnarIteratorShapeProbe(
+        referenceSource,
+        "IEnumerable<string>",
+        IteratorOne("xs"),
+        IteratorOne("string[]"),
+        IteratorNoStrings(),
+        false,
+        false
+    )
+    referenceType := typeof(ColumnarIteratorStringProbe)
+    referenceFields := new FieldInfo[](5)
+    referenceFields[0] = referenceType.GetField("state")
+    referenceFields[1] = referenceType.GetField("current")
+    referenceFields[2] = referenceType.GetField("xs")
+    referenceFields[3] = referenceType.GetField("idx")
+    referenceFields[4] = referenceType.GetField("x")
+    referenceTable := IteratorStructuralTypeReferences()
+    referenceContext := new ColumnarIteratorEmitContext(
+        referenceProbe.Nodes,
+        referenceProbe.Source,
+        referenceProbe.BodyRoot,
+        referenceProbe.Shape,
+        referenceType,
+        typeof(string),
+        referenceProbe.Shape.FieldNames,
+        referenceFields,
+        referenceTable
+    )
+    referenceCurrent := ColumnarIteratorBodyPlanner.BuildInterfaceGetCurrentPlan(referenceContext)
+    assert referenceCurrent.TypeCount == 1
+    AssertIteratorPlanTypesAreKeyed(referenceCurrent, referenceTable)
+    assert IteratorPlanHasRuntimeType(referenceCurrent, referenceType)
+    assert !IteratorPlanHasRuntimeType(referenceCurrent, typeof(string))
+
+    noCaptureSource := "func* One(): IEnumerable<int> { yield 1 }"
+    noCaptureProbe := new ColumnarIteratorShapeProbe(
+        noCaptureSource,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        false
+    )
+    noCaptureType := typeof(ColumnarIteratorCloneProbe)
+    noCaptureFields := new FieldInfo[](2)
+    noCaptureFields[0] = noCaptureType.GetField("state")
+    noCaptureFields[1] = noCaptureType.GetField("current")
+    noCaptureCtorTypes := new Type[](1)
+    noCaptureCtorTypes[0] = typeof(int)
+    noCaptureConstructor := noCaptureType.GetConstructor(noCaptureCtorTypes)
+    if noCaptureConstructor == null {
+        throw new InvalidOperationException("ColumnarIteratorCloneProbe.ctor(int) was not found.")
+    }
+    noCaptureContext := new ColumnarIteratorEmitContext(
+        noCaptureProbe.Nodes,
+        noCaptureProbe.Source,
+        noCaptureProbe.BodyRoot,
+        noCaptureProbe.Shape,
+        noCaptureType,
+        typeof(int),
+        noCaptureProbe.Shape.FieldNames,
+        noCaptureFields,
+        null,
+        noCaptureConstructor
+    )
+    noCaptureClone := ColumnarIteratorBodyPlanner.BuildGetEnumeratorPlan(noCaptureContext)
+    assert noCaptureClone.TypeCount == 0
+
+    nullTableContext := IteratorCloneProbeContextWithTable(null)
+    assert throws NullReferenceException {
+        ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(nullTableContext)
+    }
+}
+
+test "iterator structural companion validation precedes plan execution" {
+    context := IteratorCloneProbeContext()
+    positive := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
+    current := MakeIteratorDynamicMethod(
+        "IteratorStructuralPositiveCurrent",
+        typeof(int),
+        context.StateMachineType
+    )
+    ColumnarCodePlanExecutor.Execute(positive, current.GetILGenerator())
+    machine := new ColumnarIteratorCloneProbe(0)
+    machine.current = 19
+    arguments := new object[](1)
+    IteratorSetObject(arguments, 0, machine)
+    target: object? = null
+    assert Convert.ToInt32(current.Invoke(target, arguments)) == 19
+
+    corrupt := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
+    assert corrupt.TypeCount == 1
+    original := StructuralPoolRequiredEntry(corrupt, 0)
+    assert original.MatchesRuntime(corrupt.Types[0])
+    corrupt.Types[0] = typeof(string)
+    assert !original.MatchesRuntime(corrupt.Types[0])
+    assert StructuralPoolRejectedExecutionLeavesIlUntouched(
+        corrupt,
+        "IteratorStructuralCorruptRuntimeCompanion"
+    ) == "7"
 }

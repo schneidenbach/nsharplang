@@ -1208,6 +1208,7 @@ class ColumnarIteratorEmitContext {
     ElementType: Type
     FieldNames: string[]
     Fields: FieldInfo[]
+    StructuralTypeReferences: ColumnarStructuralTypeReferenceTable
     Constructor: ConstructorInfo?
     // Instance-iterator extras (empty for top-level machines): the enclosing type plus its readable
     // field / callable method handles, and the canonical->runtime-type table for sequence elements.
@@ -1222,7 +1223,7 @@ class ColumnarIteratorEmitContext {
     // Async-machine extra: the MoveNextCore handle MoveNextAsync's plan drives (null for sync machines).
     CoreMethod: MethodInfo?
 
-    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, knownTypeNames: string[]? = null, knownTypes: Type[]? = null, coreMethod: MethodInfo? = null) {
+    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, knownTypeNames: string[]? = null, knownTypes: Type[]? = null, coreMethod: MethodInfo? = null) {
         Nodes = nodes
         Source = source
         BodyRoot = bodyRoot
@@ -1231,6 +1232,7 @@ class ColumnarIteratorEmitContext {
         ElementType = elementType
         FieldNames = fieldNames
         Fields = fields
+        StructuralTypeReferences = structuralTypeReferences
         Constructor = smConstructor
         EnclosingType = enclosingType
         EnclosingFieldNames = enclosingFieldNames ?? new string[](0)
@@ -1384,7 +1386,7 @@ class ColumnarIteratorBodyPlanner {
         }
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StateMachineType)
+        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         stateFieldPool := plan.AddField(context.FieldForName("<>__state"))
 
@@ -1417,10 +1419,10 @@ class ColumnarIteratorBodyPlanner {
     static func BuildGuardedMoveNextPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StateMachineType)
+        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         stateFieldPool := plan.AddField(context.FieldForName("<>__state"))
-        boolTypeIdx := plan.AddType(typeof(bool))
+        boolTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(typeof(bool)), context.StructuralTypeReferences)
         resultLocal := plan.DeclarePlanLocal(boolTypeIdx)
 
         yieldCount := context.Shape.YieldReturnCount
@@ -1463,10 +1465,10 @@ class ColumnarIteratorBodyPlanner {
     static func BuildAsyncMoveNextCorePlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StateMachineType)
+        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         stateFieldPool := plan.AddField(context.FieldForName("<>__state"))
-        exTypeIdx := plan.AddType(ExceptionRuntimeType())
+        exTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(ExceptionRuntimeType()), context.StructuralTypeReferences)
         exLocal := plan.DeclarePlanLocal(exTypeIdx)
 
         resumeCount := context.Shape.YieldReturnCount + context.Shape.AwaitResumeCount
@@ -1520,7 +1522,7 @@ class ColumnarIteratorBodyPlanner {
     static func BuildMoveNextAsyncPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StateMachineType)
+        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         statePool := plan.AddField(context.FieldForName("<>__state"))
         promPool := plan.AddField(context.FieldForName("<>__promise"))
@@ -1570,14 +1572,14 @@ class ColumnarIteratorBodyPlanner {
     static func BuildDisposeAsyncPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StateMachineType)
+        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         statePool := plan.AddField(context.FieldForName("<>__state"))
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(ColumnarIteratorPlanner.DoneState()))
         plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), statePool)
         vtType := ValueTaskRuntimeType()
-        vtTypeIdx := plan.AddType(vtType)
+        vtTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(vtType), context.StructuralTypeReferences)
         vtLocal := plan.DeclarePlanLocal(vtTypeIdx)
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), vtLocal)
         plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), vtTypeIdx)
@@ -1656,7 +1658,7 @@ class ColumnarIteratorBodyPlanner {
     static func BuildGetCurrentPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StateMachineType)
+        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         currentPool := plan.AddField(context.FieldForName("<>__current"))
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
@@ -1671,7 +1673,7 @@ class ColumnarIteratorBodyPlanner {
     static func BuildInterfaceGetCurrentPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StateMachineType)
+        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         currentPool := plan.AddField(context.FieldForName("<>__current"))
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
@@ -1679,7 +1681,7 @@ class ColumnarIteratorBodyPlanner {
         if context.ElementType.get_IsValueType() || context.ElementType.get_IsGenericParameter() {
             // A value element boxes to object; an unconstrained type parameter boxes unconditionally
             // (`box !T` is a no-op for reference instantiations).
-            boxTypePool := plan.AddType(context.ElementType)
+            boxTypePool := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.ElementType), context.StructuralTypeReferences)
             plan.AppendTypeInstruction(ColumnarCodePlanContract.Box(), boxTypePool)
         }
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
@@ -1693,7 +1695,7 @@ class ColumnarIteratorBodyPlanner {
     static func BuildDisposePlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StateMachineType)
+        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         statePool := plan.AddField(context.FieldForName("<>__state"))
         donePool := plan.AddInt32(ColumnarIteratorPlanner.DoneState())
@@ -1772,7 +1774,8 @@ class ColumnarIteratorBodyPlanner {
         i := 0
         while i < context.Shape.FieldRoles.Length {
             if context.Shape.FieldRoles[i] == ColumnarIteratorPlanner.CapturedParameterFieldRole() {
-                argTypePool := plan.AddType(context.Fields[i].get_FieldType())
+                fieldType := context.Fields[i].get_FieldType()
+                argTypePool := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(fieldType), context.StructuralTypeReferences)
                 argPool := plan.AddArgument(ordinal, argTypePool)
                 fieldPool := plan.AddField(context.Fields[i])
                 plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
@@ -1793,7 +1796,7 @@ class ColumnarIteratorBodyPlanner {
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), statePool)
         plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), ctorPool)
         if CapturedFieldCount(context) > 0 {
-            smTypeIdx := plan.AddType(context.StateMachineType)
+            smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
             thisArg := plan.AddArgument(0, smTypeIdx)
             i := 0
             while i < context.Shape.FieldRoles.Length {
@@ -2545,7 +2548,7 @@ class ColumnarIteratorBodyPlanner {
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), awPool)
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(AwaiterGetResultMethod()))
-        awaiterTypeIdx := emit.Plan.AddType(TaskAwaiterRuntimeType())
+        awaiterTypeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(TaskAwaiterRuntimeType()), emit.Context.StructuralTypeReferences)
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), awPool)
         emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), awaiterTypeIdx)

@@ -2494,12 +2494,8 @@ internal sealed class ColumnarIlEmitter
             out value);
     }
 
-    // Sub-slice 3b-ii HOST: mechanically realize the N# planner's synchronous `func*` state machine. Every
-    // structural decision (declines, element type, field layout, state numbering, member/override identities)
-    // is a ColumnarIteratorShape fact; every member body a planner-built schema-4 plan replayed by
-    // ColumnarCodePlanExecutor. This host only defines CLR shells, emits the spec'd `(int):void` ctor, and
-    // executes the plans; the original function body becomes the factory plan. The machine registers with
-    // the synthesized-type list so it bakes before the Program type (closure display-class discipline).
+    // Preserve the established host signature while N# owns the complete synchronous declaration and
+    // body-realization sequence. Ambient decline tracing remains at this existing caller boundary.
     private static bool TryEmitIteratorStateMachine(
         ModuleBuilder module,
         ColumnarFunctionInput fn,
@@ -2518,171 +2514,16 @@ internal sealed class ColumnarIlEmitter
         string[]? enclosingMethodNames = null,
         MethodInfo[]? enclosingMethods = null)
     {
-        var declineLabel = memberLabel.Length == 0 ? fn.Name : memberLabel;
-        var shape = precomputedShape ?? ColumnarIteratorPlanner.AnalyzeShape(
-            fn.BodyNodes, functionSource, fn.BodyRoot, fn.Name, funcOrdinal, fn.ReturnCanonical,
-            fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false);
-        if (!shape.Supported)
-            return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, declineLabel);
-
-        // A GENERIC generator's machine mirrors the method's type-parameter list; the parameters flow
-        // into the element/field types and the interface implementations.
-        var sm = module.DefineType(
-            shape.TypeName, TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed);
-        Dictionary<string, Type>? smTypeParamMap = null;
-        var smTypeParams = Type.EmptyTypes;
-        if (fn.TypeParamNames.Length > 0)
-        {
-            var smGps = sm.DefineGenericParameters(fn.TypeParamNames);
-            smTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal);
-            smTypeParams = new Type[smGps.Length];
-            for (var g = 0; g < smGps.Length; g++)
-            {
-                smTypeParamMap[fn.TypeParamNames[g]] = smGps[g];
-                smTypeParams[g] = smGps[g];
-            }
-        }
-        typeResolution.StructuralTypeReferences.RegisterIteratorType(
-            fn.SourceFileId, funcOrdinal, shape.TypeName, sm, smTypeParamMap);
-        if (!TryResolveIteratorCanonical(shape.ElementCanonical, smTypeParamMap, typeResolution, out var elementType))
-            return DeclineStatic(
-                "emit.iterator.element-type",
-                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + declineLabel + "'",
-                declineLabel);
-
-        var enumerableOfT = typeof(IEnumerable<>).MakeGenericType(elementType);
-        var enumeratorOfT = typeof(IEnumerator<>).MakeGenericType(elementType);
-        sm.AddInterfaceImplementation(enumerableOfT);
-        sm.AddInterfaceImplementation(enumeratorOfT);
-        sm.AddInterfaceImplementation(typeof(System.Collections.IEnumerable));
-        sm.AddInterfaceImplementation(typeof(System.Collections.IEnumerator));
-        sm.AddInterfaceImplementation(typeof(IDisposable));
-
-        var fields = new FieldInfo[shape.FieldCount];
-        // The canonical->runtime-type table the planner's sequence-handle resolvers read (loop-element
-        // and hoisted-local canonicals, resolved exactly as the fields were).
-        var knownTypeNames = new List<string>();
-        var knownTypes = new List<Type>();
-        for (var i = 0; i < shape.FieldCount; i++)
-        {
-            Type fieldType;
-            if (shape.FieldRoles[i] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole())
-            {
-                // A hoisted enumerator field is typed IEnumerator<element> from the planner's canonical.
-                // The interface sits outside the general supported-type surface, so it constructs from
-                // the planner's element fact instead of passing through the general gate.
-                var enumeratorElement = ColumnarIteratorPlanner.EnumeratorElementCanonicalOf(shape.FieldCanonicals[i]);
-                if (enumeratorElement.Length == 0
-                    || !ColumnarCanonicalTypeResolver.TryResolveType(enumeratorElement, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var enumeratorElementType)
-                    || !ColumnarTypeOfPlanner.IsSupportedType(enumeratorElementType))
-                    return DeclineStatic(
-                        "emit.iterator.field-type",
-                        "iterator hoisted enumerator type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + declineLabel + "'",
-                        declineLabel);
-                fieldType = typeof(IEnumerator<>).MakeGenericType(enumeratorElementType);
-                knownTypeNames.Add(enumeratorElement);
-                knownTypes.Add(enumeratorElementType);
-            }
-            else if (!TryResolveIteratorCanonical(shape.FieldCanonicals[i], smTypeParamMap, typeResolution, out fieldType))
-                return DeclineStatic(
-                    "emit.iterator.field-type",
-                    "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + declineLabel + "'",
-                    declineLabel);
-            else
-                { knownTypeNames.Add(shape.FieldCanonicals[i]); knownTypes.Add(fieldType); }
-            fields[i] = sm.DefineField(shape.FieldNames[i], fieldType, FieldAttributes.Public);
-        }
-
-        var ctor = sm.DefineConstructor(
-            MethodAttributes.Public | MethodAttributes.HideBySig, CallingConventions.Standard, new[] { typeof(int) });
-        // Member-side handles: inside a GENERIC machine every this-relative member reference rebinds
-        // over the machine's self-instantiation (the TypeSpec form generic bodies require); a
-        // non-generic machine uses the raw builders directly.
-        Type memberSmType = sm;
-        var memberFields = fields;
-        ConstructorInfo memberCtor = ctor;
-        if (smTypeParamMap != null)
-        {
-            memberSmType = sm.MakeGenericType(smTypeParams);
-            memberFields = new FieldInfo[fields.Length];
-            for (var i = 0; i < fields.Length; i++)
-                memberFields[i] = TypeBuilder.GetField(memberSmType, (FieldBuilder)fields[i]);
-            memberCtor = TypeBuilder.GetConstructor(memberSmType, ctor);
-        }
-        var ctorIl = ctor.GetILGenerator();
-        ctorIl.Emit(OpCodes.Ldarg_0);
-        ctorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
-        ctorIl.Emit(OpCodes.Ldarg_0);
-        ctorIl.Emit(OpCodes.Ldarg_1);
-        ctorIl.Emit(OpCodes.Stfld, memberFields[0]);
-        ctorIl.Emit(OpCodes.Ret);
-
-        var context = new ColumnarIteratorEmitContext(
-            fn.BodyNodes, functionSource, fn.BodyRoot, shape, memberSmType, elementType, shape.FieldNames, memberFields, memberCtor,
-            enclosingType, enclosingFieldNames, enclosingFields, enclosingFieldCanonicals,
-            enclosingMethodNames, enclosingMethods, knownTypeNames.ToArray(), knownTypes.ToArray());
-        var overrideContext = ColumnarIteratorOverrideContext.ForSync(
-            typeResolution.StructuralTypeReferences, elementType, enumerableOfT, enumeratorOfT);
-        const MethodAttributes publicImpl = MethodAttributes.Public | MethodAttributes.Virtual
-            | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
-        const MethodAttributes explicitImpl = MethodAttributes.Private | MethodAttributes.Virtual
-            | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
-
-        var moveNext = sm.DefineMethod(shape.MemberNames[1], publicImpl, typeof(bool), Type.EmptyTypes);
-        shape.MemberOverrideRows[1].Apply(overrideContext, sm, moveNext);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator());
-
-        var getCurrent = sm.DefineMethod(
-            shape.MemberNames[2], publicImpl | MethodAttributes.SpecialName, elementType, Type.EmptyTypes);
-        shape.MemberOverrideRows[2].Apply(overrideContext, sm, getCurrent);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator());
-
-        var interfaceCurrent = sm.DefineMethod(
-            shape.MemberNames[3], explicitImpl | MethodAttributes.SpecialName, typeof(object), Type.EmptyTypes);
-        shape.MemberOverrideRows[3].Apply(overrideContext, sm, interfaceCurrent);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildInterfaceGetCurrentPlan(context), interfaceCurrent.GetILGenerator());
-
-        var reset = sm.DefineMethod(shape.MemberNames[4], explicitImpl, typeof(void), Type.EmptyTypes);
-        shape.MemberOverrideRows[4].Apply(overrideContext, sm, reset);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildResetPlan(), reset.GetILGenerator());
-
-        var dispose = sm.DefineMethod(shape.MemberNames[5], explicitImpl, typeof(void), Type.EmptyTypes);
-        shape.MemberOverrideRows[5].Apply(overrideContext, sm, dispose);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposePlan(context), dispose.GetILGenerator());
-
-        var getEnumerator = sm.DefineMethod(shape.MemberNames[6], publicImpl, enumeratorOfT, Type.EmptyTypes);
-        shape.MemberOverrideRows[6].Apply(overrideContext, sm, getEnumerator);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetEnumeratorPlan(context), getEnumerator.GetILGenerator());
-
-        var interfaceGetEnumerator = sm.DefineMethod(
-            shape.MemberNames[7], explicitImpl, typeof(System.Collections.IEnumerator), Type.EmptyTypes);
-        shape.MemberOverrideRows[7].Apply(overrideContext, sm, interfaceGetEnumerator);
-        ColumnarCodePlanExecutor.Execute(
-            ColumnarIteratorBodyPlanner.BuildInterfaceGetEnumeratorPlan(context), interfaceGetEnumerator.GetILGenerator());
-
-        // The original function body IS the factory: new machine at the initial state + captured
-        // arguments. A GENERIC factory constructs the machine instantiated over the METHOD's own
-        // type parameters (rebound handles); a non-generic factory reuses the member context.
-        var factoryContext = context;
-        if (smTypeParamMap != null)
-        {
-            var factorySmType = sm.MakeGenericType(methodTypeParams);
-            var factoryFields = new FieldInfo[fields.Length];
-            for (var i = 0; i < fields.Length; i++)
-                factoryFields[i] = TypeBuilder.GetField(factorySmType, (FieldBuilder)fields[i]);
-            var factoryCtor = TypeBuilder.GetConstructor(factorySmType, ctor);
-            factoryContext = new ColumnarIteratorEmitContext(
-                fn.BodyNodes, functionSource, fn.BodyRoot, shape, factorySmType, elementType,
-                shape.FieldNames, factoryFields, factoryCtor);
-        }
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildFactoryPlan(factoryContext), factoryIl);
-        synthesizedTypes.Add(sm);
-        return true;
+        var result = ColumnarIteratorRealization.EmitSync(
+            module, fn, funcOrdinal, functionSource, typeResolution, factoryIl, synthesizedTypes,
+            methodTypeParams, precomputedShape, memberLabel, enclosingType, enclosingFieldNames,
+            enclosingFields, enclosingFieldCanonicals, enclosingMethodNames, enclosingMethods);
+        if (result.Succeeded)
+            return true;
+        return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember);
     }
 
-    // ASYNC iterator HOST (task-014): realize the N# planner's `async func*` machine with the sync host's
-    // discipline — every structural decision is a planner fact, every member body a planner schema-4 plan.
-    // The ctor stores the initial state and creates the re-drive Action (`ldftn MoveNextCore`).
+    // Preserve the established host signature while N# owns the complete asynchronous realization.
     private static bool TryEmitAsyncIteratorStateMachine(
         ModuleBuilder module,
         ColumnarFunctionInput fn,
@@ -2692,100 +2533,11 @@ internal sealed class ColumnarIlEmitter
         ILGenerator factoryIl,
         List<TypeBuilder> synthesizedTypes)
     {
-        var shape = ColumnarIteratorPlanner.AnalyzeShape(
-            fn.BodyNodes, functionSource, fn.BodyRoot, fn.Name, funcOrdinal, fn.ReturnCanonical,
-            fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames, isInstance: false, isAsync: true);
-        if (!shape.Supported)
-            return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, fn.Name);
-        if (!ColumnarCanonicalTypeResolver.TryResolveType(shape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var elementType) || !ColumnarTypeOfPlanner.IsSupportedType(elementType))
-            return DeclineStatic(
-                "emit.iterator.element-type",
-                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
-                fn.Name);
-
-        var sm = module.DefineType(
-            shape.TypeName, TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed);
-        typeResolution.StructuralTypeReferences.RegisterIteratorType(
-            fn.SourceFileId, funcOrdinal, shape.TypeName, sm, null);
-        var asyncEnumerable = typeof(IAsyncEnumerable<>).MakeGenericType(elementType);
-        var asyncEnumerator = typeof(IAsyncEnumerator<>).MakeGenericType(elementType);
-        sm.AddInterfaceImplementation(asyncEnumerable);
-        sm.AddInterfaceImplementation(asyncEnumerator);
-        sm.AddInterfaceImplementation(typeof(IAsyncDisposable));
-
-        var fields = new FieldInfo[shape.FieldCount];
-        FieldInfo? continuationField = null;
-        for (var i = 0; i < shape.FieldCount; i++)
-        {
-            Type fieldType;
-            var role = shape.FieldRoles[i];
-            if (role == ColumnarIteratorPlanner.AwaiterFieldRole())
-                fieldType = typeof(System.Runtime.CompilerServices.TaskAwaiter);
-            else if (role == ColumnarIteratorPlanner.PromiseFieldRole())
-                fieldType = typeof(System.Threading.Tasks.TaskCompletionSource<bool>);
-            else if (role == ColumnarIteratorPlanner.ResultFieldRole())
-                fieldType = typeof(bool);
-            else if (role == ColumnarIteratorPlanner.ContinuationFieldRole())
-                fieldType = typeof(Action);
-            else if (!ColumnarCanonicalTypeResolver.TryResolveType(shape.FieldCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out fieldType) || !ColumnarTypeOfPlanner.IsSupportedType(fieldType))
-                return DeclineStatic(
-                    "emit.iterator.field-type",
-                    "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'",
-                    fn.Name);
-            fields[i] = sm.DefineField(shape.FieldNames[i], fieldType, FieldAttributes.Public);
-            if (role == ColumnarIteratorPlanner.ContinuationFieldRole())
-                continuationField = fields[i];
-        }
-
-        var core = sm.DefineMethod(shape.MemberNames[1], MethodAttributes.Public | MethodAttributes.HideBySig, typeof(void), Type.EmptyTypes);
-        var ctor = sm.DefineConstructor(
-            MethodAttributes.Public | MethodAttributes.HideBySig, CallingConventions.Standard, new[] { typeof(int) });
-        var ctorIl = ctor.GetILGenerator();
-        ctorIl.Emit(OpCodes.Ldarg_0);
-        ctorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
-        ctorIl.Emit(OpCodes.Ldarg_0);
-        ctorIl.Emit(OpCodes.Ldarg_1);
-        ctorIl.Emit(OpCodes.Stfld, fields[0]);
-        ctorIl.Emit(OpCodes.Ldarg_0);
-        ctorIl.Emit(OpCodes.Ldarg_0);
-        ctorIl.Emit(OpCodes.Ldftn, core);
-        ctorIl.Emit(OpCodes.Newobj, typeof(Action).GetConstructor(new[] { typeof(object), typeof(IntPtr) })!);
-        ctorIl.Emit(OpCodes.Stfld, continuationField!);
-        ctorIl.Emit(OpCodes.Ret);
-
-        var context = new ColumnarIteratorEmitContext(
-            fn.BodyNodes, functionSource, fn.BodyRoot, shape, sm, elementType, shape.FieldNames, fields, ctor,
-            null, null, null, null, null, null, null, null, core);
-        var overrideContext = ColumnarIteratorOverrideContext.ForAsync(
-            typeResolution.StructuralTypeReferences, elementType, asyncEnumerable, asyncEnumerator);
-        const MethodAttributes publicImpl = MethodAttributes.Public | MethodAttributes.Virtual
-            | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
-
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context), core.GetILGenerator());
-
-        var moveNextAsync = sm.DefineMethod(
-            shape.MemberNames[2], publicImpl, typeof(System.Threading.Tasks.ValueTask<bool>), Type.EmptyTypes);
-        shape.MemberOverrideRows[2].Apply(overrideContext, sm, moveNextAsync);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextAsyncPlan(context), moveNextAsync.GetILGenerator());
-
-        var getCurrent = sm.DefineMethod(
-            shape.MemberNames[3], publicImpl | MethodAttributes.SpecialName, elementType, Type.EmptyTypes);
-        shape.MemberOverrideRows[3].Apply(overrideContext, sm, getCurrent);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator());
-
-        var disposeAsync = sm.DefineMethod(
-            shape.MemberNames[4], publicImpl, typeof(System.Threading.Tasks.ValueTask), Type.EmptyTypes);
-        shape.MemberOverrideRows[4].Apply(overrideContext, sm, disposeAsync);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildDisposeAsyncPlan(context), disposeAsync.GetILGenerator());
-
-        var getAsyncEnumerator = sm.DefineMethod(
-            shape.MemberNames[5], publicImpl, asyncEnumerator, new[] { typeof(System.Threading.CancellationToken) });
-        shape.MemberOverrideRows[5].Apply(overrideContext, sm, getAsyncEnumerator);
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetAsyncEnumeratorPlan(context), getAsyncEnumerator.GetILGenerator());
-
-        ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(context), factoryIl);
-        synthesizedTypes.Add(sm);
-        return true;
+        var result = ColumnarIteratorRealization.EmitAsync(
+            module, fn, funcOrdinal, functionSource, typeResolution, factoryIl, synthesizedTypes);
+        if (result.Succeeded)
+            return true;
+        return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember);
     }
 
     // A type-member generator: a STATIC method rides the top-level host directly; an INSTANCE method
@@ -2860,48 +2612,6 @@ internal sealed class ColumnarIlEmitter
             Type.EmptyTypes, shape, memberLabel, structDef.Builder,
             fieldNames.ToArray(), fieldHandles.ToArray(), fieldCanonicals.ToArray(),
             methodNames.ToArray(), methodHandles.ToArray());
-    }
-
-    // Resolve an iterator field/element canonical: in a GENERIC machine the canonical resolves in the
-    // machine's own type-parameter scope (a bare parameter name resolves to the machine's parameter);
-    // otherwise through the ordinary resolution path. Generic parameters are admissible outcomes.
-    private static bool TryResolveIteratorCanonical(
-        string canonical,
-        Dictionary<string, Type>? smTypeParamMap,
-        ColumnarSemanticTypeResolution typeResolution,
-        out Type type)
-    {
-        if (smTypeParamMap != null)
-        {
-            // The MACHINE's own type parameters take priority: the job's type-resolution registry is
-            // scoped to the METHOD's parameters, whose MVARs are illegal in a type's field signatures.
-            if (smTypeParamMap.TryGetValue(canonical, out type!))
-                return true;
-            return ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(canonical, smTypeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out type)
-                && (type.IsGenericParameter || (type.IsSZArray && type.GetElementType()!.IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(type))
-                && !ContainsMethodVarReference(type, smTypeParamMap);
-        }
-        return ColumnarCanonicalTypeResolver.TryResolveType(canonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out type)
-            && ColumnarTypeOfPlanner.IsSupportedType(type);
-    }
-
-    // Guard against the method-scoped registry leaking a METHOD generic parameter (an MVAR) into a
-    // machine field signature — only the machine's OWN parameters are legal there.
-    private static bool ContainsMethodVarReference(Type type, Dictionary<string, Type> smTypeParamMap)
-    {
-        if (type.IsGenericParameter)
-            return !smTypeParamMap.ContainsValue(type);
-        if (type.IsSZArray)
-            return ContainsMethodVarReference(type.GetElementType()!, smTypeParamMap);
-        if (type.IsGenericType && !type.IsGenericTypeDefinition)
-        {
-            foreach (var arg in type.GetGenericArguments())
-            {
-                if (ContainsMethodVarReference(arg, smTypeParamMap))
-                    return true;
-            }
-        }
-        return false;
     }
 
     /// <summary>
