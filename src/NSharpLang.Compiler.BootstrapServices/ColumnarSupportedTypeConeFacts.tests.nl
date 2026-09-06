@@ -243,10 +243,10 @@ test "enum classification covers runtime enums and both builder shapes" {
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.DayOfWeek"))
 }
 
-// The ARRAY element surface is its own list, and it is neither a superset nor a subset of the
-// supported-value surface: decimal and DateTime are supported values that are NOT array elements,
-// while string, object and the three reflection handles are.
-test "the array element surface admits handles and jagged arrays and stops at rank two" {
+// The ARRAY element surface admits selected value types and exact catalog reference types. It remains
+// narrower than the supported-value surface for value types: decimal and DateTime are supported values
+// that are NOT array elements, while closed reference catalog entries are.
+test "the array element surface admits catalog references and jagged arrays and stops at rank two" {
     assert ColumnarTypeOfPlanner.IsSupportedElementType(typeof(bool))
     assert ColumnarTypeOfPlanner.IsSupportedElementType(typeof(int))
     assert ColumnarTypeOfPlanner.IsSupportedElementType(typeof(uint))
@@ -272,12 +272,16 @@ test "the array element surface admits handles and jagged arrays and stops at ra
     assert ColumnarTypeOfPlanner.IsSupportedElementType(typeof(int[]).MakeArrayType())
     assert !ColumnarTypeOfPlanner.IsSupportedElementType(AdmissibilityRuntimeType("System.Int32[,]"))
 
-    // Supported VALUES that are not array elements — the two surfaces are genuinely different lists.
+    // Complete catalog reference types are valid array elements. An open definition still has no
+    // concrete element identity and remains outside the surface.
+    assert ColumnarTypeOfPlanner.IsSupportedElementType(typeof(List<int>))
+    assert ColumnarTypeOfPlanner.IsSupportedElementType(AdmissibilityQueueOfInt())
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(List<int>).GetGenericTypeDefinition())
+
+    // Supported VALUE types that are not array elements keep the two surfaces distinct.
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(decimal))
     assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(decimal))
     assert !ColumnarTypeOfPlanner.IsSupportedElementType(AdmissibilityRuntimeType("System.DateTime"))
-    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(List<int>))
-    assert !ColumnarTypeOfPlanner.IsSupportedElementType(AdmissibilityQueueOfInt())
 }
 
 // The closed generic families are CLOSED LISTS. The ten collection heads are the ones with modelled

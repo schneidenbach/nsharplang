@@ -1175,7 +1175,7 @@ class ColumnarTypeOfPlanner {
             element := valueType.GetElementType()
             return element != null && IsSupportedElementType(element)
         }
-        return false
+        return !valueType.get_IsValueType() && IsSupportedCatalogType(valueType)
     }
 
     static func IsLiftableNullableElement(valueType: Type): bool {
