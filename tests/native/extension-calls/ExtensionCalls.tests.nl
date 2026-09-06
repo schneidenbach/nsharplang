@@ -439,6 +439,54 @@ func main() {
     )
 }
 
+// Focused closure-binding regressions. The first proves the StrongBox-backed capture carries
+// parent-to-lambda and lambda-to-parent writes through one shared storage location. The second
+// retains the established decline for a captured root used in a member-path write: that shape needs
+// the box value address and is intentionally not lifted by this ownership area.
+test "a contextual capture shares lifted local mutation with its enclosing body" {
+    AssertGenericCallProgram(
+        "SharedLiftedMutationProject",
+        """
+import System
+
+func main() {
+    value := 1
+    mutate: Action = () => {
+        value = value + 10
+    }
+    value = 2
+    mutate()
+    print value
+}
+""",
+        "12"
+    )
+}
+
+test "a contextual capture with a member-rooted structural write declines" {
+    compilation := CompileNamedExtensionCallFixture(
+        "StructuralCaptureWriteProject",
+        "exe",
+        """
+class Cell {
+    Value: int = 1
+}
+
+func main() {
+    cell := new Cell()
+    read: Func<int> = () => cell.Value
+    cell.Value = 99
+    print read()
+}
+"""
+    )
+    try {
+        assert !compilation.Succeeded, compilation.Diagnostics
+    } finally {
+        CleanupExtensionCompilation(compilation)
+    }
+}
+
 // Canonical reference-coercion integration assertions formerly lived in
 // CompilationBackendTests.cs. These exact programs exercise the production conversion sites:
 // a source class flowing into a source interface constructor slot, and value/object flows through
