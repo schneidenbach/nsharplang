@@ -38,6 +38,20 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
+**Active area, complete static-field initializer emission:** move the `.cctor` driver together with
+`TryEmitStaticFieldInitializerLoad`, `TryEmitStaticFieldExpressionInitializerLoad`,
+`TryParseParameterlessStaticInitializerCall`, `IsSimpleIdentifierText`,
+`TryEmitStaticFieldLiteralInitializerLoad`, `TryParseFloatingLiteralBody` and the identifier helper’s
+other caller `IsSupportedGenericExtensionReceiverChainText`. This includes owner identity filtering,
+lazy type-initializer creation, load/store/declaration order and final Ret, not just literal emission.
+Move necessary pending-initializer/sibling registry state with callers if actual N# source proves it
+necessary; add no C# decisions, projections, callbacks or fallback. Sol Max owns production and
+canonical end-to-end migration, Terra Max direct canonical controls, Astra review/integration.
+Baseline clean/pushed `4269be784`; verified immutable CLI and prior gate receipt under
+`/private/tmp/nsharp-static-initializer-ownership-20260906/baseline.json`.
+[Boundary](decodes/2026-09-06-static-initializer-ownership.md). Full-source compilation must prove
+any prerequisite; no SDK change is assumed. The compiler-only goal remains active.
+
 **Accepted area, generic-call binding and return substitution:** moved complete `TryUnifyTypeParam`,
 `TryUnifyGenericCallArgument`, `TryUnifyGenericContainer`, `TrySubstituteReturnType` and their
 `IsDictionaryLikeCollectionDefinition`, `IsReadOnlyDictionaryCollectionDefinition`,
