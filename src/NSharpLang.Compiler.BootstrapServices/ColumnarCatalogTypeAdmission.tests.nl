@@ -106,9 +106,10 @@ test "type admission retains external generics closed over source builders" {
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Threading.Tasks.Task`1", sourceClass))
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityResult(sourceClass, typeof(string)))
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityUnion(sourceClass, typeof(string)))
-    // The HashSet type head is admitted; key eligibility is a separate, narrower question.
+    // A complete non-generic source reference has stable identity semantics and is admitted as a
+    // direct set key. Constructed builder-bound shapes remain outside that narrower key surface.
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Collections.Generic.HashSet`1", sourceClass))
-    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceClass)
+    assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceClass)
     assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Func`1", sourceClass))
     assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), sourceClass))
 }

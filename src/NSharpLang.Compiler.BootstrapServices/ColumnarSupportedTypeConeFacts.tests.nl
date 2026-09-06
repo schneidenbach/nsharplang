@@ -359,15 +359,15 @@ test "the task and delegate families are closed lists with constrained arguments
 // input on which the two answers differ.
 test "the two builder-containment walks differ on exactly the source enum" {
     sourceEnum := ConeEnumParentedBuilder()
-    sourceStruct := TypeOfCreateBuilder("ConeContainmentStruct", "ConeContainmentAsm", 0)
+    sourceClass := TypeOfCreateBuilder("ConeContainmentClass", "ConeContainmentAsm", 0)
 
     assert ColumnarTypeOfPlanner.IsEnumType(sourceEnum)
     assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceEnum)
     assert !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceEnum)
 
     // Every other shape answers the same on both walks.
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceStruct)
-    assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceStruct)
+    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceClass)
+    assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceClass)
     assert !ColumnarTypeOfPlanner.ContainsBuilderBoundType(typeof(int))
     assert !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(typeof(int))
     assert !ColumnarTypeOfPlanner.ContainsBuilderBoundType(typeof(List<int>))
@@ -376,15 +376,15 @@ test "the two builder-containment walks differ on exactly the source enum" {
     assert !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(AdmissibilityRuntimeType("System.DayOfWeek"))
 
     // Both walks recurse through SZ arrays and through generic arguments.
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceStruct.MakeArrayType())
-    assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceStruct.MakeArrayType())
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceStruct)))
-    assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceStruct)))
+    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceClass.MakeArrayType())
+    assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceClass.MakeArrayType())
+    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceClass)))
+    assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceClass)))
 
-    // The consumer that reads the difference: a hash-set element must not be builder-bound unless it
-    // is an enum, while an ordinary collection element may be.
+    // The key consumer adds one explicit direct-source-reference admission while preserving the two
+    // containment walks themselves. A source enum and a complete source class are both valid keys.
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceEnum)
-    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct)
+    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceClass)
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceEnum)
-    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceStruct)
+    assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceClass)
 }

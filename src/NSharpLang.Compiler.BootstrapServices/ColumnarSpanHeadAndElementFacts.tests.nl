@@ -142,11 +142,11 @@ test "the collection element tail requires a supported value that is not builder
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), typeof(string)))
 }
 
-// The hash-set narrowing is the ONLY thing that separates the two predicates, and the emitter reads
-// the difference at every `HashSet<T>` and `IReadOnlySet<T>` resolution: a set element is a KEY, so
-// it may not be builder-bound unless it is an enum, whose integral value is what gets hashed.
-test "the hash set element narrows the collection element by the non enum builder walk" {
-    sourceStruct := TypeOfCreateBuilder("SpanHeadSetStruct", "SpanHeadSetAsm", 0)
+// The emitter reads this key predicate at every `HashSet<T>` and `IReadOnlySet<T>` resolution. It
+// admits a complete source reference by identity and a source enum by its integral semantics, while
+// constructed and source-value builder shapes remain outside the key surface.
+test "the hash set element admits direct source references while narrowing constructed builder shapes" {
+    sourceClass := TypeOfCreateBuilder("SpanHeadSetClass", "SpanHeadSetAsm", 0)
 
     // Baked shapes answer identically on both predicates.
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(typeof(int))
@@ -155,13 +155,14 @@ test "the hash set element narrows the collection element by the non enum builde
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(typeof(int[]))
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(AdmissibilityQueueOfInt())
 
-    // The five-head early return admits `List<sourceStruct>` as a collection element and the set
-    // narrowing takes it back out — the one shape class where the two predicates part company.
-    listOfSource := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceStruct))
+    // A direct closed source reference now has stable key identity. The five-head early return also
+    // admits `List<sourceClass>` as a collection element, while the set-key narrowing takes that
+    // constructed builder-bound shape back out.
+    listOfSource := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceClass))
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(listOfSource)
     assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(listOfSource)
-    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct)
-    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceStruct)
+    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceClass)
+    assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceClass)
 
     // A source ENUM is the exception the second walk exists for: builder-bound, still a set element.
     sourceEnum := ConeEnumParentedBuilder()
