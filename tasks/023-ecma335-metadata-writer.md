@@ -228,6 +228,18 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   Type base-view MakeGenericType and retains actual machine VAR fields versus factory MVAR owner;
   full persisted-production/table controls remain required. No source T[] admission or broad-j owner
   move is claimed. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j1-parity-proof.md).
+  **S2.2(j) connected iterator realization at `20caf6997`, controls/tested `4b5399140`:**
+  Complete sync/async drivers and exclusive canonical resolver/recursive guard now live in N#;
+  exact-signature C# forwards retain ambient decline recording. All 15 original consumed type rows
+  use the caller's structural table at their old evaluation points. Emitter 18,974/18,035 nonblank
+  (−290/−265/−18,756 bytes);36 AddType sites/12 files/21 keyed/15 handle-only. Source T[] refusal and
+  all 11 interleaved member phases remain. Five canonical controls include actual persisted field
+  identity/decline timing and fresh companion rejection; native 109/109 image equals i baseline.
+  Fixed 94-image/2,184-test corpus equal; strict 258 ordered findings across 434 files, raw same-source
+  pre/post output equal. Fresh 458s gate 593/7,803/109, audit 18,52 projects/68 IL assemblies; accepted
+  j1 SDK unchanged. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j-parity-proof.md).
+  Next S2.2(k): remaining 70-line member-iterator discovery/admission owner, preserving disposal and
+  ordinal/read/failure timing. [Plan](../systems-language-closeout/decodes/2026-09-06-s22k-member-iterator-next-cut.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

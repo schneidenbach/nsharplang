@@ -35,3 +35,8 @@ check and `git diff --check` were clean, and the integration strict preview reta
 findings across 434 files with no new diagnostic in the N# owner. The emitter changed by 15 additions
 and 305 deletions: a net reduction of 290 C# lines and 18,756 bytes. Full immutable parity and the product
 gate remain integration-owned.
+
+Integration accepted at `4b5399140` after the fresh 458s backend gate:593 unit /7,803 canonical /
+109 native declarations, 18 ownership tests and 68 IL-verified assemblies. Fixed-corpus and native
+control images match their accepted baselines. [Acceptance proof](2026-09-06-s22j-parity-proof.md).
+Member-iterator discovery remains in C# and is the next connected ownership cut.
