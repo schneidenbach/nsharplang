@@ -30,9 +30,14 @@ force unrelated compiler ownership migrations to wait.
   dispatch and cannot directly call the current internal C# `CompilationReferenceResolver` boundary
   (actual source/log `/tmp/cli-query-probes/hover-boundary/`). Tracked work was restored buildable;
   no migrated ownership or commit claimed. These prerequisites are not part of the constraint seed.
-- Signature-help lane, `codex/signature-help-owner`, is isolated and investigating editor-owned
-  policy/tests. Semantic invocation candidate/selection facts are only a source-reviewed potential
-  dependency until an actual proposed-source probe demonstrates it. No compiler/model changes claimed.
+- Signature-help lane, `codex/signature-help-owner`, is ready separately at `dfbd3752` (product
+  `a500b6d3`, measured corpus-count fix `6e23ed1b`). Reported fresh VS Code-enabled gate: 517s,
+  587 unit / 7,827 canonical / 53 native projects / 12 throughput cells / 68 IL assemblies;
+  reload/reinstall and five real-editor screenshots passed. The source remains isolated and unmerged.
+  Handoff: `systems-language-closeout/decodes/2026-09-06-signature-help-ownership.md` in that branch.
+  Shared AST finder container traversal remains a proven editor dependency: class control passes,
+  struct/record/default-interface method calls miss despite clean parsing/analysis (external 1/4).
+  No shared AST or compiler-model change is part of this compiler checkpoint.
 - SDK configuration lane, `codex/sdk-config-owner`, is isolated with exact SDK configuration/reference
   task and SDK-specific N# file claims. Ready commits `b2132a8a1` and `aecdb052c`
   are reported clean with 9/9 canonical tests and 1/1 private package/template/build/run/invalid-config

@@ -47,9 +47,15 @@ its surviving C# forwarding wrapper is mechanical and not an alternate decision 
 callee positional rows, first-hit source identities, recursive substitution, reflection/lookup
 failure phases and source interface inheritance scans. Sol Max implements in an isolated worktree;
 Terra Max supplies canonical N# controls. Root integrates, owns ratchet/seed/gates and pushes.
+Actual explicit-enumerator source proved one necessary seed dependency: closed genuine BCL
+`List<T>.Enumerator` over an admitted source-builder element. Runtime `List<Type>.Enumerator`
+already compiles with unboxed state/finally. Prerequisite `7f929aeb2` adds only the N# admission,
+with canonical 2/2 and candidate native 118/118 plus addressed IL/finally/no-box evidence. Fresh
+seed gate/publication is pending; the complete seven-method owner and canonical controls remain
+preserved outside root until the verified seed can build them.
 Baseline: clean/pushed `087d6d9e1`, verified prior gate and immutable CLI receipt
 `/private/tmp/nsharp-sibling-constraint-ownership-20260906/baseline.json`. The independent editor
-VS Code-enabled gate is live; preserve it and coordinate any new full gate or seed publication.
+checkpoint is ready and isolated in the broader backlog; its gate and visual evidence are preserved.
 
 **Last verified area, generic-constraint application at `be3defa12`:** generic-constraint declaration/application plus consumed-map
 construction: `TryApplyGenericParameterConstraints`, `TryApplyDeclaredTypeConstraints` and
@@ -449,6 +455,8 @@ touching git or launching anything long. Attribution is the first finder plus th
 matter; an entry that a later slice OVERTURNED keeps the overturn.
 
 ### 2.1 `lang` — shapes the N# toolchain rejects, and the spelling that works
+
+- **Enumerator early-exit lowering (sibling constraints, 2026-09-06):** compiled `for` over the two concrete Lists and an `IEnumerable<ColumnarStructDef>` calls Dispose only after exhaustion, without a protected finally; early return skips it. Actual r4 IL is preserved under `/private/tmp/nsharp-sibling-constraint-ownership-20260906/proposed-owner.il`. The ownership move must use verified explicit enumerator/try/finally source. Correcting general loop lowering remains compiler debt; source `for` alone does not prove disposal parity.
 
 - **Pinned stage-0 fixture types (023/S2.1i):** typeof(void), IDisposable, IEnumerator, IEnumerable and IList<int> decline; use ExecutorVoidType or the existing runtime-Type helpers (generic definition plus MakeGenericType). typeof(Type[]) works. These operand declines did not prove the suspected custom-return limitation: direct typed Complete calls pass. [Executed matrix](decodes/2026-09-04-s21i-parity-proof.md).
 
