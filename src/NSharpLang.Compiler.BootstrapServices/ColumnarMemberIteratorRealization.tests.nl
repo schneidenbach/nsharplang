@@ -943,9 +943,10 @@ test "member iterator preserves live repeated method-name reads and overload adm
     assert positiveTypes.Count == 1
     assert positiveOrdinal[0] == 41
 
-    // A live matching overload key whose value is null reaches the concrete List dereference only
-    // after the method walk's finally. This is intentionally an internal malformed fact: it pins
-    // the existing null-dereference phase rather than adding a prevalidation policy.
+    // A live matching overload key whose value is null reaches the concrete List dereference inside
+    // the method walk, with disposal during unwinding before the caller observes the exception. This
+    // is intentionally an internal malformed fact: it pins the existing null-dereference phase
+    // rather than adding a prevalidation policy.
     nullSource := "func* Gen(): IEnumerable<int> { yield 1 }"
     nullProbe := new ColumnarIteratorShapeProbe(
         nullSource,
