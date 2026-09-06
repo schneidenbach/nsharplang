@@ -240,6 +240,19 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   j1 SDK unchanged. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j-parity-proof.md).
   Next S2.2(k): remaining 70-line member-iterator discovery/admission owner, preserving disposal and
   ordinal/read/failure timing. [Plan](../systems-language-closeout/decodes/2026-09-06-s22k-member-iterator-next-cut.md).
+  **S2.2(k) member discovery/admission at `137462ab1`:** complete ten-input owner moves to N#;
+  C# retains only decline forwarding and shrinks 51 lines /51 nonblank /3,115 bytes to 18,923/17,984.
+  Four member controls preserve first-hit/disposal, actual field repair, live Name/overload and
+  ordinal/shape/GetIL phases. A necessary one-row N# assignability correction admits the existing
+  runtime IReadOnlyList→IEnumerable relation with identity/arity/value-variance guards intact.
+  Sol 8/8 and Terra 4/4; fixed 94-image/2,184-test corpus equal, native 109/109 image equals j; strict
+  same-source 260→258 removes only two intended NL202s and preserves 258 baseline rows across 434 files.
+  Fresh 522s IDE-enabled gate: 593 unit /7,809 canonical /36 VS Code /109 declarations, audit 18,
+  52 native projects and 68 IL assemblies. Reinstalled editor visually accepts the valid source-element
+  call, retains the invalid one and clears Problems on removal. All 12 j1 SDK payloads are unchanged.
+  [Proof](../systems-language-closeout/decodes/2026-09-06-s22k-parity-proof.md).
+  Next S2.2(l): complete entry-point selection/wrapper block and keyed awaiter local, then remaining
+  call/type/local/maxstack work. [Plan](../systems-language-closeout/decodes/2026-09-06-s22l-entrypoint-next-cut.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

@@ -216,7 +216,7 @@ at the two points where that bag changes, and reports and records nothing.
 
 - The known-generic relation is a CLOSED table over the runtime collection interfaces and it does
   not run backwards: `IEnumerable` accepts `IEnumerable`/`List`/`ICollection`/`IList`/`HashSet`/
-  `Queue`, `ICollection` accepts `List`/`IList`/`HashSet`, `IList` and `IReadOnlyList` accept `List`,
+  `Queue`/`IReadOnlyList`, `ICollection` accepts `List`/`IList`/`HashSet`, `IList` and `IReadOnlyList` accept `List`,
   `IReadOnlyCollection` accepts `List`/`IReadOnlyList`/`HashSet`/`Queue`, `IQueryable` accepts only
   itself. BOTH sides must carry the real runtime generic definition, so a program's own type that
   merely shares the name never acquires the relation.

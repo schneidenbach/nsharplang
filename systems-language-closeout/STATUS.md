@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(j)** and g0/g1/j0/j1 prerequisites landed. Complete sync/async iterator realization and 15 keyed type consumers are N#-owned; C# shrinks 290 lines. Fresh gate at `4b5399140`:593 unit /7,803 canonical /109 native declarations /7 Reflection.Emit bootstrap. Fixed 94-image corpus unchanged; actual persisted field/table controls 2/2. Next S2.2(k): iterator member discovery/admission, then remaining call/type/local/maxstack work before S2.3–S2.6. — §4.12 |
+| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(k)** and g0/g1/j0/j1 prerequisites landed. Member iterator discovery/admission is N#-owned; C# shrinks another 51 lines. Fresh IDE-enabled gate at `137462ab1`:593 unit /7,809 canonical /36 VS Code /109 declarations; visual diagnostics verified. Fixed 94-image corpus unchanged; strict baseline258 retained with two intended same-source NL202 removals. Next S2.2(l): entry-point selection/wrapper plus keyed awaiter local, before remaining call/type/local/maxstack and S2.3–S2.6. — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,55 +123,51 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** S2.2(k), iterator member discovery/admission.
-The [next-cut plan](decodes/2026-09-06-s22k-member-iterator-next-cut.md) targets the remaining
-`TryEmitMemberIterator` declaration, now 2546–2615: 70 complete C# lines before wrapper cost, byte-identical
-to predecessor 2794–2863. Move its async/static/generic admission, first matching input discovery,
-public-field/non-overloaded-method fact walks and shape dispatch into the accepted N# realization
-owner. Preserve exact 10 inputs, ordinal increments and the instance realization ordinal 0 convention,
-GetILGenerator timing, repeated name reads and enumerator disposal on hit/exception. No new AddType
-site is projected. Revalidate and execute this one connected cut next; no implementation has started.
-Remaining call/type/local/maxstack work, S2.3–S2.6, 022/5 NativeAOT and final ownership audit remain open.
+**Next writer slice:** S2.2(l), assembly entry-point selection and wrapper realization.
+The [next-cut plan](decodes/2026-09-06-s22l-entrypoint-next-cut.md) targets the complete current
+4358–4413 block (56 lines including its trailing blank) plus the reached awaiter AddType in
+`ColumnarAsyncEntryPointPlanner.BuildWrapperPlan`. Preserve both indexed name walks, raw dictionary
+Values enumeration and two separate mains[0] reads, bare-false/empty-array behavior, and wrapper
+plan-before-GetIL ordering. Consume the same catalog table at the old awaiter site. Revalidate exact
+source forms with the existing seed before extraction. This is source-reviewed planning only; no l
+implementation has started. Remaining call/type/local/maxstack, S2.3–S2.6, 022/5 NativeAOT and final
+ownership audit stay open.
 
-**Goal checkpoint (2026-09-06):** S2.2(j), product `20caf6997` (Sol `72278d717`), frozen native
-`eaa10aaf5` (Terra `9d0a7eee6`, original `86405783`), ratchet `269ead8d`, persisted controls/tested
-`4b5399140` (Terra `d1ea440b5`). Both sync/async realization drivers and their exclusive canonical
-resolver/recursive guard are N#-owned. C# retains exact-signature decline forwards; member discovery
-remains the next owner. Emitter **18,974 lines /18,035 nonblank /988,649 bytes**, down 290/265/18,756.
-All 15 original iterator AddType sites now consume their selected key and exact companion on the
-caller's table: **36 total /12 files /21 keyed /15 handle-only**. Three production contexts retain
-that table lazily; conditional rows remain conditional. Source T[] capture refusal is preserved.
+**Goal checkpoint (2026-09-06):** S2.2(k), initial owner `9dc7edc85` (Sol `ce23b618`), ratchet
+`5614eb20c`, controls `159dfab2f` /comment `7d579e98e` (Terra `0d9f5ff5` /`32b8e18d`), strict correction
+and tested source **`137462ab1cf3898087304f6c4f524b4ea69bf478`** (Sol `ca520763`). Complete ten-input
+member discovery/admission and shape/realization dispatch now live in N#. The C# boundary only
+forwards and records ambient declines. Emitter **18,923 lines /17,984 nonblank /985,534 bytes**,
+down **51/51/3,115**. AddType stays **36 sites /12 files /21 keyed /15 handle-only**; all 15 iterator
+consumers and three lazy production contexts retain their accepted table phases.
 
-Five new canonical controls cover all 15 consumed pairs, heterogeneous captured FieldType, pre-bake
-TaskAwaiter, no-box/no-capture/null-table paths and fresh companion rejection before IL/local mutation.
-The two direct persisted controls use the actual TypeBuilderImpl retained FieldBuilder, distinguish
-factory-MVAR owner from observed machine-VAR FieldType, and preserve sync registration-before-decline
-versus async decline-before-registration. The async assertion checks the actual ordinal 18 identity and
-unchanged registry count. This is pre-bake handle/phase evidence; existing native suites prove runtime
-behavior. Forced worker estate 7801/7801 and direct 2/2 are superseded by the fresh combined gate below.
+Four new member controls prove early refusal/static ordinal, actual first-hit disposal before field
+reads, method-disposal/shape timing, repeated Name/overload selection and null-overload unwind. The
+positive Dispose repairs the selected source's actual canonical array. Two analyzer/reference-pass
+controls cover the necessary IReadOnlyList→IEnumerable rule under unchanged runtime identity, arity
+and reference-only variance checks. Concrete List.Count is preserved; its explicit default-NRE trap
+runs at the old dereference point. Focused evidence is Sol 8/8 and Terra 4/4, no skips. Compiled review
+pins all phases and unchanged accepted-j realization methods; the initial false test expectation
+about a forged display name was localized, with valid value-variance negatives retained.
 
-Fixed f543 corpus:75 targets /73 successes /94 normalized PE images /2,184 native passes per arm,
-zero image/set/normalized-outcome differences; same two NL402 template refusals. The frozen iterator
-controls pass 109/109 under the immutable candidate and their normalized image equals verified i
-baseline bytes. Strict output is byte-identical pre/post on identical final sources: 258 ordered
-findings across 434 files (433 before the new owner). No added, removed or shifted diagnostic.
-All 381 ratchet epoch rows remain; only the emitter current row shrinks. Both keys match
-`head-v1:10ec853d6982a651`, emitter `text-v1:8ee10f925c3454bb`; audit 17/18 before and 18/18 after repin.
+Fixed f543 corpus: 75 targets /73 successes /94 normalized images /2,184 native passes per arm,
+zero image/set/normalized-outcome differences; same two NL402 template refusals. Current native
+109/109 source/image equals accepted j. Strict final-source old260→candidate258 removes only two
+valid acquisition NL202s; all 258 accepted ordered diagnostics map across 434 files. Original 263-finding
+source/refused spelling attempts remain retained. Only the emitter current ratchet row changes,
+with all 381 epochs preserved: `head-v1:70a30ce31ead17ba`, emitter `text-v1:3fb2d2f227bb2836`;
+observed audit 17/18 before and 18/18 after repin.
 
-Fresh exclusive backend gate at **`4b5399140ffd9babff214790af63e036bd1fbb49`** passed in **458s**:
-**593 unit /7,803 canonical /109 native declarations /7 Reflection.Emit bootstrap /15 records /
-18 ownership tests**, 52 native projects and 68 IL-verified assemblies. Benchmark correctness passed;
-front-end timing was unjudged because of host load. Gate/acceptance receipts are retained under
-`/private/tmp/gate-20260906-goal-s22j-r1/`; [proof](decodes/2026-09-06-s22j-parity-proof.md).
-The final Markdown-only follow-up is linked to the exact tested source in acceptance.json before push.
-The accepted j1 SDK remains unchanged: all 12 live payload entries were verified before/after the gate.
-No new capability or seed repin was required. Legacy validation remains bootstrap debt.
-
-The j0/j1 prerequisites and their earlier installer/probe limits remain in their accepted proof files.
-Earlier dev runs excluded N# assertions; only forced test-enabled nonzero verdicts count as canonical
-execution evidence. Intermediate source-unfrozen logs are retained as iteration history, not feature
-verdicts. All terminal 015/021/022/023 boxes stay open. Astra plans/reviews/integrates; Sol/Terra execute.
-Final goal completion still requires fresh IDE verification.
+Fresh exclusive **VS Code-enabled** gate at `137462ab1` passed in **522s**:
+**593 unit /7,809 canonical /36 VS Code /109 declarations /7 Reflection.Emit /15 records /18 audit**,
+52 native projects and 68 IL assemblies. Rebuilt/reinstalled extension visibly accepts source Item
+readonly-list conversion, retains incompatible int→Item NL202, and clears Problems after removal.
+Screenshots, source/process/package hashes and CLI/AX proof are retained in the corrected proof's
+`ide/` directory. [Proof](decodes/2026-09-06-s22k-parity-proof.md); gate/acceptance receipts at
+`/private/tmp/gate-20260906-goal-s22k-r1/`. The final Markdown-only follow-up is linked to the exact
+tested source before push. All 12 live j1 SDK payload entries remain unchanged; no repin required.
+Benchmark correctness passed; front-end timing was unjudged under host load (gate-result.json). Legacy validation
+remains bootstrap debt. Tasks 015/021/022/023 stay open; Astra plans/reviews/integrates, Sol/Terra execute.
 
 **Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
 `TryEmitStaticCall` already calls the N# planner; its 865-line method includes source dispatch and an
@@ -3041,6 +3037,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| 023/S2.2(k) — member iterator discovery/admission | initial `9dc7edc85`; ratchet `5614eb20c`; controls `159dfab2f`/`7d579e98e`; corrected/tested `137462ab1` | Complete member driver becomes N#-owned; necessary known-generic inheritance rule corrected in N# | Live first-hit/disposal/repeated-name/ordinal phases; concrete Count null trap; source-element IDE probe distinguishes the corrected path | Emitter 18,923/17,984 (−51/−51/−3,115 bytes);21 keyed/15 handle-only; 94 images/2,184 tests each equal; strict 260→258 with 258 baseline retained; native 109/109. Fresh 522s gate 593/7,809/36 VS Code/109, audit 18; visual PASS; j1 seed unchanged. [Proof](decodes/2026-09-06-s22k-parity-proof.md) |
 | 023/S2.2(j) — connected iterator realization | `20caf6997`; native `eaa10aaf5`; ratchet `269ead8d`; persisted/tested `4b5399140` | Complete sync/async drivers and canonical helper closure become N#-owned;15 consumed type rows keyed | Keep registration/decline/member/factory phases; actual persisted field retains machine VAR under factory MVAR owner; assert rows before bake and use actual generated identity | Emitter 18,974/18,035 (−290/−265/−18,756 bytes);21 keyed/15 handle-only; fixed 94 images/2,184 tests each equal; strict 258/434; native 109/109 image equal; persisted 2/2. Fresh 458s gate 593/7,803/109, audit 18; j1 seed unchanged. [Proof](decodes/2026-09-06-s22j-parity-proof.md) |
 | 023/S2.2(j1) — generic parameter declaration prerequisite | `4ab360c71`; native/tested `a8a5fb436` | One exact BCL generic-parameter call and concrete returned element admitted by existing N# owner; no C# move | Retain genuine GPBuilder[]; copy elements to Type[]; use Type receiver for MakeGenericType. Public return signature differs from covariant runtime implementation array | +2 canonical 2/2; native 7/7; declaration replay 1/1; fixed 94 images/2,184 tests each equal; strict258/433 unchanged. Fresh 452s gate 593/7,798/107, audit 18, SDK 1/1; ratchet unchanged. [Proof](decodes/2026-09-06-s22j1-parity-proof.md) |
 | 023/S2.2(j0) — continuation binding prerequisite | `74e0c908a`; wording `9be5346d4`; native/tested `b57676617` | One BCL Ldftn field admitted by existing N# binding owner; no C# move | Explicit MethodInfo/FieldInfo operands isolate binding; actual baked ctor token and delegate execution prove admission. Preserve existing source T[] refusal | +2 canonical, focused 3/3; native 6/6; fixed 94 images/2,184 tests each equal; strict 258 unchanged. Fresh 455s gate 593/7,796/107, audit18, SDK 1/1; ratchet unchanged. [Proof](decodes/2026-09-06-s22j0-parity-proof.md) |

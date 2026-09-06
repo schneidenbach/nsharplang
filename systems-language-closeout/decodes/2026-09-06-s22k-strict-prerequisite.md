@@ -2,7 +2,7 @@
 
 The connected member-iterator owner is integrated at
 `9dc7edc852c35536cdd56fe2985482a5387bc4f5`, with the measured ownership ratchet at
-`5614eb20c039254da113d55a88825c3327f2b79e`. It is not accepted yet. Its immutable comparison
+`5614eb20c039254da113d55a88825c3327f2b79e`. That initial source was not accepted. Its immutable comparison
 has zero differences across 94 normalized images and 2,184 native passes per arm, and the current
 native declaration suite passes 109/109. Strict checking on the same final source reports 263
 findings under both compilers, five more than the accepted 258. The original proof remains at
@@ -35,3 +35,11 @@ This prerequisite changes NL202 in the IDE. Final acceptance therefore requires 
 Code-enabled product gate, extension reload and visual verification of the relevant editor
 diagnostics. The earlier backend-only verification plan is superseded. Tasks 015/021/022/023 stay
 open; the contingent entry-point slice is not started.
+
+The prerequisite is accepted with the combined k source at `137462ab1cf3898087304f6c4f524b4ea69bf478`.
+The same-source strict result is 260→258, with exactly the two expected NL202s removed and 258 ordered
+baseline findings retained. The nullable Count spelling uses an explicit default-NRE trap at the
+original dereference phase and preserves concrete List.Count. Source/IL, Sol 8/8, Terra 4/4, the fresh
+VS Code-enabled gate and actual editor diagnostics are recorded in the
+[acceptance proof](2026-09-06-s22k-parity-proof.md). Later failed spelling/control/probe attempts remain
+retained; none was used as an acceptance verdict. The seed remains unchanged.

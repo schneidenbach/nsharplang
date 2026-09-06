@@ -33,10 +33,13 @@ empty type array before the enclosing builder and five fresh array snapshots, th
 with the established instance ordinal zero. The caller's earlier method-body `GetILGenerator` call is
 unchanged; this ordering claim applies to the additional acquisition inside this driver.
 
-The focused product build completed, and a forced test-enabled selection executed five existing
-iterator realization and structural-identity controls with 5/5 passing. Compiled IL review verified
-both exact generic `Current` slots, both cleanup handlers and first-hit leaves, the five method-name
-reads, ordinal and generator timing, the ten-argument C# forward, and an unchanged accepted-j
-realization suffix. The emitter changes by 6 additions and 57 deletions: a net reduction of 51 C# lines
-and 3,115 bytes. Direct member-admission controls are integrated from the separately owned canonical
-test slice; immutable parity, strict comparison and the full backend gate remain integration-owned.
+Accepted at `137462ab1cf3898087304f6c4f524b4ea69bf478`: forced Sol selection 8/8 and the four
+new member controls 4/4; compiled IL independently reviewed. The initial malformed-head test expectation
+was localized and corrected at the classifier boundary; both value-variance negatives remain.
+The emitter changes by 6 additions/57 deletions, a net reduction of 51 lines /51 nonblank /3,115 bytes.
+The 94-image corpus and 2,184 native passes per arm match; current declarations 109/109 and image match j.
+Strict old 260→candidate 258 removes only two intended NL202s while preserving 258 baseline findings.
+The necessary analyzer prerequisite made this an IDE-affecting slice: a fresh VS Code-enabled gate
+passed 593 unit /7,809 canonical /36 VS Code, and the rebuilt/reinstalled editor was visually verified.
+The explicit null trap preserves default exception type/message and timing, not stack trace or
+allocation-failure equivalence. [Acceptance proof](2026-09-06-s22k-parity-proof.md).

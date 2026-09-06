@@ -1,5 +1,10 @@
 # S2.2(k): member-iterator discovery and admission
 
+Completed at `137462ab1cf3898087304f6c4f524b4ea69bf478`; see the
+[acceptance proof](2026-09-06-s22k-parity-proof.md). The necessary analyzer correction changed the
+final verification scope to VS Code-enabled plus visual checks. The plan below records the original
+cut; the active cursor is now [S2.2(l)](2026-09-06-s22l-entrypoint-next-cut.md).
+
 Source pin: `4b5399140ffd9babff214790af63e036bd1fbb49`, after accepted j. The complete
 `TryEmitMemberIterator` declaration is 70 lines at 2546–2615, exactly equal to c5 lines 2794–2863.
 The earlier 69-line estimate omitted its closing brace. This is gross scope, not promised net deletion.
@@ -41,6 +46,6 @@ Acceptance needs direct semantic controls for first-hit/field/method admission, 
 async refusals, ordinal and GetILGenerator timing, and exact disposal/read behavior. Reuse existing
 native static/instance iterator and decline-scope suites plus the accepted j persisted fixtures.
 Commit the complete routed owner with measured C# shrink after focused nonzero evidence; then root
-owns immutable parity/strict comparison, observed 381-row ratchet update and a fresh backend gate.
+owns immutable parity/strict comparison, observed 381-row ratchet update and the scope-appropriate fresh integration gate.
 Do not repeat accepted j0/j1 API probes or j's whole generic/async campaign. Remaining call/type/local/
 maxstack work, S2.3–S2.6, unified metadata/NativeAOT and terminal ownership audit stay open.
