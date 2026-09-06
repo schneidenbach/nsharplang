@@ -21,6 +21,11 @@ inherited interface conversion is valid. Two neutral acquisition helpers therefo
 generated owner uses `IEnumerator<ColumnarStructInput>.Current` and
 `IEnumerator<ColumnarFunctionInput>.Current`, with nongeneric movement and `IDisposable` cleanup inside
 explicit `try`/`finally` regions. No collection is indexed, copied or materialized for discovery.
+The analyzer's closed runtime-generic relation now recognizes the corresponding exact
+`IReadOnlyList<T>` to `IEnumerable<T>` inheritance while retaining its existing identity, arity and
+variance checks. The nullable overload result uses an explicit default `NullReferenceException` trap
+at the original `List<T>.Count` dereference phase, then reads the concrete list getter on the nonnull
+path.
 
 Shape analysis reads the original input facts and advances the ordinal at the old argument position.
 A declined shape precedes the helper's `GetILGenerator` call. A supported instance reads the shared

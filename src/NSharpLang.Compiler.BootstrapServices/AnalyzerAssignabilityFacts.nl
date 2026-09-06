@@ -318,7 +318,7 @@ class AnalyzerAssignabilityFacts {
     // assignable to a target on the left".
     static func IsKnownGenericConversion(targetName: string, sourceName: string): bool {
         if targetName == "IEnumerable" {
-            return sourceName == "IEnumerable" || sourceName == "List" || sourceName == "ICollection" || sourceName == "IList" || sourceName == "HashSet" || sourceName == "Queue"
+            return sourceName == "IEnumerable" || sourceName == "List" || sourceName == "ICollection" || sourceName == "IList" || sourceName == "HashSet" || sourceName == "Queue" || sourceName == "IReadOnlyList"
         }
 
         if targetName == "IQueryable" {

@@ -140,12 +140,15 @@ class ColumnarIteratorRealization {
                 if candidateMethod.Name.Length > 0 && char.IsUpper(candidateMethod.Name[0]) && !candidateMethod.IsStatic {
                     methodDefinition: ColumnarInstanceMethodDef = null
                     if structDef.Methods.TryGetValue(candidateMethod.Name, out methodDefinition) {
-                        overloads: List<ColumnarInstanceMethodDef> = null
-                        hasMultipleOverloads := structDef.MethodOverloads.TryGetValue(candidateMethod.Name, out overloads) && overloads.Count > 1
+                        overloads: List<ColumnarInstanceMethodDef>? = null
+                        hasMultipleOverloads := false
+                        if structDef.MethodOverloads.TryGetValue(candidateMethod.Name, out overloads) {
+                            hasMultipleOverloads = MethodOverloadCount(overloads) > 1
+                        }
                         if !hasMultipleOverloads {
                             methodNames.Add(candidateMethod.Name)
                             methodReturns.Add(candidateMethod.ReturnCanonical)
-                            methodHandle: MethodInfo = methodDefinition.Builder
+                            methodHandle: MethodInfo = ((ColumnarInstanceMethodDef)methodDefinition).Builder
                             methodHandles.Add(methodHandle)
                         }
                     }
@@ -232,6 +235,14 @@ class ColumnarIteratorRealization {
         inputs: IEnumerable<ColumnarFunctionInput>
     ): IEnumerator<ColumnarFunctionInput> {
         return inputs.GetEnumerator()
+    }
+
+    static func MethodOverloadCount(overloads: List<ColumnarInstanceMethodDef>?): int {
+        if overloads == null {
+            throw new NullReferenceException()
+        }
+
+        return overloads.Count
     }
 
     static func EmitSync(

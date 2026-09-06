@@ -72,6 +72,14 @@ func AssignabilityNoParameters(): List<TypeInfo> {
     return new List<TypeInfo>()
 }
 
+func AssignabilityEnumerableIdentity(values: IEnumerable<int>): IEnumerable<int> {
+    return values
+}
+
+func AssignabilityReferencePass(values: IReadOnlyList<int>): IEnumerable<int> {
+    return AssignabilityEnumerableIdentity(values)
+}
+
 // The runtime open generic definitions, resolved by CANONICAL IDENTITY rather than by `typeof`.
 // HasKnownRuntimeGenericDefinition compares against exactly these identities, and the columnar
 // `typeof` surface does not carry most of the collection types.
@@ -279,6 +287,10 @@ test "the known-generic relation is a closed table over the runtime collection t
         AssignabilityKnownGeneric("Queue", queueOpen, BuiltInTypes.Int)
     )) == "decided:true"
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int),
+        AssignabilityKnownGeneric("IReadOnlyList", readOnlyListOpen, BuiltInTypes.Int)
+    )) == "decided:true"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("ICollection", collectionOpen, BuiltInTypes.Int),
         AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.Int)
     )) == "decided:true"
@@ -329,6 +341,55 @@ test "the known-generic relation is a closed table over the runtime collection t
         AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int),
         new ArrayTypeInfo(BuiltInTypes.Int)
     )) == "decided:false"
+}
+
+test "the assignability owner admits only the real IReadOnlyList to IEnumerable relation" {
+    assignability := AssignabilityDefault()
+    facts := AssignabilityOwner("/tmp/assign-readonly-enumerable.nl")
+    enumerableOpen := AssignabilityEnumerableOpen()
+    readOnlyListOpen := AssignabilityReadOnlyListOpen()
+    readOnlyCollectionOpen := AssignabilityReadOnlyCollectionOpen()
+
+    enumerableInt := AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Int)
+    readOnlyListInt := AssignabilityKnownGeneric("IReadOnlyList", readOnlyListOpen, BuiltInTypes.Int)
+    assert assignability.IsAssignable(enumerableInt, readOnlyListInt)
+
+    enumerableObject := AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Object)
+    readOnlyListString := AssignabilityKnownGeneric("IReadOnlyList", readOnlyListOpen, BuiltInTypes.String)
+    assert AssignabilityDecisionShape(facts.ClassifyKnownGenericAssignability(
+        enumerableObject,
+        readOnlyListString
+    )) == "pending [object<-string]"
+    assert assignability.IsAssignable(enumerableObject, readOnlyListString)
+
+    enumerableLong := AssignabilityKnownGeneric("IEnumerable", enumerableOpen, BuiltInTypes.Long)
+    assert !assignability.IsAssignable(enumerableLong, readOnlyListInt)
+    assert !assignability.IsAssignable(enumerableObject, readOnlyListInt)
+    assert !assignability.IsAssignable(readOnlyListInt, enumerableInt)
+    assert !assignability.IsAssignable(
+        enumerableInt,
+        AssignabilitySpelledGeneric("IReadOnlyList", BuiltInTypes.Int)
+    )
+    // The full owner sees the shared runtime definition first; this direct classifier assertion
+    // pins the display-name/definition mismatch at the closed-table boundary itself.
+    assert AssignabilityDecisionShape(facts.ClassifyKnownGenericAssignability(
+        enumerableInt,
+        AssignabilityKnownGeneric("IReadOnlyList", enumerableOpen, BuiltInTypes.Int)
+    )) == "decided:false"
+    // This broader CLR relation remains outside the deliberately closed modeled table in this slice.
+    assert !assignability.IsAssignable(
+        enumerableInt,
+        AssignabilityKnownGeneric("IReadOnlyCollection", readOnlyCollectionOpen, BuiltInTypes.Int)
+    )
+}
+
+test "a real IReadOnlyList reference passes unchanged to an IEnumerable parameter" {
+    values := new List<int>()
+    values.Add(37)
+
+    passed := AssignabilityReferencePass(values)
+
+    assert Object.ReferenceEquals(passed, values)
 }
 
 test "known-generic arity must agree and the covariant targets hand back their argument pairs" {
