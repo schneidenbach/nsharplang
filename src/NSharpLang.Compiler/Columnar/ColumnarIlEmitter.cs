@@ -68,7 +68,7 @@ internal sealed class ColumnarIlEmitter
     // Param/return types are carried (not reflected) because MethodBuilder.GetParameters()/ReturnType is
     // unsupported pre-bake — and a Call type-checks each argument (int/bool are both i4; a mismatch would
     // otherwise produce verifiable-but-wrong IL rather than declining).
-    private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> _siblings;
+    private readonly IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition> _siblings;
     // The N# direct-call planner owns bare sibling calls; it consults these routed facts to plan
     // the ordinary fixed-arity shape. Projected once from _siblings (the MethodBuilder handle plus
     // the carried signature, param-modifier, and generic-arity facts) and reused per body.
@@ -148,7 +148,6 @@ internal sealed class ColumnarIlEmitter
     private const int NSharpParameterModifierThis = 4;
     private const int ColumnarNamedArgumentExpressionKind = 60;
     private const int ColumnarTargetTypedNewExpressionKind = 63;
-    private const int ColumnarFieldInitializerExpressionKind = 1001;
 
     private bool Decline(string siteId, string message, int nodeIdx = -1)
         => DeclineMember(siteId, message, nodeIdx, string.Empty);
@@ -187,7 +186,7 @@ internal sealed class ColumnarIlEmitter
         ColumnarNodeTable nodes, string source,
         Dictionary<string, int> paramOrdinals, Dictionary<string, Type> paramTypes, Type returnType,
         ILGenerator il,
-        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> siblings,
+        IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition> siblings,
         Dictionary<string, ColumnarEnumDef> enumRegistry,
         IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
@@ -855,199 +854,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Emit the LOAD of a static-field initializer's single-token literal into a .cctor IL stream, validating that
-    // the literal agrees with the declared field type (mismatch declines — the legacy emitter's implicit numeric
-    // conversions are not modelled). Mirrors the expression emitter's literal cases EXACTLY: int suffix
-    // classification (L/UL), float suffixes (f/d; m declines), RAW string literals (Trim('"'), no escape decode —
-    // matching the N# backend path's GetStringLiteralRuntimeValue), char escape decode, true/false. The text may carry a
-    // leading `-` for numeric literals (the kernel admits it only there).
-    private static bool TryEmitStaticFieldInitializerLoad(
-        ILGenerator il,
-        ColumnarStructDef owner,
-        Type fieldType,
-        int initKind,
-        string text,
-        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> siblings)
-    {
-        if (initKind == ColumnarFieldInitializerExpressionKind)
-            return TryEmitStaticFieldExpressionInitializerLoad(il, owner, fieldType, text, siblings);
-        return TryEmitStaticFieldLiteralInitializerLoad(il, fieldType, initKind, text);
-    }
-
-    private static bool TryEmitStaticFieldExpressionInitializerLoad(
-        ILGenerator il,
-        ColumnarStructDef owner,
-        Type fieldType,
-        string text,
-        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)> siblings)
-    {
-        if (!TryParseParameterlessStaticInitializerCall(text, owner.Builder.Name ?? string.Empty, out var methodName))
-            return false;
-        if (owner.StaticMethods.TryGetValue(methodName, out var overloads))
-        {
-            for (var i = 0; i < overloads.Count; i++)
-            {
-                var overload = overloads[i];
-                if (overload.ParamTypes.Length == 0 && TypesEquivalent(overload.ReturnType, fieldType))
-                {
-                    il.Emit(OpCodes.Call, overload.Builder);
-                    return true;
-                }
-            }
-        }
-
-        if (siblings.TryGetValue(methodName, out var sibling)
-            && sibling.TypeParams.Length == 0
-            && sibling.ParamTypes.Length == 0
-            && TypesEquivalent(sibling.ReturnType, fieldType))
-        {
-            il.Emit(OpCodes.Call, sibling.Method);
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryParseParameterlessStaticInitializerCall(string text, string ownerName, out string methodName)
-    {
-        methodName = string.Empty;
-        var trimmed = text.Trim();
-        if (!trimmed.EndsWith(")", StringComparison.Ordinal))
-            return false;
-        var openParen = trimmed.IndexOf('(');
-        if (openParen <= 0 || trimmed.IndexOf('(', openParen + 1) >= 0)
-            return false;
-        if (!string.IsNullOrWhiteSpace(trimmed.Substring(openParen + 1, trimmed.Length - openParen - 2)))
-            return false;
-        var target = trimmed.Substring(0, openParen).Trim();
-        var dot = target.LastIndexOf('.');
-        if (dot >= 0)
-        {
-            var receiver = target.Substring(0, dot).Trim();
-            if (!string.Equals(receiver, ownerName, StringComparison.Ordinal))
-                return false;
-            target = target.Substring(dot + 1).Trim();
-        }
-        if (!IsSimpleIdentifierText(target))
-            return false;
-        methodName = target;
-        return true;
-    }
-
-    private static bool IsSimpleIdentifierText(string text)
-    {
-        if (text.Length == 0 || !(char.IsLetter(text[0]) || text[0] == '_'))
-            return false;
-        for (var i = 1; i < text.Length; i++)
-        {
-            var ch = text[i];
-            if (!(char.IsLetterOrDigit(ch) || ch == '_'))
-                return false;
-        }
-        return true;
-    }
-
-    private static bool TryEmitStaticFieldLiteralInitializerLoad(ILGenerator il, Type fieldType, int initKind, string text)
-    {
-        switch (initKind)
-        {
-            case 1: // IntLiteral (optionally negated): int, long, or ulong by suffix — must match the field type.
-            {
-                var negated = text.StartsWith("-", StringComparison.Ordinal);
-                var body = negated ? text.Substring(1).TrimStart() : text;
-                var end = body.Length;
-                var sawU = false;
-                var sawL = false;
-                while (end > 0 && (body[end - 1] is 'u' or 'U' or 'l' or 'L'))
-                {
-                    if (body[end - 1] is 'u' or 'U') sawU = true; else sawL = true;
-                    end--;
-                }
-                var digits = body.Substring(0, end);
-                if (sawU && sawL)
-                {
-                    // ulong: a negated ulong literal is invalid — decline.
-                    if (negated || fieldType != typeof(ulong) || !ulong.TryParse(digits, out var ulongValue))
-                        return false;
-                    il.Emit(OpCodes.Ldc_I8, unchecked((long)ulongValue));
-                    return true;
-                }
-                if (sawU)
-                    return false; // bare uint — not modelled.
-                if (sawL)
-                {
-                    if (fieldType != typeof(long) || !long.TryParse(digits, out var longValue))
-                        return false;
-                    il.Emit(OpCodes.Ldc_I8, negated ? -longValue : longValue);
-                    return true;
-                }
-                if (fieldType != typeof(int) || !int.TryParse(digits, out var intValue))
-                    return false;
-                il.Emit(OpCodes.Ldc_I4, negated ? -intValue : intValue);
-                return true;
-            }
-            case 2: // FloatLiteral (optionally negated): double or float by suffix; m (decimal) declines.
-            {
-                var negated = text.StartsWith("-", StringComparison.Ordinal);
-                var body = negated ? text.Substring(1).TrimStart() : text;
-                var last = body.Length > 0 ? body[body.Length - 1] : '\0';
-                if (last == 'm' || last == 'M')
-                    return false;
-                var isFloatLiteral = last == 'f' || last == 'F';
-                if (isFloatLiteral || last == 'd' || last == 'D')
-                    body = body.Substring(0, body.Length - 1);
-                if (!TryParseFloatingLiteralBody(body, out var doubleValue))
-                    return false;
-                if (negated)
-                    doubleValue = -doubleValue;
-                if (isFloatLiteral)
-                {
-                    if (fieldType != typeof(float))
-                        return false;
-                    il.Emit(OpCodes.Ldc_R4, (float)doubleValue);
-                    return true;
-                }
-                if (fieldType != typeof(double))
-                    return false;
-                il.Emit(OpCodes.Ldc_R8, doubleValue);
-                return true;
-            }
-            case 3: // CharLiteral: strip quotes, decode escapes, single code point.
-            {
-                if (fieldType != typeof(char))
-                    return false;
-                var raw = text;
-                if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
-                    raw = raw.Substring(1, raw.Length - 2);
-                if (!NSharpLang.Compiler.StringLiteralDecoder.TryDecodeBody(raw, out var charValue) || charValue.Length != 1)
-                    return false;
-                il.Emit(OpCodes.Ldc_I4, (int)charValue[0]);
-                return true;
-            }
-            case 4: // StringLiteral — decodes the shared escape set (the strings slice changed PLAIN string
-                    // semantics; the legacy emitter's static-init path routes through the rewired literal sites, so
-                    // keeping Trim here would diverge). An INTERPOLATED initializer ($-prefixed) declines.
-                if (fieldType != typeof(string))
-                    return false;
-                if (text.Length > 0 && text[0] == '$')
-                    return false;
-                il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.Decode(text));
-                return true;
-            case 44: // true
-                if (fieldType != typeof(bool))
-                    return false;
-                il.Emit(OpCodes.Ldc_I4_1);
-                return true;
-            case 45: // false
-                if (fieldType != typeof(bool))
-                    return false;
-                il.Emit(OpCodes.Ldc_I4_0);
-                return true;
-            default:
-                return false;
-        }
-    }
-
     // Emit a NON-CAPTURING expression-bodied LAMBDA literal (kind 39 — L1b): synthesize an Assembly|Static
     // `<Lambda>_{n}` method on Program typed from the delegate's Invoke (params are contextually typed — the legacy
     // GetLambdaSignature), emit the body via a SUB-emitter scoped to ONLY the lambda params (an enclosing-binding
@@ -1648,7 +1454,7 @@ internal sealed class ColumnarIlEmitter
     // unbound parameters, composed shapes over T, and user TypeBuilder/EnumBuilder bindings decline. The call
     // binds via MakeGenericMethod on the open MethodBuilder (the de-risking spike's pattern); the result type
     // substitutes the binding into the declared return shape.
-    private bool TryEmitGenericSiblingCall(int callIdx, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target, Type?[] binding, out Type type)
+    private bool TryEmitGenericSiblingCall(int callIdx, ColumnarSiblingMethodDefinition target, Type?[] binding, out Type type)
     {
         type = null!;
         var argCount = _nodes.ChildCount(callIdx) - 1;
@@ -1726,7 +1532,7 @@ internal sealed class ColumnarIlEmitter
 
     private bool TryEmitGenericSiblingExpandedParamsArrayCall(
         int callIdx,
-        (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target,
+        ColumnarSiblingMethodDefinition target,
         Type?[] binding,
         out Type type)
     {
@@ -1791,7 +1597,7 @@ internal sealed class ColumnarIlEmitter
 
     private bool TryEmitSiblingExpandedParamsCall(
         int callIdx,
-        (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target,
+        ColumnarSiblingMethodDefinition target,
         out Type type)
     {
         type = null!;
@@ -2173,20 +1979,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Parse a floating-point literal's body (type suffix already stripped by the caller) to its double value,
-    // mirroring the N# backend path's ParseFloatLiteralValue: drop `_` digit separators, then parse invariant-culture.
-    // An f-literal narrows the result to float at the call site; a double-literal uses it directly.
-    private static bool TryParseFloatingLiteralBody(string body, out double value)
-    {
-        value = 0;
-        var s = body.Trim().Replace("_", string.Empty);
-        return double.TryParse(
-            s,
-            System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowThousands,
-            System.Globalization.CultureInfo.InvariantCulture,
-            out value);
-    }
-
     // Preserve the established host signature while N# owns the complete synchronous declaration and
     // body-realization sequence. Ambient decline tracing remains at this existing caller boundary.
     private static bool TryEmitIteratorStateMachine(
@@ -2536,7 +2328,7 @@ internal sealed class ColumnarIlEmitter
                 return false; // interface inheritance cycle.
             interfaceDepths[i] = depth;
         }
-        var pendingStaticFieldInits = new List<(ColumnarStructDef Owner, FieldBuilder Field, Type Type, int InitKind, string InitText)>();
+        var pendingStaticFieldInits = new List<ColumnarStaticFieldInitializer>();
         var structTypeResolutions = new ColumnarSemanticTypeResolution[structs.Count];
         for (var s = 0; s < structs.Count; s++)
         {
@@ -2577,7 +2369,8 @@ internal sealed class ColumnarIlEmitter
                     def.StaticFields[fieldName] = sfb;
                     var initKind = st.FieldInitKinds[fi];
                     if (initKind >= 0)
-                        pendingStaticFieldInits.Add((def, sfb, fieldType, initKind, st.FieldInitTexts[fi]));
+                        pendingStaticFieldInits.Add(new ColumnarStaticFieldInitializer(
+                            def, sfb, fieldType, initKind, st.FieldInitTexts[fi]));
                     continue;
                 }
                 // An INSTANCE field initializer is not modelled (the kernel declines it; defensive here).
@@ -3329,7 +3122,7 @@ internal sealed class ColumnarIlEmitter
         var asyncWrappedByFunc = new Type?[funcs.Count];
         var asyncInnerByFunc = new Type[funcs.Count];
         var typeResolutionsByFunc = new ColumnarSemanticTypeResolution[funcs.Count];
-        var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints)>(StringComparer.Ordinal);
+        var siblings = new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal);
         var interfaceConstraintsByFunc = new Type[funcs.Count][][];
         // Sibling RETURN tuple element names (a `(x: int, y: int)` return) — drives `t := mk()` / `mk().x`
         // name derivation; canonicals stay name-erased.
@@ -3476,27 +3269,14 @@ internal sealed class ColumnarIlEmitter
             interfaceConstraintsByFunc[f] = fnInterfaceConstraints;
             if (fn.ReturnTupleElementNames != null)
                 siblingReturnTupleNames[fn.Name] = fn.ReturnTupleElementNames;
-            siblings[fn.Name] = (methods[f], paramTypes, fn.ParamModifierKinds, asyncWrappedReturn ?? returnType, fnTypeParams, fnSpecialConstraints, fnBaseConstraints, fnInterfaceConstraints);
+            siblings[fn.Name] = new ColumnarSiblingMethodDefinition(
+                methods[f], paramTypes, fn.ParamModifierKinds, asyncWrappedReturn ?? returnType,
+                fnTypeParams, fnSpecialConstraints, fnBaseConstraints, fnInterfaceConstraints);
         }
 
-        // STATIC FIELD INITIALIZERS run in the type's .cctor, in declaration order. Emitting this after same-type
-        // static methods and top-level sibling methods are declared lets expression initializers call either shape.
-        for (var s = 0; s < structDefsInOrder.Length; s++)
-        {
-            var def = structDefsInOrder[s];
-            ILGenerator? cctorIl = null;
-            for (var i = 0; i < pendingStaticFieldInits.Count; i++)
-            {
-                var init = pendingStaticFieldInits[i];
-                if (!ReferenceEquals(init.Owner, def))
-                    continue;
-                cctorIl ??= def.Builder.DefineTypeInitializer().GetILGenerator();
-                if (!TryEmitStaticFieldInitializerLoad(cctorIl, def, init.Type, init.InitKind, init.InitText, siblings))
-                    return false;
-                cctorIl.Emit(OpCodes.Stsfld, init.Field);
-            }
-            cctorIl?.Emit(OpCodes.Ret);
-        }
+        if (!ColumnarStaticFieldInitializerEmitter.TryEmitAll(
+                structDefsInOrder, pendingStaticFieldInits, siblings))
+            return false;
 
         // Pass 2: emit each body into its declared method's IL stream. The Program TypeBuilder + a shared
         // lambda counter ride along so bodies can synthesize `<Lambda>_{n}` static methods (L1b — interleaved
@@ -11377,7 +11157,7 @@ internal sealed class ColumnarIlEmitter
     private bool TryGetGenericExtensionReceiverChainType(string receiverChain, out Type type)
     {
         type = null!;
-        if (!IsSupportedGenericExtensionReceiverChainText(receiverChain, out var names))
+        if (!ColumnarStaticFieldInitializerEmitter.IsSupportedGenericExtensionReceiverChainText(receiverChain, out var names))
             return false;
 
         var root = names[0];
@@ -11418,7 +11198,7 @@ internal sealed class ColumnarIlEmitter
     private bool TryEmitGenericExtensionReceiverChain(string receiverChain, out Type type)
     {
         type = null!;
-        if (!IsSupportedGenericExtensionReceiverChainText(receiverChain, out var names))
+        if (!ColumnarStaticFieldInitializerEmitter.IsSupportedGenericExtensionReceiverChainText(receiverChain, out var names))
             return false;
 
         var root = names[0];
@@ -11465,20 +11245,6 @@ internal sealed class ColumnarIlEmitter
         }
 
         return type != typeof(void) && ColumnarTypeOfPlanner.IsSupportedType(type);
-    }
-
-    private static bool IsSupportedGenericExtensionReceiverChainText(string receiverChain, out string[] names)
-    {
-        names = Array.Empty<string>();
-        if (receiverChain.Length == 0
-            || receiverChain.Contains('(')
-            || receiverChain.Contains(')')
-            || receiverChain.Contains('[')
-            || receiverChain.Contains(']'))
-            return false;
-
-        names = receiverChain.Split('.');
-        return names.Length != 0 && !Array.Exists(names, static name => !IsSimpleIdentifierText(name));
     }
 
     private bool TryEmitResolvedMemberHop(Type current, ColumnarInterpolationMemberPlan hop, ref bool stackHasCurrentAddress, out Type type)
