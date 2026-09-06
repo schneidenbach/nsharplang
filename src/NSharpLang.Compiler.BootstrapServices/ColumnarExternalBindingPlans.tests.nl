@@ -624,6 +624,91 @@ test "source constructor metadata owns exact TypeBuilder constructor definition"
     ).IsSupported
 }
 
+test "generic parameter declaration owns the exact TypeBuilder signature" {
+    arguments := new string[](1)
+    arguments[0] = "System.String[]"
+    AssertVirtualCall(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineGenericParameters",
+        arguments,
+        "System.Reflection.Emit.GenericTypeParameterBuilder[]"
+    )
+
+    wrongElement := new string[](1)
+    wrongElement[0] = "System.String"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineGenericParameters",
+        wrongElement
+    ).IsSupported
+
+    wrongArray := new string[](1)
+    wrongArray[0] = "System.Object[]"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineGenericParameters",
+        wrongArray
+    ).IsSupported
+
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.MethodBuilder",
+        "DefineGenericParameters",
+        arguments
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Type",
+        "DefineGenericParameters",
+        arguments
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineGenericParameters",
+        new string[](0)
+    ).IsSupported
+
+    tooMany := new string[](2)
+    tooMany[0] = "System.String[]"
+    tooMany[1] = "System.String[]"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineGenericParameters",
+        tooMany
+    ).IsSupported
+}
+
+test "generic parameter declaration retains the actual BCL return array identity" {
+    signature := new Type[](1)
+    signature[0] = typeof(string[])
+    method := typeof(TypeBuilder).GetMethod("DefineGenericParameters", signature)
+    if method == null {
+        throw new InvalidOperationException("TypeBuilder.DefineGenericParameters(string[]) was unavailable.")
+    }
+
+    declaringType := method.get_DeclaringType()
+    parameters := method.GetParameters()
+    returnType := method.get_ReturnType()
+    elementType := returnType.GetElementType()
+    assert declaringType == typeof(TypeBuilder)
+    assert method.get_Name() == "DefineGenericParameters"
+    assert !method.get_IsStatic()
+    assert parameters.Length == 1
+    assert parameters[0].get_ParameterType() == typeof(string[])
+    assert returnType.get_IsSZArray()
+    assert elementType != null
+    assert elementType.FullName == "System.Reflection.Emit.GenericTypeParameterBuilder"
+    assert ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(elementType.FullName)
+    assert ColumnarTypeOfPlanner.IsSupportedType(returnType)
+
+    arguments := new string[](1)
+    arguments[0] = "System.String[]"
+    plan := ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "DefineGenericParameters",
+        arguments
+    )
+    assert Type.GetType(plan.ReturnTypeName) == returnType
+}
+
 test "recursive code plans own exact type and local facts" {
     noArguments := new string[](0)
     AssertVirtualCall("System.Type", "GetType", noArguments, "System.Type")
