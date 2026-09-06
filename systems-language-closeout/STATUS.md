@@ -49,8 +49,13 @@ state and remain open compiler debt; this boundary owns complete data/type decis
 Sol Max implements and Terra Max owns canonical controls; Astra reviews, integrates and gates.
 Baseline is clean/pushed `c3f7b5109`, with the previous fresh accepted gate and verified immutable
 CLI preserved in `/private/tmp/nsharp-generic-binding-ownership-20260906/baseline.json`.
-[Boundary and evidence](decodes/2026-09-06-generic-binding-ownership.md). No SDK prerequisite is
-assumed; any blocker must be proved by the complete proposed source.
+[Boundary and evidence](decodes/2026-09-06-generic-binding-ownership.md). Integrated owner `3949eb515` removes all seven methods with fifteen direct N# routes;
+canonical `6/6` passes after fresh emission. Native migration `14f6c4f3b` deletes three C# methods
+and preserves their exact source/success/exit/stdout assertions in N#: baseline and candidate `7/7`.
+Native declarations `118/118` retain identical baseline names/outcomes, audit `18/18`. Emitter
+18,621→18,447 lines; C# tests 4,330→4,178, assertion markers 404→392. All 379 other ratchet
+rows/epoch ceilings are unchanged. Complete proposed source compiles with accepted SDK; no seed
+update. Fresh backend checkpoint gate remains required.
 
 **Accepted area, sibling-call constraint validation:** moved the complete
 `TryValidateGenericSiblingConstraints`, `HasPublicParameterlessConstructorForConstraint`,
@@ -3093,6 +3098,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| Compiler generic-call binding and returns | `3949eb515`; assertions `14f6c4f3b` | Seven whole methods and fifteen direct routes; six planner controls; three complete C# end-to-end contracts migrate to N# | Preserve equality/identity distinction, partial binding writes, null failures and narrow return rules | C# emitter −174; C# tests −152/−12 markers; focused6, native7 baseline/candidate, declarations118, audit18; fresh gate pending. [Proof](decodes/2026-09-06-generic-binding-ownership.md) |
 | Compiler sibling constraint validation | `244c0998a`; seed `7f929aeb2` | Seven complete validation/substitution/interface methods move to N# with eight canonical controls; direct production routes | Explicit protected enumerators preserve disposal; SymbolType SZ-before-byref ordering is pinned | C# −155/−145 lines; focused 65, native 118 unchanged, audit 18; fresh 449s gate 593/7,843, 52 native projects, 68 IL. [Proof](decodes/2026-09-06-sibling-constraint-ownership.md) |
 | Compiler generic-constraint application | `be3defa12` | Complete application, declared lifting, consumed map and safe-array dependency become N#-owned; four C# methods deleted, fourteen direct routes | Preserve source-owner registration, mutation/output/catch phases and shared map identity | C# −107/−103/−5,028 bytes; focused 56, native 115, audit 18; fresh 468s gate 593/7,833, 52 native projects, 68 IL. [Proof](decodes/2026-09-06-generic-constraint-ownership.md) |
 | Compiler constraint seed | `eb750c4fa` | Exact N# interface-constraint setter admission and canonical/direct native controls; no C# change | Full proposed source drove one required row; source-owner registration belongs in generic fixtures | Fresh backend gate: 593/7,822, 52 native projects, 68 IL assemblies; packaged SDK 9/9, 12 payloads match. [Proof](decodes/2026-09-06-generic-constraint-ownership.md) |
