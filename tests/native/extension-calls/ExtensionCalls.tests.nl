@@ -606,6 +606,145 @@ func main() {
     )
 }
 
+// Canonical constructor-declaration integration assertions formerly lived in
+// CompilationBackendTests.cs. Each exact program uses the existing full production compiler/run
+// harness, retaining compilation success, process exit, and its original stdout assertion.
+test "readonly class fields initialized by a constructor compile and execute" {
+    AssertGenericCallProgram(
+        "ReadonlyClassFields",
+        """
+class Person {
+    readonly Name: string
+    readonly Age: int
+
+    constructor(name: string, age: int) {
+        Name = name
+        Age = age
+    }
+
+    func GetInfo(): string {
+        return $"{Name}:{Age}"
+    }
+}
+
+func main() {
+    person := new Person("Ada", 37)
+    print person.GetInfo()
+}
+""".Trim(),
+        "Ada:37"
+    )
+}
+
+test "instance field initializers with an explicit constructor compile and execute" {
+    AssertGenericCallProgram(
+        "InstanceFieldInitializers",
+        """
+class Logger {
+    Prefix: string = "[LOG]"
+}
+
+class Application {
+    logger: Logger = new Logger()
+    readonly Name: string
+
+    constructor(name: string) {
+        Name = name
+    }
+
+    func Describe(): string {
+        return $"{logger.Prefix}:{Name}"
+    }
+}
+
+func main() {
+    app := new Application("FileScopedDemo")
+    print app.Describe()
+}
+""".Trim(),
+        "[LOG]:FileScopedDemo"
+    )
+}
+
+test "a double instance field initializer compiles and executes" {
+    AssertGenericCallProgram(
+        "DoubleInstanceFieldInitializer",
+        """
+class Account {
+    balance: double = 0.0
+
+    func GetBalance(): double {
+        return balance
+    }
+}
+
+func main() {
+    account := new Account()
+    print account.GetBalance()
+}
+""".Trim(),
+        "0"
+    )
+}
+
+test "struct primary constructor parameters remain available to members" {
+    AssertGenericCallProgram(
+        "StructPrimaryCtorMembers",
+        """
+import System
+
+struct Point(x: double, y: double) {
+    func Distance(): double {
+        return Math.Sqrt(x * x + y * y)
+    }
+
+    func Label(): string {
+        return $"Point({x}, {y})"
+    }
+}
+
+func main() {
+    point := new Point(3.0, 4.0)
+    print point.Distance()
+    print point.Label()
+}
+""".Trim(),
+        "5\nPoint(3, 4)"
+    )
+}
+
+test "record primary constructor parameters remain available to members" {
+    compilation := CompileNamedExtensionCallFixture(
+        "RecordPrimaryCtorMembers",
+        "exe",
+        """
+record Address(street: string, city: string, zip: string) {
+    FullAddress: string => $"{street}, {city} {zip}"
+}
+
+func main() {
+    address := new Address("123 Main St", "Springfield", "62701")
+    print address.FullAddress
+}
+""".Trim()
+    )
+    try {
+        assert compilation.Succeeded, compilation.Diagnostics
+        CompilationArtifacts.WriteRuntimeConfig(
+            compilation.Config,
+            compilation.OutputPath
+        )
+        runResult := RunGenericCallProgram(
+            compilation.OutputPath,
+            compilation.FixtureRoot
+        )
+        assert runResult.ExitCode == 0
+        assert runResult.Stdout.Contains("123 Main St, Springfield 62701")
+    } finally {
+        CleanupExtensionCompilation(compilation)
+    }
+}
+
 // -----------------------------------------------------------------------------------------------
 // Executed proofs (compiled through the columnar pipeline as this project builds).
 // -----------------------------------------------------------------------------------------------
