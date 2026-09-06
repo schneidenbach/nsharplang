@@ -1205,57 +1205,6 @@ func main() {
     }
 
     [Fact]
-    public void MultiFileCompiler_EmitsStringJoinOverSelectWithInterpolatedLambda()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: StringJoinSelectProject
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-import System.Collections.Generic
-import System.Linq
-
-func FormatTags(tags: List<string>): string {
-    if tags.Count == 0 {
-        return "-"
-    }
-
-    return String.Join(" ", tags.Select(tag => $"#{tag}"))
-}
-
-func main() {
-    tags: List<string> = ["alpha", "beta"]
-    print FormatTags(tags)
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "StringJoinSelectProject.dll");
-            var result = compiler.CompileToIlAssembly("StringJoinSelectProject", outputPath);
-
-            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Equal("#alpha #beta", runResult.Stdout.Replace("\r\n", "\n").Trim());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void MultiFileCompiler_EmitsExplicitGenericJsonSerializerSerialize()
     {
         var tempDir = CreateTempDir();
@@ -2419,73 +2368,6 @@ func f(): int {
                 && error.ExpectedType == "List<Pt>"
                 && error.ActualType == "List<Rs>");
             Assert.DoesNotContain(result.Errors, error => error.Message.Contains("Failed to emit IL assembly"));
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_EmitsTaskRunActionAndExpandedWaitAll()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: TaskRunActionProject
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-import System.Threading.Tasks
-
-class Flags {
-    First: int = 0
-    Second: int = 0
-
-    func SetFirst() {
-        First = 1
-    }
-
-    func SetSecond() {
-        Second = 2
-    }
-
-    func Sum(): int {
-        return First + Second
-    }
-}
-
-func main() {
-    flags := new Flags()
-    t1 := Task.Run(() => {
-        flags.SetFirst()
-    })
-    t2 := Task.Run(() => {
-        flags.SetSecond()
-    })
-
-    Task.WaitAll(t1, t2)
-    print flags.Sum()
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "TaskRunActionProject.dll");
-            var result = compiler.CompileToIlAssembly("TaskRunActionProject", outputPath);
-
-            Assert.True(result.Success);
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Equal("3", runResult.Stdout.Trim());
         }
         finally
         {

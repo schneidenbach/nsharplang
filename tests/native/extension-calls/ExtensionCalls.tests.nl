@@ -372,6 +372,73 @@ func main() {
     )
 }
 
+// Canonical closure-binding integration assertions formerly lived in CompilationBackendTests.cs.
+// Each exact program passes through production compilation and the emitted executable, retaining
+// the source bytes and its success, process-exit, and normalized-stdout assertions.
+test "string join over select with an interpolated lambda compiles and executes" {
+    AssertGenericCallProgram(
+        "StringJoinSelectProject",
+        """
+import System.Collections.Generic
+import System.Linq
+
+func FormatTags(tags: List<string>): string {
+    if tags.Count == 0 {
+        return "-"
+    }
+
+    return String.Join(" ", tags.Select(tag => $"#{tag}"))
+}
+
+func main() {
+    tags: List<string> = ["alpha", "beta"]
+    print FormatTags(tags)
+}
+""".Trim(),
+        "#alpha #beta"
+    )
+}
+
+test "task run actions capture a reference and execute" {
+    AssertGenericCallProgram(
+        "TaskRunActionProject",
+        """
+import System.Threading.Tasks
+
+class Flags {
+    First: int = 0
+    Second: int = 0
+
+    func SetFirst() {
+        First = 1
+    }
+
+    func SetSecond() {
+        Second = 2
+    }
+
+    func Sum(): int {
+        return First + Second
+    }
+}
+
+func main() {
+    flags := new Flags()
+    t1 := Task.Run(() => {
+        flags.SetFirst()
+    })
+    t2 := Task.Run(() => {
+        flags.SetSecond()
+    })
+
+    Task.WaitAll(t1, t2)
+    print flags.Sum()
+}
+""".Trim(),
+        "3"
+    )
+}
+
 // Canonical reference-coercion integration assertions formerly lived in
 // CompilationBackendTests.cs. These exact programs exercise the production conversion sites:
 // a source class flowing into a source interface constructor slot, and value/object flows through
