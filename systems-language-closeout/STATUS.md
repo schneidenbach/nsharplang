@@ -38,15 +38,26 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
-**Active area, complete interface realization:** move inheritance-depth calculation, structural
-interface registration, member-completeness validation and ordered interface finalization with their
-matching, async return-shape and parameter-type dependencies. Preserve metadata mutation and failure
-ordering; remove complete C# passes/helpers and route directly through N#. Sol Max implements,
-Terra Max owns canonical coverage, Astra reviews/integrates. [Boundary](decodes/2026-09-06-interface-realization-ownership.md).
-Baseline clean/pushed `f0a527d69`; evidence `/private/tmp/nsharp-interface-realization-ownership-20260906`.
-Prerequisite seed accepted after fresh 449s gate, full canonical 7,877/7,877 and normal packaged 4/4;
-SDK SHA `9deb7b3f33b01cf7811449cc6bd8f4d12d6a1c9c91a1fb459b741fd3a4000ddd`.
-Full owner compiled privately and seven direct controls pass; normal production integration is active.
+**Accepted area, complete interface realization:** `0713f4f6e` moves all four depth, duck-registration,
+completeness and ordered-finalization passes plus six helpers into N#. Thirteen direct C# call sites
+pass existing state mechanically; no replaced decision or fallback owner survives. Three full-program
+C# tests moved to N#; seven direct controls and 37 relevant native cases pass.
+[Boundary and evidence](decodes/2026-09-06-interface-realization-ownership.md), evidence
+`/private/tmp/nsharp-interface-realization-ownership-20260906`.
+
+The prerequisite seed moves complete reference conversion and KeyValuePair recognition into N#
+and admits only the demonstrated typed key/view/enumerator shapes. Seed fresh gate 449s and normal
+packaged probe 4/4 pass; SDK SHA `9deb7b3f33b01cf7811449cc6bd8f4d12d6a1c9c91a1fb459b741fd3a4000ddd`.
+Final fresh integration gate at `f30bffe2` passes in 448s: 587 unit / 7,884 canonical / 52 native
+projects / 12 throughput / 68 IL assemblies. Both feeds and twelve cache files remain verified.
+Emitter 17,860→17,530 lines / 16,982→16,668 nonblank; C# tests shrink by three complete methods
+and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every epoch unchanged;
+ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
+enumeration/disposal, type identity, partial mutation and failure ordering.
+
+**Next compiler-only candidate:** complete source/external interface and object coercion plus
+reference-test boxing, with necessary source lookup dependencies. The compiler-wide objective
+remains active; CLI/editor/runtime/NativeAOT and conditional writer backlog stay separate.
 
 **Accepted area, compiler reference type resolution:** integrated `c938be178` and `f3fabaacf`
 replace all five complete test-framework, referenced-type, loaded-external, ASP.NET reference and

@@ -102,3 +102,12 @@ Cumulative emitter 17,860→17,530 lines / 16,982→16,668 nonblank; tests 4,014
 nonblank / 379 markers. Exactly two ratchet rows changed from the selection baseline, all other
 rows and every epoch unchanged. Final ratchet `head-v1:e326de01418ad1cf`. Final fresh backend
 gate and push remain pending.
+
+Accepted final integration at `f30bffe2`: fresh backend gate passes in 448s, 587 unit / 7,884
+canonical N# assertions/tests / 52 native projects / 12 throughput / 68 IL assemblies. The accepted
+SDK remains identical in both feeds and all twelve cache payloads after the isolated gate.
+Evidence `gate-receipt.json` and `post-gate-seed-check.json`. All selected production decisions
+and canonical assertions are now solely N#-owned; replaced C# passes/helpers/tests are removed.
+The compiler-wide goal remains active. Next candidate is complete source/external interface and
+object coercion plus reference-test boxing, including source-lookup dependencies; broader branch
+backlog remains separate.
