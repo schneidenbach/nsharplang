@@ -38,3 +38,19 @@ produce 12; contextual read-only capture produces 1, while the paired member-wri
 The positive counterpart prevents vacuous negative coverage. Final contextual selection 3/3.
 C# tests shrink by 118 lines / 99 nonblank / eight markers, to 3,745 / 3,221 / 363; audit 18/18,
 ratchet `head-v1:5723ac77c54ad150`, original epochs unchanged. Production ownership remains open.
+
+The exact full-source compile proved four connected collection gaps: HashSet copy/comparer
+construction, live Dictionary key-view argument flow, and both SortedSet comparer constructor
+forms. Prerequisite `42ef49df7` (worker `79a4e0a7608d4ea790a998e77254e9554aa59d89`) changes only
+six existing N# compiler owners plus N# tests. Exact key-result identity and enumerable conversion,
+constructor selection and SortedSet type resolution are N#-owned; unrelated shapes remain refused.
+Private candidate SDK `67d04fd2c94239c0976a730c7b5077dbe117c413dfaa0e83190c9555be90cfa9`
+compiles the hash-identical restored owner with zero warnings/errors. Focused BSS 5/5, private
+packaged native 2/2, existing Columnar slice 12/12 pass. Required fresh gate/publication remain open.
+
+StrongBox needed no syntax extension: fixed `typeof(StrongBox<int>).GetGenericTypeDefinition()`
+yields the exact open CLR type, and an explicit Type[1] preserves original params-array lowering.
+Root emitted-IL review confirms identity, MakeGenericType/GetField failure semantics, original
+collection constructors/key-view order, unboxed enumerators/finally and lazy ref-state mutation.
+The member arity helper assigns a local out slot before publishing a success, preserving the original
+outer slot when a later base lookup throws. All discovery substitutions are removed from owner source.
