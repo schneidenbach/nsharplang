@@ -262,6 +262,10 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   committed fixture 2/2. The original l refusal and the separate direct Array.Empty binding limitation
   remain recorded. Resume l against this verified seed; no entry-point ownership move is claimed.
   [Proof](../systems-language-closeout/decodes/2026-09-06-s22l0-parity-proof.md).
+  **Measured l1 prerequisite:** after the l0 SDK repin, the exact direct dictionary-value enumerator
+  local is refused at `emit.local.unsupported-type` before tests. Preserve the concrete acquisition,
+  establish the actual initializer type and complete its bounded N# admission/runtime proof plus
+  gated SDK verification before resuming l. [Plan](../systems-language-closeout/decodes/2026-09-06-s22l1-concrete-value-enumerator-prerequisite.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

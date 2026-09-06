@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(k)** and g0/g1/j0/j1/l0 prerequisites landed. Catalog reference arrays are admitted by the existing N# identity gate; C# and the ratchet are unchanged. Fresh backend gate at `71d489a5c`: 593 unit /7,813 canonical /111 declarations; verified SDK executes both exact-array controls. Fixed 94-image corpus and strict 258/434 unchanged. Next S2.2(l): complete entry-point selection/wrapper plus keyed awaiter local. — §4.12 |
+| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(k)** and g0/g1/j0/j1/l0 prerequisites landed. Catalog reference arrays are admitted by the existing N# identity gate; C# and the ratchet are unchanged. Fresh backend gate at `71d489a5c`: 593 unit /7,813 canonical /111 declarations; verified SDK executes both exact-array controls. Fixed 94-image corpus and strict 258/434 unchanged. Next S2.2(l1): required concrete value-enumerator storage, then the complete S2.2(l) entry-point owner and keyed awaiter local. — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,14 +123,14 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** [S2.2(l)](decodes/2026-09-06-s22l-entrypoint-next-cut.md), the complete current
-4358–4413 entry-point block (56 lines including its trailing blank), plus its reached awaiter AddType.
-The exact `Dictionary<string, Type>[]` input now has a committed, gated and SDK-verified prerequisite,
-[S2.2(l0)](decodes/2026-09-06-s22l0-parity-proof.md). Refresh the parked l draft against the verified seed and re-run its exact
-source probe before continuing. No l C# move is accepted yet. Preserve both indexed name walks,
-concrete dictionary enumeration, partial selected method, actual shared empty arrays, and
-declaration/plan/GetIL ordering. Remaining call/type/local/maxstack, S2.3–S2.6, 022/5 NativeAOT and final
-ownership audit stay open.
+**Next writer slice:** [S2.2(l1)](decodes/2026-09-06-s22l1-concrete-value-enumerator-prerequisite.md),
+the measured concrete dictionary value-enumerator storage prerequisite. The verified l0 SDK admits
+the exact array input, but the direct Values.GetEnumerator local in the resumed entry-point draft
+is refused before tests. Observe its actual type/argument identities and admission arm, complete the
+N# correction and runtime controls, then gate and verify the published SDK before l consumes it.
+The complete 56-line C# entry-point owner remains unchanged. Next is the parked
+[S2.2(l) cut](decodes/2026-09-06-s22l-entrypoint-next-cut.md) with its reached keyed awaiter local.
+Remaining call/type/local/maxstack, S2.3–S2.6, 022/5 NativeAOT and final audit stay open.
 
 **Goal checkpoint (2026-09-06):** S2.2(l0), product `05187654e` (Sol `30e8a5d5`), controls and tested
 source **`71d489a5c6423a2cf78c8444dae36ee2e688c6fc`** (Terra `f2c0317c`). The existing N# element

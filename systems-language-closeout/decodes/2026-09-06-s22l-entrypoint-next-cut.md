@@ -1,20 +1,26 @@
 # S2.2(l): assembly entry-point selection and wrapper realization
 
-Execute after S2.2(l0) is accepted. Revalidate the current source and seed before editing. This plan
+Execute after S2.2(l1) is accepted. Revalidate the current source and seed before editing. This plan
 is source-reviewed; it is not an implementation or capability verdict. Tasks 015/021/022/023 stay open.
 
 The first exact-source probe found an array-element admission prerequisite for the
 `Dictionary<string, Type>[]` input. [S2.2(l0)](2026-09-06-s22l0-parity-proof.md) is now committed, gated and published at tested
-source `71d489a5c`; the actual SDK executes the same committed array fixture 2/2. Refresh the parked
-draft from the accepted prerequisite and re-run the exact driver probe. This proves the array
-capability, not all later driver body forms. The complete C# block is still the production owner.
+source `71d489a5c`; the actual SDK executes the same committed array fixture 2/2. The parked draft
+was refreshed onto accepted l0 and its exact driver probe was rerun. It passed the array boundary
+and exposed the enumerator refusal below. The complete C# block is still the production owner.
 
-The unaccepted implementation is preserved in `/private/tmp/nsharp-agent-wt/023-s22l`, based on
-accepted k `31a0743d6`. It has the new realization draft and three tracked edits; preserve them while
-refreshing onto the accepted l0 source. The separate native control is committed at
-`637dcde31cc7603ed2a951b4c51c2436f4cf70c4` in `/private/tmp/nsharp-agent-wt/023-s22l-controls`.
-That control belongs to l and was not included in l0; its accepted-k no-main behavior is already
-proved. Bind the new canonical controls to the complete owner before accepting the l cut.
+The resumed exact-source probe then reached a concrete value-enumerator storage refusal.
+[S2.2(l1)](2026-09-06-s22l1-concrete-value-enumerator-prerequisite.md) must be measured, corrected,
+gated and SDK-verified before this owner resumes. The direct Values.GetEnumerator acquisition
+preserves the old concrete enumerator; keep that contract through the prerequisite.
+
+The unaccepted implementation remains in `/private/tmp/nsharp-agent-wt/023-s22l`, now based on
+accepted l0 `e7d4486d9`. Its original k-based four files and the resumed failed-source snapshots are
+preserved under `/private/tmp/nsharp-s22l-executor-logs/resume-20260906`; retain the owner draft when
+resuming after l1. The native no-main control is already seeded at `bbd352a31` in
+`/private/tmp/nsharp-agent-wt/023-s22l-controls-seeded`; its original `637dcde31` commit remains in
+`/private/tmp/nsharp-agent-wt/023-s22l-controls`. The control belongs to l and its accepted-k behavior
+is already proved. Bind the new canonical controls to the complete owner before accepting l.
 
 ## Connected cut
 
