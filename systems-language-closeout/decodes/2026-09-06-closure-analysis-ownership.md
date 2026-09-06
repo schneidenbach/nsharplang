@@ -61,3 +61,10 @@ No seed was published. Preserve that failure receipt; move all three runtime tes
 necessary helpers into native emission coverage, keeping the two compiler decision controls in
 BSS. Old-seed BSS 2/2 and candidate-packaged native 5/5 pass; every assertion is retained and
 unused helpers are removed. The next gate must be fresh and use this corrected test placement.
+
+Corrected seed gate `ccfdaaacf` passes fresh in 452s: 583 unit / 7,890 canonical /
+52 native projects / 12 throughput / 68 IL assemblies. Standard setup publishes SDK
+`66215414a61939140ef0fd429c54d23f53380415eed893104d812ba21fd30872`; ordinary installed-package probe passes 6/6.
+Both feeds, ten packaged Release payloads and twelve SDK cache payloads are verified.
+Exact source and emitted-IL review confirm the collection forms, live views and concrete
+enumerator disposal. This accepts only the prerequisite; complete closure-owner integration follows.
