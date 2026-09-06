@@ -38,7 +38,7 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
-**Selected area, focused-green; final integration gate pending:** generic-constraint declaration/application plus consumed-map
+**Selected area, integrated and verified at `be3defa12`:** generic-constraint declaration/application plus consumed-map
 construction: `TryApplyGenericParameterConstraints`, `TryApplyDeclaredTypeConstraints` and
 `BuildGenericInterfaceConstraintMap`, including necessary dependencies, move to N# with direct
 production calls and canonical assertions. This replaces the map-only next cut; preserve attribute,
@@ -53,7 +53,9 @@ setter/integer controls with all 12 package/cache payloads matching the Release 
 `/private/tmp/nsharp-constraint-ownership-20260906/seed-acceptance.json`. The complete proposed
 production owner is integrated: four C# methods removed, fourteen direct N# routes, emitter −107
 lines. Fresh main canonical controls pass 56/56, existing native declarations 115/115 with baseline
-outcomes unchanged, ownership audit 18/18. Final backend gate remains required before push.
+outcomes unchanged, ownership audit 18/18. Fresh backend gate passed in 468s: 593 unit,
+7,833 canonical, 52 native projects, 12 throughput cells and 68 IL assemblies; SDK/template/examples
+green. [Acceptance](decodes/2026-09-06-generic-constraint-ownership.md). The live seed remains verified.
 Next substantial compiler area after this checkpoint: generic sibling-call constraint validation
 with constructor/base/interface satisfaction and recursive type-argument substitution; move complete
 methods and their necessary definition lookup/state dependencies together. Task 015 remains open.
@@ -3045,6 +3047,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| Compiler generic-constraint application | `be3defa12` | Complete application, declared lifting, consumed map and safe-array dependency become N#-owned; four C# methods deleted, fourteen direct routes | Preserve source-owner registration, mutation/output/catch phases and shared map identity | C# −107/−103/−5,028 bytes; focused 56, native 115, audit 18; fresh 468s gate 593/7,833, 52 native projects, 68 IL. [Proof](decodes/2026-09-06-generic-constraint-ownership.md) |
 | Compiler constraint seed | `eb750c4fa` | Exact N# interface-constraint setter admission and canonical/direct native controls; no C# change | Full proposed source drove one required row; source-owner registration belongs in generic fixtures | Fresh backend gate: 593/7,822, 52 native projects, 68 IL assemblies; packaged SDK 9/9, 12 payloads match. [Proof](decodes/2026-09-06-generic-constraint-ownership.md) |
 | 023/S2.2(l) — entry-point realization | product `070ad0a49`; tested `efa3a8cab` | Complete selection/wrapper owner becomes N#; reached awaiter type keyed | Preserve live indexed reads, concrete first-hit fallback, partial output and wrapper phases | C# −40/−37/−2,422 bytes;22 keyed/14 handle-only; gate 461s:593/7,821/115, audit 18,68 IL; fixed 94/2,184 each and strict 258/435 equal; l1 SDK unchanged. [Proof](decodes/2026-09-06-s22l-parity-proof.md) |
 | 023/S2.2(l1) — concrete dictionary value enumerator prerequisite | product `9e1093c67`; controls/tested `6687505e4` | Exact N# builder-bound enumerator admission; no C# move | Observe actual source-builder handle; retain closed/key/value identity boundaries and concrete addressed iteration/finally | +3 canonical, +3 native; gate 448s: 593/7,816/114, audit 18, 68 IL; fixed 94/2,184 each and strict 258/434 unchanged; SDK same-source 3/3, all 12 payloads verified; emitter/ratchet unchanged. [Proof](decodes/2026-09-06-s22l1-parity-proof.md) |

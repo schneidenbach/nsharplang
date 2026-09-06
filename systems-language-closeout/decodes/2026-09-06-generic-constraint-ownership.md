@@ -4,7 +4,8 @@ The selected compiler area replaces the complete C# `TryApplyGenericParameterCon
 `TryApplyDeclaredTypeConstraints`, `BuildGenericInterfaceConstraintMap` and necessary
 `IsSafeSzArrayType` dependency. `ColumnarGenericConstraintPlanner.nl` owns the first three;
 `ColumnarTypeEquivalenceFacts.nl` owns the narrow array predicate. Production routes directly to
-these existing N# owners. The integrated focused checks pass; the fresh final product gate is required before push.
+these existing N# owners. Product commit `be3defa12f8e73ca0fbe9d8fd1970230aca0362b` passed the fresh final product gate.
+This acceptance follow-up changes Markdown only; tasks 015/021/022/023 remain open.
 
 The boundary includes attribute application, canonical constraint resolution, base/interface
 classification, owner-parameter matching, metadata writes, circularity refusal, declared-name builder
@@ -57,7 +58,11 @@ Source and emitted-IL review confirm ordered output allocation, the nonparameter
 base write before output update, interface output before setter, cycle detection after all writes,
 exact castclass and the safe-array catch boundary. Review receipts are `ownership-final-review.json`
 and `integrated-focused-review.json` under the evidence directory. Root formatting added whitespace
-only after the worker snapshot. The fresh final backend gate remains pending before push.
+only after the worker snapshot. Fresh `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` passed in 468s at the product commit:
+593 unit, 7,833 canonical, 52 native projects, 12/12 throughput cells, SDK/template/example checks
+and 68 IL assemblies. Gate: `/private/tmp/gate-20260906-constraint-owner-r1/gate-result.json`.
+This emission ownership change does not alter IDE behavior; editor verification was not applicable.
+All twelve live SDK payloads still match the accepted prerequisite seed after the isolated gate.
 The accepted baseline is preserved in `/private/tmp/nsharp-constraint-ownership-20260906`:
 `baseline-compiler.json` pins immutable compiler payloads, and `native-baseline.json` records the
 unchanged declaration suite at 115/115. Broader CLI/editor/SDK branch work is separate in
