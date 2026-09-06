@@ -68,3 +68,15 @@ Corrected seed gate `ccfdaaacf` passes fresh in 452s: 583 unit / 7,890 canonical
 Both feeds, ten packaged Release payloads and twelve SDK cache payloads are verified.
 Exact source and emitted-IL review confirm the collection forms, live views and concrete
 enumerator disposal. This accepts only the prerequisite; complete closure-owner integration follows.
+
+Complete production owners integrate as `22bc5991b`, direct controls as `59325fb57`.
+Twenty-two C# definitions across nineteen names disappear; sixty-six remaining sites route directly
+to N#. No C# decision callback or replacement helper is added. The emitter shrinks 17,415→16,983
+lines / 16,562→16,149 nonblank. Together with canonical migration, exactly two ratchet rows change;
+379 other rows and all epochs are unchanged, head `head-v1:f71fdf545a0d283a`.
+
+Integrated focused evidence: dev Columnar 12/12, seven exact discovered direct controls 7/7,
+extension-call programs 17/17, ownership audit 18/18. Both owner classes emit identical reviewed
+IL after method-address normalization. Preserve no-test/wrong-entrypoint attempts separately;
+only the corrected exact seven-test result is accepted. Final fresh backend integration gate
+and push remain open. Remaining recursive lambda body/display-class lowering is C# compiler debt.
