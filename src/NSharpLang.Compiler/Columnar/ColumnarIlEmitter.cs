@@ -2777,7 +2777,7 @@ internal sealed class ColumnarIlEmitter
                 iface.SourceFileId,
                 interfaceDef.GenericParameters,
                 interfaceDef.DeclaredTypeName);
-            if (!TryApplyDeclaredTypeConstraints(iface.TypeParamNames, interfaceDef.GenericParameters, iface.TypeParamSpecialConstraints, iface.TypeParamTypeConstraints, typeResolution))
+            if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(iface.TypeParamNames, interfaceDef.GenericParameters, iface.TypeParamSpecialConstraints, iface.TypeParamTypeConstraints, typeResolution))
                 return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + iface.Name + "' are not modeled", iface.Name);
             foreach (var baseInterfaceName in iface.BaseInterfaceNames)
             {
@@ -2856,7 +2856,7 @@ internal sealed class ColumnarIlEmitter
                 typeGenericParams,
                 def.DeclaredTypeName);
             structTypeResolutions[s] = typeResolution;
-            if (!TryApplyDeclaredTypeConstraints(st.TypeParamNames, typeGenericParams, st.TypeParamSpecialConstraints, st.TypeParamTypeConstraints, typeResolution))
+            if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(st.TypeParamNames, typeGenericParams, st.TypeParamSpecialConstraints, st.TypeParamTypeConstraints, typeResolution))
                 return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + st.Name + "' are not modeled", st.Name);
             var fields = def.Fields;
             var fieldRows = declarationPlan.Fields;
@@ -3554,7 +3554,7 @@ internal sealed class ColumnarIlEmitter
                 var baseParams = baseTb.GetGenericArguments();
                 for (var g = 0; g < baseParams.Length; g++)
                     baseMap[un.TypeParamNames[g]] = baseParams[g];
-                if (!TryApplyDeclaredTypeConstraints(un.TypeParamNames, baseMap, un.TypeParamSpecialConstraints, un.TypeParamTypeConstraints, typeResolutionCatalog.For(un.SourceFileId, baseMap, unionDef.DeclaredTypeName)))
+                if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(un.TypeParamNames, baseMap, un.TypeParamSpecialConstraints, un.TypeParamTypeConstraints, typeResolutionCatalog.For(un.SourceFileId, baseMap, unionDef.DeclaredTypeName)))
                     return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + un.Name + "' are not modeled", un.Name);
             }
 
@@ -3586,7 +3586,7 @@ internal sealed class ColumnarIlEmitter
                     c,
                     caseTb,
                     caseParamMap);
-                if (!TryApplyDeclaredTypeConstraints(un.TypeParamNames, caseParamMap, un.TypeParamSpecialConstraints, un.TypeParamTypeConstraints, typeResolution))
+                if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(un.TypeParamNames, caseParamMap, un.TypeParamSpecialConstraints, un.TypeParamTypeConstraints, typeResolution))
                     return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + un.Name + "." + caseName + "' are not modeled", caseName);
                 var caseFieldNames = un.CaseFieldNames[c];
                 var caseFieldTypes = un.CaseFieldTypeCanonicals[c];
@@ -3669,7 +3669,7 @@ internal sealed class ColumnarIlEmitter
                 // Applied AFTER the full typeParamMap exists, so a constraint can name another of this
                 // function's own parameters (`where T: U`). The interface constraints are carried into pass 2,
                 // where a constrained interface call needs the closed slot metadata.
-                if (!TryApplyGenericParameterConstraints(gpBuilders, fn.TypeParamSpecialConstraints, fn.TypeParamTypeConstraints, typeParamMap, fnTypeParams, typeResolution, out fnSpecialConstraints, out fnBaseConstraints, out fnInterfaceConstraints))
+                if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(gpBuilders, fn.TypeParamSpecialConstraints, fn.TypeParamTypeConstraints, typeParamMap, fnTypeParams, typeResolution, out fnSpecialConstraints, out fnBaseConstraints, out fnInterfaceConstraints))
                     return false;
             }
             else if (fn.TypeParamSpecialConstraints.Length > 0 || fn.TypeParamTypeConstraints.Length > 0)
@@ -3888,9 +3888,10 @@ internal sealed class ColumnarIlEmitter
             var bodyReturnType = asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f];
             var functionSource = program.GetSourceForFileId(fn.SourceFileId);
             var currentSibling = siblings[fn.Name];
-            var genericInterfaceConstraintMap = BuildGenericInterfaceConstraintMap(
+            var genericInterfaceConstraintMap = ColumnarGenericConstraintPlanner.BuildGenericInterfaceConstraintMap(
                 currentSibling.TypeParams,
-                interfaceConstraintsByFunc[f]);
+                interfaceConstraintsByFunc[f],
+                s_noGenericInterfaceConstraints);
             Dictionary<string, Type>? bodyTypeParamMap = null;
             if (fn.TypeParamNames.Length > 0)
             {
@@ -6471,7 +6472,7 @@ internal sealed class ColumnarIlEmitter
             || !TryGetPureLocalOrParameterType(arrayNode, out _, out var arrayType)
             || !TryGetPureLocalOrParameterType(indexNode, out _, out var indexType))
             return false;
-        if (indexType != typeof(int) || !IsSafeSzArrayType(arrayType))
+        if (indexType != typeof(int) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType))
             return false;
         var elementType = arrayType.GetElementType()!;
         var helper = ReductionHelperForColumnarElementType(elementType);
@@ -6496,7 +6497,7 @@ internal sealed class ColumnarIlEmitter
         // acc = acc + Sum...(array, index, bound)
         if (!EmitExpression(shape.AccumulatorNode, out var accumulatorType) || accumulatorType != shape.ElementType)
             return false;
-        if (!EmitExpression(shape.ArrayNode, out var arrayType) || !IsSafeSzArrayType(arrayType) || arrayType.GetElementType() != shape.ElementType)
+        if (!EmitExpression(shape.ArrayNode, out var arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType) || arrayType.GetElementType() != shape.ElementType)
             return false;
         if (!EmitExpression(shape.IndexNode, out var indexType) || indexType != typeof(int))
             return false;
@@ -7418,7 +7419,7 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(node) == 8 && _nodes.ChildCount(node) == 1 && Text(node) == "Length")
         {
             var receiver = Child(node, 0);
-            return TryGetPureLocalOrParameterType(receiver, out _, out var receiverType) && IsSafeSzArrayType(receiverType);
+            return TryGetPureLocalOrParameterType(receiver, out _, out var receiverType) && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType);
         }
 
         return false;
@@ -7527,79 +7528,6 @@ internal sealed class ColumnarIlEmitter
 
     private ColumnarStructDef? FindDefByType(Type type)
         => ColumnarSourceDefinitionResolver.FindDirectType(_structRegistry, type);
-
-    // THE ONE PLACE A `where` CLAUSE REACHES THE CLR, for the method site and the six type sites. Every
-    // DECISION is `ColumnarGenericConstraintPlanner` (N#) — the attribute word, what one resolved
-    // constraint IS, the circular decline; what is left here is resolution and the three CLR calls.
-    // The shape questions are computed ONLY for a non-parameter: `Type.IsSZArray` throws on a bare type
-    // parameter under persisted emit, and C# evaluates every argument before the call.
-    private static bool TryApplyGenericParameterConstraints(
-        GenericTypeParameterBuilder[] gpBuilders,
-        int[] specialRows,
-        string[][] typeConstraintRows,
-        Dictionary<string, Type> typeParamMap,
-        Type[] ownerTypeParams,
-        ColumnarSemanticTypeResolution typeResolution,
-        out int[] specials,
-        out Type?[] baseConstraints,
-        out Type[][] interfaceConstraints)
-    {
-        specials = new int[gpBuilders.Length];
-        baseConstraints = new Type?[gpBuilders.Length];
-        interfaceConstraints = new Type[gpBuilders.Length][];
-        var baseParamIndices = new int[gpBuilders.Length];
-        for (var g = 0; g < gpBuilders.Length; g++)
-        {
-            baseParamIndices[g] = -1;
-            specials[g] = ColumnarGenericConstraintPlanner.SpecialAt(specialRows, g);
-            var bits = ColumnarGenericConstraintPlanner.AttributeBitsFor(specials[g]);
-            if (bits != 0) gpBuilders[g].SetGenericParameterAttributes((GenericParameterAttributes)bits);
-            var interfaces = new List<Type>();
-            foreach (var text in ColumnarGenericConstraintPlanner.TypeConstraintsAt(typeConstraintRows, g))
-            {
-                if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(text, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out var ct))
-                    return false;
-                var isParam = ct.IsGenericParameter;
-                var kind = ColumnarGenericConstraintPlanner.ClassifyConstraint(isParam,
-                    !isParam && ColumnarSourceDefinitionResolver.TryResolveInterface(ct, typeResolution.Structs.Values, out _),
-                    !isParam && ColumnarBaseTypePlanner.IsRuntimeInterfaceType(ct),
-                    !isParam && ct is TypeBuilder, !isParam && ct.IsValueType,
-                    !isParam && ct.Assembly is AssemblyBuilder,
-                    !isParam && IsSafeSzArrayType(ct), !isParam && ct.IsClass);
-                if (kind == ColumnarGenericConstraintPlanner.ConstraintKindInterface())
-                {
-                    interfaces.Add(ct);
-                    continue;
-                }
-                if (kind == ColumnarGenericConstraintPlanner.ConstraintKindRefused() || baseConstraints[g] != null)
-                    return false;
-                if (isParam)
-                {
-                    for (var q = 0; q < ownerTypeParams.Length; q++)
-                        if (ReferenceEquals(ownerTypeParams[q], ct)) { baseParamIndices[g] = q; break; }
-                    if (baseParamIndices[g] < 0)
-                        return false; // a parameter from some other scope — not resolvable here.
-                }
-                gpBuilders[g].SetBaseTypeConstraint(ct);
-                baseConstraints[g] = ct;
-            }
-            interfaceConstraints[g] = interfaces.ToArray();
-            if (interfaces.Count > 0) gpBuilders[g].SetInterfaceConstraints(interfaceConstraints[g]);
-        }
-        return !ColumnarGenericConstraintPlanner.HasCircularConstraint(baseParamIndices);
-    }
-
-    // Every TYPE site says the same thing: lift the declared parameters into builder order and hand them
-    // to the shared helper. The method site does not use this — it already holds its builders.
-    private static bool TryApplyDeclaredTypeConstraints(string[] typeParamNames, Dictionary<string, Type>? genericParams, int[] specials, string[][] typeConstraints, ColumnarSemanticTypeResolution typeResolution)
-    {
-        if (genericParams == null)
-            return true;
-        var gps = new GenericTypeParameterBuilder[typeParamNames.Length];
-        for (var g = 0; g < gps.Length; g++)
-            gps[g] = (GenericTypeParameterBuilder)genericParams[typeParamNames[g]];
-        return TryApplyGenericParameterConstraints(gps, specials, typeConstraints, genericParams, gps, typeResolution, out _, out _, out _);
-    }
 
     // The BCL exception types a typed catch clause may name (E3). Each simple name must resolve to the
     // SAME runtime type the pipeline's ResolveType binds — all are System-namespace exceptions reachable
@@ -14608,7 +14536,7 @@ internal sealed class ColumnarIlEmitter
                     type = spanElementType;
                     return true;
                 }
-                if (!IsSafeSzArrayType(indexedType)
+                if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(indexedType)
                     || !TryGetPreflightExpressionType(indexNode, out var arrayIndexType))
                     return false;
                 // Index/Range array reads are owned by ColumnarRangeIndexPlanner ahead of this switch.
@@ -14811,7 +14739,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        if (IsSafeSzArrayType(receiverType)
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)
             && receiverType.GetElementType() == typeof(byte)
             && member == "AsSpan"
             && (_nodes.ChildCount(callIdx) == 1 || _nodes.ChildCount(callIdx) == 3))
@@ -15038,7 +14966,7 @@ internal sealed class ColumnarIlEmitter
 
         if (member == "Length"
             && TryGetPreflightExpressionType(receiver, out var lengthReceiverType)
-            && (IsSafeSzArrayType(lengthReceiverType)
+            && (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(lengthReceiverType)
                 || lengthReceiverType == typeof(string)
                 || lengthReceiverType == typeof(System.Text.StringBuilder)
                 || ColumnarTypeOfPlanner.IsSupportedSpanLikeType(lengthReceiverType)))
@@ -15142,7 +15070,7 @@ internal sealed class ColumnarIlEmitter
         elementType = null!;
         if (receiverType.IsGenericParameter)
             return false;
-        if (IsSafeSzArrayType(receiverType))
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType))
         {
             elementType = receiverType.GetElementType()!;
             return ColumnarTypeOfPlanner.IsSupportedElementType(elementType);
@@ -15158,24 +15086,6 @@ internal sealed class ColumnarIlEmitter
             return false;
         elementType = args[0];
         return ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(elementType) || ColumnarTypeOfPlanner.IsSupportedElementType(elementType);
-    }
-
-    private static bool IsSafeSzArrayType(Type type)
-    {
-        if (type.IsGenericParameter)
-            return false;
-        try
-        {
-            return type.IsSZArray;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
-        catch (NotImplementedException)
-        {
-            return false;
-        }
     }
 
     private static MethodInfo? FindEnumerableSourceOnlyMethod(string name)
@@ -16216,7 +16126,7 @@ internal sealed class ColumnarIlEmitter
             return true;
         }
 
-        if (IsSafeSzArrayType(receiverType)
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)
             && receiverType.GetElementType() == typeof(byte)
             && member == "AsSpan"
             && (argCount == 0 || argCount == 2))
@@ -16706,23 +16616,6 @@ internal sealed class ColumnarIlEmitter
 
     private Type[] GetGenericInterfaceConstraints(Type type)
         => ColumnarGenericConstraintPlanner.ResolveCallConstraints(_genericInterfaceConstraints, type);
-
-    private static IReadOnlyDictionary<Type, Type[]> BuildGenericInterfaceConstraintMap(
-        Type[] typeParams,
-        Type[][] interfaceConstraints)
-    {
-        if (typeParams.Length == 0 || interfaceConstraints.Length == 0)
-            return s_noGenericInterfaceConstraints;
-        Dictionary<Type, Type[]>? map = null;
-        var count = Math.Min(typeParams.Length, interfaceConstraints.Length);
-        for (var i = 0; i < count; i++)
-        {
-            if (interfaceConstraints[i].Length == 0)
-                continue;
-            (map ??= new Dictionary<Type, Type[]>())[typeParams[i]] = interfaceConstraints[i];
-        }
-        return map ?? s_noGenericInterfaceConstraints;
-    }
 
     private bool TrySelectClosedInterfaceMethodForCall(
         Type closedInterfaceType,

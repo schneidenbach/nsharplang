@@ -1,5 +1,11 @@
 # S2.2(m): constrained-call map production
 
+**Superseded execution scope:** the compiler-only contract selected the complete generic-constraint
+application/declaration/map ownership area with its safe-array dependency. See
+[the current ownership record](2026-09-06-generic-constraint-ownership.md). The map semantics below
+remain review evidence; the map-only stopping point and mandatory repeated corpus work are historical.
+Use the active task contract and risk-appropriate verification.
+
 This source-reviewed cut follows accepted S2.2(l); it is not an implementation or capability verdict. Tasks 015/021/022/023 remain open. Revalidate the current source and the verified l1 SDK before editing.
 
 Move the complete `BuildGenericInterfaceConstraintMap` producer into the existing N# `ColumnarGenericConstraintPlanner`, where `ResolveCallConstraints` already consumes its exact/weak/reflection lookup policy. At product `070ad0a49a08715fb9274c71a77f260f6aae1c6d`, the C# method occupies `ColumnarIlEmitter.cs:16710–16725`, plus its trailing blank (17 lines /705 bytes, SHA `b72fa01143629626154c2766b7d5b6da2aa336c19e467c53cc47b5ad6c5af46e`); the sole production call is at 3891–3893. Re-measure exact bytes and net shrink after routing. Delete the C# policy helper and call the N# producer directly. No decision callback or fallback remains for map production.

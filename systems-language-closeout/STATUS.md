@@ -38,7 +38,7 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
-**Selected area, in progress:** generic-constraint declaration/application plus consumed-map
+**Selected area, focused-green; final integration gate pending:** generic-constraint declaration/application plus consumed-map
 construction: `TryApplyGenericParameterConstraints`, `TryApplyDeclaredTypeConstraints` and
 `BuildGenericInterfaceConstraintMap`, including necessary dependencies, move to N# with direct
 production calls and canonical assertions. This replaces the map-only next cut; preserve attribute,
@@ -46,9 +46,17 @@ base/interface application order, partial outputs/mutations, lazy map allocation
 The actual proposed source proved one seed dependency: `GenericTypeParameterBuilder.SetInterfaceConstraints(Type[])`.
 Attribute and base setters already compile using local receivers at the original read phase; no rows
 are added for them. The single N# binding admission has positive canonical and native invocation
-controls; a privately staged candidate compiles the full production owner. Canonical application
-controls and the prerequisite integration gate are in progress. The ownership draft is preserved
-outside the tree until verified seed publication; no compiler-area acceptance is claimed.
+controls. Prerequisite `eb750c4fa` passed fresh backend gate
+`/private/tmp/gate-20260906-constraint-seed-r1` (593 unit, 7,822 canonical, 52 native projects,
+68 IL assemblies). Setup and both-feed publication passed; the packaged SDK passed 9/9 direct
+setter/integer controls with all 12 package/cache payloads matching the Release build. Receipt:
+`/private/tmp/nsharp-constraint-ownership-20260906/seed-acceptance.json`. The complete proposed
+production owner is integrated: four C# methods removed, fourteen direct N# routes, emitter −107
+lines. Fresh main canonical controls pass 56/56, existing native declarations 115/115 with baseline
+outcomes unchanged, ownership audit 18/18. Final backend gate remains required before push.
+Next substantial compiler area after this checkpoint: generic sibling-call constraint validation
+with constructor/base/interface satisfaction and recursive type-argument substitution; move complete
+methods and their necessary definition lookup/state dependencies together. Task 015 remains open.
 
 **Error-docs arc:** MERGED at `08ec08a82` (branch tip `706d37c9f`), gated green in r19 as part of `af07060ac`. See §4.11.
 
@@ -79,9 +87,9 @@ A focused slice result is not a new full-gate verdict.
 | 018 | complete — systems-analyzer policy N#-owned; box checked |
 | 019 | complete — `DocQuery.cs` deleted at `dc2c4ae20`; box checked |
 | 020 | complete at `530bfbc85` (45 slices); box checked |
-| 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
+| 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. Compiler-only completion follows the active contract above. The historical writer/type-universe/NativeAOT route remains a separate branch backlog; writer work requires a demonstrated ownership dependency |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | S2.2(a)–(l) and recorded prerequisites landed. Complete entry-point selection/wrapper owner is N#; C# −40 lines, awaiter keyed. Fresh backend gate at `efa3a8cab`: 593 unit /7,821 canonical /115 declarations; fixed 94-image corpus and strict 258/435 unchanged. Next S2.2(m): constrained-call map production. — §4.12 |
+| 023 | S2.2(a)–(l) and recorded prerequisites landed. Complete entry-point selection/wrapper owner is N#; C# −40 lines, awaiter keyed. Fresh backend gate at `efa3a8cab`: 593 unit /7,821 canonical /115 declarations; fixed 94-image corpus and strict 258/435 unchanged. Current area: complete generic-constraint application, declared-owner lifting, map production and safe-array dependency. — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -3037,6 +3045,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| Compiler constraint seed | `eb750c4fa` | Exact N# interface-constraint setter admission and canonical/direct native controls; no C# change | Full proposed source drove one required row; source-owner registration belongs in generic fixtures | Fresh backend gate: 593/7,822, 52 native projects, 68 IL assemblies; packaged SDK 9/9, 12 payloads match. [Proof](decodes/2026-09-06-generic-constraint-ownership.md) |
 | 023/S2.2(l) — entry-point realization | product `070ad0a49`; tested `efa3a8cab` | Complete selection/wrapper owner becomes N#; reached awaiter type keyed | Preserve live indexed reads, concrete first-hit fallback, partial output and wrapper phases | C# −40/−37/−2,422 bytes;22 keyed/14 handle-only; gate 461s:593/7,821/115, audit 18,68 IL; fixed 94/2,184 each and strict 258/435 equal; l1 SDK unchanged. [Proof](decodes/2026-09-06-s22l-parity-proof.md) |
 | 023/S2.2(l1) — concrete dictionary value enumerator prerequisite | product `9e1093c67`; controls/tested `6687505e4` | Exact N# builder-bound enumerator admission; no C# move | Observe actual source-builder handle; retain closed/key/value identity boundaries and concrete addressed iteration/finally | +3 canonical, +3 native; gate 448s: 593/7,816/114, audit 18, 68 IL; fixed 94/2,184 each and strict 258/434 unchanged; SDK same-source 3/3, all 12 payloads verified; emitter/ratchet unchanged. [Proof](decodes/2026-09-06-s22l1-parity-proof.md) |
 | 023/S2.2(l0) — catalog reference array prerequisite | product `05187654e`; controls/tested `71d489a5c` | N# admits catalog reference elements through the existing exact identity gate; no C# move | Preserve real array signature and operations; honest/forged identity twin; direct Array.Empty generic binding remains separate | +4 canonical, +2 native; gate 450s: 593/7,813/111, audit 18, 68 IL; fixed 94/2,184 each and strict 258/434 unchanged; SDK same-source 2/2, all 12 payloads verified; emitter/ratchet unchanged. [Proof](decodes/2026-09-06-s22l0-parity-proof.md) |

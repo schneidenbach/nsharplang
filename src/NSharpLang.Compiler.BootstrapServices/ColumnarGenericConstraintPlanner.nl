@@ -3,6 +3,9 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections
 import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
+import NSharpLang.Compiler.Columnar
 
 
 // WHAT A `where` CLAUSE BECOMES IN METADATA, DECIDED ONCE FOR BOTH GENERIC-PARAMETER OWNERS.
@@ -12,12 +15,203 @@ import System.Collections.Generic
 // rules for deriving them from a `where` clause are identical. They lived inline in the emitter's
 // FUNCTION arm and nowhere else, which is why a `class Box<T> where T: struct` emitted a type
 // parameter with `attrs=None`: the five `TypeBuilder.DefineGenericParameters` sites had no rules to
-// apply. The rules are here now, and the emitter's one CLR helper reads them for all six sites.
+// apply. N# now owns both those decisions and their CLR application, called directly at all six sites.
 class ColumnarGenericConstraintPlanner {
     static readonly emptyTypeConstraints: string[] = createEmptyTypeConstraints()
 
     static func createEmptyTypeConstraints(): string[] {
         return new string[](0)
+    }
+
+    // Preserve the caller's exact shared empty map when no row contributes a constraint. Allocation
+    // is delayed until the first non-empty row, and every reached array read stays in the same order
+    // as the historical producer: row length, map allocation, key, then the row value read again.
+    static func BuildGenericInterfaceConstraintMap(
+        typeParams: Type[],
+        interfaceConstraints: Type[][],
+        empty: IReadOnlyDictionary<Type, Type[]>
+    ): IReadOnlyDictionary<Type, Type[]> {
+        if typeParams.Length == 0 || interfaceConstraints.Length == 0 {
+            return empty
+        }
+
+        map: Dictionary<Type, Type[]>? = null
+        count := Math.Min(typeParams.Length, interfaceConstraints.Length)
+        index := 0
+        while index < count {
+            if interfaceConstraints[index].Length == 0 {
+                index = index + 1
+                continue
+            }
+
+            if map == null {
+                map = new Dictionary<Type, Type[]>()
+            }
+            key := typeParams[index]
+            value := interfaceConstraints[index]
+            map[key] = value
+            index = index + 1
+        }
+
+        if map == null {
+            return empty
+        }
+        return map
+    }
+
+    // Apply one owner's complete `where` declaration directly to its live CLR generic parameters.
+    // Outputs are allocated before any per-parameter work and intentionally retain partial writes when
+    // resolution declines or reflection throws. Circularity is checked only after every metadata write,
+    // matching the historical mutation boundary.
+    static func TryApplyGenericParameterConstraints(
+        gpBuilders: GenericTypeParameterBuilder[],
+        specialRows: int[],
+        typeConstraintRows: string[][],
+        typeParamMap: Dictionary<string, Type>,
+        ownerTypeParams: Type[],
+        typeResolution: ColumnarSemanticTypeResolution,
+        out specials: int[],
+        out baseConstraints: Type[],
+        out interfaceConstraints: Type[][]
+    ): bool {
+        specials = new int[](gpBuilders.Length)
+        baseConstraints = new Type[](gpBuilders.Length)
+        interfaceConstraints = new Type[][](gpBuilders.Length)
+        baseParamIndices := new int[](gpBuilders.Length)
+        parameterIndex := 0
+        while parameterIndex < gpBuilders.Length {
+            baseParamIndices[parameterIndex] = -1
+            specials[parameterIndex] = SpecialAt(specialRows, parameterIndex)
+            bits := AttributeBitsFor(specials[parameterIndex])
+            if bits != 0 {
+                attributeBuilder := gpBuilders[parameterIndex]
+                attributes := (GenericParameterAttributes)bits
+                attributeBuilder.SetGenericParameterAttributes(attributes)
+            }
+
+            interfaces := new List<Type>()
+            constraintTexts := TypeConstraintsAt(typeConstraintRows, parameterIndex)
+            constraintIndex := 0
+            while constraintIndex < constraintTexts.Length {
+                text := constraintTexts[constraintIndex]
+                constraintType: Type = null
+                if !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+                    text,
+                    typeParamMap,
+                    typeResolution.Enums,
+                    typeResolution.Structs,
+                    typeResolution.Unions,
+                    out constraintType
+                ) {
+                    return false
+                }
+
+                isParameter := constraintType.get_IsGenericParameter()
+                ignoredInterface: ColumnarStructDef? = null
+                isSourceInterface := false
+                isRuntimeInterface := false
+                isBuilder := false
+                isValueType := false
+                isAssemblyBuilderBacked := false
+                isSzArray := false
+                isClass := false
+                if !isParameter {
+                    isSourceInterface = ColumnarSourceDefinitionResolver.TryResolveInterface(
+                        constraintType,
+                        typeResolution.Structs.Values,
+                        out ignoredInterface
+                    )
+                    isRuntimeInterface = ColumnarBaseTypePlanner.IsRuntimeInterfaceType(constraintType)
+                    isBuilder = constraintType is TypeBuilder
+                    isValueType = constraintType.get_IsValueType()
+                    isAssemblyBuilderBacked = constraintType.get_Assembly() is AssemblyBuilder
+                    isSzArray = ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(constraintType)
+                    isClass = constraintType.get_IsClass()
+                }
+                kind := ClassifyConstraint(
+                    isParameter,
+                    isSourceInterface,
+                    isRuntimeInterface,
+                    isBuilder,
+                    isValueType,
+                    isAssemblyBuilderBacked,
+                    isSzArray,
+                    isClass
+                )
+                if kind == ConstraintKindInterface() {
+                    interfaces.Add(constraintType)
+                    constraintIndex = constraintIndex + 1
+                    continue
+                }
+                if kind == ConstraintKindRefused() || baseConstraints[parameterIndex] != null {
+                    return false
+                }
+                if isParameter {
+                    ownerIndex := 0
+                    while ownerIndex < ownerTypeParams.Length {
+                        if Object.ReferenceEquals(ownerTypeParams[ownerIndex], constraintType) {
+                            baseParamIndices[parameterIndex] = ownerIndex
+                            break
+                        }
+                        ownerIndex = ownerIndex + 1
+                    }
+                    if baseParamIndices[parameterIndex] < 0 {
+                        return false
+                    }
+                }
+                baseBuilder := gpBuilders[parameterIndex]
+                baseBuilder.SetBaseTypeConstraint(constraintType)
+                baseConstraints[parameterIndex] = constraintType
+                constraintIndex = constraintIndex + 1
+            }
+
+            interfaceConstraints[parameterIndex] = interfaces.ToArray()
+            if interfaces.Count > 0 {
+                interfaceBuilder := gpBuilders[parameterIndex]
+                interfaceBuilder.SetInterfaceConstraints(interfaceConstraints[parameterIndex])
+            }
+            parameterIndex = parameterIndex + 1
+        }
+        return !HasCircularConstraint(baseParamIndices)
+    }
+
+    // Type declarations carry their generic builders in a name map. Preserve the early null return,
+    // then lift every parameter in declared order before entering the shared application path.
+    static func TryApplyDeclaredTypeConstraints(
+        typeParamNames: string[],
+        genericParams: Dictionary<string, Type>?,
+        specials: int[],
+        typeConstraints: string[][],
+        typeResolution: ColumnarSemanticTypeResolution
+    ): bool {
+        if genericParams == null {
+            return true
+        }
+
+        builders := new GenericTypeParameterBuilder[](typeParamNames.Length)
+        index := 0
+        while index < builders.Length {
+            parameterName := typeParamNames[index]
+            parameterType: object = genericParams[parameterName]
+            builder := (GenericTypeParameterBuilder)parameterType
+            builders[index] = builder
+            index = index + 1
+        }
+
+        appliedSpecials: int[] = null
+        appliedBases: Type[] = null
+        appliedInterfaces: Type[][] = null
+        return TryApplyGenericParameterConstraints(
+            builders,
+            specials,
+            typeConstraints,
+            genericParams,
+            builders,
+            typeResolution,
+            out appliedSpecials,
+            out appliedBases,
+            out appliedInterfaces
+        )
     }
 
     // Resolve the constraints used by a constrained receiver without rebuilding the declaration

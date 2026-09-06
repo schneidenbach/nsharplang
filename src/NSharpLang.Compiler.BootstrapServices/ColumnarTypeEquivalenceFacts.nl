@@ -29,6 +29,26 @@ import System.Reflection.Emit
 // out of `IsByRef`, `IsSZArray`, `GetElementType` and `TypeHandle` while the type graph is still
 // unbaked, and an identity predicate that throws mid-emit is not a decline — it is a crash.
 class ColumnarTypeEquivalenceFacts {
+
+    // The emitter asks this narrower question when an unsupported reflection surface must mean
+    // "not an SZ array". Keep the generic-parameter guard outside the catches: a failure while
+    // identifying the parameter is meaningful, while only the two historical IsSZArray failures
+    // are converted to false. This intentionally differs from IsSzArrayType below, whose identity
+    // work uses a name-and-element fallback when reflection cannot answer.
+    static func IsSafeSzArrayType(candidate: Type): bool {
+        if candidate.get_IsGenericParameter() {
+            return false
+        }
+
+        try {
+            return candidate.get_IsSZArray()
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
+    }
+
     static func TypesEquivalent(a: Type, b: Type): bool {
         if a == b {
             return true

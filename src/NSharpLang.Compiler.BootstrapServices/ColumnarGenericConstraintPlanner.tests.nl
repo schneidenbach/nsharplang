@@ -7,11 +7,9 @@ import NSharpLang.Compiler.Columnar
 
 // THE RULES THAT TURN A `where` CLAUSE INTO METADATA, CROSSED WITHOUT AN EMITTER.
 //
-// These lived inline in `ColumnarIlEmitter`'s FUNCTION arm and nowhere else, which is exactly why a
-// `class Box<T> where T: struct` emitted a type parameter with `attrs=None` — the five
-// `TypeBuilder.DefineGenericParameters` sites had no rules to apply. Lifting them here is what let one
-// C# helper serve the method site and the type sites, and it is what makes them assertable at all: an
-// emitter arm can only be crossed by emitting.
+// The planner now owns both the rules and the complete live CLR application for every generic-parameter
+// owner. The historical inline emitter arm left type declarations without the `where T: struct` metadata;
+// these controls retain the rule-level proof while application controls cover the setters and failure edges.
 
 // ── The attribute word ──────────────────────────────────────────────────────────────────────────
 test "each special constraint maps to its own CLR attribute bit" {

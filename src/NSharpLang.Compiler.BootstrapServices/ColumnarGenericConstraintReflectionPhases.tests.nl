@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import NSharpLang.Compiler.Columnar
 
 
 // HOSTILE TYPE METADATA, BUILT AS REAL CLR OVERRIDES.
@@ -51,7 +52,7 @@ func GenericConstraintEmitProbeFailure(il: ILGenerator, failureKind: int): bool 
     return false
 }
 
-func GenericConstraintReflectionProbeType(
+func GenericConstraintReflectionProbeTypeCore(
     typeName: string,
     delegatedType: Type,
     trace: List<int>,
@@ -63,7 +64,9 @@ func GenericConstraintReflectionProbeType(
     parameterPosition: int,
     positionFailure: int,
     constraints: Type[],
-    constraintsFailure: int
+    constraintsFailure: int,
+    isSzArray: bool,
+    szArrayFailure: int
 ): Type {
     owner := TypeOfCreateBuilder(
         typeName,
@@ -117,6 +120,25 @@ func GenericConstraintReflectionProbeType(
         isGenericIl.Emit(OpCodes.Ret)
     }
     owner.DefineMethodOverride(isGenericImplementation, isGenericTarget)
+
+    szArrayTarget := SourceDiscoveryTimingRequiredGetter(typeof(Type), "IsSZArray")
+    szArrayImplementation := owner.DefineMethod(
+        "get_IsSZArray",
+        (MethodAttributes)2246,
+        typeof(bool),
+        noParameters
+    )
+    szArrayIl := TypeOfMethodBuilderIL(szArrayImplementation)
+    GenericConstraintEmitProbeTrace(szArrayIl, traceField, probeIndex * 10 + 5)
+    if !GenericConstraintEmitProbeFailure(szArrayIl, szArrayFailure) {
+        if isSzArray {
+            szArrayIl.Emit(OpCodes.Ldc_I4_1)
+        } else {
+            szArrayIl.Emit(OpCodes.Ldc_I4_0)
+        }
+        szArrayIl.Emit(OpCodes.Ret)
+    }
+    owner.DefineMethodOverride(szArrayImplementation, szArrayTarget)
 
     nameTarget := SourceDiscoveryTimingRequiredGetter(typeof(Type), "Name")
     nameImplementation := owner.DefineMethod(
@@ -178,6 +200,72 @@ func GenericConstraintReflectionProbeType(
     return probe
 }
 
+func GenericConstraintReflectionProbeType(
+    typeName: string,
+    delegatedType: Type,
+    trace: List<int>,
+    probeIndex: int,
+    isGenericParameter: bool,
+    isGenericFailure: int,
+    parameterName: string,
+    nameFailure: int,
+    parameterPosition: int,
+    positionFailure: int,
+    constraints: Type[],
+    constraintsFailure: int
+): Type {
+    return GenericConstraintReflectionProbeTypeCore(
+        typeName,
+        delegatedType,
+        trace,
+        probeIndex,
+        isGenericParameter,
+        isGenericFailure,
+        parameterName,
+        nameFailure,
+        parameterPosition,
+        positionFailure,
+        constraints,
+        constraintsFailure,
+        false,
+        0
+    )
+}
+
+func GenericConstraintReflectionSafeSzArrayProbeType(
+    typeName: string,
+    delegatedType: Type,
+    trace: List<int>,
+    probeIndex: int,
+    isGenericParameter: bool,
+    isGenericFailure: int,
+    parameterName: string,
+    nameFailure: int,
+    parameterPosition: int,
+    positionFailure: int,
+    constraints: Type[],
+    constraintsFailure: int,
+    isSzArray: bool,
+    szArrayFailure: int
+): Type {
+    return GenericConstraintReflectionProbeTypeCore(
+        typeName,
+        delegatedType,
+        trace,
+        probeIndex,
+        isGenericParameter,
+        isGenericFailure,
+        parameterName,
+        nameFailure,
+        parameterPosition,
+        positionFailure,
+        constraints,
+        constraintsFailure,
+        isSzArray,
+        szArrayFailure
+    )
+}
+
 func GenericConstraintProbeTraceText(actual: List<int>): string {
     result := ""
     index := 0
@@ -189,6 +277,124 @@ func GenericConstraintProbeTraceText(actual: List<int>): string {
         index += 1
     }
     return result
+}
+
+test "safe SZ-array classification keeps its generic guard outside the catches and catches only the two legacy faults" {
+    assert ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(typeof(int[]))
+    assert !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(typeof(int).MakeArrayType(2))
+    genericOwner := TypeOfCreateBuilder(
+        "SafeSzArrayGenericParameter",
+        "ColumnarGenericConstraintReflectionPhases.SafeSzArrayGenericParameter",
+        1
+    )
+    genericParameter := genericOwner.GetGenericArguments()[0]
+    assert genericParameter.get_IsGenericParameter()
+    assert !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(genericParameter)
+
+    noConstraints := new Type[](0)
+    guardedTrace := new List<int>()
+    guarded := GenericConstraintReflectionSafeSzArrayProbeType(
+        "SafeSzArrayGuarded",
+        typeof(int),
+        guardedTrace,
+        1,
+        true,
+        0,
+        "T",
+        0,
+        0,
+        0,
+        noConstraints,
+        0,
+        true,
+        3
+    )
+    assert !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(guarded)
+    assert GenericConstraintProbeTraceText(guardedTrace) == "11"
+
+    genericFailureTrace := new List<int>()
+    genericFailure := GenericConstraintReflectionSafeSzArrayProbeType(
+        "SafeSzArrayGenericFailure",
+        typeof(int),
+        genericFailureTrace,
+        2,
+        false,
+        1,
+        "T",
+        0,
+        0,
+        0,
+        noConstraints,
+        0,
+        false,
+        0
+    )
+    assert throws NotSupportedException {
+        ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(genericFailure)
+    }
+    assert GenericConstraintProbeTraceText(genericFailureTrace) == "21"
+
+    notSupportedTrace := new List<int>()
+    notSupported := GenericConstraintReflectionSafeSzArrayProbeType(
+        "SafeSzArrayNotSupported",
+        typeof(int),
+        notSupportedTrace,
+        3,
+        false,
+        0,
+        "T",
+        0,
+        0,
+        0,
+        noConstraints,
+        0,
+        false,
+        1
+    )
+    assert !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(notSupported)
+    assert GenericConstraintProbeTraceText(notSupportedTrace) == "31,35"
+
+    notImplementedTrace := new List<int>()
+    notImplemented := GenericConstraintReflectionSafeSzArrayProbeType(
+        "SafeSzArrayNotImplemented",
+        typeof(int),
+        notImplementedTrace,
+        4,
+        false,
+        0,
+        "T",
+        0,
+        0,
+        0,
+        noConstraints,
+        0,
+        false,
+        2
+    )
+    assert !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(notImplemented)
+    assert GenericConstraintProbeTraceText(notImplementedTrace) == "41,45"
+
+    otherTrace := new List<int>()
+    other := GenericConstraintReflectionSafeSzArrayProbeType(
+        "SafeSzArrayOtherFailure",
+        typeof(int),
+        otherTrace,
+        5,
+        false,
+        0,
+        "T",
+        0,
+        0,
+        0,
+        noConstraints,
+        0,
+        false,
+        3
+    )
+    assert throws InvalidOperationException {
+        ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(other)
+    }
+    assert GenericConstraintProbeTraceText(otherTrace) == "51,55"
 }
 
 test "call constraints retain the exact raw reflection array" {

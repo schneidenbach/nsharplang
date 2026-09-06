@@ -34,6 +34,7 @@ force unrelated compiler ownership migrations to wait.
   policy/tests. Semantic invocation candidate/selection facts are only a source-reviewed potential
   dependency until an actual proposed-source probe demonstrates it. No compiler/model changes claimed.
 - SDK configuration lane, `codex/sdk-config-owner`, is isolated with exact SDK configuration/reference
-  task and SDK-specific N# file claims. Configuration commit `b2132a8a` is reported with 5 canonical
-  tests and one private package/template integration test passing; shared integration is not accepted.
-  Reference-task work continues independently. No shared feed publication accepted here.
+  task and SDK-specific N# file claims. Ready commits `b2132a8a1` and `aecdb052c`
+  are reported clean with 9/9 canonical tests and 1/1 private package/template/build/run/invalid-config
+  integration passing. Shared integration and publication remain pending; neither commit is part
+  of this compiler checkpoint.
