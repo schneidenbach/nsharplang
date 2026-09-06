@@ -15,7 +15,10 @@ IsZeroParamSynthesizedInitializer, HasCallableConstructor, EmitCtorBaseChain,
 ResolveExactBaseConstructor, EmitInstanceInitializerCall, IsValidReferenceCtorBody and
 EmitChainedConstructorCall. Route every remaining caller directly. Preserve original declaration,
 lookup, validation, mutation, diagnostic and IL evaluation/failure order, including partial emission.
-Move necessary helpers with these callers; add no C# compiler behavior, tests, helper, adapter,
+The chained-call dependency also moves the complete EmitLoadArgument/EmitStoreArgument/
+EmitLoadArgumentAddress group and routes all remaining callers; do not duplicate their opcode
+decisions in N# while retaining the C# definitions. Move necessary helpers with these callers;
+add no C# compiler behavior, tests, helper, adapter,
 decision callback or fallback. Existing N# field-init/default/type/coercion owners stay authoritative.
 
 General recursive body emission and Pass 2 body orchestration remain explicit compiler debt.
