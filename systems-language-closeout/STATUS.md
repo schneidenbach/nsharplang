@@ -38,22 +38,21 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
-**Active area, complete static-field initializer emission:** move the `.cctor` driver together with
-`TryEmitStaticFieldInitializerLoad`, `TryEmitStaticFieldExpressionInitializerLoad`,
-`TryParseParameterlessStaticInitializerCall`, `IsSimpleIdentifierText`,
-`TryEmitStaticFieldLiteralInitializerLoad`, `TryParseFloatingLiteralBody` and the identifier helper’s
-other caller `IsSupportedGenericExtensionReceiverChainText`. This includes owner identity filtering,
-lazy type-initializer creation, load/store/declaration order and final Ret, not just literal emission.
-Move necessary pending-initializer/sibling registry state with callers if actual N# source proves it
-necessary; add no C# decisions, projections, callbacks or fallback. Sol Max owns production and
-canonical end-to-end migration, Terra Max direct canonical controls, Astra review/integration.
-Baseline clean/pushed `4269be784`; verified immutable CLI and prior gate receipt under
-`/private/tmp/nsharp-static-initializer-ownership-20260906/baseline.json`.
-[Boundary](decodes/2026-09-06-static-initializer-ownership.md). Full-source compilation must prove
-any prerequisite. The four proven BCL call prerequisites are integrated at `9b01b93bf`; fresh
-backend gate449s590/7,854/52native/12throughput/68IL and normal packaged probe3/3 passed.
-All12 SDK/cache payloads match the published seed. The complete owner resumes against that seed;
-the selected area and compiler-only goal remain active.
+**Accepted area, complete static-field initializer emission:** integrated `a81ec8de9` removes the
+C# `.cctor` driver and seven connected helper decisions, including the identifier predicate’s
+receiver-chain callback. Three production calls route directly to N#. Pending initializer and sibling
+signature state is N#-owned; the remaining C# producer/parameter changes are mechanical. Literal
+semantics, owner identity, lazy creation, declaration/load/store order, lookup/failure phases and
+exact BCL calls are preserved. Six direct canonical controls pass; three native runtime/metadata
+contracts close the historical coverage gap, with identical baseline/candidate selected 6/6.
+Emitter 18,447→18,213 lines and 17,532→17,308 nonblank; 380 other rows and all epoch ceilings unchanged.
+Ratchet head `head-v1:109c7a7ac6bb731e`; ownership audit 18/18. Fresh final backend gate at
+`c0aaf154` passed in 447s: 590 unit / 7,860 canonical / 52 native projects / 12 throughput / 68 IL; 121 native
+declaration controls, SDK/templates/examples green. [Boundary and evidence](decodes/2026-09-06-static-initializer-ownership.md).
+Proven prerequisite seed `9b01b93bf` separately passed its 449s fresh gate and normal package probe 3/3;
+all 12 live SDK/cache payloads remain unchanged after owner integration. The compiler-only goal remains
+active. Next substantial area to assess: complete method/constructor parameter metadata emission,
+including optional/default flags, constant assignment and source/external enum-default resolution.
 
 **Accepted area, generic-call binding and return substitution:** moved complete `TryUnifyTypeParam`,
 `TryUnifyGenericCallArgument`, `TryUnifyGenericContainer`, `TrySubstituteReturnType` and their

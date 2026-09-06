@@ -86,4 +86,7 @@ Root independently reviewed emitted IL and source; primitive equality, unchecked
 exact BCL calls, lookup failures, lazy construction and load/store/Ret sequencing are preserved.
 Integrated dev build passed. Emitter shrinks 18,447→18,213 lines and 17,532→17,308 nonblank;
 all 380 other ratchet rows and all epoch values remain unchanged. New head is
-`head-v1:109c7a7ac6bb731e`. Final integration verification remains pending.
+`head-v1:109c7a7ac6bb731e`. Fresh final backend gate at `c0aaf154` passed in 447s: 590 unit, 7,860 canonical, 52 native
+projects (including 121 declaration controls), 12 throughput cells and 68 IL assemblies.
+SDK/templates/examples passed. All 12 live accepted-seed payloads remain unchanged. The selected
+static-initializer area is accepted; remaining compiler-wide C# ownership stays open.
