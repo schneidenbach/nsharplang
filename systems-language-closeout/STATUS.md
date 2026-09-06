@@ -43,7 +43,12 @@ construction: `TryApplyGenericParameterConstraints`, `TryApplyDeclaredTypeConstr
 `BuildGenericInterfaceConstraintMap`, including necessary dependencies, move to N# with direct
 production calls and canonical assertions. This replaces the map-only next cut; preserve attribute,
 base/interface application order, partial outputs/mutations, lazy map allocation and shared identity.
-No new seed or metadata writer is presumed necessary. This is not an acceptance claim.
+The actual proposed source proved one seed dependency: `GenericTypeParameterBuilder.SetInterfaceConstraints(Type[])`.
+Attribute and base setters already compile using local receivers at the original read phase; no rows
+are added for them. The single N# binding admission has positive canonical and native invocation
+controls; a privately staged candidate compiles the full production owner. Canonical application
+controls and the prerequisite integration gate are in progress. The ownership draft is preserved
+outside the tree until verified seed publication; no compiler-area acceptance is claimed.
 
 **Error-docs arc:** MERGED at `08ec08a82` (branch tip `706d37c9f`), gated green in r19 as part of `af07060ac`. See §4.11.
 

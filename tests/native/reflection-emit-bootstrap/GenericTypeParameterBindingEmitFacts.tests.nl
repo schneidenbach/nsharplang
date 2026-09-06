@@ -8,6 +8,13 @@ func GenericTypeParameterBindingRequire(condition: bool, description: string) {
     }
 }
 
+test "GenericTypeParameterBuilder applies ordered interface constraints through the direct setter" {
+    constraints := GenericTypeParameterBindingEmitFacts.EmitInterfaceConstraints()
+    GenericTypeParameterBindingRequire(constraints.Length == 2, "The baked parameter did not retain both interface constraints.")
+    GenericTypeParameterBindingRequire(Object.ReferenceEquals(constraints[0], typeof(IComparable)), "The first interface constraint lost its metadata identity or order.")
+    GenericTypeParameterBindingRequire(Object.ReferenceEquals(constraints[1], typeof(IFormattable)), "The second interface constraint lost its metadata identity or order.")
+}
+
 test "TypeBuilder declares generic parameters as Type values consumed by fields and a closed runtime type" {
     evidence := GenericTypeParameterBindingEmitFacts.EmitAndConsume()
     GenericTypeParameterBindingRequire(evidence.ParameterCount == 2, "DefineGenericParameters did not return two elements.")

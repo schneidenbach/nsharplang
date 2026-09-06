@@ -88,6 +88,28 @@ class GenericTypeParameterBindingEmitFacts {
         return field
     }
 
+    // Keep the setter call direct so this fixture proves the compiler can bind and execute the exact
+    // Reflection.Emit surface used when an N# `where` clause names interfaces. The baked parameter
+    // then lets the test read the metadata through the ordinary Type API.
+    static func EmitInterfaceConstraints(): Type[] {
+        owner := LdftnContinuationEmitFacts.CreateOwner("GenericInterfaceConstraintOwner`1")
+        names := new string[](1)
+        names[0] = "T"
+        parameters := owner.DefineGenericParameters(names)
+        constraints := new Type[](2)
+        constraints[0] = typeof(IComparable)
+        constraints[1] = typeof(IFormattable)
+        builder := parameters[0]
+        builder.SetInterfaceConstraints(constraints)
+
+        baked := LdftnContinuationEmitFacts.Bake(owner)
+        bakedParameters := baked.GetGenericArguments()
+        if bakedParameters.Length != 1 {
+            throw new InvalidOperationException("The interface-constraint fixture did not retain one generic parameter.")
+        }
+        return bakedParameters[0].GetGenericParameterConstraints()
+    }
+
     static func EmitAndConsume(): GenericTypeParameterBindingEvidence {
         owner := LdftnContinuationEmitFacts.CreateOwner("GenericTypeParameterBindingOwner`2")
         ownerType: Type = owner

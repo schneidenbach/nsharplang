@@ -660,6 +660,10 @@ class ColumnarExternalBindingPlans {
             return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.Emit.GenericTypeParameterBuilder[]")
         }
 
+        if receiver == "System.Reflection.Emit.GenericTypeParameterBuilder" && memberName == "SetInterfaceConstraints" && count == 1 && argumentTypeNames[0] == "System.Type[]" {
+            return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
+        }
+
         if receiver == "System.Reflection.Emit.LocalBuilder" && memberName == "get_LocalType" && count == 0 {
             return VirtualCall(receiver, memberName, Empty(), "System.Type")
         }

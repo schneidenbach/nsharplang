@@ -676,6 +676,55 @@ test "generic parameter declaration owns the exact TypeBuilder signature" {
     ).IsSupported
 }
 
+test "generic parameter interface constraints own the exact reflection emit setter signature" {
+    interfaces := new string[](1)
+    interfaces[0] = "System.Type[]"
+    AssertVirtualCall(
+        "System.Reflection.Emit.GenericTypeParameterBuilder",
+        "SetInterfaceConstraints",
+        interfaces,
+        "System.Void"
+    )
+
+    wrongInterfaceType := new string[](1)
+    wrongInterfaceType[0] = "System.Type"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.GenericTypeParameterBuilder",
+        "SetInterfaceConstraints",
+        wrongInterfaceType
+    ).IsSupported
+
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "SetInterfaceConstraints",
+        interfaces
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "GenericTypeParameterBuilder",
+        "SetInterfaceConstraints",
+        interfaces
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.GenericTypeParameterBuilder",
+        "setInterfaceConstraints",
+        interfaces
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.GenericTypeParameterBuilder",
+        "SetInterfaceConstraints",
+        new string[](0)
+    ).IsSupported
+
+    tooMany := new string[](2)
+    tooMany[0] = "System.Type[]"
+    tooMany[1] = "System.Type[]"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.GenericTypeParameterBuilder",
+        "SetInterfaceConstraints",
+        tooMany
+    ).IsSupported
+}
+
 test "generic parameter declaration retains the actual BCL return array identity" {
     signature := new Type[](1)
     signature[0] = typeof(string[])

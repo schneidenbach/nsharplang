@@ -19,3 +19,21 @@ in STATUS.md and their numbered tasks; this separation does not mark any initiat
 Compiler reference/metadata resolution and code generation themselves remain in the active compiler
 objective, regardless of which historical task records them. Historical writer/AOT ordering cannot
 force unrelated compiler ownership migrations to wait.
+
+## Independent lane reports (2026-09-06; not compiler-goal acceptance)
+
+- CLI query lane, `codex/cli-query-owner`: complete query-doc deletion is blocked on the proposed
+  `Lazy<T>(Func<T>)` construction; both the accepted seed and freshly built lane CLI decline the
+  actual source at `emit.local.initializer`. Source/log: `/tmp/cli-query-probes/lazy/`; full proposed
+  slice preserved in `/tmp/cli-query-probes/proposed-slice`. Seven native contracts pass against the
+  baseline, which is not migration acceptance. Hover additionally lacks daemon enum/admission/server
+  dispatch and cannot directly call the current internal C# `CompilationReferenceResolver` boundary
+  (actual source/log `/tmp/cli-query-probes/hover-boundary/`). Tracked work was restored buildable;
+  no migrated ownership or commit claimed. These prerequisites are not part of the constraint seed.
+- Signature-help lane, `codex/signature-help-owner`, is isolated and investigating editor-owned
+  policy/tests. Semantic invocation candidate/selection facts are only a source-reviewed potential
+  dependency until an actual proposed-source probe demonstrates it. No compiler/model changes claimed.
+- SDK configuration lane, `codex/sdk-config-owner`, is isolated with exact SDK configuration/reference
+  task and SDK-specific N# file claims. Configuration commit `b2132a8a` is reported with 5 canonical
+  tests and one private package/template integration test passing; shared integration is not accepted.
+  Reference-task work continues independently. No shared feed publication accepted here.
