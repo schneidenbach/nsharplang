@@ -1097,6 +1097,83 @@ test "static call plans own exact CLR overloads" {
     )
 }
 
+// Static field literal emission uses these exact by-reference BCL calls.  They stay separate from
+// the existing Int32 and provider-only Double rows: the output element identity and the NumberStyles
+// position select different overloads, and broadening either would let the host decide again.
+test "static call plans bind exact Int64 UInt64 and styled Double TryParse overloads" {
+    signedArguments := new string[](2)
+    signedArguments[0] = "System.String"
+    signedArguments[1] = "System.Int64&"
+    AssertStaticCall(
+        "Int64",
+        "TryParse",
+        signedArguments,
+        signedArguments,
+        "System.Int64",
+        "System.Boolean"
+    )
+
+    unsignedArguments := new string[](2)
+    unsignedArguments[0] = "System.String"
+    unsignedArguments[1] = "System.UInt64&"
+    AssertStaticCall(
+        "UInt64",
+        "TryParse",
+        unsignedArguments,
+        unsignedArguments,
+        "System.UInt64",
+        "System.Boolean"
+    )
+
+    styledDoubleSelection := new string[](4)
+    styledDoubleSelection[0] = "System.String"
+    styledDoubleSelection[1] = "System.Globalization.NumberStyles"
+    styledDoubleSelection[2] = "System.Globalization.CultureInfo"
+    styledDoubleSelection[3] = "System.Double&"
+    styledDoubleParameters := new string[](4)
+    styledDoubleParameters[0] = "System.String"
+    styledDoubleParameters[1] = "System.Globalization.NumberStyles"
+    styledDoubleParameters[2] = "System.IFormatProvider"
+    styledDoubleParameters[3] = "System.Double&"
+    AssertStaticCall(
+        "Double",
+        "TryParse",
+        styledDoubleSelection,
+        styledDoubleParameters,
+        "System.Double",
+        "System.Boolean"
+    )
+
+    wrongSignedOutput := new string[](2)
+    wrongSignedOutput[0] = "System.String"
+    wrongSignedOutput[1] = "System.UInt64&"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "Int64",
+        "TryParse",
+        wrongSignedOutput
+    ).IsSupported
+
+    wrongUnsignedOutput := new string[](2)
+    wrongUnsignedOutput[0] = "System.String"
+    wrongUnsignedOutput[1] = "System.Int64&"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "UInt64",
+        "TryParse",
+        wrongUnsignedOutput
+    ).IsSupported
+
+    wrongStyledDoubleOutput := new string[](4)
+    wrongStyledDoubleOutput[0] = "System.String"
+    wrongStyledDoubleOutput[1] = "System.Globalization.NumberStyles"
+    wrongStyledDoubleOutput[2] = "System.Globalization.CultureInfo"
+    wrongStyledDoubleOutput[3] = "System.Single&"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
+        "Double",
+        "TryParse",
+        wrongStyledDoubleOutput
+    ).IsSupported
+}
+
 test "static call plans own String.Join over string sequences with the enumerable overload" {
     listArguments := new string[](2)
     listArguments[0] = "System.String"

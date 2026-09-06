@@ -443,12 +443,23 @@ class ColumnarExternalBindingPlans {
             }
         }
 
+        if typeName == "Int64" && memberName == "TryParse" && count == 2 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.Int64&" {
+            return StaticCall("System.Int64", memberName, Two("System.String", "System.Int64&"), "System.Boolean")
+        }
+
+        if typeName == "UInt64" && memberName == "TryParse" && count == 2 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.UInt64&" {
+            return StaticCall("System.UInt64", memberName, Two("System.String", "System.UInt64&"), "System.Boolean")
+        }
+
         if typeName == "Double" {
             if memberName == "Parse" && count == 2 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.Globalization.CultureInfo" {
                 return StaticCall("System.Double", memberName, Two("System.String", "System.IFormatProvider"), "System.Double")
             }
             if memberName == "TryParse" && count == 3 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.Globalization.CultureInfo" && argumentTypeNames[2] == "System.Double&" {
                 return StaticCall("System.Double", memberName, Three("System.String", "System.IFormatProvider", "System.Double&"), "System.Boolean")
+            }
+            if memberName == "TryParse" && count == 4 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.Globalization.NumberStyles" && argumentTypeNames[2] == "System.Globalization.CultureInfo" && argumentTypeNames[3] == "System.Double&" {
+                return StaticCall("System.Double", memberName, Four("System.String", "System.Globalization.NumberStyles", "System.IFormatProvider", "System.Double&"), "System.Boolean")
             }
         }
 
@@ -1077,6 +1088,15 @@ class ColumnarExternalBindingPlans {
         values[0] = first
         values[1] = second
         values[2] = third
+        return values
+    }
+
+    static func Four(first: string, second: string, third: string, fourth: string): string[] {
+        values := new string[](4)
+        values[0] = first
+        values[1] = second
+        values[2] = third
+        values[3] = fourth
         return values
     }
 
