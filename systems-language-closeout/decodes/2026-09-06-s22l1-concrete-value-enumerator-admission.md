@@ -31,7 +31,7 @@ handle while the ordinary collection and enumerator protocol predicates remain f
 `/private/tmp/nsharp-s22l1-executor-logs/candidate-payload-02/`; the focused receipt is
 `/private/tmp/nsharp-s22l1-executor-logs/forced-enumerator-final-02/receipt.json`.
 
-No C# owner, entry-point policy, SDK, feed or ownership ratchet changes in this prerequisite. The
-complete [S2.2(l) entry-point owner](2026-09-06-s22l-entrypoint-next-cut.md) remains parked until root
-accepts this compiler capability through its independent controls, immutable comparisons, fresh
-backend gate and verified SDK publication.
+No C# owner, entry-point policy or ownership ratchet changes in the product commit. Root accepted
+this capability at tested `6687505e4` through independent controls, immutable comparisons, a fresh
+backend gate and same-source SDK verification 3/3. [Acceptance proof](2026-09-06-s22l1-parity-proof.md).
+The complete [S2.2(l) entry-point owner](2026-09-06-s22l-entrypoint-next-cut.md) remains the next cut.

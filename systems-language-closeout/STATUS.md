@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(k)** and g0/g1/j0/j1/l0 prerequisites landed. Catalog reference arrays are admitted by the existing N# identity gate; C# and the ratchet are unchanged. Fresh backend gate at `71d489a5c`: 593 unit /7,813 canonical /111 declarations; verified SDK executes both exact-array controls. Fixed 94-image corpus and strict 258/434 unchanged. Next S2.2(l1): required concrete value-enumerator storage, then the complete S2.2(l) entry-point owner and keyed awaiter local. — §4.12 |
+| 023 | S2.2(a)–(k) and g0/g1/j0/j1/l0/l1 prerequisites landed. N# admits concrete dictionary value enumerators through the existing builder arm; C# and ratchet unchanged. Fresh backend gate at `6687505e4`: 593 unit /7,816 canonical /114 declarations; published SDK same-source 3/3. Fixed 94-image corpus and strict 258/434 unchanged. Next complete S2.2(l) entry-point owner and keyed awaiter local. — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,51 +123,46 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** [S2.2(l1)](decodes/2026-09-06-s22l1-concrete-value-enumerator-prerequisite.md),
-the measured concrete dictionary value-enumerator storage prerequisite. The verified l0 SDK admits
-the exact array input, but the direct Values.GetEnumerator local in the resumed entry-point draft
-is refused before tests. Observe its actual type/argument identities and admission arm, complete the
-N# correction and runtime controls, then gate and verify the published SDK before l consumes it.
-The complete 56-line C# entry-point owner remains unchanged. Next is the parked
-[S2.2(l) cut](decodes/2026-09-06-s22l-entrypoint-next-cut.md) with its reached keyed awaiter local.
+**Next writer slice:** [S2.2(l)](decodes/2026-09-06-s22l-entrypoint-next-cut.md),
+the complete assembly entry-point selection/wrapper owner and its reached keyed awaiter local.
+The exact array and concrete value-enumerator prerequisites l0/l1 are accepted and SDK-verified.
+Refresh the parked l draft from the accepted l1 source and verified seed, retaining all four WIP
+files and existing l control evidence. The complete 56-line C# block remains the production owner.
 Remaining call/type/local/maxstack, S2.3–S2.6, 022/5 NativeAOT and final audit stay open.
 
-**Goal checkpoint (2026-09-06):** S2.2(l0), product `05187654e` (Sol `30e8a5d5`), controls and tested
-source **`71d489a5c6423a2cf78c8444dae36ee2e688c6fc`** (Terra `f2c0317c`). The existing N# element
-predicate now admits ordinary catalog reference classes/interfaces through its exact identity gate.
-`List<int>`/`Queue<int>` limitation assertions intentionally become positive; open definitions, runtime
-pointer/byref/void, rank-two and excluded value types remain negative. Existing source-builder and
-generic-parameter allowances remain separate from rejected builder-bound closures. No C# changes:
-emitter **18,923 lines /17,984 nonblank /985,534 bytes**; AddType **36 /12 files /21 keyed /15 handle-only**;
-all 381 ratchet rows and `head-v1:70a30ce31ead17ba` remain unchanged.
+**Goal checkpoint (2026-09-06):** S2.2(l1), product `9e1093c678046aca2511dbf5c0b33ee4bc6fa2f0` (Sol `ac1bb29ae`),
+controls and tested source **`6687505e48fd6384a2273c5a9445d1812def99a8`**. The existing N# builder-bound type-admission arm now
+accepts the exact BCL Dictionary value enumerator with closed supported arguments. The helper
+preserves Dictionary key/value rules, including source values and rejection of non-enum source keys, open
+arguments and unsupported key shapes. Catalog policy and C# are unchanged: emitter **18,923 lines
+/17,984 nonblank /985,534 bytes**; AddType **36 /12 files /21 keyed /15 handle-only**; all 381 ratchet
+rows and `head-v1:70a30ce31ead17ba` remain unchanged.
 
-Four new canonical controls distinguish genuine and forged catalog identity, including an honest
-TypeDelegator twin. Two native controls prove the exact Dictionary array parameter/return, allocation,
-indexed read/write, iteration, array/element identity, Array.Fill and CLR null/bounds failures. The
-accepted-k compiler refuses this exact final native source before tests; the immutable candidate
-passes **111/111**. Forced producer estate **7,809/7,809**, focused new canonical **4/4**, no skips.
-The initial zero-selection invocation is compile evidence only; actual nonzero TRX and launch
-amendment are retained. The explicit `Array.Empty<Dictionary<string,Type>>()` binding refusal remains
-a separate limitation; l0 does not claim it fixed.
+The actual failing initializer was a `TypeBuilderInstantiation` over runtime string and a source
+`TypeBuilderImpl`; the existing builder arm returned false before catalog lookup. One producer and
+two independent canonical controls pass. Three native controls prove first-hit loop exit, progression
+through one mutable struct receiver, value identity/order and a fresh-key mutation exception. The old
+compiler refuses the exact final source at `emit.local.unsupported-type`; the candidate passes
+**114/114**. Independent IL review proves one concrete local, address-based typed member calls and
+direct concrete Dispose inside finally. No interface enumeration or boxing is introduced.
 
 Fixed f543 corpus: **75 targets /73 successes /94 normalized images /2,184 native passes per arm**,
 zero image/set/outcome differences and the same two NL402 template refusals. Strict same-source
-pre/post stdout is byte-identical: **258 findings across 434 production files**. Immutable product
-`05187654e` differs from tested `71d489a5c` only by the two new test files; the final gate includes both.
-Source and compiled control reviews pass; whole Compiler IL producer comparison normalizes one
-static-data address label while retaining identical data bytes, rather than claiming raw equality.
+pre/post stdout is byte-identical: **258 findings across 434 production files**. Immutable BSS IL
+matches the producer byte-for-byte; whole Compiler IL has only one relocated static-data address
+with identical six data bytes. Product-to-tested changes contain only the two new control files.
 
-Fresh exclusive **backend** gate at `71d489a5c` passed in **450s**:
-**593 unit /7,813 canonical /111 declarations /7 Reflection.Emit /15 records /18 audit**,
+Fresh exclusive **backend** gate at `6687505e4` passed in **448s**:
+**593 unit /7,816 canonical /114 declarations /7 Reflection.Emit /15 records /18 audit**,
 52 native projects and 68 IL assemblies. VS Code was skipped for this emission-only prerequisite;
-the preceding k visual verification remains its own accepted evidence. Benchmark correctness passed;
-front-end timing was unjudged under host load. The coordinator then published SDK 0.1.0: all ten packaged tools
-match Release artifacts and all twelve SDK/tools entries match the actual live cache before/after
-the SDK build. The same committed fixture executes **2/2** through the actual NuGet-resolved SDK.
-Seed package SHA `a9653d4673e949e9789cb8472c321d35bc0bbcedafe90a96706d6f3b10ec2647`;
-seed acceptance SHA `3e4c4cefc79aa684641f00f4d415bd1ac41d1e412ee178295bac0ba17ece4606`.
-[Proof](decodes/2026-09-06-s22l0-parity-proof.md); gate, seed, documentation and exact-push receipts at
-`/private/tmp/gate-20260906-goal-s22l0-r1/`. Legacy validation remains bootstrap debt. Tasks 015/021/022/023 stay open;
+k's IDE evidence remains separate. Benchmark correctness passed; front-end timing was unjudged under host load.
+The coordinator published SDK 0.1.0: all ten packaged tools match Release artifacts and all twelve
+SDK/tools entries match the actual live cache before/after the standalone SDK build. The same
+committed self-contained fixture executes **3/3** through the actual NuGet-resolved SDK.
+Seed package SHA `431f3ae0476285110620a4c80117f32edc903f0fbc08009938ff2e8501599a90`;
+seed acceptance SHA `447cd1f21e756664facf5dc112e701d6f3b95f2daf4d918780cefa8e633f8918`.
+[Proof](decodes/2026-09-06-s22l1-parity-proof.md); gate, seed, documentation and exact-push receipts at
+`/private/tmp/gate-20260906-goal-s22l1-r1/`. Legacy validation remains bootstrap debt. Tasks 015/021/022/023 stay open;
 Astra plans/reviews/integrates, Sol/Terra execute.
 
 **Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
@@ -3038,6 +3033,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| 023/S2.2(l1) — concrete dictionary value enumerator prerequisite | product `9e1093c67`; controls/tested `6687505e4` | Exact N# builder-bound enumerator admission; no C# move | Observe actual source-builder handle; retain closed/key/value identity boundaries and concrete addressed iteration/finally | +3 canonical, +3 native; gate 448s: 593/7,816/114, audit 18, 68 IL; fixed 94/2,184 each and strict 258/434 unchanged; SDK same-source 3/3, all 12 payloads verified; emitter/ratchet unchanged. [Proof](decodes/2026-09-06-s22l1-parity-proof.md) |
 | 023/S2.2(l0) — catalog reference array prerequisite | product `05187654e`; controls/tested `71d489a5c` | N# admits catalog reference elements through the existing exact identity gate; no C# move | Preserve real array signature and operations; honest/forged identity twin; direct Array.Empty generic binding remains separate | +4 canonical, +2 native; gate 450s: 593/7,813/111, audit 18, 68 IL; fixed 94/2,184 each and strict 258/434 unchanged; SDK same-source 2/2, all 12 payloads verified; emitter/ratchet unchanged. [Proof](decodes/2026-09-06-s22l0-parity-proof.md) |
 | 023/S2.2(k) — member iterator discovery/admission | initial `9dc7edc85`; ratchet `5614eb20c`; controls `159dfab2f`/`7d579e98e`; corrected/tested `137462ab1` | Complete member driver becomes N#-owned; necessary known-generic inheritance rule corrected in N# | Live first-hit/disposal/repeated-name/ordinal phases; concrete Count null trap; source-element IDE probe distinguishes the corrected path | Emitter 18,923/17,984 (−51/−51/−3,115 bytes);21 keyed/15 handle-only; 94 images/2,184 tests each equal; strict 260→258 with 258 baseline retained; native 109/109. Fresh 522s gate 593/7,809/36 VS Code/109, audit 18; visual PASS; j1 seed unchanged. [Proof](decodes/2026-09-06-s22k-parity-proof.md) |
 | 023/S2.2(j) — connected iterator realization | `20caf6997`; native `eaa10aaf5`; ratchet `269ead8d`; persisted/tested `4b5399140` | Complete sync/async drivers and canonical helper closure become N#-owned;15 consumed type rows keyed | Keep registration/decline/member/factory phases; actual persisted field retains machine VAR under factory MVAR owner; assert rows before bake and use actual generated identity | Emitter 18,974/18,035 (−290/−265/−18,756 bytes);21 keyed/15 handle-only; fixed 94 images/2,184 tests each equal; strict 258/434; native 109/109 image equal; persisted 2/2. Fresh 458s gate 593/7,803/109, audit 18; j1 seed unchanged. [Proof](decodes/2026-09-06-s22j-parity-proof.md) |

@@ -1,5 +1,8 @@
 # S2.2(l1): concrete dictionary value enumerator prerequisite
 
+**Accepted:** product `9e1093c67`, tested `6687505e4`; fresh backend gate and same-source SDK 3/3.
+[Final proof](2026-09-06-s22l1-parity-proof.md). The measured prerequisite below is discharged; the l owner remains open.
+
 S2.2(l0) is accepted and published at `e7d4486d9`. Its verified SDK gets the parked entry-point
 driver past the exact dictionary-array signature. The complete C# entry-point owner remains
 unchanged; this prerequisite must pass before that owner can be moved and accepted as S2.2(l).
@@ -20,14 +23,12 @@ before entering the try. The direct N# chain preserves this phase and is the req
 An interface enumerator, boxing, a copied collection or a semantic-registry snapshot would change
 the original owner and is not a substitute.
 
-The refusal proves the storage boundary, not which internal admission arm supplied false. The
-formatted type name does not establish whether its arguments are source builders or completed
-runtime types after member-result rebinding. Observe the actual failing initializer type through
-the N# predicate before choosing the correction's dispatch point. If rebinding returned the wrong
-definition or arguments, correct that N# binding owner rather than admitting the wrong handle.
-The phase and branch review at
-`/private/tmp/nsharp-s22l-review/resume-20260906/branch-placement-audit.json` is retained as local
-evidence; its branch hypotheses are explicitly provisional.
+The exact final diagnostic established a `TypeBuilderInstantiation` of the genuine BCL nested
+enumerator, with runtime string key and a source-named `TypeBuilderImpl` value. The existing builder
+arm returned false before the catalog path. Argument identity was observed through FullName and
+TypeBuilder classification; neither equality to a baked type nor IsCreated was observed. The earlier
+branch hypotheses and failed diagnostics remain preserved. Independent actual-handle review:
+`/private/tmp/nsharp-s22l1-review/actual-handle/review.json`.
 
 ## Connected N# correction and controls
 

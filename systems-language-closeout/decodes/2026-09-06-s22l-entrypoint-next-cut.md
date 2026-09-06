@@ -1,6 +1,6 @@
 # S2.2(l): assembly entry-point selection and wrapper realization
 
-Execute after S2.2(l1) is accepted. Revalidate the current source and seed before editing. This plan
+S2.2(l1) is accepted and SDK-verified. Revalidate the current source and seed before editing. This plan
 is source-reviewed; it is not an implementation or capability verdict. Tasks 015/021/022/023 stay open.
 
 The first exact-source probe found an array-element admission prerequisite for the
@@ -9,10 +9,11 @@ source `71d489a5c`; the actual SDK executes the same committed array fixture 2/2
 was refreshed onto accepted l0 and its exact driver probe was rerun. It passed the array boundary
 and exposed the enumerator refusal below. The complete C# block is still the production owner.
 
-The resumed exact-source probe then reached a concrete value-enumerator storage refusal.
-[S2.2(l1)](2026-09-06-s22l1-concrete-value-enumerator-prerequisite.md) must be measured, corrected,
-gated and SDK-verified before this owner resumes. The direct Values.GetEnumerator acquisition
-preserves the old concrete enumerator; keep that contract through the prerequisite.
+The resumed exact-source probe reached the concrete value-enumerator storage refusal.
+[S2.2(l1)](2026-09-06-s22l1-parity-proof.md) is now gated at `6687505e4` and SDK-verified
+with the same committed native fixture 3/3. The exact builder-bound BCL enumerator retains its
+source value argument; direct addressed MoveNext/Current/Dispose and finally are proved. Refresh
+the parked owner onto this accepted source before resuming; retain its concrete acquisition.
 
 The unaccepted implementation remains in `/private/tmp/nsharp-agent-wt/023-s22l`, now based on
 accepted l0 `e7d4486d9`. Its original k-based four files and the resumed failed-source snapshots are

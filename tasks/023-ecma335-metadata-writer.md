@@ -262,10 +262,14 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   committed fixture 2/2. The original l refusal and the separate direct Array.Empty binding limitation
   remain recorded. Resume l against this verified seed; no entry-point ownership move is claimed.
   [Proof](../systems-language-closeout/decodes/2026-09-06-s22l0-parity-proof.md).
-  **Measured l1 prerequisite:** after the l0 SDK repin, the exact direct dictionary-value enumerator
-  local is refused at `emit.local.unsupported-type` before tests. Preserve the concrete acquisition,
-  establish the actual initializer type and complete its bounded N# admission/runtime proof plus
-  gated SDK verification before resuming l. [Plan](../systems-language-closeout/decodes/2026-09-06-s22l1-concrete-value-enumerator-prerequisite.md).
+  **S2.2(l1) concrete value-enumerator prerequisite accepted at `6687505e4`:** the actual
+  source-builder initializer is admitted by the exact nested BCL predicate in N#'s builder arm.
+  Three canonical and three native controls preserve closed/key/value identity boundaries, first-hit
+  break, typed mutable receiver progression and mutation/finally behavior. C# and ratchet unchanged;
+  fixed 94-image corpus and strict 258/434 equal. Fresh 448s backend gate: 593 unit /7,816 canonical
+  /114 declarations, 18 audit and 68 IL assemblies. Published SDK matches all 12 live payloads and
+  executes the same committed fixture 3/3. Resume the complete l owner from this verified seed.
+  [Proof](../systems-language-closeout/decodes/2026-09-06-s22l1-parity-proof.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
