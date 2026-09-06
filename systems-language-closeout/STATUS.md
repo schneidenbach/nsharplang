@@ -38,14 +38,28 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
-**Active area, compiler reference type resolution:** move complete test-framework, referenced-type,
-loaded-external, ASP.NET reference and HttpContext resolution methods (five methods with necessary
-dependencies). Preserve filtered/unfiltered loaded snapshots, reference enumeration/disposal,
-ordered load/name tiers, catches and failure/out states. All C# definitions are removed with direct
-N# routes. Sol Max owns production/native migration; Terra Max direct controls; Astra integrates.
-[Boundary](decodes/2026-09-06-compiler-reference-ownership.md). Baseline clean/pushed `07562c26e`,
-verified at `/private/tmp/nsharp-compiler-reference-ownership-20260906/baseline.json`. Actual full
-N# source must prove any prerequisite. The compiler-only objective remains active.
+**Accepted area, compiler reference type resolution:** integrated `c938be178` and `f3fabaacf`
+replace all five complete test-framework, referenced-type, loaded-external, ASP.NET reference and
+HttpContext resolution methods. Fourteen production sites route directly to N#; all old C# definitions
+are gone. N# owns filtering, enumeration/disposal, ordered load/name tiers, catches and failure/out
+states. The remaining C# boundary passes original reference paths, names and out slots mechanically.
+Four canonical N# controls pass; native xUnit example 6/6 and ASP.NET build pass. Independent emitted
+IL review preserves enumeration and short-circuit behavior and confirms exact CLR catch-all handlers.
+[Boundary and evidence](decodes/2026-09-06-compiler-reference-ownership.md).
+
+The demonstrated catch-all prerequisite `2aca8ca55` moves complete bare-versus-typed catch selection
+into N#, preserving typed exception rules. Its fresh 445s gate and normal packaged probe 2/2 pass;
+Object/Exception/ArgumentException handler types are asserted in N#. The identical regression fails
+against the preserved baseline and passes against the candidate. Accepted SDK SHA
+`a817ac58eb2b51c692ab6624e7dc9194088e449b8df55dd010a774891e82fbe8`; both feeds and all
+12 cache payloads remain verified after the final gate.
+
+Cumulative emitter 18,001→17,860 lines / 17,113→16,982 nonblank, all 380 other rows and epochs
+unchanged. Ratchet `head-v1:d8969a2f61263284`, audit 18/18. Final fresh backend gate at `8ec4b0781`
+passes in 452s: 590 unit / 7,873 canonical / 52 native projects / 12 throughput / 68 IL; SDK/templates/
+examples green. Compiler-wide ownership remains open. Next coherent area to assess: structural
+interface conformance and complete duck-interface registration, including its async return-shape
+dependency; do not extract only a matching helper while C# retains the registration decision.
 
 **Accepted area, parameter metadata and constructor defaults:** integrated `05aa07853` replaces
 all eight complete metadata/default-presence/constant-setting/enum-resolution and constructor-default

@@ -85,3 +85,16 @@ resolver alone removes a net 133 lines. Fingerprint `text-v1:c43a4c9e9edd7632`; 
 Final fresh integrated product gate remains pending; the compiler-wide objective remains active.
 
 Root integrated dev build and ownership audit 18/18 pass; compiler payloads pinned in `integrated-compiler.json`.
+
+## Acceptance
+
+Final fresh backend gate at `8ec4b0781dfbf286779b2b03dfb4fe34006ca6e5` passes in 452s:
+590 unit / 7,873 canonical / 52 native projects / 12 throughput / 68 IL assemblies, with SDK,
+templates and examples green. The installed prerequisite seed remains unchanged in both feeds and
+all 12 cache payloads after the isolated gate. Receipts: `gate-receipt.json` and
+`post-gate-seed-check.json` under the evidence root.
+
+This completes the selected compiler reference-resolution area. The compiler-only goal remains
+active; substantial compiler ownership debt remains. Next candidate is complete structural-interface
+conformance and registration with its connected return-shape dependency, subject to dependency review.
+Broader CLI/editor/runtime/NativeAOT and conditional writer work remains in the separate branch backlog.
