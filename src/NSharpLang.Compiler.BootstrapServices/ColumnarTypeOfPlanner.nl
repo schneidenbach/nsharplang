@@ -1133,7 +1133,7 @@ class ColumnarTypeOfPlanner {
         // Assembly.GetType. Its existing collection/task/result/union rebinding lowerings own these
         // structural shapes; the catalog rule below applies to complete external identities.
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType)
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1382,6 +1382,22 @@ class ColumnarTypeOfPlanner {
         }
         arguments := valueType.GetGenericArguments()
         return arguments.Length == 1 && IsAdmissibleCollectionElement(arguments[0])
+    }
+
+    // Dictionary.Values exposes this concrete value-type enumerator. Entry-point discovery keeps
+    // that exact struct in a local so Current and Dispose operate on the same unboxed state. Its
+    // two generic arguments retain Dictionary's existing key and value admissibility boundaries.
+    static func IsSupportedDictionaryValueEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryValueEnumeratorDefinition().get_AssemblyQualifiedName() ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && !ContainsNonEnumBuilderBoundType(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
     }
 
     // The element/value types a collection may close over (the builder-element rebind rung):
@@ -1731,6 +1747,14 @@ class ColumnarTypeOfPlanner {
         result := Type.GetType("System.Collections.Generic.IEnumerator`1")
         if result == null {
             throw new InvalidOperationException("System.Collections.Generic.IEnumerator<T> runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryValueEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+ValueCollection+Enumerator")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.ValueCollection.Enumerator runtime type was not found.")
         }
         return result
     }

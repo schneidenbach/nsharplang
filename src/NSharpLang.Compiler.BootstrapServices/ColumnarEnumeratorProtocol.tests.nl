@@ -91,3 +91,23 @@ test "exact typed enumerators are admitted only as storable protocol state" {
     assert !ColumnarTypeOfPlanner.IsSupportedEnumeratorType(foreignEnumerator)
     assert !ColumnarTypeOfPlanner.IsSupportedType(foreignEnumerator)
 }
+
+test "the exact dictionary value enumerator retains a source value argument" {
+    sourceReference := TypeOfCreateBuilder(
+        "Contoso.EntryPoint.Definition",
+        "ColumnarEntryPointDictionaryValueEnumeratorAdmission",
+        0
+    )
+    sourceReferenceType: Type = sourceReference
+    concreteEnumerator := AdmissibilityClosed2(
+        "System.Collections.Generic.Dictionary`2+ValueCollection+Enumerator",
+        typeof(string),
+        sourceReferenceType
+    )
+
+    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(concreteEnumerator)
+    assert ColumnarTypeOfPlanner.IsSupportedDictionaryValueEnumeratorType(concreteEnumerator)
+    assert ColumnarTypeOfPlanner.IsSupportedType(concreteEnumerator)
+    assert !ColumnarTypeOfPlanner.IsSupportedEnumeratorType(concreteEnumerator)
+    assert !ColumnarTypeOfPlanner.IsSupportedCollectionType(concreteEnumerator)
+}
