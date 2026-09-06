@@ -83,3 +83,22 @@ ten Release tool payloads and all twelve cached SDK files match. Exact regressio
 emitted live-view/unboxed-enumerator IL verified. Receipt `seed/acceptance.json`.
 The complete owner now proceeds through normal SDK integration; it remains unfinished until its
 production routing, focused controls, final gate and push are accepted.
+
+Complete owner integrated as `0713f4f6e` (worker `bba7151bdb`). All four passes and six helper
+bodies are gone from C#: thirteen direct routes (six parameter checks, three async shape calls, four
+pass calls). N# owns typed cycle/depth state, structural registration and metadata mutation, full
+source/closed/external completeness, method matching and interface finalization. The remaining
+C# boundary passes original records, lists, arrays, registries and out slots; it adds no decision
+callbacks, fallback implementation or parallel validation owner for this area.
+
+Focused evidence: accepted-SDK direct controls 7/7, candidate full programs 10/10 and related
+external-interface/parameter/async natives 27/27. Root dev build succeeds; ownership audit 18/18.
+Root final IL equals the previously reviewed private owner after RVA normalization except the
+verified depth-driver order fix; dictionary/list enumerators remain unboxed and disposed, raw
+Values remains live and delayed, and exact versus richer type comparisons stay in their original
+roles. Evidence `root-owner-il-review.json`, `root-final-owner.il`, `owner-final-receipt.json`.
+
+Cumulative emitter 17,860→17,530 lines / 16,982→16,668 nonblank; tests 4,014 lines / 3,445
+nonblank / 379 markers. Exactly two ratchet rows changed from the selection baseline, all other
+rows and every epoch unchanged. Final ratchet `head-v1:e326de01418ad1cf`. Final fresh backend
+gate and push remain pending.
