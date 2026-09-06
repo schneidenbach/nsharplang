@@ -231,11 +231,11 @@ test "each newly admitted opcode lands in the allowlist family half that owns it
 }
 
 test "byte argument forms and ldvirtftn remain outside the modeled opcode boundary" {
-    // `Ldarg_S` and its siblings cover argument ordinals 4..255 and are a DIFFERENT widening: they
-    // carry a `System.Byte` operand, which the emit-operand surface does not admit, so binding them
-    // would pick the `int` overload and write a four-byte operand behind a one-byte opcode. They are
-    // left out deliberately. `Ldvirtftn` is also a distinct virtual-dispatch operation the iterator
-    // constructor does not use, so admitting `Ldftn` must not widen to its adjacent opcode.
+    // These argument load/store forms are a DIFFERENT widening from the zero-to-three opcodes already
+    // modeled. `Ldarg_S`, `Ldarga_S`, and `Starg_S` carry a `System.Byte` operand that the emit-operand
+    // surface does not admit, while `Starg` uses the distinct long InlineVar encoding. `Ldvirtftn` is
+    // also a virtual-dispatch operation the iterator constructor does not use, so admitting `Ldftn`
+    // must not widen to its adjacent opcode.
     rejected := new string[](5)
     rejected[0] = "Ldarg_S"
     rejected[1] = "Ldarga_S"

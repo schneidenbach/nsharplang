@@ -10,7 +10,7 @@ claiming that the preceding emitted instructions ran. This cut adds that one opc
 call-and-compute opcode family.
 
 The canonical contracts pin both short and fully qualified `OpCodes` selection, the exact field and
-value identities, and the existing `Emit(OpCode, MethodInfo)` call plan. The four byte-operand argument
+value identities, and the existing `Emit(OpCode, MethodInfo)` call plan. The four argument load/store
 forms remain unsupported, as does adjacent `Ldvirtftn`; `System.Byte` is still outside the emit-operand
 surface. A separately owned native constructor control provides the post-seed executable instruction
 proof. The synchronous and asynchronous iterator realization drivers remain unchanged in this
