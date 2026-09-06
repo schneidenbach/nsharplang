@@ -1133,7 +1133,7 @@ class ColumnarTypeOfPlanner {
         // Assembly.GetType. Its existing collection/task/result/union rebinding lowerings own these
         // structural shapes; the catalog rule below applies to complete external identities.
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType)
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1377,6 +1377,22 @@ class ColumnarTypeOfPlanner {
         }
         definition := valueType.GetGenericTypeDefinition()
         identity := RequiredEnumeratorDefinition().get_AssemblyQualifiedName() ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 1 && IsAdmissibleCollectionElement(arguments[0])
+    }
+
+    // List<T>.GetEnumerator exposes this concrete value-type enumerator. Constraint validation keeps
+    // it unboxed so mutation detection and finally disposal operate on the same receiver state. The
+    // one generic argument retains List's existing element-admissibility boundary.
+    static func IsSupportedListEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredListEnumeratorDefinition().get_AssemblyQualifiedName() ?? ""
         if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
             return false
         }
@@ -1747,6 +1763,14 @@ class ColumnarTypeOfPlanner {
         result := Type.GetType("System.Collections.Generic.IEnumerator`1")
         if result == null {
             throw new InvalidOperationException("System.Collections.Generic.IEnumerator<T> runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredListEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.List`1+Enumerator")
+        if result == null {
+            throw new InvalidOperationException("List<T>.Enumerator runtime type was not found.")
         }
         return result
     }
