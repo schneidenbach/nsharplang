@@ -53,7 +53,10 @@ with related ReferenceConversion coverage 6/6. Fixtures cover source identity/in
 assignability, emitted/no-op boxing choices, object early pass-through, unknown builders and generic
 class constraints. Root and Terra review accept the controls; original catch behavior additionally
 uses emitted-IL review. No hostile reflection fixture or C# test infrastructure was introduced.
-Final fresh backend integration gate remains open.
+Final fresh backend integration gate at `242cfabde10ac608f6f0a8372203d876062a5718` passes
+in 449s: 585 unit / 7,888 canonical / 52 native projects / 12 throughput / 68 IL assemblies.
+Both SDK feeds and all twelve cache payloads remain identical to the accepted seed.
+This complete selected area is accepted; compiler-wide ownership remains active.
 
 The surviving C# integration boundary supplies the original Type values, registry and ILGenerator
 and consumes the N# return value at existing expression-lowering sites. It contains no copied

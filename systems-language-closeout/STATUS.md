@@ -55,12 +55,19 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
-**Active compiler-only area, reference coercion and boxing:** move seven complete source/external
-interface and object conversion/boxing methods plus source-lookup forwarding cleanup. Preserve
-repeat lookups, external enumeration, boxing and failure order. Sol Max implements, Terra Max
-owns canonical coverage, Astra reviews/integrates.
-[Boundary](decodes/2026-09-06-reference-coercion-ownership.md); clean/pushed baseline `3012dd10e`,
-evidence `/private/tmp/nsharp-reference-coercion-ownership-20260906`.
+**Accepted area, reference coercion and boxing:** seven complete source/external interface and
+object conversion/boxing methods are solely N#-owned (`3b998bf50`); the C# lookup forwarder is gone.
+Sixty-eight coercion sites route directly to N# and twenty-two remaining lookup callers route to
+the existing N# resolver. Original repeated lookups, enumeration/disposal, boxing and failure order
+are preserved by source and emitted-IL review. Two complete C# programs and six assertions migrate
+to N# (`553621fba`, `7e247040e`); four new direct controls (`241b4f489`) pass. Emitter shrinks by
+115 lines, C# tests by 151 lines/eight markers. Exactly two ratchet rows change; epochs remain fixed.
+Fresh backend gate at `242cfabde` passes in 449s: 585 unit / 7,888 canonical / 52 native projects /
+12 throughput / 68 IL assemblies. No new seed; both feeds and twelve cache files remain verified.
+[Boundary and evidence](decodes/2026-09-06-reference-coercion-ownership.md), evidence
+`/private/tmp/nsharp-reference-coercion-ownership-20260906`. Compiler-wide ownership remains active.
+Next dependency assessment: complete closure binding/capture mutation analysis, including needed
+source-member lookup ownership; this does not claim the remaining lambda emitter is migrated.
 
 **Accepted area, compiler reference type resolution:** integrated `c938be178` and `f3fabaacf`
 replace all five complete test-framework, referenced-type, loaded-external, ASP.NET reference and
