@@ -2555,63 +2555,12 @@ internal sealed class ColumnarIlEmitter
         List<TypeBuilder> synthesizedTypes,
         int[] ordinalCounter)
     {
-        var memberLabel = structDef.Builder.Name + "." + method.Name;
-        if (method.IsAsync)
-            return DeclineStatic("emit.iterator.async-unsupported", "async member iterator methods are not yet lowered", memberLabel);
-        if (isStatic)
-            return TryEmitIteratorStateMachine(
-                module, method, ordinalCounter[0]++, methodSource, typeResolution,
-                builder.GetILGenerator(), synthesizedTypes, Type.EmptyTypes, memberLabel: memberLabel);
-        if (structDef.GenericParameters != null || method.TypeParamNames.Length > 0)
-            return DeclineStatic("emit.iterator.instance-unsupported", "generic instance iterator methods are not yet lowered", memberLabel);
-        ColumnarStructInput? input = null;
-        foreach (var candidate in program.Structs)
-        {
-            // DeclaredTypeName may be namespace-qualified; the input carries the registry short name.
-            if (candidate.Name == structDef.DeclaredTypeName
-                || structDef.DeclaredTypeName.EndsWith("." + candidate.Name, StringComparison.Ordinal))
-            { input = candidate; break; }
-        }
-        if (input == null)
-            return DeclineStatic("emit.iterator.instance-unsupported", "enclosing type facts are unavailable for '" + memberLabel + "'", memberLabel);
-        // Public (PascalCase) readable fields and callable non-overloaded instance methods only.
-        var fieldNames = new List<string>();
-        var fieldCanonicals = new List<string>();
-        var fieldHandles = new List<FieldInfo>();
-        for (var i = 0; i < input.FieldNames.Length; i++)
-        {
-            var name = input.FieldNames[i];
-            if (name.Length == 0 || !char.IsUpper(name[0]) || !structDef.Fields.TryGetValue(name, out var handle))
-                continue;
-            fieldNames.Add(name);
-            fieldCanonicals.Add(input.FieldTypeCanonicals[i]);
-            fieldHandles.Add(handle);
-        }
-        var methodNames = new List<string>();
-        var methodReturns = new List<string>();
-        var methodHandles = new List<MethodInfo>();
-        foreach (var m in input.Methods)
-        {
-            if (m.Name.Length == 0 || !char.IsUpper(m.Name[0]) || m.IsStatic
-                || !structDef.Methods.TryGetValue(m.Name, out var methodDef)
-                || (structDef.MethodOverloads.TryGetValue(m.Name, out var overloads) && overloads.Count > 1))
-                continue;
-            methodNames.Add(m.Name);
-            methodReturns.Add(m.ReturnCanonical);
-            methodHandles.Add(methodDef.Builder);
-        }
-        var shape = ColumnarIteratorPlanner.AnalyzeShape(
-            method.BodyNodes, methodSource, method.BodyRoot, method.Name, ordinalCounter[0]++,
-            method.ReturnCanonical, method.ParamNames, method.ParamCanonicals, method.TypeParamNames,
-            true, input.Name,
-            fieldNames.ToArray(), fieldCanonicals.ToArray(), methodNames.ToArray(), methodReturns.ToArray());
-        if (!shape.Supported)
-            return DeclineStatic(shape.DeclineSite, shape.DeclineMessage, memberLabel);
-        return TryEmitIteratorStateMachine(
-            module, method, 0, methodSource, typeResolution, builder.GetILGenerator(), synthesizedTypes,
-            Type.EmptyTypes, shape, memberLabel, structDef.Builder,
-            fieldNames.ToArray(), fieldHandles.ToArray(), fieldCanonicals.ToArray(),
-            methodNames.ToArray(), methodHandles.ToArray());
+        var result = ColumnarIteratorRealization.EmitMember(
+            module, structDef, method, builder, isStatic, program, typeResolution,
+            methodSource, synthesizedTypes, ordinalCounter);
+        if (result.Succeeded)
+            return true;
+        return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember);
     }
 
     /// <summary>

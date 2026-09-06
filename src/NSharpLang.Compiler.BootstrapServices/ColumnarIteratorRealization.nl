@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
@@ -25,6 +26,214 @@ class ColumnarIteratorRealizationResult {
 // Owns iterator-specific canonical resolution together with the CLR declaration and plan-execution
 // sequence. The old-signature C# entry points remain mechanical tracing adapters only.
 class ColumnarIteratorRealization {
+    static func EmitMember(
+        module: ModuleBuilder,
+        structDef: ColumnarStructDef,
+        method: ColumnarFunctionInput,
+        builder: MethodBuilder,
+        isStatic: bool,
+        program: ColumnarProgramInput,
+        typeResolution: ColumnarSemanticTypeResolution,
+        methodSource: string,
+        synthesizedTypes: List<TypeBuilder>,
+        ordinalCounter: int[]
+    ): ColumnarIteratorRealizationResult {
+        enclosingBuilder: Type = structDef.Builder
+        enclosingBuilderName := enclosingBuilder.get_Name()
+        memberName := method.Name
+        memberLabel := enclosingBuilderName + "." + memberName
+        if method.IsAsync {
+            return Declined(
+                "emit.iterator.async-unsupported",
+                "async member iterator methods are not yet lowered",
+                memberLabel
+            )
+        }
+        if isStatic {
+            staticOrdinal := ordinalCounter[0]
+            ordinalCounter[0] = staticOrdinal + 1
+            staticFactoryIl := builder.GetILGenerator()
+            return EmitSync(
+                module,
+                method,
+                staticOrdinal,
+                methodSource,
+                typeResolution,
+                staticFactoryIl,
+                synthesizedTypes,
+                System.Type.EmptyTypes,
+                null,
+                memberLabel,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+            )
+        }
+        if structDef.GenericParameters != null || method.TypeParamNames.Length > 0 {
+            return Declined(
+                "emit.iterator.instance-unsupported",
+                "generic instance iterator methods are not yet lowered",
+                memberLabel
+            )
+        }
+
+        input: ColumnarStructInput? = null
+        structEnumerator := StructInputEnumerator(program.Structs)
+        structMovement := structEnumerator as IEnumerator
+        try {
+            if structMovement == null {
+                throw new NullReferenceException()
+            }
+            while structMovement.MoveNext() {
+                candidate := structEnumerator.get_Current()
+                if candidate.Name == structDef.DeclaredTypeName || structDef.DeclaredTypeName.EndsWith("." + candidate.Name, StringComparison.Ordinal) {
+                    input = candidate
+                    break
+                }
+            }
+        } finally {
+            structDisposable := structEnumerator as IDisposable
+            if structDisposable != null {
+                structDisposable.Dispose()
+            }
+        }
+        if input == null {
+            return Declined(
+                "emit.iterator.instance-unsupported",
+                "enclosing type facts are unavailable for '" + memberLabel + "'",
+                memberLabel
+            )
+        }
+
+        fieldNames := new List<string>()
+        fieldCanonicals := new List<string>()
+        fieldHandles := new List<FieldInfo>()
+        fieldIndex := 0
+        while fieldIndex < input.FieldNames.Length {
+            name := input.FieldNames[fieldIndex]
+            if name.Length > 0 && char.IsUpper(name[0]) {
+                fieldBuilder: FieldBuilder = null
+                if structDef.Fields.TryGetValue(name, out fieldBuilder) {
+                    fieldNames.Add(name)
+                    fieldCanonicals.Add(input.FieldTypeCanonicals[fieldIndex])
+                    fieldHandle: FieldInfo = fieldBuilder
+                    fieldHandles.Add(fieldHandle)
+                }
+            }
+            fieldIndex = fieldIndex + 1
+        }
+
+        methodNames := new List<string>()
+        methodReturns := new List<string>()
+        methodHandles := new List<MethodInfo>()
+        methodEnumerator := MethodInputEnumerator(input.Methods)
+        methodMovement := methodEnumerator as IEnumerator
+        try {
+            if methodMovement == null {
+                throw new NullReferenceException()
+            }
+            while methodMovement.MoveNext() {
+                candidateMethod := methodEnumerator.get_Current()
+                if candidateMethod.Name.Length > 0 && char.IsUpper(candidateMethod.Name[0]) && !candidateMethod.IsStatic {
+                    methodDefinition: ColumnarInstanceMethodDef = null
+                    if structDef.Methods.TryGetValue(candidateMethod.Name, out methodDefinition) {
+                        overloads: List<ColumnarInstanceMethodDef> = null
+                        hasMultipleOverloads := structDef.MethodOverloads.TryGetValue(candidateMethod.Name, out overloads) && overloads.Count > 1
+                        if !hasMultipleOverloads {
+                            methodNames.Add(candidateMethod.Name)
+                            methodReturns.Add(candidateMethod.ReturnCanonical)
+                            methodHandle: MethodInfo = methodDefinition.Builder
+                            methodHandles.Add(methodHandle)
+                        }
+                    }
+                }
+            }
+        } finally {
+            methodDisposable := methodEnumerator as IDisposable
+            if methodDisposable != null {
+                methodDisposable.Dispose()
+            }
+        }
+
+        shapeNodes := method.BodyNodes
+        shapeRoot := method.BodyRoot
+        shapeName := method.Name
+        shapeOrdinal := ordinalCounter[0]
+        ordinalCounter[0] = shapeOrdinal + 1
+        shapeReturn := method.ReturnCanonical
+        shapeParamNames := method.ParamNames
+        shapeParamCanonicals := method.ParamCanonicals
+        shapeTypeParamNames := method.TypeParamNames
+        shapeInputName := input.Name
+        shapeFieldNames := fieldNames.ToArray()
+        shapeFieldCanonicals := fieldCanonicals.ToArray()
+        shapeMethodNames := methodNames.ToArray()
+        shapeMethodReturns := methodReturns.ToArray()
+        shape := ColumnarIteratorPlanner.AnalyzeShape(
+            shapeNodes,
+            methodSource,
+            shapeRoot,
+            shapeName,
+            shapeOrdinal,
+            shapeReturn,
+            shapeParamNames,
+            shapeParamCanonicals,
+            shapeTypeParamNames,
+            true,
+            shapeInputName,
+            shapeFieldNames,
+            shapeFieldCanonicals,
+            shapeMethodNames,
+            shapeMethodReturns,
+            false
+        )
+        if !shape.Supported {
+            return Declined(shape.DeclineSite, shape.DeclineMessage, memberLabel)
+        }
+
+        factoryIl := builder.GetILGenerator()
+        emptyTypeParameters: Type[] = System.Type.EmptyTypes
+        enclosingType: Type = structDef.Builder
+        realizedFieldNames := fieldNames.ToArray()
+        realizedFieldHandles := fieldHandles.ToArray()
+        realizedFieldCanonicals := fieldCanonicals.ToArray()
+        realizedMethodNames := methodNames.ToArray()
+        realizedMethodHandles := methodHandles.ToArray()
+        return EmitSync(
+            module,
+            method,
+            0,
+            methodSource,
+            typeResolution,
+            factoryIl,
+            synthesizedTypes,
+            emptyTypeParameters,
+            shape,
+            memberLabel,
+            enclosingType,
+            realizedFieldNames,
+            realizedFieldHandles,
+            realizedFieldCanonicals,
+            realizedMethodNames,
+            realizedMethodHandles
+        )
+    }
+
+    static func StructInputEnumerator(
+        inputs: IEnumerable<ColumnarStructInput>
+    ): IEnumerator<ColumnarStructInput> {
+        return inputs.GetEnumerator()
+    }
+
+    static func MethodInputEnumerator(
+        inputs: IEnumerable<ColumnarFunctionInput>
+    ): IEnumerator<ColumnarFunctionInput> {
+        return inputs.GetEnumerator()
+    }
+
     static func EmitSync(
         module: ModuleBuilder,
         fn: ColumnarFunctionInput,
