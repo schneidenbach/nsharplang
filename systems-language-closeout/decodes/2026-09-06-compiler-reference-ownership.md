@@ -56,3 +56,32 @@ probe's initial missing global.json version mapping was corrected and restore/bu
 the failed fixture attempt is retained. Acceptance: evidence root `seed/acceptance.json`.
 
 The seed completes only this demonstrated prerequisite. The full resolver ownership area continues.
+
+## Complete resolver integration review
+
+Integrated owner `c938be178` and canonical controls `f3fabaacf` (worker `ff3e4793` and `fa9257cc1`).
+All five old C# methods disappear. Fourteen sites route directly to N#: two framework, five referenced,
+five ASP.NET reference, and two HttpContext calls. Surviving C# integration only passes the existing
+reference-path list, names and out Type slot; lookup decisions, enumeration, helpers and ordered tiers
+are solely N#-owned. No new C# behavior, tests, helpers, adapters or callbacks were added.
+
+The four canonical N# controls pass after fresh emission with the accepted seed. They cover filename
+filtering/out reset/failure continuation; unfiltered dynamic assembly lookup; loaded framework lookup
+and exact terminal error including dynamic exclusion; and ASP.NET reference/context tiers and alias.
+No live C# canonical assertion belongs to the five former private heads. Existing native coverage is
+reused with pinned source hashes: xUnit example 6/6, minimal ASP.NET example builds, native declaration
+coverage 121/121; analyzer-only web rows are explicitly not counted as resolver evidence.
+
+Independent final emitted-class review matches the original reviewed candidate after RVA normalization
+and exactly three Exception-to-Object catch changes. Enumerator acquisition remains before try; generic
+Current and nongeneric MoveNext remain outside narrow load catches; early returns use leave/finally
+and null-guarded IDisposable disposal. Filtered versus unfiltered snapshots, reference/name order,
+supported-type checks outside catch and exact short-circuit tiers remain intact. Evidence root:
+`root-final-owner.il`, `root-owner-review.json`, `final-owner/`, `native-coverage-reuse.json`.
+
+Cumulative emitter decrease including the prerequisite: 18,001→17,860 lines, 17,113→16,982 nonblank;
+resolver alone removes a net 133 lines. Fingerprint `text-v1:c43a4c9e9edd7632`; reviewed head
+`head-v1:d8969a2f61263284`. All 380 other rows and epoch ceilings are unchanged.
+Final fresh integrated product gate remains pending; the compiler-wide objective remains active.
+
+Root integrated dev build and ownership audit 18/18 pass; compiler payloads pinned in `integrated-compiler.json`.
