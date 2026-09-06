@@ -41,3 +41,10 @@ Evidence: `/private/tmp/nsharp-constructor-declaration-ownership-20260906`. Base
 CLI payloads are preserved and verified against previous acceptance. Prior accepted gate: 449s,
 583 unit / 7,897 canonical / 52 native projects / 12 throughput / 68 IL assemblies. Do not restart
 accepted migrations or use a prerequisite/tiny helper extraction as the selected area's endpoint.
+
+Canonical migration integrates as `f774570b3` (worker `bd6c213678cdf331cd5f51df902602c2aaae03f1`):
+five exact Program.nl byte sequences and all fifteen assertions independently verified, including
+the record program's original Contains check. Focused native 5/5, remaining C# backend 67/67,
+and ownership audit 18/18 pass. C# test estate shrinks 251 lines / 218 nonblank / twenty markers
+to 3,494 / 3,003 / 343. Only its ratchet row changes so far, original epochs unchanged;
+intermediate head `head-v1:d8b0c5c706add810`. Production ownership remains open.
