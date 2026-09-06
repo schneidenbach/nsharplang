@@ -38,6 +38,20 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
+**Active area, generic-call binding and return substitution:** move complete `TryUnifyTypeParam`,
+`TryUnifyGenericCallArgument`, `TryUnifyGenericContainer`, `TrySubstituteReturnType` and their
+`IsDictionaryLikeCollectionDefinition`, `IsReadOnlyDictionaryCollectionDefinition`,
+`IsAnyDictionaryCollectionDefinition` dependencies. All callers of the collection helpers route
+directly too; no C# forwarding wrappers remain for these seven decisions. Preserve mutable binding
+writes on later failure, identity versus equality, reflection read/failure order and the deliberately
+narrower return substitution semantics. The expression/IL-emission callers hold separate emitter
+state and remain open compiler debt; this boundary owns complete data/type decision methods.
+Sol Max implements and Terra Max owns canonical controls; Astra reviews, integrates and gates.
+Baseline is clean/pushed `c3f7b5109`, with the previous fresh accepted gate and verified immutable
+CLI preserved in `/private/tmp/nsharp-generic-binding-ownership-20260906/baseline.json`.
+[Boundary and evidence](decodes/2026-09-06-generic-binding-ownership.md). No SDK prerequisite is
+assumed; any blocker must be proved by the complete proposed source.
+
 **Accepted area, sibling-call constraint validation:** moved the complete
 `TryValidateGenericSiblingConstraints`, `HasPublicParameterlessConstructorForConstraint`,
 `BoundSatisfiesBaseConstraint`, `BoundSatisfiesInterfaceConstraint`,
