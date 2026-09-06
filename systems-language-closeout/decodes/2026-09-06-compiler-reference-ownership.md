@@ -45,3 +45,14 @@ without adding test-only compiler capability. Exact handler metadata and ordinar
 Only the emitter ratchet row decreases: 18001/17113 to 17993/17105 lines/nonblank,
 `text-v1:8e0fe647c6e1b72a`, reviewed head `head-v1:0b91501506ad7b37`. All 380 other rows and
 epoch values are unchanged. Fresh seed gate and normal packaged verification are pending.
+
+Seed accepted after fresh gate `eb445771f`: 445s, 590 unit / 7,869 canonical / 52 native
+projects / 12 throughput / 68 IL assemblies. The exact new native source fails against the pinned
+baseline compiler and passes against the candidate. Official setup and normal installed-SDK probe
+pass 2/2, with Object/Exception/ArgumentException handler metadata independently verified. SDK SHA
+`a817ac58eb2b51c692ab6624e7dc9194088e449b8df55dd010a774891e82fbe8`; all 10 Release tool
+payloads and 12 SDK/cache payloads match, and both local feeds carry the identical package. The
+probe's initial missing global.json version mapping was corrected and restore/build/test rerun;
+the failed fixture attempt is retained. Acceptance: evidence root `seed/acceptance.json`.
+
+The seed completes only this demonstrated prerequisite. The full resolver ownership area continues.
