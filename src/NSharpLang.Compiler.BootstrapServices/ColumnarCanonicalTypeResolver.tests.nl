@@ -633,3 +633,33 @@ test "canonical resolver leaf maps preserve their false null contract and YAML i
     )
     assert exceptionType == yaml
 }
+
+test "catch type selection keeps bare catch all separate from typed exception resolution" {
+    bareKinds := new int[](1)
+    bareKinds[0] = 50
+    bareStarts := new int[](1)
+    bareStarts[0] = -1
+    bareLengths := new int[](1)
+    bareChildren := new int[](1)
+    noChildren := new int[](0)
+    bareNodes := new ColumnarNodeTable(bareKinds, bareStarts, bareLengths, bareChildren, bareChildren, noChildren)
+
+    catchType := typeof(string)
+    assert ColumnarCanonicalTypeResolver.TryResolveCatchType(bareNodes, "", 0, out catchType)
+    assert catchType == typeof(object)
+
+    typedKinds := new int[](1)
+    typedKinds[0] = 50
+    typedStarts := new int[](1)
+    typedLengths := new int[](1)
+    typedLengths[0] = 17
+    typedNodes := new ColumnarNodeTable(typedKinds, typedStarts, typedLengths, bareChildren, bareChildren, noChildren)
+
+    catchType = typeof(string)
+    assert ColumnarCanonicalTypeResolver.TryResolveCatchType(typedNodes, "ArgumentException", 0, out catchType)
+    assert catchType == typeof(ArgumentException)
+
+    catchType = typeof(string)
+    assert !ColumnarCanonicalTypeResolver.TryResolveCatchType(typedNodes, "MissingException!", 0, out catchType)
+    assert catchType == null
+}

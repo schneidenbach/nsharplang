@@ -1572,4 +1572,27 @@ class ColumnarCanonicalTypeResolver {
         }
         return true
     }
+
+    // A bare catch is the CLI catch-all region: the CLR handler type is System.Object. Typed catches
+    // retain the existing exception allowlist and the source text is read only for a typed clause.
+    static func TryResolveCatchType(
+        nodes: ColumnarNodeTable,
+        source: string,
+        clause: int,
+        out result: Type
+    ): bool {
+        if nodes.ValueStart(clause) < 0 {
+            result = typeof(object)
+            return true
+        }
+
+        return TryResolveBclExceptionType(CatchTypeText(nodes, source, clause), out result)
+    }
+
+    static func CatchTypeText(nodes: ColumnarNodeTable, source: string, clause: int): string {
+        if nodes.Kind(clause) == 14 && nodes.ValueStart(clause) < 0 && nodes.ValueLengths[clause] == 1 {
+            return "="
+        }
+        return nodes.Text(source, clause)
+    }
 }

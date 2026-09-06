@@ -4233,16 +4233,8 @@ internal sealed class ColumnarIlEmitter
                     }
                     if (_nodes.Kind(clause) != 50)
                         return false;
-                    Type catchType;
-                    if (_nodes.ValueStart(clause) >= 0)
-                    {
-                        if (!ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(Text(clause), out catchType))
-                            return false;
-                    }
-                    else
-                    {
-                        catchType = typeof(Exception); // bare catch — the pipeline's exact default.
-                    }
+                    if (!ColumnarCanonicalTypeResolver.TryResolveCatchType(_nodes, _source, clause, out var catchType))
+                        return false;
                     _il.BeginCatchBlock(catchType);
                     var hasBinding = _nodes.ChildCount(clause) == 2;
                     string? catchVarName = null;
