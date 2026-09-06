@@ -1940,45 +1940,6 @@ internal sealed class ColumnarIlEmitter
         TypeBuilder declaringType)
         => registry.ForSynthesizedMethod(declaringType);
 
-    // Kept alive by `TryResolveAspNetReferencedType`, which is its own entry point: the N# owner folds
-    // this fallback INTO TryResolveKnownExternalType and publishes no standalone head for it.
-    private static bool TryResolveLoadedExternalType(string canonical, out Type type)
-    {
-        type = null!;
-        var fullName = canonical switch
-        {
-            "WebApplication" => "Microsoft.AspNetCore.Builder.WebApplication",
-            "WebApplicationBuilder" => "Microsoft.AspNetCore.Builder.WebApplicationBuilder",
-            "HttpContext" => "Microsoft.AspNetCore.Http.HttpContext",
-            "HttpRequest" => "Microsoft.AspNetCore.Http.HttpRequest",
-            "HttpResponse" => "Microsoft.AspNetCore.Http.HttpResponse",
-            "RequestDelegate" => "Microsoft.AspNetCore.Http.RequestDelegate",
-            "IResult" => "Microsoft.AspNetCore.Http.IResult",
-            _ when canonical.Contains('.', StringComparison.Ordinal) => canonical,
-            _ => null,
-        };
-        if (fullName == null)
-            return false;
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            Type? candidate;
-            try
-            {
-                candidate = assembly.GetType(fullName, throwOnError: false);
-            }
-            catch
-            {
-                continue;
-            }
-            if (candidate != null && ColumnarTypeOfPlanner.IsSupportedExternalType(candidate))
-            {
-                type = candidate;
-                return true;
-            }
-        }
-        return false;
-    }
-
     // Preserve the established host signature while N# owns the complete synchronous declaration and
     // body-realization sequence. Ambient decline tracing remains at this existing caller boundary.
     private static bool TryEmitIteratorStateMachine(
@@ -3768,8 +3729,8 @@ internal sealed class ColumnarIlEmitter
             Type traitAttributeType;
             try
             {
-                factAttributeType = ResolveTestFrameworkType("Xunit.FactAttribute", referenceAssemblyPaths, "xunit.core", "xunit.v3.core");
-                traitAttributeType = ResolveTestFrameworkType("Xunit.TraitAttribute", referenceAssemblyPaths, "xunit.core", "xunit.v3.core");
+                factAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.FactAttribute", referenceAssemblyPaths, ["xunit.core", "xunit.v3.core"]);
+                traitAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.TraitAttribute", referenceAssemblyPaths, ["xunit.core", "xunit.v3.core"]);
             }
             catch (InvalidOperationException)
             {
@@ -7026,92 +6987,6 @@ internal sealed class ColumnarIlEmitter
         }
 
         return result;
-    }
-
-    // Legacy ResolveTestFrameworkType: scan already-loaded assemblies, then load the known
-    // test-framework assemblies by simple name. Throws when the type is unreachable — the caller
-    // converts that into a decline with a reason.
-    private static Type ResolveTestFrameworkType(string fullTypeName, IReadOnlyList<string>? referenceAssemblyPaths, params string[] assemblyNames)
-    {
-        foreach (var assembly in ExternalAssemblyScan.Loaded())
-        {
-            var loadedType = assembly.GetType(fullTypeName, throwOnError: false);
-            if (loadedType != null)
-                return loadedType;
-        }
-
-        // The compilation's RESOLVED reference paths carry the restored test-framework assemblies
-        // with exact versions — prefer them over name probing so the emitted attribute identity
-        // matches what the runner and `dotnet test` restore alongside the test assembly.
-        if (referenceAssemblyPaths != null)
-        {
-            foreach (var referencePath in referenceAssemblyPaths)
-            {
-                var fileName = Path.GetFileNameWithoutExtension(referencePath);
-                if (!fileName.StartsWith("xunit", StringComparison.OrdinalIgnoreCase)
-                    && !fileName.StartsWith("nunit", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                try
-                {
-                    var loadedType = Assembly.LoadFrom(referencePath).GetType(fullTypeName, throwOnError: false);
-                    if (loadedType != null)
-                        return loadedType;
-                }
-                catch
-                {
-                    // Try the next candidate reference.
-                }
-            }
-        }
-
-        foreach (var assemblyName in assemblyNames)
-        {
-            try
-            {
-                var assembly = Assembly.Load(new AssemblyName(assemblyName));
-                var loadedType = assembly.GetType(fullTypeName, throwOnError: false);
-                if (loadedType != null)
-                    return loadedType;
-            }
-            catch
-            {
-                // Try the next known test-framework assembly name.
-            }
-        }
-
-        throw new InvalidOperationException($"Could not resolve required test framework type {fullTypeName}");
-    }
-
-    private static bool TryResolveReferencedType(
-        IReadOnlyList<string>? referenceAssemblyPaths,
-        string assemblySimpleName,
-        string fullTypeName,
-        out Type type)
-    {
-        type = null!;
-        if (referenceAssemblyPaths == null)
-            return false;
-
-        foreach (var referencePath in referenceAssemblyPaths)
-        {
-            if (!string.Equals(Path.GetFileNameWithoutExtension(referencePath), assemblySimpleName, StringComparison.OrdinalIgnoreCase))
-                continue;
-            try
-            {
-                var loadedType = Assembly.LoadFrom(referencePath).GetType(fullTypeName, throwOnError: false);
-                if (loadedType != null)
-                {
-                    type = loadedType;
-                    return true;
-                }
-            }
-            catch
-            {
-                // Try the next resolved reference path.
-            }
-        }
-
-        return false;
     }
 
     private static bool TryGetSupportedBclReadableProperty(Type receiverType, string member, out PropertyInfo property)
@@ -11375,7 +11250,7 @@ internal sealed class ColumnarIlEmitter
             && member == "SerializeObject"
             && argCount == 1)
         {
-            if (!TryResolveReferencedType(
+            if (!ColumnarCompilerReferenceResolver.TryResolveReferencedType(
                     _referenceAssemblyPaths,
                     "Newtonsoft.Json",
                     "Newtonsoft.Json.JsonConvert",
@@ -11401,7 +11276,7 @@ internal sealed class ColumnarIlEmitter
             && member == "CreateBuilder"
             && argCount == 1)
         {
-            if (!TryResolveReferencedType(
+            if (!ColumnarCompilerReferenceResolver.TryResolveReferencedType(
                     _referenceAssemblyPaths,
                     "Microsoft.AspNetCore",
                     "Microsoft.AspNetCore.Builder.WebApplication",
@@ -14599,14 +14474,6 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    private bool TryResolveAspNetReferencedType(string assemblySimpleName, string fullTypeName, out Type type)
-        => TryResolveReferencedType(_referenceAssemblyPaths, assemblySimpleName, fullTypeName, out type)
-           || TryResolveLoadedExternalType(fullTypeName, out type);
-
-    private bool TryResolveAspNetHttpContextType(out Type type)
-        => TryResolveAspNetReferencedType("Microsoft.AspNetCore.Http.Abstractions", "Microsoft.AspNetCore.Http.HttpContext", out type)
-           || TryResolveAspNetReferencedType("Microsoft.AspNetCore.Http", "Microsoft.AspNetCore.Http.HttpContext", out type);
-
     private bool TryEmitAspNetRouteHandler(int handlerNode, out Type delegateType)
     {
         delegateType = null!;
@@ -14624,7 +14491,7 @@ internal sealed class ColumnarIlEmitter
                        && TryEmitLambdaLiteral(handlerNode, delegateType);
             }
 
-            if (parameterCount == 1 && TryResolveAspNetHttpContextType(out var httpContextType))
+            if (parameterCount == 1 && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextType(_referenceAssemblyPaths, out var httpContextType))
             {
                 var returnType = TryPreflightContextualLambdaReturnType(handlerNode, new[] { httpContextType }, out var inferredReturn)
                     ? inferredReturn
@@ -14639,7 +14506,7 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(handlerNode) == 6
             && _currentStruct != null
             && _currentStruct.IsReference
-            && TryResolveAspNetHttpContextType(out var contextType)
+            && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextType(_referenceAssemblyPaths, out var contextType)
             && TryFindMethodOnChain(_currentStruct, Text(handlerNode), 1, out var method)
             && TypesEquivalent(method.ParamTypes[0], contextType)
             && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType))
@@ -14663,7 +14530,7 @@ internal sealed class ColumnarIlEmitter
             || member is not ("MapGet" or "MapPost")
             || argCount != 2)
             return false;
-        if (!TryResolveAspNetReferencedType(
+        if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(_referenceAssemblyPaths,
                 "Microsoft.AspNetCore.Routing",
                 "Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions",
                 out var endpointExtensions))
@@ -14701,7 +14568,7 @@ internal sealed class ColumnarIlEmitter
             var extensionTypeName = member == "UseDefaultFiles"
                 ? "Microsoft.AspNetCore.Builder.DefaultFilesExtensions"
                 : "Microsoft.AspNetCore.Builder.StaticFileExtensions";
-            if (!TryResolveAspNetReferencedType("Microsoft.AspNetCore.StaticFiles", extensionTypeName, out var extensionType))
+            if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(_referenceAssemblyPaths, "Microsoft.AspNetCore.StaticFiles", extensionTypeName, out var extensionType))
                 return false;
             var method = Array.Find(
                 extensionType.GetMethods(BindingFlags.Public | BindingFlags.Static),
@@ -14722,7 +14589,7 @@ internal sealed class ColumnarIlEmitter
 
         if (member == "MapFallbackToFile" && argCount == 1)
         {
-            if (!TryResolveAspNetReferencedType(
+            if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(_referenceAssemblyPaths,
                     "Microsoft.AspNetCore.StaticFiles",
                     "Microsoft.AspNetCore.Builder.StaticFilesEndpointRouteBuilderExtensions",
                     out var extensionType))
@@ -14977,17 +14844,17 @@ internal sealed class ColumnarIlEmitter
             && member == "IsDevelopment"
             && argCount == 0)
         {
-            if (!TryResolveReferencedType(
+            if (!ColumnarCompilerReferenceResolver.TryResolveReferencedType(
                     _referenceAssemblyPaths,
                     "Microsoft.Extensions.Hosting.Abstractions",
                     "Microsoft.Extensions.Hosting.HostEnvironmentEnvExtensions",
                     out var hostingEnvironmentExtensions)
-                && !TryResolveReferencedType(
+                && !ColumnarCompilerReferenceResolver.TryResolveReferencedType(
                     _referenceAssemblyPaths,
                     "Microsoft.Extensions.Hosting.Abstractions",
                     "Microsoft.Extensions.Hosting.HostingEnvironmentExtensions",
                     out hostingEnvironmentExtensions)
-                && !TryResolveReferencedType(
+                && !ColumnarCompilerReferenceResolver.TryResolveReferencedType(
                     _referenceAssemblyPaths,
                     "Microsoft.AspNetCore.Hosting.Abstractions",
                     "Microsoft.AspNetCore.Hosting.HostingEnvironmentExtensions",
@@ -15017,7 +14884,7 @@ internal sealed class ColumnarIlEmitter
             && member == "WriteAsync"
             && argCount == 1)
         {
-            if (!TryResolveAspNetReferencedType(
+            if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(_referenceAssemblyPaths,
                     "Microsoft.AspNetCore.Http.Abstractions",
                     "Microsoft.AspNetCore.Http.HttpResponseWritingExtensions",
                     out var responseWritingExtensions))
@@ -15046,7 +14913,7 @@ internal sealed class ColumnarIlEmitter
             && member == "WriteAsJsonAsync"
             && (argCount == 2 || argCount == 3))
         {
-            if (!TryResolveAspNetReferencedType(
+            if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(_referenceAssemblyPaths,
                     "Microsoft.AspNetCore.Http.Extensions",
                     "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
                     out var responseJsonExtensions))
