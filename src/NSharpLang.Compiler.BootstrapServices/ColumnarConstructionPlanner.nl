@@ -1445,7 +1445,7 @@ class ColumnarConstructionPlanner {
                     parameterTypes = capacityParameters
                     openConstructor = openType.GetConstructor(parameterTypes)
                 } else if IsComparerCollectionDefinition(openType) {
-                    openConstructor = FindOpenComparerConstructor(openType)
+                    openConstructor = FindOpenComparerConstructor(openType, ComparerDefinitionName(openType))
                     if openConstructor == null {
                         return false
                     }
@@ -1456,6 +1456,25 @@ class ColumnarConstructionPlanner {
                         return false
                     }
                     parameterTypes = comparerParameters
+                }
+            } else if argumentCount == 2 && IsCopyComparerCollectionDefinition(openType) {
+                argumentTypes := new Type[](2)
+                argumentFacts := ColumnarDirectCallArgumentFacts.Empty(2)
+                argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
+                if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+                    return false
+                }
+
+                openConstructor = FindOpenCopyComparerConstructor(openType, ComparerDefinitionName(openType))
+                if openConstructor == null {
+                    return false
+                }
+                openParameters := openConstructor.GetParameters()
+                parameterTypes = new Type[](2)
+                parameterTypes[0] = SubstituteTypeArgument(openParameters[0].get_ParameterType(), targetType.GetGenericArguments())
+                parameterTypes[1] = SubstituteTypeArgument(openParameters[1].get_ParameterType(), targetType.GetGenericArguments())
+                if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts) < 0 {
+                    return false
                 }
             }
         }
@@ -1552,12 +1571,24 @@ class ColumnarConstructionPlanner {
 
     static func IsConstructibleCollectionDefinition(definition: Type): bool {
         name := definition.FullName
-        return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.Stack`1"
+        return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1" || name == "System.Collections.Generic.Stack`1"
     }
 
     static func IsComparerCollectionDefinition(definition: Type): bool {
         name := definition.FullName
-        return name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.HashSet`1"
+        return name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1"
+    }
+
+    static func IsCopyComparerCollectionDefinition(definition: Type): bool {
+        name := definition.FullName
+        return name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1"
+    }
+
+    static func ComparerDefinitionName(definition: Type): string {
+        if definition.FullName == "System.Collections.Generic.SortedSet`1" {
+            return "System.Collections.Generic.IComparer`1"
+        }
+        return "System.Collections.Generic.IEqualityComparer`1"
     }
 
     static func IsSupportedValueTupleType(valueType: Type): bool {
@@ -1569,7 +1600,7 @@ class ColumnarConstructionPlanner {
         return name == "System.ValueTuple`2" || name == "System.ValueTuple`3" || name == "System.ValueTuple`4" || name == "System.ValueTuple`5" || name == "System.ValueTuple`6" || name == "System.ValueTuple`7"
     }
 
-    static func FindOpenComparerConstructor(definition: Type): ConstructorInfo? {
+    static func FindOpenComparerConstructor(definition: Type, comparerDefinitionName: string): ConstructorInfo? {
         constructors := definition.GetConstructors()
         index := 0
         while index < constructors.Length {
@@ -1578,7 +1609,28 @@ class ColumnarConstructionPlanner {
                 parameterType := parameters[0].get_ParameterType()
                 if parameterType.get_IsGenericType() && !parameterType.get_IsGenericTypeDefinition() {
                     parameterDefinition := parameterType.GetGenericTypeDefinition()
-                    if parameterDefinition.FullName == "System.Collections.Generic.IEqualityComparer`1" {
+                    if parameterDefinition.FullName == comparerDefinitionName {
+                        return constructors[index]
+                    }
+                }
+            }
+            index += 1
+        }
+        return null
+    }
+
+    static func FindOpenCopyComparerConstructor(definition: Type, comparerDefinitionName: string): ConstructorInfo? {
+        constructors := definition.GetConstructors()
+        index := 0
+        while index < constructors.Length {
+            parameters := constructors[index].GetParameters()
+            if parameters.Length == 2 {
+                firstType := parameters[0].get_ParameterType()
+                secondType := parameters[1].get_ParameterType()
+                if firstType.get_IsGenericType() && !firstType.get_IsGenericTypeDefinition() && secondType.get_IsGenericType() && !secondType.get_IsGenericTypeDefinition() {
+                    firstDefinition := firstType.GetGenericTypeDefinition()
+                    secondDefinition := secondType.GetGenericTypeDefinition()
+                    if firstDefinition.FullName == "System.Collections.Generic.IEnumerable`1" && secondDefinition.FullName == comparerDefinitionName {
                         return constructors[index]
                     }
                 }

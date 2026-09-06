@@ -593,6 +593,17 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
+        if genericOpen == 9 && canonical.StartsWith("SortedSet<", StringComparison.Ordinal) {
+            arguments := new ColumnarSelectedTypeReference[](0)
+            if TrySelectTypeParameterArguments(canonical.Substring(10, canonical.Length - 11), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType)) {
+                definition := typeof(SortedSet<int>).GetGenericTypeDefinition()
+                runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+                selected = ConstructedSelection(table, runtimeType, definition, arguments)
+                return true
+            }
+            return false
+        }
+
         if genericOpen == 5 && canonical.StartsWith("Stack<", StringComparison.Ordinal) {
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(canonical.Substring(6, canonical.Length - 7), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType)) {
@@ -1037,6 +1048,17 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
+        if genericOpen == 9 && canonical.StartsWith("SortedSet<", StringComparison.Ordinal) {
+            arguments := new ColumnarSelectedTypeReference[](0)
+            if TrySelectOrdinaryArguments(canonical.Substring(10, canonical.Length - 11), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) {
+                definition := typeof(SortedSet<int>).GetGenericTypeDefinition()
+                runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+                selected = ConstructedSelection(table, runtimeType, definition, arguments)
+                return true
+            }
+            return false
+        }
+
         if genericOpen == 5 && canonical.StartsWith("Stack<", StringComparison.Ordinal) {
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(6, canonical.Length - 7), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) {
@@ -1430,7 +1452,7 @@ class ColumnarCanonicalTypeResolver {
         structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
         unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>
     ): bool {
-        if headName != "List" && headName != "Dictionary" && headName != "SortedDictionary" && headName != "HashSet" && headName != "Stack" {
+        if headName != "List" && headName != "Dictionary" && headName != "SortedDictionary" && headName != "HashSet" && headName != "SortedSet" && headName != "Stack" {
             return false
         }
         return enumRegistry.ContainsKey(headName) || structRegistry.ContainsKey(headName) || unionRegistry.ContainsKey(headName)

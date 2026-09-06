@@ -775,7 +775,7 @@ class ColumnarTypeOfPlanner {
 
     static func TryResolveCollection(head: string, argumentCanonicals: List<string>, bindings: ColumnarFragmentBindings, out result: Type): bool {
         result = typeof(object)
-        if head == "List" || head == "HashSet" || head == "Stack" || head == "IReadOnlyList" || head == "IReadOnlyCollection" || head == "IReadOnlySet" || head == "IEnumerable" {
+        if head == "List" || head == "HashSet" || head == "SortedSet" || head == "Stack" || head == "IReadOnlyList" || head == "IReadOnlyCollection" || head == "IReadOnlySet" || head == "IEnumerable" {
             element := typeof(object)
             elementCanonical := ""
             if argumentCanonicals.Count == 1 {
@@ -794,6 +794,8 @@ class ColumnarTypeOfPlanner {
             definition := typeof(List<int>).GetGenericTypeDefinition()
             if head == "HashSet" {
                 definition = typeof(HashSet<int>).GetGenericTypeDefinition()
+            } else if head == "SortedSet" {
+                definition = typeof(SortedSet<int>).GetGenericTypeDefinition()
             } else if head == "Stack" {
                 definition = typeof(Stack<int>).GetGenericTypeDefinition()
             } else if head == "IReadOnlyList" {
@@ -1095,7 +1097,7 @@ class ColumnarTypeOfPlanner {
     }
 
     static func IsCollectionHead(name: string): bool {
-        return name == "List" || name == "Dictionary" || name == "SortedDictionary" || name == "HashSet" || name == "Stack"
+        return name == "List" || name == "Dictionary" || name == "SortedDictionary" || name == "HashSet" || name == "SortedSet" || name == "Stack"
     }
 
     // THE COMPILER'S TYPE-ADMISSIBILITY HEAD. Every param, local, field, return, array element,
@@ -1132,6 +1134,9 @@ class ColumnarTypeOfPlanner {
         // Reflection.Emit cannot resolve a closed type containing a source builder through
         // Assembly.GetType. Its existing collection/task/result/union rebinding lowerings own these
         // structural shapes; the catalog rule below applies to complete external identities.
+        if IsSupportedDictionaryKeyCollectionType(valueType) {
+            return true
+        }
         if ContainsBuilderBoundType(valueType) {
             return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType)
         }
@@ -1364,7 +1369,7 @@ class ColumnarTypeOfPlanner {
             return false
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
-        return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.Stack`1" || name == "System.Collections.Generic.IReadOnlyList`1" || name == "System.Collections.Generic.IReadOnlyCollection`1" || name == "System.Collections.Generic.IReadOnlySet`1" || name == "System.Collections.Generic.IReadOnlyDictionary`2" || name == "System.Collections.Generic.IEnumerable`1"
+        return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1" || name == "System.Collections.Generic.Stack`1" || name == "System.Collections.Generic.IReadOnlyList`1" || name == "System.Collections.Generic.IReadOnlyCollection`1" || name == "System.Collections.Generic.IReadOnlySet`1" || name == "System.Collections.Generic.IReadOnlyDictionary`2" || name == "System.Collections.Generic.IEnumerable`1"
     }
 
     // IEnumerator<T> is storable protocol state, not a collection expression or foreach source.
@@ -1409,6 +1414,23 @@ class ColumnarTypeOfPlanner {
         }
         definition := valueType.GetGenericTypeDefinition()
         identity := RequiredDictionaryValueCollectionDefinition().get_AssemblyQualifiedName() ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+    }
+
+    // Dictionary<TKey, TValue>.Keys is a live view whose closed nested type retains both
+    // declaring-type arguments even though enumeration exposes only TKey. Closure binding passes
+    // this exact view into set constructors and UnionWith, so keep the concrete result type rather
+    // than materializing or copying its keys in the compiler host.
+    static func IsSupportedDictionaryKeyCollectionType(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryKeyCollectionDefinition().get_AssemblyQualifiedName() ?? ""
         if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
             return false
         }
@@ -1473,7 +1495,7 @@ class ColumnarTypeOfPlanner {
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             name := valueType.GetGenericTypeDefinition().FullName ?? ""
-            if name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.Stack`1" {
+            if name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1" || name == "System.Collections.Generic.Stack`1" {
                 return true
             }
             if ContainsBuilderBoundType(valueType) {
@@ -1827,6 +1849,14 @@ class ColumnarTypeOfPlanner {
         result := Type.GetType("System.Collections.Generic.Dictionary`2+ValueCollection")
         if result == null {
             throw new InvalidOperationException("Dictionary<TKey, TValue>.ValueCollection runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryKeyCollectionDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+KeyCollection")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.KeyCollection runtime type was not found.")
         }
         return result
     }

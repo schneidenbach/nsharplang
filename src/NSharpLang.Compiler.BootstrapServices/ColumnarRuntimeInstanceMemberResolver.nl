@@ -299,6 +299,10 @@ class ColumnarRuntimeInstanceMemberResolver {
             return TrySelectExpectedProperty(receiverType, receiverType, member, expected, out selection)
         }
 
+        if IsSupportedDictionaryKeyCollectionOwner(receiverType) && member == "Keys" {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
         if IsSupportedMemoryOwnerReceiver(receiverType) && member == "Memory" {
             return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
         }
@@ -718,7 +722,11 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         definition := valueType.GetGenericTypeDefinition()
-        return definition == typeof(List<int>).GetGenericTypeDefinition() || definition == typeof(Dictionary<int, int>).GetGenericTypeDefinition() || definition == typeof(SortedDictionary<int, int>).GetGenericTypeDefinition() || definition == typeof(HashSet<int>).GetGenericTypeDefinition() || definition == typeof(Stack<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || (definition.FullName ?? "") == "System.Collections.Generic.IReadOnlyDictionary`2" || definition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
+        return definition == typeof(List<int>).GetGenericTypeDefinition() || definition == typeof(Dictionary<int, int>).GetGenericTypeDefinition() || definition == typeof(SortedDictionary<int, int>).GetGenericTypeDefinition() || definition == typeof(HashSet<int>).GetGenericTypeDefinition() || definition == typeof(SortedSet<int>).GetGenericTypeDefinition() || definition == typeof(Stack<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || (definition.FullName ?? "") == "System.Collections.Generic.IReadOnlyDictionary`2" || definition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    }
+
+    static func IsSupportedDictionaryKeyCollectionOwner(valueType: Type): bool {
+        return valueType != null && !(valueType is TypeBuilder) && valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && valueType.GetGenericTypeDefinition() == typeof(Dictionary<int, int>).GetGenericTypeDefinition()
     }
 
     static func IsSupportedKeyValuePairReceiver(valueType: Type): bool {
@@ -888,7 +896,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if IsSupportedDelegateType(valueType) || IsSupportedCollectionType(valueType) {
+        if IsSupportedDelegateType(valueType) || IsSupportedCollectionType(valueType) || ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(valueType) {
             return true
         }
 

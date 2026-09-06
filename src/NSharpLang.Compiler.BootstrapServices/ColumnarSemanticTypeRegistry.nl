@@ -580,6 +580,9 @@ class ColumnarExactTypeResolver {
         if RuntimeDefinitionMatches(definition, "System.Collections.Generic.HashSet`1", core) {
             return "HashSet"
         }
+        if RuntimeDefinitionMatches(definition, "System.Collections.Generic.SortedSet`1", collections) {
+            return "SortedSet"
+        }
         if RuntimeDefinitionMatches(definition, "System.Collections.Generic.Stack`1", collections) {
             return "Stack"
         }
@@ -623,7 +626,7 @@ class ColumnarExactTypeResolver {
     }
 
     static func IsModeledRuntimeGenericHeadName(name: string): bool {
-        return name == "Nullable" || name == "Span" || name == "ReadOnlySpan" || name == "ValueTuple" || name == "Task" || name == "ValueTask" || name == "Result" || name == "List" || name == "HashSet" || name == "Stack" || name == "IReadOnlyList" || name == "IReadOnlyCollection" || name == "IReadOnlySet" || name == "IEnumerable" || name == "Dictionary" || name == "SortedDictionary" || name == "IReadOnlyDictionary" || name == "Action" || name == "Func"
+        return name == "Nullable" || name == "Span" || name == "ReadOnlySpan" || name == "ValueTuple" || name == "Task" || name == "ValueTask" || name == "Result" || name == "List" || name == "HashSet" || name == "SortedSet" || name == "Stack" || name == "IReadOnlyList" || name == "IReadOnlyCollection" || name == "IReadOnlySet" || name == "IEnumerable" || name == "Dictionary" || name == "SortedDictionary" || name == "IReadOnlyDictionary" || name == "Action" || name == "Func"
     }
 
     func TryResolveSourceDeclarationName(canonical: string, out exactName: string, out claimed: bool): bool {
@@ -790,7 +793,7 @@ class ColumnarExactTypeResolver {
     }
 
     static func IsCollectionSyntaxHead(name: string): bool {
-        return name == "List" || name == "Dictionary" || name == "SortedDictionary" || name == "HashSet" || name == "Stack"
+        return name == "List" || name == "Dictionary" || name == "SortedDictionary" || name == "HashSet" || name == "SortedSet" || name == "Stack"
     }
 
     static func SplitTopLevelPipes(canonical: string): List<string> {

@@ -38,13 +38,18 @@ class ColumnarReferenceConversionFacts {
             targetDefinition := targetType.GetGenericTypeDefinition()
             sourceArguments := sourceType.GetGenericArguments()
             targetArguments := targetType.GetGenericArguments()
-            if targetArguments.Length == 1 && sourceArguments.Length >= 1 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], targetArguments[0]) && ((sourceDefinition == typeof(List<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(HashSet<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(Stack<int>).GetGenericTypeDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) {
+            if targetArguments.Length == 1 && sourceArguments.Length >= 1 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], targetArguments[0]) && ((sourceDefinition == typeof(List<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(HashSet<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(SortedSet<int>).GetGenericTypeDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) || (sourceDefinition == typeof(Stack<int>).GetGenericTypeDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) {
                 return true
             }
             // Dictionary<TKey, TValue>.ValueCollection retains both declaring-type arguments while
             // IEnumerable<T> carries only TValue. Compare the second source slot at the same phase as
             // the other closed-generic emission conversions.
             if targetArguments.Length == 1 && sourceArguments.Length == 2 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[1], targetArguments[0]) && sourceDefinition == ColumnarTypeOfPlanner.RequiredDictionaryValueCollectionDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
+                return true
+            }
+            // Dictionary<TKey, TValue>.KeyCollection likewise retains both declaring arguments,
+            // while its enumerable element is the first slot.
+            if targetArguments.Length == 1 && sourceArguments.Length == 2 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], targetArguments[0]) && sourceDefinition == ColumnarTypeOfPlanner.RequiredDictionaryKeyCollectionDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
                 return true
             }
             if targetArguments.Length == 2 && sourceArguments.Length == 2 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], targetArguments[0]) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[1], targetArguments[1]) && ColumnarGenericCallBindingPlanner.IsReadOnlyDictionaryCollectionDefinition(targetDefinition) && ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(sourceDefinition) {
@@ -299,6 +304,15 @@ class ColumnarReferenceConversionFacts {
                 return true
             }
         }
+        // Dictionary<K,V>.KeyCollection is the corresponding live IEnumerable<K>; its second
+        // generic slot is retained only because the nested CLR type closes over its owner.
+        if sourceArguments.Length == 2 && targetArguments.Length == 1 && ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) {
+            sourceDefinition := sourceType.GetGenericTypeDefinition()
+            targetDefinition := targetType.GetGenericTypeDefinition()
+            if sourceDefinition == ColumnarTypeOfPlanner.RequiredDictionaryKeyCollectionDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
+                return true
+            }
+        }
         // The one two-argument upcast: Dictionary<K,V>/SortedDictionary<K,V> -> IReadOnlyDictionary<K,V>,
         // the two-argument mirror of List<T> -> IReadOnlyList<T> below. Both arguments must match exactly.
         if targetArguments.Length == 2 && sourceArguments.Length == 2 && (targetType.GetGenericTypeDefinition().FullName ?? "") == "System.Collections.Generic.IReadOnlyDictionary`2" && ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) && ExactTypeShapeMatches(sourceArguments[1], targetArguments[1]) {
@@ -325,6 +339,10 @@ class ColumnarReferenceConversionFacts {
 
         if sourceDefinition == typeof(HashSet<int>).GetGenericTypeDefinition() {
             return targetDefinition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
+        }
+
+        if sourceDefinition == typeof(SortedSet<int>).GetGenericTypeDefinition() {
+            return targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
         }
 
         return sourceDefinition == typeof(Stack<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())
