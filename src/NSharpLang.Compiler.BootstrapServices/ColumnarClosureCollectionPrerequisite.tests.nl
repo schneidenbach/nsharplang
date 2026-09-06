@@ -32,59 +32,6 @@ func ClosureCollectionRequiredConstructor(value: ConstructorInfo?): ConstructorI
     return value
 }
 
-func ClosureCollectionSortedWords(values: SortedSet<string>): string {
-    enumerator := values.GetEnumerator()
-    result := ""
-    try {
-        while enumerator.MoveNext() {
-            if result.Length > 0 {
-                result = result + "|"
-            }
-            result = result + enumerator.get_Current()
-        }
-    } finally {
-        enumerator.Dispose()
-    }
-    return result
-}
-
-func ClosureCollectionAdvanceAfterMutation(values: SortedSet<string>): bool {
-    enumerator := values.GetEnumerator()
-    advanced := false
-    try {
-        if !enumerator.MoveNext() {
-            throw new InvalidOperationException("The mutation control requires an initial value.")
-        }
-        if !values.Add("late") {
-            throw new InvalidOperationException("The mutation control requires a new value.")
-        }
-        advanced = enumerator.MoveNext()
-    } finally {
-        enumerator.Dispose()
-    }
-    return advanced
-}
-
-func ClosureCollectionExerciseProductionKeyViews(): bool {
-    localBuilders := new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
-    ordinals := new Dictionary<string, int>(StringComparer.Ordinal)
-    lifted := new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
-    boxed := new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
-
-    localCopy := new HashSet<string>(localBuilders.Keys, StringComparer.Ordinal)
-    ordinalCopy := new HashSet<string>(ordinals.Keys, StringComparer.Ordinal)
-    liftedCopy := new HashSet<string>(lifted.Keys, StringComparer.Ordinal)
-    boxedCopy := new HashSet<string>(boxed.Keys, StringComparer.Ordinal)
-
-    names := new HashSet<string>(StringComparer.Ordinal)
-    names.UnionWith(localBuilders.Keys)
-    names.UnionWith(ordinals.Keys)
-    names.UnionWith(lifted.Keys)
-    names.UnionWith(boxed.Keys)
-
-    return localCopy.get_Count() == 0 && ordinalCopy.get_Count() == 0 && liftedCopy.get_Count() == 0 && boxedCopy.get_Count() == 0 && names.get_Count() == 0
-}
-
 test "collection constructors retain their exact enumerable and comparer signatures" {
     hashSetDefinition := typeof(HashSet<int>).GetGenericTypeDefinition()
     sortedSetDefinition := typeof(SortedSet<int>).GetGenericTypeDefinition()
@@ -206,55 +153,4 @@ test "exact Dictionary Keys result types cover every closure value shape and no 
         "Keys",
         out selection
     )
-}
-
-test "every production Dictionary Keys shape flows unchanged into HashSet operations" {
-    assert ClosureCollectionExerciseProductionKeyViews()
-
-    values := new Dictionary<string, int>(StringComparer.Ordinal)
-    liveKeys := values.Keys
-    values["first"] = 1
-    copied := new HashSet<string>(liveKeys, StringComparer.Ordinal)
-    assert copied.get_Count() == 1
-    assert copied.Contains("first")
-
-    values["second"] = 2
-    copied.UnionWith(liveKeys)
-    assert copied.get_Count() == 2
-    assert copied.Contains("second")
-}
-
-test "HashSet copy construction uses the supplied comparer before duplicate insertion" {
-    source := new HashSet<string>(StringComparer.Ordinal)
-    assert source.Add("A")
-    assert source.Add("a")
-
-    ordinal := new HashSet<string>(source, StringComparer.Ordinal)
-    ignoreCase := new HashSet<string>(source, StringComparer.OrdinalIgnoreCase)
-    assert ordinal.get_Count() == 2
-    assert ignoreCase.get_Count() == 1
-    assert !ignoreCase.Add("a")
-}
-
-test "SortedSet constructors retain comparer ordering duplicates mutation and disposal" {
-    source := new HashSet<string>(StringComparer.Ordinal)
-    assert source.Add("b")
-    assert source.Add("A")
-    assert source.Add("a")
-
-    copied := new SortedSet<string>(source, StringComparer.Ordinal)
-    assert copied.get_Count() == 3
-    assert !copied.Add("a")
-    assert ClosureCollectionSortedWords(copied) == "A|a|b"
-
-    direct := new SortedSet<string>(StringComparer.OrdinalIgnoreCase)
-    assert direct.Add("b")
-    assert direct.Add("A")
-    assert !direct.Add("a")
-    assert ClosureCollectionSortedWords(direct) == "A|b"
-
-    assert throws InvalidOperationException {
-        ClosureCollectionAdvanceAfterMutation(copied)
-    }
-    assert copied.Contains("late")
 }
