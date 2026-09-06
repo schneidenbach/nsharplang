@@ -47,4 +47,15 @@ source-framing correction focused 2/2. No new C# test/helper was added.
 
 Ratchet: emitter 17,530→17,415 lines / 16,668→16,562 nonblank; C# tests 4,014→3,863 lines /
 3,445→3,320 nonblank / 379→371 markers. Current head `head-v1:bec1ef649672705e`; root ownership
-audit 18/18. Additional direct N# controls and final fresh backend integration gate remain open.
+audit 18/18. Four direct N# controls are integrated as `241b4f489` (worker
+`50a279d16cf65c90fda9a133648348e2c1cadd0c`); explicit ReferenceCoercion selection passes 4/4,
+with related ReferenceConversion coverage 6/6. Fixtures cover source identity/inheritance, external
+assignability, emitted/no-op boxing choices, object early pass-through, unknown builders and generic
+class constraints. Root and Terra review accept the controls; original catch behavior additionally
+uses emitted-IL review. No hostile reflection fixture or C# test infrastructure was introduced.
+Final fresh backend integration gate remains open.
+
+The surviving C# integration boundary supplies the original Type values, registry and ILGenerator
+and consumes the N# return value at existing expression-lowering sites. It contains no copied
+coercion classifier, emitter wrapper, decision callback or fallback for these seven methods.
+Other expression-lowering decisions remain explicit migration debt outside this accepted boundary.
