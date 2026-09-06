@@ -212,10 +212,22 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   bootstrap / 15 records / 18 audit, 52 projects and 68 IL assemblies. Installed SDK 0.1.0 repinned from
   the gated source and passes 1/1 with all 12 live payloads verified before/after the standalone build.
   Gate and seed receipts: `/private/tmp/gate-20260906-goal-s22j0-r1/`. Legacy validation remains debt.
-  Next j preserves the real source T[] refusal and first measures direct declarations plus actual
-  internal rebased T/T[] field companions under that seed; frozen 109/109 controls `86405783` are not
-  integrated here. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j0-parity-proof.md) and
+  At j0, next j preserved the real source T[] refusal and required direct declaration plus actual
+  internal rebased T/T[] field measurements; those prerequisite checks are discharged by j1 below.
+  Frozen 109/109 controls `86405783` remain unintegrated until the connected j owner. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j0-parity-proof.md) and
   [corrected next cut](../systems-language-closeout/decodes/2026-09-05-s22j-iterator-next-cut.md).
+  **S2.2(j1) generic declaration at `4ab360c71`, native/tested `a8a5fb436`:** exact direct
+  TypeBuilder.DefineGenericParameters(string[]) binding with genuine GenericTypeParameterBuilder[]
+  return and concrete element admission, all in existing N# owner; no C# change. Canonical 2/2,
+  unchanged-source old direct-call refusal/zero tests versus candidate 7/7; actual parameter owners,
+  Type[] copies and closed T/T[]/U fields. Connected declaration replay 1/1 executes rebased constructor
+  state 17/MoveNext false. Fixed 94-image/2,184-test corpus and strict258/433 unchanged. Fresh 452s
+  gate 593 unit /7,798 canonical /107 declarations /7 Reflection.Emit /15 records /18 audit,
+  52 projects and 68 IL assemblies. Gated SDK 0.1.0 repin passes 1/1 with package/Release/live-cache
+  linkage. Gate and seed receipts: `/private/tmp/gate-20260906-goal-s22j1-r1/`. Next connected j uses
+  Type base-view MakeGenericType and retains actual machine VAR fields versus factory MVAR owner;
+  full persisted-production/table controls remain required. No source T[] admission or broad-j owner
+  move is claimed. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j1-parity-proof.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
