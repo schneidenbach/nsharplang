@@ -1,27 +1,6 @@
 # S2.2(l): assembly entry-point selection and wrapper realization
 
-S2.2(l1) is accepted and SDK-verified. Revalidate the current source and seed before editing. This plan
-is source-reviewed; it is not an implementation or capability verdict. Tasks 015/021/022/023 stay open.
-
-The first exact-source probe found an array-element admission prerequisite for the
-`Dictionary<string, Type>[]` input. [S2.2(l0)](2026-09-06-s22l0-parity-proof.md) is now committed, gated and published at tested
-source `71d489a5c`; the actual SDK executes the same committed array fixture 2/2. The parked draft
-was refreshed onto accepted l0 and its exact driver probe was rerun. It passed the array boundary
-and exposed the enumerator refusal below. The complete C# block is still the production owner.
-
-The resumed exact-source probe reached the concrete value-enumerator storage refusal.
-[S2.2(l1)](2026-09-06-s22l1-parity-proof.md) is now gated at `6687505e4` and SDK-verified
-with the same committed native fixture 3/3. The exact builder-bound BCL enumerator retains its
-source value argument; direct addressed MoveNext/Current/Dispose and finally are proved. Refresh
-the parked owner onto this accepted source before resuming; retain its concrete acquisition.
-
-The unaccepted implementation remains in `/private/tmp/nsharp-agent-wt/023-s22l`, now based on
-accepted l0 `e7d4486d9`. Its original k-based four files and the resumed failed-source snapshots are
-preserved under `/private/tmp/nsharp-s22l-executor-logs/resume-20260906`; retain the owner draft when
-resuming after l1. The native no-main control is already seeded at `bbd352a31` in
-`/private/tmp/nsharp-agent-wt/023-s22l-controls-seeded`; its original `637dcde31` commit remains in
-`/private/tmp/nsharp-agent-wt/023-s22l-controls`. The control belongs to l and its accepted-k behavior
-is already proved. Bind the new canonical controls to the complete owner before accepting l.
+Accepted at product `070ad0a49a08715fb9274c71a77f260f6aae1c6d`, tested `efa3a8cabdd75eb5f49cf97d40eab07c1d14f67e`. The l0/l1 prerequisite boundaries and their failed-source evidence are retained in their proofs; the complete entry-point owner is now routed and verified. [Acceptance proof](2026-09-06-s22l-parity-proof.md). The constraints below remain the reviewed contract, not a pending implementation. Next [S2.2(m): constrained-call map production](2026-09-06-s22m-constraint-map-next-cut.md).
 
 ## Connected cut
 

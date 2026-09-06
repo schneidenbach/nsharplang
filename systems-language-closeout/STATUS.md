@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | S2.2(a)–(k) and g0/g1/j0/j1/l0/l1 prerequisites landed. N# admits concrete dictionary value enumerators through the existing builder arm; C# and ratchet unchanged. Fresh backend gate at `6687505e4`: 593 unit /7,816 canonical /114 declarations; published SDK same-source 3/3. Fixed 94-image corpus and strict 258/434 unchanged. Next complete S2.2(l) entry-point owner and keyed awaiter local. — §4.12 |
+| 023 | S2.2(a)–(l) and recorded prerequisites landed. Complete entry-point selection/wrapper owner is N#; C# −40 lines, awaiter keyed. Fresh backend gate at `efa3a8cab`: 593 unit /7,821 canonical /115 declarations; fixed 94-image corpus and strict 258/435 unchanged. Next S2.2(m): constrained-call map production. — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,46 +123,31 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** [S2.2(l)](decodes/2026-09-06-s22l-entrypoint-next-cut.md),
-the complete assembly entry-point selection/wrapper owner and its reached keyed awaiter local.
-The exact array and concrete value-enumerator prerequisites l0/l1 are accepted and SDK-verified.
-Refresh the parked l draft from the accepted l1 source and verified seed, retaining all four WIP
-files and existing l control evidence. The complete 56-line C# block remains the production owner.
-Remaining call/type/local/maxstack, S2.3–S2.6, 022/5 NativeAOT and final audit stay open.
+**Next writer slice:** [S2.2(m): constrained-call map production](decodes/2026-09-06-s22m-constraint-map-next-cut.md).
+S2.2(l) is accepted: the complete assembly entry-point selection/wrapper driver now lives in N#,
+with one mechanical C# forward and the reached awaiter local keyed through the existing catalog.
+Remaining call/type/local/maxstack work, S2.3–S2.6, 022/5 NativeAOT and final ownership audit stay open.
 
-**Goal checkpoint (2026-09-06):** S2.2(l1), product `9e1093c678046aca2511dbf5c0b33ee4bc6fa2f0` (Sol `ac1bb29ae`),
-controls and tested source **`6687505e48fd6384a2273c5a9445d1812def99a8`**. The existing N# builder-bound type-admission arm now
-accepts the exact BCL Dictionary value enumerator with closed supported arguments. The helper
-preserves Dictionary key/value rules, including source values and rejection of non-enum source keys, open
-arguments and unsupported key shapes. Catalog policy and C# are unchanged: emitter **18,923 lines
-/17,984 nonblank /985,534 bytes**; AddType **36 /12 files /21 keyed /15 handle-only**; all 381 ratchet
-rows and `head-v1:70a30ce31ead17ba` remain unchanged.
+**Goal checkpoint (2026-09-06):** S2.2(l), product `070ad0a49a08715fb9274c71a77f260f6aae1c6d` (Sol `e339f954d`),
+tested source **`efa3a8cabdd75eb5f49cf97d40eab07c1d14f67e`**. Emitter **18,883 lines /17,947 nonblank /983,112 bytes**
+(−40 /−37 /−2,422); AddType **36 /12 files /22 keyed /14 handle-only**.
+The measured ownership audit is 17/18 before repin and 18/18 after; all 381 rows remain, other 380 unchanged.
+Head `head-v1:da11bbd5a730b7f2`; no epoch ceiling grows.
 
-The actual failing initializer was a `TypeBuilderInstantiation` over runtime string and a source
-`TypeBuilderImpl`; the existing builder arm returned false before catalog lookup. One producer and
-two independent canonical controls pass. Three native controls prove first-hit loop exit, progression
-through one mutable struct receiver, value identity/order and a fresh-key mutation exception. The old
-compiler refuses the exact final source at `emit.local.unsupported-type`; the candidate passes
-**114/114**. Independent IL review proves one concrete local, address-based typed member calls and
-direct concrete Dispose inside finally. No interface enumeration or boxing is introduced.
-
+Producer 14/14 and independent realization controls 4/4 preserve live indexed reads, static first hit,
+partial output, wrapper declaration/plan/GetIL timing and the actual consumed keyed awaiter pair.
 Fixed f543 corpus: **75 targets /73 successes /94 normalized images /2,184 native passes per arm**,
-zero image/set/outcome differences and the same two NL402 template refusals. Strict same-source
-pre/post stdout is byte-identical: **258 findings across 434 production files**. Immutable BSS IL
-matches the producer byte-for-byte; whole Compiler IL has only one relocated static-data address
-with identical six data bytes. Product-to-tested changes contain only the two new control files.
+zero image/set/outcome differences and the same two NL402 template refusals. Current native declarations
+**115/115** through both immutable compilers, normalized whole images equal. Strict same-source stdout
+is byte-identical: **258 findings across 435 production files**, with baseline rows retained.
 
-Fresh exclusive **backend** gate at `6687505e4` passed in **448s**:
-**593 unit /7,816 canonical /114 declarations /7 Reflection.Emit /15 records /18 audit**,
-52 native projects and 68 IL assemblies. VS Code was skipped for this emission-only prerequisite;
-k's IDE evidence remains separate. Benchmark correctness passed; front-end timing was unjudged under host load.
-The coordinator published SDK 0.1.0: all ten packaged tools match Release artifacts and all twelve
-SDK/tools entries match the actual live cache before/after the standalone SDK build. The same
-committed self-contained fixture executes **3/3** through the actual NuGet-resolved SDK.
-Seed package SHA `431f3ae0476285110620a4c80117f32edc903f0fbc08009938ff2e8501599a90`;
-seed acceptance SHA `447cd1f21e756664facf5dc112e701d6f3b95f2daf4d918780cefa8e633f8918`.
-[Proof](decodes/2026-09-06-s22l1-parity-proof.md); gate, seed, documentation and exact-push receipts at
-`/private/tmp/gate-20260906-goal-s22l1-r1/`. Legacy validation remains bootstrap debt. Tasks 015/021/022/023 stay open;
+Fresh backend gate at `efa3a8cab` passes in **461s**:
+**593 unit /7,821 canonical /115 declarations /7 Reflection.Emit /15 records /18 audit**,
+52 native projects and 68 IL assemblies. VS Code was skipped for this emission ownership move;
+k's IDE evidence remains separate. Benchmark correctness passes; front-end timing was unjudged under host load.
+All 12 verified l1 SDK payloads remain unchanged; no republish is needed for this ownership-only slice.
+[Proof](decodes/2026-09-06-s22l-parity-proof.md); gate, documentation and exact-push receipts at
+`/private/tmp/gate-20260906-goal-s22l-r1/`. Legacy validation remains bootstrap debt. Tasks 015/021/022/023 stay open;
 Astra plans/reviews/integrates, Sol/Terra execute.
 
 **Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
@@ -3033,6 +3018,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| 023/S2.2(l) — entry-point realization | product `070ad0a49`; tested `efa3a8cab` | Complete selection/wrapper owner becomes N#; reached awaiter type keyed | Preserve live indexed reads, concrete first-hit fallback, partial output and wrapper phases | C# −40/−37/−2,422 bytes;22 keyed/14 handle-only; gate 461s:593/7,821/115, audit 18,68 IL; fixed 94/2,184 each and strict 258/435 equal; l1 SDK unchanged. [Proof](decodes/2026-09-06-s22l-parity-proof.md) |
 | 023/S2.2(l1) — concrete dictionary value enumerator prerequisite | product `9e1093c67`; controls/tested `6687505e4` | Exact N# builder-bound enumerator admission; no C# move | Observe actual source-builder handle; retain closed/key/value identity boundaries and concrete addressed iteration/finally | +3 canonical, +3 native; gate 448s: 593/7,816/114, audit 18, 68 IL; fixed 94/2,184 each and strict 258/434 unchanged; SDK same-source 3/3, all 12 payloads verified; emitter/ratchet unchanged. [Proof](decodes/2026-09-06-s22l1-parity-proof.md) |
 | 023/S2.2(l0) — catalog reference array prerequisite | product `05187654e`; controls/tested `71d489a5c` | N# admits catalog reference elements through the existing exact identity gate; no C# move | Preserve real array signature and operations; honest/forged identity twin; direct Array.Empty generic binding remains separate | +4 canonical, +2 native; gate 450s: 593/7,813/111, audit 18, 68 IL; fixed 94/2,184 each and strict 258/434 unchanged; SDK same-source 2/2, all 12 payloads verified; emitter/ratchet unchanged. [Proof](decodes/2026-09-06-s22l0-parity-proof.md) |
 | 023/S2.2(k) — member iterator discovery/admission | initial `9dc7edc85`; ratchet `5614eb20c`; controls `159dfab2f`/`7d579e98e`; corrected/tested `137462ab1` | Complete member driver becomes N#-owned; necessary known-generic inheritance rule corrected in N# | Live first-hit/disposal/repeated-name/ordinal phases; concrete Count null trap; source-element IDE probe distinguishes the corrected path | Emitter 18,923/17,984 (−51/−51/−3,115 bytes);21 keyed/15 handle-only; 94 images/2,184 tests each equal; strict 260→258 with 258 baseline retained; native 109/109. Fresh 522s gate 593/7,809/36 VS Code/109, audit 18; visual PASS; j1 seed unchanged. [Proof](decodes/2026-09-06-s22k-parity-proof.md) |

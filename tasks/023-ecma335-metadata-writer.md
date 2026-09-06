@@ -270,6 +270,16 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   /114 declarations, 18 audit and 68 IL assemblies. Published SDK matches all 12 live payloads and
   executes the same committed fixture 3/3. Resume the complete l owner from this verified seed.
   [Proof](../systems-language-closeout/decodes/2026-09-06-s22l1-parity-proof.md).
+  **S2.2(l) entry-point realization at `070ad0a49`, tested `efa3a8cab`:** complete main/Main selection,
+  concrete static fallback and async-wrapper coordination now live in N#; one mechanical C# forward.
+  Emitter −40 lines/−37 nonblank/−2,422 bytes to 18,883/17,947; awaiter consumes the catalog structural
+  table at the old AddType phase, census36 /12 /22 keyed /14 handle-only. Producer 14/14 and independent
+  controls preserve read order, partial output and actual wrapper phases. Native 115/115 through both
+  immutable compilers, normalized whole image equal; fixed 94-image/2,184-test corpus equal; strict
+  same-source258/435 byte-identical. Audit17/18→18/18 with only the emitter row lowered and both
+  head keys recomputed. Fresh 461s backend gate 593/7,821/115,18 audit,52 projects /68 IL;
+  all 12 l1 SDK payloads unchanged. Next S2.2(m): constrained-call map production.
+  [Proof](../systems-language-closeout/decodes/2026-09-06-s22l-parity-proof.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
