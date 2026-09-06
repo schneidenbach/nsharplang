@@ -18,11 +18,31 @@ class ExtensionCallCompilation {
     Succeeded: bool
     Diagnostics: string
     FixtureRoot: string
+    OutputPath: string
+    Config: ProjectConfig
 
-    constructor(succeeded: bool, diagnostics: string, fixtureRoot: string) {
+    constructor(
+        succeeded: bool,
+        diagnostics: string,
+        fixtureRoot: string,
+        outputPath: string,
+        config: ProjectConfig
+    ) {
         Succeeded = succeeded
         Diagnostics = diagnostics
         FixtureRoot = fixtureRoot
+        OutputPath = outputPath
+        Config = config
+    }
+}
+
+class ExtensionCallRunResult {
+    ExitCode: int
+    Stdout: string
+
+    constructor(exitCode: int, stdout: string) {
+        ExitCode = exitCode
+        Stdout = stdout
     }
 }
 
@@ -37,6 +57,18 @@ func ExtensionCoreFrameworkDirectory(): string {
 }
 
 func CompileExtensionCallFixture(source: string): ExtensionCallCompilation {
+    return CompileNamedExtensionCallFixture(
+        "ExtensionCallFixture",
+        "library",
+        source
+    )
+}
+
+func CompileNamedExtensionCallFixture(
+    projectName: string,
+    outputType: string,
+    source: string
+): ExtensionCallCompilation {
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
         "nsharp-extension-calls-" + Guid.NewGuid().ToString("N")
@@ -51,7 +83,7 @@ func CompileExtensionCallFixture(source: string): ExtensionCallCompilation {
     coreLib := Path.Combine(coreDirectory, "System.Private.CoreLib.dll")
     runtimeDll := Path.Combine(coreDirectory, "System.Runtime.dll")
     linqDll := Path.Combine(coreDirectory, "System.Linq.dll")
-    projectYml := "name: ExtensionCallFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - dll: " + coreLib + "\n  - dll: " + runtimeDll + "\n  - dll: " + linqDll + "\n"
+    projectYml := "name: " + projectName + "\nversion: 1.0.0\nbackend: il\noutputType: " + outputType + "\ntargetFramework: net10.0\ndependencies:\n  - dll: " + coreLib + "\n  - dll: " + runtimeDll + "\n  - dll: " + linqDll + "\n"
     File.WriteAllText(Path.Combine(fixtureRoot, "project.yml"), projectYml)
 
     compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
@@ -72,6 +104,10 @@ func CompileExtensionCallFixture(source: string): ExtensionCallCompilation {
     config := parseMethod.Invoke(null, parseArguments)
     if config == null {
         throw new InvalidOperationException("The production project configuration was not parsed.")
+    }
+    typedConfig := config as ProjectConfig
+    if typedConfig == null {
+        throw new InvalidOperationException("The production project configuration had the wrong runtime type.")
     }
     projectConfigType := config.GetType()
 
@@ -97,9 +133,9 @@ func CompileExtensionCallFixture(source: string): ExtensionCallCompilation {
         throw new InvalidOperationException("The production compiler entry point was not found.")
     }
 
-    outputPath := Path.Combine(fixtureRoot, "out/ExtensionCallFixture.dll")
+    outputPath := Path.Combine(fixtureRoot, "out/" + projectName + ".dll")
     compileArguments := new object?[](4)
-    SetExtensionObject(compileArguments, 0, "ExtensionCallFixture")
+    SetExtensionObject(compileArguments, 0, projectName)
     SetExtensionObject(compileArguments, 1, outputPath)
     SetExtensionObject(compileArguments, 2, false)
     SetExtensionObject(compileArguments, 3, true)
@@ -122,7 +158,13 @@ func CompileExtensionCallFixture(source: string): ExtensionCallCompilation {
 
     succeeded := successValue.ToString() == "True"
     diagnostics := FormatFirstExtensionDiagnostic(errorsValue as IList)
-    return new ExtensionCallCompilation(succeeded, diagnostics, fixtureRoot)
+    return new ExtensionCallCompilation(
+        succeeded,
+        diagnostics,
+        fixtureRoot,
+        outputPath,
+        typedConfig
+    )
 }
 
 func FormatFirstExtensionDiagnostic(errors: IList?): string {
@@ -155,6 +197,152 @@ func CleanupExtensionCompilation(compilation: ExtensionCallCompilation) {
     if Directory.Exists(compilation.FixtureRoot) {
         Directory.Delete(compilation.FixtureRoot, true)
     }
+}
+
+func RunGenericCallProgram(outputPath: string, workingDirectory: string): ExtensionCallRunResult {
+    runnerType := Type.GetType(
+        "NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.BootstrapServices"
+    )
+    if runnerType == null {
+        throw new InvalidOperationException("The production dotnet runner was not loadable.")
+    }
+
+    candidates := runnerType.GetMethods()
+    runMethod: MethodInfo? = null
+    matchCount := 0
+    candidateIndex := 0
+    while candidateIndex < candidates.Length {
+        candidate := candidates[candidateIndex]
+        if candidate.get_Name() == "Run" && candidate.GetParameters().Length == 4 {
+            runMethod = candidate
+            matchCount += 1
+        }
+        candidateIndex += 1
+    }
+    if runMethod == null || matchCount != 1 {
+        throw new InvalidOperationException("The production dotnet runner entry point was not found.")
+    }
+
+    arguments := new object?[](4)
+    SetExtensionObject(arguments, 0, "\"" + outputPath + "\"")
+    SetExtensionObject(arguments, 1, workingDirectory)
+    SetExtensionObject(arguments, 2, true)
+    SetExtensionObject(arguments, 3, null)
+    result := runMethod.Invoke(null, arguments)
+    if result == null {
+        throw new InvalidOperationException("The production dotnet runner returned no result.")
+    }
+    resultType := result.GetType()
+    exitCodeField := resultType.GetField("ExitCode")
+    stdoutField := resultType.GetField("Stdout")
+    if exitCodeField == null || stdoutField == null {
+        throw new InvalidOperationException("The production dotnet runner result contract was incomplete.")
+    }
+    exitCodeValue := exitCodeField.GetValue(result)
+    stdoutValue := stdoutField.GetValue(result)
+    if exitCodeValue == null || stdoutValue == null {
+        throw new InvalidOperationException("The production dotnet runner result values were incomplete.")
+    }
+    exitCodeText := exitCodeValue.ToString() ?? ""
+    return new ExtensionCallRunResult(int.Parse(exitCodeText), stdoutValue.ToString() ?? "")
+}
+
+func AssertGenericCallProgram(
+    projectName: string,
+    source: string,
+    expectedOutput: string
+) {
+    compilation := CompileNamedExtensionCallFixture(projectName, "exe", source)
+    try {
+        assert compilation.Succeeded, compilation.Diagnostics
+        CompilationArtifacts.WriteRuntimeConfig(
+            compilation.Config,
+            compilation.OutputPath
+        )
+
+        runResult := RunGenericCallProgram(
+            compilation.OutputPath,
+            compilation.FixtureRoot
+        )
+        assert runResult.ExitCode == 0
+        assert runResult.Stdout.Replace("\r\n", "\n").Trim() == expectedOutput
+    } finally {
+        CleanupExtensionCompilation(compilation)
+    }
+}
+
+// Canonical generic-call integration assertions formerly lived in CompilationBackendTests.cs.
+// Each exact program now passes through the production compiler and executes its emitted assembly;
+// the focused planner controls separately pin the individual inference and return-shape decisions.
+test "generic params array inference compiles and executes" {
+    AssertGenericCallProgram(
+        "GenericParamsArrayProject",
+        """
+import System.Collections.Generic
+
+func CreateList<T>(params items: T[]): List<T> {
+    list := new List<T>()
+    for item in items {
+        list.Add(item)
+    }
+
+    return list
+}
+
+func main() {
+    numbers := CreateList(1, 2, 3)
+    words := CreateList("a", "b")
+    print numbers.Count
+    print words.Count
+}
+""",
+        "3\n2"
+    )
+}
+
+test "explicit nullable generic call compiles and executes" {
+    AssertGenericCallProgram(
+        "ExplicitNullableGenericProject",
+        """
+import System.Collections.Generic
+import System.Linq
+
+func CreateList<T>(params items: T[]): List<T> {
+    list := new List<T>()
+    for item in items {
+        list.Add(item)
+    }
+
+    return list
+}
+
+func main() {
+    numbers := CreateList<int?>(1, null, 3)
+    present := numbers.Where(n => n != null).ToList()
+    print $"{numbers.Count}:{present.Count}"
+}
+""",
+        "3:2"
+    )
+}
+
+test "generic expanded params array call compiles and executes" {
+    AssertGenericCallProgram(
+        "GenericExpandedParamsProject",
+        """
+func PrintAll<T>(prefix: string, params items: T[]) {
+    for item in items {
+        print $"{prefix}{item}"
+    }
+}
+
+func main() {
+    PrintAll("n=", 1, 2, 3, 4, 5)
+    PrintAll("s=", "Alice", "Bob")
+}
+""",
+        "n=1\nn=2\nn=3\nn=4\nn=5\ns=Alice\ns=Bob"
+    )
 }
 
 // -----------------------------------------------------------------------------------------------
