@@ -29,3 +29,19 @@ immutable compiler payloads, original emitter and ratchet. Previous accepted fre
 SDK seed SHA `a817ac58eb2b51c692ab6624e7dc9194088e449b8df55dd010a774891e82fbe8`.
 The selected area and compiler-wide objective remain open until sole ownership, canonical coverage,
 required verification and push are complete.
+
+Canonical full-program migration integrated as `cc19ab499` (worker `3d3983752`): three complete
+C# tests for user-struct interface returns, async executable entrypoints and namespace-qualified
+interface/implementer metadata now execute in N#. Original source-file contents and ten assertions
+are retained; namespace inspection uses a collectible load context and unloads before cleanup.
+Focused evidence: native extension-calls 10/10, remaining CompilationBackendTests 76/76, formatter
+clean. C# test row shrinks to 4,014 lines / 3,445 nonblank / 379 markers (three test attributes plus
+ten assertion markers removed). All other rows and epochs remain unchanged; ratchet
+`head-v1:4b4e382fa477a0d8`, root native ownership audit 18/18.
+
+Complete-source probes prove typed source-reference dictionary/set keys, live Dictionary.Values
+views and concrete Dictionary enumerators are necessary. Discovery-only substitutions are not
+accepted implementation: final ownership must compile with the original types and live views.
+Native prerequisite probes also prove the connected reference-conversion and KeyValuePair
+recognition owners must move completely into N# with all C# callers routed directly. The seed
+remains unpublished pending exact full-source compilation and required fresh integration checks.
