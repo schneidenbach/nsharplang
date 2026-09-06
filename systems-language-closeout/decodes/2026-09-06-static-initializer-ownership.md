@@ -27,3 +27,38 @@ reviews/integrates/ratchets/gates/pushes. Evidence:
 `emitter-before.cs`, `ratchet-before.json`. Prior fresh gate passed590 unit/7,849 canonical/52 native
 projects/12 throughput/68 IL in448s. The selected area and full compiler goal remain open.
 Broader branch initiatives stay in `tasks/BRANCH-BACKLOG.md`.
+
+Actual-source findings: `proposed-r1/build.log` rejects the pending List<ValueTuple<ColumnarStructDef,
+FieldBuilder,Type,int,string>> parameter. Its producer and consumers move to a validation-free N#
+pending-initializer data owner. Intermediate full-source r2 admits the existing eight-field sibling
+tuple registry and reaches body emission, so no sibling representation change is justified by that
+probe. Its first refusal is a chained Builder/Name/coalesce argument; ordered local reads preserve
+the original argument-evaluation phase. At that stage no SDK prerequisite was established; the later complete-source findings below establish the necessary calls.
+
+Historical static-field tests were deleted with the transpiler at `a50cb4000`; current successor
+searches by unique program names/source found no equivalent native compiler contracts. This is a
+coverage gap, not a restart of accepted migration. Baseline probes guide new focused runtime/metadata
+controls; obsolete historical decline expectations are not copied into current canonical tests.
+
+Further full-source r8 reaches sibling local materialization and rejects `new ValueTuple<8-rest>()`
+(`emit.local.initializer`); declaration admission alone did not establish usable storage. A
+validation-free N# sibling-signature data owner now replaces the tuple at the original producer,
+with all consumers routed mechanically and original field/array identities retained. The provisional
+fresh List allocation before TryGetValue is replaced by a typed-null out local to preserve lookup
+allocation/order behavior. These are dependency ownership moves, not new C# projection layers.
+
+Sequential discovery establishes four prerequisites: Array.Empty<string> (r13), UInt64.TryParse
+(string,out ulong) (r12), Int64.TryParse(string,out long) (discovery-r14), and Double.TryParse
+(string,NumberStyles,IFormatProvider,out double) (discovery-r18). With only those calls temporarily
+substituted, the complete candidate builds (discovery-r20); exact source is restored at proposed-r21.
+Immediate operand locals and the accepted full-arity StringLiteralDecoder call retain emission/failure
+phases. Temporary call substitutes and cached-array state are not product code. Sol implements the
+Array.Empty N# direct-call/binding path; Terra the three numeric N# binding rows. Both are isolated
+from the owner and will form one verified seed checkpoint before exact-owner compilation resumes.
+
+Prerequisite review requires the explicit generic external path to preserve value, additional-root,
+visible-type-parameter, alias, and source-owner shadows before runtime selection. Source generic
+methods retain their existing owner. Numeric admission pins the exact by-reference types and the
+Double IFormatProvider formal; native assertions cover signed extrema, unsigned max/overflow, and
+failure out resets. The initializer owner must retain null-overload lookup failure rather than
+silently consulting siblings. These review controls accompany the complete ownership area.
