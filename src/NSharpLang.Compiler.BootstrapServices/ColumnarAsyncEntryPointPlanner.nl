@@ -40,7 +40,13 @@ class ColumnarAsyncEntryPointPlanner {
     // `entryPoint` is a MethodBuilder whose reflection surface cannot be read back, so it enters the
     // method pool through the DECLARED-SIGNATURE overload — the same treatment the member pools give
     // every other builder handle.
-    static func BuildWrapperPlan(entryPoint: MethodInfo, entryPointDeclaringType: Type, wrappedReturnType: Type, innerReturnType: Type): ColumnarCodePlan {
+    static func BuildWrapperPlan(
+        entryPoint: MethodInfo,
+        entryPointDeclaringType: Type,
+        wrappedReturnType: Type,
+        innerReturnType: Type,
+        typeResolutionCatalog: ColumnarSemanticTypeResolutionCatalog
+    ): ColumnarCodePlan {
         if entryPoint == null || entryPointDeclaringType == null || wrappedReturnType == null || innerReturnType == null {
             throw new InvalidOperationException("An async entry-point wrapper plan needs its entry point and both return types.")
         }
@@ -53,7 +59,8 @@ class ColumnarAsyncEntryPointPlanner {
         plan.PrepareMethodBody()
         noParameters := new Type[](0)
         entryPointPool := plan.AddMethodWithSignature(entryPoint, entryPointDeclaringType, noParameters, wrappedReturnType, true, false)
-        awaiterLocal := plan.DeclarePlanLocal(plan.AddType(awaiterType))
+        table := typeResolutionCatalog.StructuralTypeReferences
+        awaiterLocal := plan.DeclarePlanLocal(plan.AddType(table.SelectRuntimeType(awaiterType), table))
 
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), entryPointPool)
         // A virtual GetAwaiter is dispatched virtually; Task/ValueTask expose it non-virtually and take

@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 import System.Threading.Tasks
@@ -55,10 +56,40 @@ func AsyncEntryPointNoTypes(): Type[] {
     return new Type[](0)
 }
 
+func AsyncEntryPointCatalog(): ColumnarSemanticTypeResolutionCatalog {
+    program := ColumnarProgramInput.CreateSingleSource(
+        "",
+        new List<ColumnarFunctionInput>(),
+        new List<ColumnarEnumInput>(),
+        new List<ColumnarStructInput>(),
+        new List<ColumnarUnionInput>(),
+        new List<ColumnarInterfaceInput>(),
+        null
+    )
+    return new ColumnarSemanticTypeResolutionCatalog(
+        program,
+        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
+        new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal),
+        new Dictionary<string, ColumnarUnionDef>(StringComparer.Ordinal)
+    )
+}
+
 // The wrapper plan for a `Task`-returning async main: the whole void case, end to end.
-func AsyncEntryPointVoidWrapperPlan(): ColumnarCodePlan {
+func AsyncEntryPointVoidWrapperPlanWithCatalog(
+    catalog: ColumnarSemanticTypeResolutionCatalog
+): ColumnarCodePlan {
     handle := AsyncEntryPointCompletedTaskHandle()
-    return ColumnarAsyncEntryPointPlanner.BuildWrapperPlan(handle, typeof(Task), typeof(Task), AsyncEntryPointVoidType())
+    return ColumnarAsyncEntryPointPlanner.BuildWrapperPlan(
+        handle,
+        typeof(Task),
+        typeof(Task),
+        AsyncEntryPointVoidType(),
+        catalog
+    )
+}
+
+func AsyncEntryPointVoidWrapperPlan(): ColumnarCodePlan {
+    return AsyncEntryPointVoidWrapperPlanWithCatalog(AsyncEntryPointCatalog())
 }
 
 func AsyncEntryPointCountOperandKind(plan: ColumnarCodePlan, operandKind: int): int {
@@ -110,14 +141,26 @@ func AsyncEntryPointSetObject(values: object[], index: int, value: object) {
 // THE BINDING MODE. This is the block the slice exists for: the awaiter slot is an IL LOCAL the plan
 // declares, not a field on a closure class, and the plan proves it by carrying no field row at all.
 test "the async entry-point wrapper binds its awaiter as an IL local, not a hoisted field" {
-    plan := AsyncEntryPointVoidWrapperPlan()
+    catalog := AsyncEntryPointCatalog()
+    plan := AsyncEntryPointVoidWrapperPlanWithCatalog(catalog)
 
     // The mode: exactly one plan local, of the awaiter's own type, and it is the plan's local — not a
     // LocalBuilder handed in from outside (that is the AMBIENT class, a third binding).
     assert plan.PlanLocalCount == 1
     assert plan.AmbientLocalCount == 0
-    awaiterType := plan.Types[plan.PlanLocalTypeIndices[0]]
+    awaiterTypeIndex := plan.PlanLocalTypeIndices[0]
+    awaiterType := plan.Types[awaiterTypeIndex]
     assert awaiterType.get_FullName() == "System.Runtime.CompilerServices.TaskAwaiter"
+
+    // The same catalog that resolves this assembly owns the awaiter row. Selecting the runtime type
+    // again yields the same interned key, so the table, key and companion are observed independently.
+    table := catalog.StructuralTypeReferences
+    awaiterEntry := StructuralPoolRequiredEntry(plan, awaiterTypeIndex)
+    expectedAwaiter := table.SelectRuntimeType(awaiterType)
+    assert plan.TypeUsesStructuralReference[awaiterTypeIndex]
+    assert ColumnarConstructionPlanner.SameObject(awaiterEntry.Table, table)
+    assert ColumnarConstructionPlanner.SameObject(awaiterEntry.Selected.Key, expectedAwaiter.Key)
+    assert awaiterEntry.MatchesRuntime(awaiterType)
 
     // The negative half, and the one that says "not the iterator heritage": a state-machine body binds
     // every body slot through `Stfld`/`Ldfld` on the closure class. This body has NO field pool and no
@@ -137,6 +180,20 @@ test "the async entry-point wrapper binds its awaiter as an IL local, not a hois
     // And it is a METHOD BODY, not an expression fragment: the schema is v4 and the body terminates.
     assert plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion()
     assert AsyncEntryPointCountOpCode(plan, ColumnarCodePlanContract.Ret()) == 1
+}
+
+test "the async entry-point wrapper rejects a mismatched awaiter companion" {
+    catalog := AsyncEntryPointCatalog()
+    plan := AsyncEntryPointVoidWrapperPlanWithCatalog(catalog)
+    awaiterTypeIndex := plan.PlanLocalTypeIndices[0]
+    awaiterEntry := StructuralPoolRequiredEntry(plan, awaiterTypeIndex)
+
+    assert awaiterEntry.MatchesRuntime(plan.Types[awaiterTypeIndex])
+    plan.Types[awaiterTypeIndex] = typeof(int)
+    assert !awaiterEntry.MatchesRuntime(plan.Types[awaiterTypeIndex])
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
 }
 
 // The wrapper's SIGNATURE rule. The CLR entry point may return void, int or uint; an async main whose
@@ -221,9 +278,16 @@ test "the async entry-point planner refuses an awaitable it cannot drive" {
     handle := AsyncEntryPointCompletedTaskHandle()
     voidType := AsyncEntryPointVoidType()
 
-    // `int` has no GetAwaiter, so there is no awaiter type and no local to bind.
+    // `int` has no GetAwaiter, so there is no awaiter type and no local to bind. The null catalog
+    // proves that failure is decided before the structural table is read at the reached AddType site.
     assert throws InvalidOperationException {
-        ColumnarAsyncEntryPointPlanner.BuildWrapperPlan(handle, typeof(Task), typeof(int), voidType)
+        ColumnarAsyncEntryPointPlanner.BuildWrapperPlan(
+            handle,
+            typeof(Task),
+            typeof(int),
+            voidType,
+            null
+        )
     }
 
     // A declared signature is not TRUSTED because the planner wrote it: the plan carries the entry
@@ -231,7 +295,13 @@ test "the async entry-point planner refuses an awaitable it cannot drive" {
     // the validator still checks the declaration against whatever the handle does expose. Declaring
     // this handle against the wrong owner builds a plan and then fails validation — which is where the
     // check belongs, since the emitter reaches the executor through `Execute`, and `Execute` validates.
-    mismatched := ColumnarAsyncEntryPointPlanner.BuildWrapperPlan(handle, typeof(string), typeof(Task), voidType)
+    mismatched := ColumnarAsyncEntryPointPlanner.BuildWrapperPlan(
+        handle,
+        typeof(string),
+        typeof(Task),
+        voidType,
+        AsyncEntryPointCatalog()
+    )
     assert throws InvalidOperationException {
         ColumnarCodePlanExecutor.Validate(mismatched)
     }

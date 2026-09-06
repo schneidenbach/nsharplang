@@ -4356,59 +4356,19 @@ internal sealed class ColumnarIlEmitter
         }
 
         MethodBuilder? entryPointMethod = null;
-        if (isExecutable)
+        if (!ColumnarEntryPointRealization.TryEmit(
+            isExecutable,
+            funcs,
+            methods,
+            asyncWrappedByFunc,
+            paramTypesByFunc,
+            asyncInnerByFunc,
+            type,
+            structRegistry,
+            typeResolutionCatalog,
+            out entryPointMethod))
         {
-            var mainIndex = -1;
-            for (var f = 0; f < funcs.Count && mainIndex < 0; f++)
-                if (string.Equals(funcs[f].Name, "main", StringComparison.Ordinal))
-                    mainIndex = f;
-            for (var f = 0; f < funcs.Count && mainIndex < 0; f++)
-                if (string.Equals(funcs[f].Name, "Main", StringComparison.Ordinal))
-                    mainIndex = f;
-
-            if (mainIndex >= 0)
-            {
-                entryPointMethod = methods[mainIndex];
-                var wrappedReturn = asyncWrappedByFunc[mainIndex];
-                if (wrappedReturn != null)
-                {
-                    if (paramTypesByFunc[mainIndex].Count != 0)
-                        return false; // an async main with parameters has no modeled wrapper — decline.
-
-                    // The wrapper is a STATIC, parameterless, non-iterator method body whose awaiter is an
-                    // ordinary IL local, so it is planned in the plan-row IR's locals-as-locals binding
-                    // mode (PlanLocalOperand rows) rather than the hoisted-field mode the state machines
-                    // use. ColumnarAsyncEntryPointPlanner owns both the signature rule and the body.
-                    var innerReturn = asyncInnerByFunc[mainIndex];
-                    var wrapper = type.DefineMethod(
-                        "__NSharpEntryPoint",
-                        MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig,
-                        ColumnarAsyncEntryPointPlanner.WrapperReturnType(innerReturn),
-                        Type.EmptyTypes);
-                    ColumnarCodePlanExecutor.Execute(
-                        ColumnarAsyncEntryPointPlanner.BuildWrapperPlan(entryPointMethod, type, wrappedReturn, innerReturn),
-                        wrapper.GetILGenerator());
-                    entryPointMethod = wrapper;
-                }
-            }
-            else
-            {
-                // A static Main declared inside a user class (`class Program { static func Main() ... }`).
-                foreach (var def in structRegistry.Values)
-                {
-                    if (def.StaticMethods.TryGetValue("Main", out var mains)
-                        && mains.Count == 1
-                        && mains[0].ParamTypes.Length == 0)
-                    {
-                        entryPointMethod = mains[0].Builder;
-                        break;
-                    }
-                }
-            }
-
-            if (entryPointMethod == null)
-                return false; // an exe without a resolvable entry point would save as a non-runnable
-                              // assembly — decline so the pipeline's diagnostics own the failure.
+            return false;
         }
 
         foreach (var displayTb in displayClasses)
