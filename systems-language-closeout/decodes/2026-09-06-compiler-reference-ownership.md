@@ -26,3 +26,22 @@ verified immutable compiler payloads, original emitter and ratchet. Prior fresh 
 590 unit / 7,868 canonical / 52 native projects / 12 throughput / 68 IL assemblies. The selected
 area and compiler-wide objective remain open until direct ownership, canonical assertions, checks
 and push are complete.
+
+## Catch-all prerequisite review
+
+Complete-source r6 compiled with the accepted SDK, including generic reference enumeration. IL review
+found that old C# bare catches use System.Object while the initial N# owner emitted System.Exception.
+Explicit object-catch r7 was compiled and declined. Typed object catches also violate the analyzer's
+Exception-derived rule, so the prerequisite preserves that rule and moves complete bare-versus-typed
+catch-type selection into N#. The C# emitter now calls the N# selector mechanically. Bare catch uses
+System.Object; typed catch retains its original exception allowlist and false/null contract.
+
+Integrated `2aca8ca55` (worker `836ba083`): fresh focused canonical selector 1/1, standalone native
+metadata/execution 1/1, root dev build green, ownership audit 18/18. The native N# assertion reads
+ExceptionHandlingClause.CatchType and distinguishes Object, Exception, and ArgumentException. An
+optional raw-object dynamic throw fixture hit an emission refusal and was preserved as evidence,
+without adding test-only compiler capability. Exact handler metadata and ordinary execution pass.
+
+Only the emitter ratchet row decreases: 18001/17113 to 17993/17105 lines/nonblank,
+`text-v1:8e0fe647c6e1b72a`, reviewed head `head-v1:0b91501506ad7b37`. All 380 other rows and
+epoch values are unchanged. Fresh seed gate and normal packaged verification are pending.
