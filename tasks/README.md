@@ -1,23 +1,45 @@
 # N# compiler ownership queue
 
-This is the authoritative execution order for the systems-language closeout. The former broad
-track notebooks were replaced by vertical ownership prompts on 2026-07-10.
+The active objective is compiler ownership: preprocessing, lexing, parsing, binding, type checking,
+semantic analysis, compiler diagnostics, compiler reference/metadata resolution, lowering and code
+generation, with canonical compiler assertions executing in N#. Every in-scope compiler decision
+must have N# as its sole production owner. Accepted migrations remain accepted.
 
-Run one numbered task at a time. Every task embeds the complete execution contract before its
-slice-specific prompt. Do not batch multiple numbered files into one implementation turn.
+This execution contract supersedes historical one-sub-slice-per-turn, smallest-extraction and
+line-budget instructions in the numbered task files. Astra plans, reviews and integrates; bounded
+implementation is delegated to Sol Max or Terra Max.
 
 ## Queue protocol
 
-1. Read `systems-language-closeout/STATUS.md` and open the first unchecked task below.
-2. Revalidate its named code and accept set against the current tree and recent history.
-3. Complete one terminal vertical slice, including N# implementation, direct production routing,
-   native tests, C# deletion, required gates, commit, repin, and documentation.
-4. Mark a non-repeatable task complete only after all of its stated exit conditions pass.
-5. Tasks 015–020 are iterative owner burn-downs. One goal turn completes one concrete sub-slice.
-   Keep the task unchecked and record the next exact sub-slice in STATUS.md until its named owner
-   is gone or is a reviewed zero-policy mechanical host.
-6. Update this checklist and STATUS.md in the same commit as the completed slice. Never mark work
-   complete based on preparatory code or tests alone.
+1. Read `systems-language-closeout/STATUS.md`, current source and recent evidence. Preserve in-flight
+   work and finish active verification before replacing its scope.
+2. Select a substantial coherent ownership area: complete methods, classes or connected method
+   groups, including necessary helpers and state. Choose by production dependencies, not line count.
+   When a dependency appears, first consider moving it with its callers; related numbered files may
+   be addressed together when they describe that same ownership area.
+3. Identify the production behavior, C# decisions and canonical assertions that will disappear.
+   Implement N# replacements, route production directly, remove the replaced C# owner and migrate
+   canonical assertions. Preserve semantics, diagnostics, evaluation order and meaningful failures.
+4. Add no C# compiler behavior, tests, helpers, adapters, decision callbacks or fallback. A migrated
+   area is complete only when N# is its sole production owner. Surviving boundaries must be
+   mechanical and explicitly documented.
+5. Prove capability blockers by compiling the actual proposed N# source. Implement necessary
+   prerequisites in N#, grouping related proven prerequisites into a coherent seed update where
+   feasible; complete required verification before publishing an SDK seed.
+6. Use `./scripts/dev.sh` and targeted tests, reuse valid baseline evidence and native coverage, and
+   add regressions for real gaps. Commit coherent pieces as focused evidence passes; continue until
+   the whole selected area is integrated. Do not stop at planning, scaffolding, prerequisites or a
+   tiny extraction. Run fresh integration gates at AGENTS.md checkpoints, retaining IDE verification
+   when compiler changes affect IDE behavior, then push the verified commits.
+7. Keep tasks and the overall goal open until their actual exit conditions pass. Completion requires
+   solely N# compiler ownership and canonical assertions, removal of legacy validation/callbacks/
+   fallback ownership, documented mechanical boundaries, and passing compiler/integration checks.
+
+CLI, LSP/editor features, runtime reimplementation, NativeAOT and other branch initiatives are
+recorded in [the separate branch backlog](BRANCH-BACKLOG.md). SDK/tooling changes are in scope only
+when directly necessary to build, integrate or verify compiler migration. A new metadata writer is
+conditional on a demonstrated compiler-ownership dependency; the previous NativeAOT dependency
+alone does not make it an additional active objective.
 
 ## Ordered tasks
 
@@ -45,8 +67,8 @@ slice-specific prompt. Do not batch multiple numbered files into one implementat
 - [ ] [022 — One external type universe, and a NativeAOT `nlc`](022-one-type-universe-native-aot.md)
 - [ ] [023 — The ECMA-335 metadata writer: the second executor over the plan rows](023-ecma335-metadata-writer.md)
 
-The order is deliberate. If current code proves a dependency has changed, update the queue in a
-small documentation commit with concrete evidence before reordering; do not silently skip ahead.
+The checklist preserves historical task identity and acceptance. Select active work by compiler
+ownership dependencies under the contract above; broader exit criteria remain in the separate backlog.
 
 ## 021 terminal state — audit recorded, box deliberately unchecked
 
@@ -57,8 +79,9 @@ mechanical, and explicitly reviewed against its N# owner.
 
 Current measured route and boundaries are in [STATUS §1](../systems-language-closeout/STATUS.md):
 
-1. `ColumnarIlEmitter.cs` remains 20,714 lines / 19,703 nonblank after S2.1(h). Task 023 builds
-   explicit declaration rows and an N# ECMA-335 writer, then removes Reflection.Emit and the old emitter.
+1. `ColumnarIlEmitter.cs` remains 20,714 lines / 19,703 nonblank after S2.1(h). Task 015 removes
+   remaining compiler decisions through complete N# ownership groups. Task 023 writer implementation
+   is conditional on a demonstrated compiler-ownership dependency.
 2. The external scan/catalog and editor type catalog are N#-owned; Analyzer.cs is 2,357 lines and
    TypeResolver.cs is 61. One metadata universe through emission and NativeAOT still depend on the
    writer (023/3, then 022/5). The old Reflection.Emit-only plan is superseded.

@@ -1,5 +1,13 @@
 # 023 — The ECMA-335 metadata writer: the second executor over the plan rows
 
+## Active scope qualification (2026-09-06)
+
+`tasks/README.md` governs current execution. Preserve accepted compiler migrations here. NativeAOT,
+editor features and the new metadata-writer initiative are tracked separately in `BRANCH-BACKLOG.md`.
+Only compiler reference/metadata resolution and code generation ownership are active here; a writer
+must be demonstrated necessary for compiler ownership before implementing it as a dependency. The
+historical wider exit conditions below do not expand the active objective.
+
 ## Execution contract
 
 Work in `/Users/spencer/repos/nsharplang` on the current `systems-language` branch.

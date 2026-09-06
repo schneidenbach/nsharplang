@@ -31,6 +31,20 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
+**Active compiler-only contract (2026-09-06):** [tasks/README.md](../tasks/README.md) supersedes
+historical smallest-slice/one-turn/line-budget and mandatory writer-first instructions. Move complete
+production method groups with helpers/state and canonical N# assertions; Astra integrates, Sol Max
+or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) preserves CLI/editor,
+runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
+baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
+
+**Selected area, in progress:** generic-constraint declaration/application plus consumed-map
+construction: `TryApplyGenericParameterConstraints`, `TryApplyDeclaredTypeConstraints` and
+`BuildGenericInterfaceConstraintMap`, including necessary dependencies, move to N# with direct
+production calls and canonical assertions. This replaces the map-only next cut; preserve attribute,
+base/interface application order, partial outputs/mutations, lazy map allocation and shared identity.
+No new seed or metadata writer is presumed necessary. This is not an acceptance claim.
+
 **Error-docs arc:** MERGED at `08ec08a82` (branch tip `706d37c9f`), gated green in r19 as part of `af07060ac`. See §4.11.
 
 **Takeover integration (2026-09-04):** started at clean/pushed `6ea697316` on `systems-language`.
@@ -123,7 +137,7 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** [S2.2(m): constrained-call map production](decodes/2026-09-06-s22m-constraint-map-next-cut.md).
+**Superseded map-only brief (expanded to the active area above):** [S2.2(m): constrained-call map production](decodes/2026-09-06-s22m-constraint-map-next-cut.md).
 S2.2(l) is accepted: the complete assembly entry-point selection/wrapper driver now lives in N#,
 with one mechanical C# forward and the reached awaiter local keyed through the existing catalog.
 Remaining call/type/local/maxstack work, S2.3–S2.6, 022/5 NativeAOT and final ownership audit stay open.

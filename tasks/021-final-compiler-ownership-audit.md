@@ -20,15 +20,17 @@ work, waive a failed gate, or classify policy as glue.
 Close `NSharpLang.Compiler` ownership.
 
 Audit every tracked source file in `NSharpLang.Compiler` and verify that parser, syntax diagnostics,
-AST, semantic analysis, systems policy, binding, lowering, IL generation, type/reference policy,
-compiler-contained tooling, native test execution, and canonical tests each have exactly one N#
+AST, semantic analysis, systems policy, binding, lowering, IL generation,
+compiler reference/metadata resolution and canonical compiler tests each have exactly one N#
 production owner.
 
 Delete every zero-consumer legacy C# owner and superseded C# assertion. Classify only genuine
 pre-existing mechanical ecosystem boundaries, proving that none contains product decisions and
 none grew during the closeout.
 
-Run the complete native N# estate, all compiler tests, examples, templates, interop, ILVerify,
-fresh product gate, VS Code-enabled gate, extension reinstall, visual IDE verification, ownership
-audit, and clean repin. Update present-tense architecture documentation and the queue ledger. Leave
+Run the complete canonical compiler estate, compiler tests and required integration checks under
+AGENTS.md, including examples, templates, interop, ILVerify and the ownership audit. Use a fresh
+backend product gate for backend-only work; retain the VS Code-enabled gate, extension reinstall
+and visual verification for IDE-affecting changes. Repin only when required by a verified seed change.
+Update present-tense architecture documentation and the queue ledger. Leave
 a clean committed tree with no partial compiler stages.
