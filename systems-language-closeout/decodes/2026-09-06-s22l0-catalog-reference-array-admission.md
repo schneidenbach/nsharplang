@@ -21,5 +21,9 @@ operations with genuine catalog reference types as part of prerequisite acceptan
 
 The focused compiler build succeeded, and the forced test-enabled BootstrapServices estate passed
 7,809/7,809 with no skips. The candidate compiler payload and its generating command are frozen at
-`/private/tmp/nsharp-s22l0-executor-logs/candidate-payload-01/`. The coordinator owns fixed-corpus
-parity, strict diagnostics, the fresh product gate and SDK publication before S2.2(l) resumes.
+`/private/tmp/nsharp-s22l0-executor-logs/candidate-payload-01/`. Integrated controls add four canonical
+and two native tests. Fixed-corpus parity and strict diagnostics are unchanged; the fresh backend
+gate passes 593 unit /7,813 canonical /111 native declarations. The published SDK executes the same
+committed array tests 2/2 with all twelve live payloads verified. [Acceptance proof](2026-09-06-s22l0-parity-proof.md).
+The direct explicit `Array.Empty<Dictionary<string, Type>>()` generic binding remains unsupported;
+the existing inferred `Array.Fill` path is compiled and executed by this fixture.

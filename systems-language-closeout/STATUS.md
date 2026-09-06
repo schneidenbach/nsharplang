@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(k)** and g0/g1/j0/j1 prerequisites landed. Member iterator discovery/admission is N#-owned; C# shrinks another 51 lines. Fresh IDE-enabled gate at `137462ab1`:593 unit /7,809 canonical /36 VS Code /109 declarations; visual diagnostics verified. Fixed 94-image corpus unchanged; strict baseline258 retained with two intended same-source NL202 removals. Next S2.2(l0): catalog reference array admission required by the exact entry-point input, then S2.2(l) selection/wrapper plus keyed awaiter local. — §4.12 |
+| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(k)** and g0/g1/j0/j1/l0 prerequisites landed. Catalog reference arrays are admitted by the existing N# identity gate; C# and the ratchet are unchanged. Fresh backend gate at `71d489a5c`: 593 unit /7,813 canonical /111 declarations; verified SDK executes both exact-array controls. Fixed 94-image corpus and strict 258/434 unchanged. Next S2.2(l): complete entry-point selection/wrapper plus keyed awaiter local. — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,55 +123,52 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** S2.2(l0), the measured catalog reference array prerequisite.
-The [prerequisite](decodes/2026-09-06-s22l0-catalog-reference-array-prerequisite.md) is required because
-an exact entry-point input, `Dictionary<string, Type>[]`, fails the installed seed's array-element
-admission. The initial driver probe exited 1 with zero tests; its source and command receipt are
-retained. N# will admit genuine catalog reference elements through the existing exact identity gate,
-with array-operation and exclusion controls. The coordinator must gate and verify the updated SDK
-before the parked entry-point draft can consume this capability. No C# move is accepted for l yet.
+**Next writer slice:** [S2.2(l)](decodes/2026-09-06-s22l-entrypoint-next-cut.md), the complete current
+4358–4413 entry-point block (56 lines including its trailing blank), plus its reached awaiter AddType.
+The exact `Dictionary<string, Type>[]` input now has a committed, gated and SDK-verified prerequisite,
+[S2.2(l0)](decodes/2026-09-06-s22l0-parity-proof.md). Refresh the parked l draft against the verified seed and re-run its exact
+source probe before continuing. No l C# move is accepted yet. Preserve both indexed name walks,
+concrete dictionary enumeration, partial selected method, actual shared empty arrays, and
+declaration/plan/GetIL ordering. Remaining call/type/local/maxstack, S2.3–S2.6, 022/5 NativeAOT and final
+ownership audit stay open.
 
-Then resume [S2.2(l)](decodes/2026-09-06-s22l-entrypoint-next-cut.md): the complete current 4358–4413
-entry-point block (56 lines including its trailing blank), plus its reached awaiter AddType. Preserve
-both indexed name walks, concrete dictionary enumeration, partial selected method, actual shared empty
-arrays, and declaration/plan/GetIL ordering. Remaining call/type/local/maxstack, S2.3–S2.6,
-022/5 NativeAOT and final ownership audit stay open.
+**Goal checkpoint (2026-09-06):** S2.2(l0), product `05187654e` (Sol `30e8a5d5`), controls and tested
+source **`71d489a5c6423a2cf78c8444dae36ee2e688c6fc`** (Terra `f2c0317c`). The existing N# element
+predicate now admits ordinary catalog reference classes/interfaces through its exact identity gate.
+`List<int>`/`Queue<int>` limitation assertions intentionally become positive; open definitions, runtime
+pointer/byref/void, rank-two and excluded value types remain negative. Existing source-builder and
+generic-parameter allowances remain separate from rejected builder-bound closures. No C# changes:
+emitter **18,923 lines /17,984 nonblank /985,534 bytes**; AddType **36 /12 files /21 keyed /15 handle-only**;
+all 381 ratchet rows and `head-v1:70a30ce31ead17ba` remain unchanged.
 
-**Goal checkpoint (2026-09-06):** S2.2(k), initial owner `9dc7edc85` (Sol `ce23b618`), ratchet
-`5614eb20c`, controls `159dfab2f` /comment `7d579e98e` (Terra `0d9f5ff5` /`32b8e18d`), strict correction
-and tested source **`137462ab1cf3898087304f6c4f524b4ea69bf478`** (Sol `ca520763`). Complete ten-input
-member discovery/admission and shape/realization dispatch now live in N#. The C# boundary only
-forwards and records ambient declines. Emitter **18,923 lines /17,984 nonblank /985,534 bytes**,
-down **51/51/3,115**. AddType stays **36 sites /12 files /21 keyed /15 handle-only**; all 15 iterator
-consumers and three lazy production contexts retain their accepted table phases.
+Four new canonical controls distinguish genuine and forged catalog identity, including an honest
+TypeDelegator twin. Two native controls prove the exact Dictionary array parameter/return, allocation,
+indexed read/write, iteration, array/element identity, Array.Fill and CLR null/bounds failures. The
+accepted-k compiler refuses this exact final native source before tests; the immutable candidate
+passes **111/111**. Forced producer estate **7,809/7,809**, focused new canonical **4/4**, no skips.
+The initial zero-selection invocation is compile evidence only; actual nonzero TRX and launch
+amendment are retained. The explicit `Array.Empty<Dictionary<string,Type>>()` binding refusal remains
+a separate limitation; l0 does not claim it fixed.
 
-Four new member controls prove early refusal/static ordinal, actual first-hit disposal before field
-reads, method-disposal/shape timing, repeated Name/overload selection and null-overload unwind. The
-positive Dispose repairs the selected source's actual canonical array. Two analyzer/reference-pass
-controls cover the necessary IReadOnlyList→IEnumerable rule under unchanged runtime identity, arity
-and reference-only variance checks. Concrete List.Count is preserved; its explicit default-NRE trap
-runs at the old dereference point. Focused evidence is Sol 8/8 and Terra 4/4, no skips. Compiled review
-pins all phases and unchanged accepted-j realization methods; the initial false test expectation
-about a forged display name was localized, with valid value-variance negatives retained.
+Fixed f543 corpus: **75 targets /73 successes /94 normalized images /2,184 native passes per arm**,
+zero image/set/outcome differences and the same two NL402 template refusals. Strict same-source
+pre/post stdout is byte-identical: **258 findings across 434 production files**. Immutable product
+`05187654e` differs from tested `71d489a5c` only by the two new test files; the final gate includes both.
+Source and compiled control reviews pass; whole Compiler IL producer comparison normalizes one
+static-data address label while retaining identical data bytes, rather than claiming raw equality.
 
-Fixed f543 corpus: 75 targets /73 successes /94 normalized images /2,184 native passes per arm,
-zero image/set/normalized-outcome differences; same two NL402 template refusals. Current native
-109/109 source/image equals accepted j. Strict final-source old260→candidate258 removes only two
-valid acquisition NL202s; all 258 accepted ordered diagnostics map across 434 files. Original 263-finding
-source/refused spelling attempts remain retained. Only the emitter current ratchet row changes,
-with all 381 epochs preserved: `head-v1:70a30ce31ead17ba`, emitter `text-v1:3fb2d2f227bb2836`;
-observed audit 17/18 before and 18/18 after repin.
-
-Fresh exclusive **VS Code-enabled** gate at `137462ab1` passed in **522s**:
-**593 unit /7,809 canonical /36 VS Code /109 declarations /7 Reflection.Emit /15 records /18 audit**,
-52 native projects and 68 IL assemblies. Rebuilt/reinstalled extension visibly accepts source Item
-readonly-list conversion, retains incompatible int→Item NL202, and clears Problems after removal.
-Screenshots, source/process/package hashes and CLI/AX proof are retained in the corrected proof's
-`ide/` directory. [Proof](decodes/2026-09-06-s22k-parity-proof.md); gate/acceptance receipts at
-`/private/tmp/gate-20260906-goal-s22k-r1/`. The final Markdown-only follow-up is linked to the exact
-tested source before push. All 12 live j1 SDK payload entries remain unchanged; no repin required.
-Benchmark correctness passed; front-end timing was unjudged under host load (gate-result.json). Legacy validation
-remains bootstrap debt. Tasks 015/021/022/023 stay open; Astra plans/reviews/integrates, Sol/Terra execute.
+Fresh exclusive **backend** gate at `71d489a5c` passed in **450s**:
+**593 unit /7,813 canonical /111 declarations /7 Reflection.Emit /15 records /18 audit**,
+52 native projects and 68 IL assemblies. VS Code was skipped for this emission-only prerequisite;
+the preceding k visual verification remains its own accepted evidence. Benchmark correctness passed;
+front-end timing was unjudged under host load. The coordinator then published SDK 0.1.0: all ten packaged tools
+match Release artifacts and all twelve SDK/tools entries match the actual live cache before/after
+the SDK build. The same committed fixture executes **2/2** through the actual NuGet-resolved SDK.
+Seed package SHA `a9653d4673e949e9789cb8472c321d35bc0bbcedafe90a96706d6f3b10ec2647`;
+seed acceptance SHA `3e4c4cefc79aa684641f00f4d415bd1ac41d1e412ee178295bac0ba17ece4606`.
+[Proof](decodes/2026-09-06-s22l0-parity-proof.md); gate, seed, documentation and exact-push receipts at
+`/private/tmp/gate-20260906-goal-s22l0-r1/`. Legacy validation remains bootstrap debt. Tasks 015/021/022/023 stay open;
+Astra plans/reviews/integrates, Sol/Terra execute.
 
 **Next independent type slice:** 022/2f-b2 extends the existing static-call route. At `5ac4faa79`,
 `TryEmitStaticCall` already calls the N# planner; its 865-line method includes source dispatch and an
@@ -3041,6 +3038,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
+| 023/S2.2(l0) — catalog reference array prerequisite | product `05187654e`; controls/tested `71d489a5c` | N# admits catalog reference elements through the existing exact identity gate; no C# move | Preserve real array signature and operations; honest/forged identity twin; direct Array.Empty generic binding remains separate | +4 canonical, +2 native; gate 450s: 593/7,813/111, audit 18, 68 IL; fixed 94/2,184 each and strict 258/434 unchanged; SDK same-source 2/2, all 12 payloads verified; emitter/ratchet unchanged. [Proof](decodes/2026-09-06-s22l0-parity-proof.md) |
 | 023/S2.2(k) — member iterator discovery/admission | initial `9dc7edc85`; ratchet `5614eb20c`; controls `159dfab2f`/`7d579e98e`; corrected/tested `137462ab1` | Complete member driver becomes N#-owned; necessary known-generic inheritance rule corrected in N# | Live first-hit/disposal/repeated-name/ordinal phases; concrete Count null trap; source-element IDE probe distinguishes the corrected path | Emitter 18,923/17,984 (−51/−51/−3,115 bytes);21 keyed/15 handle-only; 94 images/2,184 tests each equal; strict 260→258 with 258 baseline retained; native 109/109. Fresh 522s gate 593/7,809/36 VS Code/109, audit 18; visual PASS; j1 seed unchanged. [Proof](decodes/2026-09-06-s22k-parity-proof.md) |
 | 023/S2.2(j) — connected iterator realization | `20caf6997`; native `eaa10aaf5`; ratchet `269ead8d`; persisted/tested `4b5399140` | Complete sync/async drivers and canonical helper closure become N#-owned;15 consumed type rows keyed | Keep registration/decline/member/factory phases; actual persisted field retains machine VAR under factory MVAR owner; assert rows before bake and use actual generated identity | Emitter 18,974/18,035 (−290/−265/−18,756 bytes);21 keyed/15 handle-only; fixed 94 images/2,184 tests each equal; strict 258/434; native 109/109 image equal; persisted 2/2. Fresh 458s gate 593/7,803/109, audit 18; j1 seed unchanged. [Proof](decodes/2026-09-06-s22j-parity-proof.md) |
 | 023/S2.2(j1) — generic parameter declaration prerequisite | `4ab360c71`; native/tested `a8a5fb436` | One exact BCL generic-parameter call and concrete returned element admitted by existing N# owner; no C# move | Retain genuine GPBuilder[]; copy elements to Type[]; use Type receiver for MakeGenericType. Public return signature differs from covariant runtime implementation array | +2 canonical 2/2; native 7/7; declaration replay 1/1; fixed 94 images/2,184 tests each equal; strict258/433 unchanged. Fresh 452s gate 593/7,798/107, audit 18, SDK 1/1; ratchet unchanged. [Proof](decodes/2026-09-06-s22j1-parity-proof.md) |

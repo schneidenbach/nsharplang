@@ -1,6 +1,7 @@
 # S2.2(l0): catalog reference array prerequisite
 
-S2.2(l) is held at the existing-seed spelling boundary. The accepted source is
+This prerequisite is accepted at tested source `71d489a5c` with the published SDK and same-source
+runtime controls verified. [Acceptance proof](2026-09-06-s22l0-parity-proof.md). The measured refusal below used accepted k
 `31a0743d6f6f5f233c0e5e4c1def5eca1430540c`; its complete entry-point block remains unchanged.
 The N# driver draft is preserved separately and has not replaced the production C# owner.
 

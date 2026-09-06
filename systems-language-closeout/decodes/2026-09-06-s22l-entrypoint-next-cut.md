@@ -1,12 +1,20 @@
 # S2.2(l): assembly entry-point selection and wrapper realization
 
-Execute after S2.2(k) is accepted. Revalidate the current source and seed before editing. This plan
+Execute after S2.2(l0) is accepted. Revalidate the current source and seed before editing. This plan
 is source-reviewed; it is not an implementation or capability verdict. Tasks 015/021/022/023 stay open.
 
 The first exact-source probe found an array-element admission prerequisite for the
-`Dictionary<string, Type>[]` input. Complete and publish
-[S2.2(l0)](2026-09-06-s22l0-catalog-reference-array-prerequisite.md) before resuming this owner.
-The draft remains parked; the complete C# block is still the production owner.
+`Dictionary<string, Type>[]` input. [S2.2(l0)](2026-09-06-s22l0-parity-proof.md) is now committed, gated and published at tested
+source `71d489a5c`; the actual SDK executes the same committed array fixture 2/2. Refresh the parked
+draft from the accepted prerequisite and re-run the exact driver probe. This proves the array
+capability, not all later driver body forms. The complete C# block is still the production owner.
+
+The unaccepted implementation is preserved in `/private/tmp/nsharp-agent-wt/023-s22l`, based on
+accepted k `31a0743d6`. It has the new realization draft and three tracked edits; preserve them while
+refreshing onto the accepted l0 source. The separate native control is committed at
+`637dcde31cc7603ed2a951b4c51c2436f4cf70c4` in `/private/tmp/nsharp-agent-wt/023-s22l-controls`.
+That control belongs to l and was not included in l0; its accepted-k no-main behavior is already
+proved. Bind the new canonical controls to the complete owner before accepting the l cut.
 
 ## Connected cut
 

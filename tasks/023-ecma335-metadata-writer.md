@@ -253,10 +253,15 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   [Proof](../systems-language-closeout/decodes/2026-09-06-s22k-parity-proof.md).
   Next S2.2(l): complete entry-point selection/wrapper block and keyed awaiter local, then remaining
   call/type/local/maxstack work. [Plan](../systems-language-closeout/decodes/2026-09-06-s22l-entrypoint-next-cut.md).
-  **Measured l prerequisite:** the exact `Dictionary<string, Type>[]` input is refused by the
-  current array-element admission rule. Complete N# catalog reference-element admission and its
-  gated SDK repin as [S2.2(l0)](../systems-language-closeout/decodes/2026-09-06-s22l0-catalog-reference-array-prerequisite.md)
-  before the entry-point owner can be compiled and accepted. The initial failed probe is retained.
+  **S2.2(l0) catalog reference array prerequisite accepted at `71d489a5c`:** the exact Dictionary
+  array input is admitted through the existing N# catalog identity gate. Four canonical controls and
+  two native controls preserve exclusions, exact signature, allocation/read/write/iteration/Fill and
+  CLR failures. C# and all ratchet rows are unchanged; the fixed 94-image corpus and strict 258/434
+  are identical. Fresh 450s backend gate: 593 unit /7,813 canonical /111 declarations,
+  18 audit and 68 IL assemblies. Published SDK matches all 12 live payloads and executes the same
+  committed fixture 2/2. The original l refusal and the separate direct Array.Empty binding limitation
+  remain recorded. Resume l against this verified seed; no entry-point ownership move is claimed.
+  [Proof](../systems-language-closeout/decodes/2026-09-06-s22l0-parity-proof.md).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
