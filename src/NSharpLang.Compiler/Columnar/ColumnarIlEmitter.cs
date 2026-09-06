@@ -492,25 +492,12 @@ internal sealed class ColumnarIlEmitter
         => t.IsGenericType && !t.IsGenericTypeDefinition && t is not TypeBuilder
            && t.GetGenericTypeDefinition() == typeof(KeyValuePair<,>);
 
-    private static bool IsDictionaryLikeCollectionDefinition(Type definition) =>
-        definition == typeof(Dictionary<,>) || definition == typeof(SortedDictionary<,>);
-
-    // IReadOnlyDictionary<K,V> mirrors Dictionary<K,V>'s READ surface and declares no mutator at all:
-    // ContainsKey/TryGetValue/get_Item plus the inherited Count and KeyValuePair enumeration are modelled,
-    // and Add/Remove/Clear/TryAdd/set_Item stay OUT because the interface does not declare them — a write
-    // through this head keeps declining exactly as it did before the head was published.
-    private static bool IsReadOnlyDictionaryCollectionDefinition(Type definition) =>
-        definition == typeof(IReadOnlyDictionary<,>);
-
-    private static bool IsAnyDictionaryCollectionDefinition(Type definition) =>
-        IsDictionaryLikeCollectionDefinition(definition) || IsReadOnlyDictionaryCollectionDefinition(definition);
-
     private static bool IsSupportedIndexableCollectionType(Type t)
     {
         if (!ColumnarTypeOfPlanner.IsSupportedCollectionType(t))
             return false;
         var def = t.GetGenericTypeDefinition();
-        return def == typeof(List<>) || IsDictionaryLikeCollectionDefinition(def);
+        return def == typeof(List<>) || ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(def);
     }
 
     // The indexer READ set: everything writable plus the read-only dictionary head, whose get_Item exists
@@ -520,7 +507,7 @@ internal sealed class ColumnarIlEmitter
         if (!ColumnarTypeOfPlanner.IsSupportedCollectionType(t))
             return false;
         var def = t.GetGenericTypeDefinition();
-        return def == typeof(List<>) || IsAnyDictionaryCollectionDefinition(def);
+        return def == typeof(List<>) || ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(def);
     }
 
     private static bool TryResolveCollectionCountGetter(Type t, out MethodInfo getter)
@@ -534,7 +521,7 @@ internal sealed class ColumnarIlEmitter
         var countOwner = t;
         if (def == typeof(IReadOnlyList<>) || def == typeof(IReadOnlySet<>))
             countOwner = typeof(IReadOnlyCollection<>).MakeGenericType(t.GetGenericArguments()[0]);
-        else if (IsReadOnlyDictionaryCollectionDefinition(def))
+        else if (ColumnarGenericCallBindingPlanner.IsReadOnlyDictionaryCollectionDefinition(def))
             countOwner = typeof(IReadOnlyCollection<>).MakeGenericType(
                 typeof(KeyValuePair<,>).MakeGenericType(t.GetGenericArguments()));
         var openGetter = countOwner.GetGenericTypeDefinition().GetProperty("Count")?.GetGetMethod();
@@ -1675,7 +1662,7 @@ internal sealed class ColumnarIlEmitter
             if (!EmitExpression(Child(callIdx, a), out var gArgType))
                 return false;
             var declared = target.ParamTypes[a - 1];
-            if (!TryUnifyGenericCallArgument(target.TypeParams, binding, declared, gArgType))
+            if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(target.TypeParams, binding, declared, gArgType))
                 return false;
         }
         var boundArgs = new Type[binding.Length];
@@ -1696,7 +1683,7 @@ internal sealed class ColumnarIlEmitter
             return false;
         var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
         _il.Emit(OpCodes.Call, instantiated);
-        return TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
+        return ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
     }
 
     private bool ShouldUseExpandedParamsArrayCall(int callIdx, Type[] paramTypes, int[] paramModifierKinds)
@@ -1799,7 +1786,7 @@ internal sealed class ColumnarIlEmitter
         }
         var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
         _il.Emit(OpCodes.Call, instantiated);
-        return TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
+        return ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
     }
 
     private bool TryEmitSiblingExpandedParamsCall(
@@ -1950,168 +1937,7 @@ internal sealed class ColumnarIlEmitter
             return true;
 
         return TryGetPreflightExpressionType(argNode, out var argType)
-               && TryUnifyGenericCallArgument(typeParams, binding, declared, argType);
-    }
-
-    // Unify one declared TYPE PARAMETER against an argument's actual type for a generic sibling call. `declared`
-    // is one of `typeParams` (the callee's GenericTypeParameterBuilders, in declaration order); `binding` is the
-    // positional inference state. A FIRST encounter binds; a repeat must reference-equal the prior binding
-    // (Same(1, "x") conflicts → decline). Admissible bound types: the supported concrete value/reference types
-    // (incl. their arrays) and the CALLER's own open type parameters (a generic calling a generic — the spike
-    // proved MakeGenericMethod over an open T). A user TypeBuilder/EnumBuilder binding declines this slice.
-    private static bool TryUnifyTypeParam(Type[] typeParams, Type?[] binding, Type declared, Type actual)
-    {
-        var pos = -1;
-        for (var i = 0; i < typeParams.Length; i++)
-        {
-            if (ReferenceEquals(typeParams[i], declared)) { pos = i; break; }
-        }
-        if (pos < 0)
-            return false; // a type parameter from some other scope — not resolvable here.
-        if (!actual.IsGenericParameter && ColumnarTypeOfPlanner.ContainsBuilderBoundType(actual) && actual is not TypeBuilder && actual is not EnumBuilder)
-            return false; // T may bind a direct emitted user type, but not a builder-bound composed shape
-                          // such as List<Pt> or Box<int>; member reflection on those requires rebinding.
-        if (!actual.IsGenericParameter && !ColumnarTypeOfPlanner.IsSupportedType(actual))
-            return false;
-        if (binding[pos] == null)
-        {
-            binding[pos] = actual;
-            return true;
-        }
-        return ReferenceEquals(binding[pos], actual) || binding[pos] == actual;
-    }
-
-    private static bool TryUnifyGenericCallArgument(Type[] typeParams, Type?[] binding, Type declared, Type actual)
-    {
-        if (declared.IsGenericParameter)
-            return TryUnifyTypeParam(typeParams, binding, declared, actual);
-        if (declared.IsSZArray && declared.GetElementType()!.IsGenericParameter)
-        {
-            return actual.IsSZArray
-                   && TryUnifyTypeParam(typeParams, binding, declared.GetElementType()!, actual.GetElementType()!);
-        }
-        if (declared.IsGenericType && !declared.IsGenericTypeDefinition)
-            return TryUnifyGenericContainer(typeParams, binding, declared, actual);
-        return TypesEquivalent(declared, actual);
-    }
-
-    // Structurally unify a declared generic-CONTAINER parameter (List<T>, Dictionary<string,T>, SortedDictionary<string,T>, HashSet<T>, nested
-    // shapes, or a fully concrete List<Pt>) against the argument's actual type: the definitions must
-    // match, then each declared argument either IS one of the callee's type parameters (TryUnifyTypeParam
-    // binds or checks it), recurses as a nested container, or must be structurally the same type.
-    // Mirrors the generic-container binding recursion used by declared-method calls.
-    private static bool TryUnifyGenericContainer(Type[] typeParams, Type?[] binding, Type declared, Type actual)
-    {
-        if (!actual.IsGenericType || actual.IsGenericTypeDefinition)
-            return false;
-        Type declaredDef, actualDef;
-            declaredDef = declared.GetGenericTypeDefinition();
-            actualDef = actual.GetGenericTypeDefinition();
-        if (!ReferenceEquals(declaredDef, actualDef))
-            return false;
-        var declaredArgs = declared.GetGenericArguments();
-        var actualArgs = actual.GetGenericArguments();
-        if (declaredArgs.Length != actualArgs.Length)
-            return false;
-        for (var i = 0; i < declaredArgs.Length; i++)
-        {
-            var d = declaredArgs[i];
-            if (d.IsGenericParameter)
-            {
-                if (!TryUnifyTypeParam(typeParams, binding, d, actualArgs[i]))
-                    return false;
-            }
-            else if (d.IsGenericType && !d.IsGenericTypeDefinition)
-            {
-                if (!TryUnifyGenericContainer(typeParams, binding, d, actualArgs[i]))
-                    return false;
-            }
-            else if (!TypesEquivalent(d, actualArgs[i]))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    // Substitute an inferred binding into a generic sibling's declared RETURN type: T -> binding, T[] ->
-    // binding[], a concrete type -> itself, void -> void. Composed shapes over T are not modelled — decline.
-    private static bool TrySubstituteReturnType(Type[] typeParams, Type?[] binding, Type declaredReturn, out Type substituted)
-    {
-        substituted = null!;
-        if (declaredReturn.IsGenericParameter)
-        {
-            for (var i = 0; i < typeParams.Length; i++)
-            {
-                if (ReferenceEquals(typeParams[i], declaredReturn))
-                {
-                    substituted = binding[i]!;
-                    return true;
-                }
-            }
-            return false;
-        }
-        if (declaredReturn.IsSZArray && declaredReturn.GetElementType()!.IsGenericParameter)
-        {
-            var element = declaredReturn.GetElementType()!;
-            for (var i = 0; i < typeParams.Length; i++)
-            {
-                if (ReferenceEquals(typeParams[i], element))
-                {
-                    substituted = binding[i]!.MakeArrayType();
-                    return true;
-                }
-            }
-            return false;
-        }
-        // A CLOSED-USER-GENERIC return (`func makeNone<T>(x: T): Opt<T>`) carries the CALLEE's generic
-        // parameters inside its instantiation arguments — substitute each by the call's binding and re-close.
-        // Letting the raw Opt<!!T> escape into a (possibly non-generic) caller bakes out-of-context MVAR
-        // references into its locals/isinst targets — BadImageFormatException at runtime (adversarial-review
-        // finding, probe-confirmed: the legacy emitter runs the same program correctly). Any argument that cannot
-        // fully substitute declines.
-        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(declaredReturn))
-        {
-            var declaredArgs = declaredReturn.GetGenericArguments();
-            var substitutedArgs = new Type[declaredArgs.Length];
-            for (var a = 0; a < declaredArgs.Length; a++)
-            {
-                if (!TrySubstituteReturnType(typeParams, binding, declaredArgs[a], out substitutedArgs[a]))
-                    return false;
-            }
-            substituted = declaredReturn.GetGenericTypeDefinition().MakeGenericType(substitutedArgs);
-            return true;
-        }
-        // A builder-bound BCL-COLLECTION return (List<T>/List<Pt>): substitute arguments by binding and re-close
-        // the RUNTIME definition (baked bindings yield a real List<int>, so downstream members reflect normally).
-        // This arm MUST catch every builder-bound instantiation — ContainsGenericParameters is FALSE on a
-        // TypeBuilderInstantiation even over an open T (spike-proven), so falling through would leak an open MVAR
-        // (BadImageFormatException). Fully baked generic returns keep falling to the tail unchanged.
-        if (declaredReturn.IsGenericType && !declaredReturn.IsGenericTypeDefinition && ColumnarTypeOfPlanner.ContainsBuilderBoundType(declaredReturn))
-        {
-            Type returnDef;
-                returnDef = declaredReturn.GetGenericTypeDefinition();
-            if (returnDef != typeof(List<>) && !IsAnyDictionaryCollectionDefinition(returnDef) && returnDef != typeof(HashSet<>)
-                && returnDef != typeof(IEnumerable<>))
-                return false; // an unmodelled builder-bound generic return — decline, never leak it open.
-            var collectionArgs = declaredReturn.GetGenericArguments();
-            var substitutedCollectionArgs = new Type[collectionArgs.Length];
-            for (var a = 0; a < collectionArgs.Length; a++)
-            {
-                if (!TrySubstituteReturnType(typeParams, binding, collectionArgs[a], out substitutedCollectionArgs[a]))
-                    return false;
-            }
-            substituted = returnDef.MakeGenericType(substitutedCollectionArgs);
-            return true;
-        }
-        // Defensively refuse any OTHER shape still containing a generic parameter (the fallthrough below
-        // must only pass fully-concrete declared returns into the caller's context).
-        bool stillOpen;
-            stillOpen = declaredReturn.ContainsGenericParameters;
-        if (stillOpen && declaredReturn is not TypeBuilder && declaredReturn is not EnumBuilder)
-            return false;
-        substituted = declaredReturn;
-        return true;
+               && ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(typeParams, binding, declared, argType);
     }
 
     // Emit a bare (implicit-`this`) INSTANCE method call: `ldarg.0; <args>; call/callvirt`. Used by tiers 1 and 4
@@ -5835,7 +5661,7 @@ internal sealed class ColumnarIlEmitter
                 if (ColumnarTypeOfPlanner.IsSupportedCollectionType(collectionType))
                 {
                     var collectionDef = collectionType.GetGenericTypeDefinition();
-                    var listElementType = IsAnyDictionaryCollectionDefinition(collectionDef)
+                    var listElementType = ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(collectionDef)
                         ? typeof(KeyValuePair<,>).MakeGenericType(collectionType.GetGenericArguments())
                         : collectionType.GetGenericArguments()[0];
                     if (!ColumnarTypeOfPlanner.IsSupportedType(listElementType) && !IsSupportedKeyValuePairType(listElementType))
@@ -13084,8 +12910,8 @@ internal sealed class ColumnarIlEmitter
             if (targetArgs.Length == 2 && sourceArgs.Length == 2
                 && TypesEquivalent(sourceArgs[0], targetArgs[0])
                 && TypesEquivalent(sourceArgs[1], targetArgs[1])
-                && IsReadOnlyDictionaryCollectionDefinition(targetDef)
-                && IsDictionaryLikeCollectionDefinition(sourceDef))
+                && ColumnarGenericCallBindingPlanner.IsReadOnlyDictionaryCollectionDefinition(targetDef)
+                && ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(sourceDef))
                 return true;
         }
 
@@ -15766,7 +15592,7 @@ internal sealed class ColumnarIlEmitter
                 type = collectionArgs[0].MakeArrayType();
                 return true;
             }
-            if (IsAnyDictionaryCollectionDefinition(collectionDef) && member == "ContainsKey" && argCount == 1)
+            if (ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(collectionDef) && member == "ContainsKey" && argCount == 1)
             {
                 if (!EmitArg(callIdx, 1, collectionArgs[0]))
                     return false;
@@ -15774,7 +15600,7 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(bool);
                 return true;
             }
-            if (IsAnyDictionaryCollectionDefinition(collectionDef) && member == "TryGetValue" && argCount == 2)
+            if (ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(collectionDef) && member == "TryGetValue" && argCount == 2)
             {
                 var valueType = collectionArgs[1];
                 if (!ColumnarCanonicalTypeResolver.IsSupportedByRefElementType(valueType)
@@ -15785,7 +15611,7 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(bool);
                 return true;
             }
-            if (IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Add" && argCount == 2)
+            if (ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Add" && argCount == 2)
             {
                 if (!EmitArg(callIdx, 1, collectionArgs[0])
                     || !EmitArg(callIdx, 2, collectionArgs[1]))
@@ -15803,7 +15629,7 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(bool);
                 return true;
             }
-            if (IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Remove" && argCount == 1)
+            if (ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Remove" && argCount == 1)
             {
                 if (!EmitArg(callIdx, 1, collectionArgs[0]))
                     return false;
@@ -15828,7 +15654,7 @@ internal sealed class ColumnarIlEmitter
                 type = typeof(bool);
                 return true;
             }
-            if (IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Clear" && argCount == 0)
+            if (ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Clear" && argCount == 0)
             {
                 _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("Clear")!));
                 type = typeof(void);
