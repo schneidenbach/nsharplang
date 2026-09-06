@@ -1174,6 +1174,59 @@ test "static call plans bind exact Int64 UInt64 and styled Double TryParse overl
     ).IsSupported
 }
 
+// Parameter-default metadata and constructor-call emission both parse integer text through this
+// exact invariant overload. The source expression supplies CultureInfo, while reflection selects
+// the IFormatProvider parameter; all four positions must remain exact.
+test "static call plans bind exact styled Int32 TryParse overload" {
+    selection := new string[](4)
+    selection[0] = "System.String"
+    selection[1] = "System.Globalization.NumberStyles"
+    selection[2] = "System.Globalization.CultureInfo"
+    selection[3] = "System.Int32&"
+    parameters := new string[](4)
+    parameters[0] = "System.String"
+    parameters[1] = "System.Globalization.NumberStyles"
+    parameters[2] = "System.IFormatProvider"
+    parameters[3] = "System.Int32&"
+    AssertStaticCall(
+        "Int32",
+        "TryParse",
+        selection,
+        parameters,
+        "System.Int32",
+        "System.Boolean"
+    )
+
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan("int", "TryParse", selection).IsSupported
+
+    wrongStyle := new string[](4)
+    wrongStyle[0] = "System.String"
+    wrongStyle[1] = "System.Int32"
+    wrongStyle[2] = "System.Globalization.CultureInfo"
+    wrongStyle[3] = "System.Int32&"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan("Int32", "TryParse", wrongStyle).IsSupported
+
+    wrongProvider := new string[](4)
+    wrongProvider[0] = "System.String"
+    wrongProvider[1] = "System.Globalization.NumberStyles"
+    wrongProvider[2] = "System.IFormatProvider"
+    wrongProvider[3] = "System.Int32&"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan("Int32", "TryParse", wrongProvider).IsSupported
+
+    wrongOutput := new string[](4)
+    wrongOutput[0] = "System.String"
+    wrongOutput[1] = "System.Globalization.NumberStyles"
+    wrongOutput[2] = "System.Globalization.CultureInfo"
+    wrongOutput[3] = "System.Int64&"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan("Int32", "TryParse", wrongOutput).IsSupported
+
+    tooShort := new string[](3)
+    tooShort[0] = "System.String"
+    tooShort[1] = "System.Globalization.NumberStyles"
+    tooShort[2] = "System.Globalization.CultureInfo"
+    assert !ColumnarExternalBindingPlans.GetStaticCallPlan("Int32", "TryParse", tooShort).IsSupported
+}
+
 test "static call plans own String.Join over string sequences with the enumerable overload" {
     listArguments := new string[](2)
     listArguments[0] = "System.String"

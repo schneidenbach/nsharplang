@@ -441,6 +441,9 @@ class ColumnarExternalBindingPlans {
             if memberName == "TryParse" && count == 2 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.Int32&" {
                 return StaticCall("System.Int32", memberName, Two("System.String", "System.Int32&"), "System.Boolean")
             }
+            if typeName == "Int32" && memberName == "TryParse" && count == 4 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.Globalization.NumberStyles" && argumentTypeNames[2] == "System.Globalization.CultureInfo" && argumentTypeNames[3] == "System.Int32&" {
+                return StaticCall("System.Int32", memberName, Four("System.String", "System.Globalization.NumberStyles", "System.IFormatProvider", "System.Int32&"), "System.Boolean")
+            }
         }
 
         if typeName == "Int64" && memberName == "TryParse" && count == 2 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.Int64&" {
