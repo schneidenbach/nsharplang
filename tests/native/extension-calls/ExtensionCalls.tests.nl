@@ -440,7 +440,7 @@ func main() {
     print p3.Info()
     print service.Info()
 }
-""",
+""".Trim(),
         "Ada:37:ada@example.com\nBob:0:bob@example.com\nCy:0:\ndefault"
     )
 }
@@ -468,7 +468,7 @@ func main() {
     print justNumbers.Count
     print justStrings.Count
 }
-""",
+""".Trim(),
         "3\n2\n1"
     )
 }
