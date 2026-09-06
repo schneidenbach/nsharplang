@@ -254,6 +254,30 @@ test "external static-member planner owns exact field and property handles" {
     assert ExecutorRunV3ScalarPlan(propertyPlan, typeof(string)) == Environment.NewLine
 }
 
+test "external static-member planner loads the exact ldftn field and preserves shadow rollback" {
+    tree := ExternalStaticMemberTree("OpCodes", "Ldftn")
+    ExternalStampScope(tree, "import System.Reflection.Emit\n")
+    plan := ExternalPlan(tree, ColumnarRangePlannerEmptyBindings())
+    expected := typeof(OpCodes).GetField("Ldftn")
+    if expected == null {
+        throw new InvalidOperationException("OpCodes.Ldftn runtime field was not found.")
+    }
+
+    assert plan.ResultType == typeof(OpCode)
+    assert plan.FieldCount == 1
+    assert plan.MethodCount == 0
+    assert plan.OperationCount == 1
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldsfld()
+    assert Object.ReferenceEquals(plan.Fields[0], expected)
+    assert ExecutorRunV3ScalarPlan(plan, typeof(OpCode)) == "ldftn"
+
+    shadow := ExternalStaticMemberTree("OpCodes", "Ldftn")
+    ExternalStampScope(shadow, "import System.Reflection.Emit\n")
+    bindings := ExternalBindings(null, null, null, null, null)
+    ColumnarRangePlannerAddParameter(bindings, "OpCodes", 0, typeof(string))
+    ExternalAssertDeclines(shadow, bindings)
+}
+
 test "external static-member planner owns runtime enum and primitive literal fields" {
     enumTree := ExternalStaticMemberTree("StringComparison", "Ordinal")
     ExternalStampScope(enumTree, enumTree.Source)

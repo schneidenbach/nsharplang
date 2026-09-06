@@ -230,17 +230,18 @@ test "each newly admitted opcode lands in the allowlist family half that owns it
     }
 }
 
-test "the opcode-allowlist widening is exactly five names wide" {
+test "byte argument forms and ldvirtftn remain outside the modeled opcode boundary" {
     // `Ldarg_S` and its siblings cover argument ordinals 4..255 and are a DIFFERENT widening: they
     // carry a `System.Byte` operand, which the emit-operand surface does not admit, so binding them
     // would pick the `int` overload and write a four-byte operand behind a one-byte opcode. They are
-    // left out deliberately, and that is pinned here rather than left to be rediscovered.
+    // left out deliberately. `Ldvirtftn` is also a distinct virtual-dispatch operation the iterator
+    // constructor does not use, so admitting `Ldftn` must not widen to its adjacent opcode.
     rejected := new string[](5)
     rejected[0] = "Ldarg_S"
     rejected[1] = "Ldarga_S"
     rejected[2] = "Starg"
     rejected[3] = "Starg_S"
-    rejected[4] = "Ldftn"
+    rejected[4] = "Ldvirtftn"
 
     j := 0
     while j < rejected.Length {
@@ -256,6 +257,34 @@ test "the opcode-allowlist widening is exactly five names wide" {
     assert !ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Byte")
     assert ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Int16")
     assert ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Type")
+}
+
+test "ldftn selects the exact opcode field and MethodInfo emit overload" {
+    AssertSupportedOpcode("Ldftn")
+    qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
+        "System.Reflection.Emit.OpCodes",
+        "Ldftn"
+    )
+    assert qualified.IsSupported
+    assert qualified.Kind == ColumnarExternalStaticMemberKind.Field
+    assert qualified.DeclaringTypeName == "System.Reflection.Emit.OpCodes, System.Private.CoreLib"
+    assert qualified.MemberName == "Ldftn"
+    assert qualified.ValueTypeName == "System.Reflection.Emit.OpCode, System.Private.CoreLib"
+    assert typeof(OpCodes).GetField("Ldftn") != null
+    assert !ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName("Ldftn")
+    assert ColumnarExternalBindingPlans.IsSupportedComputeOpCodeMemberName("Ldftn")
+    assert !ColumnarExternalBindingPlans.IsSupportedObjectModelOpCodeMemberName("Ldftn")
+
+    emitArguments := new string[](2)
+    emitArguments[0] = "System.Reflection.Emit.OpCode"
+    emitArguments[1] = "System.Reflection.MethodInfo"
+    AssertVirtualCall(
+        "System.Reflection.Emit.ILGenerator",
+        "Emit",
+        emitArguments,
+        "System.Void"
+    )
+    assert ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Reflection.MethodInfo")
 }
 
 test "external static selections accept short and fully qualified owner names" {
