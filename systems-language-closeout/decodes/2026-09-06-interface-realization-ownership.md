@@ -45,3 +45,18 @@ accepted implementation: final ownership must compile with the original types an
 Native prerequisite probes also prove the connected reference-conversion and KeyValuePair
 recognition owners must move completely into N# with all C# callers routed directly. The seed
 remains unpublished pending exact full-source compilation and required fresh integration checks.
+
+Seed candidate `f4ffd97fd` (worker `a47d5095b`) passes focused bootstrap 5/5 and native reflection
+15/15. It moves complete reference conversion and KeyValuePair recognition into N# (30 and three
+direct C# call sites), adds only the proven typed key/view/enumerator support, and removes 54 C#
+emitter lines. Cumulative emitter 17,806 lines / 16,933 nonblank; current ratchet
+`head-v1:d1ba081c03bbdd0f`, other rows/epochs unchanged since the canonical test migration.
+Astra and Terra independently reviewed preserved catch/type-comparison behavior.
+
+The complete restored owner (SHA `85b4e65d4e1c1165d8c8dd2b73bedad93eb18275ac6a2629fc79dd13f0dddd49`)
+compiles with all 777 recursive N# bootstrap sources through an isolated candidate SDK emit-only
+build, zero warnings/errors in 18.24s. Evidence `seed/private-emit-proof-r2` pins all source/tool hashes;
+no feeds or installed SDK were changed. Earlier CLI probes used the wrong legacy validation mode,
+and private r1 omitted nested sources; those harness failures are retained and corrected. The final
+source contains none of the discovery-only collection substitutions. Fresh seed gate and normal
+packaged verification remain required before publication acceptance.
