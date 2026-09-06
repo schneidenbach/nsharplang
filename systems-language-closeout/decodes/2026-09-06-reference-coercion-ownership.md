@@ -29,3 +29,22 @@ Evidence `/private/tmp/nsharp-reference-coercion-ownership-20260906` pins origin
 and accepted compiler payload. Previous gate: 448s, 587 unit / 7,884 canonical / 52 native projects /
 12 throughput / 68 IL assemblies. This selected area and the compiler-wide objective remain open
 until sole ownership, canonical coverage, required checks and push are verified.
+
+Production integrated as `3b998bf50` (worker `afb7bba5613c2ed033a09497571092ef1696c4c1`):
+seven complete methods and the C# lookup forwarder are removed. Sixty-eight coercion calls route
+directly to N#; twenty-two remaining wrapper callers route directly to the existing source resolver.
+All original lookup arguments were simple locals/pattern bindings, preserving expression order.
+Full actual source compiles using the accepted SDK. Enum bitmask syntax required only an explicit
+integer view with the original bit-4 mask, not a seed or semantic change. Root candidate clean
+rebuilds pass as-boxing 16/16 and external-base-interface 18/18; integrated dev build passes.
+Root emitted IL exactly matches the reviewed candidate after RVA normalization, preserving lazy
+lookup, repeated external scans, disposal, boxing and the NotSupported-only generic-attribute catch.
+
+Canonical migration `553621fba` plus framing correction `7e247040e` moves the complete constructor
+chain and LINQ/object-boxing programs into N#. Both Program.nl contents and all six assertions
+match the former C# tests. Native suite 12/12, remaining CompilationBackendTests 74/74; final
+source-framing correction focused 2/2. No new C# test/helper was added.
+
+Ratchet: emitter 17,530→17,415 lines / 16,668→16,562 nonblank; C# tests 4,014→3,863 lines /
+3,445→3,320 nonblank / 379→371 markers. Current head `head-v1:bec1ef649672705e`; root ownership
+audit 18/18. Additional direct N# controls and final fresh backend integration gate remain open.
