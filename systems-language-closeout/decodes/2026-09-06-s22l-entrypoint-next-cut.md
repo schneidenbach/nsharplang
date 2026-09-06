@@ -3,6 +3,11 @@
 Execute after S2.2(k) is accepted. Revalidate the current source and seed before editing. This plan
 is source-reviewed; it is not an implementation or capability verdict. Tasks 015/021/022/023 stay open.
 
+The first exact-source probe found an array-element admission prerequisite for the
+`Dictionary<string, Type>[]` input. Complete and publish
+[S2.2(l0)](2026-09-06-s22l0-catalog-reference-array-prerequisite.md) before resuming this owner.
+The draft remains parked; the complete C# block is still the production owner.
+
 ## Connected cut
 
 Move the complete entry-point selection/wrapper block from `ColumnarIlEmitter.TryEmitColumnarAssembly`

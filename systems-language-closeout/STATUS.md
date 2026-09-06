@@ -62,7 +62,7 @@ A focused slice result is not a new full-gate verdict.
 | 020 | complete at `530bfbc85` (45 slices); box checked |
 | 021 | audit complete at `6fcb41f64`; **box deliberately unchecked**. The operative route is task 023's N# ECMA-335 writer, then task 022's unified metadata universe and NativeAOT. Earlier Reflection.Emit-only/shelved-writer language is superseded by the measured 022/2h decision below |
 | 022 | slices 2a–2e, 3a and 3b landed; the `MetadataLoadContext` surface is N#-owned and `Analyzer.cs` is 2,357 lines. Slice 4's `EditorTypeCatalog` and `TypeResolver.cs` shrink (373 → 61) are merged `f8993ab0c` and gated r22; **4d package/catalog-growth, completion acceptance and lifetime checks passed visually during takeover; the discovered missing import edit is fixed at `1527e823`**. 2f-b catalog-based type admission is merged (38 shapes: 37 pass / 1 catalog miss); slice 5 waits for 023/3 — §4.11 |
-| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(k)** and g0/g1/j0/j1 prerequisites landed. Member iterator discovery/admission is N#-owned; C# shrinks another 51 lines. Fresh IDE-enabled gate at `137462ab1`:593 unit /7,809 canonical /36 VS Code /109 declarations; visual diagnostics verified. Fixed 94-image corpus unchanged; strict baseline258 retained with two intended same-source NL202 removals. Next S2.2(l): entry-point selection/wrapper plus keyed awaiter local, before remaining call/type/local/maxstack and S2.3–S2.6. — §4.12 |
+| 023 | Slice 1, constant-conversion owner 1e, S2.0, S2.1(a)–(i), **S2.2(a)–(k)** and g0/g1/j0/j1 prerequisites landed. Member iterator discovery/admission is N#-owned; C# shrinks another 51 lines. Fresh IDE-enabled gate at `137462ab1`:593 unit /7,809 canonical /36 VS Code /109 declarations; visual diagnostics verified. Fixed 94-image corpus unchanged; strict baseline258 retained with two intended same-source NL202 removals. Next S2.2(l0): catalog reference array admission required by the exact entry-point input, then S2.2(l) selection/wrapper plus keyed awaiter local. — §4.12 |
 
 ### Visual IDE verification — DISCHARGED 2026-09-02; D1–D4 FIXED, merged and RE-VERIFIED VISUALLY at `529ad23bf`
 
@@ -123,15 +123,19 @@ IDE-enabled procedure. Log outside the copy, check for another gate first, never
 and push only the exact gated source revision. SDK/feed publication is coordinator-only at a committed,
 gated prerequisite boundary before the estate consumes newly admitted shapes.
 
-**Next writer slice:** S2.2(l), assembly entry-point selection and wrapper realization.
-The [next-cut plan](decodes/2026-09-06-s22l-entrypoint-next-cut.md) targets the complete current
-4358–4413 block (56 lines including its trailing blank) plus the reached awaiter AddType in
-`ColumnarAsyncEntryPointPlanner.BuildWrapperPlan`. Preserve both indexed name walks, raw dictionary
-Values enumeration and two separate mains[0] reads, bare-false/empty-array behavior, and wrapper
-plan-before-GetIL ordering. Consume the same catalog table at the old awaiter site. Revalidate exact
-source forms with the existing seed before extraction. This is source-reviewed planning only; no l
-implementation has started. Remaining call/type/local/maxstack, S2.3–S2.6, 022/5 NativeAOT and final
-ownership audit stay open.
+**Next writer slice:** S2.2(l0), the measured catalog reference array prerequisite.
+The [prerequisite](decodes/2026-09-06-s22l0-catalog-reference-array-prerequisite.md) is required because
+an exact entry-point input, `Dictionary<string, Type>[]`, fails the installed seed's array-element
+admission. The initial driver probe exited 1 with zero tests; its source and command receipt are
+retained. N# will admit genuine catalog reference elements through the existing exact identity gate,
+with array-operation and exclusion controls. The coordinator must gate and verify the updated SDK
+before the parked entry-point draft can consume this capability. No C# move is accepted for l yet.
+
+Then resume [S2.2(l)](decodes/2026-09-06-s22l-entrypoint-next-cut.md): the complete current 4358–4413
+entry-point block (56 lines including its trailing blank), plus its reached awaiter AddType. Preserve
+both indexed name walks, concrete dictionary enumeration, partial selected method, actual shared empty
+arrays, and declaration/plan/GetIL ordering. Remaining call/type/local/maxstack, S2.3–S2.6,
+022/5 NativeAOT and final ownership audit stay open.
 
 **Goal checkpoint (2026-09-06):** S2.2(k), initial owner `9dc7edc85` (Sol `ce23b618`), ratchet
 `5614eb20c`, controls `159dfab2f` /comment `7d579e98e` (Terra `0d9f5ff5` /`32b8e18d`), strict correction

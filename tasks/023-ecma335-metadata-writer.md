@@ -253,6 +253,10 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   [Proof](../systems-language-closeout/decodes/2026-09-06-s22k-parity-proof.md).
   Next S2.2(l): complete entry-point selection/wrapper block and keyed awaiter local, then remaining
   call/type/local/maxstack work. [Plan](../systems-language-closeout/decodes/2026-09-06-s22l-entrypoint-next-cut.md).
+  **Measured l prerequisite:** the exact `Dictionary<string, Type>[]` input is refused by the
+  current array-element admission rule. Complete N# catalog reference-element admission and its
+  gated SDK repin as [S2.2(l0)](../systems-language-closeout/decodes/2026-09-06-s22l0-catalog-reference-array-prerequisite.md)
+  before the entry-point owner can be compiled and accepted. The initial failed probe is retained.
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against
