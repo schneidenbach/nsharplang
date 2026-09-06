@@ -163,7 +163,7 @@ class ColumnarDirectCallPlanner {
         }
 
         calleeKind := nodes.Kind(callee)
-        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression() && calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression() && calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() && calleeKind != 38 {
             return false
         }
 
@@ -228,11 +228,134 @@ class ColumnarDirectCallPlanner {
                 return TryAppendBareCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
             }
 
+            if calleeKind == 38 {
+                return TryAppendExplicitGenericStaticCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
+            }
+
             return TryAppendMemberCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
         } catch ex: Exception {
             plan.Rollback(checkpoint)
             throw ex
         }
+    }
+
+    // The explicit generic callee stores its complete dotted value name and its type-reference
+    // children. Resolve those facts before consulting the exact external catalog; unsupported
+    // generic callees remain outside this fixed direct-call owner with a fully rolled-back plan.
+    static func TryAppendExplicitGenericStaticCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.NotOwned
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+
+        calleeName := nodes.Text(source, callee)
+        separator := calleeName.LastIndexOf(".", StringComparison.Ordinal)
+        if separator <= 0 || separator == calleeName.Length - 1 {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        ownerName := calleeName.Substring(0, separator)
+        memberName := calleeName.Substring(separator + 1)
+        rootSeparator := ownerName.IndexOf(".", StringComparison.Ordinal)
+        rootName := rootSeparator > 0 ? ownerName.Substring(0, rootSeparator) : ownerName
+        if bindings.IsValueBinding(rootName) || bindings.IsCallable(rootName) || bindings.Enums.ContainsKey(ownerName) || bindings.Enums.ContainsKey(rootName) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+        if nodes.HasAdditionalRootBinding(rootName) || ContainsName(nodes.VisibleTypeParameterNames, rootName) {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        scope := nodes.BindingScope
+        if scope != null && scope.IsImportAliasRoot(rootName) {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+        if scope != null && ownerName != rootName && scope.IsTypeAliasRoot(rootName) {
+            legacyWholeSubtreePlanning = true
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        exactSourceOwnerName := ""
+        sourceOwnerBlocked := false
+        sourceOwnerResolved := scope == null
+        if scope != null {
+            sourceOwnerResolved = scope.TryResolveSourceStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out exactSourceOwnerName, out sourceOwnerBlocked)
+        }
+        sourceOwner: ColumnarStructDef? = null
+        if sourceOwnerResolved {
+            selectedSourceOwnerName := ownerName
+            if scope != null {
+                selectedSourceOwnerName = exactSourceOwnerName
+            }
+            sourceOwner = FindExactSourceOwner(selectedSourceOwnerName, bindings.SourceTypeDefinitions)
+        }
+        if sourceOwnerResolved && sourceOwner == null {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            plan.Rollback(checkpoint)
+            return false
+        }
+        if sourceOwner != null {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if HasExcludedStaticOwnerAtArity(sourceOwner, memberName, argumentTypes.Length) {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+            }
+            plan.Rollback(checkpoint)
+            return false
+        }
+        if sourceOwnerBlocked {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            plan.Rollback(checkpoint)
+            return false
+        }
+        if scope == null {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        typeArguments := new Type[](nodes.ChildCount(callee))
+        typeArgumentIndex := 0
+        while typeArgumentIndex < typeArguments.Length {
+            canonical := ""
+            resolvedType := typeof(object)
+            claimed := false
+            if !ColumnarTypeOfPlanner.TryBuildTypeCanonical(nodes, source, nodes.Child(callee, typeArgumentIndex), 0, out canonical) || !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resolvedType, out claimed) {
+                if claimed {
+                    ownership = ColumnarDirectCallOwnership.OwnedRejected
+                }
+                plan.Rollback(checkpoint)
+                return false
+            }
+            typeArguments[typeArgumentIndex] = resolvedType
+            typeArgumentIndex += 1
+        }
+
+        externalPlan := ColumnarExternalBindingPlans.GetExplicitGenericStaticCallPlan(ownerName, memberName, TypeNames(typeArguments), TypeNames(argumentTypes))
+        if !externalPlan.IsSupported {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        lookupType := typeof(object)
+        if !scope.TryResolveExternalStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, externalPlan.DeclaringTypeName, out lookupType) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        runtimeSelection := ColumnarRuntimeDirectCallSelection.Empty()
+        if !ColumnarRuntimeDirectCallResolver.TrySelect(externalPlan, lookupType, true, out runtimeSelection) || !AppendRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, runtimeSelection, out resultType) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        ownership = ColumnarDirectCallOwnership.Planned
+        return true
     }
 
     static func TryAppendBareCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {

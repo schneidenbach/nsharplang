@@ -514,6 +514,17 @@ class ColumnarExternalBindingPlans {
         return NoCall()
     }
 
+    // An explicitly closed external generic call carries its type arguments in the callee rather
+    // than in the value-argument list. Keep that distinction visible to the catalog: this row owns
+    // exactly Array.Empty<string>(), whose returned singleton identity is part of its contract.
+    static func GetExplicitGenericStaticCallPlan(typeName: string, memberName: string, typeArgumentTypeNames: string[], argumentTypeNames: string[]): ColumnarExternalCallPlan {
+        if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "System.String" && argumentTypeNames.Length == 0 {
+            return GenericStaticCall("System.Array", memberName, One("System.String"), Empty(), "System.String[]")
+        }
+
+        return NoCall()
+    }
+
     static func IsReferenceIdentityArgumentType(typeName: string): bool {
         return typeName == "System.Object" || typeName == "System.Reflection.MethodInfo"
     }
