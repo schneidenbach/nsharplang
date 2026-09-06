@@ -88,3 +88,18 @@ layout-only `86d50ad13` (worker `2c2dc004`), without a parser/formatter/producti
 Formatting and fresh accepted-SDK direct controls pass 7/7; the affected test method retains
 all 204 emitted instructions, including the original three ldloca ref calls. Preserve the
 failed gate receipt and run the final corrected source through a fresh gate.
+
+Accepted complete selected area: final fresh gate `92d7093be2b98b53f6ffa5c6e90bfcda98f0ec99`
+passes in 449s, with 583 unit / 7,897 canonical / 52 native projects / 12 throughput /
+68 IL assemblies. Both installed feeds and twelve SDK cache payloads remain verified.
+The surviving boundary passes the original live maps, node/source records and ref storage directly
+to N#; no C# snapshot, classification, validation or decision callback replaces these owners.
+Other C# emitter behavior, including recursive lambda bodies/display classes, is explicit remaining
+compiler debt and is not described as mechanical. No CLI/LSP/editor/runtime/NativeAOT initiative
+is included. Preserve both failed gate receipts as corrected verification history.
+
+Evidence receipts: `gate-receipt.json`, `seed/acceptance.json`, `integrated-compiler.json`,
+`integrated-il-comparison.json`, `integrated-ratchet-review.json`, `ref-format-receipt.json`,
+`post-gate-seed-check.json` and final `acceptance.json` under the evidence directory above.
+The compiler-only goal stays active; constructor ownership requires an honest complete dependency
+assessment before selection, particularly the remaining C# body-emission calls.

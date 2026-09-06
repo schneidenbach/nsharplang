@@ -55,12 +55,22 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
-**Active compiler-only area, closure binding and mutation analysis:** complete structural/live binding
-analysis, capture and mutation scans, liftability metadata, and necessary shared member-chain lookup
-ownership. Move connected methods and original state; route all shared lookup callers directly.
-[Boundary](decodes/2026-09-06-closure-analysis-ownership.md), baseline `98a708b6c`, evidence
-`/private/tmp/nsharp-closure-analysis-ownership-20260906`. Sol Max implements, Terra Max owns canonical
-migration/coverage, Astra reviews/integrates. The remaining lambda emitter is separate compiler debt.
+**Accepted area, closure binding and mutation analysis:** complete binding visibility/collection,
+capture/mutation scans, lifted-state computation, StrongBox metadata and necessary source-member
+chain lookups are solely N#-owned (`22bc5991b`). Twenty-two C# definitions disappear and sixty-six
+sites route directly to N#. Two complete canonical programs and their six assertions migrate to N#;
+seven direct controls and three focused runtime regressions preserve meaningful positive/negative
+behavior. Emitter shrinks by 432 lines, C# tests by 118 lines/eight markers. Exactly two ratchet rows
+change; 379 other rows and all epochs remain fixed, head `head-v1:f71fdf545a0d283a`.
+Fresh final backend gate at `92d7093be` passes in 449s: 583 unit / 7,897 canonical / 52 native
+projects / 12 throughput / 68 IL assemblies. Necessary N# collection prerequisite SDK
+`66215414a61939140ef0fd429c54d23f53380415eed893104d812ba21fd30872` passes its separate fresh
+seed gate and ordinary packaged probe 6/6; both feeds and twelve cache payloads remain verified.
+[Boundary and evidence](decodes/2026-09-06-closure-analysis-ownership.md), evidence
+`/private/tmp/nsharp-closure-analysis-ownership-20260906`. Remaining recursive lambda body and
+display-class lowering are explicit C# compiler debt. Compiler-wide ownership remains active.
+The next dependency assessment is constructor declaration/realization and instance initializer
+scheduling, including its actual body-emission dependencies; no new decision callbacks are permitted.
 
 **Accepted area, reference coercion and boxing:** seven complete source/external interface and
 object conversion/boxing methods are solely N#-owned (`3b998bf50`); the C# lookup forwarder is gone.
@@ -73,8 +83,6 @@ Fresh backend gate at `242cfabde` passes in 449s: 585 unit / 7,888 canonical / 5
 12 throughput / 68 IL assemblies. No new seed; both feeds and twelve cache files remain verified.
 [Boundary and evidence](decodes/2026-09-06-reference-coercion-ownership.md), evidence
 `/private/tmp/nsharp-reference-coercion-ownership-20260906`. Compiler-wide ownership remains active.
-Next dependency assessment: complete closure binding/capture mutation analysis, including needed
-source-member lookup ownership; this does not claim the remaining lambda emitter is migrated.
 
 **Accepted area, compiler reference type resolution:** integrated `c938be178` and `f3fabaacf`
 replace all five complete test-framework, referenced-type, loaded-external, ASP.NET reference and
