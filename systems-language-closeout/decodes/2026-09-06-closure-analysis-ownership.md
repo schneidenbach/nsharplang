@@ -30,3 +30,11 @@ Evidence: `/private/tmp/nsharp-closure-analysis-ownership-20260906`. Previous ac
 Use focused dev/native tests while implementing; commit coherent green pieces, complete the entire
 selected area, then run the fresh backend integration gate and push. CLI/LSP/editor/runtime/NativeAOT
 and broader branch initiatives stay in `tasks/BRANCH-BACKLOG.md`.
+
+Canonical programs integrated as `43ce0170a` (worker `80d12c255`): both exact Program.nl byte
+sequences and all six assertions independently verified; native focused 2/2, remaining C# backend
+72/72. Focused runtime gaps integrated as `451cd42ea`/`3f137b6dc`: shared parent/lambda lifted writes
+produce 12; contextual read-only capture produces 1, while the paired member-write capture declines.
+The positive counterpart prevents vacuous negative coverage. Final contextual selection 3/3.
+C# tests shrink by 118 lines / 99 nonblank / eight markers, to 3,745 / 3,221 / 363; audit 18/18,
+ratchet `head-v1:5723ac77c54ad150`, original epochs unchanged. Production ownership remains open.
