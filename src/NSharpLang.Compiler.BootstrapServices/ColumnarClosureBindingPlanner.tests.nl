@@ -359,12 +359,7 @@ test "closure lift candidates retain prior state, exclude structural writes, and
     prior := new HashSet<string>(StringComparer.Ordinal)
     prior.Add("earlier")
     candidates: HashSet<string>? = prior
-    ColumnarClosureBindingPlanner.ComputeLiftedCandidates(
-        bare.Nodes,
-        bare.Source,
-        bare.Root,
-        ref candidates
-    )
+    ColumnarClosureBindingPlanner.ComputeLiftedCandidates(bare.Nodes, bare.Source, bare.Root, ref candidates)
     assert Object.ReferenceEquals(candidates, prior)
     assert candidates != null
     assert candidates.Count == 2
@@ -373,12 +368,7 @@ test "closure lift candidates retain prior state, exclude structural writes, and
 
     structural := ClosureBindingControlsStructuralCaptureWriteTree("cell")
     structuralCandidates: HashSet<string>? = null
-    ColumnarClosureBindingPlanner.ComputeLiftedCandidates(
-        structural.Nodes,
-        structural.Source,
-        structural.Root,
-        ref structuralCandidates
-    )
+    ColumnarClosureBindingPlanner.ComputeLiftedCandidates(structural.Nodes, structural.Source, structural.Root, ref structuralCandidates)
     assert structuralCandidates == null
 
     writtenNames := new SortedSet<string>(StringComparer.Ordinal)
@@ -400,12 +390,7 @@ test "closure lift candidates retain prior state, exclude structural writes, and
 
     shadowed := ClosureBindingControlsShadowedCaptureTree()
     shadowCandidates: HashSet<string>? = null
-    ColumnarClosureBindingPlanner.ComputeLiftedCandidates(
-        shadowed.Nodes,
-        shadowed.Source,
-        shadowed.Root,
-        ref shadowCandidates
-    )
+    ColumnarClosureBindingPlanner.ComputeLiftedCandidates(shadowed.Nodes, shadowed.Source, shadowed.Root, ref shadowCandidates)
     assert shadowCandidates != null
     assert shadowCandidates.Count == 1
     assert shadowCandidates.Contains("outer")
