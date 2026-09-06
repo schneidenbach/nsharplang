@@ -1993,65 +1993,6 @@ func main() {
     }
 
     [Fact]
-    public void MultiFileCompiler_EmitsInterfaceMethodReturningUserStruct()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: InterfaceUserStructProject
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-file struct ValidationResult {
-    IsValid: bool
-}
-
-file interface IValidator {
-    func Validate(input: string): ValidationResult
-}
-
-file class UsernameValidator: IValidator {
-    func Validate(input: string): ValidationResult {
-        if input.Length > 0 {
-            return new ValidationResult { IsValid: true }
-        }
-
-        return new ValidationResult { IsValid: false }
-    }
-}
-
-func main() {
-    validator: IValidator = new UsernameValidator()
-    result := validator.Validate("abc")
-    print result.IsValid
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "InterfaceUserStructProject.dll");
-            var result = compiler.CompileToIlAssembly("InterfaceUserStructProject", outputPath);
-
-            Assert.True(result.Success);
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Equal("True", runResult.Stdout.Trim());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void MultiFileCompiler_EmitsInterpolatedStringCoalesceHole()
     {
         var tempDir = CreateTempDir();
@@ -2637,48 +2578,6 @@ func f(): int {
     }
 
     [Fact]
-    public void MultiFileCompiler_CanRunAsyncExecutableProjectEntryPoint()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: AsyncMainIlProject
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-import System.Threading.Tasks
-
-async func main() {
-    await Task.CompletedTask
-    print "async entrypoint works"
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "AsyncMainIlProject.dll");
-            var result = compiler.CompileToIlAssembly("AsyncMainIlProject", outputPath);
-
-            Assert.True(result.Success);
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("async entrypoint works", runResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void MultiFileCompiler_EmitsTaskRunActionAndExpandedWaitAll()
     {
         var tempDir = CreateTempDir();
@@ -2836,69 +2735,6 @@ class Greeter {
 
             Assert.True(result.Success);
             Assert.Equal(new Version(1, 2, 0, 0), AssemblyName.GetAssemblyName(outputPath).Version);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_EmitsNamespaceQualifiedTypesForIlProjects()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: NamespaceIlProject
-backend: il
-outputType: library
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "MathUtils.nl"), """
-namespace InteropLib
-
-class MathUtils {
-    static func Add(a: int, b: int): int {
-        return a + b
-    }
-}
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Geometry.nl"), """
-namespace InteropLib.Geometry
-
-interface IShape {
-    func Area(): double
-}
-
-class Square : IShape {
-    Side: double
-
-    constructor(side: double) {
-        Side = side
-    }
-
-    func Area(): double {
-        return Side * Side
-    }
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "NamespaceIlProject.dll");
-            var result = compiler.CompileToIlAssembly("NamespaceIlProject", outputPath);
-
-            Assert.True(result.Success);
-
-            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
-            var assembly = loadScope.Assembly;
-            Assert.NotNull(assembly.GetType("InteropLib.MathUtils", throwOnError: false));
-            Assert.NotNull(assembly.GetType("InteropLib.Geometry.IShape", throwOnError: false));
-            Assert.NotNull(assembly.GetType("InteropLib.Geometry.Square", throwOnError: false));
         }
         finally
         {

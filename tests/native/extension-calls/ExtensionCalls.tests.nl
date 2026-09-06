@@ -69,12 +69,39 @@ func CompileNamedExtensionCallFixture(
     outputType: string,
     source: string
 ): ExtensionCallCompilation {
+    fileNames := new string[](1)
+    fileNames[0] = "Program.nl"
+    contents := new string[](1)
+    contents[0] = source
+    return CompileNamedExtensionCallFixtureFiles(
+        projectName,
+        outputType,
+        fileNames,
+        contents
+    )
+}
+
+// The migrated namespace assertion has two source files. Keep the same production harness and
+// compiler route as the single-file canonical programs, while preserving their original file names.
+func CompileNamedExtensionCallFixtureFiles(
+    projectName: string,
+    outputType: string,
+    fileNames: string[],
+    contents: string[]
+): ExtensionCallCompilation {
+    if fileNames.Length != contents.Length {
+        throw new InvalidOperationException("Fixture file names and contents must have the same length.")
+    }
     fixtureRoot := Path.Combine(
         Path.GetTempPath(),
         "nsharp-extension-calls-" + Guid.NewGuid().ToString("N")
     )
     Directory.CreateDirectory(fixtureRoot)
-    File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), source)
+    fileIndex := 0
+    while fileIndex < fileNames.Length {
+        File.WriteAllText(Path.Combine(fixtureRoot, fileNames[fileIndex]), contents[fileIndex])
+        fileIndex = fileIndex + 1
+    }
 
     // Reference the core framework and System.Linq the way `nlc build` resolves the implicit
     // Microsoft.NETCore.App framework, so both live extension hosts (Enumerable) and every core type
@@ -422,4 +449,192 @@ class Consumer {
     )
     assert !compilation.Succeeded, compilation.Diagnostics
     CleanupExtensionCompilation(compilation)
+}
+
+// Canonical interface-realization integration assertions migrated from CompilationBackendTests.cs.
+// They run the complete production compiler and retain the source programs plus runtime/type-output
+// assertions that exercised the old C# owner.
+func CreateExtensionCollectibleLoadContext(): object {
+    contextType := Type.GetType(
+        "System.Runtime.Loader.AssemblyLoadContext, System.Runtime.Loader"
+    )
+    if contextType == null {
+        throw new InvalidOperationException("AssemblyLoadContext was not loadable.")
+    }
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = typeof(string)
+    parameterTypes[1] = typeof(bool)
+    constructor := contextType.GetConstructor(parameterTypes)
+    if constructor == null {
+        throw new InvalidOperationException("The collectible AssemblyLoadContext constructor was not found.")
+    }
+    arguments := new object?[](2)
+    SetExtensionObject(arguments, 0, "nsharp-interface-realization-" + Guid.NewGuid().ToString("N"))
+    SetExtensionObject(arguments, 1, true)
+    context := constructor.Invoke(arguments)
+    if context == null {
+        throw new InvalidOperationException("The collectible AssemblyLoadContext was not created.")
+    }
+    return context
+}
+
+func LoadExtensionFixtureAssembly(context: object, outputPath: string): Assembly {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    loadMethod := context.GetType().GetMethod("LoadFromAssemblyPath", parameterTypes)
+    if loadMethod == null {
+        throw new InvalidOperationException("AssemblyLoadContext.LoadFromAssemblyPath(string) was not found.")
+    }
+    arguments := new object?[](1)
+    SetExtensionObject(arguments, 0, outputPath)
+    loaded := loadMethod.Invoke(context, arguments)
+    assembly := loaded as Assembly
+    if assembly == null {
+        throw new InvalidOperationException("The compiled fixture assembly was not loadable.")
+    }
+    return assembly
+}
+
+func UnloadExtensionFixtureContext(context: object) {
+    parameterTypes := new Type[](0)
+    unloadMethod := context.GetType().GetMethod("Unload", parameterTypes)
+    if unloadMethod == null {
+        throw new InvalidOperationException("AssemblyLoadContext.Unload() was not found.")
+    }
+    arguments := new object?[](0)
+    unloadMethod.Invoke(context, arguments)
+}
+
+func ExtensionFixtureAssemblyHasType(assembly: Assembly, fullName: string): bool {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    getTypeMethod := typeof(Assembly).GetMethod("GetType", parameterTypes)
+    if getTypeMethod == null {
+        throw new InvalidOperationException("Assembly.GetType(string) was not found.")
+    }
+    arguments := new object?[](1)
+    SetExtensionObject(arguments, 0, fullName)
+    return getTypeMethod.Invoke(assembly, arguments) != null
+}
+
+func AssertNamespaceInterfaceFixtureTypes(outputPath: string) {
+    context := CreateExtensionCollectibleLoadContext()
+    try {
+        assembly := LoadExtensionFixtureAssembly(context, outputPath)
+        assert ExtensionFixtureAssemblyHasType(assembly, "InteropLib.MathUtils")
+        assert ExtensionFixtureAssemblyHasType(assembly, "InteropLib.Geometry.IShape")
+        assert ExtensionFixtureAssemblyHasType(assembly, "InteropLib.Geometry.Square")
+    } finally {
+        UnloadExtensionFixtureContext(context)
+    }
+}
+
+test "interface method returning a user struct compiles and executes" {
+    AssertGenericCallProgram(
+        "InterfaceUserStructProject",
+        """
+file struct ValidationResult {
+    IsValid: bool
+}
+
+file interface IValidator {
+    func Validate(input: string): ValidationResult
+}
+
+file class UsernameValidator: IValidator {
+    func Validate(input: string): ValidationResult {
+        if input.Length > 0 {
+            return new ValidationResult { IsValid: true }
+        }
+
+        return new ValidationResult { IsValid: false }
+    }
+}
+
+func main() {
+    validator: IValidator = new UsernameValidator()
+    result := validator.Validate("abc")
+    print result.IsValid
+}
+""",
+        "True"
+    )
+}
+
+test "async executable entrypoint compiles and writes its completed output" {
+    compilation := CompileNamedExtensionCallFixture(
+        "AsyncMainIlProject",
+        "exe",
+        """
+import System.Threading.Tasks
+
+async func main() {
+    await Task.CompletedTask
+    print "async entrypoint works"
+}
+"""
+    )
+    try {
+        assert compilation.Succeeded, compilation.Diagnostics
+        CompilationArtifacts.WriteRuntimeConfig(
+            compilation.Config,
+            compilation.OutputPath
+        )
+        runResult := RunGenericCallProgram(
+            compilation.OutputPath,
+            compilation.FixtureRoot
+        )
+        assert runResult.ExitCode == 0
+        assert runResult.Stdout.Contains("async entrypoint works")
+    } finally {
+        CleanupExtensionCompilation(compilation)
+    }
+}
+
+test "namespace-qualified interface project emits every declared type" {
+    fileNames := new string[](2)
+    fileNames[0] = "MathUtils.nl"
+    fileNames[1] = "Geometry.nl"
+    contents := new string[](2)
+    contents[0] = """
+namespace InteropLib
+
+class MathUtils {
+    static func Add(a: int, b: int): int {
+        return a + b
+    }
+}
+"""
+    contents[1] = """
+namespace InteropLib.Geometry
+
+interface IShape {
+    func Area(): double
+}
+
+class Square : IShape {
+    Side: double
+
+    constructor(side: double) {
+        Side = side
+    }
+
+    func Area(): double {
+        return Side * Side
+    }
+}
+"""
+
+    compilation := CompileNamedExtensionCallFixtureFiles(
+        "NamespaceIlProject",
+        "library",
+        fileNames,
+        contents
+    )
+    try {
+        assert compilation.Succeeded, compilation.Diagnostics
+        AssertNamespaceInterfaceFixtureTypes(compilation.OutputPath)
+    } finally {
+        CleanupExtensionCompilation(compilation)
+    }
 }
