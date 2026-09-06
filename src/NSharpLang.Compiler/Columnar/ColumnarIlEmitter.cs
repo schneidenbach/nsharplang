@@ -1685,7 +1685,14 @@ internal sealed class ColumnarIlEmitter
                 return false; // an unbound type parameter (no argument mentions it, no explicit arg) declines.
             boundArgs[b] = binding[b]!;
         }
-        if (!TryValidateGenericSiblingConstraints(target, binding, boundArgs))
+        if (!ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(
+                target.TypeParams,
+                target.SpecialConstraints,
+                target.BaseConstraints,
+                target.InterfaceConstraints,
+                binding,
+                boundArgs,
+                _structRegistry))
             return false;
         var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
         _il.Emit(OpCodes.Call, instantiated);
@@ -1761,15 +1768,22 @@ internal sealed class ColumnarIlEmitter
                 return false;
             boundArgs[b] = binding[b]!;
         }
-        if (!TryValidateGenericSiblingConstraints(target, binding, boundArgs))
+        if (!ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(
+                target.TypeParams,
+                target.SpecialConstraints,
+                target.BaseConstraints,
+                target.InterfaceConstraints,
+                binding,
+                boundArgs,
+                _structRegistry))
             return false;
         for (var p = 0; p < fixedCount; p++)
         {
-            if (!TrySubstituteGenericTypeArguments(target.TypeParams, binding, target.ParamTypes[p], out var fixedParamType)
+            if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, target.ParamTypes[p], out var fixedParamType)
                 || !EmitDeclaredCallArgument(Child(callIdx, p + 1), fixedParamType, allowLambdaLiteral: true))
                 return false;
         }
-        if (!TrySubstituteGenericTypeArguments(target.TypeParams, binding, paramsElementDeclared, out var paramsElementType)
+        if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, paramsElementDeclared, out var paramsElementType)
             || !ColumnarTypeOfPlanner.IsSupportedElementType(paramsElementType))
             return false;
         var expandedCount = argCount - fixedCount;
@@ -1931,110 +1945,12 @@ internal sealed class ColumnarIlEmitter
 
     private bool CanGenericCallArgumentMatch(Type[] typeParams, Type?[] binding, Type declared, int argNode, bool allowLambdaLiteral)
     {
-        if (TrySubstituteGenericTypeArguments(typeParams, binding, declared, out var expected)
+        if (ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(typeParams, binding, declared, out var expected)
             && CanDeclaredCallArgumentMatch(argNode, expected, allowLambdaLiteral))
             return true;
 
         return TryGetPreflightExpressionType(argNode, out var argType)
                && TryUnifyGenericCallArgument(typeParams, binding, declared, argType);
-    }
-
-    // Enforce the callee's declared constraints (`where T: ...`) against the bound type arguments,
-    // mirroring the analyzer's NL208 checks: MakeGenericMethod on a Reflection.Emit MethodBuilder performs
-    // NO constraint validation (spike-proven — a violating instantiation silently persists an assembly
-    // that fails at load), so a violating OR unverifiable binding must decline here.
-    private bool TryValidateGenericSiblingConstraints(
-        (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target,
-        Type?[] binding,
-        Type[] boundArgs)
-    {
-        for (var p = 0; p < boundArgs.Length; p++)
-        {
-            var special = target.SpecialConstraints.Length > p ? target.SpecialConstraints[p] : 0;
-            var baseConstraint = target.BaseConstraints.Length > p ? target.BaseConstraints[p] : null;
-            var interfaceConstraints = target.InterfaceConstraints.Length > p
-                ? target.InterfaceConstraints[p]
-                : System.Array.Empty<Type>();
-            if (special == 0 && baseConstraint == null && interfaceConstraints.Length == 0)
-                continue;
-
-            var bound = boundArgs[p];
-            if (bound.IsGenericParameter)
-                return false;
-            if ((special & 1) != 0 && bound.IsValueType)
-                return false; // `class`: requires a reference type.
-            if ((special & 2) != 0 && (!bound.IsValueType || Nullable.GetUnderlyingType(bound) != null))
-                return false; // `struct`: requires a non-nullable value type.
-            if ((special & 4) != 0 && !HasPublicParameterlessConstructorForConstraint(bound))
-                return false; // `new()`: requires a public parameterless constructor (value types qualify).
-
-            if (baseConstraint != null && !BoundSatisfiesBaseConstraint(target, boundArgs, bound, baseConstraint))
-                return false;
-            foreach (var interfaceConstraint in interfaceConstraints)
-            {
-                if (!TrySubstituteGenericTypeArguments(target.TypeParams, binding, interfaceConstraint, out var closedInterfaceConstraint)
-                    || !BoundSatisfiesInterfaceConstraint(bound, closedInterfaceConstraint))
-                    return false;
-            }
-        }
-
-        return true;
-    }
-
-    private bool HasPublicParameterlessConstructorForConstraint(Type bound)
-    {
-        if (bound.IsValueType)
-            return true;
-        if (bound is TypeBuilder builder && FindDefByBuilder(builder) is { DefaultCtor: not null })
-            return true;
-        return bound.GetConstructor(Type.EmptyTypes) != null;
-    }
-
-    private static bool BoundSatisfiesBaseConstraint(
-        (MethodInfo Method, Type[] ParamTypes, int[] ParamModifierKinds, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints, Type[][] InterfaceConstraints) target,
-        Type[] boundArgs,
-        Type bound,
-        Type baseConstraint)
-    {
-        if (baseConstraint.IsGenericParameter)
-        {
-            // `where T: U` — the constraint is another of the CALLEE's parameters: check the two bound
-            // runtime types' assignability.
-            var otherPos = -1;
-            for (var q = 0; q < target.TypeParams.Length; q++)
-            {
-                if (ReferenceEquals(target.TypeParams[q], baseConstraint)) { otherPos = q; break; }
-            }
-            if (otherPos < 0)
-                return false;
-            var otherBound = boundArgs[otherPos];
-            return !otherBound.IsGenericParameter
-                   && otherBound.Assembly is not AssemblyBuilder
-                   && otherBound.IsAssignableFrom(bound);
-        }
-        if (baseConstraint.Assembly is AssemblyBuilder)
-            return false;
-        return !bound.IsGenericParameter
-               && bound.Assembly is not AssemblyBuilder
-               && baseConstraint.IsAssignableFrom(bound);
-    }
-
-    private bool BoundSatisfiesInterfaceConstraint(Type bound, Type interfaceConstraint)
-    {
-        if (bound is TypeBuilder boundBuilder && FindDefByBuilder(boundBuilder) is { } boundDef)
-        {
-            foreach (var implemented in boundDef.ImplementedInterfaceTypes)
-            {
-                if (TypesEquivalent(implemented, interfaceConstraint))
-                    return true;
-            }
-            return interfaceConstraint is TypeBuilder interfaceBuilder
-                   && AnyInterfaceEqualsOrExtends(boundDef.ImplementedInterfaces, interfaceBuilder);
-        }
-        if (bound.Assembly is AssemblyBuilder)
-            return false;
-        return ColumnarBaseTypePlanner.IsRuntimeInterfaceType(interfaceConstraint)
-               && interfaceConstraint.IsAssignableFrom(bound);
     }
 
     // Unify one declared TYPE PARAMETER against an argument's actual type for a generic sibling call. `declared`
@@ -2115,55 +2031,6 @@ internal sealed class ColumnarIlEmitter
                 return false;
             }
         }
-        return true;
-    }
-
-    private static bool TrySubstituteGenericTypeArguments(Type[] typeParams, Type?[] binding, Type type, out Type substituted)
-    {
-        substituted = null!;
-        if (type.IsGenericParameter)
-        {
-            for (var i = 0; i < typeParams.Length; i++)
-            {
-                if (ReferenceEquals(typeParams[i], type))
-                {
-                    if (binding[i] == null)
-                        return false;
-                    substituted = binding[i]!;
-                    return true;
-                }
-            }
-            return false;
-        }
-        if (type.IsSZArray)
-        {
-            if (!TrySubstituteGenericTypeArguments(typeParams, binding, type.GetElementType()!, out var element))
-                return false;
-            substituted = element.MakeArrayType();
-            return true;
-        }
-        if (type.IsByRef)
-        {
-            if (!TrySubstituteGenericTypeArguments(typeParams, binding, type.GetElementType()!, out var element))
-                return false;
-            substituted = element.MakeByRefType();
-            return true;
-        }
-        if (type.IsGenericType && !type.IsGenericTypeDefinition)
-        {
-            var args = type.GetGenericArguments();
-            var substitutedArgs = new Type[args.Length];
-            for (var i = 0; i < args.Length; i++)
-            {
-                if (!TrySubstituteGenericTypeArguments(typeParams, binding, args[i], out substitutedArgs[i]))
-                    return false;
-            }
-            substituted = type.GetGenericTypeDefinition().MakeGenericType(substitutedArgs);
-            return true;
-        }
-        if (type.ContainsGenericParameters)
-            return false;
-        substituted = type;
         return true;
     }
 
@@ -15053,7 +14920,7 @@ internal sealed class ColumnarIlEmitter
                && FindDefByBuilder(targetBuilder) is { IsInterface: true }
                && valueType is TypeBuilder valueBuilder
                && FindDefByBuilder(valueBuilder) is { } valueDef
-               && AnyInterfaceEqualsOrExtends(valueDef.ImplementedInterfaces, targetBuilder);
+               && ColumnarGenericConstraintPlanner.AnyInterfaceEqualsOrExtends(valueDef.ImplementedInterfaces, targetBuilder);
     }
 
     private static bool CanUseObjectConversion(Type source, Type target)
@@ -17499,28 +17366,6 @@ internal sealed class ColumnarIlEmitter
                 }
             }
             if (parametersMatch)
-                return true;
-        }
-        return false;
-    }
-
-    private static bool InterfaceEqualsOrExtends(ColumnarStructDef interfaceDef, TypeBuilder targetBuilder)
-    {
-        var candidates = new List<ColumnarStructDef>();
-        ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(interfaceDef, candidates);
-        foreach (var candidate in candidates)
-        {
-            if (ReferenceEquals(candidate.Builder, targetBuilder))
-                return true;
-        }
-        return false;
-    }
-
-    private static bool AnyInterfaceEqualsOrExtends(IEnumerable<ColumnarStructDef> interfaceDefs, TypeBuilder targetBuilder)
-    {
-        foreach (var interfaceDef in interfaceDefs)
-        {
-            if (InterfaceEqualsOrExtends(interfaceDef, targetBuilder))
                 return true;
         }
         return false;

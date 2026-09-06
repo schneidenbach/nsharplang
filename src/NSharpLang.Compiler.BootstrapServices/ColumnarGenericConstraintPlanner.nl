@@ -214,6 +214,308 @@ class ColumnarGenericConstraintPlanner {
         )
     }
 
+    // Reflection.Emit does not validate constraints when MakeGenericMethod closes an unbaked sibling
+    // MethodBuilder. Validate the carried declaration facts before the call is emitted. The bound-argument
+    // length remains the controlling length, and each parameter reads special, base, then interface facts
+    // before deciding whether the bound itself needs to be observed.
+    static func TryValidateGenericSiblingConstraints(
+        typeParams: Type[],
+        specialConstraints: int[],
+        baseConstraints: Type[],
+        interfaceConstraintRows: Type[][],
+        binding: Type[],
+        boundArgs: Type[],
+        structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
+    ): bool {
+        parameterIndex := 0
+        while parameterIndex < boundArgs.Length {
+            special := 0
+            if specialConstraints.Length > parameterIndex {
+                special = specialConstraints[parameterIndex]
+            }
+            baseConstraint: Type = null
+            if baseConstraints.Length > parameterIndex {
+                baseConstraint = baseConstraints[parameterIndex]
+            }
+            interfaceConstraints: Type[] = null
+            if interfaceConstraintRows.Length > parameterIndex {
+                interfaceConstraints = interfaceConstraintRows[parameterIndex]
+            } else {
+                interfaceConstraints = System.Type.EmptyTypes
+            }
+            if special == 0 && baseConstraint == null && interfaceConstraints.Length == 0 {
+                parameterIndex = parameterIndex + 1
+                continue
+            }
+
+            bound := boundArgs[parameterIndex]
+            if bound.get_IsGenericParameter() {
+                return false
+            }
+            if (special & 1) != 0 && bound.get_IsValueType() {
+                return false
+            }
+            if (special & 2) != 0 && (!bound.get_IsValueType() || Nullable.GetUnderlyingType(bound) != null) {
+                return false
+            }
+            if (special & 4) != 0 && !HasPublicParameterlessConstructorForConstraint(bound, structRegistry) {
+                return false
+            }
+
+            if baseConstraint != null && !BoundSatisfiesBaseConstraint(typeParams, boundArgs, bound, baseConstraint) {
+                return false
+            }
+            constraintIndex := 0
+            while constraintIndex < interfaceConstraints.Length {
+                closedInterfaceConstraint: Type = null
+                if !TrySubstituteGenericTypeArguments(
+                    typeParams,
+                    binding,
+                    interfaceConstraints[constraintIndex],
+                    out closedInterfaceConstraint
+                ) || !BoundSatisfiesInterfaceConstraint(bound, closedInterfaceConstraint, structRegistry) {
+                    return false
+                }
+                constraintIndex = constraintIndex + 1
+            }
+            parameterIndex = parameterIndex + 1
+        }
+
+        return true
+    }
+
+    static func HasPublicParameterlessConstructorForConstraint(
+        bound: Type,
+        structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
+    ): bool {
+        if bound.get_IsValueType() {
+            return true
+        }
+
+        builder := bound as TypeBuilder
+        if builder != null {
+            definition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
+                structRegistry.get_Values(),
+                builder
+            )
+            if definition != null && definition.DefaultCtor != null {
+                return true
+            }
+        }
+
+        return bound.GetConstructor(System.Type.EmptyTypes) != null
+    }
+
+    static func BoundSatisfiesBaseConstraint(
+        typeParams: Type[],
+        boundArgs: Type[],
+        bound: Type,
+        baseConstraint: Type
+    ): bool {
+        if baseConstraint.get_IsGenericParameter() {
+            otherPosition := -1
+            parameterIndex := 0
+            while parameterIndex < typeParams.Length {
+                if Object.ReferenceEquals(typeParams[parameterIndex], baseConstraint) {
+                    otherPosition = parameterIndex
+                    break
+                }
+                parameterIndex = parameterIndex + 1
+            }
+            if otherPosition < 0 {
+                return false
+            }
+
+            otherBound := boundArgs[otherPosition]
+            if otherBound.get_IsGenericParameter() {
+                return false
+            }
+            if otherBound.get_Assembly() is AssemblyBuilder {
+                return false
+            }
+            return otherBound.IsAssignableFrom(bound)
+        }
+
+        if baseConstraint.get_Assembly() is AssemblyBuilder {
+            return false
+        }
+        if bound.get_IsGenericParameter() {
+            return false
+        }
+        if bound.get_Assembly() is AssemblyBuilder {
+            return false
+        }
+        return baseConstraint.IsAssignableFrom(bound)
+    }
+
+    static func BoundSatisfiesInterfaceConstraint(
+        bound: Type,
+        interfaceConstraint: Type,
+        structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
+    ): bool {
+        boundBuilder := bound as TypeBuilder
+        if boundBuilder != null {
+            boundDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
+                structRegistry.get_Values(),
+                boundBuilder
+            )
+            if boundDefinition != null {
+                implementedEnumerator := boundDefinition.ImplementedInterfaceTypes.GetEnumerator()
+                try {
+                    while implementedEnumerator.MoveNext() {
+                        implemented := implementedEnumerator.get_Current()
+                        if ColumnarTypeEquivalenceFacts.TypesEquivalent(implemented, interfaceConstraint) {
+                            return true
+                        }
+                    }
+                } finally {
+                    implementedEnumerator.Dispose()
+                }
+
+                interfaceBuilder := interfaceConstraint as TypeBuilder
+                if interfaceBuilder == null {
+                    return false
+                }
+                return AnyInterfaceEqualsOrExtends(
+                    boundDefinition.ImplementedInterfaces,
+                    interfaceBuilder
+                )
+            }
+        }
+
+        if bound.get_Assembly() is AssemblyBuilder {
+            return false
+        }
+        return ColumnarBaseTypePlanner.IsRuntimeInterfaceType(interfaceConstraint) && interfaceConstraint.IsAssignableFrom(bound)
+    }
+
+    static func InterfaceEqualsOrExtends(
+        interfaceDefinition: ColumnarStructDef,
+        targetBuilder: TypeBuilder
+    ): bool {
+        candidates := new List<ColumnarStructDef>()
+        ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(interfaceDefinition, candidates)
+        candidateEnumerator := candidates.GetEnumerator()
+        try {
+            while candidateEnumerator.MoveNext() {
+                candidate := candidateEnumerator.get_Current()
+                if Object.ReferenceEquals(candidate.Builder, targetBuilder) {
+                    return true
+                }
+            }
+        } finally {
+            candidateEnumerator.Dispose()
+        }
+        return false
+    }
+
+    static func AnyInterfaceEqualsOrExtends(
+        interfaceDefinitions: IEnumerable<ColumnarStructDef>,
+        targetBuilder: TypeBuilder
+    ): bool {
+        enumerator := interfaceDefinitions.GetEnumerator()
+        movement := enumerator as IEnumerator
+        try {
+            if movement == null {
+                throw new NullReferenceException()
+            }
+            while movement.MoveNext() {
+                interfaceDefinition := enumerator.get_Current()
+                if InterfaceEqualsOrExtends(interfaceDefinition, targetBuilder) {
+                    return true
+                }
+            }
+        } finally {
+            disposable := enumerator as IDisposable
+            if disposable != null {
+                disposable.Dispose()
+            }
+        }
+        return false
+    }
+
+    // Substitute every occurrence of one of the callee's parameters through arrays, managed
+    // references, and closed generic shapes. A miss or any still-open leaf declines after clearing
+    // the out slot; reflection failures and partially-created local arrays remain observable.
+    static func TrySubstituteGenericTypeArguments(
+        typeParams: Type[],
+        binding: Type[],
+        sourceType: Type,
+        out substituted: Type
+    ): bool {
+        substituted = null
+        if sourceType.get_IsGenericParameter() {
+            parameterIndex := 0
+            while parameterIndex < typeParams.Length {
+                if Object.ReferenceEquals(typeParams[parameterIndex], sourceType) {
+                    if binding[parameterIndex] == null {
+                        return false
+                    }
+                    substituted = binding[parameterIndex]
+                    return true
+                }
+                parameterIndex = parameterIndex + 1
+            }
+            return false
+        }
+
+        if sourceType.get_IsSZArray() {
+            element: Type = null
+            if !TrySubstituteGenericTypeArguments(
+                typeParams,
+                binding,
+                sourceType.GetElementType(),
+                out element
+            ) {
+                return false
+            }
+            substituted = element.MakeArrayType()
+            return true
+        }
+
+        if sourceType.get_IsByRef() {
+            element: Type = null
+            if !TrySubstituteGenericTypeArguments(
+                typeParams,
+                binding,
+                sourceType.GetElementType(),
+                out element
+            ) {
+                return false
+            }
+            substituted = element.MakeByRefType()
+            return true
+        }
+
+        if sourceType.get_IsGenericType() && !sourceType.get_IsGenericTypeDefinition() {
+            arguments := sourceType.GetGenericArguments()
+            substitutedArguments := new Type[](arguments.Length)
+            argumentIndex := 0
+            while argumentIndex < arguments.Length {
+                substitutedArgument: Type = null
+                if !TrySubstituteGenericTypeArguments(
+                    typeParams,
+                    binding,
+                    arguments[argumentIndex],
+                    out substitutedArgument
+                ) {
+                    return false
+                }
+                substitutedArguments[argumentIndex] = substitutedArgument
+                argumentIndex = argumentIndex + 1
+            }
+            definition := sourceType.GetGenericTypeDefinition()
+            substituted = definition.MakeGenericType(substitutedArguments)
+            return true
+        }
+
+        if sourceType.get_ContainsGenericParameters() {
+            return false
+        }
+        substituted = sourceType
+        return true
+    }
+
     // Resolve the constraints used by a constrained receiver without rebuilding the declaration
     // map. An exact dictionary hit retains the supplied map's comparer and exact array value. The
     // weak fallback deliberately compares only a live parameter name and ordinal, matching the
