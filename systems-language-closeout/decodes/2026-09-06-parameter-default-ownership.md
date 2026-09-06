@@ -39,3 +39,12 @@ Discovery-r4 compiles the entire owner with only the three styled-parse calls te
 substituted; the exact r3 source is restored byte-for-byte afterward. This proves the prerequisite
 set is one exact Int32 static-call admission. No other builder/reflection/enum prerequisite is needed.
 Temporary substitutions remain external evidence and are not product code.
+
+Prerequisite seed accepted at `f95d8ad14`: fresh backend gate 449s, 590 unit / 7,861 canonical /
+52 native projects / 12 throughput / 68 IL assemblies. Official setup and both feeds are verified;
+all 10 Release tool payloads and all 12 SDK/cache payloads match. A normal minimal SDK project
+compiled the exact committed native source plus an integer control and passed 2/2; emitted IL names
+`Int32.TryParse(string, NumberStyles, IFormatProvider, int32&)`. Package SHA-256:
+`2a0244f1ae94ee5c7e1f6256c7e9b8da46cc36d459e39dc5f139946d141adb7b`.
+Receipt: `/private/tmp/nsharp-parameter-default-ownership-20260906/seed/acceptance.json`.
+The complete owner and seven direct canonical controls now resume; the area remains open.
