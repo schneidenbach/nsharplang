@@ -74,3 +74,12 @@ Private owner controls now pass all seven after fresh emission. Final owner SHA
 list-index-before-visiting-set-allocation order. Final direct test SHA
 `3a02c27d8cd4e8d3b8a7f346dd17043f038db1da97d8be795ed836c187fbbb06`; fixture-only syntax
 corrections require no new compiler behavior. Normal SDK integration remains pending seed acceptance.
+
+Seed accepted at `3a8254b3`: fresh r2 gate passed in 449s (587 unit / 7,877 canonical / 52 native
+projects / 12 throughput / 68 IL assemblies). Official setup succeeded, followed by an ordinary
+standalone package restore/build and four passing native assertions including IntegerControl.
+SDK SHA `9deb7b3f33b01cf7811449cc6bd8f4d12d6a1c9c91a1fb459b741fd3a4000ddd`; both feeds,
+ten Release tool payloads and all twelve cached SDK files match. Exact regression source copy and
+emitted live-view/unboxed-enumerator IL verified. Receipt `seed/acceptance.json`.
+The complete owner now proceeds through normal SDK integration; it remains unfinished until its
+production routing, focused controls, final gate and push are accepted.
