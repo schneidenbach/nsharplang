@@ -38,6 +38,15 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
+**Active area, compiler reference type resolution:** move complete test-framework, referenced-type,
+loaded-external, ASP.NET reference and HttpContext resolution methods (five methods with necessary
+dependencies). Preserve filtered/unfiltered loaded snapshots, reference enumeration/disposal,
+ordered load/name tiers, catches and failure/out states. All C# definitions are removed with direct
+N# routes. Sol Max owns production/native migration; Terra Max direct controls; Astra integrates.
+[Boundary](decodes/2026-09-06-compiler-reference-ownership.md). Baseline clean/pushed `07562c26e`,
+verified at `/private/tmp/nsharp-compiler-reference-ownership-20260906/baseline.json`. Actual full
+N# source must prove any prerequisite. The compiler-only objective remains active.
+
 **Accepted area, parameter metadata and constructor defaults:** integrated `05aa07853` replaces
 all eight complete metadata/default-presence/constant-setting/enum-resolution and constructor-default
 eligibility/emission methods. Thirteen production sites route directly to N#; the old C# methods and
