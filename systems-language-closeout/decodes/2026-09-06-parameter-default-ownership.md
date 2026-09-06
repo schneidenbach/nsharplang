@@ -73,4 +73,7 @@ was already N#; no live C# parameter-default assertions remained to migrate.
 Focused final owner controls pass 10/10 (seven new plus three existing). Unchanged native declaration
 and constructor suites pass 121/121 and 7/7, matching verified baseline sources. Emitter shrinks
 18,213→18,001 lines and 17,308→17,113 nonblank; all 380 other ratchet rows and epoch values unchanged.
-New ratchet head `head-v1:52dd4405924e3517`. Final integration verification is pending.
+New ratchet head `head-v1:52dd4405924e3517`. Fresh final backend gate at `565bd331` passed in 446s: 590 unit / 7,868 canonical /
+52 native projects / 12 throughput / 68 IL assemblies. SDK/templates/examples passed. Integrated
+ownership audit 18/18 passed; all 12 live accepted-seed payloads remain unchanged. The selected area
+is accepted. The compiler-wide objective remains active.
