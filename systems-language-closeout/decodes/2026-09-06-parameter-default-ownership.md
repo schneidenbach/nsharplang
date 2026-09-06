@@ -27,3 +27,15 @@ verifies the immutable compiler payloads against the previous accepted owner and
 447s gate: 590 unit, 7,860 canonical, 52 native projects, 12 throughput and 68 IL assemblies.
 The previous accepted SDK seed remains installed. The selected area and compiler-wide goal stay open
 until direct ownership, canonical assertions, required checks and push are complete.
+
+Complete-source probes: r1/r2 first exposed reserved identifiers (`constructor` and output `type`);
+renaming them to `constructorBuilder`/`resultType` preserves semantics and lets the full owner parse.
+The r3 full build then proves the exact styled `Int32.TryParse` call is unmodeled. Original metadata
+and both constructor-default methods require `NumberStyles.Integer`, invariant culture, and an
+`out int`; substituting the two-argument call would change behavior. Sol is completing discovery
+before grouping the necessary N# prerequisite; root preserves both feeds and the accepted seed
+payloads and owns the fresh gate/setup/package probe.
+Discovery-r4 compiles the entire owner with only the three styled-parse calls temporarily
+substituted; the exact r3 source is restored byte-for-byte afterward. This proves the prerequisite
+set is one exact Int32 static-call admission. No other builder/reflection/enum prerequisite is needed.
+Temporary substitutions remain external evidence and are not product code.
