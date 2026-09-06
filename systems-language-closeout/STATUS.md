@@ -55,6 +55,13 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
+**Active compiler-only area, constructor declaration, validation and chain emission:** move the
+complete Pass 0c/0d declaration/state/job phase and eight connected validation/chain helpers.
+[Boundary](decodes/2026-09-06-constructor-declaration-ownership.md), baseline `656f7c7ea`, evidence
+`/private/tmp/nsharp-constructor-declaration-ownership-20260906`. Sol Max implements, Terra Max
+migrates five canonical programs, Astra reviews/integrates. General body emission/orchestration
+remains explicit compiler debt; no callback into it is added.
+
 **Accepted area, closure binding and mutation analysis:** complete binding visibility/collection,
 capture/mutation scans, lifted-state computation, StrongBox metadata and necessary source-member
 chain lookups are solely N#-owned (`22bc5991b`). Twenty-two C# definitions disappear and sixty-six
