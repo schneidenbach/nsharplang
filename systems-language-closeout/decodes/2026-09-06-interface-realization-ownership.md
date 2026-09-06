@@ -60,3 +60,17 @@ no feeds or installed SDK were changed. Earlier CLI probes used the wrong legacy
 and private r1 omitted nested sources; those harness failures are retained and corrected. The final
 source contains none of the discovery-only collection substitutions. Fresh seed gate and normal
 packaged verification remain required before publication acceptance.
+
+Fresh seed gate r1 at `646577d6` exposed three pre-existing canonical assertions still rejecting
+direct source-class HashSet keys. It completed all remaining stages: 587 unit, 52 native projects,
+12 throughput and 68 IL assemblies green; compiler-service contracts were 7,874/7,877. No SDK
+publication followed that failed gate. The correction (worker `2c8874d4d`) changes only those three
+N# expectations and misleading fixture names/comments; both containment walks and their assertions
+remain unchanged. Focused 3/3, broader admission 17/17 and full canonical 7,877/7,877 now pass.
+A fresh r2 gate is required; no prior step cache is reused.
+
+Private owner controls now pass all seven after fresh emission. Final owner SHA
+`ec47593105ece096cea5348aac51c6ba7a4a49830a4ee1ac5f8e2108cfcb7f84` restores the original
+list-index-before-visiting-set-allocation order. Final direct test SHA
+`3a02c27d8cd4e8d3b8a7f346dd17043f038db1da97d8be795ed836c187fbbb06`; fixture-only syntax
+corrections require no new compiler behavior. Normal SDK integration remains pending seed acceptance.
