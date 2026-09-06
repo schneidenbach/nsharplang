@@ -55,6 +55,13 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
+**Active compiler-only area, closure binding and mutation analysis:** complete structural/live binding
+analysis, capture and mutation scans, liftability metadata, and necessary shared member-chain lookup
+ownership. Move connected methods and original state; route all shared lookup callers directly.
+[Boundary](decodes/2026-09-06-closure-analysis-ownership.md), baseline `98a708b6c`, evidence
+`/private/tmp/nsharp-closure-analysis-ownership-20260906`. Sol Max implements, Terra Max owns canonical
+migration/coverage, Astra reviews/integrates. The remaining lambda emitter is separate compiler debt.
+
 **Accepted area, reference coercion and boxing:** seven complete source/external interface and
 object conversion/boxing methods are solely N#-owned (`3b998bf50`); the C# lookup forwarder is gone.
 Sixty-eight coercion sites route directly to N# and twenty-two remaining lookup callers route to
