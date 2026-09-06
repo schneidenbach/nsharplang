@@ -55,9 +55,12 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
-**Next compiler-only candidate:** complete source/external interface and object coercion plus
-reference-test boxing, with necessary source lookup dependencies. The compiler-wide objective
-remains active; CLI/editor/runtime/NativeAOT and conditional writer backlog stay separate.
+**Active compiler-only area, reference coercion and boxing:** move seven complete source/external
+interface and object conversion/boxing methods plus source-lookup forwarding cleanup. Preserve
+repeat lookups, external enumeration, boxing and failure order. Sol Max implements, Terra Max
+owns canonical coverage, Astra reviews/integrates.
+[Boundary](decodes/2026-09-06-reference-coercion-ownership.md); clean/pushed baseline `3012dd10e`,
+evidence `/private/tmp/nsharp-reference-coercion-ownership-20260906`.
 
 **Accepted area, compiler reference type resolution:** integrated `c938be178` and `f3fabaacf`
 replace all five complete test-framework, referenced-type, loaded-external, ASP.NET reference and
