@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 
 
@@ -16,7 +17,8 @@ import System.Reflection
 // The bodies are SYNTHESIZED rather than parsed, so coverage is total by construction: there is no user
 // syntax to decline and the planner claims a whole body or nothing.
 //
-// TWO UPSTREAM GUARDS MAKE THE TYPE POOL LEGAL, and both are re-verified at the emitter's call site.
+// TWO UPSTREAM GUARDS MAKE THE TYPE POOL LEGAL, and both are re-verified by this owner's synthesis
+// driver.
 // A generic record never reaches synthesis, so the record's `TypeBuilder` is never a generic type
 // definition — which is the one shape `ValidateStorableType` refuses among the three that could apply.
 // And `Equals`/`GetHashCode` are synthesized only when no field type is builder-bound, so every
@@ -25,22 +27,82 @@ import System.Reflection
 // type at all.
 class ColumnarRecordValueMemberPlanner {
 
+    // PASS 0e owns the complete record value-member decision and emission sequence. The input row
+    // remains the declaration selector, while the parallel definition row supplies the live builders
+    // and registries populated by the preceding declaration passes.
+    static func EmitRecordValueMembers(structs: IReadOnlyList<ColumnarStructInput>, definitions: ColumnarStructDef[], table: ColumnarStructuralTypeReferenceTable) {
+        s := 0
+        while s < structs.Count {
+            input := structs[s]
+            if input.IsRecord {
+                def := definitions[s]
+                if def.GenericParameters == null {
+                    fieldsBaked := true
+                    fieldNames := def.FieldOrder
+                    fieldIndex := 0
+                    while fieldIndex < fieldNames.Length {
+                        fieldName := fieldNames[fieldIndex]
+                        field := def.Fields[fieldName]
+                        fieldType := field.get_FieldType()
+                        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(fieldType) {
+                            fieldsBaked = false
+                            break
+                        }
+                        fieldIndex = fieldIndex + 1
+                    }
+
+                    if fieldsBaked {
+                        if !def.Methods.ContainsKey("Equals") {
+                            equals := def.DefineSynthesizedRecordEquals()
+                            equalsPlan := BuildEqualsPlan(def, table)
+                            equalsIl := equals.GetILGenerator()
+                            ColumnarCodePlanExecutor.Execute(equalsPlan, equalsIl)
+                        }
+
+                        if !def.Methods.ContainsKey("GetHashCode") {
+                            hash := def.DefineSynthesizedRecordGetHashCode()
+                            hashPlan := BuildGetHashCodePlan(def, table)
+                            hashIl := hash.GetILGenerator()
+                            ColumnarCodePlanExecutor.Execute(hashPlan, hashIl)
+                        }
+                    }
+
+                    // Only a reference record carries the public clone wrapper used by `with`.
+                    if def.IsReference && def.RecordClone == null {
+                        recordType := def.Builder
+                        clone := recordType.DefineMethod(
+                            "<Clone>$",
+                            MethodAttributes.Public | MethodAttributes.HideBySig,
+                            recordType,
+                            System.Type.EmptyTypes
+                        )
+                        clonePlan := BuildClonePlan(def, table)
+                        cloneIl := clone.GetILGenerator()
+                        ColumnarCodePlanExecutor.Execute(clonePlan, cloneIl)
+                        def.RecordClone = clone
+                    }
+                }
+            }
+            s = s + 1
+        }
+    }
+
     // `ldarg.1; brfalse RF; ldarg.1; isinst T; dup; brtrue CF; pop; br RF;
     //  CF: [unbox.any T]; stloc other; {per field: call Default; ldarg.0; ldfld f; ldloc other;
     //  ldfld f; callvirt Equals; brfalse RF}; ldc.i4.1; ret; RF: ldc.i4.0; ret`
     //
     // A record STRUCT unboxes the `isinst` result before the typed store; a record CLASS stores the
     // reference directly. That single arm is the whole difference between the two shapes.
-    static func BuildEqualsPlan(def: ColumnarStructDef): ColumnarCodePlan {
+    static func BuildEqualsPlan(def: ColumnarStructDef, table: ColumnarStructuralTypeReferenceTable): ColumnarCodePlan {
         RequireRecordDef(def)
         recordType := def.Builder
         isReference := def.IsReference
         fieldNames := def.FieldOrder
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        recordTypeIndex := plan.AddType(recordType)
+        recordTypeIndex := plan.AddType(table.SelectSourceDefinition(def.DeclaredTypeName, recordType), table)
         thisArgument := plan.AddArgument(0, recordTypeIndex, !isReference)
-        otherArgument := plan.AddArgument(1, plan.AddType(typeof(object)), false)
+        otherArgument := plan.AddArgument(1, plan.AddType(table.SelectRuntimeType(typeof(object)), table), false)
         otherLocal := plan.DeclarePlanLocal(recordTypeIndex)
         returnFalse := plan.DefineLabel()
         compareFields := plan.DefineLabel()
@@ -93,16 +155,16 @@ class ColumnarRecordValueMemberPlanner {
     //
     // The two constants take the FULL `ldc.i4` form, not `ldc.i4.s`: `ILGenerator.Emit(OpCode, int)`
     // does not narrow, so the plan reproduces the hand-written encoding exactly.
-    static func BuildGetHashCodePlan(def: ColumnarStructDef): ColumnarCodePlan {
+    static func BuildGetHashCodePlan(def: ColumnarStructDef, table: ColumnarStructuralTypeReferenceTable): ColumnarCodePlan {
         RequireRecordDef(def)
         recordType := def.Builder
         isReference := def.IsReference
         fieldNames := def.FieldOrder
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        recordTypeIndex := plan.AddType(recordType)
+        recordTypeIndex := plan.AddType(table.SelectSourceDefinition(def.DeclaredTypeName, recordType), table)
         thisArgument := plan.AddArgument(0, recordTypeIndex, !isReference)
-        accumulator := plan.DeclarePlanLocal(plan.AddType(typeof(int)))
+        accumulator := plan.DeclarePlanLocal(plan.AddType(table.SelectRuntimeType(typeof(int)), table))
 
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(17))
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), accumulator)
@@ -137,12 +199,12 @@ class ColumnarRecordValueMemberPlanner {
     // record-class `with`. A record STRUCT is copied by plain value assignment and, exactly like a C#
     // record struct, carries none — a value-type clone virtual would be called through `callvirt` on a
     // value, which is unverifiable.
-    static func BuildClonePlan(def: ColumnarStructDef): ColumnarCodePlan {
+    static func BuildClonePlan(def: ColumnarStructDef, table: ColumnarStructuralTypeReferenceTable): ColumnarCodePlan {
         RequireRecordDef(def)
         recordType := def.Builder
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        recordTypeIndex := plan.AddType(recordType)
+        recordTypeIndex := plan.AddType(table.SelectSourceDefinition(def.DeclaredTypeName, recordType), table)
         thisArgument := plan.AddArgument(0, recordTypeIndex, false)
 
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArgument)
@@ -157,7 +219,7 @@ class ColumnarRecordValueMemberPlanner {
         if def == null {
             throw new InvalidOperationException("A record value-member plan needs its record definition.")
         }
-        // The emitter's own guard (a generic record never reaches synthesis) is what keeps every
+        // The synthesis driver's own guard (a generic record never reaches synthesis) is what keeps every
         // TypeBuilder operand below a storable plan type, so it is re-asserted here rather than assumed:
         // ValidateStorableType refuses a generic type definition, and this is the shape that would
         // produce one.

@@ -3787,32 +3787,8 @@ internal sealed class ColumnarIlEmitter
         // (probe-pinned) — parity by rejection. A USER method already named Equals/GetHashCode keeps ownership
         // (the pinned `hsh` behavior): that member's synthesis is skipped and resolution finds the user method
         // as before.
-        for (var s = 0; s < structs.Count; s++)
-        {
-            var st = structs[s];
-            if (!st.IsRecord)
-                continue;
-            var def = structDefsInOrder[s];
-            if (def.GenericParameters != null)
-                continue;
-            var fieldsBaked = true;
-            foreach (var fieldName in def.FieldOrder)
-            {
-                // ContainsBuilderBoundType, not a Module test: a builder-bound COLLECTION field
-                // (xs: List<Pt>) reports the open definition's CoreLib module, but
-                // EqualityComparer<List<Pt>>.Default reflection in the synthesized members would
-                // throw — such records skip synthesis exactly like directly builder-typed fields.
-                if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(def.Fields[fieldName].FieldType))
-                {
-                    fieldsBaked = false;
-                    break;
-                }
-            }
-            if (fieldsBaked)
-                SynthesizeRecordValueMembers(def);
-            else
-                SynthesizeRecordCloneMember(def);
-        }
+        ColumnarRecordValueMemberPlanner.EmitRecordValueMembers(
+            structs, structDefsInOrder, typeResolutionCatalog.StructuralTypeReferences);
 
         // PASS 0 (unions): each user union = ABSTRACT base class (protected Family parameterless ctor chaining
         // object::.ctor) + one SEALED nested case class per case (public parameterless ctor chaining base, public
@@ -8004,52 +7980,6 @@ internal sealed class ColumnarIlEmitter
         for (var g = 0; g < gps.Length; g++)
             gps[g] = (GenericTypeParameterBuilder)genericParams[typeParamNames[g]];
         return TryApplyGenericParameterConstraints(gps, specials, typeConstraints, genericParams, gps, typeResolution, out _, out _, out _);
-    }
-
-    // PASS 0e bodies — the legacy emitter's synthesized record members VERBATIM (EmitRecordEquals /
-    // EmitRecordGetHashCode / EmitRecordCloneMethod): Equals(object) = null-check + isinst + per-field
-    // EqualityComparer<T>.Default.Equals chain; GetHashCode = `hash = 17; hash = hash * 23 +
-    // EqualityComparer<T>.Default.GetHashCode(field)`; `<Clone>$` = object.MemberwiseClone + castclass
-    // (the FAMILY-access clone wrapper `with` lowers through — calling MemberwiseClone cross-type is
-    // unverifiable IL, calling the public wrapper is not). Virtual + matching signatures make
-    // Equals/GetHashCode implicit overrides of object's.
-    // PASS 0e's three bodies are planned by ColumnarRecordValueMemberPlanner and replayed by the
-    // plan-row executor. Both owners are N#; nothing here writes IL.
-    private static void SynthesizeRecordValueMembers(ColumnarStructDef def)
-    {
-        if (!def.Methods.ContainsKey("Equals"))
-        {
-            var equals = def.DefineSynthesizedRecordEquals();
-            ColumnarCodePlanExecutor.Execute(
-                ColumnarRecordValueMemberPlanner.BuildEqualsPlan(def), equals.GetILGenerator());
-        }
-
-        if (!def.Methods.ContainsKey("GetHashCode"))
-        {
-            var hash = def.DefineSynthesizedRecordGetHashCode();
-            ColumnarCodePlanExecutor.Execute(
-                ColumnarRecordValueMemberPlanner.BuildGetHashCodePlan(def), hash.GetILGenerator());
-        }
-
-        SynthesizeRecordCloneMember(def);
-    }
-
-    private static void SynthesizeRecordCloneMember(ColumnarStructDef def)
-    {
-        // Only a reference record needs a synthesized `<Clone>$` virtual: it is the copy source for the
-        // ReferenceClone strategy of a record-CLASS `with` expression (ColumnarRecordWithPlanner). A record
-        // STRUCT is copied by plain value assignment (the ValueCopy strategy) and, exactly like a C# record
-        // struct, carries no `<Clone>$` method — a value-type clone virtual would be called via `callvirt`
-        // on a value, which is unverifiable.
-        if (!def.IsReference || def.RecordClone != null)
-            return;
-        var tb = def.Builder;
-        var clone = tb.DefineMethod(
-            "<Clone>$", MethodAttributes.Public | MethodAttributes.HideBySig,
-            tb, Type.EmptyTypes);
-        ColumnarCodePlanExecutor.Execute(
-            ColumnarRecordValueMemberPlanner.BuildClonePlan(def), clone.GetILGenerator());
-        def.RecordClone = clone;
     }
 
     // The BCL exception types a typed catch clause may name (E3). Each simple name must resolve to the

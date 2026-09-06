@@ -1,8 +1,171 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+
+func RecordFactsRecordInput(name: string, isReference: bool): ColumnarStructInput {
+    fieldNames := new string[](1)
+    fieldNames[0] = "Value"
+    fieldTypes := new string[](1)
+    fieldTypes[0] = "int"
+    return new ColumnarStructInput(
+        name,
+        fieldNames,
+        fieldTypes,
+        new List<ColumnarFunctionInput>(),
+        new List<ColumnarConstructorInput>(),
+        new List<ColumnarPropertyInput>(),
+        isReference,
+        null,
+        null,
+        null,
+        null,
+        true
+    )
+}
+
+func RecordFactsRecordDefinition(name: string, isReference: bool): ColumnarStructDef {
+    definition := SynthesizedRecordCallDefinition(name, isReference)
+    field := definition.Builder.DefineField("Value", typeof(int), FieldAttributes.Public)
+    definition.Fields["Value"] = field
+    fieldNames := new string[](1)
+    fieldNames[0] = "Value"
+    definition.SetFieldOrder(fieldNames)
+    return definition
+}
+
+func RecordFactsSingleInput(input: ColumnarStructInput): IReadOnlyList<ColumnarStructInput> {
+    inputs := new List<ColumnarStructInput>()
+    inputs.Add(input)
+    return inputs
+}
+
+func RecordFactsSingleDefinition(definition: ColumnarStructDef): ColumnarStructDef[] {
+    definitions := new ColumnarStructDef[](1)
+    definitions[0] = definition
+    return definitions
+}
+
+test "record value-member owner defines and executes all three reference-record bodies" {
+    definition := RecordFactsRecordDefinition("RecordValueMemberDriver", true)
+    table := new ColumnarStructuralTypeReferenceTable()
+    table.RegisterSourceDefinition(definition.DeclaredTypeName, definition.Builder, false)
+    ColumnarRecordValueMemberPlanner.EmitRecordValueMembers(
+        RecordFactsSingleInput(RecordFactsRecordInput(definition.DeclaredTypeName, true)),
+        RecordFactsSingleDefinition(definition),
+        table
+    )
+
+    equalsBuilder := definition.RecordEquals
+    hashBuilder := definition.RecordGetHashCode
+    cloneBuilder := definition.RecordClone
+    if equalsBuilder == null || hashBuilder == null || cloneBuilder == null {
+        throw new InvalidOperationException("The record owner did not publish all three members.")
+    }
+    assert Convert.ToInt32(cloneBuilder.get_Attributes()) == 134
+
+    runtimeType := IdentityBake(definition.Builder)
+    constructor := RecordFactsRequiredConstructor(runtimeType, System.Type.EmptyTypes)
+    first := constructor.Invoke(new object[](0))
+    second := constructor.Invoke(new object[](0))
+    equalsParameterTypes := new Type[](1)
+    equalsParameterTypes[0] = typeof(object)
+    equalsMethod := ExecutorRequiredMethod(runtimeType, "Equals", equalsParameterTypes)
+    equalsArguments := new object[](1)
+    RecordFactsSetObject(equalsArguments, 0, second)
+    assert Convert.ToBoolean(equalsMethod.Invoke(first, equalsArguments))
+
+    hashMethod := ExecutorRequiredMethod(runtimeType, "GetHashCode", System.Type.EmptyTypes)
+    assert Convert.ToInt32(hashMethod.Invoke(first, new object[](0))) == 391
+
+    cloneMethod := ExecutorRequiredMethod(runtimeType, "<Clone>$", System.Type.EmptyTypes)
+    clone := cloneMethod.Invoke(first, new object[](0))
+    assert clone != null
+    assert !Object.ReferenceEquals(clone, first)
+    assert clone.GetType() == runtimeType
+}
+
+test "record value-member owner skips non-record and nonnull-generic rows before structural selection" {
+    ordinaryInput := RecordFactsRecordInput("RecordValueMemberOrdinarySkip", true)
+    ordinaryInput.IsRecord = false
+    ColumnarRecordValueMemberPlanner.EmitRecordValueMembers(
+        RecordFactsSingleInput(ordinaryInput),
+        new ColumnarStructDef[](0),
+        new ColumnarStructuralTypeReferenceTable()
+    )
+
+    genericInput := RecordFactsRecordInput("RecordValueMemberGenericSkip", true)
+    genericDefinition := RecordFactsRecordDefinition("RecordValueMemberGenericSkip", true)
+    genericDefinition.GenericParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
+    genericTable := new ColumnarStructuralTypeReferenceTable()
+    ColumnarRecordValueMemberPlanner.EmitRecordValueMembers(
+        RecordFactsSingleInput(genericInput),
+        RecordFactsSingleDefinition(genericDefinition),
+        genericTable
+    )
+    assert genericTable.RowCount == 0
+    assert genericDefinition.RecordEquals == null
+    assert genericDefinition.RecordGetHashCode == null
+    assert genericDefinition.RecordClone == null
+}
+
+test "record value-member plans retain all five same-table structural type pairs" {
+    definition := RecordFactsRecordDefinition("Records.North.KeyedValueMember", true)
+    recordType: Type = definition.Builder
+    table := new ColumnarStructuralTypeReferenceTable()
+    table.RegisterSourceDefinition(definition.DeclaredTypeName, recordType, false)
+
+    equalsPlan := ColumnarRecordValueMemberPlanner.BuildEqualsPlan(definition, table)
+    hashPlan := ColumnarRecordValueMemberPlanner.BuildGetHashCodePlan(definition, table)
+    clonePlan := ColumnarRecordValueMemberPlanner.BuildClonePlan(definition, table)
+    assert equalsPlan.TypeCount == 2
+    assert hashPlan.TypeCount == 2
+    assert clonePlan.TypeCount == 1
+
+    equalsRecord := StructuralPoolRequiredEntry(equalsPlan, 0)
+    equalsObject := StructuralPoolRequiredEntry(equalsPlan, 1)
+    hashRecord := StructuralPoolRequiredEntry(hashPlan, 0)
+    hashInt := StructuralPoolRequiredEntry(hashPlan, 1)
+    cloneRecord := StructuralPoolRequiredEntry(clonePlan, 0)
+    assert Object.ReferenceEquals(equalsRecord.Table, table)
+    assert Object.ReferenceEquals(equalsObject.Table, table)
+    assert Object.ReferenceEquals(hashRecord.Table, table)
+    assert Object.ReferenceEquals(hashInt.Table, table)
+    assert Object.ReferenceEquals(cloneRecord.Table, table)
+    assert equalsPlan.Types[0] == recordType
+    assert equalsPlan.Types[1] == typeof(object)
+    assert hashPlan.Types[0] == recordType
+    assert hashPlan.Types[1] == typeof(int)
+    assert clonePlan.Types[0] == recordType
+    assert equalsRecord.MatchesRuntime(recordType)
+    assert equalsObject.MatchesRuntime(typeof(object))
+    assert hashRecord.MatchesRuntime(recordType)
+    assert hashInt.MatchesRuntime(typeof(int))
+    assert cloneRecord.MatchesRuntime(recordType)
+
+    sourceKey := equalsRecord.Selected.Key
+    if sourceKey == null {
+        throw new InvalidOperationException("The record plan lost its source-definition key.")
+    }
+    assert sourceKey.Kind == ColumnarStructuralTypeReferenceKind.SourceDefinition
+    assert sourceKey.SourceDeclarationName == definition.DeclaredTypeName
+    assert equalsPlan.ValidatedTypeAt(0) == recordType
+    assert equalsPlan.ValidatedTypeAt(1) == typeof(object)
+    assert hashPlan.ValidatedTypeAt(0) == recordType
+    assert hashPlan.ValidatedTypeAt(1) == typeof(int)
+    assert clonePlan.ValidatedTypeAt(0) == recordType
+
+    other := RecordFactsRecordDefinition("Records.South.KeyedValueMember", true)
+    otherType: Type = other.Builder
+    table.RegisterSourceDefinition(other.DeclaredTypeName, otherType, false)
+    hashPlan.Types[0] = otherType
+    assert StructuralPoolRejectedExecutionLeavesIlUntouched(
+        hashPlan,
+        "RecordValueMemberCorruptRuntimeCompanion"
+    ) == "7"
+}
 
 // 015-B2 STAGE 2 — the rows stage 1 admitted get their consumers.
 //
