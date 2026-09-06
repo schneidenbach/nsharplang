@@ -1011,9 +1011,9 @@ internal sealed class ColumnarIlEmitter
             return false;
         if (!TypesEquivalent(bodyType, returnType)
             && !subEmitter.TryEmitImplicitWidening(bodyType, returnType)
-            && !subEmitter.TryEmitInterfaceUpcast(bodyType, returnType)
+            && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(bodyType, returnType, subEmitter._structRegistry, subEmitter._il)
             && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(bodyType, returnType)
-            && !subEmitter.TryEmitObjectConversion(bodyType, returnType)
+            && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(bodyType, returnType, subEmitter._structRegistry, subEmitter._il)
             && !subEmitter.TryEmitAnonymousUnionConversion(bodyType, returnType)
             && !subEmitter.TryEmitUserDefinedConversion(bodyType, returnType, allowExplicit: false))
             return false;
@@ -4203,7 +4203,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     return Decline("emit.return.expression", "return expression could not be emitted", retNode);
                 }
-                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !TryEmitInterfaceUpcast(retType, _returnType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(retType, _returnType) && !TryEmitObjectConversion(retType, _returnType) && !TryEmitAnonymousUnionConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType, allowExplicit: false))
+                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(retType, _returnType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(retType, _returnType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType, allowExplicit: false))
                 {
                     return Decline("emit.return.type-mismatch", "return expression type '" + retType.FullName + "' does not match declared return type '" + _returnType.FullName + "'", retNode);
                 }
@@ -4345,7 +4345,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (!EmitExpression(declaredInit, out var declaredInitType))
                         return Decline("emit.typed-local.initializer", "typed local initializer expression emission declined for '" + declaredName + "'", declaredInit);
-                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !TryEmitInterfaceUpcast(declaredInitType, declaredType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(declaredInitType, declaredType) && !TryEmitObjectConversion(declaredInitType, declaredType) && !TryEmitAnonymousUnionConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType, allowExplicit: false))
+                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(declaredInitType, declaredType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(declaredInitType, declaredType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType, allowExplicit: false))
                         return Decline("emit.typed-local.type-mismatch", "typed local initializer type '" + declaredInitType.FullName + "' does not match declared type '" + declaredType.FullName + "' for '" + declaredName + "'", declaredInit);
                 }
                 // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
@@ -4556,7 +4556,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         if (!TryResolveMemberWriteChain(Child(compoundTarget, 0), out var compoundChain)
                             || compoundChain.ReceiverType is not TypeBuilder compoundOwnerTb
-                            || FindDefByBuilder(compoundOwnerTb) is not { } compoundOwnerDef
+                            || ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, compoundOwnerTb) is not { } compoundOwnerDef
                             || !TryFindFieldOnChain(compoundOwnerDef, Text(compoundTarget), out var compoundMemberField))
                             return false;
                         var compoundMemberType = compoundMemberField.FieldType;
@@ -4677,7 +4677,7 @@ internal sealed class ColumnarIlEmitter
                         if (!EmitArg(target, 1, setIdxType))
                             return false;
                         if (!EmitExpression(Child(expr, 1), out var setValueType)
-                            || (!TypesEquivalent(setValueType, setValType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(setValueType, setValType) && !TryEmitObjectConversion(setValueType, setValType) && !TryEmitAnonymousUnionConversion(setValueType, setValType)))
+                            || (!TypesEquivalent(setValueType, setValType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(setValueType, setValType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(setValueType, setValType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(setValueType, setValType)))
                             return false;
                         _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item")!));
                         return true;
@@ -4769,7 +4769,7 @@ internal sealed class ColumnarIlEmitter
                     // (conservative), and closed-generic receivers (a later rebind rung).
                     if (TryResolveMemberWriteChain(fieldReceiver, out var writeChain)
                         && writeChain.ReceiverType is TypeBuilder writeOwnerTb
-                        && FindDefByBuilder(writeOwnerTb) is { } writeOwnerDef)
+                        && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, writeOwnerTb) is { } writeOwnerDef)
                     {
                         if (TryFindFieldOnChain(writeOwnerDef, memberName, out var writeField))
                         {
@@ -4788,7 +4788,7 @@ internal sealed class ColumnarIlEmitter
                                 return false;
                             }
                             if (!TypesEquivalent(writeValueType, writeField.FieldType)
-                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType) && !TryEmitInterfaceUpcast(writeValueType, writeField.FieldType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(writeValueType, writeField.FieldType) && !TryEmitObjectConversion(writeValueType, writeField.FieldType) && !TryEmitAnonymousUnionConversion(writeValueType, writeField.FieldType) && !TryEmitUserDefinedConversion(writeValueType, writeField.FieldType, allowExplicit: false))
+                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(writeValueType, writeField.FieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(writeValueType, writeField.FieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(writeValueType, writeField.FieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(writeValueType, writeField.FieldType) && !TryEmitUserDefinedConversion(writeValueType, writeField.FieldType, allowExplicit: false))
                                 return false;
                             _il.Emit(OpCodes.Stfld, writeField);
                             return true;
@@ -4900,7 +4900,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType) && !TryEmitInterfaceUpcast(valueType, assignTarget.LocalType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, assignTarget.LocalType) && !TryEmitObjectConversion(valueType, assignTarget.LocalType) && !TryEmitAnonymousUnionConversion(valueType, assignTarget.LocalType) && !TryEmitUserDefinedConversion(valueType, assignTarget.LocalType, allowExplicit: false))
+                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, assignTarget.LocalType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, assignTarget.LocalType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, assignTarget.LocalType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(valueType, assignTarget.LocalType) && !TryEmitUserDefinedConversion(valueType, assignTarget.LocalType, allowExplicit: false))
                         return false;
                     _il.Emit(OpCodes.Stloc, assignTarget);
                     return true;
@@ -4951,9 +4951,9 @@ internal sealed class ColumnarIlEmitter
                         }
                         if (!TypesEquivalent(byRefParamValueType, paramElementType)
                             && !TryEmitImplicitWidening(byRefParamValueType, paramElementType)
-                            && !TryEmitInterfaceUpcast(byRefParamValueType, paramElementType)
+                            && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(byRefParamValueType, paramElementType, _structRegistry, _il)
                             && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(byRefParamValueType, paramElementType)
-                            && !TryEmitObjectConversion(byRefParamValueType, paramElementType)
+                            && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(byRefParamValueType, paramElementType, _structRegistry, _il)
                             && !TryEmitAnonymousUnionConversion(byRefParamValueType, paramElementType)
                             && !TryEmitUserDefinedConversion(byRefParamValueType, paramElementType, allowExplicit: false))
                             return false;
@@ -4991,7 +4991,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName]) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !TryEmitObjectConversion(paramValueType, _paramTypes[targetName]) && !TryEmitAnonymousUnionConversion(paramValueType, _paramTypes[targetName]) && !TryEmitUserDefinedConversion(paramValueType, _paramTypes[targetName], allowExplicit: false))
+                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName], _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(paramValueType, _paramTypes[targetName], _structRegistry, _il) && !TryEmitAnonymousUnionConversion(paramValueType, _paramTypes[targetName]) && !TryEmitUserDefinedConversion(paramValueType, _paramTypes[targetName], allowExplicit: false))
                         return false;
                     EmitStoreArgument(paramOrdinal);
                     return true;
@@ -6786,10 +6786,6 @@ internal sealed class ColumnarIlEmitter
     /// </summary>
     private bool AlwaysReturns(int idx) => ColumnarMethodBodyPlanner.AlwaysReturns(_nodes, idx);
 
-    // The registered struct/record/class def whose TypeBuilder IS this builder, or null.
-    private ColumnarStructDef? FindDefByBuilder(TypeBuilder builder)
-        => ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, builder);
-
     private ColumnarStructDef? FindDefByType(Type type)
         => ColumnarSourceDefinitionResolver.FindDirectType(_structRegistry, type);
 
@@ -7027,9 +7023,9 @@ internal sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Newobj, newDef.DefaultCtor);
                 var newType = newDef.Builder;
                 if (!TypesEquivalent(newType, expectedParamType)
-                    && !TryEmitInterfaceUpcast(newType, expectedParamType)
+                    && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(newType, expectedParamType, _structRegistry, _il)
                     && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(newType, expectedParamType)
-                    && !TryEmitObjectConversion(newType, expectedParamType))
+                    && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(newType, expectedParamType, _structRegistry, _il))
                     return false;
             }
             else
@@ -7479,7 +7475,7 @@ internal sealed class ColumnarIlEmitter
                         }
                         // REFERENCE identity on registered user reference types (records AND classes): `==`/`!=`
                         // on user reference values is reference equality (record VALUE equality is in `.Equals`).
-                        if (opType is TypeBuilder eqOperandTb && FindDefByBuilder(eqOperandTb) is { IsReference: true })
+                        if (opType is TypeBuilder eqOperandTb && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, eqOperandTb) is { IsReference: true })
                         {
                             EmitComparison(op);
                             type = typeof(bool);
@@ -7722,7 +7718,7 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.Kind(directReadReceiver) == 8
                     && TryResolveMemberWriteChain(directReadReceiver, out var directReadChain)
                     && directReadChain.ReceiverType is TypeBuilder directReadOwnerTb
-                    && FindDefByBuilder(directReadOwnerTb) is { } directReadOwnerDef)
+                    && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, directReadOwnerTb) is { } directReadOwnerDef)
                 {
                     if (TryFindFieldOnChain(directReadOwnerDef, member, out var directReadField))
                     {
@@ -8415,10 +8411,10 @@ internal sealed class ColumnarIlEmitter
                             // interface-typed ctor param — boxes value implementers, IF-1).
                             if (!TypesEquivalent(ctorArgType, chosenParamTypes![a])
                                 && !TryEmitImplicitWidening(ctorArgType, chosenParamTypes[a])
-                                && !TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a])
+                                && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a], _structRegistry, _il)
                                 && !TryEmitSpanConversion(ctorArgType, chosenParamTypes[a])
                                 && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(ctorArgType, chosenParamTypes[a])
-                                && !TryEmitObjectConversion(ctorArgType, chosenParamTypes[a])
+                                && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(ctorArgType, chosenParamTypes[a], _structRegistry, _il)
                                 && !TryEmitAnonymousUnionConversion(ctorArgType, chosenParamTypes[a]))
                             {
                                 return false;
@@ -8607,14 +8603,14 @@ internal sealed class ColumnarIlEmitter
                     type = targetType;
                     return true;
                 }
-                if (TryEmitExternalInterfaceUpcast(sourceType, targetType))
+                if (ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(sourceType, targetType, _structRegistry, _il))
                 {
                     type = targetType;
                     return true;
                 }
                 if (!ColumnarNumericFacts.IsCastableScalar(targetType))
                 {
-                    if (sourceType == typeof(object) && targetType is TypeBuilder targetBuilder && FindDefByBuilder(targetBuilder) is { } targetDef)
+                    if (sourceType == typeof(object) && targetType is TypeBuilder targetBuilder && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, targetBuilder) is { } targetDef)
                     {
                         _il.Emit(targetDef.IsReference ? OpCodes.Castclass : OpCodes.Unbox_Any, targetBuilder);
                         type = targetType;
@@ -8808,9 +8804,9 @@ internal sealed class ColumnarIlEmitter
                             }
                             if (!TypesEquivalent(propertyValueType, propertyType)
                                 && !TryEmitImplicitWidening(propertyValueType, propertyType)
-                                && !TryEmitInterfaceUpcast(propertyValueType, propertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il)
                                 && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType)
-                                && !TryEmitObjectConversion(propertyValueType, propertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il)
                                 && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType))
                                 return false;
                             _il.Emit(property.SetMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, property.SetMethod);
@@ -8839,7 +8835,7 @@ internal sealed class ColumnarIlEmitter
                         var constructedClosedArgs = Array.Empty<Type>();
                         if (constructedType is TypeBuilder constructedBuilder)
                         {
-                            constructedUserDef = FindDefByBuilder(constructedBuilder);
+                            constructedUserDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, constructedBuilder);
                         }
                         else if (TryGetClosedReceiverDef(constructedType, out var closedConstructedDef, out var closedConstructedArgs))
                         {
@@ -8874,9 +8870,9 @@ internal sealed class ColumnarIlEmitter
                                 }
                                 if (!TypesEquivalent(propertyValueType, propertyType)
                                     && !TryEmitImplicitWidening(propertyValueType, propertyType)
-                                    && !TryEmitInterfaceUpcast(propertyValueType, propertyType)
+                                    && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il)
                                     && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType)
-                                    && !TryEmitObjectConversion(propertyValueType, propertyType)
+                                    && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il)
                                     && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType))
                                 {
                                     return false;
@@ -8905,9 +8901,9 @@ internal sealed class ColumnarIlEmitter
                                 }
                                 if (!TypesEquivalent(userFieldValueType, userFieldType)
                                     && !TryEmitImplicitWidening(userFieldValueType, userFieldType)
-                                    && !TryEmitInterfaceUpcast(userFieldValueType, userFieldType)
+                                    && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il)
                                     && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(userFieldValueType, userFieldType)
-                                    && !TryEmitObjectConversion(userFieldValueType, userFieldType)
+                                    && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(userFieldValueType, userFieldType, _structRegistry, _il)
                                     && !TryEmitAnonymousUnionConversion(userFieldValueType, userFieldType))
                                 {
                                     return false;
@@ -8936,9 +8932,9 @@ internal sealed class ColumnarIlEmitter
                             }
                             if (!TypesEquivalent(propertyValueType, propertyType)
                                 && !TryEmitImplicitWidening(propertyValueType, propertyType)
-                                && !TryEmitInterfaceUpcast(propertyValueType, propertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il)
                                 && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType)
-                                && !TryEmitObjectConversion(propertyValueType, propertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il)
                                 && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType))
                                 return false;
                             _il.Emit(property.SetMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, property.SetMethod);
@@ -8960,9 +8956,9 @@ internal sealed class ColumnarIlEmitter
                         }
                         if (!TypesEquivalent(fieldValueType, fieldType)
                             && !TryEmitImplicitWidening(fieldValueType, fieldType)
-                            && !TryEmitInterfaceUpcast(fieldValueType, fieldType)
+                            && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(fieldValueType, fieldType, _structRegistry, _il)
                             && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(fieldValueType, fieldType)
-                            && !TryEmitObjectConversion(fieldValueType, fieldType)
+                            && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(fieldValueType, fieldType, _structRegistry, _il)
                             && !TryEmitAnonymousUnionConversion(fieldValueType, fieldType))
                             return false;
                         _il.Emit(OpCodes.Stfld, field);
@@ -9030,7 +9026,7 @@ internal sealed class ColumnarIlEmitter
                             var expectedInitType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
                             _il.Emit(OpCodes.Dup);
                             if (!EmitExpression(valueNode, out var closedInitValueType)
-                                || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType)))
+                                || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType)))
                                 return false;
                             _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
                         }
@@ -9053,7 +9049,7 @@ internal sealed class ColumnarIlEmitter
                         var expectedInitType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
                         _il.Emit(OpCodes.Ldloca, closedStructValue);
                         if (!EmitExpression(valueNode, out var closedInitValueType)
-                            || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !TryEmitObjectConversion(closedInitValueType, expectedInitType) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType)))
+                            || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
                     }
@@ -9120,9 +9116,9 @@ internal sealed class ColumnarIlEmitter
                             }
                             if (!TypesEquivalent(initPropertyValueType, initProperty.PropertyType)
                                 && !TryEmitImplicitWidening(initPropertyValueType, initProperty.PropertyType)
-                                && !TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il)
                                 && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initPropertyValueType, initProperty.PropertyType)
-                                && !TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il)
                                 && !TryEmitAnonymousUnionConversion(initPropertyValueType, initProperty.PropertyType))
                                 return false;
                             _il.Emit(OpCodes.Callvirt, initProperty.Setter);
@@ -9134,7 +9130,7 @@ internal sealed class ColumnarIlEmitter
                         // TypesEquivalent, not !=: a builder-bound collection field's declared type and the
                         // init value's type come from independent resolutions (referentially distinct TBIs).
                         if (!EmitExpression(valueNode, out var initValueType)
-                            || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitImplicitWidening(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initValueType, initField.FieldType) && !TryEmitObjectConversion(initValueType, initField.FieldType) && !TryEmitAnonymousUnionConversion(initValueType, initField.FieldType)))
+                            || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitImplicitWidening(initValueType, initField.FieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initValueType, initField.FieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initValueType, initField.FieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initValueType, initField.FieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initValueType, initField.FieldType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, initField);
                     }
@@ -9188,7 +9184,7 @@ internal sealed class ColumnarIlEmitter
                 if (!EmitExpression(Child(idx, 0), out var withReceiverType))
                     return Decline("emit.with.receiver", "with expression receiver could not be emitted", Child(idx, 0));
                 var withPlan = withReceiverType is TypeBuilder withTb
-                    ? ColumnarRecordWithPlanner.PlanRecordWith(FindDefByBuilder(withTb), withNames)
+                    ? ColumnarRecordWithPlanner.PlanRecordWith(ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, withTb), withNames)
                     : null;
                 if (withPlan == null)
                     return Decline("emit.with.plan", "with expression receiver type is not a modeled record whose named members admit a verifiable copy", Child(idx, 0));
@@ -9212,7 +9208,7 @@ internal sealed class ColumnarIlEmitter
                     {
                         return Decline("emit.with.value", "with expression value for field '" + withField.Name + "' could not be emitted", withValueNode);
                     }
-                    if (!TypesEquivalent(withValueType, withField.FieldType) && !TryEmitImplicitWidening(withValueType, withField.FieldType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(withValueType, withField.FieldType) && !TryEmitObjectConversion(withValueType, withField.FieldType) && !TryEmitAnonymousUnionConversion(withValueType, withField.FieldType))
+                    if (!TypesEquivalent(withValueType, withField.FieldType) && !TryEmitImplicitWidening(withValueType, withField.FieldType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(withValueType, withField.FieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(withValueType, withField.FieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(withValueType, withField.FieldType))
                         return Decline("emit.with.type-mismatch", "with expression value type '" + withValueType.FullName + "' does not match field type '" + withField.FieldType.FullName + "'", withValueNode);
                     _il.Emit(OpCodes.Stfld, withField);
                 }
@@ -9269,7 +9265,7 @@ internal sealed class ColumnarIlEmitter
                 // the reference the test needs. `is` takes the same box for the same reason, and stays correct
                 // for a Nullable<T> operand, which boxes to null when empty — the "test fails" answer.
                 // REFERENCE operands are untouched: their shape remains the bare isinst.
-                if (RequiresBoxBeforeReferenceTest(testedType))
+                if (ColumnarReferenceCoercionPlanner.RequiresBoxBeforeReferenceTest(testedType, _structRegistry))
                     _il.Emit(OpCodes.Box, testedType);
                 _il.Emit(OpCodes.Isinst, targetTestType);
                 if (_nodes.Kind(idx) == 46)
@@ -9686,7 +9682,7 @@ internal sealed class ColumnarIlEmitter
         {
             _il.Emit(OpCodes.Dup);
             if (!EmitExpression(valueNodes[p], out var valueType)
-                || !TryEmitObjectConversion(valueType, typeof(object)))
+                || !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, typeof(object), _structRegistry, _il))
                 return false;
             _il.Emit(OpCodes.Callvirt, setters[p]);
         }
@@ -9773,7 +9769,7 @@ internal sealed class ColumnarIlEmitter
         memberType = null!;
         memberLocal = null!;
 
-        if (ownerType is TypeBuilder ownerBuilder && FindDefByBuilder(ownerBuilder) is { } ownerDef)
+        if (ownerType is TypeBuilder ownerBuilder && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, ownerBuilder) is { } ownerDef)
         {
             if (TryFindFieldOnChain(ownerDef, member, out var field))
             {
@@ -12219,57 +12215,6 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    private bool TryEmitObjectConversion(Type source, Type target)
-    {
-        if (target != typeof(object) || source == typeof(void))
-            return false;
-        if (source == typeof(object))
-            return true;
-        if (source is TypeBuilder sourceBuilder)
-        {
-            if (ColumnarTypeOfPlanner.IsEnumType(sourceBuilder))
-            {
-                _il.Emit(OpCodes.Box, sourceBuilder);
-                return true;
-            }
-
-            var sourceDef = FindDefByBuilder(sourceBuilder);
-            if (sourceDef != null && !sourceDef.IsReference)
-                _il.Emit(OpCodes.Box, sourceBuilder);
-            return true;
-        }
-        if (source.IsValueType || source.IsGenericParameter || ColumnarTypeOfPlanner.IsEnumType(source))
-            _il.Emit(OpCodes.Box, source);
-        return true;
-    }
-
-    // Which `is`/`as` OPERAND types must box before the isinst (kinds 46/47). It is the same question
-    // TryEmitObjectConversion answers at a value-flow boundary — "does this static type carry an unboxed
-    // value?" — and the boxing rule is deliberately identical: a builder-backed enum or value struct, a baked
-    // value type, and a type parameter that is not proven a reference all do. The ONE refinement over the
-    // conversion rule is the `where T: class` parameter: it already holds an object reference, so it keeps the
-    // bare isinst and the established reference-operand `x as object` idiom emits byte-for-byte as before.
-    // GenericParameterAttributes is read defensively — a builder that refuses the query boxes, which is
-    // correct for every instantiation (ECMA-335 III.4.4: `box` over a reference type yields the reference
-    // unchanged), just one redundant instruction when the argument turns out to be a class.
-    private bool RequiresBoxBeforeReferenceTest(Type source)
-    {
-        if (source is TypeBuilder sourceBuilder)
-            return ColumnarTypeOfPlanner.IsEnumType(sourceBuilder) || FindDefByBuilder(sourceBuilder) is { IsReference: false };
-        if (source.IsGenericParameter)
-        {
-            try
-            {
-                return (source.GenericParameterAttributes & GenericParameterAttributes.ReferenceTypeConstraint) == 0;
-            }
-            catch (NotSupportedException)
-            {
-                return true;
-            }
-        }
-        return source.IsValueType || ColumnarTypeOfPlanner.IsEnumType(source);
-    }
-
     private bool TryEmitAnonymousUnionConversion(Type source, Type target)
     {
         if (!CanUseAnonymousUnionConversion(source, target))
@@ -12404,9 +12349,9 @@ internal sealed class ColumnarIlEmitter
         }
         if (!TypesEquivalent(valueType, propertyType)
             && !TryEmitImplicitWidening(valueType, propertyType)
-            && !TryEmitInterfaceUpcast(valueType, propertyType)
+            && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, propertyType, _structRegistry, _il)
             && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, propertyType)
-            && !TryEmitObjectConversion(valueType, propertyType)
+            && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, propertyType, _structRegistry, _il)
             && !TryEmitAnonymousUnionConversion(valueType, propertyType))
             return false;
 
@@ -12611,11 +12556,11 @@ internal sealed class ColumnarIlEmitter
         }
         return TypesEquivalent(valueType, targetType)
                || CanUseImplicitNumericWidening(valueType, targetType)
-               || CanUseInterfaceUpcast(valueType, targetType)
-               || CanUseExternalInterfaceUpcast(valueType, targetType)
+               || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(valueType, targetType, _structRegistry)
+               || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(valueType, targetType, _structRegistry)
                || CanUseSpanConversion(valueType, targetType)
                || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType)
-               || CanUseObjectConversion(valueType, targetType)
+               || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(valueType, targetType)
                || CanUseAnonymousUnionConversion(valueType, targetType);
     }
 
@@ -12638,7 +12583,7 @@ internal sealed class ColumnarIlEmitter
         var closedArgs = Array.Empty<Type>();
         if (initType is TypeBuilder initBuilder)
         {
-            initDef = FindDefByBuilder(initBuilder);
+            initDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, initBuilder);
         }
         else if (TryGetClosedReceiverDef(initType, out var closedDef, out var closedReceiverArgs))
         {
@@ -12829,7 +12774,7 @@ internal sealed class ColumnarIlEmitter
         type = null!;
         if (!TryResolveMemberWriteChain(Child(target, 0), out var chain)
             || chain.ReceiverType is not TypeBuilder ownerBuilder
-            || FindDefByBuilder(ownerBuilder) is not { } ownerDef
+            || ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, ownerBuilder) is not { } ownerDef
             || !TryFindFieldOnChain(ownerDef, Text(target), out var field))
         {
             return false;
@@ -13123,7 +13068,7 @@ internal sealed class ColumnarIlEmitter
             return false;
 
         var argCount = _nodes.ChildCount(node);
-        if (target is TypeBuilder targetBuilder && FindDefByBuilder(targetBuilder) is { } targetDef)
+        if (target is TypeBuilder targetBuilder && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, targetBuilder) is { } targetDef)
         {
             if (argCount == 0 && targetDef.IsReference && targetDef.DefaultCtor != null)
                 return true;
@@ -13143,7 +13088,7 @@ internal sealed class ColumnarIlEmitter
 
         if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(target)
             && target.GetGenericTypeDefinition() is TypeBuilder openBuilder
-            && FindDefByBuilder(openBuilder) is { } openDef)
+            && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, openBuilder) is { } openDef)
         {
             var selected = false;
             var typeArgs = target.GetGenericArguments();
@@ -13193,7 +13138,7 @@ internal sealed class ColumnarIlEmitter
             return false;
 
         var argCount = _nodes.ChildCount(node);
-        if (target is TypeBuilder targetBuilder && FindDefByBuilder(targetBuilder) is { } targetDef)
+        if (target is TypeBuilder targetBuilder && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, targetBuilder) is { } targetDef)
         {
             if (argCount == 0 && targetDef.IsReference && targetDef.DefaultCtor != null)
             {
@@ -13248,7 +13193,7 @@ internal sealed class ColumnarIlEmitter
 
         if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(target)
             && target.GetGenericTypeDefinition() is TypeBuilder openBuilder
-            && FindDefByBuilder(openBuilder) is { } openDef)
+            && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, openBuilder) is { } openDef)
         {
             ConstructorBuilder? chosenOpenCtor = null;
             Type[]? chosenOpenParamTypes = null;
@@ -13332,10 +13277,10 @@ internal sealed class ColumnarIlEmitter
         return TryGetPreflightExpressionType(argNode, out var actualType)
                && (TypesEquivalent(actualType, expectedType)
                    || CanUseImplicitNumericWidening(actualType, expectedType)
-                   || CanUseInterfaceUpcast(actualType, expectedType)
+                   || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(actualType, expectedType, _structRegistry)
                    || CanUseSpanConversion(actualType, expectedType)
                    || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(actualType, expectedType)
-                   || CanUseObjectConversion(actualType, expectedType)
+                   || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(actualType, expectedType)
                    || CanUseAnonymousUnionConversion(actualType, expectedType));
     }
 
@@ -13368,10 +13313,10 @@ internal sealed class ColumnarIlEmitter
            && (TypesEquivalent(argType, expected)
                || TryEmitImplicitWidening(argType, expected)
                || TryEmitSpanConversion(argType, expected)
-               || TryEmitInterfaceUpcast(argType, expected)
-               || TryEmitExternalInterfaceUpcast(argType, expected)
+               || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il)
+               || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il)
                || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected)
-               || TryEmitObjectConversion(argType, expected)
+               || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il)
                || TryEmitAnonymousUnionConversion(argType, expected)
                || TryEmitUserDefinedConversion(argType, expected, allowExplicit: false));
 
@@ -13763,7 +13708,7 @@ internal sealed class ColumnarIlEmitter
         type = null!;
         if (receiverType is TypeBuilder receiverBuilder)
         {
-            var def = FindDefByBuilder(receiverBuilder);
+            var def = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, receiverBuilder);
             if (def != null && TrySelectInstanceMethodOnChain(def, member, callIdx, out var method))
             {
                 if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(method))
@@ -14001,10 +13946,10 @@ internal sealed class ColumnarIlEmitter
         => TypesEquivalent(sourceType, targetType)
            || CanUseImplicitNumericWidening(sourceType, targetType)
            || CanUseSpanConversion(sourceType, targetType)
-           || CanUseInterfaceUpcast(sourceType, targetType)
-           || CanUseExternalInterfaceUpcast(sourceType, targetType)
+           || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(sourceType, targetType, _structRegistry)
+           || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(sourceType, targetType, _structRegistry)
            || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType)
-           || CanUseObjectConversion(sourceType, targetType)
+           || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(sourceType, targetType)
            || CanUseAnonymousUnionConversion(sourceType, targetType);
 
     private bool TryGetPreflightMemberAccessType(int node, out Type type)
@@ -14120,18 +14065,6 @@ internal sealed class ColumnarIlEmitter
             return value <= int.MaxValue;
         return false;
     }
-
-    private bool CanUseInterfaceUpcast(Type valueType, Type targetType)
-    {
-        return targetType is TypeBuilder targetBuilder
-               && FindDefByBuilder(targetBuilder) is { IsInterface: true }
-               && valueType is TypeBuilder valueBuilder
-               && FindDefByBuilder(valueBuilder) is { } valueDef
-               && ColumnarGenericConstraintPlanner.AnyInterfaceEqualsOrExtends(valueDef.ImplementedInterfaces, targetBuilder);
-    }
-
-    private static bool CanUseObjectConversion(Type source, Type target)
-        => target == typeof(object) && source != typeof(void);
 
     // Maps a CLOSED user-generic receiver (Box<int>) back to its OPEN definition's registry entry.
     // Member tokens on the closed type are rebound via TypeBuilder.GetField/GetMethod; member TYPES
@@ -15632,10 +15565,10 @@ internal sealed class ColumnarIlEmitter
         => TypesEquivalent(sourceType, targetType)
            || TryEmitImplicitWidening(sourceType, targetType)
            || TryEmitSpanConversion(sourceType, targetType)
-           || TryEmitInterfaceUpcast(sourceType, targetType)
-           || TryEmitExternalInterfaceUpcast(sourceType, targetType)
+           || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il)
+           || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(sourceType, targetType, _structRegistry, _il)
            || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType)
-           || TryEmitObjectConversion(sourceType, targetType)
+           || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il)
            || TryEmitAnonymousUnionConversion(sourceType, targetType)
            || TryEmitUserDefinedConversion(sourceType, targetType, allowExplicit: false);
 
@@ -15870,11 +15803,11 @@ internal sealed class ColumnarIlEmitter
         }
         return TypesEquivalent(argType, expectedParamType)
                || CanUseImplicitNumericWidening(argType, expectedParamType)
-               || CanUseInterfaceUpcast(argType, expectedParamType)
-               || CanUseExternalInterfaceUpcast(argType, expectedParamType)
+               || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(argType, expectedParamType, _structRegistry)
+               || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(argType, expectedParamType, _structRegistry)
                || CanUseSpanConversion(argType, expectedParamType)
                || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expectedParamType)
-               || CanUseObjectConversion(argType, expectedParamType)
+               || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(argType, expectedParamType)
                || CanUseAnonymousUnionConversion(argType, expectedParamType);
     }
 
@@ -15891,10 +15824,10 @@ internal sealed class ColumnarIlEmitter
             || EmitExpression(Child(callIdx, argPosition), out argType))
            && (TypesEquivalent(argType, expected)
                || TryEmitSpanConversion(argType, expected)
-               || TryEmitInterfaceUpcast(argType, expected)
-               || TryEmitExternalInterfaceUpcast(argType, expected)
+               || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il)
+               || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il)
                || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected)
-               || TryEmitObjectConversion(argType, expected)
+               || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il)
                || TryEmitAnonymousUnionConversion(argType, expected)
                || TryEmitUserDefinedConversion(argType, expected, allowExplicit: false));
 
@@ -15927,10 +15860,10 @@ internal sealed class ColumnarIlEmitter
                && (TypesEquivalent(argType, expectedParamType)
                    || TryEmitImplicitWidening(argType, expectedParamType)
                    || TryEmitSpanConversion(argType, expectedParamType)
-                   || TryEmitInterfaceUpcast(argType, expectedParamType)
-                   || TryEmitExternalInterfaceUpcast(argType, expectedParamType)
+                   || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expectedParamType, _structRegistry, _il)
+                   || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expectedParamType, _structRegistry, _il)
                    || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expectedParamType)
-                   || TryEmitObjectConversion(argType, expectedParamType)
+                   || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expectedParamType, _structRegistry, _il)
                    || TryEmitAnonymousUnionConversion(argType, expectedParamType)
                    || TryEmitUserDefinedConversion(argType, expectedParamType, allowExplicit: false));
     }
@@ -16220,7 +16153,7 @@ internal sealed class ColumnarIlEmitter
         for (var h = hopNodes.Count - 1; h >= 0; h--) // innermost hop (adjacent to the root) first.
         {
             if (current is not TypeBuilder hopOwner
-                || FindDefByBuilder(hopOwner) is not { } hopDef
+                || ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, hopOwner) is not { } hopDef
                 || !TryFindFieldOnChain(hopDef, Text(hopNodes[h]), out var hopField))
                 return false; // non-registered owners (closed generics, BCL) and non-field hops decline.
             hops.Add(hopField);
@@ -16255,7 +16188,7 @@ internal sealed class ColumnarIlEmitter
     // (ldloca/ldarga/ldflda): registered user types answer by their IsReference flag; anything else
     // by CLR value-typeness (IsValueType is TBI-safe — spike-pinned).
     private bool IsReferenceWriteLink(Type t)
-        => t is TypeBuilder tb && FindDefByBuilder(tb) is { } def ? def.IsReference : !t.IsValueType;
+        => t is TypeBuilder tb && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, tb) is { } def ? def.IsReference : !t.IsValueType;
 
     private bool TryEmitAssignableValue(int valueNode, Type targetType, out Type valueType)
     {
@@ -16296,60 +16229,12 @@ internal sealed class ColumnarIlEmitter
 
         var assignable = TypesEquivalent(valueType, targetType)
             || TryEmitImplicitWidening(valueType, targetType)
-            || TryEmitInterfaceUpcast(valueType, targetType)
+            || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, targetType, _structRegistry, _il)
             || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType)
-            || TryEmitObjectConversion(valueType, targetType)
+            || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, targetType, _structRegistry, _il)
             || TryEmitAnonymousUnionConversion(valueType, targetType)
             || TryEmitUserDefinedConversion(valueType, targetType, allowExplicit: false);
         return assignable;
-    }
-
-    // INTERFACE upcast at value-flow boundaries (the legacy emitter's EmitValueCoercion interface arm,
-    // Operators.cs ~694): a value whose def IMPLEMENTS the target interface converts — VALUE-type
-    // implementers BOX, reference implementers pass as-is (the object ref IS the interface value).
-    // Wired beside TryEmitImplicitWidening at returns/typed-locals/reassignments/sibling args/
-    // member writes; the value is already on the stack.
-    private bool TryEmitInterfaceUpcast(Type valueType, Type targetType)
-    {
-        if (!CanUseInterfaceUpcast(valueType, targetType)
-            || valueType is not TypeBuilder valueBuilder
-            || FindDefByBuilder(valueBuilder) is not { } valueDef)
-            return false;
-        if (!valueDef.IsReference)
-            _il.Emit(OpCodes.Box, valueBuilder);
-        return true;
-    }
-
-    private bool CanUseExternalInterfaceUpcast(Type valueType, Type targetType)
-    {
-        if (!targetType.IsInterface
-            || valueType is not TypeBuilder valueBuilder
-            || FindDefByBuilder(valueBuilder) is not { } valueDef)
-            return false;
-        foreach (var externalInterface in valueDef.ExternalInterfaces)
-        {
-            if (externalInterface == targetType || targetType.IsAssignableFrom(externalInterface))
-                return true;
-        }
-        return false;
-    }
-
-    private bool TryEmitExternalInterfaceUpcast(Type valueType, Type targetType)
-    {
-        if (!CanUseExternalInterfaceUpcast(valueType, targetType)
-            || valueType is not TypeBuilder valueBuilder
-            || FindDefByBuilder(valueBuilder) is not { } valueDef)
-            return false;
-        foreach (var externalInterface in valueDef.ExternalInterfaces)
-        {
-            if (externalInterface == targetType || targetType.IsAssignableFrom(externalInterface))
-            {
-                if (!valueDef.IsReference)
-                    _il.Emit(OpCodes.Box, valueBuilder);
-                return true;
-            }
-        }
-        return false;
     }
 
     // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): split the kind-3 literal via the shared
@@ -16920,7 +16805,7 @@ internal sealed class ColumnarIlEmitter
             return;
         }
         else if (operandType is TypeBuilder recordStructTb
-                 && FindDefByBuilder(recordStructTb) is { IsReference: false, IsRecord: true, RecordEquals: not null } recordStructDef)
+                 && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, recordStructTb) is { IsReference: false, IsRecord: true, RecordEquals: not null } recordStructDef)
         {
             var recordRightTemp = _il.DeclareLocal(recordStructTb);
             _il.Emit(OpCodes.Stloc, recordRightTemp);
@@ -16949,8 +16834,8 @@ internal sealed class ColumnarIlEmitter
         if (type == typeof(string) || type == typeof(Type))
             return true;
         if (type is TypeBuilder typeBuilder)
-            return FindDefByBuilder(typeBuilder) is { IsReference: true }
-                || FindDefByBuilder(typeBuilder) is { IsReference: false, IsRecord: true, RecordEquals: not null };
+            return ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, typeBuilder) is { IsReference: true }
+                || ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, typeBuilder) is { IsReference: false, IsRecord: true, RecordEquals: not null };
         return ColumnarNumericFacts.IsIntPromotable(type)
             || type == typeof(long)
             || type == typeof(ulong)
@@ -17093,7 +16978,7 @@ internal sealed class ColumnarIlEmitter
         }
         if (callMember != null)
         {
-            if (current is not TypeBuilder owner || FindDefByBuilder(owner) is not { } def)
+            if (current is not TypeBuilder owner || ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, owner) is not { } def)
                 return false;
             if (callArgument == "")
             {
@@ -17132,7 +17017,7 @@ internal sealed class ColumnarIlEmitter
     private bool TryResolveInterpolationMemberPlan(Type current, string member, out ColumnarInterpolationMemberPlan hop)
     {
         hop = null!;
-        if (current is TypeBuilder owner && FindDefByBuilder(owner) is { } def)
+        if (current is TypeBuilder owner && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, owner) is { } def)
         {
             if (TryFindFieldOnChain(def, member, out var hopField))
             {
