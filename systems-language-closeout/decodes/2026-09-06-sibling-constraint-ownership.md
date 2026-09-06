@@ -13,7 +13,7 @@ constructor/interface state, first-hit identity, recursive array/byref/generic s
 reflection failures and enumeration disposal. Canonical controls are N#; no C# behavior, tests,
 helpers, decision callback or fallback is added. Existing native declarations/dispatch remain the
 baseline, with no new native project. The prerequisite is accepted and the complete owner is integrated at `244c0998a` (worker
-`a0442b4dd`); its fresh checkpoint gate remains required.
+`a0442b4dd`); the fresh checkpoint gate is accepted.
 
 ## Proven prerequisite
 
@@ -65,6 +65,12 @@ Emitter lines shrink 18,776→18,621 and nonblank 17,844→17,699. Only its ratc
 380 other rows and all epoch ceilings remain unchanged. Text `text-v1:bc34a37b67a4b67c`,
 reviewed head `head-v1:48e3b004160cfd2c`. Evidence: `integrated-dev-build.log`,
 `integrated-native.json`, `native-parity.json`, `integrated-ownership.json`, `ratchet-review.json`.
-The final gate is pending.
+Fresh `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` passed from committed
+`0bf7d65c71ca15eb4c9ca93e4e768484bca18280` in 449s: 593 unit tests, 7,843 canonical N#
+assertions, 52 native projects, 12 throughput cells and 68 IL assemblies. SDK, templates and
+examples passed. Gate: `/private/tmp/gate-20260906-sibling-constraint-owner-r1/gate-result.json`.
+Post-gate all 12 live SDK payloads still match the accepted seed (`seed/post-owner-cache-check.json`).
+Final source/IL review: `owner-il-final-formatted/review.json`; post-format focused 9/9 passed
+and emitted IL is byte-identical to the 65/65 related-family run. The selected area is complete.
 The broader compiler-only objective remains open. CLI/editor/runtime/AOT initiatives remain separate
 in `tasks/BRANCH-BACKLOG.md`.

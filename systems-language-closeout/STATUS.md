@@ -38,7 +38,7 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
-**Active area, sibling-call constraint validation:** move the complete
+**Accepted area, sibling-call constraint validation:** moved the complete
 `TryValidateGenericSiblingConstraints`, `HasPublicParameterlessConstructorForConstraint`,
 `BoundSatisfiesBaseConstraint`, `BoundSatisfiesInterfaceConstraint`,
 `TrySubstituteGenericTypeArguments`, `InterfaceEqualsOrExtends` and
@@ -59,7 +59,11 @@ six production routes call N# directly, and no C# behavior/test/helper is added.
 pass 9/9 (eight new) and the related family 65/65. Integrated CLI build is green; native declarations
 pass 118/118 with identical baseline names/outcomes, ownership audit 18/18. Emitter 18,776→18,621
 lines, 17,844→17,699 nonblank; all 380 other ratchet rows and epoch ceilings are unchanged.
-Fresh backend integration gate is the remaining acceptance step.
+Fresh backend gate passed at `0bf7d65c` in 449s: 593 unit, 7,843 canonical, 52 native
+projects, 12 throughput cells and 68 IL assemblies; SDK/template/examples green. All 12 live SDK
+payloads still match. [Acceptance](decodes/2026-09-06-sibling-constraint-ownership.md).
+Next: assess the connected generic-call inference and return-substitution group with its complete
+callers and collection-definition dependencies; compiler-wide ownership remains open.
 Baseline: clean/pushed `087d6d9e1`, verified prior gate and immutable CLI receipt
 `/private/tmp/nsharp-sibling-constraint-ownership-20260906/baseline.json`. The independent editor
 checkpoint is ready and isolated in the broader backlog; its gate and visual evidence are preserved.
@@ -3075,7 +3079,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
-| Compiler sibling constraint validation | `244c0998a`; seed `7f929aeb2` | Seven complete validation/substitution/interface methods move to N# with eight canonical controls; direct production routes | Explicit protected enumerators preserve disposal; SymbolType SZ-before-byref ordering is pinned | C# −155/−145 lines; focused 65, native 118 unchanged, audit 18; fresh checkpoint gate pending. [Proof](decodes/2026-09-06-sibling-constraint-ownership.md) |
+| Compiler sibling constraint validation | `244c0998a`; seed `7f929aeb2` | Seven complete validation/substitution/interface methods move to N# with eight canonical controls; direct production routes | Explicit protected enumerators preserve disposal; SymbolType SZ-before-byref ordering is pinned | C# −155/−145 lines; focused 65, native 118 unchanged, audit 18; fresh 449s gate 593/7,843, 52 native projects, 68 IL. [Proof](decodes/2026-09-06-sibling-constraint-ownership.md) |
 | Compiler generic-constraint application | `be3defa12` | Complete application, declared lifting, consumed map and safe-array dependency become N#-owned; four C# methods deleted, fourteen direct routes | Preserve source-owner registration, mutation/output/catch phases and shared map identity | C# −107/−103/−5,028 bytes; focused 56, native 115, audit 18; fresh 468s gate 593/7,833, 52 native projects, 68 IL. [Proof](decodes/2026-09-06-generic-constraint-ownership.md) |
 | Compiler constraint seed | `eb750c4fa` | Exact N# interface-constraint setter admission and canonical/direct native controls; no C# change | Full proposed source drove one required row; source-owner registration belongs in generic fixtures | Fresh backend gate: 593/7,822, 52 native projects, 68 IL assemblies; packaged SDK 9/9, 12 payloads match. [Proof](decodes/2026-09-06-generic-constraint-ownership.md) |
 | 023/S2.2(l) — entry-point realization | product `070ad0a49`; tested `efa3a8cab` | Complete selection/wrapper owner becomes N#; reached awaiter type keyed | Preserve live indexed reads, concrete first-hit fallback, partial output and wrapper phases | C# −40/−37/−2,422 bytes;22 keyed/14 handle-only; gate 461s:593/7,821/115, audit 18,68 IL; fixed 94/2,184 each and strict 258/435 equal; l1 SDK unchanged. [Proof](decodes/2026-09-06-s22l-parity-proof.md) |
