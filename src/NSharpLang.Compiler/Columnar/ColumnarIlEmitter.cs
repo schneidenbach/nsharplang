@@ -302,62 +302,6 @@ internal sealed class ColumnarIlEmitter
     private Dictionary<string, Type> ExactSourceTypesForBody()
         => _typeResolutionStructs.Resolver.ExactSourceTypes;
 
-    // Whether `name` is bound ANYWHERE visible to code in this body — its own locals/params/lifted/boxed
-    // tiers plus every enclosing binding. Declaring it again is the pipeline's NL316 — decline.
-    private bool IsVisibleBindingName(string name)
-        => _locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name) || _liftedLocals.ContainsKey(name)
-           || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))
-           || _enclosingBindingNames.Contains(name);
-
-    // The set a nested body created RIGHT NOW must treat as enclosing bindings (this emitter's live
-    // visibility plus its own enclosing set — transitive for nested-in-nested chains).
-    private HashSet<string> VisibleBindingNamesSnapshot()
-    {
-        var names = new HashSet<string>(_enclosingBindingNames, StringComparer.Ordinal);
-        names.UnionWith(_locals.Keys);
-        names.UnionWith(_paramOrdinals.Keys);
-        names.UnionWith(_liftedLocals.Keys);
-        if (_boxedCaptures != null)
-            names.UnionWith(_boxedCaptures.Keys);
-        return names;
-    }
-
-    // Every name any statement in a body table BINDS (`:=` 24, typed-local 40 name child, foreach 29 var,
-    // deconstruction 30 names, catch-clause 50 vars) — the STRUCTURAL superset used for local-function
-    // bodies, which emit after their parent body finished (no live snapshot exists). Type subtrees are safe
-    // to recurse: type-kernel kinds are 0-7, disjoint from these binding kinds.
-    private static void CollectBindingNames(ColumnarNodeTable nodes, string source, int node, HashSet<string> names)
-    {
-        switch (nodes.Kind(node))
-        {
-            case 24:
-            case 29:
-                if (nodes.ValueStart(node) >= 0)
-                    names.Add(nodes.Text(source, node));
-                break;
-            case 30:
-                for (var n = 0; n < nodes.ChildCount(node) - 1; n++)
-                {
-                    var child = nodes.Child(node, n);
-                    if (nodes.Kind(child) == 6 && nodes.ValueStart(child) >= 0)
-                        names.Add(nodes.Text(source, child));
-                }
-
-                break;
-            case 40:
-            case 50:
-                if (nodes.ChildCount(node) == 2)
-                {
-                    var nameChild = nodes.Child(node, 0);
-                    if (nodes.Kind(nameChild) == 6 && nodes.ValueStart(nameChild) >= 0)
-                        names.Add(nodes.Text(source, nameChild));
-                }
-
-                break;
-        }
-        for (var c = 0; c < nodes.ChildCount(node); c++)
-            CollectBindingNames(nodes, source, nodes.Child(node, c), names);
-    }
     // MUTATED captures (L3b): names that are captured by some lambda in this body AND mutated via
     // bare-identifier assignment get LIFTED into a shared StrongBox<T> (the legacy emitter's box-lift model) —
     // the box reference is what closures snapshot, so mutation is shared in both directions.
@@ -650,28 +594,6 @@ internal sealed class ColumnarIlEmitter
         il.Emit(OpCodes.Call, def.InstanceInitializerMethod);
     }
 
-    // Chain-walking member resolution: find `name` on `def` or any base on its chain, NEAREST declaration first —
-    // exactly the N# pipeline's resolution order (a derived method HIDING a base method resolves to the derived
-    // one; field/property shadowing never reaches here — PASS 0b'' declined it). Null/false when no declaration
-    // on the whole chain carries the name.
-    private static bool TryFindFieldOnChain(ColumnarStructDef def, string name, out FieldBuilder field)
-        => TryFindFieldOnChain(def, name, out _, out field);
-
-    private static bool TryFindFieldOnChain(ColumnarStructDef def, string name,
-        out ColumnarStructDef owner, out FieldBuilder field)
-    {
-        for (var d = def; d != null; d = d.BaseDef)
-        {
-            if (d.Fields.TryGetValue(name, out field!))
-            {
-                owner = d;
-                return true;
-            }
-        }
-        owner = null!;
-        field = null!;
-        return false;
-    }
 
     private static void AddInstanceMethod(
         ColumnarStructDef def,
@@ -688,83 +610,6 @@ internal sealed class ColumnarIlEmitter
         overloads.Add(method);
     }
 
-    private static bool TryFindMethodOnChain(ColumnarStructDef def, string name, out ColumnarInstanceMethodDef method)
-    {
-        for (var d = def; d != null; d = d.BaseDef)
-        {
-            if (d.Methods.TryGetValue(name, out var found))
-            {
-                method = found;
-                return true;
-            }
-            if (d.IsInterface && TryFindMethodOnInterfaceBases(d, name, out method))
-                return true;
-        }
-        method = null!;
-        return false;
-    }
-
-    private static bool TryFindMethodOnChain(ColumnarStructDef def, string name, int argCount, out ColumnarInstanceMethodDef method)
-    {
-        for (var d = def; d != null; d = d.BaseDef)
-        {
-            if (d.MethodOverloads.TryGetValue(name, out var overloads))
-            {
-                foreach (var candidate in overloads)
-                {
-                    if (candidate.ParamTypes.Length == argCount)
-                    {
-                        method = candidate;
-                        return true;
-                    }
-                }
-            }
-            if (d.IsInterface && TryFindMethodOnInterfaceBases(d, name, argCount, out method))
-                return true;
-        }
-        method = null!;
-        return false;
-    }
-
-    private static bool TryFindMethodOnInterfaceBases(
-        ColumnarStructDef def, string name, out ColumnarInstanceMethodDef method)
-    {
-        foreach (var baseInterface in def.InterfaceBases)
-        {
-            if (baseInterface.Methods.TryGetValue(name, out var found))
-            {
-                method = found;
-                return true;
-            }
-            if (TryFindMethodOnInterfaceBases(baseInterface, name, out method))
-                return true;
-        }
-        method = null!;
-        return false;
-    }
-
-    private static bool TryFindMethodOnInterfaceBases(
-        ColumnarStructDef def, string name, int argCount, out ColumnarInstanceMethodDef method)
-    {
-        foreach (var baseInterface in def.InterfaceBases)
-        {
-            if (baseInterface.MethodOverloads.TryGetValue(name, out var overloads))
-            {
-                foreach (var candidate in overloads)
-                {
-                    if (candidate.ParamTypes.Length == argCount)
-                    {
-                        method = candidate;
-                        return true;
-                    }
-                }
-            }
-            if (TryFindMethodOnInterfaceBases(baseInterface, name, argCount, out method))
-                return true;
-        }
-        method = null!;
-        return false;
-    }
 
     private static bool TryFindPropertyOnChain(ColumnarStructDef def, string name, out ColumnarPropertyDef property)
         => TryFindPropertyOnChain(def, name, out _, out property);
@@ -800,10 +645,10 @@ internal sealed class ColumnarIlEmitter
             return false;
         // N# owns the contextual-lambda signature binding: each lambda parameter name takes the target
         // delegate's parameter type positionally, and the arity, identifier-node, duplicate-name, and
-        // NL316 enclosing-shadow rules are enforced there. The delegate decomposition above and the body
-        // sub-emitter and delegate construction below stay mechanical here.
+        // NL316 enclosing-shadow rules are enforced there. Delegate decomposition and construction stay
+        // mechanical here; the recursive body sub-emitter remains C# lowering debt.
         var lambdaSignature = ColumnarLambdaPlacementPlanner.PlanContextualSignature(
-            _nodes, _source, lambdaIdx, delegateParamTypes, VisibleBindingNamesSnapshot());
+            _nodes, _source, lambdaIdx, delegateParamTypes, ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures));
         if (lambdaSignature == null)
             return false;
         var ordinals = lambdaSignature.Ordinals;
@@ -811,31 +656,25 @@ internal sealed class ColumnarIlEmitter
         var signatureTypes = delegateParamTypes;
         var bodyNode = lambdaSignature.BodyNode;
 
-        // CAPTURE SET (L3a): N# owns the pure AST capture scan — kind-6 body identifiers that resolve in the
-        // enclosing local/parameter/lifted name set (passed as one union) and are not bound by this (or a
-        // nested) lambda's parameters, with the type-subtree walk discipline. The host builds that union,
-        // sorts the returned names into the downstream SortedSet order, and consumes the set below; an empty
-        // set is the L1b static lowering. The this-capture member-chain scan and the display-class capture
-        // emission below stay mechanical here.
-        var enclosingCapturableNames = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
-        enclosingCapturableNames.UnionWith(_paramOrdinals.Keys);
-        enclosingCapturableNames.UnionWith(_liftedLocals.Keys);
-        var captures = new SortedSet<string>(
-            ColumnarLambdaPlacementPlanner.PlanCaptureSet(
-                _nodes, _source, bodyNode,
-                new HashSet<string>(ordinals.Keys, StringComparer.Ordinal), enclosingCapturableNames),
-            StringComparer.Ordinal);
+        // CAPTURE SET (L3a): N# reads the live local/parameter/lifted maps, builds the exact enclosing union,
+        // performs the parameter-aware AST scan, and returns names in the legacy SortedSet order. The host
+        // consumes the result below; an empty set is the L1b static lowering, while display-class
+        // definition and recursive body emission remain C# lowering debt.
+        var captures = ColumnarClosureBindingPlanner.PlanOrderedCaptureSet(
+            _nodes, _source, bodyNode, ordinals, _locals, _paramOrdinals, _liftedLocals);
 
         if (captures.Count == 0)
         {
             // THIS-capture detection (bare-field/instance-member references in an INSTANCE method's lambda):
             // a kind-6 name that is neither bound nor a sibling but resolves on the enclosing type's chain
-            // means the lambda needs `this`. C# resolves that raw fact here; N# owns the placement decision
-            // it drives — a this-referencing body becomes a private instance method on the enclosing
+            // means the lambda needs `this`. N# resolves that fact and owns the placement decision it drives:
+            // a this-referencing body becomes a private instance method on the enclosing
             // reference type (the delegate binds directly to the current instance, true reference capture),
             // every other non-capturing body an assembly-static method on the program type.
             var hasThisCapture = _currentStruct != null
-                && BodyReferencesEnclosingChain(bodyNode, new HashSet<string>(ordinals.Keys, StringComparer.Ordinal));
+                && ColumnarClosureBindingPlanner.BodyReferencesEnclosingChain(
+                    _nodes, _source, bodyNode, new HashSet<string>(ordinals.Keys, StringComparer.Ordinal),
+                    _currentStruct, _locals, _liftedLocals, _paramOrdinals, _siblings);
             // N# selects the owning type, the generated method identity, and the exact visibility that keeps
             // a cross-type ldftn verifiable, and defines the synthesized method. C# only emits the recursive
             // body and constructs the delegate over the exact method N# selected.
@@ -857,7 +696,7 @@ internal sealed class ColumnarIlEmitter
                 _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry,
                 currentStruct: placement.CurrentStructForBody,
                 programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-                enclosingBindingNames: VisibleBindingNamesSnapshot(),
+                enclosingBindingNames: ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
                 referenceAssemblyPaths: _referenceAssemblyPaths,
                 genericInterfaceConstraints: _genericInterfaceConstraints,
                 typeParameters: placement.TypeParametersForBody,
@@ -895,7 +734,7 @@ internal sealed class ColumnarIlEmitter
         // nested chains decline (block-bodied sub-emitters set it via EmitBody). The capture scan reads
         // kind-6 nodes positionally, so kinds whose children are NOT ordinary expressions (match arms,
         // object initializers) decline the capturing branch outright.
-        if (_displayClasses == null || ContainsCaptureOpaqueKind(bodyNode))
+        if (_displayClasses == null || ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(_nodes, bodyNode))
             return false;
         var snapshotNames = new List<string>();
         var snapshotTypes = new List<Type>();
@@ -912,7 +751,7 @@ internal sealed class ColumnarIlEmitter
                 continue;
             }
             if (_bodyRoot < 0
-                || IsAnyNameWritten(_bodyRoot, new SortedSet<string>(StringComparer.Ordinal) { captureName }))
+                || ColumnarClosureBindingPlanner.IsAnyNameWritten(_nodes, _source, _bodyRoot, new SortedSet<string>(StringComparer.Ordinal) { captureName }))
                 return false; // written but unlifted (structural write / unliftable / pre-declaration use).
             var captureType = _locals.TryGetValue(captureName, out var capturedLocal)
                 ? capturedLocal.LocalType
@@ -964,7 +803,7 @@ internal sealed class ColumnarIlEmitter
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: displayDef,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
                     boxedCaptures: boxedCaptureMap.Count > 0 ? boxedCaptureMap : null,
-                    enclosingBindingNames: VisibleBindingNamesSnapshot(),
+                    enclosingBindingNames: ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
                     referenceAssemblyPaths: _referenceAssemblyPaths,
                     genericInterfaceConstraints: _genericInterfaceConstraints,
                     typeResolutionEnums: TypeResolutionForSynthesizedMethod(
@@ -1021,249 +860,6 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // True when a lambda body references a bare name that resolves on the ENCLOSING type's member chain
-    // (and is not a sibling function — siblings beat members in the pinned bare-call order and need no
-    // `this`). Such a body requires the instance-bound lowering: the delegate binds directly to the
-    // current `this` and the lambda lives as an instance method on the enclosing type.
-    private bool BodyReferencesEnclosingChain(int node, HashSet<string> bound)
-    {
-        var kind = _nodes.Kind(node);
-        if (kind == 38 || kind == 42 || kind == 55)
-            return false;
-        if (kind == 39)
-        {
-            var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
-            nestedBound.UnionWith(BoundParamsOf(node));
-            return BodyReferencesEnclosingChain(Child(node, _nodes.ChildCount(node) - 1), nestedBound);
-        }
-        if (kind == 6 && _nodes.ValueStart(node) >= 0 && _currentStruct != null)
-        {
-            var name = Text(node);
-            if (!bound.Contains(name) && !_locals.ContainsKey(name) && !_liftedLocals.ContainsKey(name)
-                && !_paramOrdinals.ContainsKey(name) && !_siblings.ContainsKey(name)
-                && (TryFindFieldOnChain(_currentStruct, name, out _)
-                    || TryFindMethodOnChain(_currentStruct, name, out _)
-                    || TryFindStaticFieldOnChain(_currentStruct, name, out _)
-                    || TryFindStaticPropertyOnChain(_currentStruct, name, out _)))
-                return true;
-        }
-        if (kind == 46 || kind == 47) // is/as: walk the VALUE child only (child 1 is a TYPE subtree).
-            return BodyReferencesEnclosingChain(Child(node, 0), bound);
-        var first = (kind == 15 || kind == 16) ? 1 : 0;
-        for (var c = first; c < _nodes.ChildCount(node); c++)
-        {
-            if (BodyReferencesEnclosingChain(Child(node, c), bound))
-                return true;
-        }
-        return false;
-    }
-
-    // L3b pre-scan: the LIFTED candidate set = names referenced inside any lambda subtree (unbound by its
-    // params) that are ALSO bare-assigned (kind-14, kind-6 target) somewhere in the body, minus names
-    // structurally written (foreach vars, deconstruction targets, member/index-rooted assignments) — those
-    // stay unlifted and any capture of them declines as in L3a. The candidate set only drives DECLARATION
-    // shape; _liftedLocals (actual live boxes) drives reads/writes/captures.
-    private void ComputeLiftedCandidates(int bodyRoot)
-    {
-        var inLambdas = new SortedSet<string>(StringComparer.Ordinal);
-        CollectNamesInsideLambdas(bodyRoot, inLambdas);
-        if (inLambdas.Count == 0)
-            return;
-        foreach (var name in inLambdas)
-        {
-            var single = new SortedSet<string>(StringComparer.Ordinal) { name };
-            if (IsNameBareAssigned(bodyRoot, single) && !IsNameStructurallyWritten(bodyRoot, single))
-                (_liftedCandidates ??= new HashSet<string>(StringComparer.Ordinal)).Add(name);
-        }
-    }
-
-    // A type a StrongBox<T> can be closed over and resolved by plain reflection: BAKED runtime, no
-    // builders, no generic parameters (mirrors the delegate/tuple builder-arg exclusions).
-    // ContainsBuilderBoundType catches builder-bound collections (a captured+reassigned List<Pt> local)
-    // — Assembly/ContainsGenericParameters report baked-looking values on those TBIs (spike-proven).
-    private static bool IsLiftableValueType(Type t) =>
-        ColumnarTypeOfPlanner.IsSupportedType(t) && !(t.Assembly is AssemblyBuilder) && !t.IsGenericParameter
-        && !t.ContainsGenericParameters && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(t);
-
-    private static FieldInfo StrongBoxValueField(Type valueType) =>
-        typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(valueType).GetField("Value")!;
-
-    // Collect every kind-6 name inside any LAMBDA subtree of `node`, excluding names bound by the lambda's
-    // (or a nested lambda's) own parameters — the same walk discipline as the L3a capture scan (now owned by
-    // N# ColumnarLambdaPlacementPlanner.PlanCaptureSet), but with NO in-scope check (this runs at EmitBody
-    // entry, before any local exists).
-    private void CollectNamesInsideLambdas(int node, SortedSet<string> names)
-    {
-        var kind = _nodes.Kind(node);
-        if (kind == 38 || kind == 42 || kind == 55)
-            return;
-        if (kind == 39)
-        {
-            CollectUnboundNames(Child(node, _nodes.ChildCount(node) - 1), BoundParamsOf(node), names);
-            return;
-        }
-        if (kind == 46 || kind == 47) // is/as: walk the VALUE child only (child 1 is a TYPE subtree).
-            { CollectNamesInsideLambdas(Child(node, 0), names); return; }
-        var first = (kind == 15 || kind == 16) ? 1 : 0;
-        for (var c = first; c < _nodes.ChildCount(node); c++)
-            CollectNamesInsideLambdas(Child(node, c), names);
-    }
-
-    private HashSet<string> BoundParamsOf(int lambdaNode)
-    {
-        var bound = new HashSet<string>(StringComparer.Ordinal);
-        for (var p = 0; p < _nodes.ChildCount(lambdaNode) - 1; p++)
-        {
-            if (_nodes.Kind(Child(lambdaNode, p)) == 6)
-                bound.Add(Text(Child(lambdaNode, p)));
-        }
-        return bound;
-    }
-
-    private void CollectUnboundNames(int node, HashSet<string> bound, SortedSet<string> names)
-    {
-        var kind = _nodes.Kind(node);
-        if (kind == 38 || kind == 42 || kind == 55)
-            return;
-        if (kind == 39)
-        {
-            var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
-            nestedBound.UnionWith(BoundParamsOf(node));
-            CollectUnboundNames(Child(node, _nodes.ChildCount(node) - 1), nestedBound, names);
-            return;
-        }
-        if (kind == 6 && _nodes.ValueStart(node) >= 0)
-        {
-            var name = Text(node);
-            if (!bound.Contains(name))
-                names.Add(name);
-        }
-        if (kind == 46 || kind == 47) // is/as: walk the VALUE child only (child 1 is a TYPE subtree).
-            { CollectUnboundNames(Child(node, 0), bound, names); return; }
-        var first = (kind == 15 || kind == 16) ? 1 : 0;
-        for (var c = first; c < _nodes.ChildCount(node); c++)
-            CollectUnboundNames(Child(node, c), bound, names);
-    }
-
-    // A kind-14 assignment whose target is the BARE identifier — the liftable write form. A LAMBDA's own
-    // parameters shadow: writes to them inside its body are not writes to the outer name (over-lifting is
-    // semantically benign — an unwritten box equals a snapshot — but shifts names out of the other gates).
-    private bool IsNameBareAssigned(int node, SortedSet<string> names)
-    {
-        if (_nodes.Kind(node) == 39)
-        {
-            var bound = BoundParamsOf(node);
-            var remaining = new SortedSet<string>(names, StringComparer.Ordinal);
-            remaining.ExceptWith(bound);
-            return remaining.Count > 0 && IsNameBareAssigned(Child(node, _nodes.ChildCount(node) - 1), remaining);
-        }
-        if (_nodes.Kind(node) == 14 || _nodes.Kind(node) == 44) // assignment OR postfix `++`/`--` — both write the target.
-        {
-            var target = Child(node, 0);
-            if (_nodes.Kind(target) == 6 && _nodes.ValueStart(target) >= 0 && names.Contains(Text(target)))
-                return true;
-        }
-        for (var c = 0; c < _nodes.ChildCount(node); c++)
-        {
-            if (IsNameBareAssigned(Child(node, c), names))
-                return true;
-        }
-        return false;
-    }
-
-    // Writes the box-lift model does NOT cover: foreach loop variables (per-iteration store semantics are
-    // their own slice), deconstruction targets, and member/index-rooted assignments (`b.V = 99` needs the
-    // box's Value ADDRESS — a later rung).
-    private bool IsNameStructurallyWritten(int node, SortedSet<string> names)
-    {
-        switch (_nodes.Kind(node))
-        {
-            case 14:
-            case 44: // postfix `++`/`--` writes its target exactly like an assignment.
-                var structuralTarget = Child(node, 0);
-                if (_nodes.Kind(structuralTarget) == 8 || _nodes.Kind(structuralTarget) == 10)
-                {
-                    while ((_nodes.Kind(structuralTarget) == 8 || _nodes.Kind(structuralTarget) == 10) && _nodes.ChildCount(structuralTarget) > 0)
-                        structuralTarget = Child(structuralTarget, 0);
-                    if (_nodes.Kind(structuralTarget) == 6 && _nodes.ValueStart(structuralTarget) >= 0 && names.Contains(Text(structuralTarget)))
-                        return true;
-                }
-                break;
-            case 29:
-                if (names.Contains(Text(node)))
-                    return true;
-                break;
-            case 30:
-                for (var n = 0; n < _nodes.ChildCount(node) - 1; n++)
-                {
-                    if (_nodes.Kind(Child(node, n)) == 6 && names.Contains(Text(Child(node, n))))
-                        return true;
-                }
-                break;
-        }
-        for (var c = 0; c < _nodes.ChildCount(node); c++)
-        {
-            if (IsNameStructurallyWritten(Child(node, c), names))
-                return true;
-        }
-        return false;
-    }
-
-    // Kinds whose identifier CHILDREN are not value reads — match/pattern kinds (18/19/32-35, 37, 61, 65-68) carry
-    // arm BINDINGS; object initializers (36) carry field NAMES. A capturing lambda containing any of them
-    // declines (under-accept); casts/new/generic-callees are handled precisely by the capture walk above.
-    private bool ContainsCaptureOpaqueKind(int node)
-    {
-        var k = _nodes.Kind(node);
-        // 18/19 match arms, 32-37/61/65-68 patterns/object-init, 52 with-expressions: their kind-6 children
-        // are FIELD names / pattern bindings, not value reads — the positional capture scan would mis-read
-        // them as identifier uses.
-        if (k == 18 || k == 19 || (k >= 32 && k <= 37) || k == 52 || k == 61 || (k >= 65 && k <= 68))
-            return true;
-        for (var c = 0; c < _nodes.ChildCount(node); c++)
-        {
-            if (ContainsCaptureOpaqueKind(Child(node, c)))
-                return true;
-        }
-        return false;
-    }
-
-    // True when any statement in the subtree WRITES one of `names`: an assignment (kind 14, incl. compound
-    // forms) to the bare identifier OR any member/index path whose ROOT receiver is the name (`b.V = 99` on a
-    // captured value-struct local diverges from the legacy emitter's box-lifting — probe-confirmed 101 vs 199;
-    // root matching also conservatively declines benign reference member writes), a foreach re-storing its loop
-    // variable, or a deconstruction binding it. `:=`/typed declarations cannot re-declare, so they are not writes.
-    private bool IsAnyNameWritten(int node, SortedSet<string> names)
-    {
-        switch (_nodes.Kind(node))
-        {
-            case 14:
-            case 44: // postfix `++`/`--` writes its target exactly like an assignment.
-                var target = Child(node, 0);
-                while ((_nodes.Kind(target) == 8 || _nodes.Kind(target) == 10) && _nodes.ChildCount(target) > 0)
-                    target = Child(target, 0); // walk member/index paths to the root receiver.
-                if (_nodes.Kind(target) == 6 && _nodes.ValueStart(target) >= 0 && names.Contains(Text(target)))
-                    return true;
-                break;
-            case 29:
-                if (names.Contains(Text(node)))
-                    return true;
-                break;
-            case 30:
-                for (var n = 0; n < _nodes.ChildCount(node) - 1; n++)
-                {
-                    if (_nodes.Kind(Child(node, n)) == 6 && names.Contains(Text(Child(node, n))))
-                        return true;
-                }
-                break;
-        }
-        for (var c = 0; c < _nodes.ChildCount(node); c++)
-        {
-            if (IsAnyNameWritten(Child(node, c), names))
-                return true;
-        }
-        return false;
-    }
 
     // Emit a ZERO-PARAM expression-bodied lambda with a BODY-INFERRED return type (`zero := () => 99` —
     // L1c): no expected delegate type exists at a `:=` declaration, but a zero-param lambda has no
@@ -1285,7 +881,7 @@ internal sealed class ColumnarIlEmitter
             new Dictionary<string, Type>(StringComparer.Ordinal), typeof(void), lambdaIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-            enclosingBindingNames: VisibleBindingNamesSnapshot(),
+            enclosingBindingNames: ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             referenceAssemblyPaths: _referenceAssemblyPaths,
             genericInterfaceConstraints: _genericInterfaceConstraints,
             typeResolutionEnums: TypeResolutionForSynthesizedMethod(
@@ -1333,7 +929,7 @@ internal sealed class ColumnarIlEmitter
             delegateType = boxedDelegate.ValueType;
             _il.Emit(OpCodes.Ldarg_0);
             _il.Emit(OpCodes.Ldfld, boxedDelegate.BoxField);
-            _il.Emit(OpCodes.Ldfld, StrongBoxValueField(boxedDelegate.ValueType));
+            _il.Emit(OpCodes.Ldfld, ColumnarClosureBindingPlanner.StrongBoxValueField(boxedDelegate.ValueType));
         }
         else if (_liftedLocals.TryGetValue(name, out var liftedDelegate))
         {
@@ -1341,7 +937,7 @@ internal sealed class ColumnarIlEmitter
                 return false;
             delegateType = liftedDelegate.ValueType;
             _il.Emit(OpCodes.Ldloc, liftedDelegate.Box);
-            _il.Emit(OpCodes.Ldfld, StrongBoxValueField(liftedDelegate.ValueType));
+            _il.Emit(OpCodes.Ldfld, ColumnarClosureBindingPlanner.StrongBoxValueField(liftedDelegate.ValueType));
         }
         else if (_locals.TryGetValue(name, out var local))
         {
@@ -1699,34 +1295,6 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // Resolve a STATIC FIELD on `def`'s chain by name, nearest declaration first (the legacy emitter's chain-walked
-    // static-member resolution — `Derived.count` binds a base-declared static field).
-    private static bool TryFindStaticFieldOnChain(ColumnarStructDef def, string name, out FieldBuilder field)
-    {
-        for (var d = def; d != null; d = d.BaseDef)
-        {
-            if (d.StaticFields.TryGetValue(name, out field!))
-                return true;
-        }
-        field = null!;
-        return false;
-    }
-
-    // Resolve a STATIC PROPERTY on `def`'s chain by name, nearest declaration first (`Derived.X` binds a
-    // base-declared static property — the fixed legacy emitter chain-walks its get_X/set_X exactly like static fields).
-    private static bool TryFindStaticPropertyOnChain(ColumnarStructDef def, string name, out ColumnarPropertyDef property)
-    {
-        for (var d = def; d != null; d = d.BaseDef)
-        {
-            if (d.StaticProperties.TryGetValue(name, out var found))
-            {
-                property = found;
-                return true;
-            }
-        }
-        property = null!;
-        return false;
-    }
 
     // Resolve a STATIC method call on `def`'s chain by name + ARG COUNT, nearest declaration first. A type whose
     // overload set carries the name but has
@@ -3209,7 +2777,7 @@ internal sealed class ColumnarIlEmitter
                 // live snapshot exists — use the parent's STRUCTURAL binding superset (params + every name
                 // any parent statement binds; extra declines are safe under-acceptance).
                 var parentBindings = new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal);
-                CollectBindingNames(fn.BodyNodes, functionSource, fn.BodyRoot, parentBindings);
+                ColumnarClosureBindingPlanner.CollectBindingNames(fn.BodyNodes, functionSource, fn.BodyRoot, parentBindings);
                 var visiblePrefix = new List<string>();
                 foreach (var localFunction in fn.LocalFunctions)
                 {
@@ -3706,7 +3274,7 @@ internal sealed class ColumnarIlEmitter
         // L3b pre-scan: names captured by some lambda AND bare-assigned somewhere become LIFTED candidates
         // (declared as shared StrongBox<T>); lifted PARAMS box-init here so every later read/write — in
         // the body or any closure — goes through the one box.
-        ComputeLiftedCandidates(bodyRoot);
+        ColumnarClosureBindingPlanner.ComputeLiftedCandidates(_nodes, _source, bodyRoot, ref _liftedCandidates);
         if (_liftedCandidates != null)
         {
             foreach (var liftedParam in _liftedCandidates)
@@ -3714,7 +3282,7 @@ internal sealed class ColumnarIlEmitter
                 if (!_paramOrdinals.TryGetValue(liftedParam, out var liftedOrdinal))
                     continue;
                 var liftedParamType = _paramTypes[liftedParam];
-                if (!IsLiftableValueType(liftedParamType))
+                if (!ColumnarClosureBindingPlanner.IsLiftableValueType(liftedParamType))
                     continue; // stays a plain param; a later capture of it declines (written, unlifted).
                 var boxType = typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(liftedParamType);
                 var boxLocal = _il.DeclareLocal(boxType);
@@ -3791,7 +3359,7 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(bodyRoot) != 25)
             return false;
         _bodyRoot = bodyRoot;
-        ComputeLiftedCandidates(bodyRoot);
+        ColumnarClosureBindingPlanner.ComputeLiftedCandidates(_nodes, _source, bodyRoot, ref _liftedCandidates);
         for (var i = 0; i < ordinals.Count; i++)
         {
             var ordinal = ordinals[i];
@@ -4043,7 +3611,7 @@ internal sealed class ColumnarIlEmitter
                         // Shadowing an existing binding — incl. one in an ENCLOSING function when this is a
                         // nested body — is the pipeline's NL316 error; `_` is the discard spelling. Both
                         // decline rather than model unverified semantics.
-                        if (catchVarName == "_" || IsVisibleBindingName(catchVarName))
+                        if (catchVarName == "_" || ColumnarClosureBindingPlanner.IsVisibleBindingName(catchVarName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                             return false;
                         var catchLocal = _il.DeclareLocal(catchType);
                         _il.Emit(OpCodes.Stloc, catchLocal);
@@ -4229,7 +3797,7 @@ internal sealed class ColumnarIlEmitter
                 // ENCLOSING function when this is a nested (lambda/local-func) body: N# treats shadowing as
                 // a diagnostic (NL316; a same-`:=` redeclaration as an error), which the spike does not
                 // model — declining keeps the analyzer-validated product path authoritative.
-                if (IsVisibleBindingName(name))
+                if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                     return Decline("emit.local.redeclaration-or-shadowing", "local declaration shadows or redeclares a visible binding '" + name + "'", idx);
                 if (_nodes.ChildCount(idx) == 0)
                     return Decline("emit.local.missing-initializer", "local declaration has no modeled initializer", idx);
@@ -4260,7 +3828,7 @@ internal sealed class ColumnarIlEmitter
                 // L3b: a lifted candidate (captured by some lambda AND bare-assigned) declares as a shared
                 // StrongBox<T> — the init value is on the stack; wrap it. A non-liftable type stays plain
                 // (a later capture of it declines — written, unlifted).
-                if (_liftedCandidates != null && _liftedCandidates.Contains(name) && IsLiftableValueType(initType))
+                if (_liftedCandidates != null && _liftedCandidates.Contains(name) && ColumnarClosureBindingPlanner.IsLiftableValueType(initType))
                 {
                     var liftBoxType = typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(initType);
                     var liftBox = _il.DeclareLocal(liftBoxType);
@@ -4289,7 +3857,7 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(Child(idx, 0)) != 6)
                     return Decline("emit.typed-local.shape", "typed local declaration has an unsupported shape", idx);
                 var declaredName = Text(Child(idx, 0));
-                if (IsVisibleBindingName(declaredName))
+                if (ColumnarClosureBindingPlanner.IsVisibleBindingName(declaredName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                     return Decline("emit.typed-local.redeclaration-or-shadowing", "typed local declaration shadows or redeclares a visible binding '" + declaredName + "'", idx);
                 var typeCanonical = ColumnarTypeCanonicalizer.RemoveWhitespace(Text(idx));
                 // A NAMED tuple annotation (`let t: (x: int, y: int) = ...`) strips to the positional
@@ -4351,7 +3919,7 @@ internal sealed class ColumnarIlEmitter
                 // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
                 // initializers stay unlifted — a reassigned-and-captured delegate local declines later).
                 if (_nodes.Kind(declaredInit) != 39 && _liftedCandidates != null && _liftedCandidates.Contains(declaredName)
-                    && IsLiftableValueType(declaredType))
+                    && ColumnarClosureBindingPlanner.IsLiftableValueType(declaredType))
                 {
                     var typedBoxType = typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(declaredType);
                     var typedBox = _il.DeclareLocal(typedBoxType);
@@ -4557,7 +4125,7 @@ internal sealed class ColumnarIlEmitter
                         if (!TryResolveMemberWriteChain(Child(compoundTarget, 0), out var compoundChain)
                             || compoundChain.ReceiverType is not TypeBuilder compoundOwnerTb
                             || ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, compoundOwnerTb) is not { } compoundOwnerDef
-                            || !TryFindFieldOnChain(compoundOwnerDef, Text(compoundTarget), out var compoundMemberField))
+                            || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(compoundOwnerDef, Text(compoundTarget), out var compoundMemberField))
                             return false;
                         var compoundMemberType = compoundMemberField.FieldType;
                         if (compoundMemberType != typeof(string) && compoundMemberType != typeof(int)
@@ -4738,14 +4306,14 @@ internal sealed class ColumnarIlEmitter
                         if (!_locals.ContainsKey(staticRecvName) && !_liftedLocals.ContainsKey(staticRecvName) && !_paramOrdinals.ContainsKey(staticRecvName) && !_siblings.ContainsKey(staticRecvName)
                             && _typeResolutionStructs.TryGetValue(staticRecvName, out var staticWriteOwner))
                         {
-                            if (TryFindStaticFieldOnChain(staticWriteOwner, memberName, out var staticFieldWrite))
+                            if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticWriteOwner, memberName, out var staticFieldWrite))
                             {
                                 if (!TryEmitAssignableValue(Child(expr, 1), staticFieldWrite.FieldType, out _))
                                     return false;
                                 _il.Emit(OpCodes.Stsfld, staticFieldWrite);
                                 return true;
                             }
-                            if (TryFindStaticPropertyOnChain(staticWriteOwner, memberName, out var staticPropWrite) && staticPropWrite.Setter != null)
+                            if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticWriteOwner, memberName, out var staticPropWrite) && staticPropWrite.Setter != null)
                             {
                                 if (!TryEmitAssignableValue(Child(expr, 1), staticPropWrite.PropertyType, out _))
                                     return false;
@@ -4771,7 +4339,7 @@ internal sealed class ColumnarIlEmitter
                         && writeChain.ReceiverType is TypeBuilder writeOwnerTb
                         && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, writeOwnerTb) is { } writeOwnerDef)
                     {
-                        if (TryFindFieldOnChain(writeOwnerDef, memberName, out var writeField))
+                        if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(writeOwnerDef, memberName, out var writeField))
                         {
                             EmitMemberWriteLocator(writeChain);
                             Type writeValueType;
@@ -4815,7 +4383,7 @@ internal sealed class ColumnarIlEmitter
                 {
                     if (_currentStruct == null || (!_currentStruct.IsReference && !_isConstructorBody))
                         return false;
-                    if (TryFindFieldOnChain(_currentStruct, targetName, out var explicitThisFieldTarget))
+                    if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out var explicitThisFieldTarget))
                     {
                         _il.Emit(OpCodes.Ldarg_0);
                         if (!TryEmitAssignableValue(Child(expr, 1), explicitThisFieldTarget.FieldType, out _))
@@ -4851,7 +4419,7 @@ internal sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Ldfld, boxedWrite.BoxField);
                     if (!EmitExpression(Child(expr, 1), out var boxedValueType) || boxedValueType != boxedWrite.ValueType)
                         return false;
-                    _il.Emit(OpCodes.Stfld, StrongBoxValueField(boxedWrite.ValueType));
+                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(boxedWrite.ValueType));
                     return true;
                 }
                 if (_liftedLocals.TryGetValue(targetName, out var liftedWrite))
@@ -4859,7 +4427,7 @@ internal sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Ldloc, liftedWrite.Box);
                     if (!EmitExpression(Child(expr, 1), out var liftedValueType) || liftedValueType != liftedWrite.ValueType)
                         return false;
-                    _il.Emit(OpCodes.Stfld, StrongBoxValueField(liftedWrite.ValueType));
+                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(liftedWrite.ValueType));
                     return true;
                 }
                 if (_locals.TryGetValue(targetName, out var assignTarget))
@@ -4907,7 +4475,7 @@ internal sealed class ColumnarIlEmitter
                 }
                 if (_isSynthesizedInitializerBody
                     && _currentStruct != null
-                    && TryFindFieldOnChain(_currentStruct, targetName, out var synthesizedFieldTarget))
+                    && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out var synthesizedFieldTarget))
                 {
                     _il.Emit(OpCodes.Ldarg_0);
                     if (!TryEmitAssignableValue(Child(expr, 1), synthesizedFieldTarget.FieldType, out _))
@@ -5006,7 +4574,7 @@ internal sealed class ColumnarIlEmitter
                 // DECLINES until the call site addresses the receiver's own storage (a later slice). A class/record
                 // ref is shared through the temp, so the mutation persists correctly. Resolution walks the BASE
                 // chain (nearest first) so a derived member may assign an INHERITED field.
-                if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && TryFindFieldOnChain(_currentStruct, targetName, out var thisFieldTarget))
+                if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out var thisFieldTarget))
                 {
                     _il.Emit(OpCodes.Ldarg_0);
                     if (!TryEmitAssignableValue(Child(expr, 1), thisFieldTarget.FieldType, out _))
@@ -5030,7 +4598,7 @@ internal sealed class ColumnarIlEmitter
                 // INSTANCE contexts only — a STATIC method body must qualify (`TypeName.field`), so this is gated
                 // on `_currentStruct` (null in static bodies → declines exactly where the pipeline errors). No
                 // receiver: `<value>; stsfld`. (Statics need no address, so value-type enclosing types are fine.)
-                if (_currentStruct != null && TryFindStaticFieldOnChain(_currentStruct, targetName, out var bareStaticTarget))
+                if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, targetName, out var bareStaticTarget))
                 {
                     if (!TryEmitAssignableValue(Child(expr, 1), bareStaticTarget.FieldType, out _))
                         return false;
@@ -5219,7 +4787,7 @@ internal sealed class ColumnarIlEmitter
                 if (AlwaysReturns(body))
                     return false;
                 // The loop variable must not shadow an existing binding — own OR enclosing (NL316).
-                if (IsVisibleBindingName(varName))
+                if (ColumnarClosureBindingPlanner.IsVisibleBindingName(varName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                     return false;
 
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
@@ -5341,7 +4909,7 @@ internal sealed class ColumnarIlEmitter
                 var streamNode = Child(idx, 0);
                 var awaitBody = Child(idx, 1);
                 var awaitVarName = Text(idx);
-                if (AlwaysReturns(awaitBody) || IsVisibleBindingName(awaitVarName))
+                if (AlwaysReturns(awaitBody) || ColumnarClosureBindingPlanner.IsVisibleBindingName(awaitVarName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                     return false;
                 var outerAwaitLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
                 var outerAwaitLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
@@ -5417,7 +4985,7 @@ internal sealed class ColumnarIlEmitter
                     if (_inProtectedRegion || _inFinallyRegion)
                         return false;
                     var errResultName = Text(Child(idx, 0));
-                    if (IsVisibleBindingName("err") || (errResultName != "_" && IsVisibleBindingName(errResultName)))
+                    if (ColumnarClosureBindingPlanner.IsVisibleBindingName("err", _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames) || (errResultName != "_" && ColumnarClosureBindingPlanner.IsVisibleBindingName(errResultName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)))
                         return false;
 
                     LocalBuilder? errResultLocal = null;
@@ -5476,7 +5044,7 @@ internal sealed class ColumnarIlEmitter
                     var name = Text(Child(idx, i));
                     if (name == "_") // discard — the element is not bound.
                         continue;
-                    if (IsVisibleBindingName(name))
+                    if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                         return false; // redeclaration / shadow — own OR enclosing (NL316) — is not modelled.
                     var field = tupleType.GetField("Item" + (i + 1), BindingFlags.Public | BindingFlags.Instance);
                     if (field == null)
@@ -5909,7 +5477,7 @@ internal sealed class ColumnarIlEmitter
             if (_nodes.Kind(tempStatementNode) != 24 || _nodes.ChildCount(tempStatementNode) != 1)
                 return false;
             tempName = Text(tempStatementNode);
-            if (IsVisibleBindingName(tempName))
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(tempName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                 return false;
             if (!TryMatchArrayIndexByIdentifier(Child(tempStatementNode, 0), indexName, out arrayNode, out arrayName))
                 return false;
@@ -6099,7 +5667,7 @@ internal sealed class ColumnarIlEmitter
             if (_nodes.ChildCount(tempStatement) != 1)
                 return false;
             tempName = Text(tempStatement);
-            if (IsVisibleBindingName(tempName))
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(tempName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                 return false;
             if (!TryMatchArrayIndexByIdentifier(Child(tempStatement, 0), indexName, out arrayNode, out arrayName))
                 return false;
@@ -6359,7 +5927,7 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(tempStatementNode) != 24 || _nodes.ChildCount(tempStatementNode) != 1)
             return false;
         var currentName = Text(tempStatementNode);
-        if (IsVisibleBindingName(currentName))
+        if (ColumnarClosureBindingPlanner.IsVisibleBindingName(currentName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
             return false;
         if (!TryMatchArrayIndexByIdentifier(Child(tempStatementNode, 0), indexName, out var arrayNode, out var arrayName))
             return false;
@@ -7149,13 +6717,13 @@ internal sealed class ColumnarIlEmitter
                 // static-member access resolves in INSTANCE contexts only (a static body must qualify with the type
                 // name) — gated on `_currentStruct`, which is null in static bodies, so those decline exactly
                 // where the pipeline errors. No receiver: `ldsfld` for a field, `call get_Name` for a property.
-                if (_currentStruct != null && TryFindStaticFieldOnChain(_currentStruct, name, out var bareStaticField))
+                if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, name, out var bareStaticField))
                 {
                     _il.Emit(OpCodes.Ldsfld, bareStaticField);
                     type = bareStaticField.FieldType;
                     return true;
                 }
-                if (_currentStruct != null && TryFindStaticPropertyOnChain(_currentStruct, name, out var bareStaticProp))
+                if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_currentStruct, name, out var bareStaticProp))
                 {
                     _il.Emit(OpCodes.Call, bareStaticProp.Getter);
                     type = bareStaticProp.PropertyType;
@@ -7505,7 +7073,7 @@ internal sealed class ColumnarIlEmitter
                         || _liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
                     {
                         if (_siblings.ContainsKey(name)
-                            || (_currentStruct != null && TryFindMethodOnChain(_currentStruct, name, out _))
+                            || (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, name, out _))
                             || (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _nodes.ChildCount(idx) - 1, out _)))
                             return false;
                         return TryEmitDelegateInvoke(idx, name, out type);
@@ -7689,13 +7257,13 @@ internal sealed class ColumnarIlEmitter
                     if (_typeResolutionStructs.TryGetValue(receiverIdent, out var staticOwner)
                         && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
                     {
-                        if (TryFindStaticFieldOnChain(staticOwner, Text(idx), out var staticFieldRead))
+                        if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticOwner, Text(idx), out var staticFieldRead))
                         {
                             _il.Emit(OpCodes.Ldsfld, staticFieldRead);
                             type = staticFieldRead.FieldType;
                             return true;
                         }
-                        if (TryFindStaticPropertyOnChain(staticOwner, Text(idx), out var staticPropRead))
+                        if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticOwner, Text(idx), out var staticPropRead))
                         {
                             _il.Emit(OpCodes.Call, staticPropRead.Getter);
                             type = staticPropRead.PropertyType;
@@ -7720,7 +7288,7 @@ internal sealed class ColumnarIlEmitter
                     && directReadChain.ReceiverType is TypeBuilder directReadOwnerTb
                     && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, directReadOwnerTb) is { } directReadOwnerDef)
                 {
-                    if (TryFindFieldOnChain(directReadOwnerDef, member, out var directReadField))
+                    if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(directReadOwnerDef, member, out var directReadField))
                     {
                         EmitMemberWriteLocator(directReadChain);
                         _il.Emit(OpCodes.Ldfld, directReadField);
@@ -7946,7 +7514,7 @@ internal sealed class ColumnarIlEmitter
                     }
                     // Resolution walks the BASE chain (nearest first) so a derived receiver exposes INHERITED
                     // fields/properties (`d.X` where X is declared on Base).
-                    if (TryFindFieldOnChain(fieldStruct, member, out var structField))
+                    if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(fieldStruct, member, out var structField))
                     {
                         if (fieldStruct.IsReference)
                         {
@@ -8884,7 +8452,7 @@ internal sealed class ColumnarIlEmitter
                                 continue;
                             }
 
-                            if (TryFindFieldOnChain(constructedUserDef, memberName, out var userInitField))
+                            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(constructedUserDef, memberName, out var userInitField))
                             {
                                 var userFieldType = constructedClosedArgs.Length == 0
                                     ? userInitField.FieldType
@@ -9520,7 +9088,7 @@ internal sealed class ColumnarIlEmitter
                         var patName = Text(patternNode);
                         if (patName != "_")
                         {
-                            if (IsVisibleBindingName(patName))
+                            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(patName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                                 return false; // a binding that shadows (own OR enclosing, NL316) is not modelled.
                             var bindLocal = _il.DeclareLocal(matchValueType);
                             _il.Emit(OpCodes.Ldloc, matchLocal);
@@ -9715,7 +9283,7 @@ internal sealed class ColumnarIlEmitter
     {
         if (name != "_")
         {
-            if (IsVisibleBindingName(name))
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                 return false;
             var bindLocal = _il.DeclareLocal(valueType);
             _il.Emit(OpCodes.Ldloc, valueLocal);
@@ -9771,7 +9339,7 @@ internal sealed class ColumnarIlEmitter
 
         if (ownerType is TypeBuilder ownerBuilder && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, ownerBuilder) is { } ownerDef)
         {
-            if (TryFindFieldOnChain(ownerDef, member, out var field))
+            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(ownerDef, member, out var field))
             {
                 EmitLoadUserPatternReceiver(ownerLocal, ownerDef.IsReference);
                 _il.Emit(OpCodes.Ldfld, field);
@@ -9970,7 +9538,7 @@ internal sealed class ColumnarIlEmitter
         var name = Text(sliceNode);
         if (name == "_")
             return true;
-        if (IsVisibleBindingName(name))
+        if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
             return false;
 
         var sliceLocal = _il.DeclareLocal(arrayType);
@@ -10410,7 +9978,7 @@ internal sealed class ColumnarIlEmitter
 
         if (bindName != "_")
         {
-            if (IsVisibleBindingName(bindName))
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(bindName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))
                 return false;
             var bindLocal = _il.DeclareLocal(armType);
             _il.Emit(OpCodes.Ldloca, matchLocal);
@@ -10736,7 +10304,7 @@ internal sealed class ColumnarIlEmitter
 
     private bool IsCurrentInstanceMemberName(string name)
         => _currentStruct != null
-           && (TryFindFieldOnChain(_currentStruct, name, out _)
+           && (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out _)
                || TryFindPropertyOnChain(_currentStruct, name, out _));
 
     private bool TryEmitJsonSerializerSerializeGenericCall(int callIdx, int callee, out Type type)
@@ -10878,7 +10446,7 @@ internal sealed class ColumnarIlEmitter
             if (type.IsByRef)
                 type = type.GetElementType()!;
         }
-        else if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, root, out var thisField))
+        else if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, root, out var thisField))
         {
             type = thisField.FieldType;
         }
@@ -10925,7 +10493,7 @@ internal sealed class ColumnarIlEmitter
                 EmitLoadByRefElement(type);
             }
         }
-        else if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, root, out var thisField))
+        else if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, root, out var thisField))
         {
             _il.Emit(OpCodes.Ldarg_0);
             _il.Emit(OpCodes.Ldfld, thisField);
@@ -12613,7 +12181,7 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 memberType = closedArgs.Length == 0 ? property.PropertyType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(property.PropertyType, closedArgs);
             }
-            else if (TryFindFieldOnChain(initDef, memberName, out var field))
+            else if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(initDef, memberName, out var field))
             {
                 memberType = closedArgs.Length == 0 ? field.FieldType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(field.FieldType, closedArgs);
             }
@@ -12723,7 +12291,7 @@ internal sealed class ColumnarIlEmitter
         }
         else if (_currentStruct != null
                  && (_currentStruct.IsReference || _isConstructorBody)
-                 && TryFindFieldOnChain(_currentStruct, name, out var thisField))
+                 && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out var thisField))
         {
             targetType = thisField.FieldType;
             if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong))
@@ -12775,7 +12343,7 @@ internal sealed class ColumnarIlEmitter
         if (!TryResolveMemberWriteChain(Child(target, 0), out var chain)
             || chain.ReceiverType is not TypeBuilder ownerBuilder
             || ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, ownerBuilder) is not { } ownerDef
-            || !TryFindFieldOnChain(ownerDef, Text(target), out var field))
+            || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(ownerDef, Text(target), out var field))
         {
             return false;
         }
@@ -14012,12 +13580,12 @@ internal sealed class ColumnarIlEmitter
             }
             if (_typeResolutionStructs.TryGetValue(receiverIdent, out var staticOwner))
             {
-                if (TryFindStaticFieldOnChain(staticOwner, Text(node), out var staticField))
+                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticOwner, Text(node), out var staticField))
                 {
                     type = staticField.FieldType;
                     return true;
                 }
-                if (TryFindStaticPropertyOnChain(staticOwner, Text(node), out var staticProperty))
+                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticOwner, Text(node), out var staticProperty))
                 {
                     type = staticProperty.PropertyType;
                     return true;
@@ -14138,11 +13706,11 @@ internal sealed class ColumnarIlEmitter
                 return parameters.Length == 1 && parameters[0].ParameterType == typeof(IEnumerable<int>);
             });
 
-    // Mechanically preflight a contextual lambda body under a given parameter binding and return its
+    // Preflight a contextual lambda body under a given parameter binding and return its
     // inferred type when that type is a supported non-void type. The parameter SHAPE decision — kind-39
     // lambda, arity match against parameterTypes, identifier parameter nodes, duplicate-name malformedness,
     // and the NL316 enclosing shadow — is owned by N# ColumnarLambdaPlacementPlanner.PlanContextualSignature;
-    // the scoped sub-emitter body preflight below is the C# expression-typing engine consumed mechanically.
+    // the scoped sub-emitter body preflight below remains part of the C# expression-typing debt.
     // An empty parameterTypes serves a zero-parameter handler body; a single type serves a single-parameter
     // selector/predicate body.
     private bool TryPreflightContextualLambdaReturnType(int lambdaNode, Type[] parameterTypes, out Type returnType)
@@ -14151,7 +13719,7 @@ internal sealed class ColumnarIlEmitter
         if (_nodes.Kind(lambdaNode) != 39)
             return false;
         var signature = ColumnarLambdaPlacementPlanner.PlanContextualSignature(
-            _nodes, _source, lambdaNode, parameterTypes, VisibleBindingNamesSnapshot());
+            _nodes, _source, lambdaNode, parameterTypes, ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures));
         if (signature == null)
             return false;
         var subEmitter = new ColumnarIlEmitter(
@@ -14161,7 +13729,7 @@ internal sealed class ColumnarIlEmitter
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
             localFuncs: _localFuncs, declaredLocalFuncNodes: _declaredLocalFuncNodes, visibleLocalFuncs: _visibleLocalFuncs,
             siblingReturnTupleNames: _siblingReturnTupleNames,
-            enclosingBindingNames: VisibleBindingNamesSnapshot(),
+            enclosingBindingNames: ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             referenceAssemblyPaths: _referenceAssemblyPaths,
             genericInterfaceConstraints: _genericInterfaceConstraints,
             typeParameters: _typeParameters,
@@ -14175,7 +13743,7 @@ internal sealed class ColumnarIlEmitter
 
     // N# owns the single-parameter contextual-delegate return-type SELECTION: the contextual lambda body's
     // preflighted type takes precedence over a visible local-function method group's return type. Both
-    // candidates are resolved mechanically here — the lambda body preflight above, and the method-group
+    // candidates are resolved by the remaining C# decision code here — the lambda body preflight above, and the method-group
     // lookup with its reflection-bound single-parameter equivalence and supported-non-void gate — and
     // handed to ColumnarLambdaPlacementPlanner.PlanSingleParameterContextualReturnType, whose null result
     // is the standard inference decline.
@@ -14232,7 +13800,7 @@ internal sealed class ColumnarIlEmitter
             && _currentStruct != null
             && _currentStruct.IsReference
             && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextType(_referenceAssemblyPaths, out var contextType)
-            && TryFindMethodOnChain(_currentStruct, Text(handlerNode), 1, out var method)
+            && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, Text(handlerNode), 1, out var method)
             && TypesEquivalent(method.ParamTypes[0], contextType)
             && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType))
         {
@@ -16154,7 +15722,7 @@ internal sealed class ColumnarIlEmitter
         {
             if (current is not TypeBuilder hopOwner
                 || ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, hopOwner) is not { } hopDef
-                || !TryFindFieldOnChain(hopDef, Text(hopNodes[h]), out var hopField))
+                || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(hopDef, Text(hopNodes[h]), out var hopField))
                 return false; // non-registered owners (closed generics, BCL) and non-field hops decline.
             hops.Add(hopField);
             current = hopField.FieldType;
@@ -16477,7 +16045,7 @@ internal sealed class ColumnarIlEmitter
             || _currentStruct?.BaseDef == null)
             return false;
 
-        if (!TryFindMethodOnChain(_currentStruct.BaseDef, methodName, 0, out var method)
+        if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct.BaseDef, methodName, 0, out var method)
             || method.ReturnType == typeof(void)
             || ((!IsKnownEnumType(method.ReturnType)
                  && !method.ReturnType.IsGenericParameter
@@ -16920,7 +16488,7 @@ internal sealed class ColumnarIlEmitter
             rootOrdinal = ordinal;
             rootType = _paramTypes[rootName];
         }
-        else if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, rootName, out var thisField))
+        else if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, rootName, out var thisField))
         {
             rootThis = true;
             rootType = _currentStruct.Builder;
@@ -16982,7 +16550,7 @@ internal sealed class ColumnarIlEmitter
                 return false;
             if (callArgument == "")
             {
-                if (!TryFindMethodOnChain(def, callMember, out var method)
+                if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(def, callMember, out var method)
                     || method.ParamTypes.Length != 0
                     || method.ReturnType == typeof(void))
                     return false;
@@ -17019,7 +16587,7 @@ internal sealed class ColumnarIlEmitter
         hop = null!;
         if (current is TypeBuilder owner && ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, owner) is { } def)
         {
-            if (TryFindFieldOnChain(def, member, out var hopField))
+            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(def, member, out var hopField))
             {
                 hop = new ColumnarInterpolationMemberPlan(hopField, null, hopField.FieldType);
                 return true;

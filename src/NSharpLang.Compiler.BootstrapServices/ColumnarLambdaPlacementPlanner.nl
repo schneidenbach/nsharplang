@@ -15,11 +15,10 @@ import System.Reflection.Emit
 //     MUST be assembly (internal); a private static method here throws MethodAccessException at JIT.
 //   * InstanceThis — no local/parameter captures but a bare reference to the enclosing reference type's
 //     member chain: a private instance method on that type, bound directly to `this` at the use site.
-// The C# emitter host resolves the raw capture facts (delegate signature, capture set, this-reference)
-// and emits the recursive body through its sub-emitter; it never re-derives which type owns the method,
-// what it is named, or how visible it is. The delegate is then constructed mechanically from the method
-// N# selected. Value-capture (display-class) lowering is not modeled here and remains a fenced host
-// residual until the columnar backend models the reflection-emit surface a display class needs.
+// N# resolves the contextual signature, ordered capture set, mutation/liftability facts, and enclosing
+// instance reference before this planner selects the method placement. The C# emitter consumes those
+// decisions only to emit the recursive body and display-class mechanics, then constructs the delegate
+// from the method N# selected. That recursive body/display-class emission remains a fenced host residual.
 enum ColumnarLambdaPlacementMode {
     StaticProgram,
     InstanceThis
@@ -94,8 +93,8 @@ class ColumnarLambdaPlacementPlanner {
     // reflection) and the names already visible where the lambda is written; N# owns the arity match,
     // the identifier-node requirement, duplicate-name malformedness, and the NL316 enclosing shadow, and
     // returns the parameter ordinals, per-name types, and the body node. A null result is the standard
-    // lambda decline. This owns only the signature decision; the delegate decomposition and return type,
-    // the body emission, and the delegate construction stay mechanical in the host.
+    // lambda decline. This owns only the signature decision; delegate decomposition and construction
+    // stay mechanical in the host, while recursive body emission remains C# lowering debt.
     static func PlanContextualSignature(nodes: ColumnarNodeTable, source: string, lambdaNode: int, parameterTypes: Type[], visibleBindingNames: HashSet<string>): ColumnarLambdaSignature? {
         if nodes == null || source == null || parameterTypes == null || visibleBindingNames == null {
             throw new InvalidOperationException("Contextual-lambda signature planning requires the node table, source, delegate parameter types, and visible bindings.")
@@ -133,12 +132,10 @@ class ColumnarLambdaPlacementPlanner {
 
     // Collect the CAPTURE SET of a contextual lambda body: the enclosing-scope names the body reads and
     // closes over. A capture is a kind-6 identifier that resolves in the enclosing local/parameter/lifted
-    // name set (the host passes the union) and is NOT bound by this lambda's — or a nested lambda's — own
-    // parameters. The host passes the lambda's own parameter names as the initial bound set and the union
-    // of its enclosing locals/parameters/lifted names as the capturable set; N# owns the pure AST scan and
-    // returns the captured names. The host's non-capturing-vs-capturing branch consumes the result — an
-    // empty set is the static lowering, a non-empty set drives the display-class capture. The this-capture
-    // member-chain scan and the display-class emission stay mechanical in the host.
+    // name set and is NOT bound by this lambda's — or a nested lambda's — own parameters.
+    // ColumnarClosureBindingPlanner builds the live enclosing union and the lambda's initial bound set,
+    // invokes this pure AST scan, and orders the result. An empty result selects static lowering; a
+    // non-empty result enters the remaining C# display-class lowering debt.
     static func PlanCaptureSet(nodes: ColumnarNodeTable, source: string, bodyNode: int, boundParameterNames: HashSet<string>, enclosingCapturableNames: HashSet<string>): HashSet<string> {
         if nodes == null || source == null || boundParameterNames == null || enclosingCapturableNames == null {
             throw new InvalidOperationException("Contextual-lambda capture-set planning requires the node table, source, bound parameter names, and enclosing capturable names.")
@@ -213,14 +210,14 @@ class ColumnarLambdaPlacementPlanner {
     // Select the RETURN TYPE of a single-parameter contextual delegate argument, or decline. A selector or
     // predicate like the one `Select`/`Where` takes has no written return type; its return type is the type
     // the argument's body produces. N# owns the SELECTION between the two admitted argument forms — a
-    // contextual lambda literal whose body the host has mechanically preflighted, and a visible
-    // local-function method group. The host resolves each form's candidate return type mechanically (the
+    // contextual lambda literal whose body the host has preflighted, and a visible local-function method
+    // group. The host's remaining C# decision code resolves each form's candidate return type (the
     // lambda candidate is the host's scoped sub-emitter body-preflight result, already gated to a supported
     // non-void type; the local-function candidate is the resolved method-group return, already gated to a
     // supported non-void type with a single parameter equivalent to the source element type) and passes
     // null for a form that does not apply. The lambda form takes precedence; a null result is the standard
-    // inference decline the host reports. The body preflight and the reflection-bound validity/equivalence
-    // checks stay mechanical in the host — this owns only which candidate the return type comes from.
+    // inference decline the host reports. The body preflight and reflection-bound validity/equivalence
+    // checks remain C# debt — this owns only which candidate the return type comes from.
     static func PlanSingleParameterContextualReturnType(lambdaBodyReturnType: Type?, localFunctionReturnType: Type?): Type? {
         if lambdaBodyReturnType != null {
             return lambdaBodyReturnType
