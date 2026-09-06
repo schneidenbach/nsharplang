@@ -29,7 +29,7 @@ Evidence root: `/private/tmp/nsharp-generic-binding-ownership-20260906`. `baseli
 previous accepted gate and verified immutable `baseline-cli` payloads; `emitter-before.cs` and
 `ratchet-before.json` retain source/ownership baselines. The previous checkpoint passed 593 unit,
 7,843 canonical, 52 native projects, 12 throughput cells and 68 IL assemblies in 449s.
-The selected area and compiler-wide goal remain open until implementation and verification pass.
+The selected area is accepted by the integrated evidence below; the compiler-wide goal remains open.
 Broader CLI/editor/runtime/AOT work remains in `tasks/BRANCH-BACKLOG.md`.
 
 Actual complete routed source compiles under the accepted live SDK: `proposed-r3/build.log`, zero
@@ -63,4 +63,9 @@ Emitter 18,621→18,447 lines, 17,699→17,532 nonblank; text `text-v1:07be8c6d9
 C# tests 4,330→4,178 lines, 3,714→3,584 nonblank, markers 404→392;
 text `text-v1:363b1171f6048912`. Only those two ratchet rows change; all 379 other rows and all
 epoch ceilings remain unchanged. Reviewed head `head-v1:521fa39bbd79c444`.
-Fresh backend product gate is the remaining checkpoint requirement.
+Fresh `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` passed from clean committed
+`5386e6033e28e1d17d48bed0a8c21d792eeef40f` in 448s: 590 unit tests, 7,849 canonical assertions,
+52 native projects, 12 throughput cells and 68 IL assemblies; SDK/templates/examples passed.
+Receipt: `/private/tmp/gate-20260906-generic-binding-owner-r1/gate-result.json`. All 12 live SDK
+payloads still match the accepted seed (`post-gate-seed-check.json`). The seven-method area and
+its canonical assertion migration are complete; no legacy owner or decision callback remains for it.

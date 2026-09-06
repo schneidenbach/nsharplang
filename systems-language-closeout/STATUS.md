@@ -38,7 +38,7 @@ or Terra Max implement. [Broader branch backlog](../tasks/BRANCH-BACKLOG.md) pre
 runtime, NativeAOT and conditional metadata-writer initiatives separately. Accepted work and valid
 baseline evidence remain; no active verification was running at the clean `6e270ff2a` start.
 
-**Active area, generic-call binding and return substitution:** move complete `TryUnifyTypeParam`,
+**Accepted area, generic-call binding and return substitution:** moved complete `TryUnifyTypeParam`,
 `TryUnifyGenericCallArgument`, `TryUnifyGenericContainer`, `TrySubstituteReturnType` and their
 `IsDictionaryLikeCollectionDefinition`, `IsReadOnlyDictionaryCollectionDefinition`,
 `IsAnyDictionaryCollectionDefinition` dependencies. All callers of the collection helpers route
@@ -55,7 +55,12 @@ and preserves their exact source/success/exit/stdout assertions in N#: baseline 
 Native declarations `118/118` retain identical baseline names/outcomes, audit `18/18`. Emitter
 18,621→18,447 lines; C# tests 4,330→4,178, assertion markers 404→392. All 379 other ratchet
 rows/epoch ceilings are unchanged. Complete proposed source compiles with accepted SDK; no seed
-update. Fresh backend checkpoint gate remains required.
+update. Fresh backend gate passed at `5386e603` in 448s: 590 unit, 7,849 canonical, 52 native
+projects, 12 throughput cells and 68 IL assemblies; SDK/templates/examples green. All 12 live
+seed payloads remain unchanged. Compiler-wide ownership remains open.
+Next substantial area to assess: the complete static-field initializer emission group, including
+parameterless-call parsing, literal emission, floating parsing and the identifier predicate’s other
+receiver-chain caller; preserve the sibling-method state and eliminate callback ownership together.
 
 **Accepted area, sibling-call constraint validation:** moved the complete
 `TryValidateGenericSiblingConstraints`, `HasPublicParameterlessConstructorForConstraint`,
@@ -3098,7 +3103,7 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 
 | slice | commit | what moved | durable finding | numbers |
 |---|---|---|---|---|
-| Compiler generic-call binding and returns | `3949eb515`; assertions `14f6c4f3b` | Seven whole methods and fifteen direct routes; six planner controls; three complete C# end-to-end contracts migrate to N# | Preserve equality/identity distinction, partial binding writes, null failures and narrow return rules | C# emitter −174; C# tests −152/−12 markers; focused6, native7 baseline/candidate, declarations118, audit18; fresh gate pending. [Proof](decodes/2026-09-06-generic-binding-ownership.md) |
+| Compiler generic-call binding and returns | `3949eb515`; assertions `14f6c4f3b` | Seven whole methods and fifteen direct routes; six planner controls; three complete C# end-to-end contracts migrate to N# | Preserve equality/identity distinction, partial binding writes, null failures and narrow return rules | C# emitter −174; C# tests −152/−12 markers; focused6, native7 baseline/candidate, declarations118, audit18; fresh448s gate590/7,849,52native,68IL. [Proof](decodes/2026-09-06-generic-binding-ownership.md) |
 | Compiler sibling constraint validation | `244c0998a`; seed `7f929aeb2` | Seven complete validation/substitution/interface methods move to N# with eight canonical controls; direct production routes | Explicit protected enumerators preserve disposal; SymbolType SZ-before-byref ordering is pinned | C# −155/−145 lines; focused 65, native 118 unchanged, audit 18; fresh 449s gate 593/7,843, 52 native projects, 68 IL. [Proof](decodes/2026-09-06-sibling-constraint-ownership.md) |
 | Compiler generic-constraint application | `be3defa12` | Complete application, declared lifting, consumed map and safe-array dependency become N#-owned; four C# methods deleted, fourteen direct routes | Preserve source-owner registration, mutation/output/catch phases and shared map identity | C# −107/−103/−5,028 bytes; focused 56, native 115, audit 18; fresh 468s gate 593/7,833, 52 native projects, 68 IL. [Proof](decodes/2026-09-06-generic-constraint-ownership.md) |
 | Compiler constraint seed | `eb750c4fa` | Exact N# interface-constraint setter admission and canonical/direct native controls; no C# change | Full proposed source drove one required row; source-owner registration belongs in generic fixtures | Fresh backend gate: 593/7,822, 52 native projects, 68 IL assemblies; packaged SDK 9/9, 12 payloads match. [Proof](decodes/2026-09-06-generic-constraint-ownership.md) |
