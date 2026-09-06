@@ -2301,7 +2301,7 @@ internal sealed class ColumnarIlEmitter
                     iface.MethodNames[m],
                     methodAttributes,
                     memberReturn, memberParams);
-                if (!DefineMethodParameterMetadata(abstractMethod, memberParams, iface.MethodParamNames[m], memberParamModifierKinds, Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums))
+                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(abstractMethod, memberParams, iface.MethodParamNames[m], memberParamModifierKinds, Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums))
                     return false;
                 AddInstanceMethod(interfaceDef, iface.MethodNames[m],
                     new ColumnarInstanceMethodDef(abstractMethod, memberParams, memberParamModifierKinds, memberReturn));
@@ -2542,14 +2542,14 @@ internal sealed class ColumnarIlEmitter
                             (CallingConvention)nativeImport.UnmanagedCallingConvention,
                             (CharSet)nativeImport.CharacterSet);
                         pmb.SetImplementationFlags((MethodImplAttributes)nativeImport.MergeImplementationFlags((int)pmb.GetMethodImplementationFlags()));
-                        if (!DefineMethodParameterMetadata(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
+                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
                             return false;
                         overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn));
                         continue;
                     }
 
                     var smb = def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes);
-                    if (!DefineMethodParameterMetadata(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
                         return false;
                     overloads.Add(new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn));
                     structMethodJobs.Add((def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, sParamTypeMap, true));
@@ -2625,7 +2625,7 @@ internal sealed class ColumnarIlEmitter
                 if (!methodOverrideCompletion.IsValid)
                     return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName);
                 var mb = methodOverrideCompletion.DefineMethod(def.Builder);
-                if (!DefineMethodParameterMetadata(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
+                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums))
                     return false;
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences);
                 AddInstanceMethod(def, m.Name,
@@ -2724,7 +2724,7 @@ internal sealed class ColumnarIlEmitter
                     if (prop.Setter != null)
                     {
                         var exactStaticSetter = staticSetter!;
-                        if (!DefineMethodParameterMetadata(exactStaticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums))
+                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactStaticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums))
                             return false;
                         var staticSetOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = declarationPlan.Properties.ValueOrdinals[s][pi] };
                         var staticSetParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal) { ["value"] = propType };
@@ -2750,7 +2750,7 @@ internal sealed class ColumnarIlEmitter
                 if (prop.Setter != null)
                 {
                     var exactSetter = setter!;
-                    if (!DefineMethodParameterMetadata(exactSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums))
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums))
                         return false;
                     // The body assigns fields via the reference-type field-write path (a void structMethodJob).
                     var setOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = declarationPlan.Properties.ValueOrdinals[s][pi] };
@@ -2883,7 +2883,7 @@ internal sealed class ColumnarIlEmitter
                     return DeclineStatic("emit.ctor.param-default", "constructor parameter default could not be bound to its exact declaration", def.Builder.Name + ".constructor");
                 }
                 var cb = def.DefineUserConstructor(cParamTypes, ctor.ParamDefaultKinds, canonicalDefaultTexts);
-                if (!DefineConstructorParameterMetadata(cb, cParamTypes, ctor.Body.ParamNames, ctor.Body.ParamModifierKinds, ctor.ParamDefaultKinds, canonicalDefaultTexts, typeResolution.Enums))
+                if (!ColumnarParameterDefaultEmitter.DefineConstructorParameterMetadata(cb, cParamTypes, ctor.Body.ParamNames, ctor.Body.ParamModifierKinds, ctor.ParamDefaultKinds, canonicalDefaultTexts, typeResolution.Enums))
                     return DeclineStatic("emit.ctor.param-metadata", "constructor parameter metadata could not be emitted", def.Builder.Name + ".constructor");
                 structCtorJobs.Add((def, ctor, cb, cOrdinals, cParamTypeMap));
             }
@@ -3259,7 +3259,7 @@ internal sealed class ColumnarIlEmitter
                 methods[f] = type.DefineMethod(
                     fn.Name, (MethodAttributes)declarationPlan.Methods.FunctionAttributeWords[f], asyncWrappedReturn ?? returnType, paramTypes);
             }
-            if (!DefineMethodParameterMetadata(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums))
+            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums))
                 return false;
             ordinalsByFunc[f] = ordinals;
             paramTypesByFunc[f] = paramTypeMap;
@@ -3341,7 +3341,7 @@ internal sealed class ColumnarIlEmitter
                     var localMethod = type.DefineMethod(
                         "<" + fn.Name + ">g__" + lambdaCounter[0]++,
                         MethodAttributes.Private | MethodAttributes.Static, localReturn, localParams);
-                    if (!DefineMethodParameterMetadata(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums))
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums))
                         return false;
                     localFuncs[localFn.Name] = (localMethod, localParams, localReturn);
                     declaredLocalFuncNodes[nodeIndex] = localFn.Name;
@@ -8681,7 +8681,13 @@ internal sealed class ColumnarIlEmitter
                         {
                             if (a >= providedCtorArgCount)
                             {
-                                if (!TryEmitConstructorDefaultArgument(chosenParamTypes[a], chosenDefaultKinds[a], chosenDefaultTexts[a], out _))
+                                if (!ColumnarParameterDefaultEmitter.TryEmitConstructorDefaultArgument(
+                                        _il,
+                                        chosenParamTypes[a],
+                                        chosenDefaultKinds[a],
+                                        chosenDefaultTexts[a],
+                                        _typeResolutionEnums,
+                                        out _))
                                     return false;
                                 continue;
                             }
@@ -13395,8 +13401,8 @@ internal sealed class ColumnarIlEmitter
             var hasTrailingDefaults = true;
             for (var p = argCount; p < parameterTypes.Length; p++)
             {
-                if (!CanUseConstructorDefaultAs(
-                        parameterTypes[p], ctor.DefaultKinds, ctor.DefaultTexts, p))
+                if (!ColumnarParameterDefaultEmitter.CanUseConstructorDefaultAs(
+                        parameterTypes[p], ctor.DefaultKinds, ctor.DefaultTexts, p, _typeResolutionEnums))
                 {
                     hasTrailingDefaults = false;
                     break;
@@ -13562,7 +13568,13 @@ internal sealed class ColumnarIlEmitter
             {
                 if (a >= argCount)
                 {
-                    if (!TryEmitConstructorDefaultArgument(chosenParamTypes[a], chosenDefaultKinds[a], chosenDefaultTexts[a], out _))
+                    if (!ColumnarParameterDefaultEmitter.TryEmitConstructorDefaultArgument(
+                            _il,
+                            chosenParamTypes[a],
+                            chosenDefaultKinds[a],
+                            chosenDefaultTexts[a],
+                            _typeResolutionEnums,
+                            out _))
                         return false;
                     continue;
                 }
@@ -13643,62 +13655,6 @@ internal sealed class ColumnarIlEmitter
         }
 
         return false;
-    }
-
-    private bool CanUseConstructorDefaultAs(Type expectedType, int[] defaultKinds, string?[] defaultTexts, int index)
-    {
-        if (index < 0 || index >= defaultKinds.Length || index >= defaultTexts.Length)
-            return false;
-        return defaultKinds[index] switch
-        {
-            46 => !expectedType.IsValueType,
-            44 or 45 => expectedType == typeof(bool),
-            1 => expectedType == typeof(int)
-                 && int.TryParse(defaultTexts[index], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _),
-            4 => expectedType == typeof(string),
-            ParameterDefaultMemberAccessKind => TryResolveStringEnumParameterDefault(expectedType, defaultTexts[index], _typeResolutionEnums, out _)
-                                                || TryResolveEnumParameterDefault(expectedType, defaultTexts[index], _typeResolutionEnums, out _),
-            _ => false,
-        };
-    }
-
-    private bool TryEmitConstructorDefaultArgument(Type expectedType, int defaultKind, string? defaultText, out Type type)
-    {
-        type = null!;
-        switch (defaultKind)
-        {
-            case 46 when !expectedType.IsValueType:
-                _il.Emit(OpCodes.Ldnull);
-                type = expectedType;
-                return true;
-            case 44 when expectedType == typeof(bool):
-                _il.Emit(OpCodes.Ldc_I4_1);
-                type = typeof(bool);
-                return true;
-            case 45 when expectedType == typeof(bool):
-                _il.Emit(OpCodes.Ldc_I4_0);
-                type = typeof(bool);
-                return true;
-            case 1 when expectedType == typeof(int)
-                        && int.TryParse(defaultText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var intDefault):
-                _il.Emit(OpCodes.Ldc_I4, intDefault);
-                type = typeof(int);
-                return true;
-            case 4 when expectedType == typeof(string):
-                _il.Emit(OpCodes.Ldstr, defaultText != null ? NSharpLang.Compiler.StringLiteralDecoder.Decode(defaultText) : string.Empty);
-                type = typeof(string);
-                return true;
-            case ParameterDefaultMemberAccessKind when TryResolveStringEnumParameterDefault(expectedType, defaultText, _typeResolutionEnums, out var stringEnumDefault):
-                _il.Emit(OpCodes.Ldstr, stringEnumDefault);
-                type = expectedType;
-                return true;
-            case ParameterDefaultMemberAccessKind when TryResolveEnumParameterDefault(expectedType, defaultText, _typeResolutionEnums, out var enumDefault):
-                _il.Emit(OpCodes.Ldc_I4, enumDefault);
-                type = expectedType;
-                return true;
-            default:
-                return false;
-        }
     }
 
     private bool CanEmitConstructorArgumentAs(int argNode, Type expectedType)
@@ -16697,175 +16653,6 @@ internal sealed class ColumnarIlEmitter
         return assignable;
     }
 
-    private const int ParameterDefaultMemberAccessKind = 1000;
-
-    private static bool DefineMethodParameterMetadata(
-        MethodBuilder method,
-        Type[] parameterTypes,
-        string[] names,
-        int[] modifierKinds,
-        int[] defaultKinds,
-        string?[] defaultTexts,
-        ColumnarSemanticRegistry<ColumnarEnumDef> enumRegistry)
-    {
-        for (var i = 0; i < names.Length; i++)
-        {
-            var attributes = ParameterAttributes.None;
-            if (i < modifierKinds.Length && modifierKinds[i] == 2)
-                attributes |= ParameterAttributes.Out;
-            var hasDefault = HasParameterDefault(defaultKinds, defaultTexts, i);
-            if (hasDefault)
-                attributes |= ParameterAttributes.Optional | ParameterAttributes.HasDefault;
-            var parameter = method.DefineParameter(i + 1, attributes, names[i]);
-            var parameterType = i < parameterTypes.Length ? parameterTypes[i] : typeof(object);
-            if (hasDefault && !TrySetParameterDefault(parameter, parameterType, defaultKinds[i], defaultTexts[i], enumRegistry))
-                return false;
-        }
-        return true;
-    }
-
-    private static bool DefineConstructorParameterMetadata(
-        ConstructorBuilder constructor,
-        Type[] parameterTypes,
-        string[] names,
-        int[] modifierKinds,
-        int[] defaultKinds,
-        string?[] defaultTexts,
-        ColumnarSemanticRegistry<ColumnarEnumDef> enumRegistry)
-    {
-        for (var i = 0; i < names.Length; i++)
-        {
-            var attributes = ParameterAttributes.None;
-            if (i < modifierKinds.Length && modifierKinds[i] == 2)
-                attributes |= ParameterAttributes.Out;
-            var hasDefault = HasParameterDefault(defaultKinds, defaultTexts, i);
-            if (hasDefault)
-                attributes |= ParameterAttributes.Optional | ParameterAttributes.HasDefault;
-            var parameter = constructor.DefineParameter(i + 1, attributes, names[i]);
-            var parameterType = i < parameterTypes.Length ? parameterTypes[i] : typeof(object);
-            if (hasDefault && !TrySetParameterDefault(parameter, parameterType, defaultKinds[i], defaultTexts[i], enumRegistry))
-                return false;
-        }
-        return true;
-    }
-
-    private static bool HasParameterDefault(int[] defaultKinds, string?[] defaultTexts, int index)
-        => index >= 0
-           && index < defaultKinds.Length
-           && index < defaultTexts.Length
-           && defaultKinds[index] >= 0;
-
-    private static bool TrySetParameterDefault(
-        ParameterBuilder parameter,
-        Type parameterType,
-        int defaultKind,
-        string? defaultText,
-        ColumnarSemanticRegistry<ColumnarEnumDef> enumRegistry)
-    {
-        switch (defaultKind)
-        {
-            case 46:
-                parameter.SetConstant(null);
-                return true;
-            case 44:
-                parameter.SetConstant(true);
-                return true;
-            case 45:
-                parameter.SetConstant(false);
-                return true;
-            case 1 when int.TryParse(defaultText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var intDefault):
-                parameter.SetConstant(intDefault);
-                return true;
-            case 4:
-                parameter.SetConstant(defaultText != null ? NSharpLang.Compiler.StringLiteralDecoder.Decode(defaultText) : null);
-                return true;
-            case ParameterDefaultMemberAccessKind when TryResolveStringEnumParameterDefault(parameterType, defaultText, enumRegistry, out var stringEnumDefault):
-                parameter.SetConstant(stringEnumDefault);
-                return true;
-            case ParameterDefaultMemberAccessKind when TryResolveEnumParameterDefault(parameterType, defaultText, enumRegistry, out var enumDefault):
-                parameter.SetConstant(enumDefault);
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private static bool TryResolveStringEnumParameterDefault(
-        Type parameterType,
-        string? defaultText,
-        ColumnarSemanticRegistry<ColumnarEnumDef> enumRegistry,
-        out string value)
-    {
-        value = string.Empty;
-        if (string.IsNullOrWhiteSpace(defaultText))
-            return false;
-
-        var lastDot = defaultText.LastIndexOf('.');
-        if (lastDot <= 0 || lastDot + 1 >= defaultText.Length)
-            return false;
-
-        var enumTypeName = defaultText[..lastDot];
-        var memberName = defaultText[(lastDot + 1)..];
-        if (enumRegistry.TryGetValue(enumTypeName, out var enumDef)
-            && enumDef.StringConstants != null
-            && TypesEquivalent(enumDef.EnumType, parameterType)
-            && enumDef.StringConstants.TryGetValue(memberName, out var resolvedValue))
-        {
-            value = resolvedValue;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryResolveEnumParameterDefault(
-        Type parameterType,
-        string? defaultText,
-        ColumnarSemanticRegistry<ColumnarEnumDef> enumRegistry,
-        out int value)
-    {
-        value = 0;
-        if (string.IsNullOrWhiteSpace(defaultText))
-            return false;
-
-        var lastDot = defaultText.LastIndexOf('.');
-        if (lastDot <= 0 || lastDot + 1 >= defaultText.Length)
-            return false;
-
-        var enumTypeName = defaultText[..lastDot];
-        var memberName = defaultText[(lastDot + 1)..];
-        if (enumRegistry.TryGetValue(enumTypeName, out var enumDef)
-            && TypesEquivalent(enumDef.EnumType, parameterType)
-            && enumDef.Constants.TryGetValue(memberName, out value))
-        {
-            return true;
-        }
-
-        if (parameterType is not TypeBuilder
-            && parameterType is not EnumBuilder
-            && parameterType.IsEnum
-            && string.Equals(Enum.GetUnderlyingType(parameterType).FullName, "System.Int32", StringComparison.Ordinal)
-            && string.Equals(parameterType.Name, enumTypeName, StringComparison.Ordinal)
-            && Enum.IsDefined(parameterType, memberName))
-        {
-            value = Convert.ToInt32(Enum.Parse(parameterType, memberName), System.Globalization.CultureInfo.InvariantCulture);
-            return true;
-        }
-
-        if (parameterType is not TypeBuilder
-            && parameterType is not EnumBuilder
-            && parameterType.IsEnum
-            && string.Equals(Enum.GetUnderlyingType(parameterType).FullName, "System.Int32", StringComparison.Ordinal)
-            && string.Equals(parameterType.FullName, enumTypeName, StringComparison.Ordinal)
-            && Enum.IsDefined(parameterType, memberName))
-        {
-            value = Convert.ToInt32(Enum.Parse(parameterType, memberName), System.Globalization.CultureInfo.InvariantCulture);
-            return true;
-        }
-
-        return false;
-    }
-
     private static bool ParamTypesMatch(Type[] a, Type[] b)
     {
         if (a.Length != b.Length)
@@ -18160,7 +17947,8 @@ internal sealed class ColumnarIlEmitter
             var hasTrailingDefaults = true;
             for (var p = argCount; p < ctor.ParamTypes.Length; p++)
             {
-                if (!CanUseConstructorDefaultAs(ctor.ParamTypes[p], ctor.DefaultKinds, ctor.DefaultTexts, p))
+                if (!ColumnarParameterDefaultEmitter.CanUseConstructorDefaultAs(
+                        ctor.ParamTypes[p], ctor.DefaultKinds, ctor.DefaultTexts, p, _typeResolutionEnums))
                 {
                     hasTrailingDefaults = false;
                     break;
