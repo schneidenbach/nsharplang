@@ -204,3 +204,125 @@ test "Array Empty explicit generic ownership observes value and source owner sha
     assert ownership == ColumnarDirectCallOwnership.NotOwned
     assert legacyWholeSubtreePlanning
 }
+
+test "Array Empty source-element admission keeps the exact direct class boundary" {
+    referenceDefinition := SourceCallDefinition("ArrayEmptySourceReference", true)
+    valueDefinition := SourceCallDefinition("ArrayEmptySourceValue", false)
+    genericDefinition := SourceCallGenericDefinition("ArrayEmptySourceGeneric")
+    unrelatedDefinition := SourceCallDefinition("ArrayEmptySourceUnrelated", true)
+
+    assert ColumnarDirectCallPlanner.IsArrayEmptySourceElement(referenceDefinition.Builder, SourceCallDefinitions(referenceDefinition))
+    assert !ColumnarDirectCallPlanner.IsArrayEmptySourceElement(valueDefinition.Builder, SourceCallDefinitions(valueDefinition))
+    assert !ColumnarDirectCallPlanner.IsArrayEmptySourceElement(genericDefinition.Builder, SourceCallDefinitions(genericDefinition))
+    assert !ColumnarDirectCallPlanner.IsArrayEmptySourceElement(referenceDefinition.Builder, SourceCallDefinitions(unrelatedDefinition))
+
+    referenceType: Type = referenceDefinition.Builder
+    assert !ColumnarDirectCallPlanner.IsArrayEmptySourceElement(referenceType.MakeArrayType(), SourceCallDefinitions(referenceDefinition))
+    assert !ColumnarDirectCallPlanner.IsArrayEmptySourceElement(referenceType.MakeByRefType(), SourceCallDefinitions(referenceDefinition))
+    assert !ColumnarDirectCallPlanner.IsArrayEmptySourceElement(referenceType.MakePointerType(), SourceCallDefinitions(referenceDefinition))
+}
+
+test "Array Empty runtime selection closes the exact source class and array return" {
+    definition := SourceCallDefinition("ArrayEmptyRuntimeSource", true)
+    elementType: Type = definition.Builder
+    selection := ColumnarRuntimeDirectCallSelection.Empty()
+
+    assert ColumnarRuntimeDirectCallResolver.TrySelectArrayEmpty(typeof(Array), elementType, out selection)
+    method := selection.Method
+    assert method != null
+    assert selection.LookupType == typeof(Array)
+    assert selection.DeclaringType == typeof(Array)
+    assert selection.IsStatic
+    assert selection.Kind == ColumnarExternalCallKind.Call
+    assert selection.ParameterTypes.Length == 0
+    assert ColumnarTypeEquivalenceFacts.TypesEquivalent(selection.ReturnType, elementType.MakeArrayType())
+    assert selection.ReturnType.GetElementType() == elementType
+    methodTypeArguments := method.GetGenericArguments()
+    assert methodTypeArguments.Length == 1
+    assert methodTypeArguments[0] == elementType
+    assert method.GetParameters().Length == 0
+    // Reflection.Emit's MethodBuilderInstantiation retains the definition's T[] reflection view;
+    // the selection carries the exact closed source array computed from that definition shape.
+    reflectedReturnType := method.get_ReturnType()
+    reflectedElementType := reflectedReturnType.GetElementType()
+    assert reflectedReturnType.get_IsSZArray()
+    assert reflectedElementType != null
+    assert reflectedElementType.get_IsGenericParameter()
+
+    selection = ColumnarRuntimeDirectCallSelection.Empty()
+    assert !ColumnarRuntimeDirectCallResolver.TrySelectArrayEmpty(typeof(string), elementType, out selection)
+    assert selection.Method == null
+}
+
+test "direct call planner closes bare and qualified Array Empty over a source class" {
+    definition := SourceCallDefinition("ArrayEmptyPlannedSource", true)
+    inputs := new List<ColumnarStructInput>()
+    emptyFieldNames := new string[](0)
+    emptyBaseNames := new string[](0)
+    emptyMethods := new List<ColumnarFunctionInput>()
+    input := ExternalStruct("ArrayEmptyPlannedSource", emptyFieldNames, emptyBaseNames, emptyMethods, null, true)
+    inputs.Add(input)
+    bindings := DirectCallSingleDefinitionBindings(definition)
+
+    shortTree := DirectCallParsedTree("Array.Empty<ArrayEmptyPlannedSource>()")
+    ExternalStampScopeFull(shortTree, "import System\nclass ArrayEmptyPlannedSource {}", "", new string[](0), inputs, null)
+    shortPlan := DirectCallPlan(shortTree, bindings)
+
+    qualifiedTree := DirectCallParsedTree("System.Array.Empty<ArrayEmptyPlannedSource>()")
+    ExternalStampScopeFull(qualifiedTree, "class ArrayEmptyPlannedSource {}", "", new string[](0), inputs, null)
+    qualifiedPlan := DirectCallPlan(qualifiedTree, bindings)
+
+    elementType: Type = definition.Builder
+    expectedReturnType := elementType.MakeArrayType()
+    assert ColumnarTypeEquivalenceFacts.TypesEquivalent(shortPlan.ResultType, expectedReturnType)
+    assert ColumnarTypeEquivalenceFacts.TypesEquivalent(qualifiedPlan.ResultType, expectedReturnType)
+    assert shortPlan.ResultType.GetElementType() == elementType
+    assert qualifiedPlan.ResultType.GetElementType() == elementType
+    assert shortPlan.OperationCount == 1
+    assert qualifiedPlan.OperationCount == 1
+    assert shortPlan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert qualifiedPlan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    shortMethod := shortPlan.Methods[shortPlan.OperandIndices[0]]
+    qualifiedMethod := qualifiedPlan.Methods[qualifiedPlan.OperandIndices[0]]
+    assert shortMethod != null
+    assert qualifiedMethod != null
+    assert shortMethod.GetGenericArguments()[0] == elementType
+    assert qualifiedMethod.GetGenericArguments()[0] == elementType
+}
+
+test "Array Empty source-class expansion leaves source value generic and shaped elements unowned" {
+    valueDefinition := SourceCallDefinition("ArrayEmptyRejectedValue", false)
+    valueInputs := new List<ColumnarStructInput>()
+    valueInputs.Add(ExternalStruct("ArrayEmptyRejectedValue", new string[](0), new string[](0), new List<ColumnarFunctionInput>(), null, false))
+    valueTree := DirectCallParsedTree("Array.Empty<ArrayEmptyRejectedValue>()")
+    ExternalStampScopeFull(valueTree, "import System\nstruct ArrayEmptyRejectedValue {}", "", new string[](0), valueInputs, null)
+    ownership := ColumnarDirectCallOwnership.Planned
+    legacyWholeSubtreePlanning := true
+    _valuePlan := DirectCallRejected(valueTree, DirectCallSingleDefinitionBindings(valueDefinition), out ownership, out legacyWholeSubtreePlanning)
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert !legacyWholeSubtreePlanning
+
+    genericDefinition := SourceCallGenericDefinition("ArrayEmptyRejectedGeneric")
+    genericTypeParameters := new string[](1)
+    genericTypeParameters[0] = "T"
+    genericInputs := new List<ColumnarStructInput>()
+    genericInputs.Add(ExternalStruct("ArrayEmptyRejectedGeneric", new string[](0), new string[](0), new List<ColumnarFunctionInput>(), genericTypeParameters, true))
+    genericTree := DirectCallParsedTree("Array.Empty<ArrayEmptyRejectedGeneric>()")
+    ExternalStampScopeFull(genericTree, "import System\nclass ArrayEmptyRejectedGeneric<T> {}", "", new string[](0), genericInputs, null)
+    ownership = ColumnarDirectCallOwnership.Planned
+    legacyWholeSubtreePlanning = true
+    _genericPlan := DirectCallRejected(genericTree, DirectCallSingleDefinitionBindings(genericDefinition), out ownership, out legacyWholeSubtreePlanning)
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert !legacyWholeSubtreePlanning
+
+    arrayDefinition := SourceCallDefinition("ArrayEmptyRejectedArray", true)
+    arrayInputs := new List<ColumnarStructInput>()
+    arrayInputs.Add(ExternalStruct("ArrayEmptyRejectedArray", new string[](0), new string[](0), new List<ColumnarFunctionInput>(), null, true))
+    arrayTree := DirectCallParsedTree("Array.Empty<ArrayEmptyRejectedArray[]>()")
+    ExternalStampScopeFull(arrayTree, "import System\nclass ArrayEmptyRejectedArray {}", "", new string[](0), arrayInputs, null)
+    ownership = ColumnarDirectCallOwnership.Planned
+    legacyWholeSubtreePlanning = true
+    _arrayPlan := DirectCallRejected(arrayTree, DirectCallSingleDefinitionBindings(arrayDefinition), out ownership, out legacyWholeSubtreePlanning)
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert !legacyWholeSubtreePlanning
+}

@@ -335,6 +335,27 @@ class ColumnarDirectCallPlanner {
             typeArgumentIndex += 1
         }
 
+        arrayDeclaringTypeIdentity := ""
+        if ColumnarExternalBindingPlans.TryGetArrayEmptyExplicitGenericOwner(ownerName, memberName, typeArguments.Length, argumentTypes.Length, out arrayDeclaringTypeIdentity) {
+            if IsArrayEmptySourceElement(typeArguments[0], bindings.SourceTypeDefinitions) {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                arrayType := typeof(object)
+                if !scope.TryResolveExternalStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, arrayDeclaringTypeIdentity, out arrayType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                arraySelection := ColumnarRuntimeDirectCallSelection.Empty()
+                if !ColumnarRuntimeDirectCallResolver.TrySelectArrayEmpty(arrayType, typeArguments[0], out arraySelection) || !AppendRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, arraySelection, out resultType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+        }
+
         externalPlan := ColumnarExternalBindingPlans.GetExplicitGenericStaticCallPlan(ownerName, memberName, TypeNames(typeArguments), TypeNames(argumentTypes))
         if !externalPlan.IsSupported {
             plan.Rollback(checkpoint)
@@ -355,6 +376,19 @@ class ColumnarDirectCallPlanner {
         }
 
         ownership = ColumnarDirectCallOwnership.Planned
+        return true
+    }
+
+    static func IsArrayEmptySourceElement(elementType: Type, sourceDefinitions: IEnumerable<ColumnarStructDef>): bool {
+        if !(elementType is TypeBuilder) {
+            return false
+        }
+
+        candidate := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(sourceDefinitions, elementType)
+        if candidate == null || !candidate.IsReference || candidate.Builder.get_IsGenericTypeDefinition() {
+            return false
+        }
+
         return true
     }
 

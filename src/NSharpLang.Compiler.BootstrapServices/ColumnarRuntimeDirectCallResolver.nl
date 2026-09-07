@@ -40,6 +40,83 @@ class ColumnarRuntimeDirectCallSelection {
 // generic INFERENCE is permitted. A generic method definition closes ONLY when the plan itself
 // pins the exact type-argument identities alongside the exact closed signature.
 class ColumnarRuntimeDirectCallResolver {
+
+    // Array.Empty<T>() is also required when T is an unbaked non-generic source class. Such a live
+    // TypeBuilder has no stable assembly-qualified name for the ordinary external-call plan, so the
+    // source-aware caller supplies its exact handle. Keep the same exact method constraints as the
+    // named resolver: one public static zero-parameter definition, one exact closure and one exact
+    // array return type.
+    static func TrySelectArrayEmpty(lookupType: Type, elementType: Type, out selection: ColumnarRuntimeDirectCallSelection): bool {
+        selection = ColumnarRuntimeDirectCallSelection.Empty()
+        if lookupType == null || elementType == null || lookupType != typeof(Array) {
+            return false
+        }
+
+        expectedReturnType := typeof(object)
+        try {
+            expectedReturnType = elementType.MakeArrayType()
+        } catch {
+            return false
+        }
+
+        methods: MethodInfo[]? = null
+        try {
+            methods = lookupType.GetMethods()
+        } catch {
+            return false
+        }
+        if methods == null {
+            return false
+        }
+
+        selected := ColumnarRuntimeDirectCallSelection.Empty()
+        selectedCount := 0
+        index := 0
+        while index < methods.Length {
+            definition := methods[index]
+            if definition != null && definition.get_Name() == "Empty" && definition.get_IsPublic() && definition.get_IsStatic() && definition.get_IsGenericMethodDefinition() && definition.get_DeclaringType() == lookupType {
+                definitionTypeArguments := definition.GetGenericArguments()
+                definitionParameters := definition.GetParameters()
+                if definitionTypeArguments.Length == 1 && definitionParameters.Length == 0 {
+                    returnBindings := new Type[](1)
+                    returnBindings[0] = elementType
+                    closedReturnType := typeof(object)
+                    returnMatches := ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(definitionTypeArguments, returnBindings, definition.get_ReturnType(), out closedReturnType) && ColumnarTypeEquivalenceFacts.TypesEquivalent(closedReturnType, expectedReturnType)
+                    typeArguments := new Type[](1)
+                    typeArguments[0] = elementType
+                    closed: MethodInfo? = null
+                    if returnMatches {
+                        try {
+                            closed = definition.MakeGenericMethod(typeArguments)
+                        } catch {
+                            closed = null
+                        }
+                    }
+
+                    if closed != null && !closed.get_IsGenericMethodDefinition() && closed.get_IsGenericMethod() && closed.GetGenericArguments().Length == 1 && closed.GetGenericArguments()[0] == elementType && closed.GetParameters().Length == 0 {
+                        declaringType := closed.get_DeclaringType()
+                        if declaringType == lookupType {
+                            selected = new ColumnarRuntimeDirectCallSelection(closed, lookupType, declaringType, new Type[](0), closedReturnType, ColumnarExternalCallKind.Call, true, false)
+                            selectedCount = selectedCount + 1
+                            if selectedCount > 1 {
+                                return false
+                            }
+                        }
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+
+        if selectedCount != 1 {
+            return false
+        }
+
+        selection = selected
+        return true
+    }
+
     static func TrySelect(plan: ColumnarExternalCallPlan, lookupType: Type, expectedStatic: bool, out selection: ColumnarRuntimeDirectCallSelection): bool {
         selection = ColumnarRuntimeDirectCallSelection.Empty()
         if !ValidatePlanForm(plan, lookupType, expectedStatic) {

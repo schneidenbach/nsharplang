@@ -517,9 +517,22 @@ class ColumnarExternalBindingPlans {
         return NoCall()
     }
 
+    // The exact generic owner shape is shared by the named runtime row and the live source-class
+    // closure. It recognizes only Array.Empty with one type argument and no value arguments; the
+    // callers retain ownership of the distinct element-type policies.
+    static func TryGetArrayEmptyExplicitGenericOwner(typeName: string, memberName: string, typeArgumentCount: int, argumentCount: int, out declaringTypeIdentity: string): bool {
+        declaringTypeIdentity = ""
+        if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentCount == 1 && argumentCount == 0 {
+            declaringTypeIdentity = ExactTypeIdentity("System.Array")
+            return true
+        }
+
+        return false
+    }
+
     // An explicitly closed external generic call carries its type arguments in the callee rather
-    // than in the value-argument list. Keep that distinction visible to the catalog: this row owns
-    // exactly Array.Empty<string>(), whose returned singleton identity is part of its contract.
+    // than in the value-argument list. Keep that distinction visible to the catalog: this named row
+    // owns exactly Array.Empty<string>(), whose returned singleton identity is part of its contract.
     static func GetExplicitGenericStaticCallPlan(typeName: string, memberName: string, typeArgumentTypeNames: string[], argumentTypeNames: string[]): ColumnarExternalCallPlan {
         if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "System.String" && argumentTypeNames.Length == 0 {
             return GenericStaticCall("System.Array", memberName, One("System.String"), Empty(), "System.String[]")
