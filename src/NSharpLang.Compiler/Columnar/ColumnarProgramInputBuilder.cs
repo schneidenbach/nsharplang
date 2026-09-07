@@ -431,32 +431,21 @@ internal static class ColumnarProgramInputBuilder
                 var typeParamSpecials = ColumnarConstraintColumns.BuildSpecials(outWhereOwnerTexts, outWhereItemCodes, typeParamNames, whereRowCount);
                 var typeParamTypeConstraints = ColumnarConstraintColumns.BuildTypeConstraints(outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, typeParamNames, whereRowCount);
 
-                var fieldNames = new string[fieldCount];
-                var fieldTypes = new string[fieldCount];
-                var fieldStatics = new bool[fieldCount];
-                var fieldReadonlyFlags = new bool[fieldCount];
-                var fieldInitKinds = new int[fieldCount];
-                var fieldInitTexts = new string[fieldCount];
-                for (var f = 0; f < fieldCount; f++)
-                {
-                    var fieldName = outFieldNameTexts[f];
-                    fieldNames[f] = fieldName;
-                    var fieldType = outFieldTypeTexts[f];
-                    fieldTypes[f] = fieldType;
-                    var fieldModifierFlags = outFieldStaticFlags[f];
-                    fieldStatics[f] = global::Program.ColumnarStructFieldFlagIsStatic(fieldModifierFlags);
-                    fieldReadonlyFlags[f] = global::Program.ColumnarStructFieldFlagIsReadonly(fieldModifierFlags);
-                    fieldInitKinds[f] = outFieldInitKinds[f];
-                    if (outFieldInitKinds[f] >= 0)
-                    {
-                        var fieldInitText = outFieldInitTexts[f];
-                        fieldInitTexts[f] = fieldInitText;
-                    }
-                    else
-                    {
-                        fieldInitTexts[f] = "";
-                    }
-                }
+                var fieldColumns = ColumnarStructFieldColumns.Build(
+                    outFieldNameTexts,
+                    outFieldTypeTexts,
+                    outFieldStaticFlags,
+                    outFieldInitKinds,
+                    outFieldInitTexts,
+                    fieldCount);
+                var fieldNames = fieldColumns.FieldNames;
+                var fieldTypes = fieldColumns.FieldTypeCanonicals;
+                var fieldStatics = fieldColumns.FieldStaticFlags;
+                var fieldReadonlyFlags = fieldColumns.FieldReadonlyFlags;
+                var fieldPrivateFlags = fieldColumns.FieldPrivateFlags;
+                var fieldThreadStaticFlags = fieldColumns.FieldThreadStaticFlags;
+                var fieldInitKinds = fieldColumns.FieldInitKinds;
+                var fieldInitTexts = fieldColumns.FieldInitTexts;
 
                 var methodCount = outResult[2];
                 var methods = new List<ColumnarFunctionInput>(methodCount);
@@ -497,7 +486,7 @@ internal static class ColumnarProgramInputBuilder
                     properties.Add(propInput);
                 }
 
-                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames, fieldReadonlyFlags, isRefStruct: isRefStruct, enclosingTypeName: declEnclosingTypeNames[declSlot] ?? "", visibilityModifierFlags: declVisibilityFlags[declSlot], typeParamSpecialConstraints: typeParamSpecials, typeParamTypeConstraints: typeParamTypeConstraints));
+                structs.Add(new ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames, fieldReadonlyFlags, isRefStruct: isRefStruct, enclosingTypeName: declEnclosingTypeNames[declSlot] ?? "", visibilityModifierFlags: declVisibilityFlags[declSlot], typeParamSpecialConstraints: typeParamSpecials, typeParamTypeConstraints: typeParamTypeConstraints, fieldPrivateFlags: fieldPrivateFlags, fieldThreadStaticFlags: fieldThreadStaticFlags));
             }
             return true;
         }

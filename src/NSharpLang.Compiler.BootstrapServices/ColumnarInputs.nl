@@ -198,6 +198,8 @@ class ColumnarStructInput {
     BaseNames: string[]
     FieldStaticFlags: bool[]
     FieldReadonlyFlags: bool[]
+    FieldPrivateFlags: bool[]
+    FieldThreadStaticFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
     IsRecord: bool
@@ -211,7 +213,7 @@ class ColumnarStructInput {
     EnclosingTypeName: string
     NestedVisibilityAttributes: int
 
-    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null) {
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -242,6 +244,8 @@ class ColumnarStructInput {
         SourceFileId = sourceFileId
         EnclosingTypeName = enclosingTypeName ?? ""
         NestedVisibilityAttributes = NestedVisibilityFor(name, visibilityModifierFlags)
+        FieldPrivateFlags = fieldPrivateFlags ?? new bool[](fieldNames.Length)
+        FieldThreadStaticFlags = fieldThreadStaticFlags ?? new bool[](fieldNames.Length)
     }
 
     static func NestedVisibilityFor(name: string, flags: int): int {

@@ -9388,7 +9388,30 @@ func ParserDeclarationModifierFlagsIncludeReadonly(flags: int): bool {
     return (flags / 512) % 2 == 1
 }
 
-func ParseMemberModifierPrefixCore(tokens: ParserDeclarationTokenTable, count: int, pos: int, result: ParserDeclarationResultTable): int {
+// Field metadata currently has one intrinsic attribute surface. Require the exact System-qualified
+// CLR identity, accept its suffixed spelling, and allow either omitted or empty argument syntax.
+// The parser has no semantic import scope, so an unqualified or foreign name cannot prove that
+// identity; a payload or unrelated attribute must also remain ordinary skipped prefix data.
+func ParserDeclarationIsExactThreadStaticAttribute(source: string, tokens: ParserDeclarationTokenTable, count: int, openIndex: int): bool {
+    if openIndex < 0 || openIndex + 2 >= count || tokens.Kinds[openIndex] != 131 {
+        return false
+    }
+
+    scan := openIndex + 1
+    if scan + 2 < count && tokens.Kinds[scan] == 0 && ColumnarTokenTextEquals(source, tokens, scan, "System") && tokens.Kinds[scan + 1] == 124 && tokens.Kinds[scan + 2] == 0 && (ColumnarTokenTextEquals(source, tokens, scan + 2, "ThreadStatic") || ColumnarTokenTextEquals(source, tokens, scan + 2, "ThreadStaticAttribute")) {
+        scan = scan + 3
+    } else {
+        return false
+    }
+
+    if scan + 1 < count && tokens.Kinds[scan] == 127 && tokens.Kinds[scan + 1] == 128 {
+        scan = scan + 2
+    }
+
+    return scan < count && tokens.Kinds[scan] == 132
+}
+
+func ParseMemberModifierPrefixCore(source: string, tokens: ParserDeclarationTokenTable, count: int, pos: int, result: ParserDeclarationResultTable): int {
     if pos < 0 || pos > count || result.Values.Length < 2 {
         return -1
     }
@@ -9398,9 +9421,15 @@ func ParseMemberModifierPrefixCore(tokens: ParserDeclarationTokenTable, count: i
     if result.Values.Length >= 3 {
         result.Values[2] = 0
     }
+    if result.Values.Length >= 4 {
+        result.Values[3] = 0
+    }
 
     while pos < count {
         if tokens.Kinds[pos] == 131 {
+            if result.Values.Length >= 4 && ParserDeclarationIsExactThreadStaticAttribute(source, tokens, count, pos) {
+                result.Values[3] = 1
+            }
             bracketDepth := 1
             pos = pos + 1
             while pos < count && bracketDepth > 0 {
@@ -10185,13 +10214,13 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     fieldCount := 0
     propCount := 0
     fieldsDone := 0
-    memberModifierValues := new int[](3)
+    memberModifierValues := new int[](4)
     memberModifiers := new ParserDeclarationResultTable(memberModifierValues)
     fieldTypeResult := new ParserDeclarationResultTable(new int[](2))
     initializerTypeResult := new ParserDeclarationResultTable(new int[](2))
     hasInstanceInitializer := 0
     while fieldsDone == 0 && pos < count && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 7 && tokens.Kinds[pos] != 85 && tokens.Kinds[pos] != 86 {
-        memberStart := ParseMemberModifierPrefixCore(tokens, count, pos, memberModifiers)
+        memberStart := ParseMemberModifierPrefixCore(source, tokens, count, pos, memberModifiers)
         if memberStart < 0 || memberStart >= count {
             return -1
         }
@@ -10254,6 +10283,12 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             fieldModifierFlags := memberModifiers.Values[0]
             if ParserDeclarationModifierFlagsIncludeReadonly(memberModifiers.Values[2]) {
                 fieldModifierFlags = fieldModifierFlags + 2
+            }
+            if (memberModifiers.Values[2] & 2) != 0 {
+                fieldModifierFlags = fieldModifierFlags + 4
+            }
+            if memberModifiers.Values[3] == 1 {
+                fieldModifierFlags = fieldModifierFlags + 8
             }
 
             decl.FieldStaticFlags[fieldCount] = fieldModifierFlags
@@ -10405,7 +10440,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     }
 
     while pos < count && tokens.Kinds[pos] != 130 {
-        memberStart := ParseMemberModifierPrefixCore(tokens, count, pos, memberModifiers)
+        memberStart := ParseMemberModifierPrefixCore(source, tokens, count, pos, memberModifiers)
         if memberStart < 0 || memberStart >= count {
             return -1
         }
@@ -12878,7 +12913,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
     scan := bodyBrace + 1
     scanDone := 0
     while scanDone == 0 && scan < tokens.Count && tokens.Kinds[scan] != 130 && tokens.Kinds[scan] != 7 {
-        memberStart := ParseMemberModifierPrefixCore(declarationTokens, tokens.Count, scan, memberModifiers)
+        memberStart := ParseMemberModifierPrefixCore(source, declarationTokens, tokens.Count, scan, memberModifiers)
         if memberStart < 0 || memberStart >= tokens.Count {
             return -1
         }
@@ -13285,14 +13320,22 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
 }
 
 func ColumnarStructFieldFlagIsStatic(flags: int): bool {
-    return flags == 1 || flags == 3
+    return (flags & 1) != 0
 }
 
-// The other half of the field flag word this file writes: bit 1 is `static`, bit 2 is `readonly`
-// (set beside it at the FieldStaticFlags write). The columnar input builder used to test the bit
-// itself; the bit's meaning belongs to the kernel that sets it.
+// The field word packs four independent facts: bit 0 `static`, bit 1 `readonly`, bit 2 `private`,
+// and bit 3 the exact System.ThreadStatic intrinsic. The columnar input builder used to decode the
+// first two itself; every bit's meaning belongs to the kernel that writes the word.
 func ColumnarStructFieldFlagIsReadonly(flags: int): bool {
     return (flags & 2) != 0
+}
+
+func ColumnarStructFieldFlagIsPrivate(flags: int): bool {
+    return (flags & 4) != 0
+}
+
+func ColumnarStructFieldFlagIsThreadStatic(flags: int): bool {
+    return (flags & 8) != 0
 }
 
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {

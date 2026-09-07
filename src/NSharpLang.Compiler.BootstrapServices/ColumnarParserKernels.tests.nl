@@ -149,6 +149,11 @@ class ColumnarConstructorDefaultParseProbe {
 
 class ColumnarStructDeclarationParseProbe {
     FieldCount: int
+    FieldNameTexts: string[]
+    FieldTypeTexts: string[]
+    FieldStaticFlags: int[]
+    FieldInitKinds: int[]
+    FieldInitTexts: string[]
     TypeParamTexts: string[]
     BaseNameTexts: string[]
     StructNameTexts: string[]
@@ -177,11 +182,11 @@ class ColumnarStructDeclarationParseProbe {
             tokenCounts
         )
 
-        fieldNameTexts := new string[](capacity)
-        fieldTypeTexts := new string[](capacity)
-        fieldStaticFlags := new int[](capacity)
-        fieldInitKinds := new int[](capacity)
-        fieldInitTexts := new string[](capacity)
+        FieldNameTexts = new string[](capacity)
+        FieldTypeTexts = new string[](capacity)
+        FieldStaticFlags = new int[](capacity)
+        FieldInitKinds = new int[](capacity)
+        FieldInitTexts = new string[](capacity)
         methodFuncIndices := new int[](capacity)
         methodStaticFlags := new int[](capacity)
         constructorIndices := new int[](capacity)
@@ -207,11 +212,11 @@ class ColumnarStructDeclarationParseProbe {
             structIndex,
             1,
             0,
-            fieldNameTexts,
-            fieldTypeTexts,
-            fieldStaticFlags,
-            fieldInitKinds,
-            fieldInitTexts,
+            FieldNameTexts,
+            FieldTypeTexts,
+            FieldStaticFlags,
+            FieldInitKinds,
+            FieldInitTexts,
             methodFuncIndices,
             methodStaticFlags,
             constructorIndices,
@@ -1261,20 +1266,35 @@ test "the case label names the plain description or the description plus its row
 // NOT a member of `Modifiers` at all. It exists only as `ColumnarFunctionInput.NativeImportModifierFlag()`,
 // which is why every caller must ask rather than remember.
 
-test "the field flag word separates `static` from `readonly` across its whole domain" {
-    // The scan writes bit 1 for `static` and adds 2 for `readonly`, so the domain is 0..3 and every
-    // one of the four combinations has to answer both questions independently.
-    assert !ColumnarStructFieldFlagIsStatic(0)
-    assert !ColumnarStructFieldFlagIsReadonly(0)
+test "the field flag word separates static readonly private and ThreadStatic across its whole domain" {
+    // The scan packs four independent booleans, so all sixteen words must decode without equality
+    // shortcuts that would silently break when a later bit is present.
+    flags := 0
+    while flags < 16 {
+        assert ColumnarStructFieldFlagIsStatic(flags) == ((flags & 1) != 0)
+        assert ColumnarStructFieldFlagIsReadonly(flags) == ((flags & 2) != 0)
+        assert ColumnarStructFieldFlagIsPrivate(flags) == ((flags & 4) != 0)
+        assert ColumnarStructFieldFlagIsThreadStatic(flags) == ((flags & 8) != 0)
+        flags = flags + 1
+    }
+}
 
-    assert ColumnarStructFieldFlagIsStatic(1)
-    assert !ColumnarStructFieldFlagIsReadonly(1)
+test "the struct parser recognizes only exact qualified no-argument System ThreadStatic spellings" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Trace {\n" + "[ThreadStatic] private static Short: int\n" + "[ThreadStaticAttribute()] private static UnqualifiedSuffixed: int\n" + "[System.ThreadStatic] private static Qualified: int\n" + "[System.ThreadStaticAttribute()] private static QualifiedSuffixed: int\n" + "[Other.ThreadStatic] private static WrongNamespace: int\n" + "[System.ThreadStatic(1)] private static HasArgument: int\n" + "[Obsolete] private static Unrelated: int\n" + "[System.ThreadStatic] public static PublicField: int\n" + "}"
+    )
 
-    assert !ColumnarStructFieldFlagIsStatic(2)
-    assert ColumnarStructFieldFlagIsReadonly(2)
-
-    assert ColumnarStructFieldFlagIsStatic(3)
-    assert ColumnarStructFieldFlagIsReadonly(3)
+    assert probe.FieldCount == 8
+    assert probe.FieldNameTexts[0] == "Short"
+    assert probe.FieldNameTexts[7] == "PublicField"
+    assert probe.FieldStaticFlags[0] == 5
+    assert probe.FieldStaticFlags[1] == 5
+    assert probe.FieldStaticFlags[2] == 13
+    assert probe.FieldStaticFlags[3] == 13
+    assert probe.FieldStaticFlags[4] == 5
+    assert probe.FieldStaticFlags[5] == 5
+    assert probe.FieldStaticFlags[6] == 5
+    assert probe.FieldStaticFlags[7] == 9
 }
 
 test "the method flag word names `static`, `async` and the LibraryImport bit rather than their numbers" {

@@ -233,15 +233,20 @@ func DeclarationPlanFieldStruct(
     )
 }
 
-test "the field rows publish all four FieldAttributes words" {
+test "the field rows publish every public and private FieldAttributes word" {
+    assert ColumnarDeclarationPlanner.PrivateFieldAttribute() == 1
     assert ColumnarDeclarationPlanner.PublicFieldAttribute() == 6
     assert ColumnarDeclarationPlanner.StaticFieldAttribute() == 16
     assert ColumnarDeclarationPlanner.InitOnlyFieldAttribute() == 32
 
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false) == 6
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true) == 38
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, false) == 22
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, true) == 54
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false, false) == 6
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, false) == 38
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, false, false) == 22
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, true, false) == 54
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false, true) == 1
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, true) == 33
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, false, true) == 17
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, true, true) == 49
 }
 
 test "the readonly flag is bounds-guarded and a field past the flags array is simply not readonly" {
@@ -268,6 +273,31 @@ test "the readonly flag is bounds-guarded and a field past the flags array is si
     assert !ColumnarDeclarationPlanner.FieldIsNullableAt(input, 0)
     assert ColumnarDeclarationPlanner.FieldIsNullableAt(input, 1)
     assert !ColumnarDeclarationPlanner.FieldIsNullableAt(input, 2)
+}
+
+test "private and ThreadStatic field facts are independently bounds-guarded" {
+    names := new string[](3)
+    names[0] = "First"
+    names[1] = "Second"
+    names[2] = "Third"
+    canonicals := new string[](3)
+    canonicals[0] = "int"
+    canonicals[1] = "int"
+    canonicals[2] = "int"
+    input := DeclarationPlanFieldStruct("Trace", names, canonicals, new bool[](3), new bool[](3))
+    privateFlags := new bool[](2)
+    privateFlags[0] = true
+    threadStaticFlags := new bool[](1)
+    threadStaticFlags[0] = true
+    input.FieldPrivateFlags = privateFlags
+    input.FieldThreadStaticFlags = threadStaticFlags
+
+    assert ColumnarDeclarationPlanner.FieldIsPrivateAt(input, 0)
+    assert !ColumnarDeclarationPlanner.FieldIsPrivateAt(input, 1)
+    assert !ColumnarDeclarationPlanner.FieldIsPrivateAt(input, 2)
+    assert ColumnarDeclarationPlanner.FieldIsThreadStaticAt(input, 0)
+    assert !ColumnarDeclarationPlanner.FieldIsThreadStaticAt(input, 1)
+    assert !ColumnarDeclarationPlanner.FieldIsThreadStaticAt(input, 2)
 }
 
 test "the field rows carry a word, a static flag and a nullable flag for every field of every struct" {
@@ -298,8 +328,40 @@ test "the field rows carry a word, a static flag and a nullable flag for every f
     assert rows.FieldAttributeWords[0][2] == 22
     assert !rows.FieldIsStatic[0][0]
     assert rows.FieldIsStatic[0][2]
+    assert !rows.FieldIsThreadStatic[0][0]
     assert !rows.FieldIsNullable[0][0]
     assert rows.FieldIsNullable[0][1]
+}
+
+test "field rows preserve private and ThreadStatic columns while composing visibility" {
+    names := new string[](2)
+    names[0] = "Trace"
+    names[1] = "Shared"
+    canonicals := new string[](2)
+    canonicals[0] = "int"
+    canonicals[1] = "string"
+    statics := new bool[](2)
+    statics[0] = true
+    statics[1] = true
+    readonlys := new bool[](2)
+    readonlys[0] = true
+    privates := new bool[](2)
+    privates[0] = true
+    threadStatics := new bool[](2)
+    threadStatics[0] = true
+
+    input := DeclarationPlanFieldStruct("TraceOwner", names, canonicals, statics, readonlys)
+    input.FieldPrivateFlags = privates
+    input.FieldThreadStaticFlags = threadStatics
+    structs := new List<ColumnarStructInput>()
+    structs.Add(input)
+    program := DeclarationPlanTypeDefProgram("namespace Demo\n", structs, new List<ColumnarInterfaceInput>())
+    rows := ColumnarDeclarationPlanner.BuildFields(program)
+
+    assert rows.FieldAttributeWords[0][0] == 49
+    assert rows.FieldAttributeWords[0][1] == 22
+    assert rows.FieldIsThreadStatic[0][0]
+    assert !rows.FieldIsThreadStatic[0][1]
 }
 
 // A one-node body table: the method rows this slice plans never look inside a body, so the smallest

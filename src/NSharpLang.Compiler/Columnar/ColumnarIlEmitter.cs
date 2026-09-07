@@ -1819,7 +1819,7 @@ internal sealed class ColumnarIlEmitter
                 var fieldAttributes = (FieldAttributes)fieldRows.FieldAttributeWords[s][fi];
                 if (fieldRows.FieldIsStatic[s][fi])
                 {
-                    var sfb = tb.DefineField(fieldName, fieldType, fieldAttributes);
+                    var sfb = ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi]);
                     def.StaticFields[fieldName] = sfb;
                     var initKind = st.FieldInitKinds[fi];
                     if (initKind >= 0)
@@ -1830,7 +1830,7 @@ internal sealed class ColumnarIlEmitter
                 // An INSTANCE field initializer is not modelled (the kernel declines it; defensive here).
                 if (st.FieldInitKinds[fi] >= 0)
                     return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + fieldName + "'", st.Name);
-                fields[fieldName] = tb.DefineField(fieldName, fieldType, fieldAttributes);
+                fields[fieldName] = ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi]);
                 if (fieldRows.FieldIsNullable[s][fi])
                     def.NullableFields.Add(fieldName);
                 instanceFieldNames.Add(fieldName);
