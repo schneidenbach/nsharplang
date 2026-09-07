@@ -16,6 +16,11 @@ public class LoadProjectReferences : Task
     [Output]
     public ITaskItem[] FrameworkReferences { get; set; } = Array.Empty<ITaskItem>();
 
+    public string[] ExistingProjectReferences { get; set; } = Array.Empty<string>();
+
+    [Output]
+    public ITaskItem[] ProjectReferences { get; set; } = Array.Empty<ITaskItem>();
+
     public override bool Execute()
     {
         try
@@ -51,6 +56,17 @@ public class LoadProjectReferences : Task
 
             PackageReferences = packageRefs.ToArray();
             FrameworkReferences = frameworkRefs.ToArray();
+
+            var projectPaths = SdkProjectReferenceProjection.Resolve(
+                ProjectFile!,
+                config.Dependencies,
+                ExistingProjectReferences);
+            var projectRefs = new ITaskItem[projectPaths.Length];
+            for (var i = 0; i < projectPaths.Length; i++)
+            {
+                projectRefs[i] = new TaskItem(projectPaths[i]);
+            }
+            ProjectReferences = projectRefs;
 
             return true;
         }

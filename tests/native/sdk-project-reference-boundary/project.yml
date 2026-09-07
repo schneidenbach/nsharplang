@@ -1,0 +1,4 @@
+name: NSharpLang.SdkProjectReferenceBoundary.Tests
+backend: il
+outputType: library
+targetFramework: net10.0

@@ -123,11 +123,14 @@
   </Target>
 
   <Target Name="LoadNSharpReferences"
-          BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences"
+          BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;_GenerateRestoreProjectPathItemsPerFramework;AssignProjectConfiguration"
           Condition="Exists('$(NSharpProjectFile)')">
-    <LoadProjectReferences ProjectFile="$(NSharpProjectFile)">
+    <LoadProjectReferences
+      ProjectFile="$(NSharpProjectFile)"
+      ExistingProjectReferences="@(ProjectReference->'%(FullPath)')">
       <Output TaskParameter="PackageReferences" ItemName="PackageReference" />
       <Output TaskParameter="FrameworkReferences" ItemName="FrameworkReference" />
+      <Output TaskParameter="ProjectReferences" ItemName="ProjectReference" />
     </LoadProjectReferences>
   </Target>
 
