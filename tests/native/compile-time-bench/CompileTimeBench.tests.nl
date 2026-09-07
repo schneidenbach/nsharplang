@@ -532,13 +532,15 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // 71 since 022/3b-1 added tests/native/external-abstract-override; 72 since the language server's
 // lifetime contract added tests/native/lsp-lifetime; 73 since the error-docs slice added
 // tests/native/error-docs-contract; 74 since the diagnostic-honesty slice added
-// tests/native/diagnostic-honesty.
-test "compile-time bench: the corpus is the 74 project.yml projects under examples, tests and templates" {
+// tests/native/diagnostic-honesty; 75 since the Analyzer SDK prerequisite added
+// tests/native/sdk-project-reference-boundary.
+test "compile-time bench: the corpus is the 75 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 74
+    assert projects.Count == 75
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "templates/nsharp-console")
     assert BenchListContains(projects, "tests/native/ownership-audit")
+    assert BenchListContains(projects, "tests/native/sdk-project-reference-boundary")
 }
 
 test "compile-time bench: the large-project case is NOT in the corpus, and neither is this harness's own project" {
