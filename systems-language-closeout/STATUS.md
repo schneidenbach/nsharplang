@@ -59,8 +59,13 @@ enumeration/disposal, type identity, partial mutation and failure ordering.
 complete Pass 0c/0d declaration/state/job phase and eight connected validation/chain helpers.
 [Boundary](decodes/2026-09-06-constructor-declaration-ownership.md), baseline `656f7c7ea`, evidence
 `/private/tmp/nsharp-constructor-declaration-ownership-20260906`. Sol Max implements, Terra Max
-migrates five canonical programs, Astra reviews/integrates. General body emission/orchestration
-remains explicit compiler debt; no callback into it is added.
+migrates five canonical programs, Astra reviews/integrates. The five canonical programs are committed.
+Connected argument instructions, node text and the complete decline trace are included; tracing must
+precede enumerator disposal. Proven seed prerequisites are now integrated: opcode/byte admission,
+private ThreadStatic field metadata and complete field-column decoding, plus Array.Empty over exact
+source-class handles. Focused canonical/native evidence is green; the fresh seed gate and ordinary
+package probe remain required before publication. General body emission/orchestration and the
+remaining field-declaration phase stay explicit compiler debt; no callback into them is added.
 
 **Accepted area, closure binding and mutation analysis:** complete binding visibility/collection,
 capture/mutation scans, lifted-state computation, StrongBox metadata and necessary source-member

@@ -95,3 +95,11 @@ was added. Input-builder debt shrinks eleven lines/nonblank to 1,033/964. The em
 two direct field-definition routes. Root ownership audit passes 18/18; only these two rows plus
 the already-reviewed canonical test row differ from baseline, with all epochs unchanged.
 Intermediate ratchet head: `head-v1:7c4cbb8d445bead1`.
+
+Source-class Array.Empty integrates as `cf2be867b` (worker
+`af8e883b931535fb8e2ebb7358ffbd9bab5dc0e8`): 8/8 canonical controls and 2/2 candidate native
+controls preserve exact source-builder identity, array result substitution, owner shadowing and
+BCL singleton behavior. Reflection reports open T[] for a method closed over an unbaked builder;
+the existing N# generic return-type substitution owner supplies its exact result type. The grouped
+opcode/field/array seed now enters a fresh backend integration gate. No SDK publication is accepted
+until that gate and ordinary package verification pass; exact constructor/trace integration remains open.
