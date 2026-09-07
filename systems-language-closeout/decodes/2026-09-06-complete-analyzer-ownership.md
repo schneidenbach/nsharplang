@@ -40,3 +40,14 @@ complete constructor ownership accepted and pushed at `3d9222aeb`, fresh gate 45
 The source baselines and ten verified compiler payloads are preserved. Compiler-wide completion
 remains open; CLI/editor features, runtime reimplementation, NativeAOT and broader branch initiatives
 remain in `tasks/BRANCH-BACKLOG.md`. No new metadata-writer objective is inferred.
+
+SDK prerequisite reviewed (2026-09-07): `12c0e7f34` / `12e8d7406` project the complete SDK
+package/framework/project reference boundary in N#. `LoadProjectReferences` retains only MSBuild
+item/metadata transport and exception logging; its selection/version decisions are deleted. The
+shared project configuration target now loads references before restore/build graph traversal.
+The separate duplicate reference target is removed. C# shrinks 63→47 lines and SDK targets
+206→203; only those two ownership rows change, all epochs preserved, audit 18/18. Focused N#
+projection tests 3/3 and private-package native integration 1/1 pass, including clean restore/build,
+exact Runtime type execution, generated-props compatibility and deduplication. Seed publication
+and the BSS project.yml dependency remain pending the coherent compiler prerequisites and fresh
+integration verification. This does not accept Analyzer or the broader independent SDK backlog.
