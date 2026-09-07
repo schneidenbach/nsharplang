@@ -249,9 +249,9 @@ test "the argument row narrows every short-form ordinal and still answers at the
     }
 }
 
-// `Ldarga` keeps the long form at EVERY ordinal, because `Ldarga_S` was deliberately not admitted in
-// stage 1 — it needs a `System.Byte` emit operand the modeled surface does not carry. The asymmetry
-// between the two argument opcodes is a decision, so it is pinned as one.
+// `Ldarga` keeps the long form at EVERY ordinal in the code-plan executor. The separately owned direct
+// argument helper can now bind `Ldarga_S` plus its byte operand, but this plan row retains its established
+// long encoding. The asymmetry between the two executor opcodes is a decision, so it is pinned as one.
 test "the address-of-argument row never narrows and still loads a usable managed pointer" {
     plan := new ColumnarCodePlan()
     plan.PrepareMethodBody()

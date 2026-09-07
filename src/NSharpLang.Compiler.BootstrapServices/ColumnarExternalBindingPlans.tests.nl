@@ -168,7 +168,7 @@ test "recursive code plans own every required opcode field" {
         i = i + 1
     }
 
-    assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Ldarg_S").IsSupported
+    AssertSupportedOpcode("Ldarg_S")
     assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", "Ldsflda").IsSupported
 }
 
@@ -230,33 +230,73 @@ test "each newly admitted opcode lands in the allowlist family half that owns it
     }
 }
 
-test "byte argument forms and ldvirtftn remain outside the modeled opcode boundary" {
-    // These argument load/store forms are a DIFFERENT widening from the zero-to-three opcodes already
-    // modeled. `Ldarg_S`, `Ldarga_S`, and `Starg_S` carry a `System.Byte` operand that the emit-operand
-    // surface does not admit, while `Starg` uses the distinct long InlineVar encoding. `Ldvirtftn` is
-    // also a virtual-dispatch operation the iterator constructor does not use, so admitting `Ldftn`
-    // must not widen to its adjacent opcode.
-    rejected := new string[](5)
-    rejected[0] = "Ldarg_S"
-    rejected[1] = "Ldarga_S"
-    rejected[2] = "Starg"
-    rejected[3] = "Starg_S"
-    rejected[4] = "Ldvirtftn"
+test "argument load store and address forms join the exact opcode and byte emit surface" {
+    // These are exactly the four additional fields used by the original argument helper. Reflection
+    // verifies that every modeled spelling names a real runtime field without asking the packaged
+    // compiler to bind that field directly; the freshly built native control performs the direct emit.
+    admitted := new string[](4)
+    admitted[0] = "Ldarg_S"
+    admitted[1] = "Starg_S"
+    admitted[2] = "Starg"
+    admitted[3] = "Ldarga_S"
 
-    j := 0
-    while j < rejected.Length {
-        // Every one is a REAL field on the runtime table, so their refusal is a decision about the
-        // modeled surface and not an accident of spelling.
-        assert typeof(OpCodes).GetField(rejected[j]) != null
-        assert !ColumnarExternalBindingPlans.IsSupportedOpCodeMemberName(rejected[j])
-        assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", rejected[j]).IsSupported
-        j = j + 1
+    i := 0
+    while i < admitted.Length {
+        assert typeof(OpCodes).GetField(admitted[i]) != null
+        AssertSupportedOpcode(admitted[i])
+        assert ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName(admitted[i])
+        assert !ColumnarExternalBindingPlans.IsSupportedComputeOpCodeMemberName(admitted[i])
+        assert !ColumnarExternalBindingPlans.IsSupportedObjectModelOpCodeMemberName(admitted[i])
+        i = i + 1
     }
 
-    // The operand type their admission would require, measured rather than assumed.
-    assert !ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Byte")
+    emitArguments := new string[](2)
+    emitArguments[0] = "System.Reflection.Emit.OpCode"
+    emitArguments[1] = "System.Byte"
+    AssertVirtualCall(
+        "System.Reflection.Emit.ILGenerator",
+        "Emit",
+        emitArguments,
+        "System.Void"
+    )
+    assert ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Byte")
     assert ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Int16")
     assert ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Type")
+
+    runtimeTypes := new Type[](2)
+    runtimeTypes[0] = typeof(OpCode)
+    runtimeTypes[1] = typeof(byte)
+    assert typeof(ILGenerator).GetMethod("Emit", runtimeTypes) != null
+}
+
+test "argument instruction admission does not widen adjacent opcodes or operand overloads" {
+    rejected := new string[](4)
+    rejected[0] = "Ldloc_S"
+    rejected[1] = "Stloc_S"
+    rejected[2] = "Ldloca_S"
+    rejected[3] = "Ldvirtftn"
+
+    i := 0
+    while i < rejected.Length {
+        // Each spelling exists in the runtime table, so refusal is an intentional modeled boundary.
+        assert typeof(OpCodes).GetField(rejected[i]) != null
+        assert !ColumnarExternalBindingPlans.IsSupportedOpCodeMemberName(rejected[i])
+        assert !ColumnarExternalBindingPlans.GetStaticMemberPlan("OpCodes", rejected[i]).IsSupported
+        i = i + 1
+    }
+
+    assert !ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.SByte")
+    assert !ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.UInt16")
+    assert !ColumnarExternalBindingPlans.IsSupportedEmitOperand("System.Reflection.Emit.SignatureHelper")
+
+    unsupportedArguments := new string[](2)
+    unsupportedArguments[0] = "System.Reflection.Emit.OpCode"
+    unsupportedArguments[1] = "System.SByte"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.ILGenerator",
+        "Emit",
+        unsupportedArguments
+    ).IsSupported
 }
 
 test "ldftn selects the exact opcode field and MethodInfo emit overload" {

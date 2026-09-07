@@ -380,14 +380,14 @@ class ColumnarCodePlanExecutor {
     // for locals, and the plan row stays `Ldarg` with an ArgumentOperand — no new row constant exists
     // for the short forms, because the row's IDENTITY did not change, only its encoding.
     //
-    // Ordinals 4..255 keep the long form. `Ldarg_S` would encode them in one byte, but it carries a
-    // `System.Byte` operand that the emitter's modeled operand surface does not admit, so admitting it
-    // is a two-half widening (opcode name AND operand type) that has deliberately not been taken. A
-    // planned body with four or more argument slots is therefore three bytes per load larger than the
-    // hand-written IL it replaces — correct, and not yet byte-identical.
+    // Ordinals 4..255 keep the long form in this code-plan executor. The external binding surface now
+    // carries `Ldarg_S` plus its byte operand for the separately owned argument-instruction helper,
+    // while this row still identifies `Ldarg` and preserves its established plan encoding. A planned
+    // body with four or more argument slots is therefore two bytes per load larger than the hand-written
+    // IL it replaces — correct, and unchanged by that prerequisite.
     //
-    // `Ldarga` must NOT narrow: `Ldarga_S` is not admitted either, so every address-of-argument row
-    // keeps the long form regardless of ordinal.
+    // `Ldarga` also keeps the plan row's long form regardless of ordinal; the newly admitted
+    // `Ldarga_S` belongs to the separately owned direct argument helper.
     static func EmitArgument(il: ILGenerator, opCodeValue: short, ordinal: int) {
         if opCodeValue == ColumnarCodePlanContract.Ldarga() {
             il.Emit(OpCodes.Ldarga, (short)ordinal)

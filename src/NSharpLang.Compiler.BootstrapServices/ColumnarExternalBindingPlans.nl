@@ -976,7 +976,7 @@ class ColumnarExternalBindingPlans {
     }
 
     static func IsSupportedEmitOperand(typeName: string): bool {
-        return typeName == "System.Int32" || typeName == "System.Int16" || typeName == "System.Int64" || typeName == "System.Single" || typeName == "System.Double" || typeName == "System.String" || typeName == "System.Type" || typeName == "System.Reflection.Emit.LocalBuilder" || typeName == "System.Reflection.Emit.Label" || typeName == "System.Reflection.Emit.Label[]" || typeName == "System.Reflection.MethodInfo" || typeName == "System.Reflection.ConstructorInfo" || typeName == "System.Reflection.FieldInfo"
+        return typeName == "System.Byte" || typeName == "System.Int32" || typeName == "System.Int16" || typeName == "System.Int64" || typeName == "System.Single" || typeName == "System.Double" || typeName == "System.String" || typeName == "System.Type" || typeName == "System.Reflection.Emit.LocalBuilder" || typeName == "System.Reflection.Emit.Label" || typeName == "System.Reflection.Emit.Label[]" || typeName == "System.Reflection.MethodInfo" || typeName == "System.Reflection.ConstructorInfo" || typeName == "System.Reflection.FieldInfo"
     }
 
     // The OpCodes allowlist, split into three family predicates: a single 120-clause `||` chain nests
@@ -985,14 +985,12 @@ class ColumnarExternalBindingPlans {
         return IsSupportedValueOpCodeMemberName(memberName) || IsSupportedComputeOpCodeMemberName(memberName) || IsSupportedObjectModelOpCodeMemberName(memberName)
     }
 
-    // Constants, locals/arguments, and indirect loads. The four `Ldarg_N` short forms are the WHOLE
-    // CIL short-form ordinal family: `Emit(OpCode, LocalBuilder)` narrows locals by itself, but
-    // `Emit(OpCode, short)` never narrows `Ldarg` — it writes the two-byte `0xFE 0x09` form verbatim —
-    // so an argument load that must be byte-exact against hand-written IL has to name the short form
-    // itself. Ordinals 4..255 would need `Ldarg_S`, which is a different widening: it carries a
-    // `System.Byte` operand and `IsSupportedEmitOperand` does not admit one.
+    // Constants, locals/arguments, and indirect loads. Argument slots use the same exact surface as
+    // the original emitter: dedicated load opcodes for 0..3, byte-operand load/store/address forms
+    // through 255, and the existing int-operand long forms above that boundary. Local short forms
+    // remain absent: `Emit(OpCode, LocalBuilder)` already selects their encoding from the local handle.
     static func IsSupportedValueOpCodeMemberName(memberName: string): bool {
-        return memberName == "Nop" || memberName == "Ldc_I4_M1" || memberName == "Ldc_I4_0" || memberName == "Ldc_I4_1" || memberName == "Ldc_I4_2" || memberName == "Ldc_I4_3" || memberName == "Ldc_I4_4" || memberName == "Ldc_I4_5" || memberName == "Ldc_I4_6" || memberName == "Ldc_I4_7" || memberName == "Ldc_I4_8" || memberName == "Ldc_I4" || memberName == "Ldc_I8" || memberName == "Ldc_R4" || memberName == "Ldc_R8" || memberName == "Dup" || memberName == "Ldstr" || memberName == "Ldtoken" || memberName == "Stloc" || memberName == "Ldloc" || memberName == "Ldloca" || memberName == "Ldarg" || memberName == "Ldarg_0" || memberName == "Ldarg_1" || memberName == "Ldarg_2" || memberName == "Ldarg_3" || memberName == "Ldarga" || memberName == "Ldind_I1" || memberName == "Ldind_U1" || memberName == "Ldind_I2" || memberName == "Ldind_U2" || memberName == "Ldind_I4" || memberName == "Ldind_U4" || memberName == "Ldind_I8" || memberName == "Ldind_R4" || memberName == "Ldind_R8" || memberName == "Ldind_Ref"
+        return memberName == "Nop" || memberName == "Ldc_I4_M1" || memberName == "Ldc_I4_0" || memberName == "Ldc_I4_1" || memberName == "Ldc_I4_2" || memberName == "Ldc_I4_3" || memberName == "Ldc_I4_4" || memberName == "Ldc_I4_5" || memberName == "Ldc_I4_6" || memberName == "Ldc_I4_7" || memberName == "Ldc_I4_8" || memberName == "Ldc_I4" || memberName == "Ldc_I8" || memberName == "Ldc_R4" || memberName == "Ldc_R8" || memberName == "Dup" || memberName == "Ldstr" || memberName == "Ldtoken" || memberName == "Stloc" || memberName == "Ldloc" || memberName == "Ldloca" || memberName == "Ldarg" || memberName == "Ldarg_0" || memberName == "Ldarg_1" || memberName == "Ldarg_2" || memberName == "Ldarg_3" || memberName == "Ldarg_S" || memberName == "Starg" || memberName == "Starg_S" || memberName == "Ldarga" || memberName == "Ldarga_S" || memberName == "Ldind_I1" || memberName == "Ldind_U1" || memberName == "Ldind_I2" || memberName == "Ldind_U2" || memberName == "Ldind_I4" || memberName == "Ldind_U4" || memberName == "Ldind_I8" || memberName == "Ldind_R4" || memberName == "Ldind_R8" || memberName == "Ldind_Ref"
     }
 
     // Branches, calls, arithmetic, comparisons, and conversions.
