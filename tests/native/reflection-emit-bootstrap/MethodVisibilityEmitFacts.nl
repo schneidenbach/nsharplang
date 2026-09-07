@@ -38,6 +38,10 @@ class MethodVisibilityDerivedFacts: MethodVisibilityEmitFacts {
     func ReadProtected(): int {
         return ProtectedInterop()
     }
+
+    func ReadProtectedFromDerived(target: MethodVisibilityDerivedFacts): int {
+        return target.ProtectedInterop()
+    }
 }
 
 class MethodVisibilityAssemblyPeerFacts {

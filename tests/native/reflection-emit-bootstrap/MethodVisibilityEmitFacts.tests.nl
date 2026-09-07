@@ -45,6 +45,8 @@ test "method declarations emit exact convention and explicit CLR accessibility" 
 
     target := new MethodVisibilityEmitFacts()
     assert target.ReadPrivateAndInternal() == 13
-    assert new MethodVisibilityDerivedFacts().ReadProtected() == 6
+    derived := new MethodVisibilityDerivedFacts()
+    assert derived.ReadProtected() == 6
+    assert derived.ReadProtectedFromDerived(derived) == 6
     assert new MethodVisibilityAssemblyPeerFacts().ReadInternal(target) == 2
 }

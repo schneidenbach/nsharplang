@@ -1322,9 +1322,11 @@ test "source direct-call resolver applies source accessibility in compilation co
     privateInstance := SourceCallDefineInstance(owner, "PrivateInstance", noParameters, new int[](0), typeof(int), (MethodAttributes)129)
     assemblyInstance := SourceCallDefineInstance(owner, "AssemblyInstance", noParameters, new int[](0), typeof(int), (MethodAttributes)131)
     familyInstance := SourceCallDefineInstance(owner, "FamilyInstance", noParameters, new int[](0), typeof(int), (MethodAttributes)132)
+    familyAndAssemblyInstance := SourceCallDefineInstance(owner, "FamilyAndAssemblyInstance", noParameters, new int[](0), typeof(int), (MethodAttributes)130)
     familyOrAssemblyInstance := SourceCallDefineInstance(owner, "FamilyOrAssemblyInstance", noParameters, new int[](0), typeof(int), (MethodAttributes)133)
     privateStatic := SourceCallDefineStatic(owner, "PrivateStatic", noParameters, new int[](0), typeof(int), (MethodAttributes)145)
     assemblyStatic := SourceCallDefineStatic(owner, "AssemblyStatic", noParameters, new int[](0), typeof(int), (MethodAttributes)147)
+    familyStatic := SourceCallDefineStatic(owner, "FamilyStatic", noParameters, new int[](0), typeof(int), (MethodAttributes)148)
 
     definitions := new ColumnarStructDef[](3)
     definitions[0] = owner
@@ -1335,9 +1337,11 @@ test "source direct-call resolver applies source accessibility in compilation co
     assert ((int)privateInstance.Builder.get_Attributes() & 7) == 1
     assert ((int)assemblyInstance.Builder.get_Attributes() & 7) == 3
     assert ((int)familyInstance.Builder.get_Attributes() & 7) == 4
+    assert ((int)familyAndAssemblyInstance.Builder.get_Attributes() & 7) == 2
     assert ((int)familyOrAssemblyInstance.Builder.get_Attributes() & 7) == 5
     assert ((int)privateStatic.Builder.get_Attributes() & 7) == 1
     assert ((int)assemblyStatic.Builder.get_Attributes() & 7) == 3
+    assert ((int)familyStatic.Builder.get_Attributes() & 7) == 4
 
     assert ColumnarSourceDirectCallResolver.ResolveImplicitInstance(owner, owner.Builder, "PrivateInstance", noParameters).IsSelected
     assert !ColumnarSourceDirectCallResolver.ResolveExplicitInstance(owner.Builder, "PrivateInstance", noParameters, definitions).IsSelected
@@ -1345,8 +1349,12 @@ test "source direct-call resolver applies source accessibility in compilation co
     assert !ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "PrivateInstance", noParameters, definitions, facts, unrelated).IsSelected
 
     assert ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "AssemblyInstance", noParameters, definitions, facts, null).IsSelected
+    assert ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "FamilyInstance", noParameters, definitions, facts, owner).IsSelected
     assert ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(derived.Builder, "FamilyInstance", noParameters, definitions, facts, derived).IsSelected
+    assert !ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "FamilyInstance", noParameters, definitions, facts, derived).IsSelected
     assert !ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "FamilyInstance", noParameters, definitions, facts, unrelated).IsSelected
+    assert ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(derived.Builder, "FamilyAndAssemblyInstance", noParameters, definitions, facts, derived).IsSelected
+    assert !ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "FamilyAndAssemblyInstance", noParameters, definitions, facts, derived).IsSelected
     assert ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "FamilyOrAssemblyInstance", noParameters, definitions, facts, unrelated).IsSelected
 
     assert ColumnarSourceDirectCallResolver.ResolveImplicitStatic(owner, owner.Builder, "PrivateStatic", noParameters).IsSelected
@@ -1354,6 +1362,7 @@ test "source direct-call resolver applies source accessibility in compilation co
     assert ColumnarSourceDirectCallResolver.ResolveClassifiedStaticInCompilation(owner, owner.Builder, "PrivateStatic", noParameters, facts, owner).IsSelected
     assert !ColumnarSourceDirectCallResolver.ResolveClassifiedStaticInCompilation(owner, owner.Builder, "PrivateStatic", noParameters, facts, unrelated).IsSelected
     assert ColumnarSourceDirectCallResolver.ResolveClassifiedStaticInCompilation(owner, owner.Builder, "AssemblyStatic", noParameters, facts, null).IsSelected
+    assert ColumnarSourceDirectCallResolver.ResolveClassifiedStaticInCompilation(owner, owner.Builder, "FamilyStatic", noParameters, facts, derived).IsSelected
 }
 
 test "source direct-call resolver validates malformed exact facts and hierarchy cycles" {

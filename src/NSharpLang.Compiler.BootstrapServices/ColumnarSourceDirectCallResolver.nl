@@ -584,11 +584,31 @@ class ColumnarSourceDirectCallResolver {
     static func IsCallableInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarInstanceMethodDef): bool {
         method: MethodInfo = definition.Builder
         accessAttributes := (int)method.get_Attributes() & 7
-        if !CanAccessSourceMethod(declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) || method.get_IsGenericMethod() || IsVarArgs(method) || method.get_IsAbstract() && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
+        if !CanAccessSourceInstanceMethod(receiverDefinition, declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) || method.get_IsGenericMethod() || IsVarArgs(method) || method.get_IsAbstract() && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
             return false
         }
 
         return true
+    }
+
+    // Family access through an INSTANCE has one constraint beyond the caller's ancestry: when
+    // access relies on the family relationship, the written receiver must be the accessing type or
+    // one of its derived types. Assembly access is an independent alternative for FamORAssem, so a
+    // same-assembly call through a base-typed receiver remains valid. Static methods have no
+    // receiver and continue through CanAccessSourceMethod directly.
+    static func CanAccessSourceInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, accessAttributes: int): bool {
+        if !CanAccessSourceMethod(declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) {
+            return false
+        }
+
+        usesFamilyAccess := accessAttributes == 4 || accessAttributes == 2 || accessAttributes == 5 && !sameAssembly
+        if !usesFamilyAccess {
+            return true
+        }
+        if accessingDefinition == null {
+            return false
+        }
+        return IsSameOrDerivedSourceType(receiverDefinition, accessingDefinition)
     }
 
     static func IsCallableStaticMethod(declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarStaticMethodDef): bool {

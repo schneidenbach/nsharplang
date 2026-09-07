@@ -81,6 +81,16 @@ class SourceInterfaceMapPair {
     }
 }
 
+class SourceInterfaceEmitAttempt {
+    Succeeded: bool
+    Records: IList
+
+    constructor(succeeded: bool, records: IList) {
+        Succeeded = succeeded
+        Records = records
+    }
+}
+
 func SourceInterfacePut(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -164,7 +174,7 @@ func SourceInterfaceReadDeclineProperty(target: object, name: string): string {
 // shapes that cannot live directly in a `.tests.nl` compilation, while retaining parser-to-emitter
 // behavior on both the baseline and post-port compiler. Parsing must succeed before this helper
 // samples the fresh emitter decline trace, so a parser refusal cannot masquerade as member matching.
-func SourceInterfaceEmitOutcome(source: string): string {
+func SourceInterfaceEmitAttemptFor(source: string): SourceInterfaceEmitAttempt {
     parse := SourceInterfaceHostMethod("ColumnarProgramInputBuilder", "TryBuild")
     parseArguments := new object?[](2)
     SourceInterfacePut(parseArguments, 0, source)
@@ -195,23 +205,33 @@ func SourceInterfaceEmitOutcome(source: string): string {
     if records == null {
         throw new InvalidOperationException("No decline snapshot")
     }
+    return new SourceInterfaceEmitAttempt(succeeded, records)
+}
+
+func SourceInterfaceDeclineText(records: IList, index: int): string {
+    entry := records[index]
+    if entry == null {
+        throw new InvalidOperationException("No decline at index")
+    }
+    return SourceInterfaceReadDeclineProperty(entry, "SiteId") + "|" + SourceInterfaceReadDeclineProperty(entry, "Message") + "|" + SourceInterfaceReadDeclineProperty(entry, "MemberName")
+}
+
+func SourceInterfaceEmitOutcome(source: string): string {
+    attempt := SourceInterfaceEmitAttemptFor(source)
+    records := attempt.Records
     if records.Count == 0 {
-        if succeeded {
+        if attempt.Succeeded {
             return "success"
         }
         return "false without decline"
     }
-    if succeeded {
+    if attempt.Succeeded {
         throw new InvalidOperationException("Emitter succeeded with a decline")
     }
     if records.Count != 1 {
         throw new InvalidOperationException("Expected one decline")
     }
-    first := records[0]
-    if first == null {
-        throw new InvalidOperationException("No first decline")
-    }
-    return SourceInterfaceReadDeclineProperty(first, "SiteId") + "|" + SourceInterfaceReadDeclineProperty(first, "Message") + "|" + SourceInterfaceReadDeclineProperty(first, "MemberName")
+    return SourceInterfaceDeclineText(records, 0)
 }
 
 test "a direct source declaration owns an own matching interface slot" {
@@ -288,4 +308,17 @@ test "matching source members emit while missing and signature-mismatched member
     assert SourceInterfaceEmitOutcome(missing) == "false without decline"
     assert SourceInterfaceEmitOutcome(matchingMismatch) == "success"
     assert SourceInterfaceEmitOutcome(mismatch) == "false without decline"
+}
+
+test "a protected source instance call rejects a base-typed explicit receiver in a derived body" {
+    invalidReceiver := "class ProtectedReceiverBase {\n    protected func Read(): int { return 17 }\n}\nclass ProtectedReceiverDerived: ProtectedReceiverBase {\n    func ReadFromBase(value: ProtectedReceiverBase): int { return value.Read() }\n}\n"
+    validReceiver := "class ProtectedReceiverBase {\n    protected func Read(): int { return 17 }\n}\nclass ProtectedReceiverDerived: ProtectedReceiverBase {\n    func ReadFromDerived(value: ProtectedReceiverDerived): int { return value.Read() }\n}\n"
+
+    assert SourceInterfaceEmitOutcome(validReceiver) == "success"
+    attempt := SourceInterfaceEmitAttemptFor(invalidReceiver)
+    assert !attempt.Succeeded
+    assert attempt.Records.Count == 3
+    assert SourceInterfaceDeclineText(attempt.Records, 0) == "emit.return.expression|return expression could not be emitted|"
+    assert SourceInterfaceDeclineText(attempt.Records, 1) == "emit.statement.block-child|block child 0 (node kind 20) could not be emitted|"
+    assert SourceInterfaceDeclineText(attempt.Records, 2) == "emit.body|member body emission declined|ProtectedReceiverDerived.ReadFromBase"
 }
