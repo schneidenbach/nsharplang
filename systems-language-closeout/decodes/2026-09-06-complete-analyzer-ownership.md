@@ -51,7 +51,7 @@ projection tests 3/3 and private-package native integration 1/1 pass, including 
 exact Runtime type execution, generated-props compatibility and deduplication. The generic SDK prerequisite is integrated; the older independent SDK backlog remains separate.
 
 Integrated owner (2026-09-07): `ec8814c01` replaces all 2,357 C# lines with the complete 1,896-line
-N# Analyzer and its one Runtime project dependency. `fa79a93b3` routes all thirteen canonical fixture
+N# Analyzer. The final compatible Runtime dependency is recorded below. `fa79a93b3` routes all thirteen canonical fixture
 lookups directly to BootstrapServices. Four canonical C# cases and their original assertions are
 already migrated; three focused lifecycle controls cover copy isolation, retained identities and
 per-analysis reset. Public API parity includes eight methods and one constructor, with all 87 fields
@@ -69,3 +69,14 @@ ten release payloads and twelve loaded cache files. Both candidate and installed
 parity. Ownership audit passes 18/18. The final fresh integration gate remains pending. The Analyzer ratchet
 row is retired with all epochs and 380 other rows preserved, head `head-v1:fab5ec0b0db9ca18`.
 Compiler-wide ownership remains open.
+
+Final integration corrections: `317beb1af` explicitly binds the two `this.DriveImports` calls, avoiding
+collision with the unchanged canonical free helper. Full test-inclusive compilation passes 7,928/7,928;
+normalized emitted calls are identical. `ef8502db8` uses the real `NSharpLang.Runtime` 0.1.0 package in
+project.yml and removes the SDK's BSS-specific `ExcludeAssets=all` item. This supersedes the initial
+.csproj edge, which MSBuild accepted but the native CLI correctly rejected before compilation. Both
+build paths now retain their behavior, with exact Runtime assembly/type identity and both typeof
+sites unchanged. SDK props shrinks 52→48 lines / 43→40 nonblank; only that row changes, epochs and
+380 other rows fixed, audit 18/18, head `head-v1:ecbbc4855234c4dc`. Private bootstrap changes only
+Sdk.props atop the accepted SDK; no live SDK publication precedes the fresh corrected gate. The
+first final gate and all three failures remain preserved in `final-gate-r1-failure-receipt.json`.

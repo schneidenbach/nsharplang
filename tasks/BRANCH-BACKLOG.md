@@ -56,8 +56,8 @@ Previously completed independent work stays separate from compiler-only acceptan
   installed-owner corpus, shared audit and final integration gate before push. Evidence:
   `/private/tmp/nsharp-analyzer-owner-20260906`.
 - **SDK task:** the necessary complete project-reference projection is integrated at `12c0e7f34` /
-  `12e8d7406`; the sole Analyzer Runtime dependency is part of its owner commit. This prerequisite
-  is finished and needs no duplicate stage-two change. Preserve older `b2132a8a1` / `aecdb052c`
+  `12e8d7406`; final native/MSBuild compatibility uses the real Runtime NuGet dependency and
+  removes the SDK asset exclusion (`ef8502db8`). No duplicate stage-two project edge is needed. Preserve older `b2132a8a1` / `aecdb052c`
   separately; no runtime reimplementation or type callback/fallback was added.
 - **Query task:** refresh against `2a15d2189` confirms both blockers remain. The accepted emitter
   `ColumnarCompilerReferenceResolver` is distinct from the surviving internal CLI

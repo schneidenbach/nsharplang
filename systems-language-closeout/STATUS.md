@@ -68,7 +68,12 @@ all epochs and 380 other rows fixed, head `head-v1:fab5ec0b0db9ca18`.
 SDK SHA `b591625df7c0261b18e6226512e7b36165518845d86df7c58d201e76f66a3fcc`, both feeds and twelve
 cache files verified. No Analyzer wrapper, forwarder, decision callback or fallback remains;
 Compiler/Build.Tasks consumers bind directly to N#, and SDK item transport remains mechanical.
-Complete final fresh integration verification and push; compiler-wide ownership remains open.
+The final corrections bind `this.DriveImports` explicitly (`317beb1af`) and use the real Runtime
+NuGet package (`ef8502db8`), removing the SDK's BSS-specific asset exclusion. Exact Runtime identity,
+production/test-inclusive builds, 7,928 canonical tests and the original CLI strict-lint failure
+path pass. SDK props shrinks 52→48; current ratchet `head-v1:ecbbc4855234c4dc`, audit 18/18.
+Complete the corrected fresh gate, official SDK installation/ordinary probes and push;
+compiler-wide ownership remains open.
 
 **Accepted area, constructor declaration, validation and chain emission:** `79af30753` moves the
 complete Pass 0c/0d declaration/state/job phase, eight validation/chain helpers, three argument
