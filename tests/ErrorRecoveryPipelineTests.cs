@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using Xunit;
 using NSharpLang.Compiler;
-using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.Columnar;
 
@@ -18,23 +17,6 @@ namespace NSharpLang.Tests;
 public class ErrorRecoveryPipelineTests
 {
     #region Single-file: mixed syntax + semantic errors
-
-    [Fact]
-    public void Analyzer_CollectsMultipleSemanticErrors()
-    {
-        // Two distinct semantic errors: undefined variables
-        var source = @"
-func test() {
-    Console.WriteLine(undefinedVar1)
-    Console.WriteLine(undefinedVar2)
-}";
-
-        var result = ParseAndAnalyze(source);
-
-        Assert.True(result.Errors.Count >= 2,
-            $"Expected at least 2 semantic errors, got {result.Errors.Count}: " +
-            string.Join("; ", result.Errors.Select(e => e.Message)));
-    }
 
     [Fact]
     public void QueryDiagnostics_MalformedProject_ReturnsSyntaxAndSemanticDiagnosticsWithoutPlaceholderCascade()
@@ -434,15 +416,6 @@ func valid_syntax() {
     #endregion
 
     #region Helpers
-
-    private static AnalysisResult ParseAndAnalyze(string source)
-    {
-        var parseResult = ColumnarParserRecovery.ParseFileAst(source, "test.nl");
-
-        var analyzer = new Analyzer();
-        analyzer.LoadSystemAssemblies();
-        return analyzer.Analyze(parseResult.CompilationUnit!);
-    }
 
     private static string CreateTempDir()
     {

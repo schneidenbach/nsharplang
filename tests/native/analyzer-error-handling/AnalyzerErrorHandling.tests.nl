@@ -194,6 +194,103 @@ func EhAnalyze(source: string): object {
     return analysis
 }
 
+// The four-argument Analyze route used by the SoA null-conditional regressions.  The original
+// helper retained its Analyzer rather than disposing it; this deliberately preserves that setup
+// while keeping the parsed unit that the parse-success assertion inspected.
+func EhAnalyzeWithSource(parsed: object, source: string): object {
+    unit := EhRequiredMember(parsed, "CompilationUnit")
+
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    if analyzerType == null || unitType == null {
+        throw new InvalidOperationException("The production analyzer types were not loadable.")
+    }
+
+    analyzerConstructor := analyzerType.GetConstructor(new Type[](0))
+    if analyzerConstructor == null {
+        throw new InvalidOperationException("The production analyzer was not constructible.")
+    }
+    analyzer := analyzerConstructor.Invoke(new object?[](0))
+
+    loadParameterTypes := new Type[](0)
+    loadMethod := analyzerType.GetMethod("LoadSystemAssemblies", loadParameterTypes)
+    if loadMethod == null {
+        throw new InvalidOperationException("The production LoadSystemAssemblies entry point was not found.")
+    }
+    loadArguments := new object?[](0)
+    loadMethod.Invoke(analyzer, loadArguments)
+
+    analyzeParameterTypes := new Type[](4)
+    analyzeParameterTypes[0] = unitType
+    analyzeParameterTypes[1] = typeof(string)
+    analyzeParameterTypes[2] = typeof(string)
+    analyzeParameterTypes[3] = typeof(string)
+    analyzeMethod := analyzerType.GetMethod("Analyze", analyzeParameterTypes)
+    if analyzeMethod == null {
+        throw new InvalidOperationException("The production four-argument Analyze entry point was not found.")
+    }
+
+    analyzeArguments := new object?[](4)
+    SetEhObject(analyzeArguments, 0, unit)
+    SetEhObject(analyzeArguments, 1, "test.nl")
+    SetEhObject(analyzeArguments, 2, null)
+    SetEhObject(analyzeArguments, 3, source)
+    analysis := analyzeMethod.Invoke(analyzer, analyzeArguments)
+    if analysis == null {
+        throw new InvalidOperationException("The production analyzer returned no result.")
+    }
+
+    return analysis
+}
+
+func EhErrorCount(analysis: object): int {
+    errors := EhRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return -1
+    }
+
+    return errors.Count
+}
+
+func EhMatchingErrorCount(analysis: object, codeName: string, messageFragment: string): int {
+    errors := EhRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return -1
+    }
+
+    count := 0
+    index := 0
+    while index < errors.Count {
+        entry := errors[index]
+        if entry != null && EhText(entry, "Code") == codeName && EhText(entry, "Message").Contains(messageFragment) {
+            count = count + 1
+        }
+
+        index = index + 1
+    }
+
+    return count
+}
+
+func EhMatchingErrorMember(analysis: object, codeName: string, messageFragment: string, memberName: string): string {
+    errors := EhRequiredMember(analysis, "Errors") as IList
+    if errors == null {
+        return "<not-a-list>"
+    }
+
+    index := 0
+    while index < errors.Count {
+        entry := errors[index]
+        if entry != null && EhText(entry, "Code") == codeName && EhText(entry, "Message").Contains(messageFragment) {
+            return EhText(entry, memberName)
+        }
+
+        index = index + 1
+    }
+
+    return "<no-match>"
+}
+
 // EVERY diagnostic's id, code name and span, in recording order. Empty when analysis is silent, and
 // non-empty in a way that no `Assert.Contains` over a numeric range could be.
 func EhCensus(analysis: object): string {
@@ -557,4 +654,76 @@ test "020 s25 analyzer error handling: `continue` outside a loop is the SAME NL1
     assert EhRow(analysis, 0) == "InvalidSyntax|'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here|Move this `continue` inside a loop, or remove it if there is no loop to continue.|Error"
     assert EhRow(analysis, 1) == "<no-such-error>"
     assert EhLintCensus(source) == ""
+}
+
+// The C# assertion only required two independently reported semantic errors.  Preserve its exact
+// leading-newline fixture and lower-bound count rather than silently turning it into a parser or
+// diagnostic-census contract.
+test "020 s49 analyzer ownership: two undefined reads remain independently reported (was ErrorRecoveryPipelineTests.Analyzer_CollectsMultipleSemanticErrors)" {
+    source := "\nfunc test() {\n    Console.WriteLine(undefinedVar1)\n    Console.WriteLine(undefinedVar2)\n}"
+    analysis := EhAnalyze(source)
+    assert EhErrorCount(analysis) >= 2
+}
+
+// These three fixtures are the exact raw-string bytes from SoaRecordNullConditionalTests.  The
+// source is parsed successfully before the four-argument Analyze call, and the environment is
+// restored in finally just as the C# helper's IDisposable restored it after each test.
+test "020 s49 analyzer ownership: SoA row-view null-conditional indexing has one matching InvalidSyntax error (was SoaRecordNullConditionalTests.Analyzer_SoaRowViewCannotUseNullConditionalIndexing)" {
+    source := "soa record NodeTable {\n    kind: int\n}\n\nfunc bad(nodes: NodeTable): int {\n    return nodes?[0].kind\n}"
+    variable := "NSHARP_EXPERIMENTAL_SOA"
+    previous := Environment.GetEnvironmentVariable(variable)
+    Environment.SetEnvironmentVariable(variable, "1")
+    try {
+        parsed := EhParse(source)
+        assert EhText(parsed, "Success") == "True"
+        analysis := EhAnalyzeWithSource(parsed, source)
+        message := "SoA row views cannot be used with null-conditional indexing"
+        assert EhMatchingErrorCount(analysis, "InvalidSyntax", message) == 1
+        assert EhMatchingErrorMember(analysis, "InvalidSyntax", message, "Message").Contains(message)
+        assert EhMatchingErrorMember(analysis, "InvalidSyntax", message, "Suggestion").Contains("table[index].column")
+    } finally {
+        Environment.SetEnvironmentVariable(variable, previous)
+    }
+
+    assert Environment.GetEnvironmentVariable(variable) == previous
+}
+
+test "020 s49 analyzer ownership: SoA row-column null-conditional member access has one matching InvalidSyntax error (was SoaRecordNullConditionalTests.Analyzer_SoaRowColumnCannotUseNullConditionalMemberAccess)" {
+    source := "soa record NodeTable {\n    kind: int\n}\n\nfunc bad(nodes: NodeTable): int {\n    return nodes[0]?.kind\n}"
+    variable := "NSHARP_EXPERIMENTAL_SOA"
+    previous := Environment.GetEnvironmentVariable(variable)
+    Environment.SetEnvironmentVariable(variable, "1")
+    try {
+        parsed := EhParse(source)
+        assert EhText(parsed, "Success") == "True"
+        analysis := EhAnalyzeWithSource(parsed, source)
+        message := "SoA row views cannot be used with null-conditional member access"
+        assert EhMatchingErrorCount(analysis, "InvalidSyntax", message) == 1
+        assert EhMatchingErrorMember(analysis, "InvalidSyntax", message, "Message").Contains(message)
+        assert EhMatchingErrorMember(analysis, "InvalidSyntax", message, "Suggestion").Contains("table[index].column")
+    } finally {
+        Environment.SetEnvironmentVariable(variable, previous)
+    }
+
+    assert Environment.GetEnvironmentVariable(variable) == previous
+}
+
+test "020 s49 analyzer ownership: SoA table null-conditional member access has one matching InvalidSyntax error (was SoaRecordNullConditionalTests.Analyzer_SoaTableCannotUseNullConditionalMemberAccess)" {
+    source := "soa record NodeTable {\n    kind: int\n}\n\nfunc bad(nodes: NodeTable): int {\n    return nodes?.length\n}"
+    variable := "NSHARP_EXPERIMENTAL_SOA"
+    previous := Environment.GetEnvironmentVariable(variable)
+    Environment.SetEnvironmentVariable(variable, "1")
+    try {
+        parsed := EhParse(source)
+        assert EhText(parsed, "Success") == "True"
+        analysis := EhAnalyzeWithSource(parsed, source)
+        message := "SoA tables cannot use null-conditional member access"
+        assert EhMatchingErrorCount(analysis, "InvalidSyntax", message) == 1
+        assert EhMatchingErrorMember(analysis, "InvalidSyntax", message, "Message").Contains(message)
+        assert EhMatchingErrorMember(analysis, "InvalidSyntax", message, "Suggestion").Contains("use direct table.member access")
+    } finally {
+        Environment.SetEnvironmentVariable(variable, previous)
+    }
+
+    assert Environment.GetEnvironmentVariable(variable) == previous
 }
