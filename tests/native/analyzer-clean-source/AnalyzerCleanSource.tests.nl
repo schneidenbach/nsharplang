@@ -259,7 +259,7 @@ func AcParseNamedRow(source: string, index: int): string {
 func AcAnalyze(source: string): object {
     unit := AcParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
     unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
@@ -416,7 +416,7 @@ func AcSnippet(analysis: object, index: int): string {
 func AcAnalyzeWithSource(source: string): object {
     unit := AcParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
     unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
@@ -769,7 +769,7 @@ func AcLoadProjectConfig(analyzerType: Type, analyzer: object, sdk: string, targ
 func AcAnalyzeWithConfig(source: string, sdk: string, targetFramework: string): object {
     unit := AcParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
     unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
@@ -821,7 +821,7 @@ func AcAnalyzeWithConfig(source: string, sdk: string, targetFramework: string): 
 func AcAnalyzeWithSourceAndConfig(source: string, sdk: string, targetFramework: string): object {
     unit := AcParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
     unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
@@ -1136,7 +1136,7 @@ func AcParseNamedAsSuccess(source: string, fileName: string): string {
 }
 
 func AcAnalyzeUnitAt(unit: object, path: string, projectRoot: string?, source: string, loadSystemAssemblies: bool): object {
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
     unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
@@ -1429,7 +1429,7 @@ func AcPlaceholderUnit(lengthName: string): object {
 }
 
 func AcAnalyzeUnit(unit: object): object {
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
     unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")

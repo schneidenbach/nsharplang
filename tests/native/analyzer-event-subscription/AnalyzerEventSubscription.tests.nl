@@ -143,7 +143,7 @@ func EventParseCensus(source: string): string {
 func EventAnalyze(source: string): object {
     unit := EventParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
     unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")

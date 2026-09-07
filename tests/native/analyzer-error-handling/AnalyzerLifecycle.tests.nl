@@ -13,10 +13,10 @@ import System.IO
 // clears the error list retained by an earlier AnalysisResult while replacing its model/bindings,
 // and SetProjectSourceTexts replaces the complete source snapshot before the next analysis.
 //
-// When Analyzer moves into BootstrapServices, the one exact owner identity below moves with the
-// other analyzer-native lookups. There is deliberately no fallback or dual-assembly path.
+// Analyzer is owned by BootstrapServices with the other analyzer-native lookups. There is
+// deliberately no fallback or dual-assembly path.
 func AlAnalyzerType(): Type {
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
     if analyzerType == null {
         throw new InvalidOperationException("The production Analyzer type was not loadable.")
     }
