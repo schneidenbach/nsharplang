@@ -5,13 +5,14 @@ only when they match product-path behavior.
 
 ## Compiler Ownership Rule
 
-The compiler core, compiler-service core, and CLI/tooling command logic are N#-owned. Two surfaces
-remain still-owning C# and are named in `memory/architecture.md`'s reviewed allowlist:
-`Columnar/ColumnarIlEmitter.cs` (IL generation, retiring under task 015) and `Analyzer.cs`'s
-`MetadataLoadContext` quarantine (retiring with the AOT external-type-model task).
-Do not use documentation to justify keeping legacy fallback/legacy emitter ownership or
-`*DogfoodAdapter` layers alive. Old dogfood/columnar strategy logs that normalized fallback work have
-been deleted.
+The active objective is solely N#-owned compiler-core behavior and canonical compiler assertions;
+see [the execution contract](../tasks/README.md) and [current cursor](../systems-language-closeout/STATUS.md).
+The complete Analyzer is now N#-owned in BootstrapServices and `Analyzer.cs` is deleted. Remaining
+compiler C# is deletion debt; current SystemsAnalyzer and emitter work must preserve accepted N#
+owners while removing their remaining C# state/decisions. Historical allowlist labels do not prove
+current compiler-wide completion. CLI/editor features and broader branch work stay separately
+recorded; SDK/tooling changes are in scope only as demonstrated compiler migration dependencies.
+Do not preserve fallback emitters or expand `*DogfoodAdapter` layers into product architecture.
 
 Compiler-service kernels are statically compiled through `NSharpLang.Compiler.BootstrapServices`;
 product paths must not use `Assembly.Load`/delegate reflection for N# compiler services. Because

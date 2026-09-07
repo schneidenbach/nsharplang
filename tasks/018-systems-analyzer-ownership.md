@@ -2,36 +2,37 @@
 
 ## Execution contract
 
-Work in `/Users/spencer/repos/nsharplang` on the current `systems-language` branch.
+Follow the active compiler-only contract in [README.md](README.md). Astra plans, reviews and
+integrates; Sol Max or Terra Max implement bounded ownership areas. This replaces the historical
+one-vertical-policy-slice, smallest-deletion and line-budget instructions formerly in this task.
+Move complete classes or connected method groups with all necessary helpers and state. Select
+boundaries from production dependencies; first consider moving a dependency with its callers.
 
-Execute exactly one vertical systems-policy slice in this goal turn. Do not attempt all of
-`SystemsAnalyzer.cs` at once, and do not stop at planning, scaffolding, prerequisites, parity
-results, or a progress summary.
+Add no C# compiler behavior, tests, helpers, adapters, callbacks or fallbacks. Preserve accepted N#
+policies, semantic identities, diagnostics, evaluation order and meaningful failure state. Canonical
+assertions must execute in N#; migrate remaining C# assertions and reuse existing coverage where
+it already proves the selected behavior. Prove blockers by compiling actual proposed N# source.
 
-- Add no C# source, tests, helpers, bridges, callbacks, whitelists, or fallback logic.
-- Existing C# may only shrink, route mechanically to N#, or be deleted.
-- Implement all new behavior and canonical tests in N#.
-- Identify the exact C# policy methods, callers, and assertions this sub-slice deletes.
-- Consume stable semantic identities from task 017; never reconstruct identity from source text.
-- N# must be the direct production authority with no callback or fallback.
-- Tests migrate with the behavior. Missing N# prerequisites remain inside this sub-slice.
-- Follow all compiler and mandatory IDE evidence in `AGENTS.md`, commit with `Evidence:`, update
-  the ledger, repin when required, and leave a clean tree.
-- Report only after this sub-slice is complete.
+Use ./scripts/dev.sh and targeted tests, commit coherent passing pieces, and continue until the
+whole selected area is integrated. Root owns shared ratchets, SDK publication, review and the fresh
+integration gate before push. Preserve IDE verification when behavior affects the IDE. Broader CLI,
+editor, runtime reimplementation and NativeAOT initiatives stay separate; preserve existing AOT
+report facts without making NativeAOT an implementation objective.
 
-## Slice
+## Selected area: complete SystemsAnalyzer
 
-Move one bounded systems-policy family into N#.
+Replace all of `src/NSharpLang.Compiler/Performance/SystemsAnalyzer.cs`, including its nested
+MutableFunctionSummary, FunctionEntry, DeclarationSite, CallSite and WalkContext types. Move all
+initialization, caches, declaration registration/site resolution, visible-file projection, recursive
+traversal/effect propagation, scope stacks, finding transport and report construction together.
+Keep the already migrated Systems* policies as their existing N# owners.
 
-Read the active sub-slice in `systems-language-closeout/STATUS.md`. If none is recorded, choose the
-smallest deletion-ready family with complete input facts: allocation restrictions,
-attribute/modifier rules, unsafe/pointer policy, async/generator policy, or prohibited call/member
-policy. Record the exact target before editing.
+Route MultiFileCompiler directly to the sole N# SystemsAnalyzer type and delete the C# class.
+Preserve declaration-site value equality, AST reference identity, report-list aliasing, traversal
+and diagnostic order, recursion protocol, conservative ambiguity and failure timing. No C# host or
+fallback is an acceptable completion of this selected class migration.
 
-Move both required fact production and policy evaluation into canonical N# semantic identities,
-route production directly, migrate the assertions, and delete the matching
-`SystemsAnalyzer.cs` methods and branches.
-
-After committing, leave task 018 unchecked and name the next concrete sub-slice while systems
-policy remains. Mark it complete only when `SystemsAnalyzer.cs` is deleted or is a reviewed
-zero-policy mechanical host.
+The earlier task checkbox recorded policy migration only. Complete-class ownership remains active
+until source ownership, canonical assertions, metadata/behavior checks and required integration
+verification prove acceptance. See [the current boundary](../systems-language-closeout/decodes/2026-09-07-complete-systems-analyzer-ownership.md)
+and [compiler cursor](../systems-language-closeout/STATUS.md).

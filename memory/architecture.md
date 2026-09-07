@@ -33,7 +33,7 @@ mechanical C# boundaries that remain and for the two surfaces that are still own
 
 1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.BootstrapServices/Lexer.nl`)
 2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.BootstrapServices/ColumnarParserRecovery.nl`, N#)
-3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler/Analyzer.cs`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
+3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler.BootstrapServices/Analyzer.nl`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
 4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler/Columnar/`)
 5. **CLI** - command-line workflows (`src/NSharpLang.Cli/`)
 6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.BootstrapServices/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
@@ -71,16 +71,20 @@ This is the durable location for the final closeout allowlist. During the migrat
 this section does not make a non-N# file acceptable; it remains product-ownership debt until its
 N# replacement is in the product path or the final audit proves it is mechanical integration.
 
-### The reviewed allowlist for `src/NSharpLang.Compiler`
+### Historical reviewed inventory for `src/NSharpLang.Compiler`
 
-Every tracked file in the compiler assembly, classified by the task-021 terminal audit. "Decisions"
+The table records the task-021 terminal audit, not current ownership acceptance. The current
+compiler cursor and ratchet are authoritative; complete Analyzer ownership is accepted and the
+remaining SystemsAnalyzer class is now selected for removal.
+
+At that audit, tracked files in the compiler assembly were classified as follows. "Decisions"
 is the product-decision census — `NL` codes / user-facing sentences / ordering sites / non-zero exit
 returns — which is what proves *mechanical* rather than the word. Line counts are
 `ratchet epoch -> current`; no row in the entire 381-row ratchet has ever exceeded its epoch.
 
 | path | epoch -> current | decisions | N# owner it invokes | class |
 |---|---|---|---|---|
-| `Analyzer.cs` | 23,451 -> 2,798 | 0/1/0/0 | the `Analyzer*.nl` family (81 production files); `AnalyzerMetadataLoadPolicy` | mechanical shell + **quarantine** |
+| `Analyzer.cs` | 23,451 -> 0 | removed | complete `Analyzer.nl` and existing N# collaborators | deleted; accepted at `a207ee13b` |
 | `CodeIntelligence/CodeIntelligenceService.cs` | 1,906 -> 153 | 0/0/0/0 | `ProjectSnapshot.nl`, `CodeIntelligenceQueries.nl` | mechanical |
 | `CodeIntelligence/CompletionEngine.cs` | 805 -> 96 | 0/1/0/0 | `CompletionEngineKernels.nl`, `CompletionReceiverFacts.nl` | mechanical |
 | `CodeIntelligence/FixApplicator.cs` | 57 -> 54 | 0/0/0/0 | `ColumnarParserRecovery.nl`, `Linter.nl`, `CodeFix.nl` | mechanical |
@@ -96,14 +100,13 @@ Eleven further C# files in this assembly are `state:"removed"` — deleted whole
 `Parser.cs`, `Formatter.cs`, `Linter.cs`, `DocQuery.cs`, the three `Ast/*.cs`, `NullabilityMetadata.cs`,
 `ErrorReporting.cs`, `AstNodeFinder.cs` and `Columnar/ColumnarCompiler.cs`.
 
-**Read the exceptions literally.** Two rows are *not* mechanical boundaries and are not claimed as
-such:
+**Current ownership must be proved from source.** The emitter retains compiler decisions;
+historical mechanical labels do not exempt remaining state/control ownership from the active goal:
 
 - `ColumnarIlEmitter.cs` carries **144 user-facing sentences**. IL generation therefore does **not**
-  yet have exactly one N# production owner. It retires under the four remaining
-  `tasks/015-remaining-emitter-decisions.md` sub-tasks (plan-row lambda-body emitter; N#
-  preflight/typing-owner port; async-func lowering; planner-driven operand unlocks), and under the
-  AOT metadata-writer task that must replace `System.Reflection.Emit` outright.
+  yet have exactly one N# production owner. Follow the current compiler-only contract and
+  `tasks/015-remaining-emitter-decisions.md`. A metadata writer is in scope only when demonstrated
+  to be an ownership dependency; NativeAOT remains a separate initiative.
 - **The SIMD auto-vectorizer is C# inside `ColumnarIlEmitter.cs` and has an N# contract owner, not an
   N# implementation owner.** `TryEmitVectorizedReduction{While,For}`, `TryEmitVectorizedRangeCount*`,
   `TryEmitVectorizedMinMax*`, and `TryEmitVectorizedCountTransitions*` (plus the `SimdReductions` helper
@@ -118,12 +121,9 @@ such:
   only when `systems-vectorization-facts` is green unchanged and Step 3c still passes.** Note also that
   the `NSHARP_VECTORIZE_REDUCTIONS=0` opt-out the docs used to advertise died with the legacy IL compiler
   at 1cef0d16e; the columnar emitter has no opt-out, and the contract project pins that fact.
-- `Analyzer.cs`'s remaining decision residue is one internal `InvalidOperationException` inside
-  `LoadSystemAssemblies()`, which sits wholly inside the **`MetadataLoadContext` quarantine**
-  (17 members plus the nested `NSharpMetadataResolver`). The quarantine retires with the AOT
-  external-type-model task: the estate cannot spell `MetadataReader` today, and 83 production `.nl`
-  files name the `System.Reflection` object model (its types, or an `import System.Reflection`), so
-  replacing it is a task, not a slice.
+- The former Analyzer metadata quarantine is removed with the complete C# class. Its metadata
+  lifecycle and existing reflection operations are owned by N#; no metadata-writer rewrite was
+  required to achieve that ownership.
 
 Sibling assemblies are classified the same way and carry two `(b)` pins — surfaces that retire *with
 their subject* rather than moving, and which are pinned by contract in the meantime:
