@@ -84,8 +84,9 @@ class ColumnarFieldRows {
     }
 }
 
-// The METHOD family. `MethodAttributes` (ECMA-335 II.23.1.10) as integers: Public 6, Static 16,
-// Final 32, Virtual 64, HideBySig 128, NewSlot 256, Abstract 1024, SpecialName 2048, PinvokeImpl 8192.
+// The METHOD family. `MethodAttributes` (ECMA-335 II.23.1.10) as integers: Private 1, Assembly 3,
+// Family 4, FamORAssem 5, Public 6, Static 16, Final 32, Virtual 64, HideBySig 128, NewSlot 256,
+// Abstract 1024, SpecialName 2048, PinvokeImpl 8192.
 //
 // ONLY THE BASE WORD IS PLANNED. An IMPLEMENTING method is widened to Virtual|Final|NewSlot by
 // matching its signature against every interface the type implements, which needs the live registry
@@ -1183,6 +1184,22 @@ class ColumnarDeclarationPlanner {
         return 16
     }
 
+    static func PrivateMethodAttribute(): int {
+        return 1
+    }
+
+    static func AssemblyMethodAttribute(): int {
+        return 3
+    }
+
+    static func FamilyMethodAttribute(): int {
+        return 4
+    }
+
+    static func FamilyOrAssemblyMethodAttribute(): int {
+        return 5
+    }
+
     static func VirtualMethodAttribute(): int {
         return 64
     }
@@ -1227,6 +1244,44 @@ class ColumnarDeclarationPlanner {
         return PublicFieldAttribute() | HideBySigMethodAttribute()
     }
 
+    // Member visibility follows the language's casing convention unless an explicit CLR-facing
+    // modifier overrides it. `public` wins malformed combinations exactly as the analyzer's shared
+    // visibility convention does; protected+internal is the one combined accessibility word.
+    // Lowercase members are assembly-visible so calls from another file in the same package remain
+    // legal, while an explicit private modifier produces a genuinely private CLR member.
+    static func MethodVisibilityAttributes(name: string, modifierFlags: int): int {
+        if (modifierFlags & 1) != 0 {
+            return PublicFieldAttribute()
+        }
+        if (modifierFlags & 8) != 0 && (modifierFlags & 4) != 0 {
+            return FamilyOrAssemblyMethodAttribute()
+        }
+        if (modifierFlags & 2) != 0 {
+            return PrivateMethodAttribute()
+        }
+        if (modifierFlags & 8) != 0 {
+            return FamilyMethodAttribute()
+        }
+        if (modifierFlags & 4) != 0 || (modifierFlags & 32768) != 0 {
+            return AssemblyMethodAttribute()
+        }
+        if name != null && name.Length > 0 && char.IsUpper(name[0]) {
+            return PublicFieldAttribute()
+        }
+        return AssemblyMethodAttribute()
+    }
+
+    static func StructStaticMethodAttributes(name: string, modifierFlags: int): int {
+        if IsOperatorMethodName(name) {
+            return StaticMethodAttributes(true)
+        }
+        return MethodVisibilityAttributes(name, modifierFlags) | StaticMethodAttribute() | HideBySigMethodAttribute()
+    }
+
+    static func StructInstanceMethodAttributes(name: string, modifierFlags: int): int {
+        return MethodVisibilityAttributes(name, modifierFlags) | HideBySigMethodAttribute()
+    }
+
     // An INTERFACE member: Public|Virtual|HideBySig|NewSlot = 454, plus Abstract (1478) unless the
     // interface supplies a default body.
     static func InterfaceMethodAttributes(hasDefaultBody: bool): int {
@@ -1237,11 +1292,15 @@ class ColumnarDeclarationPlanner {
         return bits | AbstractMethodAttribute()
     }
 
-    // A FREE FUNCTION is Public|Static = 22 and carries NO HideBySig -- free functions do not
-    // overload, so there is no signature to hide by. The difference from a static METHOD (150) is
-    // deliberate and is pinned.
+    // A conventionally public FREE FUNCTION is Public|Static = 22 and carries NO HideBySig -- free
+    // functions do not overload, so there is no signature to hide by. The difference from a static
+    // METHOD (150) is deliberate and is pinned. The overload below varies only these access bits.
     static func FreeFunctionAttributes(): int {
         return PublicFieldAttribute() | StaticMethodAttribute()
+    }
+
+    static func FreeFunctionAttributes(name: string, modifierFlags: int): int {
+        return MethodVisibilityAttributes(name, modifierFlags) | StaticMethodAttribute()
     }
 
     // `this` occupies argument 0 of an instance method, so user parameter ordinals shift by one; a
@@ -1278,9 +1337,9 @@ class ColumnarDeclarationPlanner {
             while member < methodCount {
                 method := methods[member]
                 if method.IsStatic {
-                    words[member] = StaticMethodAttributes(IsOperatorMethodName(method.Name))
+                    words[member] = StructStaticMethodAttributes(method.Name, method.ModifierFlags)
                 } else {
-                    words[member] = InstanceMethodAttributes()
+                    words[member] = StructInstanceMethodAttributes(method.Name, method.ModifierFlags)
                 }
                 voids[member] = IsVoidReturnCanonical(method.ReturnCanonical)
                 member = member + 1
@@ -1313,8 +1372,9 @@ class ColumnarDeclarationPlanner {
         functionVoids := new bool[](functionCount)
         index = 0
         while index < functionCount {
-            functionWords[index] = FreeFunctionAttributes()
-            functionVoids[index] = IsVoidReturnCanonical(functions[index].ReturnCanonical)
+            function := functions[index]
+            functionWords[index] = FreeFunctionAttributes(function.Name, function.ModifierFlags)
+            functionVoids[index] = IsVoidReturnCanonical(function.ReturnCanonical)
             index = index + 1
         }
 

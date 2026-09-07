@@ -396,6 +396,10 @@ func DeclarationPlanMethodStruct(name: string, methods: List<ColumnarFunctionInp
 }
 
 test "the method rows publish every base MethodAttributes word, and a free function is NOT a static method" {
+    assert ColumnarDeclarationPlanner.PrivateMethodAttribute() == 1
+    assert ColumnarDeclarationPlanner.AssemblyMethodAttribute() == 3
+    assert ColumnarDeclarationPlanner.FamilyMethodAttribute() == 4
+    assert ColumnarDeclarationPlanner.FamilyOrAssemblyMethodAttribute() == 5
     assert ColumnarDeclarationPlanner.StaticMethodAttribute() == 16
     assert ColumnarDeclarationPlanner.VirtualMethodAttribute() == 64
     assert ColumnarDeclarationPlanner.HideBySigMethodAttribute() == 128
@@ -417,6 +421,68 @@ test "the method rows publish every base MethodAttributes word, and a free funct
     // change metadata on every free function in the estate.
     assert ColumnarDeclarationPlanner.FreeFunctionAttributes() == 22
     assert ColumnarDeclarationPlanner.FreeFunctionAttributes() != ColumnarDeclarationPlanner.StaticMethodAttributes(false)
+}
+
+test "method visibility preserves explicit CLR access and the package casing convention" {
+    // Explicit modifiers win casing. Public wins malformed combinations; protected+internal is
+    // the one supported combined accessibility; file is assembly visibility for a member.
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("visible", 1) == 6
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 2) == 1
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 4) == 3
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 8) == 4
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 12) == 5
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 32768) == 3
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 15) == 6
+
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 0) == 6
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("visible", 0) == 3
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("", 0) == 3
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes(null, 0) == 3
+
+    assert ColumnarDeclarationPlanner.StructInstanceMethodAttributes("Visible", 2) == 129
+    assert ColumnarDeclarationPlanner.StructStaticMethodAttributes("Visible", 2) == 145
+    // CLR operators remain public special-name methods even under a malformed private input.
+    assert ColumnarDeclarationPlanner.StructStaticMethodAttributes("op_Addition", 2) == 2198
+    // A free function retains its distinct no-HideBySig word while its access bits vary.
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 2) == 17
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("visible", 0) == 19
+}
+
+test "method rows read visibility flags for both type members and free functions" {
+    privateInstance := DeclarationPlanMethodInput("PrivateInstance", "void", false)
+    privateInstance.ModifierFlags = 2
+    internalStatic := DeclarationPlanMethodInput("InternalStatic", "void", true)
+    internalStatic.ModifierFlags = 4
+    casingInternal := DeclarationPlanMethodInput("casingInternal", "void", false)
+    methods := new List<ColumnarFunctionInput>()
+    methods.Add(privateInstance)
+    methods.Add(internalStatic)
+    methods.Add(casingInternal)
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanMethodStruct("Owner", methods))
+
+    privateFunction := DeclarationPlanMethodInput("PrivateFunction", "void", true)
+    privateFunction.ModifierFlags = 2
+    casingFunction := DeclarationPlanMethodInput("casingFunction", "void", true)
+    functions := new List<ColumnarFunctionInput>()
+    functions.Add(privateFunction)
+    functions.Add(casingFunction)
+    program := ColumnarProgramInput.CreateSingleSource(
+        "namespace Demo\n",
+        functions,
+        new List<ColumnarEnumInput>(),
+        structs,
+        new List<ColumnarUnionInput>(),
+        new List<ColumnarInterfaceInput>(),
+        null
+    )
+
+    rows := ColumnarDeclarationPlanner.BuildMethods(program)
+    assert rows.StructMethodAttributeWords[0][0] == 129
+    assert rows.StructMethodAttributeWords[0][1] == 147
+    assert rows.StructMethodAttributeWords[0][2] == 131
+    assert rows.FunctionAttributeWords[0] == 17
+    assert rows.FunctionAttributeWords[1] == 19
 }
 
 test "the operator rule is a name prefix that decides metadata, and it is ordinal and case-sensitive" {
