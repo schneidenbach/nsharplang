@@ -1,5 +1,26 @@
 namespace NSharpLang.ColumnarEmitFacts.Tests
 
+import System
+import System.Reflection
+
+// ColumnarDeclineTrace is now owned by the bootstrap-services N# assembly. These production
+// witnesses still invoke the C# parser/emitter host, while their Reset/Snapshot observations must
+// bind directly to that public N# owner with no compiler-assembly fallback.
+func ColumnarTraceTestMethod(methodName: string): MethodInfo {
+    owner := Type.GetType(
+        "NSharpLang.Compiler.Columnar.ColumnarDeclineTrace, NSharpLang.Compiler.BootstrapServices"
+    )
+    if owner == null {
+        throw new InvalidOperationException("Missing N# ColumnarDeclineTrace")
+    }
+    methods := owner.GetMethods((BindingFlags)24)
+    for method in methods {
+        if method.get_Name() == methodName && method.GetParameters().Length == 0 {
+            return method
+        }
+    }
+    throw new InvalidOperationException("Missing N# ColumnarDeclineTrace method " + methodName)
+}
 
 // THE FIVE EMIT CASES OF THE COLUMNAR FACT KERNELS, COMPILED BY THE PRODUCT BUILD ITSELF.
 //

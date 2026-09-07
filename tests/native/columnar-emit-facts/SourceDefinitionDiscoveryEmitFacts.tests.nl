@@ -147,7 +147,7 @@ func SourceDiscoveryEmitOutcome(source: string): string {
     if program == null {
         throw new InvalidOperationException("Source-discovery parser returned no program")
     }
-    reset := SourceDiscoveryHostMethod("ColumnarDeclineTrace", "Reset")
+    reset := ColumnarTraceTestMethod("Reset")
     emptyArguments := new object?[](0)
     resetResult := reset.Invoke(null, emptyArguments)
     _ = resetResult
@@ -161,7 +161,7 @@ func SourceDiscoveryEmitOutcome(source: string): string {
     SourceDiscoveryPut(emitArguments, 5, null)
     SourceDiscoveryPut(emitArguments, 6, null)
     succeeded := Convert.ToBoolean(emit.Invoke(null, emitArguments))
-    snapshot := SourceDiscoveryHostMethod("ColumnarDeclineTrace", "Snapshot")
+    snapshot := ColumnarTraceTestMethod("Snapshot")
     records := snapshot.Invoke(null, emptyArguments) as IList
     if records == null {
         throw new InvalidOperationException("No source-discovery decline snapshot")

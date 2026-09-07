@@ -207,7 +207,7 @@ func IteratorBindingEmitOutcome(source: string): string {
     if program == null {
         throw new InvalidOperationException("Iterator-binding parser returned no program")
     }
-    reset := IteratorBindingHostMethod("ColumnarDeclineTrace", "Reset")
+    reset := ColumnarTraceTestMethod("Reset")
     empty := new object?[](0)
     ignored := reset.Invoke(null, empty)
     _ = ignored
@@ -221,7 +221,7 @@ func IteratorBindingEmitOutcome(source: string): string {
     IteratorBindingPut(emitArguments, 5, null)
     IteratorBindingPut(emitArguments, 6, null)
     succeeded := Convert.ToBoolean(emit.Invoke(null, emitArguments))
-    snapshot := IteratorBindingHostMethod("ColumnarDeclineTrace", "Snapshot")
+    snapshot := ColumnarTraceTestMethod("Snapshot")
     records := snapshot.Invoke(null, empty) as IList
     if records == null {
         throw new InvalidOperationException("No iterator-binding decline snapshot")

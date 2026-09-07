@@ -48,7 +48,7 @@ func EntryPointRealizationBclEmptyByteArray(): object {
 }
 
 func EntryPointRealizationEmptyEntryPointTrace(): IList {
-    snapshot := EntryPointRealizationHostMethod("ColumnarDeclineTrace", "Snapshot")
+    snapshot := ColumnarTraceTestMethod("Snapshot")
     noArguments := new object?[](0)
     records := snapshot.Invoke(null, noArguments) as IList
     if records == null {
@@ -76,7 +76,7 @@ test "an executable without main preserves the real empty assembly output" {
         throw new InvalidOperationException("The entry-point fixture parser returned no program.")
     }
 
-    reset := EntryPointRealizationHostMethod("ColumnarDeclineTrace", "Reset")
+    reset := ColumnarTraceTestMethod("Reset")
     noArguments := new object?[](0)
     _ = reset.Invoke(null, noArguments)
 

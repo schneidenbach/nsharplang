@@ -95,7 +95,7 @@ func EmitPInvokeFixtureWithInvalidMetadata(invalidReturn: bool, invalidParameter
         defaultKinds[0] = 9999
         WritePInvokeFixtureField(method, "ParamDefaultKinds", defaultKinds)
     }
-    reset := PInvokeFixtureHostMethod("ColumnarDeclineTrace", "Reset")
+    reset := ColumnarTraceTestMethod("Reset")
     emptyArguments := new object?[](0)
     resetResult := reset.Invoke(null, emptyArguments)
     _ = resetResult
@@ -109,7 +109,7 @@ func EmitPInvokeFixtureWithInvalidMetadata(invalidReturn: bool, invalidParameter
     PutPInvokeFixtureArgument(emitArgs, 5, null)
     PutPInvokeFixtureArgument(emitArgs, 6, null)
     succeeded := Convert.ToBoolean(emit.Invoke(null, emitArgs))
-    snapshot := PInvokeFixtureHostMethod("ColumnarDeclineTrace", "Snapshot")
+    snapshot := ColumnarTraceTestMethod("Snapshot")
     records := snapshot.Invoke(null, emptyArguments) as IList
     if records == null {
         throw new InvalidOperationException("No decline snapshot")

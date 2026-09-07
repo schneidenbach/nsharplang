@@ -95,7 +95,7 @@ func EmitOverrideFixtureWithInvalidMetadata(invalidReturn: bool, invalidParamete
         defaultKinds[0] = 9999
         WriteOverrideFixtureField(method, "ParamDefaultKinds", defaultKinds)
     }
-    reset := OverrideFixtureHostMethod("ColumnarDeclineTrace", "Reset")
+    reset := ColumnarTraceTestMethod("Reset")
     emptyArguments := new object?[](0)
     resetResult := reset.Invoke(null, emptyArguments)
     _ = resetResult
@@ -109,7 +109,7 @@ func EmitOverrideFixtureWithInvalidMetadata(invalidReturn: bool, invalidParamete
     PutOverrideFixtureArgument(emitArgs, 5, null)
     PutOverrideFixtureArgument(emitArgs, 6, null)
     succeeded := Convert.ToBoolean(emit.Invoke(null, emitArgs))
-    snapshot := OverrideFixtureHostMethod("ColumnarDeclineTrace", "Snapshot")
+    snapshot := ColumnarTraceTestMethod("Snapshot")
     records := snapshot.Invoke(null, emptyArguments) as IList
     if records == null {
         throw new InvalidOperationException("No decline snapshot")

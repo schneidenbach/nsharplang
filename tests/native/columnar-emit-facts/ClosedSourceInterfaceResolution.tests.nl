@@ -173,7 +173,7 @@ func ClosedSourceEmitOutcome(source: string): string {
     if program == null {
         throw new InvalidOperationException("Parser returned no program")
     }
-    reset := ClosedSourceHostMethod("ColumnarDeclineTrace", "Reset")
+    reset := ColumnarTraceTestMethod("Reset")
     emptyArguments := new object?[](0)
     resetResult := reset.Invoke(null, emptyArguments)
     _ = resetResult
@@ -187,7 +187,7 @@ func ClosedSourceEmitOutcome(source: string): string {
     ClosedSourcePut(emitArguments, 5, null)
     ClosedSourcePut(emitArguments, 6, null)
     succeeded := Convert.ToBoolean(emit.Invoke(null, emitArguments))
-    snapshot := ClosedSourceHostMethod("ColumnarDeclineTrace", "Snapshot")
+    snapshot := ColumnarTraceTestMethod("Snapshot")
     records := snapshot.Invoke(null, emptyArguments) as IList
     if records == null {
         throw new InvalidOperationException("No decline snapshot")

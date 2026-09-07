@@ -176,7 +176,7 @@ func SourceInterfaceEmitOutcome(source: string): string {
     if program == null {
         throw new InvalidOperationException("Parser returned no program")
     }
-    reset := SourceInterfaceHostMethod("ColumnarDeclineTrace", "Reset")
+    reset := ColumnarTraceTestMethod("Reset")
     emptyArguments := new object?[](0)
     resetResult := reset.Invoke(null, emptyArguments)
     _ = resetResult
@@ -190,7 +190,7 @@ func SourceInterfaceEmitOutcome(source: string): string {
     SourceInterfacePut(emitArguments, 5, null)
     SourceInterfacePut(emitArguments, 6, null)
     succeeded := Convert.ToBoolean(emit.Invoke(null, emitArguments))
-    snapshot := SourceInterfaceHostMethod("ColumnarDeclineTrace", "Snapshot")
+    snapshot := ColumnarTraceTestMethod("Snapshot")
     records := snapshot.Invoke(null, emptyArguments) as IList
     if records == null {
         throw new InvalidOperationException("No decline snapshot")

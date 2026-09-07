@@ -388,8 +388,7 @@ func IteratorOrderingResolvedPrefix(shape: object): int {
 }
 
 func IteratorOrderingTraceCount(): int {
-    trace := IteratorOrderingCompilerType("ColumnarDeclineTrace")
-    snapshot := IteratorOrderingMethod(trace, "Snapshot", (BindingFlags)40, 0)
+    snapshot := ColumnarTraceTestMethod("Snapshot")
     emptyArguments := new object?[](0)
     records := snapshot.Invoke(null, emptyArguments) as IList
     if records == null {
@@ -399,8 +398,7 @@ func IteratorOrderingTraceCount(): int {
 }
 
 func IteratorOrderingResetTrace() {
-    trace := IteratorOrderingCompilerType("ColumnarDeclineTrace")
-    reset := IteratorOrderingMethod(trace, "Reset", (BindingFlags)40, 0)
+    reset := ColumnarTraceTestMethod("Reset")
     emptyArguments := new object?[](0)
     ignored := reset.Invoke(null, emptyArguments)
     _ = ignored
