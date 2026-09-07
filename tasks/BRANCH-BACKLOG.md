@@ -60,11 +60,16 @@ Previously completed independent work stays separate from compiler-only acceptan
   prerequisite for the exact Runtime subscription type reference in Analyzer. Claim SDK/project
   configuration files before edits; do not modify Analyzer.nl concurrently or fold the older SDK
   backlog into the prerequisite. No runtime reimplementation or type callback/fallback.
-- **Query task:** refresh the preserved actual-source Lazy constructor and reference-resolver
-  blocker probes against current compiler code. The old report predates accepted resolver
-  ownership. No broad CLI/daemon implementation, compiler edits or full gate during this audit.
-- **Signature-help task:** preserve `dfbd37528` and its completed gate/screenshots. Perform only a
-  read-only readiness/API-drift audit against the current compiler baseline, then hold.
+- **Query task:** refresh against `2a15d2189` confirms both blockers remain. The accepted emitter
+  `ColumnarCompilerReferenceResolver` is distinct from the surviving internal CLI
+  `CompilationReferenceResolver`. Evidence: `/tmp/cli-query-probes/refresh-2a15d2189/README.md`.
+  A complete query-help rendering route compiles with byte-identical output, but remains a separate
+  CLI backlog area; the task holds with clean worktrees and preserved drafts.
+- **Signature-help task:** read-only audit confirms clean `dfbd37528`, intact gate/screenshots, and
+  no direct consumed-API drift against `2a15d2189`. Only the two shared ratchet files overlap; the
+  three measured editor rows are distinct from compiler changes. A separate integration must
+  retain both row sets, recompute the head, and run fresh combined VS Code/visual verification.
+  The task holds; historical branch evidence is not combined-target acceptance.
 
 Integration order: coherent collection/reference prerequisites, required fresh seed verification
 when publication is necessary, complete Analyzer with all substitutions removed, all canonical
