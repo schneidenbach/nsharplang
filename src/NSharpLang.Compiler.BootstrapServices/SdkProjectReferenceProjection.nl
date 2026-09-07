@@ -5,11 +5,62 @@ import System.Collections.Generic
 import System.IO
 import NSharpLang.Cli.Commands
 
-// The project-reference rows that the SDK must add before MSBuild constructs its build graph.
-// Filtering and deduplication reuse the same N# policy as `nlc restore`; the MSBuild task only
-// wraps these decided paths as ITaskItem values.
+class SdkPackageReferenceProjection {
+    Identity: string
+    Metadata: Dictionary<string, string>
+
+    constructor(identity: string, version: string?) {
+        Identity = identity
+        Metadata = new Dictionary<string, string>(StringComparer.Ordinal)
+        versionValue := version ?? ""
+        if versionValue.Length > 0 {
+            Metadata.Add("Version", versionValue)
+        }
+    }
+}
+
+class SdkReferenceProjection {
+    PackageReferences: SdkPackageReferenceProjection[]
+    FrameworkReferences: string[]
+    ProjectReferences: string[]
+
+    constructor(packageReferences: SdkPackageReferenceProjection[], frameworkReferences: string[], projectReferences: string[]) {
+        PackageReferences = packageReferences
+        FrameworkReferences = frameworkReferences
+        ProjectReferences = projectReferences
+    }
+}
+
+// The complete reference projection that the SDK adds before MSBuild constructs its restore and
+// build graphs. N# owns selection, metadata, path resolution, ordering, and deduplication; the
+// MSBuild task only transports the resulting rows into item collections.
 class SdkProjectReferenceProjection {
-    static func Resolve(projectFile: string, dependencies: IEnumerable<Reference>, existingProjectReferences: string[]): string[] {
+    static func Resolve(projectFile: string, existingProjectReferences: string[]): SdkReferenceProjection {
+        config := ProjectFileParser.Parse(projectFile)
+        dependencies := config.Dependencies
+
+        packageDependencies := RestoreCommandKernels.FilterReferencesByType(dependencies, ReferenceType.NuGet)
+        packageReferences := new SdkPackageReferenceProjection[](packageDependencies.Count)
+        i := 0
+        while i < packageDependencies.Count {
+            dependency := packageDependencies[i]
+            packageReferences[i] = new SdkPackageReferenceProjection(dependency.Nuget ?? "", dependency.Version)
+            i = i + 1
+        }
+
+        frameworkDependencies := RestoreCommandKernels.FilterReferencesByType(dependencies, ReferenceType.Framework)
+        frameworkReferences := new string[](frameworkDependencies.Count)
+        i = 0
+        while i < frameworkDependencies.Count {
+            frameworkReferences[i] = frameworkDependencies[i].Framework ?? ""
+            i = i + 1
+        }
+
+        projectReferences := ResolveProjects(projectFile, dependencies, existingProjectReferences)
+        return new SdkReferenceProjection(packageReferences, frameworkReferences, projectReferences)
+    }
+
+    static func ResolveProjects(projectFile: string, dependencies: IEnumerable<Reference>, existingProjectReferences: string[]): string[] {
         projectDirectory := Path.GetDirectoryName(Path.GetFullPath(projectFile))
         if string.IsNullOrWhiteSpace(projectDirectory) {
             throw new InvalidOperationException("Could not determine the project directory for '" + projectFile + "'.")

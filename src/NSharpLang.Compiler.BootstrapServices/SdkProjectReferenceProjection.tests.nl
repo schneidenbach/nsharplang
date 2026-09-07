@@ -17,49 +17,56 @@ func SdkProjectReferenceTree(): string {
     File.WriteAllText(Path.Combine(app, "Local.dll"), "")
     File.WriteAllText(
         Path.Combine(app, "project.yml"),
-        "name: App\n" + "dependencies:\n" + "  - nuget: Serilog\n" + "    version: 3.1.1\n" + "  - project: ../Shared/project.yml\n" + "  - framework: Microsoft.AspNetCore.App\n" + "  - project: ../Shared/Shared.csproj\n" + "  - dll: Local.dll\n" + "  - project: ../Other/Other.csproj\n"
+        "name: App\n" + "dependencies:\n" + "  - nuget: Serilog\n" + "    version: 3.1.1\n" + "  - project: ../Shared/project.yml\n" + "  - framework: Microsoft.AspNetCore.App\n" + "  - nuget: Humanizer\n" + "  - project: ../Shared/Shared.csproj\n" + "  - dll: Local.dll\n" + "  - project: ../Other/Other.csproj\n"
     )
     return root
 }
 
-test "SDK project references resolve relative YAML and csproj paths then deduplicate in source order" {
+test "SDK references map package metadata frameworks and projects in source order while excluding DLLs" {
     root := SdkProjectReferenceTree()
     try {
         projectFile := Path.Combine(Path.Combine(root, "App"), "project.yml")
-        config := ProjectFileParser.Parse(projectFile)
-        projected := SdkProjectReferenceProjection.Resolve(projectFile, config.Dependencies, new string[](0))
-        assert projected.Length == 2
-        assert projected[0] == Path.Combine(Path.Combine(root, "Shared"), "Shared.csproj")
-        assert projected[1] == Path.Combine(Path.Combine(root, "Other"), "Other.csproj")
+        projected := SdkProjectReferenceProjection.Resolve(projectFile, new string[](0))
+        assert projected.PackageReferences.Length == 2
+        assert projected.PackageReferences[0].Identity == "Serilog"
+        assert projected.PackageReferences[0].Metadata.Count == 1
+        assert projected.PackageReferences[0].Metadata["Version"] == "3.1.1"
+        assert projected.PackageReferences[1].Identity == "Humanizer"
+        assert projected.PackageReferences[1].Metadata.Count == 0
+        assert projected.FrameworkReferences.Length == 1
+        assert projected.FrameworkReferences[0] == "Microsoft.AspNetCore.App"
+        assert projected.ProjectReferences.Length == 2
+        assert projected.ProjectReferences[0] == Path.Combine(Path.Combine(root, "Shared"), "Shared.csproj")
+        assert projected.ProjectReferences[1] == Path.Combine(Path.Combine(root, "Other"), "Other.csproj")
     } finally {
         Directory.Delete(root, true)
     }
 }
 
-test "SDK project references do not add an existing generated-props row again" {
+test "SDK references do not add an existing generated-props project row again" {
     root := SdkProjectReferenceTree()
     try {
         projectFile := Path.Combine(Path.Combine(root, "App"), "project.yml")
-        config := ProjectFileParser.Parse(projectFile)
         shared := Path.Combine(Path.Combine(root, "Shared"), "Shared.csproj")
         other := Path.Combine(Path.Combine(root, "Other"), "Other.csproj")
-        projected := SdkProjectReferenceProjection.Resolve(projectFile, config.Dependencies, [shared, shared])
-        assert projected.Length == 1
-        assert projected[0] == other
+        projected := SdkProjectReferenceProjection.Resolve(projectFile, [shared, shared])
+        assert projected.ProjectReferences.Length == 1
+        assert projected.ProjectReferences[0] == other
     } finally {
         Directory.Delete(root, true)
     }
 }
 
-test "SDK project references exclude package framework and DLL dependencies" {
+test "SDK references retain package and framework rows when every project row already exists" {
     root := SdkProjectReferenceTree()
     try {
         projectFile := Path.Combine(Path.Combine(root, "App"), "project.yml")
-        config := ProjectFileParser.Parse(projectFile)
         shared := Path.Combine(Path.Combine(root, "Shared"), "Shared.csproj")
         other := Path.Combine(Path.Combine(root, "Other"), "Other.csproj")
-        projected := SdkProjectReferenceProjection.Resolve(projectFile, config.Dependencies, [shared, other])
-        assert projected.Length == 0
+        projected := SdkProjectReferenceProjection.Resolve(projectFile, [shared, other])
+        assert projected.PackageReferences.Length == 2
+        assert projected.FrameworkReferences.Length == 1
+        assert projected.ProjectReferences.Length == 0
     } finally {
         Directory.Delete(root, true)
     }

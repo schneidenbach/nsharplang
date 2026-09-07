@@ -25,7 +25,7 @@
   <!-- Apply project.yml in THIS invocation as well as through obj/project.g.props, so direct dotnet builds and
        ProjectReference consumers work even before nlc restore has generated the compatibility props file. -->
   <Target Name="_ApplyNSharpProjectConfigForCurrentBuild"
-          BeforeTargets="_GetRestoreProjectStyle;_GetRestoreTargetFrameworksOutput;_GenerateRestoreProjectSpec;GetTargetPath;GetTargetPathWithTargetPlatformMoniker;PrepareForBuild;CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;CoreCompile"
+          BeforeTargets="_GetRestoreProjectStyle;_GetRestoreTargetFrameworksOutput;_GenerateRestoreProjectSpec;_GenerateRestoreProjectPathItemsPerFramework;GetTargetPath;GetTargetPathWithTargetPlatformMoniker;PrepareForBuild;CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;AssignProjectConfiguration;CoreCompile"
           Condition="Exists('$(NSharpProjectFile)')">
     <LoadProjectConfig ProjectDirectory="$(MSBuildProjectDirectory)">
       <Output TaskParameter="TargetFramework" PropertyName="TargetFramework" />
@@ -37,6 +37,12 @@
       <Output TaskParameter="Sdk" PropertyName="_NSharpBaseSdk" />
       <Output TaskParameter="TestFramework" PropertyName="NSharpTestFramework" />
     </LoadProjectConfig>
+
+    <LoadProjectReferences ProjectFile="$(NSharpProjectFile)" ExistingProjectReferences="@(ProjectReference->'%(FullPath)')">
+      <Output TaskParameter="PackageReferences" ItemName="PackageReference" />
+      <Output TaskParameter="FrameworkReferences" ItemName="FrameworkReference" />
+      <Output TaskParameter="ProjectReferences" ItemName="ProjectReference" />
+    </LoadProjectReferences>
 
     <PropertyGroup Condition="'$(AssemblyName)' != ''">
       <TargetName>$(AssemblyName)</TargetName>
@@ -120,18 +126,6 @@
       <!-- Only enable by default if explicitly requested -->
       <CollectCoverage Condition="'$(CollectCoverage)' == ''">false</CollectCoverage>
     </PropertyGroup>
-  </Target>
-
-  <Target Name="LoadNSharpReferences"
-          BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;_GenerateRestoreProjectPathItemsPerFramework;AssignProjectConfiguration"
-          Condition="Exists('$(NSharpProjectFile)')">
-    <LoadProjectReferences
-      ProjectFile="$(NSharpProjectFile)"
-      ExistingProjectReferences="@(ProjectReference->'%(FullPath)')">
-      <Output TaskParameter="PackageReferences" ItemName="PackageReference" />
-      <Output TaskParameter="FrameworkReferences" ItemName="FrameworkReference" />
-      <Output TaskParameter="ProjectReferences" ItemName="ProjectReference" />
-    </LoadProjectReferences>
   </Target>
 
   <Target Name="CoreCompile"

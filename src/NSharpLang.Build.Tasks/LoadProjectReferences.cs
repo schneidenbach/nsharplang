@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using NSharpLang.Compiler;
@@ -14,59 +13,28 @@ public class LoadProjectReferences : Task
     public ITaskItem[] PackageReferences { get; set; } = Array.Empty<ITaskItem>();
 
     [Output]
-    public ITaskItem[] FrameworkReferences { get; set; } = Array.Empty<ITaskItem>();
+    public string[] FrameworkReferences { get; set; } = Array.Empty<string>();
 
     public string[] ExistingProjectReferences { get; set; } = Array.Empty<string>();
 
     [Output]
-    public ITaskItem[] ProjectReferences { get; set; } = Array.Empty<ITaskItem>();
+    public string[] ProjectReferences { get; set; } = Array.Empty<string>();
 
     public override bool Execute()
     {
         try
         {
-            var config = ProjectFileParser.Parse(ProjectFile!);
-
-            var packageRefs = new List<ITaskItem>();
-            var frameworkRefs = new List<ITaskItem>();
-            // Process dependencies
-            foreach (var dep in config.Dependencies)
+            var projection = SdkProjectReferenceProjection.Resolve(ProjectFile!, ExistingProjectReferences);
+            var packageReferences = new ITaskItem[projection.PackageReferences.Length];
+            for (var i = 0; i < packageReferences.Length; i++)
             {
-                switch (dep.Type)
-                {
-                    case ReferenceType.NuGet:
-                        var pkgItem = new TaskItem(dep.Nuget!);
-                        if (!string.IsNullOrEmpty(dep.Version))
-                        {
-                            pkgItem.SetMetadata("Version", dep.Version!);
-                        }
-                        packageRefs.Add(pkgItem);
-                        break;
-
-                    case ReferenceType.Framework:
-                        var fwItem = new TaskItem(dep.Framework!);
-                        frameworkRefs.Add(fwItem);
-                        break;
-
-                    // DLL references are handled by the compiler during build
-                    case ReferenceType.Dll:
-                        break;
-                }
+                var reference = projection.PackageReferences[i];
+                packageReferences[i] = new TaskItem(reference.Identity, reference.Metadata);
             }
 
-            PackageReferences = packageRefs.ToArray();
-            FrameworkReferences = frameworkRefs.ToArray();
-
-            var projectPaths = SdkProjectReferenceProjection.Resolve(
-                ProjectFile!,
-                config.Dependencies,
-                ExistingProjectReferences);
-            var projectRefs = new ITaskItem[projectPaths.Length];
-            for (var i = 0; i < projectPaths.Length; i++)
-            {
-                projectRefs[i] = new TaskItem(projectPaths[i]);
-            }
-            ProjectReferences = projectRefs;
+            PackageReferences = packageReferences;
+            FrameworkReferences = projection.FrameworkReferences;
+            ProjectReferences = projection.ProjectReferences;
 
             return true;
         }
