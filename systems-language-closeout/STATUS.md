@@ -55,6 +55,14 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
+**Active compiler-only area, complete Analyzer class:** move all analysis-lifetime state, constructor
+and collaborator reconstruction, public entry points, recursive dispatch/drivers, scope/ambient
+restoration and metadata load/disposal to N#. Remove the complete C# Analyzer owner, not another
+individual driver. Migrate four remaining direct C# analyzer cases and all canonical fixture owner
+lookups. [Boundary](decodes/2026-09-06-complete-analyzer-ownership.md), baseline `3d9222aeb`, evidence
+`/private/tmp/nsharp-analyzer-owner-20260906`. Sol Max implements, Terra Max owns canonical tests,
+Astra reviews/integrates. Existing N# semantic families and accepted verification stay accepted.
+
 **Accepted area, constructor declaration, validation and chain emission:** `79af30753` moves the
 complete Pass 0c/0d declaration/state/job phase, eight validation/chain helpers, three argument
 operations, shared node text and the complete decline trace into N#. The C# declaration phase,
@@ -72,9 +80,6 @@ seed gate (460s) and ordinary installed-package probe 8/8. Accepted SDK SHA256
 `357ad95faf90a34f7ce7be426be4600bd89b48d87f7607aa725e752813877724`; both feeds and twelve cache
 payloads remain verified. General recursive body emission/Pass 2 orchestration and the remaining
 field declaration phase stay explicit C# compiler debt. Compiler-wide ownership remains active.
-Next dependency assessment: the complete Analyzer class, including analysis-lifetime state,
-recursive dispatch/drivers and validation callbacks, plus canonical assertion and runtime assembly
-lookup boundaries. Consider its actual dependencies together; avoid another per-driver extraction.
 
 **Accepted area, closure binding and mutation analysis:** complete binding visibility/collection,
 capture/mutation scans, lifted-state computation, StrongBox metadata and necessary source-member
