@@ -43,3 +43,31 @@ force unrelated compiler ownership migrations to wait.
   are reported clean with 9/9 canonical tests and 1/1 private package/template/build/run/invalid-config
   integration passing. Shared integration and publication remain pending; neither commit is part
   of this compiler checkpoint.
+
+## Recovery coordination (2026-09-07)
+
+The primary task inspected all four pinned N# tasks after the usage pause. Existing query, SDK
+configuration and signature-help worktrees were clean; no live dev/full-gate process remained.
+Previously completed independent work stays separate from compiler-only acceptance.
+
+- **Compiler / primary:** root `2a15d2189` contains four migrated canonical analyzer cases and three
+  lifecycle controls; baseline analyzer-error-handling 22/22 and ownership audit 18/18 pass. The
+  complete Analyzer owner remains active. Recovered full-method probe r17 passes Columnar 12/12,
+  but retains three discovery substitutions and is not acceptance. The collection seed owns exact
+  dictionary-copy construction and exception-safe source enumeration; the implementation owner
+  retains Analyzer.nl. Evidence: `/private/tmp/nsharp-analyzer-owner-20260906`.
+- **SDK task:** preserve `b2132a8a1` / `aecdb052c`; take a new isolated, directly necessary compiler
+  prerequisite for the exact Runtime subscription type reference in Analyzer. Claim SDK/project
+  configuration files before edits; do not modify Analyzer.nl concurrently or fold the older SDK
+  backlog into the prerequisite. No runtime reimplementation or type callback/fallback.
+- **Query task:** refresh the preserved actual-source Lazy constructor and reference-resolver
+  blocker probes against current compiler code. The old report predates accepted resolver
+  ownership. No broad CLI/daemon implementation, compiler edits or full gate during this audit.
+- **Signature-help task:** preserve `dfbd37528` and its completed gate/screenshots. Perform only a
+  read-only readiness/API-drift audit against the current compiler baseline, then hold.
+
+Integration order: coherent collection/reference prerequisites, required fresh seed verification
+when publication is necessary, complete Analyzer with all substitutions removed, all canonical
+owner lookups and lifecycle checks, fresh appropriate product gate, then push. The primary task
+owns shared ratchets, gates and publication. Older SDK/editor work requires separate integration
+checkpoints; no duplicate verification or competing feed writes are authorized.
