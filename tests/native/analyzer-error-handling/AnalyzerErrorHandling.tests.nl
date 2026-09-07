@@ -194,10 +194,10 @@ func EhAnalyze(source: string): object {
     return analysis
 }
 
-// The four-argument Analyze route used by the SoA null-conditional regressions.  The original
-// helper retained its Analyzer rather than disposing it; this deliberately preserves that setup
-// while keeping the parsed unit that the parse-success assertion inspected.
-func EhAnalyzeWithSource(parsed: object, source: string): object {
+// The migrated C# helpers retained their Analyzer rather than disposing it.  The original fifteen
+// native rows keep using EhAnalyze above, which does dispose; only these four rows select the exact
+// retained one- or four-argument Analyze overload that their source helpers used.
+func EhAnalyzeRetained(parsed: object, source: string?): object {
     unit := EhRequiredMember(parsed, "CompilationUnit")
 
     analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, Compiler")
@@ -220,22 +220,37 @@ func EhAnalyzeWithSource(parsed: object, source: string): object {
     loadArguments := new object?[](0)
     loadMethod.Invoke(analyzer, loadArguments)
 
-    analyzeParameterTypes := new Type[](4)
-    analyzeParameterTypes[0] = unitType
-    analyzeParameterTypes[1] = typeof(string)
-    analyzeParameterTypes[2] = typeof(string)
-    analyzeParameterTypes[3] = typeof(string)
-    analyzeMethod := analyzerType.GetMethod("Analyze", analyzeParameterTypes)
-    if analyzeMethod == null {
-        throw new InvalidOperationException("The production four-argument Analyze entry point was not found.")
+    analysis: object? = null
+    if source == null {
+        analyzeParameterTypes := new Type[](1)
+        analyzeParameterTypes[0] = unitType
+        analyzeMethod := analyzerType.GetMethod("Analyze", analyzeParameterTypes)
+        if analyzeMethod == null {
+            throw new InvalidOperationException("The production single-argument Analyze entry point was not found.")
+        }
+
+        analyzeArguments := new object?[](1)
+        SetEhObject(analyzeArguments, 0, unit)
+        analysis = analyzeMethod.Invoke(analyzer, analyzeArguments)
+    } else {
+        analyzeParameterTypes := new Type[](4)
+        analyzeParameterTypes[0] = unitType
+        analyzeParameterTypes[1] = typeof(string)
+        analyzeParameterTypes[2] = typeof(string)
+        analyzeParameterTypes[3] = typeof(string)
+        analyzeMethod := analyzerType.GetMethod("Analyze", analyzeParameterTypes)
+        if analyzeMethod == null {
+            throw new InvalidOperationException("The production four-argument Analyze entry point was not found.")
+        }
+
+        analyzeArguments := new object?[](4)
+        SetEhObject(analyzeArguments, 0, unit)
+        SetEhObject(analyzeArguments, 1, "test.nl")
+        SetEhObject(analyzeArguments, 2, null)
+        SetEhObject(analyzeArguments, 3, source)
+        analysis = analyzeMethod.Invoke(analyzer, analyzeArguments)
     }
 
-    analyzeArguments := new object?[](4)
-    SetEhObject(analyzeArguments, 0, unit)
-    SetEhObject(analyzeArguments, 1, "test.nl")
-    SetEhObject(analyzeArguments, 2, null)
-    SetEhObject(analyzeArguments, 3, source)
-    analysis := analyzeMethod.Invoke(analyzer, analyzeArguments)
     if analysis == null {
         throw new InvalidOperationException("The production analyzer returned no result.")
     }
@@ -661,7 +676,8 @@ test "020 s25 analyzer error handling: `continue` outside a loop is the SAME NL1
 // diagnostic-census contract.
 test "020 s49 analyzer ownership: two undefined reads remain independently reported (was ErrorRecoveryPipelineTests.Analyzer_CollectsMultipleSemanticErrors)" {
     source := "\nfunc test() {\n    Console.WriteLine(undefinedVar1)\n    Console.WriteLine(undefinedVar2)\n}"
-    analysis := EhAnalyze(source)
+    parsed := EhParse(source)
+    analysis := EhAnalyzeRetained(parsed, null)
     assert EhErrorCount(analysis) >= 2
 }
 
@@ -676,7 +692,7 @@ test "020 s49 analyzer ownership: SoA row-view null-conditional indexing has one
     try {
         parsed := EhParse(source)
         assert EhText(parsed, "Success") == "True"
-        analysis := EhAnalyzeWithSource(parsed, source)
+        analysis := EhAnalyzeRetained(parsed, source)
         message := "SoA row views cannot be used with null-conditional indexing"
         assert EhMatchingErrorCount(analysis, "InvalidSyntax", message) == 1
         assert EhMatchingErrorMember(analysis, "InvalidSyntax", message, "Message").Contains(message)
@@ -696,7 +712,7 @@ test "020 s49 analyzer ownership: SoA row-column null-conditional member access 
     try {
         parsed := EhParse(source)
         assert EhText(parsed, "Success") == "True"
-        analysis := EhAnalyzeWithSource(parsed, source)
+        analysis := EhAnalyzeRetained(parsed, source)
         message := "SoA row views cannot be used with null-conditional member access"
         assert EhMatchingErrorCount(analysis, "InvalidSyntax", message) == 1
         assert EhMatchingErrorMember(analysis, "InvalidSyntax", message, "Message").Contains(message)
@@ -716,7 +732,7 @@ test "020 s49 analyzer ownership: SoA table null-conditional member access has o
     try {
         parsed := EhParse(source)
         assert EhText(parsed, "Success") == "True"
-        analysis := EhAnalyzeWithSource(parsed, source)
+        analysis := EhAnalyzeRetained(parsed, source)
         message := "SoA tables cannot use null-conditional member access"
         assert EhMatchingErrorCount(analysis, "InvalidSyntax", message) == 1
         assert EhMatchingErrorMember(analysis, "InvalidSyntax", message, "Message").Contains(message)
