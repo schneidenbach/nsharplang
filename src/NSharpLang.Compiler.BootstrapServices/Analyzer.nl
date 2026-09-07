@@ -748,7 +748,7 @@ class Analyzer: IDisposable {
         try {
             while importEnumerator.MoveNext() {
                 importDirective := importEnumerator.get_Current()
-                DriveImports(Imports.BeginNamespaceImport(
+                this.DriveImports(Imports.BeginNamespaceImport(
                     importDirective.Namespace,
                     importDirective.Alias,
                     importDirective.Line,
@@ -766,7 +766,7 @@ class Analyzer: IDisposable {
         PushScope(new Scope(ScopeKind.Global), 1, 1)
 
         if unit.FileImports.Count > 0 {
-            DriveImports(Imports.BeginFileImports(unit.FileImports))
+            this.DriveImports(Imports.BeginFileImports(unit.FileImports))
         }
 
         Imports.CheckImportCollisions()
