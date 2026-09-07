@@ -55,20 +55,26 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
-**Active compiler-only area, constructor declaration, validation and chain emission:** move the
-complete Pass 0c/0d declaration/state/job phase and eight connected validation/chain helpers.
-[Boundary](decodes/2026-09-06-constructor-declaration-ownership.md), baseline `656f7c7ea`, evidence
-`/private/tmp/nsharp-constructor-declaration-ownership-20260906`. Sol Max implements, Terra Max
-migrates five canonical programs, Astra reviews/integrates. The five canonical programs are committed.
-Connected argument instructions, node text and the complete decline trace are included; tracing must
-precede enumerator disposal. Proven seed prerequisites are now integrated: opcode/byte admission,
-private ThreadStatic field metadata and complete field-column decoding, plus Array.Empty over exact
-source-class handles. Fresh seed gate passes in 460s (578 unit / 7,908 canonical / 52 native / 12 throughput / 68 IL);
-ordinary installed-package probe passes 8/8. Published SDK SHA256
-`357ad95faf90a34f7ce7be426be4600bd89b48d87f7607aa725e752813877724`. Constructor owner `79af30753` and ten direct N# controls `1eebebfc9` are integrated.
-Root checks pass: direct10/10, Columnar12/12 and ownership18/18. The final fresh backend gate
-remains active; no selected-area acceptance is claimed yet. General body emission/orchestration and the
-remaining field-declaration phase stay explicit compiler debt; no callback into them is added.
+**Accepted area, constructor declaration, validation and chain emission:** `79af30753` moves the
+complete Pass 0c/0d declaration/state/job phase, eight validation/chain helpers, three argument
+operations, shared node text and the complete decline trace into N#. The C# declaration phase,
+twelve helper methods and trace class are removed. Five complete canonical programs and fifteen
+assertions migrate (`f774570b3`); ten direct controls (`1eebebfc9`) preserve state/order, failure
+timing, snapshots and thread isolation. Native trace fixture transport is corrected in `34f03ba37`;
+its 121 tests remain green and use the exact N# owner.
+[Boundary and evidence](decodes/2026-09-06-constructor-declaration-ownership.md), evidence
+`/private/tmp/nsharp-constructor-declaration-ownership-20260906`. Fresh final backend gate at
+`d07e17d8a` passes in 450s: 578 unit / 7,918 N# canonical / 52 native projects / 12 throughput / 68 IL assemblies.
+Root focused checks pass: direct 10/10, Columnar 12/12 and ownership 18/18. Exactly four ratchet rows
+change, with all other rows and epochs preserved; head `head-v1:9512ee02e95ca2c8`.
+Grouped opcode/field-column/private-ThreadStatic/source-array prerequisites pass a separate fresh
+seed gate (460s) and ordinary installed-package probe 8/8. Accepted SDK SHA256
+`357ad95faf90a34f7ce7be426be4600bd89b48d87f7607aa725e752813877724`; both feeds and twelve cache
+payloads remain verified. General recursive body emission/Pass 2 orchestration and the remaining
+field declaration phase stay explicit C# compiler debt. Compiler-wide ownership remains active.
+Next dependency assessment: the complete Analyzer class, including analysis-lifetime state,
+recursive dispatch/drivers and validation callbacks, plus canonical assertion and runtime assembly
+lookup boundaries. Consider its actual dependencies together; avoid another per-driver extraction.
 
 **Accepted area, closure binding and mutation analysis:** complete binding visibility/collection,
 capture/mutation scans, lifted-state computation, StrongBox metadata and necessary source-member
@@ -84,8 +90,6 @@ seed gate and ordinary packaged probe 6/6; both feeds and twelve cache payloads 
 [Boundary and evidence](decodes/2026-09-06-closure-analysis-ownership.md), evidence
 `/private/tmp/nsharp-closure-analysis-ownership-20260906`. Remaining recursive lambda body and
 display-class lowering are explicit C# compiler debt. Compiler-wide ownership remains active.
-The next dependency assessment is constructor declaration/realization and instance initializer
-scheduling, including its actual body-emission dependencies; no new decision callbacks are permitted.
 
 **Accepted area, reference coercion and boxing:** seven complete source/external interface and
 object conversion/boxing methods are solely N#-owned (`3b998bf50`); the C# lookup forwarder is gone.

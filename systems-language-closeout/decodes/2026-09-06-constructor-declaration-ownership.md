@@ -161,3 +161,20 @@ lookups across eight existing fixtures. The native project's dynamic compiler in
 remains mechanical; it does not select compiler behavior or fall back to a legacy trace owner.
 All assertions are preserved. Focused native 121/121 and formatting pass; independent review agrees.
 The corrected integrated source now enters a second fresh final backend gate.
+
+Selected-area acceptance: the second fresh backend gate at `d07e17d8ac16fa8b2f6968779119b090be0ef727` passes in
+450s: 578 unit / 7,918 N# canonical / 52 native projects / 12 throughput / 68 IL assemblies. Both actual local feeds and all twelve SDK
+cache payloads retain the accepted seed identities. The declaration/default-synthesis phase, its
+eight validation/chain helpers, all three argument instructions, shared node text, and complete
+decline trace now have solely N# production owners. Five canonical programs with their original
+fifteen assertions execute in N#, alongside ten direct adversarial controls and the existing
+native estate. The eight dynamic native fixture boundaries now name the N# trace owner exactly.
+
+The C# host passes existing compiler state to Declare, checks its success result and consumes its
+live N# job records. That transport is mechanical. General recursive body emission, Pass 2 body
+orchestration and remaining field declaration/type resolution are still C# compiler ownership
+debt, not accepted mechanical boundaries. No replaced declaration/helper/trace decision, callback
+or fallback owner survives. Compiler-wide completion remains open. Receipts include
+`owner-gate-r2.json`, `root-integrated-owner-review.json`, `root-final-ratchet-review.json`,
+`root-direct-receipt.json`, `root-native-trace-boundary-review.json` and
+`post-owner-installed-seed.json` in the area evidence directory.
