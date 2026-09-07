@@ -127,6 +127,17 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         ValidateInputs(lookupType, memberName, argumentTypes)
         ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
 
+        inheritedDictionaryEntryCall := Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        if TryResolveInheritedDictionaryEntryEnumeratorCall(
+            lookupType,
+            memberName,
+            argumentTypes,
+            expectedStatic,
+            out inheritedDictionaryEntryCall
+        ) {
+            return inheritedDictionaryEntryCall
+        }
+
         genericDefinition := typeof(object)
         closedArguments := new Type[](0)
         if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
@@ -160,6 +171,51 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         } catch ex: InvalidOperationException {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         }
+    }
+
+    // Type.GetMethods on IEnumerator<T> does not enumerate the nongeneric IEnumerator methods it
+    // inherits. The Analyzer's original explicit-enumerator loop needs the one exact inherited
+    // member it calls: MoveNext on IEnumerator<KeyValuePair<string, string>>. Keep Reset and every
+    // other generic-enumerator shape outside this prerequisite.
+    static func TryResolveInheritedDictionaryEntryEnumeratorCall(
+        lookupType: Type,
+        memberName: string,
+        argumentTypes: Type[],
+        expectedStatic: bool,
+        out selection: ColumnarOrdinaryRuntimeDirectCallSelection
+    ): bool {
+        selection = Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        if expectedStatic || memberName != "MoveNext" || argumentTypes.Length != 0 || !IsExactStringDictionaryEntryEnumerator(lookupType) {
+            return false
+        }
+
+        movementType := Type.GetType("System.Collections.IEnumerator")
+        if movementType == null {
+            throw new InvalidOperationException("System.Collections.IEnumerator was not found in the compiler runtime.")
+        }
+        noParameters := new Type[](0)
+        method := movementType.GetMethod("MoveNext", noParameters)
+        if method == null {
+            throw new InvalidOperationException("System.Collections.IEnumerator.MoveNext() was not found in the compiler runtime.")
+        }
+
+        selection = Selected(lookupType, method, noParameters, false)
+        return true
+    }
+
+    static func IsExactStringDictionaryEntryEnumerator(lookupType: Type): bool {
+        if lookupType == null || !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() {
+            return false
+        }
+        enumeratorDefinition := Type.GetType("System.Collections.Generic.IEnumerator`1")
+        if enumeratorDefinition == null || lookupType.GetGenericTypeDefinition() != enumeratorDefinition {
+            return false
+        }
+        enumeratorArguments := lookupType.GetGenericArguments()
+        if enumeratorArguments.Length != 1 || !ColumnarCanonicalTypeResolver.IsExactStringDictionaryEntryElement(enumeratorArguments[0]) {
+            return false
+        }
+        return true
     }
 
     // A deterministic candidate seam keeps classification tests independent of reflection's

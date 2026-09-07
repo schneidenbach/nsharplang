@@ -1444,18 +1444,47 @@ class ColumnarConstructionPlanner {
                 if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(capacityParameters, argumentTypes, argumentFacts) >= 0 {
                     parameterTypes = capacityParameters
                     openConstructor = openType.GetConstructor(parameterTypes)
-                } else if IsComparerCollectionDefinition(openType) {
-                    openConstructor = FindOpenComparerConstructor(openType, ComparerDefinitionName(openType))
-                    if openConstructor == null {
-                        return false
+                } else {
+                    bestScore := -1
+                    bestCount := 0
+                    if IsDictionaryCopyCollectionDefinition(openType) {
+                        dictionaryConstructor := FindOpenDictionaryCopyConstructor(openType)
+                        if dictionaryConstructor != null {
+                            dictionaryOpenParameters := dictionaryConstructor.GetParameters()
+                            dictionaryType := SubstituteTypeArgument(dictionaryOpenParameters[0].get_ParameterType(), targetType.GetGenericArguments())
+                            dictionaryParameters := Types1(dictionaryType)
+                            dictionaryScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(dictionaryParameters, argumentTypes, argumentFacts)
+                            if dictionaryScore >= 0 {
+                                openConstructor = dictionaryConstructor
+                                parameterTypes = dictionaryParameters
+                                bestScore = dictionaryScore
+                                bestCount = 1
+                            }
+                        }
                     }
-                    openParameters := openConstructor.GetParameters()
-                    comparerType := SubstituteTypeArgument(openParameters[0].get_ParameterType(), targetType.GetGenericArguments())
-                    comparerParameters := Types1(comparerType)
-                    if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(comparerParameters, argumentTypes, argumentFacts) < 0 {
-                        return false
+
+                    if IsComparerCollectionDefinition(openType) {
+                        comparerConstructor := FindOpenComparerConstructor(openType, ComparerDefinitionName(openType))
+                        if comparerConstructor != null {
+                            comparerOpenParameters := comparerConstructor.GetParameters()
+                            comparerType := SubstituteTypeArgument(comparerOpenParameters[0].get_ParameterType(), targetType.GetGenericArguments())
+                            comparerParameters := Types1(comparerType)
+                            comparerScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(comparerParameters, argumentTypes, argumentFacts)
+                            if comparerScore > bestScore {
+                                openConstructor = comparerConstructor
+                                parameterTypes = comparerParameters
+                                bestScore = comparerScore
+                                bestCount = 1
+                            } else if comparerScore >= 0 && comparerScore == bestScore {
+                                bestCount += 1
+                            }
+                        }
                     }
-                    parameterTypes = comparerParameters
+
+                    if bestCount != 1 {
+                        openConstructor = null
+                        parameterTypes = new Type[](0)
+                    }
                 }
             } else if argumentCount == 2 && IsCopyComparerCollectionDefinition(openType) {
                 argumentTypes := new Type[](2)
@@ -1584,6 +1613,10 @@ class ColumnarConstructionPlanner {
         return name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1"
     }
 
+    static func IsDictionaryCopyCollectionDefinition(definition: Type): bool {
+        return definition == typeof(Dictionary<int, int>).GetGenericTypeDefinition()
+    }
+
     static func ComparerDefinitionName(definition: Type): string {
         if definition.FullName == "System.Collections.Generic.SortedSet`1" {
             return "System.Collections.Generic.IComparer`1"
@@ -1631,6 +1664,33 @@ class ColumnarConstructionPlanner {
                     firstDefinition := firstType.GetGenericTypeDefinition()
                     secondDefinition := secondType.GetGenericTypeDefinition()
                     if firstDefinition.FullName == "System.Collections.Generic.IEnumerable`1" && secondDefinition.FullName == comparerDefinitionName {
+                        return constructors[index]
+                    }
+                }
+            }
+            index += 1
+        }
+        return null
+    }
+
+    static func FindOpenDictionaryCopyConstructor(definition: Type): ConstructorInfo? {
+        if !IsDictionaryCopyCollectionDefinition(definition) || !definition.get_IsGenericTypeDefinition() {
+            return null
+        }
+        definitionArguments := definition.GetGenericArguments()
+        if definitionArguments.Length != 2 {
+            return null
+        }
+
+        constructors := definition.GetConstructors()
+        index := 0
+        while index < constructors.Length {
+            parameters := constructors[index].GetParameters()
+            if parameters.Length == 1 {
+                parameterType := parameters[0].get_ParameterType()
+                if parameterType.get_IsGenericType() && !parameterType.get_IsGenericTypeDefinition() && parameterType.GetGenericTypeDefinition() == typeof(IDictionary<int, int>).GetGenericTypeDefinition() {
+                    parameterArguments := parameterType.GetGenericArguments()
+                    if parameterArguments.Length == 2 && parameterArguments[0] == definitionArguments[0] && parameterArguments[1] == definitionArguments[1] {
                         return constructors[index]
                     }
                 }

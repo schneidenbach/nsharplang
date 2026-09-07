@@ -615,6 +615,19 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
+        // Body-local resolution normally keeps the generic-signature family's narrower collection
+        // fence. The Analyzer source needs precisely its inherited string dictionary-entry view.
+        if genericOpen == 11 && canonical.StartsWith("IEnumerable<", StringComparison.Ordinal) {
+            arguments := new ColumnarSelectedTypeReference[](0)
+            if TrySelectTypeParameterArguments(canonical.Substring(12, canonical.Length - 13), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && IsExactStringDictionaryEntryElement(arguments[0].RuntimeType) {
+                definition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+                runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+                selected = ConstructedSelection(table, runtimeType, definition, arguments)
+                return true
+            }
+            return false
+        }
+
         if genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal) {
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(canonical.Substring(11, canonical.Length - 12), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (ColumnarTypeOfPlanner.IsAdmissibleSourceReferenceKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
@@ -1456,6 +1469,14 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
         return enumRegistry.ContainsKey(headName) || structRegistry.ContainsKey(headName) || unionRegistry.ContainsKey(headName)
+    }
+
+    static func IsExactStringDictionaryEntryElement(runtimeType: Type): bool {
+        if !ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(runtimeType) {
+            return false
+        }
+        arguments := runtimeType.GetGenericArguments()
+        return arguments.Length == 2 && arguments[0] == typeof(string) && arguments[1] == typeof(string)
     }
 
     static func TryResolveSpecialKnownType(canonical: string, out result: Type): bool {

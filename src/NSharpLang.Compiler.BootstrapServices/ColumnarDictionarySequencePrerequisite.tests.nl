@@ -1,0 +1,304 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Collections.Generic
+import System.Reflection
+
+func DictionarySequenceClosedTwo(definition: Type, first: Type, second: Type): Type {
+    arguments := new Type[](2)
+    arguments[0] = first
+    arguments[1] = second
+    return definition.MakeGenericType(arguments)
+}
+
+func DictionarySequencePairType(first: Type, second: Type): Type {
+    definition := Type.GetType("System.Collections.Generic.KeyValuePair`2")
+    if definition == null {
+        throw new InvalidOperationException("System.Collections.Generic.KeyValuePair`2 was not found.")
+    }
+    return DictionarySequenceClosedTwo(definition, first, second)
+}
+
+func DictionarySequenceGenericType(fullName: string, arguments: Type[]): Type {
+    definition := Type.GetType(fullName)
+    if definition == null {
+        throw new InvalidOperationException("Required generic definition was not found: " + fullName)
+    }
+    return definition.MakeGenericType(arguments)
+}
+
+func DictionarySequenceRequiredConstructor(value: ConstructorInfo?): ConstructorInfo {
+    if value == null {
+        throw new InvalidOperationException("The Dictionary copy constructor was not found.")
+    }
+    return value
+}
+
+func DictionarySequenceConstructionPlan(argumentType: Type): ColumnarCodePlan {
+    tree := ConstructionNewTree(
+        "Dictionary<string,string>",
+        ConstructionOneText("source"),
+        ConstructionOneKind(ColumnarExpressionNodeKind.IdentifierExpression())
+    )
+    ConstructionStampScope(tree, "")
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "source", 0, argumentType)
+    return ConstructionPlan(tree, bindings)
+}
+
+func DictionarySequenceConstructionRejected(argumentType: Type) {
+    tree := ConstructionNewTree(
+        "Dictionary<string,string>",
+        ConstructionOneText("source"),
+        ConstructionOneKind(ColumnarExpressionNodeKind.IdentifierExpression())
+    )
+    ConstructionStampScope(tree, "")
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "source", 0, argumentType)
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacy := false
+    _plan := ConstructionRejected(tree, bindings, out ownership, out legacy)
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacy
+}
+
+test "dictionary sequence prerequisite selects only the exact IDictionary copy constructor" {
+    dictionaryDefinition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
+    interfaceDefinition := typeof(IDictionary<int, int>).GetGenericTypeDefinition()
+    constructor := DictionarySequenceRequiredConstructor(
+        ColumnarConstructionPlanner.FindOpenDictionaryCopyConstructor(dictionaryDefinition)
+    )
+    parameters := constructor.GetParameters()
+    assert parameters.Length == 1
+    parameterType := parameters[0].get_ParameterType()
+    assert parameterType.GetGenericTypeDefinition() == interfaceDefinition
+    definitionArguments := dictionaryDefinition.GetGenericArguments()
+    parameterArguments := parameterType.GetGenericArguments()
+    assert parameterArguments.Length == 2
+    assert parameterArguments[0] == definitionArguments[0]
+    assert parameterArguments[1] == definitionArguments[1]
+
+    assert ColumnarConstructionPlanner.IsDictionaryCopyCollectionDefinition(dictionaryDefinition)
+    assert !ColumnarConstructionPlanner.IsDictionaryCopyCollectionDefinition(typeof(SortedDictionary<int, int>).GetGenericTypeDefinition())
+    assert ColumnarConstructionPlanner.FindOpenDictionaryCopyConstructor(typeof(Dictionary<string, string>)) == null
+    foreign := TypeOfCreateBuilder(
+        "System.Collections.Generic.Dictionary",
+        "DictionarySequence.Foreign",
+        2
+    )
+    assert !ColumnarConstructionPlanner.IsDictionaryCopyCollectionDefinition(foreign)
+    assert ColumnarConstructionPlanner.FindOpenDictionaryCopyConstructor(foreign) == null
+
+    exactInterface := typeof(IDictionary<string, string>)
+    exactPlan := DictionarySequenceConstructionPlan(exactInterface)
+    assert exactPlan.ResultType == typeof(Dictionary<string, string>)
+    assert exactPlan.OperationCount == 2
+    assert exactPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert exactPlan.OpCodeValues[1] == ColumnarCodePlanContract.Newobj()
+    assert exactPlan.ConstructorCount == 1
+    assert exactPlan.ConstructorDeclaringTypes[0] == typeof(Dictionary<string, string>)
+    assert exactPlan.ConstructorParameterTypes[0].Length == 1
+    assert exactPlan.ConstructorParameterTypes[0][0] == exactInterface
+
+    concretePlan := DictionarySequenceConstructionPlan(typeof(Dictionary<string, string>))
+    assert concretePlan.ConstructorParameterTypes[0][0] == exactInterface
+
+    comparerPlan := DictionarySequenceConstructionPlan(typeof(IEqualityComparer<string>))
+    assert comparerPlan.ConstructorParameterTypes[0][0] == typeof(IEqualityComparer<string>)
+
+    capacityPlan := DictionarySequenceConstructionPlan(typeof(int))
+    assert capacityPlan.ConstructorParameterTypes[0][0] == typeof(int)
+}
+
+test "dictionary sequence prerequisite retains ambiguity and unrelated copy-source rejections" {
+    DictionarySequenceConstructionRejected(typeof(IReadOnlyDictionary<string, string>))
+    DictionarySequenceConstructionRejected(typeof(IDictionary<int, string>))
+    DictionarySequenceConstructionRejected(typeof(IDictionary<string, int>))
+
+    stringPair := DictionarySequencePairType(typeof(string), typeof(string))
+    enumerableArguments := new Type[](1)
+    enumerableArguments[0] = stringPair
+    enumerablePair := DictionarySequenceGenericType(
+        "System.Collections.Generic.IEnumerable`1",
+        enumerableArguments
+    )
+    DictionarySequenceConstructionRejected(enumerablePair)
+
+    tree := ConstructionNewTree(
+        "Dictionary<string,string>",
+        ConstructionOneText("null"),
+        ConstructionOneKind(ColumnarExpressionNodeKind.NullLiteralExpression())
+    )
+    ConstructionStampScope(tree, "")
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacy := false
+    _plan := ConstructionRejected(
+        tree,
+        ColumnarRangePlannerEmptyBindings(),
+        out ownership,
+        out legacy
+    )
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacy
+}
+
+test "dictionary sequence prerequisite admits only the exact body-local string entry sequence" {
+    resolution := CanonicalResolverBaselineResolution()
+    typeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+    pair := DictionarySequencePairType(typeof(string), typeof(string))
+    enumerableArguments := new Type[](1)
+    enumerableArguments[0] = pair
+    expected := DictionarySequenceGenericType(
+        "System.Collections.Generic.IEnumerable`1",
+        enumerableArguments
+    )
+
+    resolved := typeof(object)
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+        "IEnumerable<KeyValuePair<string,string>>",
+        typeParameters,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out resolved
+    )
+    assert resolved == expected
+
+    resolved = typeof(object)
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+        "System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string,string>>",
+        typeParameters,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out resolved
+    )
+    assert resolved == expected
+
+    resolved = typeof(object)
+    assert !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+        "IEnumerable<KeyValuePair<string,int>>",
+        typeParameters,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out resolved
+    )
+    assert resolved == null
+
+    resolved = typeof(object)
+    assert !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+        "IEnumerable<KeyValuePair<int,string>>",
+        typeParameters,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out resolved
+    )
+    assert resolved == null
+
+    resolved = typeof(object)
+    assert !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+        "IEnumerable<string>",
+        typeParameters,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out resolved
+    )
+    assert resolved == null
+}
+
+test "dictionary sequence prerequisite selects exact acquisition movement current and disposal handles" {
+    pair := DictionarySequencePairType(typeof(string), typeof(string))
+    sequenceArguments := new Type[](1)
+    sequenceArguments[0] = pair
+    sequence := DictionarySequenceGenericType(
+        "System.Collections.Generic.IEnumerable`1",
+        sequenceArguments
+    )
+    enumerator := DictionarySequenceGenericType(
+        "System.Collections.Generic.IEnumerator`1",
+        sequenceArguments
+    )
+    noArguments := new Type[](0)
+
+    acquisition := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        sequence,
+        "GetEnumerator",
+        noArguments,
+        false
+    )
+    assert acquisition.IsSelected
+    assert acquisition.LookupType == sequence
+    assert acquisition.DeclaringType == sequence
+    assert acquisition.ReturnType == enumerator
+    assert acquisition.UsesCallVirtual
+
+    movement := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        enumerator,
+        "MoveNext",
+        noArguments,
+        false
+    )
+    assert movement.IsSelected
+    assert movement.LookupType == enumerator
+    assert movement.DeclaringType.FullName == "System.Collections.IEnumerator"
+    assert movement.ReturnType == typeof(bool)
+    assert movement.UsesCallVirtual
+
+    current := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        enumerator,
+        "get_Current",
+        noArguments,
+        false
+    )
+    assert current.IsSelected
+    assert current.DeclaringType == enumerator
+    assert current.ReturnType == pair
+    assert current.UsesCallVirtual
+
+    disposal := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        typeof(IDisposable),
+        "Dispose",
+        noArguments,
+        false
+    )
+    assert disposal.IsSelected
+    assert disposal.DeclaringType == typeof(IDisposable)
+    assert disposal.ReturnType == ColumnarTypeOfPlanner.RequiredVoidType()
+    assert disposal.UsesCallVirtual
+
+    readOnlyDictionary := typeof(IReadOnlyDictionary<string, string>)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        readOnlyDictionary,
+        sequence
+    )
+
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        enumerator,
+        "Reset",
+        noArguments,
+        false
+    ).IsNotFound
+
+    intPair := DictionarySequencePairType(typeof(string), typeof(int))
+    intSequenceArguments := new Type[](1)
+    intSequenceArguments[0] = intPair
+    intEnumerator := DictionarySequenceGenericType(
+        "System.Collections.Generic.IEnumerator`1",
+        intSequenceArguments
+    )
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        intEnumerator,
+        "MoveNext",
+        noArguments,
+        false
+    ).IsNotFound
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        enumerator,
+        "MoveNext",
+        noArguments,
+        true
+    ).IsNotFound
+}
