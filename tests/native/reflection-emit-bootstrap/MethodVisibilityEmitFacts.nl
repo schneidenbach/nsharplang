@@ -28,4 +28,20 @@ class MethodVisibilityEmitFacts {
     private static func PrivateStatic(): int {
         return 7
     }
+
+    func ReadPrivateAndInternal(): int {
+        return ForcedPrivate() + camelByConvention() + PrivateStatic()
+    }
+}
+
+class MethodVisibilityDerivedFacts: MethodVisibilityEmitFacts {
+    func ReadProtected(): int {
+        return ProtectedInterop()
+    }
+}
+
+class MethodVisibilityAssemblyPeerFacts {
+    func ReadInternal(target: MethodVisibilityEmitFacts): int {
+        return target.camelByConvention()
+    }
 }

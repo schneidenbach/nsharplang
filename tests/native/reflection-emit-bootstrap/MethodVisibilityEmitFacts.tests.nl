@@ -42,4 +42,9 @@ test "method declarations emit exact convention and explicit CLR accessibility" 
     assert privateStatic.get_IsPrivate()
     assert privateStatic.get_IsStatic()
     assert Convert.ToInt32(privateStatic.get_Attributes()) == 145
+
+    target := new MethodVisibilityEmitFacts()
+    assert target.ReadPrivateAndInternal() == 13
+    assert new MethodVisibilityDerivedFacts().ReadProtected() == 6
+    assert new MethodVisibilityAssemblyPeerFacts().ReadInternal(target) == 2
 }

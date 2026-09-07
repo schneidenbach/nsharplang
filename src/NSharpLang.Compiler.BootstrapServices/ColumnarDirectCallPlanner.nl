@@ -941,7 +941,7 @@ class ColumnarDirectCallPlanner {
 
             if sourceOwner != null {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
-                sourceSelection := ColumnarSourceDirectCallResolver.ResolveClassifiedStatic(sourceOwner, sourceOwner.Builder, memberName, argumentTypes, argumentFacts)
+                sourceSelection := ColumnarSourceDirectCallResolver.ResolveClassifiedStaticInCompilation(sourceOwner, sourceOwner.Builder, memberName, argumentTypes, argumentFacts, bindings.EnclosingTypeDefinition)
 
                 if !sourceSelection.IsSelected {
                     if HasExcludedStaticOwnerAtArity(sourceOwner, memberName, argumentTypes.Length) {
@@ -1044,7 +1044,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        sourceInstance := ColumnarSourceDirectCallResolver.ResolveExplicitInstance(receiverType, memberName, argumentTypes, bindings.SourceTypeDefinitions, argumentFacts)
+        sourceInstance := ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(receiverType, memberName, argumentTypes, bindings.SourceTypeDefinitions, argumentFacts, bindings.EnclosingTypeDefinition)
 
         if sourceInstance.IsSourceType {
             sourceDefinition := sourceInstance.SourceDefinition

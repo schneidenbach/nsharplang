@@ -1312,6 +1312,50 @@ test "source direct-call resolver rejects inaccessible and unsupported declarati
     assert extensionMethod.ParamModifierKinds[0] == 4
 }
 
+test "source direct-call resolver applies source accessibility in compilation context" {
+    owner := SourceCallDefinition("SourceCallVisibilityOwner", true)
+    derived := SourceCallDefinition("SourceCallVisibilityDerived", true)
+    unrelated := SourceCallDefinition("SourceCallVisibilityUnrelated", true)
+    derived.BaseDef = owner
+
+    noParameters := new Type[](0)
+    privateInstance := SourceCallDefineInstance(owner, "PrivateInstance", noParameters, new int[](0), typeof(int), (MethodAttributes)129)
+    assemblyInstance := SourceCallDefineInstance(owner, "AssemblyInstance", noParameters, new int[](0), typeof(int), (MethodAttributes)131)
+    familyInstance := SourceCallDefineInstance(owner, "FamilyInstance", noParameters, new int[](0), typeof(int), (MethodAttributes)132)
+    familyOrAssemblyInstance := SourceCallDefineInstance(owner, "FamilyOrAssemblyInstance", noParameters, new int[](0), typeof(int), (MethodAttributes)133)
+    privateStatic := SourceCallDefineStatic(owner, "PrivateStatic", noParameters, new int[](0), typeof(int), (MethodAttributes)145)
+    assemblyStatic := SourceCallDefineStatic(owner, "AssemblyStatic", noParameters, new int[](0), typeof(int), (MethodAttributes)147)
+
+    definitions := new ColumnarStructDef[](3)
+    definitions[0] = owner
+    definitions[1] = derived
+    definitions[2] = unrelated
+    facts := ColumnarDirectCallArgumentFacts.Empty(0)
+
+    assert ((int)privateInstance.Builder.get_Attributes() & 7) == 1
+    assert ((int)assemblyInstance.Builder.get_Attributes() & 7) == 3
+    assert ((int)familyInstance.Builder.get_Attributes() & 7) == 4
+    assert ((int)familyOrAssemblyInstance.Builder.get_Attributes() & 7) == 5
+    assert ((int)privateStatic.Builder.get_Attributes() & 7) == 1
+    assert ((int)assemblyStatic.Builder.get_Attributes() & 7) == 3
+
+    assert ColumnarSourceDirectCallResolver.ResolveImplicitInstance(owner, owner.Builder, "PrivateInstance", noParameters).IsSelected
+    assert !ColumnarSourceDirectCallResolver.ResolveExplicitInstance(owner.Builder, "PrivateInstance", noParameters, definitions).IsSelected
+    assert ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "PrivateInstance", noParameters, definitions, facts, owner).IsSelected
+    assert !ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "PrivateInstance", noParameters, definitions, facts, unrelated).IsSelected
+
+    assert ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "AssemblyInstance", noParameters, definitions, facts, null).IsSelected
+    assert ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(derived.Builder, "FamilyInstance", noParameters, definitions, facts, derived).IsSelected
+    assert !ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "FamilyInstance", noParameters, definitions, facts, unrelated).IsSelected
+    assert ColumnarSourceDirectCallResolver.ResolveExplicitInstanceInCompilation(owner.Builder, "FamilyOrAssemblyInstance", noParameters, definitions, facts, unrelated).IsSelected
+
+    assert ColumnarSourceDirectCallResolver.ResolveImplicitStatic(owner, owner.Builder, "PrivateStatic", noParameters).IsSelected
+    assert !ColumnarSourceDirectCallResolver.ResolveClassifiedStatic(owner, owner.Builder, "PrivateStatic", noParameters).IsSelected
+    assert ColumnarSourceDirectCallResolver.ResolveClassifiedStaticInCompilation(owner, owner.Builder, "PrivateStatic", noParameters, facts, owner).IsSelected
+    assert !ColumnarSourceDirectCallResolver.ResolveClassifiedStaticInCompilation(owner, owner.Builder, "PrivateStatic", noParameters, facts, unrelated).IsSelected
+    assert ColumnarSourceDirectCallResolver.ResolveClassifiedStaticInCompilation(owner, owner.Builder, "AssemblyStatic", noParameters, facts, null).IsSelected
+}
+
 test "source direct-call resolver validates malformed exact facts and hierarchy cycles" {
     owner := SourceCallDefinition("SourceCallMalformedOwner", true)
     foreign := SourceCallDefinition("SourceCallForeignOwner", true)
