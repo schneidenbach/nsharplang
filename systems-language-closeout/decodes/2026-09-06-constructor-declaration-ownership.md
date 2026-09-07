@@ -150,3 +150,14 @@ actual CLR. The final partial-prefix control uses 128 to force the intended five
 no production change or weakened assertion was needed. Root and independent Sol review agree.
 Receipts: `root-direct-source-review.json`, `root-direct-receipt.json`, and the exact ten-result TRX.
 The fully integrated area now enters its fresh final backend gate.
+
+The first final gate at `bea8f79d4` completed in 452s with one failing native project:
+columnar-emit-facts still searched for the deleted C# trace type. All 578 unit / 7,918 canonical,
+12 throughput and 68 IL assembly checks passed; this failed gate is retained, not accepted.
+The canonical fixture correction integrates as `34f03ba37` (worker
+`3cd84093cc00c98dfbd4e361b700cfa249136b62`): one shared N# test resolver binds the exact
+BootstrapServices trace type, public static zero-argument methods, and serves sixteen Reset/Snapshot
+lookups across eight existing fixtures. The native project's dynamic compiler inspection boundary
+remains mechanical; it does not select compiler behavior or fall back to a legacy trace owner.
+All assertions are preserved. Focused native 121/121 and formatting pass; independent review agrees.
+The corrected integrated source now enters a second fresh final backend gate.
