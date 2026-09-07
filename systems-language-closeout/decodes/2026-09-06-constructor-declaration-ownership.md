@@ -118,3 +118,18 @@ uses private backing names Records and SourceFileId with explicit private/static
 ThreadStatic attributes; this preserves field privacy without changing formatter or IDE policy.
 Both formatter passes preserve the exact draft bytes. Full owner metadata and direct behavior
 verification remain required before area acceptance.
+
+Production owner integrates as `79af30753` (worker `78df276b997514baa910d8126afe6560cb4192c7`).
+The complete declaration/default-synthesis phase and twelve C# helpers disappear, including the
+three argument operations and shared node-text rule; the complete C# decline trace is deleted.
+The N# trace's Records/SourceFileId fields pass exact private/static/ThreadStatic metadata and
+real cross-thread isolation checks. Its source is unchanged by two formatter passes. Complete
+owner builds and existing native suites pass (22/22 extension calls, 18/18 readonly initialization,
+7/7 construction arrays). Root focused Columnar tests pass 12/12 in 61s and ownership audit 18/18.
+
+The emitter is now 16,635 lines / 15,817 nonblank (348 / 332 fewer than the selected baseline).
+Alongside the deleted 39-line trace, migrated canonical assertions and field-column seed, exactly
+four ratchet rows change; all other rows and all original epochs remain unchanged. Reviewed head:
+`head-v1:9512ee02e95ca2c8`. Root source/deletion review and ratchet receipts are retained in the
+area evidence directory. Direct adversarial N# controls and the fresh final backend gate remain
+pending; this production commit alone is not selected-area acceptance.
