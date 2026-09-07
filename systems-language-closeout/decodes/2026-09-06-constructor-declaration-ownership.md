@@ -103,3 +103,18 @@ BCL singleton behavior. Reflection reports open T[] for a method closed over an 
 the existing N# generic return-type substitution owner supplies its exact result type. The grouped
 opcode/field/array seed now enters a fresh backend integration gate. No SDK publication is accepted
 until that gate and ordinary package verification pass; exact constructor/trace integration remains open.
+
+Grouped seed acceptance at `d486d9a388e45586edac6d4c772589a579eb1a07`: fresh isolated backend
+gate passes in 460s, with 578 C# unit / 7,908 N# canonical / 52 native projects / 12 throughput /
+68 IL assemblies. Official setup and the ordinary installed-package probe pass (8/8), with release
+payloads, both local feeds and twelve SDK cache payloads checked. Published SDK SHA256:
+`357ad95faf90a34f7ce7be426be4600bd89b48d87f7607aa725e752813877724`. Receipts are under
+`seed/` in the area evidence directory; gate archive is
+`/private/tmp/gate-20260906-constructor-seed-r1`. This accepts prerequisites, not the constructor owner.
+
+The existing formatter deliberately removes redundant private modifiers from lowercase names.
+Implicit lowercase field visibility metadata remains separate compiler debt. The migrated trace
+uses private backing names Records and SourceFileId with explicit private/static and qualified
+ThreadStatic attributes; this preserves field privacy without changing formatter or IDE policy.
+Both formatter passes preserve the exact draft bytes. Full owner metadata and direct behavior
+verification remain required before area acceptance.

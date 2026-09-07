@@ -63,8 +63,10 @@ migrates five canonical programs, Astra reviews/integrates. The five canonical p
 Connected argument instructions, node text and the complete decline trace are included; tracing must
 precede enumerator disposal. Proven seed prerequisites are now integrated: opcode/byte admission,
 private ThreadStatic field metadata and complete field-column decoding, plus Array.Empty over exact
-source-class handles. Focused canonical/native evidence is green; the fresh seed gate and ordinary
-package probe remain required before publication. General body emission/orchestration and the
+source-class handles. Fresh seed gate passes in 460s (578 unit / 7,908 canonical / 52 native / 12 throughput / 68 IL);
+ordinary installed-package probe passes 8/8. Published SDK SHA256
+`357ad95faf90a34f7ce7be426be4600bd89b48d87f7607aa725e752813877724`. Constructor owner integration
+and final verification remain active. General body emission/orchestration and the
 remaining field-declaration phase stay explicit compiler debt; no callback into them is added.
 
 **Accepted area, closure binding and mutation analysis:** complete binding visibility/collection,
