@@ -54,8 +54,9 @@ Previously completed independent work stays separate from compiler-only acceptan
   canonical assertions execute in N#, and the final fresh gate at `d4dac34b6` passes in 481s.
   Official SDK publication, ordinary package tests 6/6, installed self-host 7,928/7,928 and Analyzer
   native corpus 1,088/1,088 pass. Evidence: `/private/tmp/nsharp-analyzer-owner-20260906`.
-  Next compiler candidate is complete SystemsAnalyzer orchestration/state; no sibling feature
-  branch is implicitly resumed by this acceptance.
+  The active compiler area is complete SystemsAnalyzer orchestration/state, including its five
+  nested state types and canonical assertions. Sol Max implements the owner, Terra Max verifies
+  canonical coverage, and Astra reviews/integrates. No sibling feature branch is implicitly resumed.
 - **SDK task:** the necessary complete project-reference projection is integrated at `12c0e7f34` /
   `12e8d7406`; final native/MSBuild compatibility uses the real Runtime NuGet dependency and
   removes the SDK asset exclusion (`ef8502db8`). No duplicate stage-two project edge is needed. Preserve older `b2132a8a1` / `aecdb052c`
@@ -71,8 +72,10 @@ Previously completed independent work stays separate from compiler-only acceptan
   retain both row sets, recompute the head, and run fresh combined VS Code/visual verification.
   The task holds; historical branch evidence is not combined-target acceptance.
 
-Integration order: coherent collection/reference prerequisites, required fresh seed verification
-when publication is necessary, complete Analyzer with all substitutions removed, all canonical
-owner lookups and lifecycle checks, fresh appropriate product gate, then push. The primary task
-owns shared ratchets, gates and publication. Older SDK/editor work requires separate integration
-checkpoints; no duplicate verification or competing feed writes are authorized.
+Current integration order: compile the complete SystemsAnalyzer replacement, resolve only proven
+N# prerequisites, remove its C# owner and route production and canonical lookups directly to N#,
+verify lifecycle and existing systems assertions, then review and run the fresh appropriate product
+gate before push. Publish a seed only if demonstrated necessary, after required verification.
+Complete Analyzer and its collection/reference prerequisites are accepted; do not restart them.
+The primary task owns shared ratchets, gates and publication. Older SDK/editor work requires
+separate integration checkpoints; no duplicate verification or competing feed writes are authorized.
