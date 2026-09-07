@@ -48,3 +48,27 @@ the record program's original Contains check. Focused native 5/5, remaining C# b
 and ownership audit 18/18 pass. C# test estate shrinks 251 lines / 218 nonblank / twenty markers
 to 3,494 / 3,003 / 343. Only its ratchet row changes so far, original epochs unchanged;
 intermediate head `head-v1:d8b0c5c706add810`. Production ownership remains open.
+
+Full-source probing has restored all original operations and isolated argument emission admission:
+Ldarg_S/Starg_S/Ldarga_S/Starg and the exact ILGenerator.Emit(OpCode, byte) overload. Other source
+spelling issues use equivalent CLR operations (explicit optional defaults and identity upcasts);
+no discovery substitute belongs in the final owner. Preserve exact-source r10 and earlier probes.
+
+Dependency review requires the complete ColumnarDeclineTrace class and its two ThreadStatic fields
+to move to N# too: old declaration decline tracing executes before constructor-enumerator disposal,
+which a result-to-C# diagnostic handoff reverses if disposal throws. Record inside N# before
+return/finally and remove the C# trace owner; add no callback or ThreadLocal replacement. Preserve
+empty Array.Empty identity, independent snapshots, source-id capture and thread isolation. Compile
+the actual proposed N# trace source to prove any further prerequisite before grouping a seed update.
+
+The validator's node-text dependency must also have one N# owner: consolidate its synthetic-equals
+rule with the existing catch-text rule, remove C# Text and route all original callers directly.
+Do not leave a duplicated C# decision while claiming the connected helper is migrated.
+
+Exact trace source now proves two further prerequisites. The r3 full-source compile rejects
+`System.Array.Empty<ColumnarDeclineReason>()` with `emit.call.generic-unresolved`. The r4 discovery
+build substitutes only that call and the already-proven argument operations; inspecting its emitted
+fields proves both lack ThreadStatic metadata despite accepting the source attribute. Preserve
+`trace-probe/decline-trace-exact-r4.nl`, both compile logs and `decline-trace-r4-metadata.log`.
+Discovery builds are not acceptance evidence. Resolve attribute transport/emission under N#
+ownership and retain runtime thread-isolation and trace-before-throwing-disposal controls.
