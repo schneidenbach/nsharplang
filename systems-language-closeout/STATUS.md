@@ -55,25 +55,30 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
-**Integrated compiler-only area, complete Analyzer class; final gate pending:** `ec8814c01` moves
-all analysis-lifetime state, constructor/factories, public entry points, recursive dispatch/drivers,
-ambient restoration and metadata load/disposal into N#. The entire 2,357-line C# Analyzer is deleted;
-all thirteen fixture lookups route to the sole N# owner (`fa79a93b3`). Four canonical C# cases migrate,
-with three additional lifecycle controls. Installed native corpus 1,088/1,088, public API/87-field
-metadata parity, production build and ownership audit 18/18 pass. Ratchet retires only Analyzer's row,
-all epochs and 380 other rows fixed, head `head-v1:fab5ec0b0db9ca18`.
-[Boundary](decodes/2026-09-06-complete-analyzer-ownership.md), evidence
-`/private/tmp/nsharp-analyzer-owner-20260906`. Fresh grouped prerequisite gate at `1dac18cff` passes
-490s / 574 C# / 7,928 canonical / 53 native / 12 throughput / 68 IL; ordinary SDK probe 6/6.
-SDK SHA `b591625df7c0261b18e6226512e7b36165518845d86df7c58d201e76f66a3fcc`, both feeds and twelve
-cache files verified. No Analyzer wrapper, forwarder, decision callback or fallback remains;
-Compiler/Build.Tasks consumers bind directly to N#, and SDK item transport remains mechanical.
-The final corrections bind `this.DriveImports` explicitly (`317beb1af`) and use the real Runtime
-NuGet package (`ef8502db8`), removing the SDK's BSS-specific asset exclusion. Exact Runtime identity,
-production/test-inclusive builds, 7,928 canonical tests and the original CLI strict-lint failure
-path pass. SDK props shrinks 52→48; current ratchet `head-v1:ecbbc4855234c4dc`, audit 18/18.
-Complete the corrected fresh gate, official SDK installation/ordinary probes and push;
-compiler-wide ownership remains open.
+**Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
+including all lifetime state, factories, public entry points, recursive drivers and metadata
+load/disposal, into N#. All 2,357 C# lines are deleted; thirteen fixture lookups route directly to
+BootstrapServices (`fa79a93b3`). Four complete canonical C# cases migrate with original assertions;
+three lifecycle controls cover reset, aliasing and copy isolation. Public API/87-field metadata
+parity passes; no Analyzer wrapper, forwarder, decision callback or fallback remains. Existing
+Compiler/Build.Tasks consumers bind directly to N#, with mechanical SDK item transport.
+
+Final fresh backend gate at `d4dac34b6` passes in 481s: 574 C# / 7,928 N# canonical / 53 native
+projects / 12 throughput / 68 IL assemblies. Official final SDK setup and ordinary package probe
+6/6 pass; SDK SHA256 `d43d021038063adf04322c9964cfec81d50a22593b903a5abf78541d15416430` matches
+both feeds and twelve loaded cache files. The installed SDK freshly self-hosts the complete compiler
+and canonical estate, 7,928/7,928; production dev checks pass 12/12 and native Analyzer corpus
+1,088/1,088 with exact metadata parity. The two import-driver calls bind explicitly (`317beb1af`);
+Runtime's real NuGet dependency and removal of its SDK asset exclusion (`ef8502db8`) preserve exact
+types and both native/MSBuild build paths. No runtime reimplementation was added.
+
+Across the area, 2,498 C# lines / 2,340 nonblank are removed. Exactly six ratchet rows change; all
+375 other rows and every epoch remain fixed. Current head `head-v1:ecbbc4855234c4dc`, audit 18/18.
+[Boundary and acceptance](decodes/2026-09-06-complete-analyzer-ownership.md), evidence
+`/private/tmp/nsharp-analyzer-owner-20260906`. Compiler-wide ownership remains open. Next coherent
+candidate: the complete remaining SystemsAnalyzer state, recursive traversal and summary/report
+orchestration, including its nested state types; retain the already accepted N# policies. CLI,
+editor and older SDK branches remain separately recorded and are not restarted by this acceptance.
 
 **Accepted area, constructor declaration, validation and chain emission:** `79af30753` moves the
 complete Pass 0c/0d declaration/state/job phase, eight validation/chain helpers, three argument
@@ -275,7 +280,7 @@ A focused slice result is not a new full-gate verdict.
 | 001–014 | accepted, boxes checked (acceptance commits in §4) |
 | 015 | **box UNCHECKED — reopened at `6fcb41f64`**; the `015-A` arc closed at `87afbcb39`; B1–B16 landed, B17 waits on the writer/type-universe prerequisites below |
 | 016 | complete — `Parser.cs` deleted; box checked; one optional bookkeeping follow-on (see §4) |
-| 017 | complete — zero-policy analyzer; box checked |
+| 017 | complete — entire Analyzer class solely N#-owned and C# owner deleted; box checked |
 | 018 | complete — systems-analyzer policy N#-owned; box checked |
 | 019 | complete — `DocQuery.cs` deleted at `dc2c4ae20`; box checked |
 | 020 | complete at `530bfbc85` (45 slices); box checked |
@@ -1490,6 +1495,9 @@ Structural knowledge the code does not state. Process lessons are in §2; per-sl
 
 ### 3.4 The analyzer's end state (017) and what keeps `Analyzer.cs` alive
 
+**Historical architecture below is superseded:** the complete Analyzer is now solely N#-owned;
+`Analyzer.cs` is deleted. See the current cursor and complete-owner acceptance.
+
 - `Analyzer.cs` is a **REVIEWED ZERO-POLICY MECHANICAL HOST**: 23,060 → 2,962 lines (−87.2%) over 67
   slices, 186 extents in SEVEN classes with an executable classifier reporting `UNCLASSIFIED = 0`. It is
   NOT deleted and will not be — the task-021 `MetadataLoadContext` assembly-loading surface (30 extents /
@@ -2529,9 +2537,9 @@ task closed on its criterion's SECOND arm — a reviewed zero-policy mechanical 
   16-line inline projection already duplicated at the merge site into one mechanical `ToFacts()` door —
   the file shrank 17 lines in a member the brief did not predict (slice 7).
 
-### 4.6 Task 017 — the semantic analyzer (complete at `dae23a74d`; box CHECKED)
+### 4.6 Task 017 — semantic analyzer policy and complete owner (box CHECKED)
 
-Outcome: `Analyzer.cs` 23,060 → 2,962 lines (−20,098, −87.2%; non-blank 20,246 → 2,748) over 67 slices,
+Historical policy-only outcome: `Analyzer.cs` 23,060 → 2,962 lines (−20,098, −87.2%; non-blank 20,246 → 2,748) over 67 slices,
 from `dfec28f2a` to `dae23a74d`. Contracts 1,554 → 3,890; the semantic model is 80 `Analyzer*.nl` owners /
 47,173 production lines with 73 contract files; 29 driver loops, 5 dispatches. FOUR toolset repins in the
 whole arc (12A / 20A / 22 / 48) and ZERO from slice 49 on. The task closed on the checkbox's SECOND arm —
@@ -2539,6 +2547,7 @@ a reviewed zero-policy mechanical host — because task-021 MLC loading keeps th
 
 | slice id | commit(s) | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
+| Complete Analyzer owner | `ec8814c01`, `fa79a93b3`, `317beb1af`, `ef8502db8` | Entire 2,357-line C# class deleted; all state, lifetime and dispatch owned by N#. Four complete canonical C# cases migrate. | Explicit instance binding preserves private-driver calls alongside canonical free helpers; real Runtime package keeps native and MSBuild paths compatible, with exact type identity. No legacy Analyzer boundary survives. | Fresh gate `d4dac34b6`, 481s: 574 / 7,928 / 53 native / 12 throughput / 68 IL; final installed self-host 7,928, Analyzer native 1,088, package probe 6, audit 18. |
 | 017 slice 67 (zero-policy review; task 017 close) | `dae23a74d` (accepted; base `829faee32`) | Review, not a port: cut 8 extents / 19 lines from `Analyzer.cs` — 5 dead `Error`/`Warning`/`GetSourceSnippet` helpers (13 lines, zero callers), 3 write-only fields (`_currentFilePath`, `_compilationUnit`, `_sourceText`), and moved `ThisExpression`'s `?? Unknown` rule into `AnalyzerScopeStack.CurrentTypeScopeOrUnknown` (+14 N# lines) | VERDICT: `Analyzer.cs` is a REVIEWED ZERO-POLICY MECHANICAL HOST — 186 extents in SEVEN classes (class 7 deleted), UNCLASSIFIED = 0; it is not deleted and will not be (task-021 MLC loading keeps it alive), so 017 closes on the checkbox's SECOND arm | `Analyzer.cs` 23,060 → 2,962 (−87.2 %) over 67 slices; 2,986→2,962, non-blank 2,767→2,748; contracts 3,889→3,890; 80 N# owners / 47,173 lines; 29 drivers; gate ALL TESTS PASSED 19m47s |
 | 017 slice 66 (last policy slice) | `829faee32` (base `43472d7ce`) | 20 C# extents / 466 lines out of `Analyzer.cs`: declaration family (139), default-parameter family (153), package name (27), expression tail (78 incl. the 39-line `AnalyzeExpression` tail body), reference-load report (37), plus 32 lines deleted as dead → new `AnalyzerDeclarationPolicy.nl` (750), `AnalyzerExpressionTail.nl` (191), `AnalyzerReferenceLoadReport.nl` (158), `AnalyzerDiagnosticSink.nl` +26 | The overload merge was NEARLY LOST: C# passes `new[]{existingFunction}` alone; the port's first draft passed BOTH, which would have made every overload in the language a duplicate-declaration error. Caught by re-reading C# against the port BEFORE any oracle — a corpus without overloads would have passed it | `Analyzer.cs` 3,422→2,986, non-blank 3,148→2,767, extents 210→194, diff +75/−511; drivers 28→29; contracts 3,833→3,889 (+56); 87.3 % cut from epoch |
 | 017 slice 65 (import/namespace family, terminal) | `43472d7ce` (base `456288ecf`) | 15 C# members / 468 lines (`ProcessImports`…`FormatImportCollisionSources` + the unnamed `ProcessImportForAssemblyLoading` 33, a 17-row namespace→assembly policy table) → new `AnalyzerImports.nl` (912 lines, 3 types, 34 members); `AnalyzerExternalTypeProbe.nl` +6/−5 comment correction | A RECORDED WALL IS EVIDENCE WITH AN EXPIRY DATE — re-measure it by execution before honouring it. The probe's header claimed `Assembly.get_FullName`/`AssemblyName.get_Name` were off the columnar surface; a probe build proved BOTH are on it, exit 0, no repin | `Analyzer.cs` 3,866→3,422, non-blank 3,538→3,148, extents 225→210, diff +47/−491; drivers 27→28 (first driver relaying an EFFECT not an answer, 18 lines of C# for 468 deleted); contracts 3,779→3,833 (+54); 85.4 % cut |

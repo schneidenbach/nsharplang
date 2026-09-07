@@ -50,11 +50,12 @@ The primary task inspected all four pinned N# tasks after the usage pause. Exist
 configuration and signature-help worktrees were clean; no live dev/full-gate process remained.
 Previously completed independent work stays separate from compiler-only acceptance.
 
-- **Compiler / primary:** the complete Analyzer replacement is integrated at `ec8814c01`, canonical
-  owner lookups at `fa79a93b3`; all discovery substitutions are removed and the entire C# class is
-  deleted. Fresh prerequisite gate 490s and ordinary installed SDK tests 6/6 pass. Root owns the
-  installed-owner corpus, shared audit and final integration gate before push. Evidence:
-  `/private/tmp/nsharp-analyzer-owner-20260906`.
+- **Compiler / primary:** complete Analyzer ownership is accepted. The whole C# class is deleted,
+  canonical assertions execute in N#, and the final fresh gate at `d4dac34b6` passes in 481s.
+  Official SDK publication, ordinary package tests 6/6, installed self-host 7,928/7,928 and Analyzer
+  native corpus 1,088/1,088 pass. Evidence: `/private/tmp/nsharp-analyzer-owner-20260906`.
+  Next compiler candidate is complete SystemsAnalyzer orchestration/state; no sibling feature
+  branch is implicitly resumed by this acceptance.
 - **SDK task:** the necessary complete project-reference projection is integrated at `12c0e7f34` /
   `12e8d7406`; final native/MSBuild compatibility uses the real Runtime NuGet dependency and
   removes the SDK asset exclusion (`ef8502db8`). No duplicate stage-two project edge is needed. Preserve older `b2132a8a1` / `aecdb052c`

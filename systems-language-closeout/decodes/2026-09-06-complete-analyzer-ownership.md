@@ -66,7 +66,7 @@ fresh seed gate at `1dac18cff` passes in 490s: 574 C# / 7,928 N# canonical / 53 
 12 throughput / 68 IL assemblies. Official setup and ordinary installed-package tests pass 6/6.
 SDK SHA256 `b591625df7c0261b18e6226512e7b36165518845d86df7c58d201e76f66a3fcc` matches both feeds,
 ten release payloads and twelve loaded cache files. Both candidate and installed-owner corpora pass 1,088/1,088, with exact public API/field metadata
-parity. Ownership audit passes 18/18. The final fresh integration gate remains pending. The Analyzer ratchet
+parity. Ownership audit passes 18/18. The final fresh integration verdict is recorded below. The Analyzer ratchet
 row is retired with all epochs and 380 other rows preserved, head `head-v1:fab5ec0b0db9ca18`.
 Compiler-wide ownership remains open.
 
@@ -80,3 +80,18 @@ sites unchanged. SDK props shrinks 52→48 lines / 43→40 nonblank; only that r
 380 other rows fixed, audit 18/18, head `head-v1:ecbbc4855234c4dc`. Private bootstrap changes only
 Sdk.props atop the accepted SDK; no live SDK publication precedes the fresh corrected gate. The
 first final gate and all three failures remain preserved in `final-gate-r1-failure-receipt.json`.
+
+Accepted: fresh final backend gate at `d4dac34b628f216b3c39e01c7b55c470c6ddedbf` passes in
+481s, with 574 C# tests, 7,928 canonical N# tests, 53 native projects, 12 throughput cells and 68 IL
+assemblies. The corrected gate starts from a preserved private stage-0 SDK copy; its only difference
+from the accepted package is source Sdk.props. Official setup then publishes the actual complete SDK,
+SHA256 `d43d021038063adf04322c9964cfec81d50a22593b903a5abf78541d15416430`. Ordinary package tests
+pass 6/6; both feeds and twelve loaded cache payloads match. A clean ordinary installed-SDK rebuild
+self-hosts all 7,928 canonical tests, then dev Columnar passes 12/12 and all six Analyzer projects
+pass 1,088/1,088 with exact public API/87-field metadata parity. No cache or SDK-path override is used
+for that final installed verification. Receipts: `accepted-final-gate.json`, `seed-final/`,
+`final-ordinary-selfhost-r1/receipt.json`, and `final-loaded-sdk-audit.json` under the evidence root.
+
+The aggregate ownership audit removes 2,498 C# lines / 2,340 nonblank across exactly six rows,
+leaving 375 rows and all epochs unchanged. Audit 18/18 passes. The selected area is complete;
+compiler-wide ownership and the separately recorded broader branch backlog remain open.

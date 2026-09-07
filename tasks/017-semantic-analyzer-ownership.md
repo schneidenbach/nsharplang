@@ -2,38 +2,32 @@
 
 ## Execution contract
 
-Work in `/Users/spencer/repos/nsharplang` on the current `systems-language` branch.
+Follow the compiler-only contract in [README.md](README.md). It supersedes the historical
+one-vertical-slice, smallest-deletion and line-budget instructions formerly in this task.
+Astra plans, reviews and integrates; delegate bounded implementation to Sol Max or Terra Max.
 
-Execute exactly one vertical semantic slice in this goal turn. Do not attempt all of `Analyzer.cs`
-at once, and do not stop at planning, scaffolding, prerequisites, parity results, or a progress
-summary.
+Select complete methods, classes or connected method groups with their necessary helpers and
+state. Choose boundaries from production dependencies and consider moving dependencies with
+callers. Preserve accepted N# semantic policies and valid baseline evidence.
 
-- Add no C# source, tests, helpers, bridges, callbacks, whitelists, or fallback logic.
-- Existing C# may only shrink, route mechanically to N#, or be deleted.
-- Implement all new behavior and canonical tests in N#.
-- Identify the exact C# semantic methods, branches, callers, and assertions this sub-slice deletes.
-- Use stable symbol/type identities; text matching is not semantic resolution.
-- N# must be the direct production authority, with no callback or fallback to `Analyzer.cs`.
-- Tests migrate with the behavior. Missing N# prerequisites remain inside this sub-slice.
-- Recut within this goal turn if N# grows without the named C# deletion.
-- Follow all compiler and mandatory IDE evidence in `AGENTS.md`, then commit with `Evidence:`,
-  update the ledger, repin when required, and leave a clean tree.
-- Report only after this sub-slice is complete.
+Add no C# compiler behavior, tests, helpers, adapters, callbacks or fallbacks. N# must be the sole
+production authority for a migrated area. Move canonical assertions with the behavior, preserving
+semantics, diagnostics, evaluation order, identities and meaningful failure paths. Prove capability
+blockers by compiling actual proposed N# source; implement necessary prerequisites in N#.
 
-## Slice
+Use ./scripts/dev.sh and targeted tests, commit coherent passing pieces, then complete the selected
+area through review, required fresh integration verification and push. Preserve required IDE
+verification when behavior affects the IDE. SDK/tooling changes belong here only as demonstrated
+compiler migration dependencies. Broader CLI/editor/runtime/NativeAOT work stays separate.
 
-Move one bounded semantic behavior from `Analyzer.cs` into the canonical N# semantic model.
+## Accepted ownership
 
-Read the active sub-slice in `systems-language-closeout/STATUS.md`. If none is recorded, select the
-smallest deletion-ready behavior in this order: conversions/assignability, primitive operators,
-pattern binding/exhaustiveness, one definite-assignment or flow join, field/property resolution,
-fixed-arity call binding, one statement/assignment family, then one expression/declaration family.
-Record the exact target before editing.
+The entire Analyzer class is now N#-owned in BootstrapServices. `Analyzer.cs` is deleted, including
+all state, factories, recursive drivers and metadata lifecycle. Canonical fixtures target the sole
+new owner, with no compatibility wrapper or legacy fallback. Four remaining C# analyzer cases and
+their canonical assertions are migrated; existing accepted semantic families remain accepted.
 
-Route every affected production consumer directly to the N# result, migrate its assertions, and
-delete the exact C# methods and branches. Move any required AST model for this behavior in the same
-slice and delete the corresponding C# records; do not land an unused parallel AST.
-
-After committing, leave task 017 unchecked and name the next concrete sub-slice while analyzer or
-C# AST policy remains. Mark it complete only when `Analyzer.cs` and the C# AST are deleted or are
-reviewed zero-policy mechanical hosts.
+The final fresh gate and ordinary installed-SDK self-host, native corpus, metadata and package
+verification pass. See [the complete-owner record](../systems-language-closeout/decodes/2026-09-06-complete-analyzer-ownership.md)
+and the current [compiler cursor](../systems-language-closeout/STATUS.md) for exact evidence.
+Task 017 is complete; the broader compiler-only objective remains open.
