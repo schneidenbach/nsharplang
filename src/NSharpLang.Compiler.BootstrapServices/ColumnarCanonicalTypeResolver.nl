@@ -1608,13 +1608,6 @@ class ColumnarCanonicalTypeResolver {
             return true
         }
 
-        return TryResolveBclExceptionType(CatchTypeText(nodes, source, clause), out result)
-    }
-
-    static func CatchTypeText(nodes: ColumnarNodeTable, source: string, clause: int): string {
-        if nodes.Kind(clause) == 14 && nodes.ValueStart(clause) < 0 && nodes.ValueLengths[clause] == 1 {
-            return "="
-        }
-        return nodes.Text(source, clause)
+        return TryResolveBclExceptionType(ColumnarNodeTextFacts.Text(nodes, source, clause), out result)
     }
 }
