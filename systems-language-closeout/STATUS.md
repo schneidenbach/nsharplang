@@ -65,8 +65,9 @@ precede enumerator disposal. Proven seed prerequisites are now integrated: opcod
 private ThreadStatic field metadata and complete field-column decoding, plus Array.Empty over exact
 source-class handles. Fresh seed gate passes in 460s (578 unit / 7,908 canonical / 52 native / 12 throughput / 68 IL);
 ordinary installed-package probe passes 8/8. Published SDK SHA256
-`357ad95faf90a34f7ce7be426be4600bd89b48d87f7607aa725e752813877724`. Constructor owner integration
-and final verification remain active. General body emission/orchestration and the
+`357ad95faf90a34f7ce7be426be4600bd89b48d87f7607aa725e752813877724`. Constructor owner `79af30753` and ten direct N# controls `1eebebfc9` are integrated.
+Root checks pass: direct10/10, Columnar12/12 and ownership18/18. The final fresh backend gate
+remains active; no selected-area acceptance is claimed yet. General body emission/orchestration and the
 remaining field-declaration phase stay explicit compiler debt; no callback into them is added.
 
 **Accepted area, closure binding and mutation analysis:** complete binding visibility/collection,

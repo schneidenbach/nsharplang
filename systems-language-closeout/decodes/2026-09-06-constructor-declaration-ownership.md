@@ -133,3 +133,20 @@ four ratchet rows change; all other rows and all original epochs remain unchange
 `head-v1:9512ee02e95ca2c8`. Root source/deletion review and ratchet receipts are retained in the
 area evidence directory. Direct adversarial N# controls and the fresh final backend gate remain
 pending; this production commit alone is not selected-area acceptance.
+
+Direct canonical controls integrate as `1eebebfc9` (worker
+`b2a794ecb6f7e413320253808da5cf95cefada5f`). All ten exact FQNs pass both the private candidate
+and a fresh root build using the ordinary installed SDK. Formatter checks pass on all three test
+files. The controls preserve declaration/job state and order, malformed/later-decline mutation,
+validation, self exclusion, closed-base rebinding, zero/one-byte failure timing, ambiguity, a
+deliberate six-byte partial argument prefix, argument ordinals 255/256, snapshot identity/copy,
+real thread isolation, and decline recording before hostile Dispose throws. Cleanup remains in
+finally blocks. The shared hostile iterator's Count allowance is opt-in; its existing default trap
+remains unchanged.
+
+Failed fixture probes are retained: assignment nodes must use original kind 14, successful unbaked
+constructor tokens require MethodBuilder-hosted IL, and literal 19 emits a short instruction on the
+actual CLR. The final partial-prefix control uses 128 to force the intended five-byte instruction;
+no production change or weakened assertion was needed. Root and independent Sol review agree.
+Receipts: `root-direct-source-review.json`, `root-direct-receipt.json`, and the exact ten-result TRX.
+The fully integrated area now enters its fresh final backend gate.
