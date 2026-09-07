@@ -55,13 +55,20 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
-**Active compiler-only area, complete Analyzer class:** move all analysis-lifetime state, constructor
-and collaborator reconstruction, public entry points, recursive dispatch/drivers, scope/ambient
-restoration and metadata load/disposal to N#. Remove the complete C# Analyzer owner, not another
-individual driver. Migrate four remaining direct C# analyzer cases and all canonical fixture owner
-lookups. [Boundary](decodes/2026-09-06-complete-analyzer-ownership.md), baseline `3d9222aeb`, evidence
-`/private/tmp/nsharp-analyzer-owner-20260906`. Sol Max implements, Terra Max owns canonical tests,
-Astra reviews/integrates. Existing N# semantic families and accepted verification stay accepted.
+**Integrated compiler-only area, complete Analyzer class; final gate pending:** `ec8814c01` moves
+all analysis-lifetime state, constructor/factories, public entry points, recursive dispatch/drivers,
+ambient restoration and metadata load/disposal into N#. The entire 2,357-line C# Analyzer is deleted;
+all thirteen fixture lookups route to the sole N# owner (`fa79a93b3`). Four canonical C# cases migrate,
+with three additional lifecycle controls. Installed native corpus 1,088/1,088, public API/87-field
+metadata parity, production build and ownership audit 18/18 pass. Ratchet retires only Analyzer's row,
+all epochs and 380 other rows fixed, head `head-v1:fab5ec0b0db9ca18`.
+[Boundary](decodes/2026-09-06-complete-analyzer-ownership.md), evidence
+`/private/tmp/nsharp-analyzer-owner-20260906`. Fresh grouped prerequisite gate at `1dac18cff` passes
+490s / 574 C# / 7,928 canonical / 53 native / 12 throughput / 68 IL; ordinary SDK probe 6/6.
+SDK SHA `b591625df7c0261b18e6226512e7b36165518845d86df7c58d201e76f66a3fcc`, both feeds and twelve
+cache files verified. No Analyzer wrapper, forwarder, decision callback or fallback remains;
+Compiler/Build.Tasks consumers bind directly to N#, and SDK item transport remains mechanical.
+Complete final fresh integration verification and push; compiler-wide ownership remains open.
 
 **Accepted area, constructor declaration, validation and chain emission:** `79af30753` moves the
 complete Pass 0c/0d declaration/state/job phase, eight validation/chain helpers, three argument

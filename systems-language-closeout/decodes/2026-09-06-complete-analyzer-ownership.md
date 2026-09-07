@@ -48,6 +48,24 @@ shared project configuration target now loads references before restore/build gr
 The separate duplicate reference target is removed. C# shrinks 63→47 lines and SDK targets
 206→203; only those two ownership rows change, all epochs preserved, audit 18/18. Focused N#
 projection tests 3/3 and private-package native integration 1/1 pass, including clean restore/build,
-exact Runtime type execution, generated-props compatibility and deduplication. Seed publication
-and the BSS project.yml dependency remain pending the coherent compiler prerequisites and fresh
-integration verification. This does not accept Analyzer or the broader independent SDK backlog.
+exact Runtime type execution, generated-props compatibility and deduplication. The generic SDK prerequisite is integrated; the older independent SDK backlog remains separate.
+
+Integrated owner (2026-09-07): `ec8814c01` replaces all 2,357 C# lines with the complete 1,896-line
+N# Analyzer and its one Runtime project dependency. `fa79a93b3` routes all thirteen canonical fixture
+lookups directly to BootstrapServices. Four canonical C# cases and their original assertions are
+already migrated; three focused lifecycle controls cover copy isolation, retained identities and
+per-analysis reset. Public API parity includes eight methods and one constructor, with all 87 fields
+private, 55 readonly, and all 63 helpers private. No Analyzer wrapper, type forwarder, decision
+callback, legacy validation or fallback survives. Existing Compiler/Build.Tasks consumers reference
+the N# type directly; SDK item/metadata wrapping remains mechanical transport. The actual Runtime
+subscription types remain direct typeof identities. The public type's assembly change is intentional.
+
+The grouped N# prerequisites own method visibility/access (including protected instance receiver
+constraints), exact dictionary-copy construction and exception-safe key/value enumeration. The
+fresh seed gate at `1dac18cff` passes in 490s: 574 C# / 7,928 N# canonical / 53 native projects /
+12 throughput / 68 IL assemblies. Official setup and ordinary installed-package tests pass 6/6.
+SDK SHA256 `b591625df7c0261b18e6226512e7b36165518845d86df7c58d201e76f66a3fcc` matches both feeds,
+ten release payloads and twelve loaded cache files. Both candidate and installed-owner corpora pass 1,088/1,088, with exact public API/field metadata
+parity. Ownership audit passes 18/18. The final fresh integration gate remains pending. The Analyzer ratchet
+row is retired with all epochs and 380 other rows preserved, head `head-v1:fab5ec0b0db9ca18`.
+Compiler-wide ownership remains open.
