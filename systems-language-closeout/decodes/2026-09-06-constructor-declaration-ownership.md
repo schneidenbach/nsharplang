@@ -72,3 +72,26 @@ fields proves both lack ThreadStatic metadata despite accepting the source attri
 `trace-probe/decline-trace-exact-r4.nl`, both compile logs and `decline-trace-r4-metadata.log`.
 Discovery builds are not acceptance evidence. Resolve attribute transport/emission under N#
 ownership and retain runtime thread-isolation and trace-before-throwing-disposal controls.
+
+The argument prerequisite is committed as `3e95a1c87` (worker
+`915d2eea4e5ccc067f5bf56b5021f57b66312250`). Old-seed canonical planner controls pass 3/3,
+candidate reflection-emit native controls pass 24/24, and root focused Columnar checks pass 12/12.
+The earlier dev filter had no matching canonical tests; only the explicit BSS 3/3 receipt counts.
+No SDK publication has occurred.
+
+The exact private trace draft also compiles but emits Public fields. The grouped metadata
+prerequisite therefore carries private and ThreadStatic facts through N# parser/field rows, owns
+field definition plus custom-attribute attachment in N#, and moves the complete existing C#
+six-column field decoding loop/state into N#. C# supplies planned rows to that operation directly.
+The remaining field declaration/type-resolution phase stays explicit compiler debt. Use qualified
+System.ThreadStatic spellings for this intrinsic prerequisite so imported same-name attributes
+are not accidentally treated as the BCL attribute. Preserve the private-source metadata probe.
+
+Field metadata/column ownership integrates as `22b567d22` (worker
+`d33cef4a58fbb3d42580e1acf2d4abbaecf3b5d3`), with 7/7 old-seed canonical controls and 26/26
+candidate native tests, including private metadata and thread isolation. A typed enum local
+expresses DefineField through the existing resolver; no API admission or reflection workaround
+was added. Input-builder debt shrinks eleven lines/nonblank to 1,033/964. The emitter changes only
+two direct field-definition routes. Root ownership audit passes 18/18; only these two rows plus
+the already-reviewed canonical test row differ from baseline, with all epochs unchanged.
+Intermediate ratchet head: `head-v1:7c4cbb8d445bead1`.
