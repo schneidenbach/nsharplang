@@ -16,6 +16,9 @@ class MemberIteratorControlsRowsState {
     CurrentCount: int
     DisposeCount: int
     ThrowOnDispose: bool
+    // Existing controls keep the Count trap armed. The constructor trace control opts in so it can
+    // reach the production foreach and prove that its finally runs after the trace record.
+    CountAllowed: bool
     RepairRows: List<ColumnarStructInput>
     RepairFieldCanonicals: string[]
 
@@ -25,6 +28,7 @@ class MemberIteratorControlsRowsState {
         CurrentCount = 0
         DisposeCount = 0
         ThrowOnDispose = throwOnDispose
+        CountAllowed = false
         RepairRows = new List<ColumnarStructInput>()
         RepairFieldCanonicals = new string[](0)
     }
@@ -45,6 +49,13 @@ class MemberIteratorControlsRowsRuntime {
         }
         state.CurrentCount = state.CurrentCount + 1
         return state.Rows[state.MoveCount - 1]
+    }
+
+    static func Count(state: MemberIteratorControlsRowsState): int {
+        if !state.CountAllowed {
+            throw new InvalidOperationException("member iterator fixture Count was read")
+        }
+        return state.Rows.Length
     }
 
     static func Dispose(state: MemberIteratorControlsRowsState) {
@@ -208,6 +219,11 @@ func MemberIteratorControlsWrapReadOnlyList(
         "Dispose",
         runtimeParameterTypes
     )
+    countRuntime := ExecutorRequiredMethod(
+        typeof(MemberIteratorControlsRowsRuntime),
+        "Count",
+        runtimeParameterTypes
+    )
 
     genericCurrentTarget := SourceDiscoveryTimingRequiredGetter(genericEnumerator, "Current")
     genericCurrent := owner.DefineMethod(
@@ -285,7 +301,10 @@ func MemberIteratorControlsWrapReadOnlyList(
         noParameters
     )
     countIl := TypeOfMethodBuilderIL(count)
-    MemberIteratorControlsEmitInvalidOperation(countIl, "member iterator fixture Count was read")
+    countIl.Emit(OpCodes.Ldarg_0)
+    countIl.Emit(OpCodes.Ldfld, stateField)
+    countIl.Emit(OpCodes.Call, countRuntime)
+    countIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(count, countTarget)
 
     indexParameters := new Type[](1)
