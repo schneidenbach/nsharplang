@@ -89,11 +89,15 @@ The installed SDK freshly self-hosts and passes 7,943/7,943 canonical tests with
 [Boundary and acceptance](decodes/2026-09-07-complete-columnar-input-builder-ownership.md), evidence
 `/private/tmp/nsharp-columnar-input-builder-owner-20260907`.
 
-Compiler-wide ownership remains open. Remaining C# compiler owners are ColumnarIlEmitter and
-MultiFileCompiler. Assess the complete emitter before moving orchestration: MultiFileCompiler's
-sole reverse assembly dependency is the C# emitter; its other project/index/text/pipeline dependencies
-already reside in N#. Do not introduce a callback to conceal that dependency or restart accepted
-Analyzer/SystemsAnalyzer/input-builder migrations. Broader sibling tasks remain separately held.
+Compiler-wide ownership remains open. **Active area: complete ColumnarIlEmitter**, baseline
+`15540cf42`: 16,635 C# lines, 67 fields, 295 methods and one private constructor. Move its complete
+state and behavior with canonical assertions; delete the C# class. All 116 referenced compiler types
+already reside in N#, so no reverse assembly dependency blocks this owner. Sol Max implements;
+Astra reviews/integrates. [Execution contract](../tasks/015-remaining-emitter-decisions.md).
+Move complete MultiFileCompiler afterward: its sole reverse dependency is the emitter. The emitter
+area is backend-only; the later CompileForAnalysis migration requires IDE gate and visual checks.
+Do not add callbacks or restart accepted migrations. Broader sibling tasks remain separately held.
+Dependency assessment: `/private/tmp/nsharp-multifile-assessment/`.
 
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata
