@@ -755,6 +755,13 @@ class ColumnarExternalBindingPlans {
             return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
         }
 
+        // Generic source functions declare their CLR type parameters after creating the method
+        // and before fixing its return and parameter types. This is the MethodBuilder counterpart
+        // to the exact TypeBuilder signature above; both BCL methods return the same builder array.
+        if receiver == "System.Reflection.Emit.MethodBuilder" && memberName == "DefineGenericParameters" && count == 1 && argumentTypeNames[0] == "System.String[]" {
+            return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.Emit.GenericTypeParameterBuilder[]")
+        }
+
         // A body-inferred lambda defines its MethodBuilder before its return type is known, then
         // fixes the zero-parameter signature after emitting the body. SetParameters is declared
         // with ParamArrayAttribute, so the ordinary fixed-arity resolver deliberately excludes it;

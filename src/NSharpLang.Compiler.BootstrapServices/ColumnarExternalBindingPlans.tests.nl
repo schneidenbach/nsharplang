@@ -691,11 +691,6 @@ test "generic parameter declaration owns the exact TypeBuilder signature" {
     ).IsSupported
 
     assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
-        "System.Reflection.Emit.MethodBuilder",
-        "DefineGenericParameters",
-        arguments
-    ).IsSupported
-    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
         "System.Type",
         "DefineGenericParameters",
         arguments
@@ -714,6 +709,51 @@ test "generic parameter declaration owns the exact TypeBuilder signature" {
         "DefineGenericParameters",
         tooMany
     ).IsSupported
+}
+
+test "generic source functions own the exact MethodBuilder parameter declaration signature" {
+    arguments := new string[](1)
+    arguments[0] = "System.String[]"
+    AssertVirtualCall(
+        "System.Reflection.Emit.MethodBuilder",
+        "DefineGenericParameters",
+        arguments,
+        "System.Reflection.Emit.GenericTypeParameterBuilder[]"
+    )
+
+    wrongElement := new string[](1)
+    wrongElement[0] = "System.String"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.MethodBuilder",
+        "DefineGenericParameters",
+        wrongElement
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "MethodBuilder",
+        "DefineGenericParameters",
+        arguments
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.MethodBuilder",
+        "defineGenericParameters",
+        arguments
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.MethodBuilder",
+        "DefineGenericParameters",
+        new string[](0)
+    ).IsSupported
+
+    runtimeSignature := new Type[](1)
+    runtimeSignature[0] = typeof(string[])
+    runtimeMethod := typeof(MethodBuilder).GetMethod("DefineGenericParameters", runtimeSignature)
+    assert runtimeMethod != null
+    assert runtimeMethod.get_DeclaringType() == typeof(MethodBuilder)
+    assert runtimeMethod.get_ReturnType() == typeof(GenericTypeParameterBuilder[])
+    runtimeParameters := runtimeMethod.GetParameters()
+    assert runtimeParameters.Length == 1
+    assert runtimeParameters[0].get_ParameterType() == typeof(string[])
+    assert runtimeParameters[0].IsDefined(typeof(ParamArrayAttribute), false)
 }
 
 test "generic parameter interface constraints own the exact reflection emit setter signature" {
