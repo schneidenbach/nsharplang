@@ -43,6 +43,67 @@ func ArrayEmptyBindingInvokePlan(plan: ColumnarCodePlan, returnType: Type): obje
     return result
 }
 
+func AssertArrayEmptyNamedClosure(typeArgumentName: string, typeArgumentIdentity: string, returnTypeIdentity: string, shortSource: string, qualifiedSource: string, elementType: Type, returnType: Type): void {
+    noArguments := new string[](0)
+    shortExternalPlan := ArrayEmptyBindingPlan("Array", typeArgumentName, noArguments)
+    qualifiedExternalPlan := ArrayEmptyBindingPlan("System.Array", typeArgumentName, noArguments)
+
+    assert shortExternalPlan.IsSupported
+    assert qualifiedExternalPlan.IsSupported
+    assert shortExternalPlan.Kind == ColumnarExternalCallKind.Call
+    assert shortExternalPlan.DeclaringTypeName == "System.Array, System.Private.CoreLib"
+    assert shortExternalPlan.MemberName == "Empty"
+    assert shortExternalPlan.ParameterTypeNames.Length == 0
+    assert shortExternalPlan.TypeArgumentNames.Length == 1
+    assert shortExternalPlan.TypeArgumentNames[0] == typeArgumentIdentity
+    assert shortExternalPlan.ReturnTypeName == returnTypeIdentity
+    assert qualifiedExternalPlan.DeclaringTypeName == shortExternalPlan.DeclaringTypeName
+    assert qualifiedExternalPlan.TypeArgumentNames[0] == shortExternalPlan.TypeArgumentNames[0]
+    assert qualifiedExternalPlan.ReturnTypeName == shortExternalPlan.ReturnTypeName
+
+    selection := ColumnarRuntimeDirectCallSelection.Empty()
+    assert ColumnarRuntimeDirectCallResolver.TrySelect(shortExternalPlan, typeof(Array), true, out selection)
+    method := selection.Method
+    assert method != null
+    assert method.get_IsGenericMethod()
+    assert !method.get_IsGenericMethodDefinition()
+    methodArguments := method.GetGenericArguments()
+    assert methodArguments.Length == 1
+    assert methodArguments[0] == elementType
+    assert selection.ParameterTypes.Length == 0
+    assert selection.ReturnType == returnType
+
+    shortTree := DirectCallParsedTree(shortSource)
+    ExternalStampScope(shortTree, "import System")
+    shortPlan := DirectCallPlan(shortTree, ColumnarRangePlannerEmptyBindings())
+
+    qualifiedTree := DirectCallParsedTree(qualifiedSource)
+    ExternalStampScope(qualifiedTree, "import System")
+    qualifiedPlan := DirectCallPlan(qualifiedTree, ColumnarRangePlannerEmptyBindings())
+
+    assert shortPlan.ResultType == returnType
+    assert qualifiedPlan.ResultType == returnType
+    assert shortPlan.OperationCount == 1
+    assert qualifiedPlan.OperationCount == 1
+    assert shortPlan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert qualifiedPlan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    shortMethod := shortPlan.Methods[shortPlan.OperandIndices[0]]
+    qualifiedMethod := qualifiedPlan.Methods[qualifiedPlan.OperandIndices[0]]
+    assert shortMethod != null
+    assert qualifiedMethod != null
+    assert shortMethod.GetGenericArguments()[0] == elementType
+    assert qualifiedMethod.GetGenericArguments()[0] == elementType
+
+    shortResult := ArrayEmptyBindingInvokePlan(shortPlan, returnType)
+    qualifiedResult := ArrayEmptyBindingInvokePlan(qualifiedPlan, returnType)
+    repeatedTree := DirectCallParsedTree(shortSource)
+    ExternalStampScope(repeatedTree, "import System")
+    repeatedPlan := DirectCallPlan(repeatedTree, ColumnarRangePlannerEmptyBindings())
+    repeatedResult := ArrayEmptyBindingInvokePlan(repeatedPlan, returnType)
+    assert Object.ReferenceEquals(shortResult, qualifiedResult)
+    assert Object.ReferenceEquals(shortResult, repeatedResult)
+}
+
 test "explicit generic external binding pins the exact Array Empty string closure" {
     noArguments := new string[](0)
     shortPlan := ArrayEmptyBindingPlan("Array", "System.String", noArguments)
@@ -161,6 +222,42 @@ test "explicit generic binding and direct planning pin the exact Array Empty Int
     shortResult := ArrayEmptyBindingInvokePlan(shortPlan, typeof(int[]))
     qualifiedResult := ArrayEmptyBindingInvokePlan(qualifiedPlan, typeof(int[]))
     assert Object.ReferenceEquals(shortResult, qualifiedResult)
+}
+
+test "explicit generic binding and direct planning pin the exact Array Empty Byte closure" {
+    AssertArrayEmptyNamedClosure(
+        "System.Byte",
+        "System.Byte, System.Private.CoreLib",
+        "System.Byte[], System.Private.CoreLib",
+        "Array.Empty<byte>()",
+        "System.Array.Empty<byte>()",
+        typeof(byte),
+        typeof(byte[])
+    )
+}
+
+test "explicit generic binding and direct planning pin the exact Array Empty Type closure" {
+    AssertArrayEmptyNamedClosure(
+        "System.Type",
+        "System.Type, System.Private.CoreLib",
+        "System.Type[], System.Private.CoreLib",
+        "Array.Empty<Type>()",
+        "System.Array.Empty<Type>()",
+        typeof(Type),
+        typeof(Type[])
+    )
+}
+
+test "explicit generic binding and direct planning pin the exact Array Empty Type array closure" {
+    AssertArrayEmptyNamedClosure(
+        "System.Type[]",
+        "System.Type[], System.Private.CoreLib",
+        "System.Type[][], System.Private.CoreLib",
+        "Array.Empty<Type[]>()",
+        "System.Array.Empty<Type[]>()",
+        typeof(Type[]),
+        typeof(Type[][])
+    )
 }
 
 test "Array Empty explicit generic ownership rejects unsupported shapes without plan residue" {

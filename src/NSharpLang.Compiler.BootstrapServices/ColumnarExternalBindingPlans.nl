@@ -537,14 +537,24 @@ class ColumnarExternalBindingPlans {
 
     // An explicitly closed external generic call carries its type arguments in the callee rather
     // than in the value-argument list. Keep that distinction visible to the catalog: these named
-    // rows own exactly Array.Empty<string>() and the input-builder's Array.Empty<int>(); each
-    // returned singleton identity is part of its contract.
+    // rows own exactly Array.Empty<string>(), the input-builder's Array.Empty<int>(), and the
+    // complete emitter's byte, Type, and Type[] empty-array shapes. Each returned singleton
+    // identity is part of its contract.
     static func GetExplicitGenericStaticCallPlan(typeName: string, memberName: string, typeArgumentTypeNames: string[], argumentTypeNames: string[]): ColumnarExternalCallPlan {
         if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "System.String" && argumentTypeNames.Length == 0 {
             return GenericStaticCall("System.Array", memberName, One("System.String"), Empty(), "System.String[]")
         }
         if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "System.Int32" && argumentTypeNames.Length == 0 {
             return GenericStaticCall("System.Array", memberName, One("System.Int32"), Empty(), "System.Int32[]")
+        }
+        if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "System.Byte" && argumentTypeNames.Length == 0 {
+            return GenericStaticCall("System.Array", memberName, One("System.Byte"), Empty(), "System.Byte[]")
+        }
+        if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "System.Type" && argumentTypeNames.Length == 0 {
+            return GenericStaticCall("System.Array", memberName, One("System.Type"), Empty(), "System.Type[]")
+        }
+        if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "System.Type[]" && argumentTypeNames.Length == 0 {
+            return GenericStaticCall("System.Array", memberName, One("System.Type[]"), Empty(), "System.Type[][]")
         }
 
         // This exact Enumerable closure is an external binding, not a reimplementation: Enumerable
