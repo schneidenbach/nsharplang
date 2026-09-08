@@ -66,6 +66,63 @@ frozen. Hooke retains the complete owner and isolation of the remaining body par
 reviews and groups any related proven prerequisites for required seed verification; no SDK
 publication is accepted merely because parsing succeeds.
 
+### Proven inherited collection Count prerequisite (in progress)
+
+After explicit optional-default arguments resolve input construction, the actual owner reaches
+`IReadOnlyDictionary<string, string>.Count` and fails emission. The exact inherited-interface cast
+also fails; preserve both source/log pairs under
+`/private/tmp/nsharp-multifile-owner-20260908` (no-delegating build variants r13/r14). Implement the
+N# inherited `IReadOnlyCollection<KeyValuePair<K,V>>.Count` resolution and getter emission for the
+original receiver. Preserve all three getter reads; neither enumeration nor a cached count is an
+equivalent replacement. This prerequisite has a separate implementation owner and will be combined
+with the constructor-chain fix for review and required seed verification. Diagnostic variants that
+omit delegation or bypass a helper are evidence only, never the accepted production owner.
+
+Focused emitter/catalog canonicals pass, but the first ordinary native run rejects all three Count
+reads during N# semantic analysis (`NL303`, with cascading array-length errors). Preserve
+`readonly-dictionary-count-seed/native-focused-r1.json` and its stderr log under the same evidence
+directory: it executed zero tests. Complete the connected inherited-interface semantic member
+resolution in N# and rerun the ordinary native test; emission-only proof does not close this gap.
+
+### Proven emission-thread delegate prerequisite (in progress)
+
+The provisional constructor candidate clears all four real owner chains. With only the blocked
+override-copy helper stubbed in a diagnostic snapshot, compilation then rejects the actual
+`ThreadStart` capturing lambda in `EmitOnWideStackThread`; see
+`/private/tmp/nsharp-multifile-owner-20260908/full-owner-copy-stub-provisional-build-r18.log`.
+The emitter signature classifier and type admission currently support Action/Func but reject this
+non-generic delegate. Preserve the dedicated thread, captured per-invocation state, same-thread
+decline construction, Join and exception propagation. Implement the connected N# delegate support
+with focused capture/thread controls in a separate prerequisite worktree. Review confirmed that
+its signature-classification methods do not overlap the constructor call-site/new-method edits;
+coordinate any new shared-method changes before editing. Combine the proven dependencies for
+required seed verification; the complete owner
+must ultimately compile and execute without any diagnostic stubs.
+
+The later r19/r20 owner probes also reject the `IEnumerable<object>` boundary into
+`CompilationUnitFacts.RequiresColumnarSoaEmission`. That complete N# method has only the owner as
+a production caller. First compile moving its loop into the owner's existing private method and
+delete the unused cross-owner method, retaining the existing declaration inspection helper.
+Preserve evaluation of `SoaFeature.IsEnabled` followed by the dictionary Values getter before the
+feature guard, then the same ordered enumeration, null handling and short-circuit result. Do not
+introduce a snapshot or a covariance prerequisite merely to retain this unnecessary boundary.
+
+Diagnostic r27 compiles the remaining owner with zero warnings/errors, retaining all real
+constructor chains but stubbing exactly the override-copy and emission-thread methods. The moved
+SoA loop uses one concrete enumerator with try/finally disposal, and the owner preserves the original
+empty SystemsReport initialization through a private N# helper to resolve the property/type name
+collision. This narrows known dependencies; it is not complete-owner acceptance. The Count native
+estate subsequently executes 10/10 tests in `readonly-dictionary-count-seed/native-full-r2.json`.
+
+Final copy-fixture evidence is `readonly-dictionary-count-seed/native-full-r6.json` (10/10) and
+`native-count-method-il-final-r6.txt`. The original N# foreach emitted disposal only on normal exit;
+the accepted replacement explicitly converts to `IEnumerable<KeyValuePair<string,string>>`,
+acquires once, and wraps MoveNext/Current/copy in try/finally with null-safe IDisposable cleanup.
+Root verified three inherited Count calls before acquisition, Key then Value before array writes,
+and a real finally handler; all 8 native types/41 methods verify. Apply that exact behavior to the
+production owner. The compiler candidate's 1,231 types/10,851 methods also verify; these focused
+results do not replace the combined prerequisite/owner integration checkpoint.
+
 ## Next connected area after MultiFileCompiler
 
 Move the entire `src/NSharpLang.Cli/CompilationReferenceResolver.cs` owner: 497 lines, 19 methods
