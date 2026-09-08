@@ -114,7 +114,7 @@ sealed class SystemsAnalyzer {
 
         aotAnalysis := FindingSink.AotAnalysis()
         profile := Config.Language.Profile
-        effectiveMode := EffectiveMode
+        effectiveMode := EffectiveMode()
         aotTarget := Config.Language.Systems.AotTarget
         warmup := Config.Language.Systems.Warmup
         functions := Functions
@@ -175,9 +175,13 @@ sealed class SystemsAnalyzer {
         return count
     }
 
-    private IsSystemsProfile: bool => FindingSink.IsSystemsProfile
+    private func IsSystemsProfile(): bool {
+        return FindingSink.IsSystemsProfile
+    }
 
-    private EffectiveMode: string => FindingSink.EffectiveMode
+    private func EffectiveMode(): string {
+        return FindingSink.EffectiveMode
+    }
 
     private func RegisterDeclarations(filePath: string, declarations: IEnumerable<Declaration>, containingType: string?) {
         declarationEnumerator := declarations.GetEnumerator()
@@ -1359,7 +1363,7 @@ sealed class SystemsAnalyzer {
             context.Summary.AllocNone,
             context.Summary.IsBoundary,
             context.Allows.IsAllowed("alloc"),
-            IsSystemsProfile,
+            IsSystemsProfile(),
             explicitAllocation
         )
         if violation != null {
