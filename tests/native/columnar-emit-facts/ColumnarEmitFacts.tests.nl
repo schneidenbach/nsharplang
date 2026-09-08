@@ -3,9 +3,9 @@ namespace NSharpLang.ColumnarEmitFacts.Tests
 import System
 import System.Reflection
 
-// ColumnarDeclineTrace is now owned by the bootstrap-services N# assembly. These production
-// witnesses still invoke the C# parser/emitter host, while their Reset/Snapshot observations must
-// bind directly to that public N# owner with no compiler-assembly fallback.
+// ColumnarDeclineTrace and ColumnarProgramInputBuilder are owned by bootstrap-services N#. These
+// production witnesses resolve those owners there exactly while the surviving emitter entry remains
+// in Compiler; no assembly fallback is allowed.
 func ColumnarTraceTestMethod(methodName: string): MethodInfo {
     owner := Type.GetType(
         "NSharpLang.Compiler.Columnar.ColumnarDeclineTrace, NSharpLang.Compiler.BootstrapServices"

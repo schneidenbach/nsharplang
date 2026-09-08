@@ -222,8 +222,7 @@ func IteratorOrderingShape(function: object, source: string): object {
 
 func IteratorOrderingParse(): IteratorOrderingParsedInput {
     source := "import System.Collections.Generic\n\nfunc* IteratorOrderingControl(): IEnumerable<int> {\n    yield 7\n}\n"
-    builder := IteratorOrderingCompilerType("ColumnarProgramInputBuilder")
-    parse := IteratorOrderingMethod(builder, "TryBuild", (BindingFlags)40, 2)
+    parse := ColumnarInputBuilderPrivateMethod("TryBuild", 2)
     values := new object?[](2)
     IteratorOrderingPut(values, 0, source)
     IteratorOrderingPut(values, 1, null)

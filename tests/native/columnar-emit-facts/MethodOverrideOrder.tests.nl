@@ -54,7 +54,7 @@ func ReadOverrideDeclineProperty(target: object, name: string): string {
 }
 
 func EmitOverrideFixtureWithInvalidMetadata(invalidReturn: bool, invalidParameter: bool, invalidBase: bool, invalidDefault: bool): string {
-    parse := OverrideFixtureHostMethod("ColumnarProgramInputBuilder", "TryBuild")
+    parse := ColumnarInputBuilderPrivateMethod("TryBuild", 2)
     args := new object?[](2)
     PutOverrideFixtureArgument(args, 0, "class OverrideFixture {\n    override func Equals(value: object? = null): bool { return true }\n}\n")
     PutOverrideFixtureArgument(args, 1, null)

@@ -175,7 +175,7 @@ func SourceInterfaceReadDeclineProperty(target: object, name: string): string {
 // behavior on both the baseline and post-port compiler. Parsing must succeed before this helper
 // samples the fresh emitter decline trace, so a parser refusal cannot masquerade as member matching.
 func SourceInterfaceEmitAttemptFor(source: string): SourceInterfaceEmitAttempt {
-    parse := SourceInterfaceHostMethod("ColumnarProgramInputBuilder", "TryBuild")
+    parse := ColumnarInputBuilderPrivateMethod("TryBuild", 2)
     parseArguments := new object?[](2)
     SourceInterfacePut(parseArguments, 0, source)
     SourceInterfacePut(parseArguments, 1, null)

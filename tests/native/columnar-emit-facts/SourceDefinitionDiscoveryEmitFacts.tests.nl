@@ -136,7 +136,7 @@ func SourceDiscoveryReadDeclineProperty(target: object, name: string): string {
 // successful MZ image only when no decline was recorded.  A `false without decline` remains an
 // observed baseline outcome rather than an invented failure reason.
 func SourceDiscoveryEmitOutcome(source: string): string {
-    parse := SourceDiscoveryHostMethod("ColumnarProgramInputBuilder", "TryBuild")
+    parse := ColumnarInputBuilderPrivateMethod("TryBuild", 2)
     parseArguments := new object?[](2)
     SourceDiscoveryPut(parseArguments, 0, source)
     SourceDiscoveryPut(parseArguments, 1, null)

@@ -162,7 +162,7 @@ func ClosedSourceReadDeclineProperty(target: object, name: string): string {
 // route succeeds; `false without decline` remains the observed negative result rather than proof of
 // one particular internal rejection.
 func ClosedSourceEmitOutcome(source: string): string {
-    parse := ClosedSourceHostMethod("ColumnarProgramInputBuilder", "TryBuild")
+    parse := ColumnarInputBuilderPrivateMethod("TryBuild", 2)
     parseArguments := new object?[](2)
     ClosedSourcePut(parseArguments, 0, source)
     ClosedSourcePut(parseArguments, 1, null)

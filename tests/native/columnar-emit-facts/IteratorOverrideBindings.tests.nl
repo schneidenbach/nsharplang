@@ -196,7 +196,7 @@ func IteratorBindingReadDeclineProperty(target: object, name: string): string {
 // parser and emitter entry points, requires parsing first, and makes successful twins prove that
 // the path can emit an image.  A one-record result is the exact production emitter decline.
 func IteratorBindingEmitOutcome(source: string): string {
-    parse := IteratorBindingHostMethod("ColumnarProgramInputBuilder", "TryBuild")
+    parse := ColumnarInputBuilderPrivateMethod("TryBuild", 2)
     parseArguments := new object?[](2)
     IteratorBindingPut(parseArguments, 0, source)
     IteratorBindingPut(parseArguments, 1, null)

@@ -54,7 +54,7 @@ func ReadPInvokeDeclineProperty(target: object, name: string): string {
 }
 
 func EmitPInvokeFixtureWithInvalidMetadata(invalidReturn: bool, invalidParameter: bool, invalidNative: bool, invalidDefault: bool): string {
-    parse := PInvokeFixtureHostMethod("ColumnarProgramInputBuilder", "TryBuild")
+    parse := ColumnarInputBuilderPrivateMethod("TryBuild", 2)
     args := new object?[](2)
     PutPInvokeFixtureArgument(args, 0, "static class Native {\n    [LibraryImport(\"c\", EntryPoint = \"abs\")]\n    static func Abs(value: int = 9): int\n}\n")
     PutPInvokeFixtureArgument(args, 1, null)

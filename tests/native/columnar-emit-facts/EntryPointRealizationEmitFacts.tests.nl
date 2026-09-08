@@ -61,7 +61,7 @@ func EntryPointRealizationEmptyEntryPointTrace(): IList {
 // source failure. The selected direct N# controls cover the retained selected-method slot; this
 // production witness covers the separate assembly byte slot only.
 test "an executable without main preserves the real empty assembly output" {
-    parse := EntryPointRealizationHostMethod("ColumnarProgramInputBuilder", "TryBuild")
+    parse := ColumnarInputBuilderPrivateMethod("TryBuild", 2)
     parseArguments := new object?[](2)
     EntryPointRealizationPut(
         parseArguments,
