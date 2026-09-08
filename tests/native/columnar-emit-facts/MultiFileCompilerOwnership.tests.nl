@@ -6,7 +6,6 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 
-
 func MultiFileOwnerRequiredType(typeName: string): Type {
     found := Type.GetType(typeName)
     if found == null {
@@ -102,6 +101,78 @@ func MultiFileOwnerDictionary(compiler: object, propertyName: string): object {
 
 func MultiFileOwnerCount(value: object): int {
     return Convert.ToInt32(EmitterCanonicalRequiredProperty(value, "Count"))
+}
+
+func MultiFileOwnerCompileWithPipelineFlags(
+    projectName: string,
+    projectYml: string,
+    source: string,
+    aotMode: bool,
+    validateStrictLint: bool,
+    validateWithLegacyAnalysis: bool
+): EmitterCanonicalCompilation {
+    fixtureRoot := Path.Combine(
+        Path.GetTempPath(),
+        "nsharp-mfc-pipeline-" + Guid.NewGuid().ToString("N")
+    )
+    Directory.CreateDirectory(fixtureRoot)
+    try {
+        projectPath := Path.Combine(fixtureRoot, "project.yml")
+        sourcePath := Path.Combine(fixtureRoot, "Program.nl")
+        File.WriteAllText(projectPath, projectYml)
+        File.WriteAllText(sourcePath, EmitterCanonicalDecodedSource(source))
+
+        config := EmitterCanonicalParseProject(projectPath)
+        sourceFiles := new string[](1)
+        sourceFiles[0] = sourcePath
+        compiler := EmitterCanonicalNewCompiler(fixtureRoot, config, sourceFiles, true)
+        owner := EmitterCanonicalCompilerType()
+        aot := MultiFileOwnerRequiredProperty(owner.GetProperty("AotMode"), "AotMode")
+        aot.SetValue(compiler, aotMode)
+        if Convert.ToBoolean(aot.GetValue(compiler)) != aotMode {
+            throw new InvalidOperationException("AotMode did not retain the requested pipeline value.")
+        }
+
+        outputDirectory := Path.Combine(fixtureRoot, "artifacts")
+        Directory.CreateDirectory(outputDirectory)
+        outputPath := Path.Combine(outputDirectory, projectName + ".dll")
+        parameterTypes := new Type[](4)
+        parameterTypes[0] = typeof(string)
+        parameterTypes[1] = typeof(string)
+        parameterTypes[2] = typeof(bool)
+        parameterTypes[3] = typeof(bool)
+        method := MultiFileOwnerRequiredMethod(
+            owner.GetMethod("CompileToIlAssembly", parameterTypes),
+            "CompileToIlAssembly"
+        )
+        arguments := new object?[](4)
+        EmitterCanonicalPut(arguments, 0, projectName)
+        EmitterCanonicalPut(arguments, 1, outputPath)
+        EmitterCanonicalPut(arguments, 2, validateStrictLint)
+        EmitterCanonicalPut(arguments, 3, validateWithLegacyAnalysis)
+        result := method.Invoke(compiler, arguments)
+        if result == null {
+            throw new InvalidOperationException("CompileToIlAssembly returned null.")
+        }
+
+        errors := EmitterCanonicalRequiredProperty(result, "Errors") as IList
+        if errors == null {
+            throw new InvalidOperationException("Compilation errors did not implement IList.")
+        }
+        return new EmitterCanonicalCompilation(
+            Convert.ToBoolean(EmitterCanonicalRequiredProperty(result, "Success")),
+            errors,
+            fixtureRoot,
+            outputPath,
+            EmitterCanonicalOptionalProperty(result, "OutputAssemblyPath"),
+            config
+        )
+    } catch error: Exception {
+        if Directory.Exists(fixtureRoot) {
+            Directory.Delete(fixtureRoot, true)
+        }
+        throw error
+    }
 }
 
 // The existing `CompileToIlAssembly_DeclineLogEnvVarWritesTraceToStderr` fact exercises the named
@@ -357,6 +428,74 @@ test "MultiFileCompiler validation failure retains live errors and precedes outp
         if Directory.Exists(root) {
             Directory.Delete(root, true)
         }
+    }
+}
+
+test "MultiFileCompiler ordinary CLI pipeline requires columnar emission for the exact CountChars fixture" {
+    compilation := MultiFileOwnerCompileWithPipelineFlags(
+        "Program",
+        EmitterCanonicalProjectYml("Program", "exe"),
+        """
+func CountChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+
+func main() {
+    print CountChars("abc")
+}
+""",
+        false,
+        true,
+        true
+    )
+    try {
+        assert !compilation.Succeeded
+        assert compilation.OutputAssemblyPath == null
+        assert !File.Exists(compilation.OutputPath)
+        assert compilation.Errors.Count == 1, EmitterCanonicalDiagnostics(compilation)
+        error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL103")
+        assert EmitterCanonicalErrorText(error, "Message").StartsWith(
+            "Columnar emission is required for 'Program', but the columnar backend declined.",
+            StringComparison.Ordinal
+        )
+        assert EmitterCanonicalErrorText(error, "HumanExplanation") == "This product path requires successful N# columnar emission after analysis passes."
+        assert EmitterCanonicalErrorText(error, "Suggestion") == "Port the rejected source shape to the columnar backend before using this product path."
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "MultiFileCompiler strict lint blocks IL for the exact StrictLintBuild fixture" {
+    compilation := MultiFileOwnerCompileWithPipelineFlags(
+        "StrictLintBuild",
+        """
+name: StrictLintBuild
+backend: il
+outputType: exe
+targetFramework: net10.0
+""",
+        """
+func main() {
+    unused := 42
+}
+""",
+        false,
+        true,
+        true
+    )
+    try {
+        assert !compilation.Succeeded
+        assert compilation.OutputAssemblyPath == null
+        assert !File.Exists(compilation.OutputPath)
+        assert compilation.Errors.Count == 1, EmitterCanonicalDiagnostics(compilation)
+        error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL001")
+        assert EmitterCanonicalErrorText(error, "Message") == "Variable 'unused' is declared but never read"
+    } finally {
+        EmitterCanonicalCleanup(compilation)
     }
 }
 
