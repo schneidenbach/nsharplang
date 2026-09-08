@@ -117,6 +117,19 @@ BeforeFieldInit only strengthens initialization timing for the private shared em
 These metadata differences and the private key attribute difference above are accepted explicitly;
 loss of sealed or private visibility is not accepted.
 
-The final metadata correction, fresh integration gate, necessary verified SDK publication and push
-remain open. The private stage-0 cache and payload receipt live under `root-stage0-bootstrap`; no
-live SDK/feed/cache mutation or official seed publication has occurred.
+`bc3fa6865` completes the N# sealed-modifier path through existing declaration columns, input state
+and type planning. Three executed canonical controls pass, including preservation of the original
+null-output error code. `2a5be66e3` adds actual source metadata regressions: the baseline fails the
+three sealed cases while the ordinary-class/value control passes; the candidate passes all four.
+Final root metadata confirms the outer class is sealed, all five declared nested types are private
+and sealed, the public constructor/Analyze signatures and defaults match, and no private helper is
+exposed. Receipt: `root-final-metadata-review.json`. No C# file changed in this prerequisite.
+
+Final `./scripts/dev.sh Columnar` passes 12/12 in 63s. The rebuilt root compiler passes lifecycle
+24/24, reflection-bootstrap 37/37 (including the record-key and sealed controls), and ownership audit
+18/18. Evidence: `root-dev-final-sealed.log`, `root-lifecycle-final.json`, `root-reflection-final.json`,
+and `root-audit-final.json`. Final systems corpus also passes 123/123 (66/13/44) under
+`systems-owner-native-final`; all verification processes are complete. The fresh integration gate is next.
+The necessary verified SDK publication and push remain open. Private bootstrap payload receipts
+live under `root-stage0-bootstrap` and `root-stage0-sealed`; no live SDK/feed/cache mutation or
+official seed publication has occurred.

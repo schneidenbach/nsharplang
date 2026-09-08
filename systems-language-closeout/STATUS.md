@@ -66,9 +66,10 @@ and pushed. Complete SystemsAnalyzer is integrated at `946821316`, removing all 
 production and test-inclusive emission pass. Direct production IL, 123 systems canonical cases,
 24 lifecycle/error-handling cases, focused dev 3/3 and ownership audit 18/18 pass. `d8120962` retires
 one ratchet row (380 unchanged, epochs fixed), head `head-v1:130fb0badc59fc18`. Private-helper
-visibility is corrected at `eefbf6cdb`; explicit sealed modifier propagation remains a demonstrated
-N# metadata prerequisite. Final metadata acceptance, fresh gate, SDK publication and push remain
-open. Do not restart accepted migrations.
+visibility is corrected at `eefbf6cdb`; `bc3fa6865` preserves explicit sealed modifiers in N# and
+`2a5be66e3` adds real-source metadata regressions. Final metadata review passes; final dev 12/12,
+lifecycle 24/24, reflection-bootstrap 37/37, final systems corpus 123/123 and audit 18/18 pass.
+The fresh gate, SDK publication and push remain open. Do not restart accepted migrations.
 
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata
@@ -88,7 +89,7 @@ Runtime's real NuGet dependency and removal of its SDK asset exclusion (`ef8502d
 types and both native/MSBuild build paths. No runtime reimplementation was added.
 
 Across the area, 2,498 C# lines / 2,340 nonblank are removed. Exactly six ratchet rows change; all
-375 other rows and every epoch remain fixed. Current head `head-v1:ecbbc4855234c4dc`, audit 18/18.
+375 other rows and every epoch remain fixed. That checkpoint's head was `head-v1:ecbbc4855234c4dc`, audit 18/18.
 [Boundary and acceptance](decodes/2026-09-06-complete-analyzer-ownership.md), evidence
 `/private/tmp/nsharp-analyzer-owner-20260906`. Compiler-wide ownership remains open. Next coherent
 candidate: the complete remaining SystemsAnalyzer state, recursive traversal and summary/report
