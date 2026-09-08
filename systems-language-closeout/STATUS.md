@@ -77,6 +77,14 @@ and decline ordering. Keep its accepted N# parser kernels/input models; delete t
 and integrates; Sol Max implements the complete class and canonical lookup migration in isolated
 worktrees. Do not restart accepted Analyzer/SystemsAnalyzer or implicitly resume held sibling branches.
 
+The complete proposed owner is written and under verification. `2ea07788e` adds the demonstrated
+N# `Array.Empty<int>()` binding prerequisite: canonical 9/9 and native 1/1 pass. Inferred Array.Fill
+and both Array.Copy overloads already compile to the exact CLR calls; no expansion was needed.
+Explicit private-constructor metadata remains an open prerequisite in the existing N# constructor
+declaration owner (native witness fails 1 of 38 baseline cases). A private SDK cache supports normal
+bootstrap verification; no new live SDK has been published. Evidence and review:
+`/private/tmp/nsharp-columnar-input-builder-owner-20260907`.
+
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata
 load/disposal, into N#. All 2,357 C# lines are deleted; thirteen fixture lookups route directly to
