@@ -7,6 +7,7 @@ import System.Collections.Generic
 import System.Diagnostics
 import System.IO
 import System.Linq
+import System.Net.Http
 import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.CompilerServices
@@ -7740,6 +7741,11 @@ sealed class ColumnarIlEmitter {
         property = null
         if (receiverType == typeof(Thread) && (member == nameof(Thread.IsBackground) || member == nameof(Thread.Name))) {
             resolvedProperty := typeof(Thread).GetProperty(member)
+            property = resolvedProperty
+            return resolvedProperty != null && resolvedProperty.get_SetMethod() != null
+        }
+        if (receiverType == typeof(HttpClient) && member == nameof(HttpClient.Timeout)) {
+            resolvedProperty := typeof(HttpClient).GetProperty(nameof(HttpClient.Timeout))
             property = resolvedProperty
             return resolvedProperty != null && resolvedProperty.get_SetMethod() != null
         }
