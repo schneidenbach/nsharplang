@@ -28,6 +28,12 @@ At the accepted input-builder checkpoint `15540cf42`, move the complete remainin
 binding/planning owners and Runtime dependencies. This class has no dependency on another surviving
 Compiler C# type; all 116 referenced compiler types already reside in BootstrapServices.
 
+The original field count includes five private integer constants. Their symbol-resolved literal
+inlining is an accepted source-equivalent translation: preserve all five values and every resolved
+read, and document the removed private literal metadata. The remaining owner has 62 runtime fields;
+preserve their types, initialization order, sharing and visibility. This does not require a new
+constant-field language feature.
+
 Move the complete stateful owner to N#, delete ColumnarIlEmitter.cs and route the existing
 MultiFileCompiler call directly to its N# entry. Review minimal cross-assembly type/entry visibility;
 keep construction and private helpers nonpublic. Preserve initialization, reflection resolution,
@@ -55,3 +61,18 @@ That later area affects CompileForAnalysis and requires the IDE-enabled gate plu
 verification. Do not hide the dependency with callbacks, split validation ownership, or resume held
 CLI/editor feature branches. Task 015 remains open until the complete emitter is N#-owned and the
 selected area has passed review, required checks, commits and push.
+
+## In-flight evidence (2026-09-08; not ownership acceptance)
+
+All 53 translated canonical cases pass against the existing compiler: 45 MultiFileCompiler cases,
+record-struct equality, five decline-diagnostic cases and two preprocessing cases. Root verified
+53 distinct passing results with no skipped cases in
+`/private/tmp/nsharp-columnar-il-emitter-tests-20260908/root-baseline-review.json`.
+Per-case assertion and decoded-fixture-byte parity review remains open; in particular, review the
+preprocessing fixtures' trailing newlines before retaining their final baseline evidence.
+
+The full proposed N# emitter is materialized but has not compiled successfully. Parser reductions
+and formatter-clean method fragments are translation evidence only. Neither baseline test results
+nor operation-count parity proves that the replacement emitter works. Required next evidence is
+the compiled complete owner, all-method IL verification, candidate execution of the canonical and
+native suites, legacy-owner deletion, and the fresh integration checkpoint described above.
