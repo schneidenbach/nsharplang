@@ -24,10 +24,10 @@ import System.Collections.Generic
 // them use user-declared element types — one reference, one value — and one asserts the widened view
 // is the SAME OBJECT by observing a later write through the concrete map.
 //
-// `Count` IS ABSENT FROM THIS FILE ON PURPOSE. `IReadOnlyDictionary<K, V>.Count` is inherited from
-// `IReadOnlyCollection<T>` and does not resolve (`NL303`); `IReadOnlySet<T>` fails identically, so
-// the gap is the read-only heads' shared one and predates this row. `ContainsKey`, `TryGetValue` and
-// the indexer are what the interface declares itself, and all three are exercised below.
+// `Count` is inherited from `IReadOnlyCollection<KeyValuePair<K, V>>`, so its executable control is
+// deliberately shaped like `MultiFileCompiler.CopySourceTextOverrides`: a null/empty fast path,
+// then three ordered getter reads around two snapshot allocations. The focused IL receipt verifies
+// those reads call the inherited BCL getter directly.
 class WideningWidget {
     Name: string
 
@@ -109,6 +109,38 @@ class WideningSubject {
     // ── THE BARE-INT CONTROL ─────────────────────────────────────────────
     static func BareInt(seed: int): int {
         return seed + 1
+    }
+
+    static func CopySourceTextOverrides(sourceTextOverrides: IReadOnlyDictionary<string, string>?): (Paths: string[], Texts: string[]) {
+        if sourceTextOverrides == null {
+            return (Array.Empty<string>(), Array.Empty<string>())
+        }
+        if sourceTextOverrides.Count == 0 {
+            return (Array.Empty<string>(), Array.Empty<string>())
+        }
+
+        paths := new string[sourceTextOverrides.Count]
+        texts := new string[sourceTextOverrides.Count]
+        index := 0
+        entries: IEnumerable<KeyValuePair<string, string>> = sourceTextOverrides
+        enumerator := entries.GetEnumerator()
+        try {
+            while enumerator.MoveNext() {
+                entry := enumerator.get_Current()
+                path := entry.Key
+                text := entry.Value
+                paths[index] = path
+                texts[index] = text
+                index += 1
+            }
+        } finally {
+            disposable := enumerator as IDisposable
+            if disposable != null {
+                disposable.Dispose()
+            }
+        }
+
+        return (paths, texts)
     }
 }
 
@@ -290,4 +322,27 @@ test "the pair's own constructor shape binds from concrete collections at every 
     assert shape.Errors[0] == "NL301"
     assert shape.Files[0] == "Program.nl"
     assert shape.Texts["Program.nl"] == "func Main() {}"
+}
+
+test "inherited dictionary Count preserves the null empty and populated snapshot paths" {
+    missing: IReadOnlyDictionary<string, string>? = null
+    nullCopy := WideningSubject.CopySourceTextOverrides(missing)
+    assert nullCopy.Item1.Length == 0
+    assert nullCopy.Item2.Length == 0
+
+    empty := new Dictionary<string, string>()
+    emptyCopy := WideningSubject.CopySourceTextOverrides(empty)
+    assert emptyCopy.Item1.Length == 0
+    assert emptyCopy.Item2.Length == 0
+
+    populated := WideningStringMap("Program.nl", "func Main() {}")
+    populatedCopy := WideningSubject.CopySourceTextOverrides(populated)
+    assert populatedCopy.Item1.Length == 1
+    assert populatedCopy.Item2.Length == 1
+    assert populatedCopy.Item1[0] == "Program.nl"
+    assert populatedCopy.Item2[0] == "func Main() {}"
+
+    populated["Program.nl"] = "changed"
+    assert populatedCopy.Item1[0] == "Program.nl"
+    assert populatedCopy.Item2[0] == "func Main() {}"
 }

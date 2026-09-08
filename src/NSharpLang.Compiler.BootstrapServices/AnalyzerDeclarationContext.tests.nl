@@ -1218,6 +1218,42 @@ test "runtime read-only collection count resolves across inherited interface sha
         out memberType
     )
 
+    setType := new GenericTypeInfo(
+        "IReadOnlySet",
+        arguments,
+        new ReflectionTypeInfo(
+            typeof(IReadOnlySet<string>).GetGenericTypeDefinition()
+        )
+    )
+    assert context.TryResolveKnownGenericStructuralMember(
+        setType,
+        "Count",
+        out memberType
+    )
+    assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Int)
+
+    dictionaryArguments := new List<TypeInfo>()
+    dictionaryArguments.Add(BuiltInTypes.String)
+    dictionaryArguments.Add(BuiltInTypes.String)
+    dictionaryType := new GenericTypeInfo(
+        "IReadOnlyDictionary",
+        dictionaryArguments,
+        new ReflectionTypeInfo(
+            typeof(IReadOnlyDictionary<string, string>).GetGenericTypeDefinition()
+        )
+    )
+    assert context.TryResolveKnownGenericStructuralMember(
+        dictionaryType,
+        "Count",
+        out memberType
+    )
+    assert TypeInfoIdentityFacts.AreEqual(memberType, BuiltInTypes.Int)
+    assert !context.TryResolveKnownGenericStructuralMember(
+        dictionaryType,
+        "Length",
+        out memberType
+    )
+
     impostor := new GenericTypeInfo(
         "IReadOnlyList",
         arguments,
@@ -1227,6 +1263,19 @@ test "runtime read-only collection count resolves across inherited interface sha
     )
     assert !context.TryResolveKnownGenericStructuralMember(
         impostor,
+        "Count",
+        out memberType
+    )
+
+    dictionaryImpostor := new GenericTypeInfo(
+        "IReadOnlyDictionary",
+        dictionaryArguments,
+        new ReflectionTypeInfo(
+            typeof(Dictionary<string, string>).GetGenericTypeDefinition()
+        )
+    )
+    assert !context.TryResolveKnownGenericStructuralMember(
+        dictionaryImpostor,
         "Count",
         out memberType
     )

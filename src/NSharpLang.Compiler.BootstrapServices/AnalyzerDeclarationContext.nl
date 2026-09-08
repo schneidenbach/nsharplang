@@ -175,7 +175,7 @@ class AnalyzerDeclarationFileFacts {
     }
 }
 
-// Canonical source declaration and declaration-context type resolution. The C# analyzer supplies
+// Canonical source declaration and declaration-context type resolution. The N# analyzer supplies
 // already parsed units as opaque objects; all source binding policy and identity caches live here.
 class AnalyzerDeclarationContext {
     projectRoot: string
@@ -666,9 +666,11 @@ class AnalyzerDeclarationContext {
                 return true
             }
         }
-        if generic != null && generic.TypeArguments.Count == 1 && IsRuntimeReadOnlyCollectionDefinition(generic) && name == "Count" {
-            memberType = BuiltInTypes.Int
-            return true
+        if generic != null && name == "Count" {
+            if (generic.TypeArguments.Count == 1 && IsRuntimeReadOnlyCollectionDefinition(generic)) || (generic.TypeArguments.Count == 2 && IsRuntimeReadOnlyDictionaryDefinition(generic)) {
+                memberType = BuiltInTypes.Int
+                return true
+            }
         }
         if generic != null && UnqualifiedGenericTypeName(generic.Name) == "KeyValuePair" && generic.TypeArguments.Count == 2 {
             if name == "Key" {
@@ -822,7 +824,11 @@ class AnalyzerDeclarationContext {
     }
 
     static func IsRuntimeReadOnlyCollectionDefinition(generic: GenericTypeInfo): bool {
-        return IsRuntimeGenericDefinition(generic, "System.Collections.Generic.IReadOnlyCollection`1", "System.Private.CoreLib", 1) || IsRuntimeGenericDefinition(generic, "System.Collections.Generic.IReadOnlyList`1", "System.Private.CoreLib", 1)
+        return IsRuntimeGenericDefinition(generic, "System.Collections.Generic.IReadOnlyCollection`1", "System.Private.CoreLib", 1) || IsRuntimeGenericDefinition(generic, "System.Collections.Generic.IReadOnlyList`1", "System.Private.CoreLib", 1) || IsRuntimeGenericDefinition(generic, "System.Collections.Generic.IReadOnlySet`1", "System.Private.CoreLib", 1)
+    }
+
+    static func IsRuntimeReadOnlyDictionaryDefinition(generic: GenericTypeInfo): bool {
+        return IsRuntimeGenericDefinition(generic, "System.Collections.Generic.IReadOnlyDictionary`2", "System.Private.CoreLib", 2)
     }
 
     static func IsRuntimeGenericDefinition(generic: GenericTypeInfo, fullName: string, assemblyName: string, arity: int): bool {

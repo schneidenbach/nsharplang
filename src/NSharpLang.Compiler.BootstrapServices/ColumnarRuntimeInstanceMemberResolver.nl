@@ -319,9 +319,9 @@ class ColumnarRuntimeInstanceMemberResolver {
         if IsSupportedCountReceiver(receiverType) && (member == "Count" || member == "Capacity" && receiverType.GetGenericTypeDefinition() == typeof(List<int>).GetGenericTypeDefinition()) {
             countOwner := receiverType
             if member == "Count" {
-                definition := receiverType.GetGenericTypeDefinition()
-                if definition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() {
-                    countOwner = typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition().MakeGenericType(receiverType.GetGenericArguments())
+                inheritedCountOwner := typeof(object)
+                if TryGetInheritedCountOwner(receiverType, out inheritedCountOwner) {
+                    countOwner = inheritedCountOwner
                 }
             }
 
@@ -507,24 +507,46 @@ class ColumnarRuntimeInstanceMemberResolver {
 
         // Reflection.Emit's BCL-headed constructed wrappers do not implement IsAssignableFrom.
         // Count is the one admitted member whose exact getter owner can be an interface base of
-        // such a wrapper: IReadOnlyList<T>/IReadOnlySet<T> inherit IReadOnlyCollection<T>.
+        // such a wrapper.
         if ContainsBuilderBoundType(receiverType) || ContainsBuilderBoundType(declaringType) {
-            if !receiverType.get_IsGenericType() || !declaringType.get_IsGenericType() || receiverType.get_IsGenericTypeDefinition() || declaringType.get_IsGenericTypeDefinition() {
+            inheritedCountOwner := typeof(object)
+            if !TryGetInheritedCountOwner(receiverType, out inheritedCountOwner) {
                 return false
             }
 
-            receiverDefinition := receiverType.GetGenericTypeDefinition()
-            declaringDefinition := declaringType.GetGenericTypeDefinition()
-            if declaringDefinition != typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || (receiverDefinition != typeof(IReadOnlyList<int>).GetGenericTypeDefinition() && receiverDefinition != typeof(IReadOnlySet<int>).GetGenericTypeDefinition()) {
-                return false
-            }
-
-            receiverArguments := receiverType.GetGenericArguments()
-            declaringArguments := declaringType.GetGenericArguments()
-            return receiverArguments.Length == 1 && declaringArguments.Length == 1 && ExactTypeShapeMatches(receiverArguments[0], declaringArguments[0])
+            return ExactTypeShapeMatches(inheritedCountOwner, declaringType)
         }
 
         return declaringType.IsAssignableFrom(receiverType)
+    }
+
+    static func TryGetInheritedCountOwner(receiverType: Type, out countOwner: Type): bool {
+        countOwner = typeof(object)
+        if !receiverType.get_IsGenericType() || receiverType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        definition := receiverType.GetGenericTypeDefinition()
+        arguments := receiverType.GetGenericArguments()
+        elementType := typeof(object)
+        if definition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() {
+            if arguments.Length != 1 {
+                return false
+            }
+
+            elementType = arguments[0]
+        } else {
+            if !ColumnarGenericCallBindingPlanner.IsReadOnlyDictionaryCollectionDefinition(definition) || arguments.Length != 2 {
+                return false
+            }
+
+            elementType = typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(arguments)
+        }
+
+        collectionArguments := new Type[](1)
+        collectionArguments[0] = elementType
+        countOwner = typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition().MakeGenericType(collectionArguments)
+        return true
     }
 
     static func IsSelectableResultType(valueType: Type): bool {

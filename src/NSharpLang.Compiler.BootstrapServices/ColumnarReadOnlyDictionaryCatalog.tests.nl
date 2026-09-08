@@ -47,6 +47,49 @@ func RodCatalogCanonicals(first: string, second: string): List<string> {
     return values
 }
 
+func RodCatalogClosedOne(definition: Type, element: Type): Type {
+    arguments := new Type[](1)
+    arguments[0] = element
+    return definition.MakeGenericType(arguments)
+}
+
+func RodCatalogPair(key: Type, value: Type): Type {
+    arguments := new Type[](2)
+    arguments[0] = key
+    arguments[1] = value
+    return typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(arguments)
+}
+
+func RodCatalogCountOwner(element: Type): Type {
+    return RodCatalogClosedOne(
+        typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition(),
+        element
+    )
+}
+
+func RodAssertCountSelection(receiver: Type, expectedOwner: Type): void {
+    selection := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(
+        receiver,
+        "Count",
+        out selection
+    )
+    assert !selection.IsField
+    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(
+        selection.DeclaringType,
+        expectedOwner
+    )
+    assert selection.ResultType == typeof(int)
+    assert selection.ReceiverIsReference
+    getter := selection.Getter
+    if getter == null {
+        throw new InvalidOperationException("The inherited Count getter was not selected.")
+    }
+    assert getter.get_Name() == "get_Count"
+    assert getter.get_IsPublic()
+    assert !getter.get_IsStatic()
+}
+
 test "the read-only dictionary head resolves through the planner, and its two neighbours still do" {
     bindings := ColumnarRangePlannerEmptyBindings()
 
@@ -141,4 +184,101 @@ test "the ANALYSER half of the row agrees with the emitter half, and neither is 
     // CONTROL — the one-argument row it mirrors is unchanged.
     assert AnalyzerAssignabilityFacts.IsKnownGenericConversion("IReadOnlyList", "List")
     assert AnalyzerAssignabilityFacts.IsKnownGenericConversion("IReadOnlyList", "HashSet") == false
+}
+
+test "read-only dictionary Count selects its exact inherited collection getter" {
+    bakedReceiver := RodCatalogClosed(typeof(string), typeof(string))
+    bakedPair := RodCatalogPair(typeof(string), typeof(string))
+    RodAssertCountSelection(
+        bakedReceiver,
+        RodCatalogCountOwner(bakedPair)
+    )
+
+    sourceValue := TypeOfCreateBuilder(
+        "ReadOnlyDictionaryCountSourceValue",
+        "ReadOnlyDictionaryCount.SourceValue",
+        0
+    )
+    builderReceiver := RodCatalogClosed(typeof(string), sourceValue)
+    builderPair := RodCatalogPair(typeof(string), sourceValue)
+    RodAssertCountSelection(
+        builderReceiver,
+        RodCatalogCountOwner(builderPair)
+    )
+
+    wrongKeyPair := RodCatalogPair(typeof(int), sourceValue)
+    assert !ColumnarRuntimeInstanceMemberResolver.ReceiverMatchesDeclaringType(
+        builderReceiver,
+        RodCatalogCountOwner(wrongKeyPair)
+    )
+    swappedPair := RodCatalogPair(sourceValue, typeof(string))
+    assert !ColumnarRuntimeInstanceMemberResolver.ReceiverMatchesDeclaringType(
+        builderReceiver,
+        RodCatalogCountOwner(swappedPair)
+    )
+}
+
+test "read-only collection Count inheritance and concrete Count ownership stay unchanged" {
+    sourceValue := TypeOfCreateBuilder(
+        "ReadOnlyCountControlSourceValue",
+        "ReadOnlyCountControl.SourceValue",
+        0
+    )
+    readOnlyList := RodCatalogClosedOne(
+        typeof(IReadOnlyList<int>).GetGenericTypeDefinition(),
+        sourceValue
+    )
+    readOnlySet := RodCatalogClosedOne(
+        typeof(IReadOnlySet<int>).GetGenericTypeDefinition(),
+        sourceValue
+    )
+    inheritedOwner := RodCatalogCountOwner(sourceValue)
+    RodAssertCountSelection(readOnlyList, inheritedOwner)
+    RodAssertCountSelection(readOnlySet, inheritedOwner)
+
+    concrete := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(
+        typeof(Dictionary<string, string>),
+        "Count",
+        out concrete
+    )
+    assert concrete.DeclaringType == typeof(Dictionary<string, string>)
+    assert concrete.ResultType == typeof(int)
+
+    capacity := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(
+        typeof(List<string>),
+        "Capacity",
+        out capacity
+    )
+    assert capacity.DeclaringType == typeof(List<string>)
+    assert capacity.ResultType == typeof(int)
+}
+
+test "unsupported Count receiver shapes remain outside runtime member selection" {
+    sourceValue := TypeOfCreateBuilder(
+        "ReadOnlyCountNegativeSourceValue",
+        "ReadOnlyCountNegative.SourceValue",
+        0
+    )
+    sequence := RodCatalogClosedOne(
+        typeof(IEnumerable<int>).GetGenericTypeDefinition(),
+        sourceValue
+    )
+    selection := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(
+        sequence,
+        "Count",
+        out selection
+    )
+    assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(
+        RodCatalogDefinition(),
+        "Count",
+        out selection
+    )
+    assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(
+        RodCatalogClosed(typeof(string), sourceValue),
+        "Capacity",
+        out selection
+    )
 }
