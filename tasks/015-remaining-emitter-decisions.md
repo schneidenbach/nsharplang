@@ -94,7 +94,13 @@ A separate unfiltered check of all 10,529 BootstrapServices methods found two ex
 `AnalyzerMetadataAssemblyResolver`'s constructor, reproduced against both the installed SDK and the
 private candidate. The emitted call targets `Object::.ctor` despite the external
 `MetadataAssemblyResolver` base. `ColumnarConstructorDeclarationPlanner.EmitCtorBaseChain` ignores
-the recorded external `ExactBaseType` when `BaseDef` is null. A bounded N# constructor-chain fix and
-canonical/native regressions are assigned alongside emitter integration. Do not accept these errors
-as a baseline exception or claim whole-assembly IL cleanliness before the repair is verified.
-See `root-external-base-constructor-finding.json` in the same evidence directory.
+the recorded external `ExactBaseType` when `BaseDef` is null. The N# constructor-chain fix is
+integrated in `34459dd88`: source-base ordering and failure behavior are preserved, while implicit
+external chains select an accessible parameterless constructor or decline before declaration/IL.
+Eight canonical tests and both affected native families (4/4 and 20/20) pass. A private second-stage
+self-rebuild emits the correct external constructor call and passes unfiltered IL verification of all
+1,227 types and 10,531 methods. This repairs the findings rather than accepting a baseline exception;
+the fresh integration gate and SDK publication remain pending with complete emitter integration.
+See `/private/tmp/nsharp-columnar-constructor-base-correctness-20260908/final-receipt.json` and
+`root-stage2-review.json` there, plus the original `root-external-base-constructor-finding.json` in
+the prerequisite evidence directory above.
