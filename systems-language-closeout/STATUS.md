@@ -89,18 +89,33 @@ The installed SDK freshly self-hosts and passes 7,943/7,943 canonical tests with
 [Boundary and acceptance](decodes/2026-09-07-complete-columnar-input-builder-ownership.md), evidence
 `/private/tmp/nsharp-columnar-input-builder-owner-20260907`.
 
-Compiler-wide ownership remains open. **Active area: complete ColumnarIlEmitter**, baseline
-`15540cf42`: 16,635 C# lines, 67 fields, 295 methods and one private constructor. Move its complete
-state and behavior with canonical assertions; delete the C# class. All 116 referenced compiler types
-already reside in N#, so no reverse assembly dependency blocks this owner. Sol Max implements;
-Astra reviews/integrates. [Execution contract](../tasks/015-remaining-emitter-decisions.md). Canonical scope
-includes eight native emitter lookup migrations and 53 active C# compiler-facing cases (46 backend,
-five decline diagnostics, two conditional-compilation cases); a direct type-name-only audit missed
-them. Preserve all pipeline assertions in N#; leave CLI-command policy cases separately held.
-Move complete MultiFileCompiler afterward: its sole reverse dependency is the emitter. The emitter
-area is backend-only; the later CompileForAnalysis migration requires IDE gate and visual checks.
-Do not add callbacks or restart accepted migrations. Broader sibling tasks remain separately held.
-Dependency assessment: `/private/tmp/nsharp-multifile-assessment/`.
+**Accepted compiler-only area, complete ColumnarIlEmitter:** `773dbf1ff` deletes all 16,635 C# lines;
+`8ec52542b` is the final formatted N# owner. The sole direct production route targets BootstrapServices.
+All 62 runtime fields remain private (14 static, 51 readonly); the private constructor has 33
+arguments and the sole public entry has seven. Five private integer constants are inlined at their
+resolved reads. The connected 53 C# canonical cases move to N#; eight reflection lookups name the
+new owner. Exact 87 passes; all-method IL verification covers BSS 1,231/10,849 and Compiler 8/109.
+Four ratchet rows retire/shrink, epochs remain fixed, audit 18/18.
+
+`6d8970fd5` fixes the necessary N# formatter dependency: explicit private fields survive formatting.
+The rejected public-field candidate is not published. Final owner IL equals the accepted private
+candidate. Fresh IDE-enabled gate 595s passes 521 C# / 7,968 N# canonicals / 47 native-project entries
+/ 36 VS Code / 12 throughput / 68 IL assemblies. Installed SDK self-host freshly emits 805 N# files
+and passes 7,968/7,968 without SDK-path overrides; installed exact 87 and formatter metadata pass.
+Both feeds, ten Release payloads and twelve cache entries match. SDK SHA256
+`526b67ff70309c649a1df435d470c36a0e736935f5f2a67eee26f6901c865d1a`.
+Reinstalled VS Code visibly retains three private fields, preserves readonly, shows zero diagnostics,
+and leaves the source unchanged on a second formatting pass.
+[Boundary and acceptance](decodes/2026-09-08-complete-columnar-emitter-ownership.md).
+
+Compiler-wide ownership remains open. **Next complete area: MultiFileCompiler**, 663 C# lines with
+all state, constructors and 24 methods, plus ten recovery canonicals and seven native owner lookups.
+Its compiler dependencies are already N#-owned. Preserve diagnostics, live views, repeated-call state,
+source overrides, reference handling and wide-stack exception/trace behavior; add no callbacks or
+legacy fallback. [Execution contract](../tasks/021-final-compiler-ownership-audit.md).
+CompileForAnalysis requires IDE-enabled integration and visual unsaved-buffer verification.
+Broader sibling tasks remain separately held; accepted migrations are not restarted.
+Dependency assessment: `/private/tmp/nsharp-multifile-assessment/current-boundary-20260908.md`.
 
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata
@@ -678,6 +693,9 @@ touching git or launching anything long. Attribution is the first finder plus th
 matter; an entry that a later slice OVERTURNED keeps the overturn.
 
 ### 2.1 `lang` — shapes the N# toolchain rejects, and the spelling that works
+
+- Explicit `private` on fields is metadata-bearing even for lowercase/underscore names. Preserve it
+  during formatting; casing-based export equivalence alone does not preserve field CLR visibility.
 
 - **Enumerator early-exit lowering (sibling constraints, 2026-09-06):** compiled `for` over the two concrete Lists and an `IEnumerable<ColumnarStructDef>` calls Dispose only after exhaustion, without a protected finally; early return skips it. Actual r4 IL is preserved under `/private/tmp/nsharp-sibling-constraint-ownership-20260906/proposed-owner.il`. The ownership move must use verified explicit enumerator/try/finally source. Correcting general loop lowering remains compiler debt; source `for` alone does not prove disposal parity.
 
@@ -1926,6 +1944,12 @@ emitter to 20,784 / 19,768 non-blank and the BootstrapServices estate 7,030 → 
   clause types; NL001/NL012 count a WRITE as a use, so `total := 0; total = 5` is accepted; and 206 of 296 `.tests.nl`
   carry a dead `import System` — `nlc check` never lints `.tests.nl` while `nlc test` does, two bars.
 
+
+#### Complete `015` owner
+
+| slice | commit | what moved | durable finding | headline numbers |
+|---|---|---|---|---|
+| Complete emitter | `773dbf1ff`, `8ec52542b` | Entire 16,635-line C# emitter and 53 canonical cases become N#-owned; direct BSS route, no fallback | Formatting must preserve explicit private field bits; final full owner IL equals the accepted private candidate | exact 87; audit 18; gate 595s, 521 C# / 7,968 N# / 36 VS Code / 68 IL; installed self-host 7,968 |
 
 #### The `015-A` arc — duplicated type-admissibility authority
 

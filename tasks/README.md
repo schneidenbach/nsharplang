@@ -57,7 +57,7 @@ alone does not make it an additional active objective.
 - [x] [012 — Readonly-field initialization placement](012-readonly-field-initialization.md)
 - [x] [013 — Synchronous iterators](013-synchronous-iterators.md)
 - [x] [014 — Async iterators](014-async-iterators.md)
-- [ ] [015 — Remaining emitter decisions](015-remaining-emitter-decisions.md)
+- [x] [015 — Remaining emitter decisions](015-remaining-emitter-decisions.md)
 - [x] [016 — Parser and syntax-diagnostic ownership](016-parser-and-syntax-diagnostics.md)
 - [x] [017 — Semantic analyzer ownership](017-semantic-analyzer-ownership.md)
 - [x] [018 — Complete SystemsAnalyzer ownership](018-systems-analyzer-ownership.md)
@@ -80,15 +80,13 @@ mechanical, and explicitly reviewed against its N# owner.
 Current measured route and boundaries are in [STATUS §1](../systems-language-closeout/STATUS.md):
 
 1. The complete `ColumnarIlEmitter.cs` owner (16,635 lines / 15,817 nonblank) is deleted
-   in local commit `773dbf1ff`; production routes directly to its N# replacement. Its canonical
-   migration and follow-up corrections are integrated through `1076ec2a0`. Push and SDK publication
-   remain pending integration verification. The unformatted candidate passes all 87 selected native
-   assertions; the formatted candidate is rejected because it exposes all 62 private fields.
-   Goodall owns the bounded N# formatter fix and regression assertions; Hooke owns emitter
-   regeneration and candidate verification; Astra owns review, the fresh IDE-enabled integration
-   gate, visual editor verification, SDK acceptance and push. The formatter is used by the editor,
-   so this dependency requires IDE verification. See the [rejected candidate receipt](/private/tmp/nsharp-columnar-il-emitter-owner-20260907/final-owner-build/final-candidate-verification-r3/final-owner-verification-r3.json).
-   MultiFileCompiler remains 663/587 and is the next complete ownership area after this checkpoint.
+   in `773dbf1ff`; production routes directly to its N# replacement. The final formatted owner
+   at `8ec52542b` preserves all 62 private fields and passes the exact 87 selected assertions.
+   The N# formatter dependency is fixed in `6d8970fd5`. Fresh IDE-enabled integration passes
+   521 C# / 7,968 N# canonicals / 36 VS Code tests; installed SDK self-host and visual formatter
+   verification pass. [Acceptance](../systems-language-closeout/decodes/2026-09-08-complete-columnar-emitter-ownership.md).
+   MultiFileCompiler remains 663/587 and is the next complete ownership area: move all state and
+   methods, its ten recovery canonicals, and seven assembly-qualified native lookups together.
    ColumnarProgramInputBuilder is entirely N#-owned; its accepted evidence remains valid.
    Historical checkboxes do not establish compiler-wide ownership or canonical assertion completion.
 2. Analyzer.cs, SystemsAnalyzer.cs and TypeResolver.cs are deleted; their accepted N# owners and
@@ -101,4 +99,4 @@ Current measured route and boundaries are in [STATUS §1](../systems-language-cl
 
 The 2026-09-03 handoff snapshot was retired after its four streams landed; current ownership,
 remaining source/tooling chips, verification procedure, and owner choices are carried in STATUS §1.
-The 015, 021, 022, and 023 boxes stay unchecked until their actual terminal conditions pass.
+The 021, 022, and 023 boxes stay unchecked until their actual terminal conditions pass.

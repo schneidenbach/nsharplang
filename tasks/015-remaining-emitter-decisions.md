@@ -53,8 +53,10 @@ and both PreprocessorConditionalCompilationTests. Preserve public pipeline calls
 assertion, subprocess/output/error behavior and cleanup; keep CLI-command policy facts separately.
 These active tests assert compiler behavior even without naming the emitter directly. Delete their
 replaced C# methods/classes and only helpers no longer used by surviving tests. Add focused
-ownership/failure regressions only for real gaps. Reuse accepted coverage and use dev.sh during implementation. Root owns ratchet retirement, review, fresh backend
-gate, any verified SDK publication, acceptance record and push. This emitter-only area is backend-only.
+ownership/failure regressions only for real gaps. Reuse accepted coverage and use dev.sh during
+implementation. Root owns ratchet retirement, review, the appropriate fresh integration gate,
+verified SDK publication, acceptance record and push. The necessary private-field formatter fix
+affects editor formatting, so the final checkpoint requires IDE-enabled and visual verification.
 
 Move the complete MultiFileCompiler after this dependency is integrated, with its helpers and state.
 That later area affects CompileForAnalysis and requires the IDE-enabled gate plus real-editor visual
@@ -62,7 +64,15 @@ verification. Do not hide the dependency with callbacks, split validation owners
 CLI/editor feature branches. Task 015 remains open until the complete emitter is N#-owned and the
 selected area has passed review, required checks, commits and push.
 
-## In-flight evidence (2026-09-08; not ownership acceptance)
+## Acceptance (2026-09-08)
+
+The complete C# emitter is deleted, its canonical cases execute in N#, and production binds
+directly to the N# owner. Final code is `8ec52542b`; exact 87, complete owner IL and metadata,
+the fresh IDE-enabled product gate, installed SDK self-host, and visual formatting verification
+pass. [Boundary and evidence](../systems-language-closeout/decodes/2026-09-08-complete-columnar-emitter-ownership.md).
+Continue with complete MultiFileCompiler under task 021; the compiler-wide objective remains open.
+
+## Historical in-flight evidence (superseded by the acceptance above)
 
 All 53 translated canonical cases pass against the existing compiler: 45 MultiFileCompiler cases,
 record-struct equality, five decline-diagnostic cases and two preprocessing cases. Root verified
