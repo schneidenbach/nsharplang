@@ -60,3 +60,12 @@ decisions move into their callers, so source-static out-record calls and default
 construction are not needed. The discarded private out value was not observable on failure; the
 valid branch retains the original property-read and construction order. Do not add compiler
 capabilities solely to satisfy an expanded probe that the production replacement no longer needs.
+
+The private DeclarationSite helper can use a non-positional record struct with explicit readonly
+component fields and its complete constructor. Actual source compiles and emits initonly fields
+with synthesized field-wise equality/hash. This preserves its immutable dictionary-key behavior.
+The private type lacks the C# IsReadOnlyAttribute; no public API exposes it and no production decision
+consumes that attribute. Record this internal metadata difference rather than adding parser or
+arbitrary type-attribute support solely to reproduce it. Public SystemsAnalyzer API metadata remains
+an acceptance requirement. Evidence: `probes/readonly-record-explicit-fields-r1` and its attribute
+control beneath the evidence directory above; final native equality and whole-owner checks remain open.
