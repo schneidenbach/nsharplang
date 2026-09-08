@@ -69,3 +69,27 @@ consumes that attribute. Record this internal metadata difference rather than ad
 arbitrary type-attribute support solely to reproduce it. Public SystemsAnalyzer API metadata remains
 an acceptance requirement. Evidence: `probes/readonly-record-explicit-fields-r1` and its attribute
 control beneath the evidence directory above; final native equality and whole-owner checks remain open.
+
+The existing N# explicit-generic static-call route is sufficient: `792bd93c6` integrates the exact
+ToDictionary string closure and ReferenceEqualityComparer.Instance binding without a new planner
+or C# route. Verified evidence is four canonical controls, two native ToDictionary cases (including
+duplicate-key failure), and one object-key reference-identity case. The latter does not prove typed
+AST-key constructor support. Logs: `todictionary-bss-r9-final.log`, `todictionary-native-r5-final.log`,
+and `reference-equality-native-r4-object-final.log` beneath the evidence directory.
+
+`400d500cc` adds the exact inherited dictionary-enumeration receiver conversion; all ten focused
+reference-conversion controls pass (`dictionary-inherited-conversion-canonical-r2.log`). `65307d718`
+integrates source record keys and the exact inherited typed-enumerator selector. Its combined
+canonical controls pass 5/5, exact immutable-key native test 1/1, and reflection-bootstrap project
+33/33. Metadata/IL confirms the private value key, five initonly components, complete field-wise
+equality/hash, typed Current, and disposal. See `record-key-seed` receipts r41 and r43–r46.
+
+The merged prerequisite source also passes `./scripts/dev.sh Columnar`: 12/12 focused tests in 64s
+at `65307d718` (`root-dev-columnar-65307d718.log`). This is inner-loop evidence, not a product gate.
+
+Typed comparer construction remains unaccepted.
+An actual substituted constructor-parameter probe independently rejects both comparer type admission
+and argument flow (`reference-equality-canonical-prereq-r2.log`). One Sol Max worker owns the shared
+conversion file; the record-key worker owns
+the collection type/resolver changes. Combine their candidates privately to compile the complete
+frozen owner, including canonical tests, before publishing any seed.
