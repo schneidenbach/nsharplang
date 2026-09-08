@@ -95,8 +95,28 @@ runtime identity passes 1/1 (`reference-equality-canonical-prereq-r4-admission.l
 `reference-equality-native-r8-typed-explicit-project.log`). The production-only candidate SHA256 is
 `9f33c6cc76e7814e1b220d7b909eadf3ef5b0dc07cbf4afa72ab67689327e8a5`.
 
-All currently demonstrated collection prerequisites are committed. Combined private CLI/build-task
-builds pass; the owner worker is preparing a version-isolated private SDK to compile the complete
-frozen owner, including canonical tests. Whole-owner compilation, C# deletion in the integration
-branch, production/canonical verification, the fresh gate and push remain open. No live SDK seed
-publication is authorized by these prerequisite-only results.
+The complete owner is integrated at `946821316`: all 1,156 C# lines are deleted. Exact production
+emission of 801 N# sources passes in 19.88s and test-inclusive emission in 52.54s, both with zero
+warnings/errors (`combined-owner-r1/logs/production-build-r3.log` and `tests-included-build-r2.log`).
+The only final source spelling correction passes the existing optional null explicitly to
+ProjectFileParser.CreateDefault. Root `./scripts/dev.sh Systems` passes 3/3 in 32s; the existing
+systems corpus passes 123/123 (66 census, 13 gauntlet, 44 proof). Lifecycle/error-handling passes
+24/24 against the direct N# identity. `d8120962` integrates that lookup and retires exactly the
+SystemsAnalyzer ratchet row; 380 other rows and all epochs remain unchanged, audit 18/18,
+head `head-v1:130fb0badc59fc18`. Emitted Compiler IL directly constructs and calls SystemsAnalyzer
+in BootstrapServices; the only surviving C# reference is mechanical MultiFileCompiler transport.
+
+Metadata review found two meaningful gaps despite the passing behavior tests. `eefbf6cdb` replaces
+the two private expression properties with private methods at the same evaluation sites; both
+production and test-inclusive emission pass, and emitted metadata no longer exposes public getters.
+The existing explicit sealed class modifier is still lost between declaration scanning and type
+planning. A bounded N# fix must preserve that bit for the outer class and four private reference
+types before acceptance. Public Analyze signature/defaults and all 24 field shapes (22 readonly)
+otherwise match. Constructor HideBySig omission has no inherited-constructor behavior; absence of
+BeforeFieldInit only strengthens initialization timing for the private shared empty-map allocation.
+These metadata differences and the private key attribute difference above are accepted explicitly;
+loss of sealed or private visibility is not accepted.
+
+The final metadata correction, fresh integration gate, necessary verified SDK publication and push
+remain open. The private stage-0 cache and payload receipt live under `root-stage0-bootstrap`; no
+live SDK/feed/cache mutation or official seed publication has occurred.
