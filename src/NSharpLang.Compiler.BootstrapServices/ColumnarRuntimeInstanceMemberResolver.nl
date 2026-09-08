@@ -99,7 +99,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if typeof(Exception).IsAssignableFrom(receiverType) || IsSupportedAspNetReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) || IsSupportedUnitTaskReceiver(receiverType) || IsSupportedNullableReceiver(receiverType) || IsSupportedResultReceiver(receiverType) || IsSupportedMemoryOwnerReceiver(receiverType) || IsSupportedMemoryReceiver(receiverType) || IsSupportedCountReceiver(receiverType) || IsSupportedKeyValuePairReceiver(receiverType) || IsSupportedSpanLikeReceiver(receiverType) || IsSupportedValueTupleReceiver(receiverType) {
+        if typeof(Exception).IsAssignableFrom(receiverType) || IsSupportedAspNetReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) || IsSupportedUnitTaskReceiver(receiverType) || IsSupportedNullableReceiver(receiverType) || IsSupportedResultReceiver(receiverType) || IsSupportedMemoryOwnerReceiver(receiverType) || IsSupportedMemoryReceiver(receiverType) || IsSupportedCountReceiver(receiverType) || IsSupportedKeyValuePairReceiver(receiverType) || IsSupportedSpanLikeReceiver(receiverType) || IsSupportedValueTupleReceiver(receiverType) || ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(receiverType) {
             return true
         }
 
@@ -141,6 +141,11 @@ class ColumnarRuntimeInstanceMemberResolver {
 
         if IsSupportedValueTupleReceiver(receiverType) {
             return TrySelectValueTupleField(receiverType, member, out selection)
+        }
+
+        if ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(receiverType) && member == "Current" {
+            arguments := receiverType.GetGenericArguments()
+            return TrySelectExpectedProperty(receiverType, receiverType, member, arguments[0], out selection)
         }
 
         if typeof(Exception).IsAssignableFrom(receiverType) && member == "Message" {

@@ -1138,7 +1138,7 @@ class ColumnarTypeOfPlanner {
             return true
         }
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType)
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1453,6 +1453,23 @@ class ColumnarTypeOfPlanner {
         }
         definition := valueType.GetGenericTypeDefinition()
         identity := RequiredDictionaryKeyCollectionDefinition().get_AssemblyQualifiedName() ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+    }
+
+    // Dictionary<TKey, TValue>.Keys exposes this concrete value-type enumerator. Compiler passes
+    // keep that exact struct in one local so MoveNext, Current, and Dispose all mutate/read the same
+    // receiver and retain Dictionary's version check. Its two generic arguments use the same key and
+    // value boundary as the live KeyCollection that produced it.
+    static func IsSupportedDictionaryKeyEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryKeyEnumeratorDefinition().get_AssemblyQualifiedName() ?? ""
         if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
             return false
         }
@@ -1927,6 +1944,14 @@ class ColumnarTypeOfPlanner {
         result := Type.GetType("System.Collections.Generic.Dictionary`2+KeyCollection")
         if result == null {
             throw new InvalidOperationException("Dictionary<TKey, TValue>.KeyCollection runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryKeyEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+KeyCollection+Enumerator")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.KeyCollection.Enumerator runtime type was not found.")
         }
         return result
     }
