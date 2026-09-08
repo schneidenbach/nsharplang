@@ -66,10 +66,16 @@ selected area has passed review, required checks, commits and push.
 
 All 53 translated canonical cases pass against the existing compiler: 45 MultiFileCompiler cases,
 record-struct equality, five decline-diagnostic cases and two preprocessing cases. Root verified
-53 distinct passing results with no skipped cases in
-`/private/tmp/nsharp-columnar-il-emitter-tests-20260908/root-baseline-review.json`.
-Per-case assertion and decoded-fixture-byte parity review remains open; in particular, review the
-preprocessing fixtures' trailing newlines before retaining their final baseline evidence.
+53 distinct passing results with no skipped cases and independently rehashed all 112 runtime-written
+fixtures against the original C# fixture bytes. Source sets and explicit file orders match.
+The complete assertion review preserves all 178 original Assert invocations through 40 shared-helper
+cases and 13 custom cases. Root separately checked all 40 helper output policies and expected values.
+Review corrected delimiter-newline differences and restored exact diagnostic-code equality where a
+substring predicate had weakened the original assertion; the corrected focused case passes.
+Evidence: `/private/tmp/nsharp-columnar-il-emitter-tests-20260908/canonical53-assertion-fixture-mapping-r1.json`
+and `root-canonical53-fixture-baseline-acceptance.json` in that directory. This accepts baseline
+assertion/fixture equivalence only; the final C# deletion diff and replacement-emitter execution remain
+required before accepting the migrated area.
 
 The full proposed N# emitter is materialized but has not compiled successfully. Parser reductions
 and formatter-clean method fragments are translation evidence only. Neither baseline test results
