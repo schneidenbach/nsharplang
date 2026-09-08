@@ -37,14 +37,6 @@ func IteratorOrderingPut(values: object?[], index: int, value: object?) {
     values[index] = value
 }
 
-func IteratorOrderingCompilerType(name: string): Type {
-    owner := Type.GetType("NSharpLang.Compiler.Columnar." + name + ", Compiler")
-    if owner == null {
-        throw new InvalidOperationException("Missing compiler type '" + name + "'")
-    }
-    return owner
-}
-
 func IteratorOrderingBootstrapType(name: string): Type {
     owner := Type.GetType("NSharpLang.Compiler.Columnar." + name + ", NSharpLang.Compiler.BootstrapServices")
     if owner == null {
@@ -465,8 +457,7 @@ func IteratorOrderingRun(mutation: string): IteratorOrderingOutcome {
 
     module := IteratorOrderingNewModule(mutation)
     factoryIl := IteratorOrderingFactoryIl(module, mutation)
-    emitterOwner := IteratorOrderingCompilerType("ColumnarIlEmitter")
-    emitter := IteratorOrderingMethod(emitterOwner, "TryEmitIteratorStateMachine", (BindingFlags)40, 16)
+    emitter := ColumnarIlEmitterPrivateMethod("TryEmitIteratorStateMachine", 16)
     values := new object?[](16)
     IteratorOrderingPut(values, 0, module)
     IteratorOrderingPut(values, 1, parsed.Function)

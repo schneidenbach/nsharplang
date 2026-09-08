@@ -170,20 +170,6 @@ func IteratorBindingValueTaskResult(value: object): object? {
     return getResult.Invoke(awaiter, empty)
 }
 
-func IteratorBindingHostMethod(typeName: string, methodName: string): MethodInfo {
-    owner := Type.GetType("NSharpLang.Compiler.Columnar." + typeName + ", Compiler")
-    if owner == null {
-        throw new InvalidOperationException("Missing host " + typeName)
-    }
-    methods := owner.GetMethods((BindingFlags)40)
-    for method in methods {
-        if method.get_Name() == methodName {
-            return method
-        }
-    }
-    throw new InvalidOperationException("Missing host method " + methodName)
-}
-
 func IteratorBindingReadDeclineProperty(target: object, name: string): string {
     property := target.GetType().GetProperty(name)
     if property == null {
@@ -211,7 +197,7 @@ func IteratorBindingEmitOutcome(source: string): string {
     empty := new object?[](0)
     ignored := reset.Invoke(null, empty)
     _ = ignored
-    emit := IteratorBindingHostMethod("ColumnarIlEmitter", "TryEmitColumnarAssembly")
+    emit := ColumnarIlEmitterPublicMethod("TryEmitColumnarAssembly", 7)
     emitArguments := new object?[](7)
     IteratorBindingPut(emitArguments, 0, "IteratorBindingNegative")
     IteratorBindingPut(emitArguments, 1, "Program")

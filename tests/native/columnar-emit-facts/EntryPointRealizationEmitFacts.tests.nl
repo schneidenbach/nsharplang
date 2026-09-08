@@ -8,22 +8,6 @@ import System.Reflection
 // only TryEmitColumnarAssembly owns its initialized `out byte[] assembly` slot.  A missing
 // executable entry point returns false before metadata/save and leaves that slot as the BCL's
 // Array.Empty<byte>() singleton.
-func EntryPointRealizationHostMethod(typeName: string, methodName: string): MethodInfo {
-    owner := Type.GetType("NSharpLang.Compiler.Columnar." + typeName + ", Compiler")
-    if owner == null {
-        throw new InvalidOperationException("Missing host " + typeName)
-    }
-
-    methods := owner.GetMethods((BindingFlags)40)
-    for method in methods {
-        if method.get_Name() == methodName {
-            return method
-        }
-    }
-
-    throw new InvalidOperationException("Missing host method " + methodName)
-}
-
 func EntryPointRealizationPut(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -80,7 +64,7 @@ test "an executable without main preserves the real empty assembly output" {
     noArguments := new object?[](0)
     _ = reset.Invoke(null, noArguments)
 
-    emit := EntryPointRealizationHostMethod("ColumnarIlEmitter", "TryEmitColumnarAssembly")
+    emit := ColumnarIlEmitterPublicMethod("TryEmitColumnarAssembly", 7)
     emitArguments := new object?[](7)
     EntryPointRealizationPut(emitArguments, 0, "EntryPointRealizationNoMain")
     EntryPointRealizationPut(emitArguments, 1, "Program")

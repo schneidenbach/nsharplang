@@ -109,20 +109,6 @@ func SourceDiscoveryExactUnarySignature(method: MethodInfo, returnType: Type, pa
     return method.get_ReturnType() == returnType && parameters.Length == 1 && parameters[0].get_ParameterType() == parameterType
 }
 
-func SourceDiscoveryHostMethod(typeName: string, methodName: string): MethodInfo {
-    owner := Type.GetType("NSharpLang.Compiler.Columnar." + typeName + ", Compiler")
-    if owner == null {
-        throw new InvalidOperationException("Missing host " + typeName)
-    }
-    methods := owner.GetMethods((BindingFlags)40)
-    for method in methods {
-        if method.get_Name() == methodName {
-            return method
-        }
-    }
-    throw new InvalidOperationException("Missing host method " + methodName)
-}
-
 func SourceDiscoveryReadDeclineProperty(target: object, name: string): string {
     property := target.GetType().GetProperty(name)
     if property == null {
@@ -151,7 +137,7 @@ func SourceDiscoveryEmitOutcome(source: string): string {
     emptyArguments := new object?[](0)
     resetResult := reset.Invoke(null, emptyArguments)
     _ = resetResult
-    emit := SourceDiscoveryHostMethod("ColumnarIlEmitter", "TryEmitColumnarAssembly")
+    emit := ColumnarIlEmitterPublicMethod("TryEmitColumnarAssembly", 7)
     emitArguments := new object?[](7)
     SourceDiscoveryPut(emitArguments, 0, "SourceDefinitionDiscoveryControl")
     SourceDiscoveryPut(emitArguments, 1, "Program")

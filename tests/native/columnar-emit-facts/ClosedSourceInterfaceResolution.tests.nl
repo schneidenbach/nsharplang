@@ -133,20 +133,6 @@ func ClosedSourceRequiredMethod(owner: Type, name: string): MethodInfo {
     return method
 }
 
-func ClosedSourceHostMethod(typeName: string, methodName: string): MethodInfo {
-    owner := Type.GetType("NSharpLang.Compiler.Columnar." + typeName + ", Compiler")
-    if owner == null {
-        throw new InvalidOperationException("Missing host " + typeName)
-    }
-    methods := owner.GetMethods((BindingFlags)40)
-    for method in methods {
-        if method.get_Name() == methodName {
-            return method
-        }
-    }
-    throw new InvalidOperationException("Missing host method " + methodName)
-}
-
 func ClosedSourceReadDeclineProperty(target: object, name: string): string {
     targetType := target.GetType()
     property := targetType.GetProperty(name)
@@ -177,7 +163,7 @@ func ClosedSourceEmitOutcome(source: string): string {
     emptyArguments := new object?[](0)
     resetResult := reset.Invoke(null, emptyArguments)
     _ = resetResult
-    emit := ClosedSourceHostMethod("ColumnarIlEmitter", "TryEmitColumnarAssembly")
+    emit := ColumnarIlEmitterPublicMethod("TryEmitColumnarAssembly", 7)
     emitArguments := new object?[](7)
     ClosedSourcePut(emitArguments, 0, "ClosedSourceInterfaceControl")
     ClosedSourcePut(emitArguments, 1, "Program")

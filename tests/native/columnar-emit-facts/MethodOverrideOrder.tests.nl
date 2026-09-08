@@ -12,20 +12,6 @@ func PutOverrideFixtureArgument(values: object?[], index: int, value: object?) {
     values[index] = value
 }
 
-func OverrideFixtureHostMethod(typeName: string, methodName: string): MethodInfo {
-    owner := Type.GetType("NSharpLang.Compiler.Columnar." + typeName + ", Compiler")
-    if owner == null {
-        throw new InvalidOperationException("Missing host " + typeName)
-    }
-    methods := owner.GetMethods((BindingFlags)40)
-    for method in methods {
-        if method.get_Name() == methodName {
-            return method
-        }
-    }
-    throw new InvalidOperationException("Missing host method " + methodName)
-}
-
 func ReadOverrideFixtureField(target: object, name: string): object? {
     targetType := target.GetType()
     field := targetType.GetField(name)
@@ -99,7 +85,7 @@ func EmitOverrideFixtureWithInvalidMetadata(invalidReturn: bool, invalidParamete
     emptyArguments := new object?[](0)
     resetResult := reset.Invoke(null, emptyArguments)
     _ = resetResult
-    emit := OverrideFixtureHostMethod("ColumnarIlEmitter", "TryEmitColumnarAssembly")
+    emit := ColumnarIlEmitterPublicMethod("TryEmitColumnarAssembly", 7)
     emitArgs := new object?[](7)
     PutOverrideFixtureArgument(emitArgs, 0, "OverrideDeclarationControl")
     PutOverrideFixtureArgument(emitArgs, 1, "Program")

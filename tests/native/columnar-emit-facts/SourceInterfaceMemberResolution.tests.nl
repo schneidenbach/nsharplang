@@ -147,20 +147,6 @@ func SourceInterfaceRequiredDeclaringType(method: MethodInfo): Type {
     return owner
 }
 
-func SourceInterfaceHostMethod(typeName: string, methodName: string): MethodInfo {
-    owner := Type.GetType("NSharpLang.Compiler.Columnar." + typeName + ", Compiler")
-    if owner == null {
-        throw new InvalidOperationException("Missing host " + typeName)
-    }
-    methods := owner.GetMethods((BindingFlags)40)
-    for method in methods {
-        if method.get_Name() == methodName {
-            return method
-        }
-    }
-    throw new InvalidOperationException("Missing host method " + methodName)
-}
-
 func SourceInterfaceReadDeclineProperty(target: object, name: string): string {
     targetType := target.GetType()
     property := targetType.GetProperty(name)
@@ -190,7 +176,7 @@ func SourceInterfaceEmitAttemptFor(source: string): SourceInterfaceEmitAttempt {
     emptyArguments := new object?[](0)
     resetResult := reset.Invoke(null, emptyArguments)
     _ = resetResult
-    emit := SourceInterfaceHostMethod("ColumnarIlEmitter", "TryEmitColumnarAssembly")
+    emit := ColumnarIlEmitterPublicMethod("TryEmitColumnarAssembly", 7)
     emitArguments := new object?[](7)
     SourceInterfacePut(emitArguments, 0, "SourceInterfaceNegative")
     SourceInterfacePut(emitArguments, 1, "Program")
