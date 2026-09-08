@@ -137,8 +137,13 @@ test "the collection element tail requires a supported value that is not builder
     assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceStruct.MakeArrayType())
     assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeArrayType())
 
-    // A non-head closed generic over a builder is refused before the tail, by the containment arm.
-    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), sourceStruct))
+    // The exact supported ValueTuple surface is admitted before the generic builder-containment arm.
+    // It remains both supported and builder-bound, distinguishing this explicit prerequisite from the tail.
+    builderTuple := AdmissibilityClosed2("System.ValueTuple`2", typeof(int), sourceStruct)
+    assert ColumnarTypeOfPlanner.IsSupportedValueTuple(builderTuple)
+    assert ColumnarTypeOfPlanner.IsSupportedType(builderTuple)
+    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(builderTuple)
+    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(builderTuple)
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), typeof(string)))
 }
 

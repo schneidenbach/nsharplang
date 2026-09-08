@@ -62,6 +62,7 @@ func ClosureCollectionListCopyPlan(sourceType: Type): ColumnarCodePlan {
 test "collection constructors retain their exact enumerable and comparer signatures" {
     hashSetDefinition := typeof(HashSet<int>).GetGenericTypeDefinition()
     sortedSetDefinition := typeof(SortedSet<int>).GetGenericTypeDefinition()
+    dictionaryDefinition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
 
     hashComparer := ClosureCollectionRequiredConstructor(
         ColumnarConstructionPlanner.FindOpenComparerConstructor(
@@ -87,6 +88,12 @@ test "collection constructors retain their exact enumerable and comparer signatu
             "System.Collections.Generic.IComparer`1"
         )
     )
+    dictionaryCopyComparer := ClosureCollectionRequiredConstructor(
+        ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(
+            dictionaryDefinition,
+            "System.Collections.Generic.IEqualityComparer`1"
+        )
+    )
 
     assert hashComparer.GetParameters().Length == 1
     assert hashCopyComparer.GetParameters().Length == 2
@@ -98,15 +105,29 @@ test "collection constructors retain their exact enumerable and comparer signatu
     assert sortedComparer.GetParameters()[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IComparer<int>).GetGenericTypeDefinition()
     assert sortedCopyComparer.GetParameters()[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition()
     assert sortedCopyComparer.GetParameters()[1].get_ParameterType().GetGenericTypeDefinition() == typeof(IComparer<int>).GetGenericTypeDefinition()
+    dictionaryParameters := dictionaryDefinition.GetGenericArguments()
+    dictionaryCopyParameters := dictionaryCopyComparer.GetParameters()
+    dictionarySequenceType := dictionaryCopyParameters[0].get_ParameterType()
+    dictionaryPairType := dictionarySequenceType.GetGenericArguments()[0]
+    dictionaryComparerType := dictionaryCopyParameters[1].get_ParameterType()
+    assert dictionaryCopyParameters.Length == 2
+    assert dictionarySequenceType.GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    assert dictionaryPairType.GetGenericTypeDefinition() == typeof(KeyValuePair<int, int>).GetGenericTypeDefinition()
+    assert dictionaryPairType.GetGenericArguments()[0] == dictionaryParameters[0]
+    assert dictionaryPairType.GetGenericArguments()[1] == dictionaryParameters[1]
+    assert dictionaryComparerType.GetGenericTypeDefinition() == typeof(IEqualityComparer<int>).GetGenericTypeDefinition()
+    assert dictionaryComparerType.GetGenericArguments()[0] == dictionaryParameters[0]
 
     assert ColumnarConstructionPlanner.IsComparerCollectionDefinition(hashSetDefinition)
     assert ColumnarConstructionPlanner.IsComparerCollectionDefinition(sortedSetDefinition)
     assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(hashSetDefinition)
     assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(sortedSetDefinition)
-    assert !ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(typeof(Dictionary<int, int>).GetGenericTypeDefinition())
+    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(dictionaryDefinition)
     assert !ColumnarConstructionPlanner.IsComparerCollectionDefinition(typeof(List<int>).GetGenericTypeDefinition())
+    assert !ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(typeof(List<int>).GetGenericTypeDefinition())
     assert ColumnarConstructionPlanner.FindOpenComparerConstructor(sortedSetDefinition, "System.Collections.Generic.IEqualityComparer`1") == null
     assert ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(hashSetDefinition, "System.Collections.Generic.IComparer`1") == null
+    assert ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(dictionaryDefinition, "System.Collections.Generic.IComparer`1") == null
 }
 
 test "List key snapshots select the exact enumerable copy constructor" {
