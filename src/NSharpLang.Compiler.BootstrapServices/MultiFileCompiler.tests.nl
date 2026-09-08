@@ -92,12 +92,9 @@ test "MultiFileCompiler_SyntaxErrorInOneFile_SemanticErrorInOther_BothReported" 
         compiler.CompileForAnalysis()
         errors := compiler.AllErrors
 
-        assert errors.Count >= 2,
-            "Expected errors from both files, got " + errors.Count.ToString() + ": " + MfcRecoveryDescribeErrors(errors)
-        assert MfcRecoveryCountFileErrors(errors, "FileA") >= 1,
-            "Expected at least 1 error from FileA (syntax error)"
-        assert MfcRecoveryCountFileErrors(errors, "FileB") >= 1,
-            "Expected at least 1 error from FileB (semantic error), got " + MfcRecoveryCountFileErrors(errors, "FileB").ToString() + ". All errors: " + MfcRecoveryDescribeErrors(errors)
+        assert errors.Count >= 2, "Expected errors from both files, got " + errors.Count.ToString() + ": " + MfcRecoveryDescribeErrors(errors)
+        assert MfcRecoveryCountFileErrors(errors, "FileA") >= 1, "Expected at least 1 error from FileA (syntax error)"
+        assert MfcRecoveryCountFileErrors(errors, "FileB") >= 1, "Expected at least 1 error from FileB (semantic error), got " + MfcRecoveryCountFileErrors(errors, "FileB").ToString() + ". All errors: " + MfcRecoveryDescribeErrors(errors)
     } finally {
         MfcRecoveryDeleteTemp(root)
     }
@@ -129,8 +126,7 @@ test "MultiFileCompiler_CircularFileImports_ReportOneBoundedCycleDiagnostic" {
 
         compiler := new MultiFileCompiler(root)
         compiler.CompileForAnalysis()
-        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1,
-            "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
+        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1, "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
         cycle := MfcRecoveryFirstCode(compiler.AllErrors, ErrorCode.CircularImport)
 
         assert cycle.Message.Contains("A.nl -> B.nl -> C.nl -> A.nl", StringComparison.Ordinal)
@@ -151,8 +147,7 @@ test "MultiFileCompiler_TwoFileCircularImports_DeduplicatesAnalyzerCycleDiagnost
 
         compiler := new MultiFileCompiler(root)
         compiler.CompileForAnalysis()
-        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1,
-            "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
+        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1, "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
         cycle := MfcRecoveryFirstCode(compiler.AllErrors, ErrorCode.CircularImport)
 
         assert cycle.Message.Contains("A.nl -> B.nl -> A.nl", StringComparison.Ordinal)
@@ -176,8 +171,7 @@ test "MultiFileCompiler_LongCircularFileImports_BoundsDiagnosticCyclePath" {
 
         compiler := new MultiFileCompiler(root)
         compiler.CompileForAnalysis()
-        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1,
-            "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
+        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1, "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
         cycle := MfcRecoveryFirstCode(compiler.AllErrors, ErrorCode.CircularImport)
 
         assert cycle.Message.Contains("F00.nl -> F01.nl -> F02.nl -> F03.nl -> F04.nl -> F05.nl", StringComparison.Ordinal)
@@ -243,8 +237,7 @@ test "MultiFileCompiler_CircularFileImports_UsesSourceTextOverridesAndImportCasi
         config := ProjectFileParser.CreateDefault(null)
         compiler := new MultiFileCompiler(root, config, overrides)
         compiler.CompileForAnalysis()
-        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1,
-            "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
+        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1, "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
         cycle := MfcRecoveryFirstCode(compiler.AllErrors, ErrorCode.CircularImport)
 
         assert cycle.Message.Contains("A.nl -> B.nl -> A.nl", StringComparison.Ordinal)
@@ -263,8 +256,7 @@ test "MultiFileCompiler_CircularFileImports_CrLfSourceSnippetHasNoTrailingCarria
 
         compiler := new MultiFileCompiler(root)
         compiler.CompileForAnalysis()
-        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1,
-            "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
+        assert MfcRecoveryCountCode(compiler.AllErrors, ErrorCode.CircularImport) == 1, "Expected exactly one CircularImport diagnostic: " + MfcRecoveryDescribeErrors(compiler.AllErrors)
         cycle := MfcRecoveryFirstCode(compiler.AllErrors, ErrorCode.CircularImport)
 
         assert cycle.SourceSnippet == "import \"A\""
@@ -284,8 +276,7 @@ test "CompileForAnalysis_SyntaxErrorInOneFile_StillReportsSemanticErrors" {
         errors := compiler.AllErrors
 
         assert MfcRecoveryCountFileErrors(errors, "FileA") >= 1, "Expected syntax errors from FileA"
-        assert MfcRecoveryCountFileErrors(errors, "FileB") >= 1,
-            "Expected semantic errors from FileB, got " + MfcRecoveryCountFileErrors(errors, "FileB").ToString() + ". All errors: " + MfcRecoveryDescribeErrors(errors)
+        assert MfcRecoveryCountFileErrors(errors, "FileB") >= 1, "Expected semantic errors from FileB, got " + MfcRecoveryCountFileErrors(errors, "FileB").ToString() + ". All errors: " + MfcRecoveryDescribeErrors(errors)
     } finally {
         MfcRecoveryDeleteTemp(root)
     }

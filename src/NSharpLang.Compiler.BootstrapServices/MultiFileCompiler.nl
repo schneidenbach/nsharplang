@@ -118,7 +118,8 @@ class MultiFileCompiler {
             projectRoot,
             config ?? ProjectFileParser.CreateDefault(null),
             paths,
-            texts)
+            texts
+        )
     }
 
     private static func BuildExplicitInputs(sourceFiles: IEnumerable<string>, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?): MultiFileCompilerInputs {
@@ -129,7 +130,8 @@ class MultiFileCompiler {
             sourceFiles.ToList(),
             config ?? ProjectFileParser.CreateDefault(null),
             paths,
-            texts)
+            texts
+        )
     }
 
     private static func CopySourceTextOverrides(sourceTextOverrides: IReadOnlyDictionary<string, string>?): (Paths: string[], Texts: string[]) {
@@ -167,9 +169,7 @@ class MultiFileCompiler {
     private func ReadSourceText(sourceFile: string): string {
         fullPath := Path.GetFullPath(sourceFile)
         let text: string? = null
-        return _sourceTextOverrides.TryGetValue(fullPath, out text)
-            ? text
-            : File.ReadAllText(fullPath)
+        return _sourceTextOverrides.TryGetValue(fullPath, out text) ? text : File.ReadAllText(fullPath)
     }
 
     private func ReadAllSourceTexts(): void {
@@ -218,7 +218,8 @@ class MultiFileCompiler {
         graph := ImportGraphBuilder.Build(
             sourceFiles,
             CollectFileImportGraphEntries(),
-            _projectRoot)
+            _projectRoot
+        )
         for diagnosticKey in graph.ResolvedDiagnosticKeys {
             _resolvedFileImportDiagnosticKeys.Add(diagnosticKey)
         }
@@ -227,7 +228,8 @@ class MultiFileCompiler {
             sourceFiles,
             graph.EdgesByFile,
             _projectRoot,
-            10)
+            10
+        )
         for cycle in cycles {
             ImportCycleDiagnosticReporter.Report(
                 cycle,
@@ -235,7 +237,8 @@ class MultiFileCompiler {
                 _filesInReportedImportCycles,
                 _allErrors,
                 20,
-                TryReadSourceLine(cycle.Edge.SourceFile, cycle.Edge.Line))
+                TryReadSourceLine(cycle.Edge.SourceFile, cycle.Edge.Line)
+            )
         }
     }
 
@@ -252,7 +255,8 @@ class MultiFileCompiler {
                     fileImport.Path,
                     fileImport.Line,
                     fileImport.DiagnosticColumn,
-                    fileImport.DiagnosticLength))
+                    fileImport.DiagnosticLength
+                ))
             }
         }
 
@@ -304,9 +308,12 @@ class MultiFileCompiler {
                 // stale NL701 import-not-found errors for case-only/open-buffer imports already in the graph.
                 for error in result.Errors {
                     if (ImportGraphDiagnosticSuppressor.ShouldSuppressAnalyzerDiagnostic(
-                            error,
-                            _filesInReportedImportCycles,
-                            _resolvedFileImportDiagnosticKeys)) {continue}
+                        error,
+                        _filesInReportedImportCycles,
+                        _resolvedFileImportDiagnosticKeys
+                    )) {
+                        continue
+                    }
 
                     _allErrors.Add(error)
                 }
@@ -338,7 +345,9 @@ class MultiFileCompiler {
 
         for sourceFile in _sourceFiles {
             fullPath := Path.GetFullPath(sourceFile)
-            if (filesWithParseErrors.Contains(fullPath)) {continue}
+            if (filesWithParseErrors.Contains(fullPath)) {
+                continue
+            }
 
             let compilationUnit: NSharpLang.Compiler.Ast.CompilationUnit? = null
             if (!_compilationUnits.TryGetValue(sourceFile, out compilationUnit)) {
@@ -346,9 +355,7 @@ class MultiFileCompiler {
             }
 
             let cachedSource: string? = null
-            source := _sourceTexts.TryGetValue(fullPath, out cachedSource)
-                ? cachedSource
-                : ReadSourceText(sourceFile)
+            source := _sourceTexts.TryGetValue(fullPath, out cachedSource) ? cachedSource : ReadSourceText(sourceFile)
             fileDir := Path.GetDirectoryName(fullPath) ?? _projectRoot
             linter := new Linter(LinterConfig.FromEditorConfig(fileDir))
             diagnostics := linter.Lint(compilationUnit, fullPath, source)
@@ -364,7 +371,8 @@ class MultiFileCompiler {
                     diagnostic.Location.Column,
                     diagnostic.Length,
                     diagnostic.Suggestion,
-                    TryReadSourceLine(fullPath, diagnostic.Location.Line)))
+                    TryReadSourceLine(fullPath, diagnostic.Location.Line)
+                ))
             }
         }
     }
@@ -374,9 +382,9 @@ class MultiFileCompiler {
     /// which is unnecessary when you only need ASTs, semantic models, and diagnostics.
     /// All files with a non-null CompilationUnit are analyzed, even if they had parse errors,
     /// so we can report both syntax and semantic diagnostics in a single pass.</summary>
-    public func CompileForAnalysis(): void {
+    func CompileForAnalysis(): void {
         let columnarDiscard0: bool = false
-        RunLegacyValidationPipeline( false, out columnarDiscard0)
+        RunLegacyValidationPipeline(false, out columnarDiscard0)
     }
 
     // Shared N# validation pipeline used by analysis and emission.
@@ -413,7 +421,7 @@ class MultiFileCompiler {
         AnalyzeAllFiles()
     }
 
-    public func CompileToIlAssembly(assemblyName: string, outputPath: string, validateStrictLint: bool = false, validateWithLegacyAnalysis: bool = true): MultiFileCompilationResult {
+    func CompileToIlAssembly(assemblyName: string, outputPath: string, validateStrictLint: bool = false, validateWithLegacyAnalysis: bool = true): MultiFileCompilationResult {
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] CompileToIlAssembly START")
 
         runLegacyValidation := validateWithLegacyAnalysis || validateStrictLint
@@ -431,7 +439,8 @@ class MultiFileCompiler {
                     decline.FileName,
                     decline.Line,
                     decline.Column,
-                    decline.SpanLength))
+                    decline.SpanLength
+                ))
             }
 
             emitOnlySuccess := true
@@ -450,7 +459,8 @@ class MultiFileCompiler {
             return new MultiFileCompilationResult(
                 emitOnlyResultSuccess,
                 emitOnlyResultErrors,
-                emitOnlyResultPath)
+                emitOnlyResultPath
+            )
         }
 
         let strictLintFailed: bool = false
@@ -459,7 +469,8 @@ class MultiFileCompiler {
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
-                null)
+                null
+            )
         }
 
         hasValidationErrors := false
@@ -473,7 +484,8 @@ class MultiFileCompiler {
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
-                null)
+                null
+            )
         }
 
         {
@@ -492,7 +504,8 @@ class MultiFileCompiler {
                     decline.FileName,
                     decline.Line,
                     decline.Column,
-                    decline.SpanLength))
+                    decline.SpanLength
+                ))
             }
         }
 
@@ -512,16 +525,21 @@ class MultiFileCompiler {
         return new MultiFileCompilationResult(
             resultSuccess,
             resultErrors,
-            resultPath)
+            resultPath
+        )
     }
 
     // Emit the whole assembly through the standalone columnar backend.
     private func TryEmitWithColumnarBackend(assemblyName: string, outputPath: string): bool {
-        if (_sourceFiles.Count == 0) {return false}
+        if (_sourceFiles.Count == 0) {
+            return false
+        }
         sources := new List<string>(_sourceFiles.Count)
         for sourceFile in _sourceFiles {
             let source: string? = null
-            if (!_sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out source)) {return false}
+            if (!_sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out source)) {
+                return false
+            }
             sources.Add(Preprocessor.ProcessSource(source, _preprocessorSymbols, sourceFile, _allErrors))
         }
 
@@ -533,7 +551,9 @@ class MultiFileCompiler {
         isExecutable := ColumnarEmissionPlanner.IsExecutableOutput(outputType)
         ColumnarDeclineTrace.Reset()
         let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput? = null
-        if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out program)) {return false}
+        if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out program)) {
+            return false
+        }
         // Stamp the numeric CLR version derived from the project's (possibly SemVer)
         // version string, matching the AssemblyVersion the MSBuild SDK advertises.
         versionConfig := _config
@@ -549,7 +569,9 @@ class MultiFileCompiler {
         }
         referenceAssemblyPaths := ExternalAssemblyScan.ResolveReferencePaths(_projectRoot, dependencies)
         let assembly: byte[] = null
-        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths)) {return false}
+        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths)) {
+            return false
+        }
         File.WriteAllBytes(outputPath, assembly)
         return true
     }
@@ -638,9 +660,7 @@ class MultiFileCompiler {
             }
         }
 
-        reason := string.IsNullOrEmpty(memberName)
-            ? primary
-            : new ColumnarDeclineReason(primary.SiteId, primary.Message, primary.SpanStart, primary.SpanLength, memberName, primary.SourceFileId, primary.HasSourceFileId)
+        reason := string.IsNullOrEmpty(memberName) ? primary : new ColumnarDeclineReason(primary.SiteId, primary.Message, primary.SpanStart, primary.SpanLength, memberName, primary.SourceFileId, primary.HasSourceFileId)
         detailFileName: string? = null
         if fileName != null {
             detailFileName = Path.GetFileName(fileName)
@@ -651,7 +671,8 @@ class MultiFileCompiler {
             fileName,
             line,
             column,
-            Math.Max(1, primary.SpanLength))
+            Math.Max(1, primary.SpanLength)
+        )
     }
 
     private func GetOrderedSourceLengths(): int[] {
@@ -716,5 +737,4 @@ class MultiFileCompiler {
         logPath := Path.Combine(_projectRoot, "compile-debug.log")
         File.AppendAllText(logPath, message + Environment.NewLine)
     }
-
 }
