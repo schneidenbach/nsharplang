@@ -7,25 +7,28 @@ import NSharpLang.Compiler.Ast
 // CONTRACTS FOR THE FORMATTER'S LEAF TEXT (task 019 slice 18). The three arm families that turn a
 // type reference, a modifier mask and an `allow` header into source, taken out of `Formatter.cs`.
 //
-// NONE OF THESE COULD BE ASKED DIRECTLY BEFORE THE MOVE. All six members were privates of a class
-// whose only public surface is "give me a whole formatted file", so every rule below could
+// NONE OF THE SIX ORIGINAL MEMBERS COULD BE ASKED DIRECTLY BEFORE THE MOVE. They were privates of a
+// class whose only public surface is "give me a whole formatted file", so every rule below could
 // previously only be inferred from formatted text — and only for the shapes a parser happens to
 // produce. A `Func<>` with no parameters, a modifier mask with an unknown bit, an `allow` reason
 // that is three spaces: none of them has a source spelling that reaches the arm, and all three are
-// asserted here.
+// asserted here. The seventh member is the field-specific preservation rule added beside them.
 //
-// SEVEN THINGS THAT WERE PROSE, AN ACCIDENT OR UNREACHABLE ARE STATED HERE AS CONTRACTS:
+// EIGHT THINGS THAT WERE PROSE, AN ACCIDENT OR UNREACHABLE ARE STATED HERE AS CONTRACTS:
 //   (a) THE TWO N# TYPE-REFERENCE PRINTERS ARE NOT THE SAME FUNCTION. `FormatterSyntaxText` writes
 //       source for the parser; `TypeReferenceFacts` writes prose for a human. They agree on seven
 //       arms and disagree on two, and BOTH are asserted side by side so a later slice cannot
 //       "consolidate" them without a failing test.
 //   (b) AN UNRECOGNISED TYPE REFERENCE THROWS rather than printing something that would not parse.
-//   (c) `public`/`private` SURVIVE ONLY WHEN THE CASE DOES NOT ALREADY SAY IT, and the comparison
-//       is between two answers of the same question, not a casing test.
+//   (c) On declarations whose metadata follows casing, `public`/`private` survive only when the
+//       case does not already say it; fields preserve explicit `private` because their emitter
+//       metadata defaults public when that modifier is absent.
 //   (d) A DECLARATION WITH NO NAME KEEPS ITS KEYWORD — constructors and indexers pass none.
 //   (e) THE MODIFIER ORDER IS FIXED, and `override` comes before `async`, not in flag order.
 //   (f) A BLANK `reason:` IS AN ABSENT ONE, so `allow(alloc, reason: "  ")` formats to `allow(alloc)`.
 //   (g) AN ALREADY-ESCAPED QUOTE IS NOT DOUBLED, which is the one guard in the quoting loop.
+//   (h) Field-specific visibility leaves the public casing rule unchanged while keeping private
+//       on lowercase, underscore-prefixed and readonly fields.
 func FstSimple(name: string): SimpleTypeReference {
     return new SimpleTypeReference(name, 0, 0)
 }
@@ -141,6 +144,17 @@ test "an unexported name KEEPS an explicit public, because dropping it would cha
 test "an exported name KEEPS an explicit private for the same reason, mirrored" {
     assert FormatterSyntaxText.FormatModifiers(FstMods(2), "Draw", true) == "private"
     assert FormatterSyntaxText.FormatModifiers(FstMods(2), "draw", true) == ""
+}
+
+test "field modifiers preserve explicit private for every identifier shape" {
+    assert FormatterSyntaxText.FormatFieldModifiers(FstMods(2), "Draw") == "private"
+    assert FormatterSyntaxText.FormatFieldModifiers(FstMods(2), "draw") == "private"
+    assert FormatterSyntaxText.FormatFieldModifiers(FstMods(2), "_state") == "private"
+    assert FormatterSyntaxText.FormatFieldModifiers(FstMods(514), "_state") == "private readonly"
+
+    // Public field formatting still follows the established casing rule.
+    assert FormatterSyntaxText.FormatFieldModifiers(FstMods(1), "Value") == ""
+    assert FormatterSyntaxText.FormatFieldModifiers(FstMods(1), "value") == "public"
 }
 
 test "a declaration with no name keeps whatever visibility it was given" {

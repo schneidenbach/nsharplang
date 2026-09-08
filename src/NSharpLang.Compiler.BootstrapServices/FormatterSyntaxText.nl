@@ -10,12 +10,14 @@ import NSharpLang.Compiler.Ast
 //
 // `Formatter` walks an AST and appends to a builder; almost every arm of that walk pushes the
 // indent depth or moves the comment cursor, which is why the walk needed a state carrier
-// (`FormatterWalkState`, slice 17) before any of it could move. THESE SIX MEMBERS ARE THE
-// EXCEPTION. Each is a total function from a node to a string:
+// (`FormatterWalkState`, slice 17) before any of it could move. THE SIX ORIGINAL MEMBERS WERE THE
+// EXCEPTION; the field-specific modifier entry point added beside them is equally stateless. Each
+// is a total function from a node to a string:
 //
 //   * `FormatTypeReference` — the source spelling of a type, nine arms, self-recursive;
-//   * `FormatModifiers` + `ShouldPreserveExplicitCasingVisibility` — which modifier keywords survive
-//     the round trip, given that N# encodes visibility in the identifier's CASE;
+//   * `FormatModifiers` + `FormatFieldModifiers` + `ShouldPreserveExplicitCasingVisibility` — which
+//     modifier keywords survive the round trip, including the field emitter's explicit-private
+//     requirement;
 //   * `FormatAllowArguments` + `FormatAllowEffect` + `FormatQuotedString` — the argument list inside
 //     an `allow(...)` header.
 //
@@ -264,6 +266,20 @@ class FormatterSyntaxText {
         }
 
         return string.Join(" ", parts)
+    }
+
+    // Fields are the one declaration family whose emitter metadata does not derive private from
+    // identifier casing: absent an explicit Private bit, a field is emitted public. Preserve that
+    // bit for every field name while leaving Public and all non-visibility modifiers on the
+    // established casing-sensitive path. Passing no identifier to the existing formatter is the
+    // already-proven spelling that retains visibility and its canonical ordering.
+    static func FormatFieldModifiers(modifiers: Modifiers, identifierName: string?): string {
+        bits := Convert.ToInt32(modifiers)
+        if HasModifier(bits, 2) {
+            return FormatModifiers(modifiers, null, true)
+        }
+
+        return FormatModifiers(modifiers, identifierName, true)
     }
 
     // "Would dropping `public`/`private` change what this declaration exports?"

@@ -407,11 +407,22 @@ class Formatter {
         FormatterWalk.ThrowUnhandled("declaration", declaration)
     }
 
-    // The modifier prefix every named declaration shares: the keywords, then one space, and nothing
-    // at all when they all dropped out. `FormatModifiers` decides which survive; this only spaces
-    // them, and the emptiness test is what keeps a bare `class Foo` from opening with a space.
+    // The modifier prefix every named non-field declaration shares: the keywords, then one space,
+    // and nothing at all when they all dropped out. `FormatModifiers` decides which survive; this
+    // only spaces them, and the emptiness test is what keeps a bare `class Foo` from opening with a
+    // space.
     func AppendModifiers(modifiers: Modifiers, identifierName: string?, builder: StringBuilder) {
         text := FormatterSyntaxText.FormatModifiers(modifiers, identifierName, true)
+        if !string.IsNullOrEmpty(text) {
+            builder.Append(text)
+            builder.Append(" ")
+        }
+    }
+
+    // A field's explicit Private bit is metadata-bearing even when its lowercase or underscore
+    // name already looks unexported. Keep the spacing contract identical to every other prefix.
+    func AppendFieldModifiers(modifiers: Modifiers, identifierName: string, builder: StringBuilder) {
+        text := FormatterSyntaxText.FormatFieldModifiers(modifiers, identifierName)
         if !string.IsNullOrEmpty(text) {
             builder.Append(text)
             builder.Append(" ")
@@ -667,7 +678,7 @@ class Formatter {
     func FormatField(fieldDeclaration: FieldDeclaration, builder: StringBuilder) {
         walk.FormatAttributes(fieldDeclaration.Attributes, builder)
         state.Indent(builder)
-        AppendModifiers(fieldDeclaration.Modifiers, fieldDeclaration.Name, builder)
+        AppendFieldModifiers(fieldDeclaration.Modifiers, fieldDeclaration.Name, builder)
 
         builder.Append(fieldDeclaration.Name)
 

@@ -1928,6 +1928,38 @@ test "nlc format --diff writes NOTHING for a file that is already formatted" {
     Directory.Delete(directory, true)
 }
 
+test "nlc format preserves explicit private field metadata through the compiled output" {
+    directory := NewTempDirectory("nlc-format-private-fields")
+    try {
+        WriteProjectYml(
+            directory,
+            "name: FormatterFieldVisibilityProbe\nbackend: il\noutputType: exe\ntargetFramework: net10.0\n"
+        )
+        sourcePath := Path.Combine(directory, "Program.nl")
+        File.WriteAllText(
+            sourcePath,
+            "namespace FormatterFieldVisibilityProbe\n\nimport System.Reflection\n\nclass State {\nprivate id: int = 1\nprivate _state: string = \"ready\"\nprivate readonly _stamp: int = 2\n\nstatic func Observe(): string {\nflags := BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly\nidField := typeof(State).GetField(\"id\", flags)\nstateField := typeof(State).GetField(\"_state\", flags)\nstampField := typeof(State).GetField(\"_stamp\", flags)\nif idField == null || stateField == null || stampField == null {\nreturn \"missing\"\n}\nreturn idField.get_IsPrivate().ToString() + \"|\" + stateField.get_IsPrivate().ToString() + \"|\" + stampField.get_IsPrivate().ToString() + \"|\" + stampField.get_IsInitOnly().ToString()\n}\n}\n\nfunc main() {\nprint State.Observe()\n}\n"
+        )
+
+        formattedRun := Nlc("format --project \"" + directory + "\" Program.nl")
+        assert formattedRun.ExitCode == 0, formattedRun.Stdout + formattedRun.Stderr
+        formatted := File.ReadAllText(sourcePath)
+        assert formatted.Contains("    private id: int = 1")
+        assert formatted.Contains("    private _state: string = \"ready\"")
+        assert formatted.Contains("    private readonly _stamp: int = 2")
+
+        build := Nlc("build --project \"" + directory + "\"")
+        assert build.ExitCode == 0, build.Stdout + build.Stderr
+        assemblyPath := Path.Combine(directory, "bin/Debug/net10.0/FormatterFieldVisibilityProbe.dll")
+        execution := RunProcess("dotnet", "\"" + assemblyPath + "\"", directory)
+        assert execution.ExitCode == 0, execution.Stdout + execution.Stderr
+        assert execution.Stdout == "True|True|True|True" + Environment.NewLine, execution.Stdout
+        assert execution.Stderr == "", execution.Stderr
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 // A CHILD THAT IS FED ON STDIN — AND WHY IT GOES THROUGH A SHELL.
 //
 // The portable spelling is `RedirectStandardInput = true` followed by

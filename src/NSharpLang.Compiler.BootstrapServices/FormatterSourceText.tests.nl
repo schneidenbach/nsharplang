@@ -366,8 +366,10 @@ test "an interpolated RAW string keeps its delimiters and its content, and is id
 
 // ---- THE VISIBILITY MODIFIERS: THE CASING IS THE DEFAULT, THE KEYWORD IS THE OVERRIDE ------------
 
-test "public and private are DROPPED when the name's casing already says the same thing" {
-    assert FstFormat("public class Account {\nprivate id: string\npublic func GetId(): string {\nreturn id\n}\n}") == "class Account {|    id: string|    func GetId(): string {|        return id|    }|}"
+test "redundant public declarations drop while explicit private fields remain explicit" {
+    source := "public class Account {\nprivate id: string\nprivate _state: int\nprivate readonly _cache: string\npublic func GetId(): string {\nreturn id\n}\n}"
+    assert FstFormat(source) == "class Account {|    private id: string|    private _state: int|    private readonly _cache: string|    func GetId(): string {|        return id|    }|}"
+    assert FstIdempotent(source)
 }
 
 test "public and private are PRESERVED when they contradict the name's casing" {
