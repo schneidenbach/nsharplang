@@ -15,6 +15,10 @@ func ClosureCollectionExerciseProductionKeyViews(): bool {
     ordinalCopy := new HashSet<string>(ordinals.Keys, StringComparer.Ordinal)
     liftedCopy := new HashSet<string>(lifted.Keys, StringComparer.Ordinal)
     boxedCopy := new HashSet<string>(boxed.Keys, StringComparer.Ordinal)
+    localList := new List<string>(localBuilders.Keys)
+    ordinalList := new List<string>(ordinals.Keys)
+    liftedList := new List<string>(lifted.Keys)
+    boxedList := new List<string>(boxed.Keys)
 
     names := new HashSet<string>(StringComparer.Ordinal)
     names.UnionWith(localBuilders.Keys)
@@ -22,7 +26,7 @@ func ClosureCollectionExerciseProductionKeyViews(): bool {
     names.UnionWith(lifted.Keys)
     names.UnionWith(boxed.Keys)
 
-    return localCopy.get_Count() == 0 && ordinalCopy.get_Count() == 0 && liftedCopy.get_Count() == 0 && boxedCopy.get_Count() == 0 && names.get_Count() == 0
+    return localCopy.get_Count() == 0 && ordinalCopy.get_Count() == 0 && liftedCopy.get_Count() == 0 && boxedCopy.get_Count() == 0 && localList.get_Count() == 0 && ordinalList.get_Count() == 0 && liftedList.get_Count() == 0 && boxedList.get_Count() == 0 && names.get_Count() == 0
 }
 
 class ClosureCollectionPrerequisiteEmitFacts {
@@ -102,6 +106,28 @@ test "packaged Dictionary Keys remain live through copy and union operations" {
     copied.UnionWith(liveKeys)
     assert copied.get_Count() == 2
     assert copied.Contains("second")
+}
+
+test "List construction snapshots the live Dictionary Keys view" {
+    values := new Dictionary<string, int>(StringComparer.Ordinal)
+    values["first"] = 1
+    values["second"] = 2
+    liveKeys := values.Keys
+
+    snapshot := new List<string>(liveKeys)
+    assert snapshot.get_Count() == 2
+    assert snapshot.Contains("first")
+    assert snapshot.Contains("second")
+
+    assert values.Remove("first")
+    values["third"] = 3
+    assert liveKeys.get_Count() == 2
+    assert !liveKeys.Contains("first")
+    assert liveKeys.Contains("third")
+    assert snapshot.get_Count() == 2
+    assert snapshot.Contains("first")
+    assert snapshot.Contains("second")
+    assert !snapshot.Contains("third")
 }
 
 test "every production Dictionary Keys shape flows unchanged into HashSet operations" {

@@ -32,6 +32,33 @@ func ClosureCollectionRequiredConstructor(value: ConstructorInfo?): ConstructorI
     return value
 }
 
+func ClosureCollectionListCopyTree(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    listType := builder.AddLeaf(0, "List<string>")
+    source := builder.AddLeaf(
+        ColumnarExpressionNodeKind.IdentifierExpression(),
+        "source"
+    )
+    keys := DirectCallAppendMember(builder, source, "Keys")
+    root := builder.AddNode(
+        ColumnarExpressionNodeKind.NewExpression(),
+        -1,
+        0,
+        0,
+        builder.Source.Length,
+        ColumnarRangePlannerChildren2(listType, keys)
+    )
+    return builder.Build(root)
+}
+
+func ClosureCollectionListCopyPlan(sourceType: Type): ColumnarCodePlan {
+    tree := ClosureCollectionListCopyTree()
+    ConstructionStampScope(tree, "")
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "source", 0, sourceType)
+    return ConstructionPlan(tree, bindings)
+}
+
 test "collection constructors retain their exact enumerable and comparer signatures" {
     hashSetDefinition := typeof(HashSet<int>).GetGenericTypeDefinition()
     sortedSetDefinition := typeof(SortedSet<int>).GetGenericTypeDefinition()
@@ -82,6 +109,34 @@ test "collection constructors retain their exact enumerable and comparer signatu
     assert ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(hashSetDefinition, "System.Collections.Generic.IComparer`1") == null
 }
 
+test "List key snapshots select the exact enumerable copy constructor" {
+    listDefinition := typeof(List<int>).GetGenericTypeDefinition()
+    enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    constructor := ClosureCollectionRequiredConstructor(
+        ColumnarConstructionPlanner.FindOpenListCopyConstructor(listDefinition)
+    )
+    parameters := constructor.GetParameters()
+    assert parameters.Length == 1
+    parameterType := parameters[0].get_ParameterType()
+    assert parameterType.GetGenericTypeDefinition() == enumerableDefinition
+    listArguments := listDefinition.GetGenericArguments()
+    parameterArguments := parameterType.GetGenericArguments()
+    assert listArguments.Length == 1
+    assert parameterArguments.Length == 1
+    assert parameterArguments[0] == listArguments[0]
+
+    assert ColumnarConstructionPlanner.IsListCopyCollectionDefinition(listDefinition)
+    assert !ColumnarConstructionPlanner.IsListCopyCollectionDefinition(typeof(HashSet<int>).GetGenericTypeDefinition())
+    assert ColumnarConstructionPlanner.FindOpenListCopyConstructor(typeof(List<string>)) == null
+    foreignList := TypeOfCreateBuilder(
+        "System.Collections.Generic.List",
+        "ClosureCollection.ForeignList",
+        1
+    )
+    assert !ColumnarConstructionPlanner.IsListCopyCollectionDefinition(foreignList)
+    assert ColumnarConstructionPlanner.FindOpenListCopyConstructor(foreignList) == null
+}
+
 test "exact Dictionary Keys result types cover every closure value shape and no namesake" {
     valueTypes := new Type[](4)
     valueTypes[0] = typeof(LocalBuilder)
@@ -112,6 +167,32 @@ test "exact Dictionary Keys result types cover every closure value shape and no 
         assert ColumnarTypeEquivalenceFacts.TypesEquivalent(selection.ResultType, expectedKeys)
         assert ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(selection.ResultType)
         assert ColumnarTypeOfPlanner.IsSupportedType(selection.ResultType)
+        assert ColumnarConstructionPlanner.IsListKeyCollectionCopy(
+            typeof(List<int>).GetGenericTypeDefinition(),
+            typeof(List<string>),
+            selection.ResultType
+        )
+
+        plan := ClosureCollectionListCopyPlan(dictionary)
+        assert plan.ResultType == typeof(List<string>)
+        assert plan.MethodCount == 1
+        assert plan.Methods[0].get_Name() == "get_Keys"
+        assert ColumnarTypeEquivalenceFacts.TypesEquivalent(
+            plan.MethodDeclaringTypes[0],
+            dictionary
+        )
+        assert ColumnarTypeEquivalenceFacts.TypesEquivalent(
+            plan.MethodReturnTypes[0],
+            expectedKeys
+        )
+        assert plan.ConstructorCount == 1
+        assert plan.ConstructorDeclaringTypes[0] == typeof(List<string>)
+        assert plan.ConstructorParameterTypes[0].Length == 1
+        expectedEnumerable := ClosureCollectionClosedType(
+            typeof(IEnumerable<int>).GetGenericTypeDefinition(),
+            typeof(string)
+        )
+        assert plan.ConstructorParameterTypes[0][0] == expectedEnumerable
         index += 1
     }
 
@@ -137,6 +218,11 @@ test "exact Dictionary Keys result types cover every closure value shape and no 
         typeof(string),
         typeof(int)
     )
+    foreignList := TypeOfCreateBuilder(
+        "System.Collections.Generic.List",
+        "ClosureCollection.ForeignListForMatch",
+        1
+    )
     selection := ColumnarRuntimeInstanceMemberSelection.Empty()
 
     assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(exactKeys, enumerableString)
@@ -148,6 +234,21 @@ test "exact Dictionary Keys result types cover every closure value shape and no 
     assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sortedStrings, enumerableInt)
     assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(keyCollectionDefinition)
     assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(foreignKeys)
+    assert !ColumnarConstructionPlanner.IsListKeyCollectionCopy(
+        typeof(List<int>).GetGenericTypeDefinition(),
+        typeof(List<int>),
+        exactKeys
+    )
+    assert !ColumnarConstructionPlanner.IsListKeyCollectionCopy(
+        typeof(List<int>).GetGenericTypeDefinition(),
+        typeof(List<string>),
+        enumerableString
+    )
+    assert !ColumnarConstructionPlanner.IsListKeyCollectionCopy(
+        foreignList,
+        typeof(List<string>),
+        exactKeys
+    )
     assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(
         typeof(SortedDictionary<string, int>),
         "Keys",

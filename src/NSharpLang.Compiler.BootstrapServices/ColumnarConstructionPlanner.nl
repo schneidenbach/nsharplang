@@ -1447,6 +1447,22 @@ class ColumnarConstructionPlanner {
                 } else {
                     bestScore := -1
                     bestCount := 0
+                    if IsListKeyCollectionCopy(openType, targetType, argumentTypes[0]) {
+                        listConstructor := FindOpenListCopyConstructor(openType)
+                        if listConstructor != null {
+                            listOpenParameters := listConstructor.GetParameters()
+                            listType := SubstituteTypeArgument(listOpenParameters[0].get_ParameterType(), targetType.GetGenericArguments())
+                            listParameters := Types1(listType)
+                            listScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(listParameters, argumentTypes, argumentFacts)
+                            if listScore >= 0 {
+                                openConstructor = listConstructor
+                                parameterTypes = listParameters
+                                bestScore = listScore
+                                bestCount = 1
+                            }
+                        }
+                    }
+
                     if IsDictionaryCopyCollectionDefinition(openType) {
                         dictionaryConstructor := FindOpenDictionaryCopyConstructor(openType)
                         if dictionaryConstructor != null {
@@ -1617,6 +1633,22 @@ class ColumnarConstructionPlanner {
         return definition == typeof(Dictionary<int, int>).GetGenericTypeDefinition()
     }
 
+    static func IsListCopyCollectionDefinition(definition: Type): bool {
+        return definition == typeof(List<int>).GetGenericTypeDefinition()
+    }
+
+    static func IsListKeyCollectionCopy(definition: Type, targetType: Type, argumentType: Type): bool {
+        if !IsListCopyCollectionDefinition(definition) || targetType == null || !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() || targetType.GetGenericTypeDefinition() != definition {
+            return false
+        }
+        if !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(argumentType) {
+            return false
+        }
+        targetArguments := targetType.GetGenericArguments()
+        argumentArguments := argumentType.GetGenericArguments()
+        return targetArguments.Length == 1 && argumentArguments.Length == 2 && ColumnarTypeEquivalenceFacts.TypesEquivalent(argumentArguments[0], targetArguments[0])
+    }
+
     static func ComparerDefinitionName(definition: Type): string {
         if definition.FullName == "System.Collections.Generic.SortedSet`1" {
             return "System.Collections.Generic.IComparer`1"
@@ -1698,6 +1730,37 @@ class ColumnarConstructionPlanner {
             index += 1
         }
         return null
+    }
+
+    static func FindOpenListCopyConstructor(definition: Type): ConstructorInfo? {
+        if !IsListCopyCollectionDefinition(definition) || !definition.get_IsGenericTypeDefinition() {
+            return null
+        }
+        definitionArguments := definition.GetGenericArguments()
+        if definitionArguments.Length != 1 {
+            return null
+        }
+
+        constructors := definition.GetConstructors()
+        selected: ConstructorInfo? = null
+        index := 0
+        while index < constructors.Length {
+            parameters := constructors[index].GetParameters()
+            if parameters.Length == 1 {
+                parameterType := parameters[0].get_ParameterType()
+                if parameterType.get_IsGenericType() && !parameterType.get_IsGenericTypeDefinition() && parameterType.GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
+                    parameterArguments := parameterType.GetGenericArguments()
+                    if parameterArguments.Length == 1 && parameterArguments[0] == definitionArguments[0] {
+                        if selected != null {
+                            throw new InvalidOperationException("List<T> has more than one exact IEnumerable<T> constructor.")
+                        }
+                        selected = constructors[index]
+                    }
+                }
+            }
+            index += 1
+        }
+        return selected
     }
 
     static func ResolveClosedRuntimeConstructor(targetType: Type, openConstructor: ConstructorInfo): ConstructorInfo? {
