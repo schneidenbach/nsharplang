@@ -286,3 +286,21 @@ complete emitter, direct production routing, C# deletion and private build prepa
 source with Label and Dictionary bypasses emits, but is diagnostic isolation only and cannot
 satisfy production acceptance. Evidence: `whole-expression-assembly-r1/r9-label-candidate.log`
 in the emitter evidence directory.
+
+
+The complete unmodified production emitter now passes direct emission under provisional combined
+Label+Dictionary BootstrapServices `bd5d070395ac54512db3c6a10c0f80a362c164b2f0bdd270d94b2ca148880cec`.
+Root verified the exact production source hash above, all 454 sources with the emitter first,
+170 resolved references, `inputBuilt=True`, `directEmitted=True`, non-null output bytes and zero
+decline records. Evidence: `final-owner-build/full-production-direct-r1.log`, SHA-256
+`49dd47cc106c1e36c5a49bb3f7e8088b7587406fa451c3abd062ed88ae44b2ae` in the emitter evidence directory.
+This is the first complete production-source emission result without diagnostic bypasses.
+The saved assembly build, unfiltered IL verification, direct routing/C# deletion, canonical 87,
+fresh integration gate and push remain pending.
+
+The Dictionary prerequisite's exact canonical assertion passes 1/1 after using the existing generic
+AST fixture. Its production build is clean, and the byte-identical minimal N# constructor source
+builds. The earlier kind-0 generic-name fixture was malformed and is not a product failure.
+The native regression fixture still needs emission/execution verification before final prerequisite
+acceptance. Source and canonical review evidence:
+`/private/tmp/nsharp-columnar-dictionary-copy-comparer-20260908/root-source-review-r2.json`.
