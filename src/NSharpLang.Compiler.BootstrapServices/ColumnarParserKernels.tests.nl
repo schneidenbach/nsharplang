@@ -160,6 +160,8 @@ class ColumnarStructDeclarationParseProbe {
     WhereOwnerTexts: string[]
     WhereItemCodes: int[]
     WhereTypeTexts: string[]
+    ConstructorIndices: int[]
+    ConstructorVisibilityFlags: int[]
     Result: int[]
 
     constructor(source: string) {
@@ -189,7 +191,8 @@ class ColumnarStructDeclarationParseProbe {
         FieldInitTexts = new string[](capacity)
         methodFuncIndices := new int[](capacity)
         methodStaticFlags := new int[](capacity)
-        constructorIndices := new int[](capacity)
+        ConstructorIndices = new int[](capacity)
+        ConstructorVisibilityFlags = new int[](capacity)
         propertyIndices := new int[](capacity)
         propertyStaticFlags := new int[](capacity)
         TypeParamTexts = new string[](capacity)
@@ -219,7 +222,7 @@ class ColumnarStructDeclarationParseProbe {
             FieldInitTexts,
             methodFuncIndices,
             methodStaticFlags,
-            constructorIndices,
+            ConstructorIndices,
             propertyIndices,
             propertyStaticFlags,
             TypeParamTexts,
@@ -230,6 +233,12 @@ class ColumnarStructDeclarationParseProbe {
             WhereTypeTexts,
             Result
         )
+
+        constructorOffset := 0
+        while constructorOffset < Result[3] {
+            ConstructorVisibilityFlags[constructorOffset] = ColumnarConstructorDeclarationMetadataModifierFlagsAt(tokenKinds, ConstructorIndices[constructorOffset])
+            constructorOffset = constructorOffset + 1
+        }
     }
 }
 
@@ -833,6 +842,39 @@ test "program declaration scanner retains sealed beside visibility for every ref
 
 test "program declaration scanner reports its existing failure code for a null visibility column" {
     assert ColumnarProgramDeclarationNullVisibilityStatus("class Plain {}") == -6
+}
+
+test "constructor visibility scan crosses an interleaved attribute prefix" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Secret { private [System.Obsolete] constructor() {} }"
+    )
+
+    assert probe.FieldCount == 0
+    assert probe.Result[3] == 1
+    assert probe.ConstructorVisibilityFlags[0] == 2
+}
+
+test "constructor visibility scan retains explicit and synthesized public defaults" {
+    explicitPublic := new ColumnarStructDeclarationParseProbe(
+        "class PublicOwner { public constructor() {} }"
+    )
+    assert explicitPublic.FieldCount == 0
+    assert explicitPublic.Result[3] == 1
+    assert explicitPublic.ConstructorVisibilityFlags[0] == 1
+
+    implicitPublic := new ColumnarStructDeclarationParseProbe(
+        "class ImplicitOwner { constructor() {} }"
+    )
+    assert implicitPublic.FieldCount == 0
+    assert implicitPublic.Result[3] == 1
+    assert implicitPublic.ConstructorVisibilityFlags[0] == 0
+
+    synthesized := new ColumnarStructDeclarationParseProbe(
+        "class SynthesizedOwner { Value: int = 1 }"
+    )
+    assert synthesized.FieldCount == 1
+    assert synthesized.Result[3] == 1
+    assert synthesized.ConstructorVisibilityFlags[0] == 0
 }
 
 test "declaration scanner parses func* and records the generator fact parallel to async" {

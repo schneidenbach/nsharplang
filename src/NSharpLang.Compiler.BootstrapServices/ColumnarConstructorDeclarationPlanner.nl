@@ -204,7 +204,7 @@ class ColumnarConstructorDeclarationPlanner {
                                 )
                             }
 
-                            builder := definition.DefineUserConstructor(parameterTypes, ctor.ParamDefaultKinds, canonicalDefaultTexts)
+                            builder := definition.DefineUserConstructor(parameterTypes, ctor.ParamDefaultKinds, canonicalDefaultTexts, ctor.VisibilityModifierFlags)
                             if !ColumnarParameterDefaultEmitter.DefineConstructorParameterMetadata(
                                 builder,
                                 parameterTypes,

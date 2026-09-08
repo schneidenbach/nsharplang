@@ -426,6 +426,12 @@ class ColumnarStructDef {
     // operation. The temporary C# assembly owner may attach parameter metadata and emit the body,
     // but it cannot construct or partially register semantic constructor facts.
     func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[]): ConstructorBuilder {
+        return DefineUserConstructor(parameterTypes, defaultKinds, defaultTexts, 0)
+    }
+
+    // Keep the existing three-argument, default-public API while the complete input owner supplies
+    // the source visibility word to the declaration planner's four-argument call.
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int): ConstructorBuilder {
         if parameterTypes == null || defaultKinds == null || defaultTexts == null {
             throw new InvalidOperationException("Source constructor definition facts cannot be null.")
         }
@@ -457,7 +463,8 @@ class ColumnarStructDef {
             index = index + 1
         }
 
-        builder := Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, exactParameterTypes)
+        visibility := ColumnarDeclarationPlanner.MethodVisibilityAttributes("Constructor", visibilityModifierFlags)
+        builder := Builder.DefineConstructor((MethodAttributes)visibility, CallingConventions.Standard, exactParameterTypes)
         Constructors.Add(new ColumnarConstructorDef(builder, exactParameterTypes, exactDefaultKinds, exactDefaultTexts))
         return builder
     }

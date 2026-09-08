@@ -153,6 +153,7 @@ class ColumnarConstructorInput {
     ChainArgTexts: string[]
     ParamDefaultKinds: int[]
     ParamDefaultTexts: string[]
+    VisibilityModifierFlags: int
     IsSynthesizedInitializer: bool
     SourceFileId: int
 
@@ -163,6 +164,7 @@ class ColumnarConstructorInput {
         ChainArgTexts = chainArgTexts
         ParamDefaultKinds = paramDefaultKinds ?? new int[](0)
         ParamDefaultTexts = paramDefaultTexts ?? new string[](0)
+        VisibilityModifierFlags = 0
         IsSynthesizedInitializer = isSynthesizedInitializer
         SourceFileId = sourceFileId
     }

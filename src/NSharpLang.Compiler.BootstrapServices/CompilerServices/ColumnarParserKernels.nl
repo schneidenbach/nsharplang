@@ -7216,6 +7216,49 @@ func ColumnarStructDeclarationMetadataModifierFlagsAt(tokenKinds: int[], declara
     return flags
 }
 
+// Explicit constructors are represented by the contextual `constructor` identifier rather than a
+// dedicated token kind. Recover the visibility word from the already-validated member prefix while
+// retaining the existing constructor-input ABI used by the bootstrap compiler. Attributes and
+// modifiers may be interleaved in that prefix, so walk across balanced attribute brackets as well
+// as modifier tokens. Synthetic primary/initializer constructors point at a type declaration token
+// and therefore retain the language's public synthesized-constructor default.
+func ColumnarConstructorDeclarationMetadataModifierFlagsAt(tokenKinds: int[], constructorIndex: int): int {
+    if constructorIndex < 0 || constructorIndex >= tokenKinds.Length || tokenKinds[constructorIndex] != 0 {
+        return 0
+    }
+
+    flags := 0
+    scan := constructorIndex - 1
+    scanning := true
+    while scan >= 0 && scanning {
+        modifierKind := ParserDeclarationMemberModifierKind(tokenKinds[scan])
+        if modifierKind != 0 {
+            modifierFlag := ParserDeclarationMemberModifierFlag(tokenKinds[scan])
+            if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 32768 {
+                flags = flags | modifierFlag
+            }
+            scan = scan - 1
+        } else if tokenKinds[scan] == 132 {
+            bracketDepth := 1
+            scan = scan - 1
+            while scan >= 0 && bracketDepth > 0 {
+                if tokenKinds[scan] == 132 {
+                    bracketDepth = bracketDepth + 1
+                } else if tokenKinds[scan] == 131 {
+                    bracketDepth = bracketDepth - 1
+                }
+                scan = scan - 1
+            }
+            if bracketDepth != 0 {
+                scanning = false
+            }
+        } else {
+            scanning = false
+        }
+    }
+    return flags
+}
+
 func ColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactTokenStarts: int[], compactTokenValueLengths: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outFuncGeneratorFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outStructVisibilityFlags: int[], outStructEnclosingTypeNames: string[], outResult: int[]): int {
     rawTokens := new ParserDeclarationTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
     compactTokens := new ParserDeclarationTokenTable(compactTokenKinds, compactTokenStarts, compactTokenValueLengths)
