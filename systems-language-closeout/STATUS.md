@@ -70,10 +70,12 @@ self-hosts and passes 7,940/7,940 canonical assertions with no overrides. Instal
 matches the reviewed source. [Boundary and acceptance](decodes/2026-09-07-complete-systems-analyzer-ownership.md),
 evidence `/private/tmp/nsharp-systems-analyzer-owner-20260907`.
 
-Compiler-wide ownership remains open. Next coherent candidate: complete ColumnarProgramInputBuilder,
-including all declaration materialization, node-table trimming, aggregation and decline ordering.
-Keep its accepted N# parser kernels/input models; delete the whole remaining C# owner. Do not
-restart accepted Analyzer or SystemsAnalyzer migrations or implicitly resume held sibling branches.
+Compiler-wide ownership remains open. **Active area: complete ColumnarProgramInputBuilder**, baseline
+`3c1b0f074`, including all 17 methods for declaration materialization, node-table trimming, aggregation
+and decline ordering. Keep its accepted N# parser kernels/input models; delete the whole remaining
+1,033-line C# owner. [Execution contract](../tasks/016-parser-and-syntax-diagnostics.md). Astra reviews
+and integrates; Sol Max implements the complete class and canonical lookup migration in isolated
+worktrees. Do not restart accepted Analyzer/SystemsAnalyzer or implicitly resume held sibling branches.
 
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata
