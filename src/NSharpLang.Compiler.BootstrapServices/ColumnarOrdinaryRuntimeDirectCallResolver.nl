@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -127,6 +128,17 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         ValidateInputs(lookupType, memberName, argumentTypes)
         ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
 
+        inheritedReadOnlyDictionaryCall := Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        if TryResolveInheritedReadOnlyDictionaryEnumeratorCall(
+            lookupType,
+            memberName,
+            argumentTypes,
+            expectedStatic,
+            out inheritedReadOnlyDictionaryCall
+        ) {
+            return inheritedReadOnlyDictionaryCall
+        }
+
         inheritedDictionaryEntryCall := Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
         if TryResolveInheritedDictionaryEntryEnumeratorCall(
             lookupType,
@@ -171,6 +183,72 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         } catch ex: InvalidOperationException {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         }
+    }
+
+    // IReadOnlyDictionary<TKey, TValue> inherits its generic GetEnumerator from
+    // IEnumerable<KeyValuePair<TKey, TValue>>, and reflection does not include inherited interface
+    // members in GetMethods(). SystemsAnalyzer needs that exact call for a string-keyed dictionary
+    // whose value is one direct source reference declaration. Rebind the declared interface method
+    // onto the closed KVP sequence; every other inherited method and dictionary shape stays on the
+    // ordinary lookup boundary.
+    static func TryResolveInheritedReadOnlyDictionaryEnumeratorCall(
+        lookupType: Type,
+        memberName: string,
+        argumentTypes: Type[],
+        expectedStatic: bool,
+        out selection: ColumnarOrdinaryRuntimeDirectCallSelection
+    ): bool {
+        selection = Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        if expectedStatic || memberName != "GetEnumerator" || argumentTypes.Length != 0 || !IsExactStringSourceReferenceReadOnlyDictionary(lookupType) {
+            return false
+        }
+
+        dictionaryArguments := lookupType.GetGenericArguments()
+        pairArguments := new Type[](2)
+        pairArguments[0] = dictionaryArguments[0]
+        pairArguments[1] = dictionaryArguments[1]
+        pairType := typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(pairArguments)
+
+        sequenceArguments := new Type[](1)
+        sequenceArguments[0] = pairType
+        sequenceDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+        sequenceType := sequenceDefinition.MakeGenericType(sequenceArguments)
+        noParameters := new Type[](0)
+        openMethod := sequenceDefinition.GetMethod("GetEnumerator", noParameters)
+        if openMethod == null {
+            throw new InvalidOperationException("IEnumerable<T>.GetEnumerator() was not found in the compiler runtime.")
+        }
+        method := TypeBuilder.GetMethod(sequenceType, openMethod)
+        if method == null {
+            throw new InvalidOperationException("IEnumerable<T>.GetEnumerator() could not be rebound for the source dictionary entry type.")
+        }
+
+        enumeratorType := ColumnarTypeOfPlanner.RequiredEnumeratorDefinition().MakeGenericType(sequenceArguments)
+        selection = new ColumnarOrdinaryRuntimeDirectCallSelection(
+            ColumnarOrdinaryRuntimeDirectCallStatus.Selected,
+            method,
+            lookupType,
+            sequenceType,
+            noParameters,
+            enumeratorType,
+            ColumnarExternalCallKind.CallVirtual,
+            false,
+            true,
+            method.get_IsAbstract()
+        )
+        return true
+    }
+
+    static func IsExactStringSourceReferenceReadOnlyDictionary(lookupType: Type): bool {
+        if lookupType == null || lookupType is TypeBuilder || !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() || lookupType.GetGenericTypeDefinition() != ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition() {
+            return false
+        }
+        arguments := lookupType.GetGenericArguments()
+        if arguments.Length != 2 || arguments[0] != typeof(string) {
+            return false
+        }
+        valueType := arguments[1]
+        return valueType is TypeBuilder && !ColumnarTypeOfPlanner.IsEnumBuilder(valueType) && !valueType.get_IsGenericTypeDefinition() && !valueType.get_IsValueType()
     }
 
     // Type.GetMethods on IEnumerator<T> does not enumerate the nongeneric IEnumerator methods it

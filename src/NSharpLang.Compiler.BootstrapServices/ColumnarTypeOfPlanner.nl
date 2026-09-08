@@ -825,7 +825,7 @@ class ColumnarTypeOfPlanner {
                 keyCanonical = argumentCanonicals[0]
                 valueCanonical = argumentCanonicals[1]
             }
-            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? ContainsBuilderBoundType(key) : !IsAdmissibleDictionaryKey(key)) || !IsAdmissibleCollectionElement(value) {
+            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? ContainsBuilderBoundType(key) : !IsAdmissibleDictionaryKeyInCompilation(key, bindings.SourceTypeDefinitions)) || !IsAdmissibleCollectionElement(value) {
                 return false
             }
             definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
@@ -1386,7 +1386,7 @@ class ColumnarTypeOfPlanner {
             return false
         }
         arguments := valueType.GetGenericArguments()
-        return arguments.Length == 1 && IsAdmissibleCollectionElement(arguments[0])
+        return arguments.Length == 1 && (IsAdmissibleCollectionElement(arguments[0]) || IsSupportedKeyValuePairType(arguments[0]))
     }
 
     // List<T>.GetEnumerator exposes this concrete value-type enumerator. Constraint validation keeps
@@ -1516,6 +1516,27 @@ class ColumnarTypeOfPlanner {
     // builder leaf so arrays and constructed shapes cannot inherit it accidentally.
     static func IsAdmissibleDictionaryKey(valueType: Type): bool {
         return IsAdmissibleSourceReferenceKey(valueType) || !ContainsNonEnumBuilderBoundType(valueType)
+    }
+
+    // Record structs synthesize value equality and hashing before any body uses them. Admit that
+    // key surface only when the live source registry proves this exact direct TypeBuilder is a
+    // non-generic record value declaration. The type-only predicate above intentionally remains
+    // conservative: a bare reflection handle carries no record-declaration fact, and arrays or
+    // constructed builder-bound shapes must not inherit this exception.
+    static func IsAdmissibleDictionaryKeyInCompilation(valueType: Type, sourceDefinitions: IEnumerable<ColumnarStructDef>): bool {
+        if IsAdmissibleDictionaryKey(valueType) {
+            return true
+        }
+        if sourceDefinitions == null || !(valueType is TypeBuilder) || IsEnumBuilder(valueType) || valueType.get_IsGenericTypeDefinition() || !valueType.get_IsValueType() {
+            return false
+        }
+
+        for definition in sourceDefinitions {
+            if definition != null && Object.ReferenceEquals(definition.Builder, valueType) {
+                return definition.IsRecord && !definition.IsReference
+            }
+        }
+        return false
     }
 
     static func IsAdmissibleSourceReferenceKey(valueType: Type): bool {

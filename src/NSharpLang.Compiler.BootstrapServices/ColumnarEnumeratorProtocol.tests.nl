@@ -111,3 +111,150 @@ test "the exact dictionary value enumerator retains a source value argument" {
     assert !ColumnarTypeOfPlanner.IsSupportedEnumeratorType(concreteEnumerator)
     assert !ColumnarTypeOfPlanner.IsSupportedCollectionType(concreteEnumerator)
 }
+
+test "IEnumerator admits the already-owned closed KeyValuePair shell with a source class value" {
+    sourceReference := TypeOfCreateBuilder(
+        "Contoso.Compilation.Unit",
+        "ColumnarReadOnlyDictionaryEnumeratorAdmission",
+        0
+    )
+    sourceReferenceType: Type = sourceReference
+    pairArguments := new Type[](2)
+    pairArguments[0] = typeof(string)
+    pairArguments[1] = sourceReferenceType
+    pairType := typeof(System.Collections.Generic.KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(pairArguments)
+    enumerator := EnumeratorProtocolClosed1(
+        "System.Collections.Generic.IEnumerator`1",
+        pairType
+    )
+
+    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(pairType)
+    assert ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(pairType)
+    assert ColumnarTypeOfPlanner.IsSupportedEnumeratorType(enumerator)
+    assert ColumnarTypeOfPlanner.IsSupportedType(enumerator)
+
+    dictionaryArguments := new Type[](2)
+    dictionaryArguments[0] = typeof(string)
+    dictionaryArguments[1] = sourceReferenceType
+    readOnlyDictionary := typeof(IReadOnlyDictionary<string, string>).GetGenericTypeDefinition().MakeGenericType(dictionaryArguments)
+    acquisition := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        readOnlyDictionary,
+        "GetEnumerator",
+        new Type[](0),
+        false
+    )
+    sequenceArguments := new Type[](1)
+    sequenceArguments[0] = pairType
+    sequence := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(sequenceArguments)
+    if !acquisition.IsSelected {
+        throw new InvalidOperationException("The inherited IReadOnlyDictionary GetEnumerator selector was not selected.")
+    }
+    if acquisition.LookupType != readOnlyDictionary {
+        throw new InvalidOperationException("The inherited IReadOnlyDictionary GetEnumerator selector lost its lookup type.")
+    }
+    if !ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(acquisition.DeclaringType, sequence) {
+        throw new InvalidOperationException("The inherited IReadOnlyDictionary GetEnumerator selector lost its declaring sequence.")
+    }
+    if !ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(acquisition.ReturnType, enumerator) {
+        throw new InvalidOperationException("The inherited IReadOnlyDictionary GetEnumerator selector returned the wrong enumerator.")
+    }
+    if !acquisition.UsesCallVirtual {
+        throw new InvalidOperationException("The inherited IReadOnlyDictionary GetEnumerator selector lost virtual dispatch.")
+    }
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        readOnlyDictionary,
+        "Reset",
+        new Type[](0),
+        false
+    ).IsNotFound
+    wrongArityArguments := new Type[](1)
+    wrongArityArguments[0] = typeof(int)
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        readOnlyDictionary,
+        "GetEnumerator",
+        wrongArityArguments,
+        false
+    ).IsNotFound
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        readOnlyDictionary,
+        "GetEnumerator",
+        new Type[](0),
+        true
+    ).IsNotFound
+
+    wrongKeyArguments := new Type[](2)
+    wrongKeyArguments[0] = typeof(int)
+    wrongKeyArguments[1] = sourceReferenceType
+    wrongKeyDictionary := typeof(IReadOnlyDictionary<string, string>).GetGenericTypeDefinition().MakeGenericType(wrongKeyArguments)
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        wrongKeyDictionary,
+        "GetEnumerator",
+        new Type[](0),
+        false
+    ).IsNotFound
+
+    sourceValueDefinition := SourceCallDefinition(
+        "ColumnarReadOnlyDictionaryEnumeratorAdmission.Value",
+        false
+    )
+    sourceValueType: Type = sourceValueDefinition.Builder
+    sourceValueArguments := new Type[](2)
+    sourceValueArguments[0] = typeof(string)
+    sourceValueArguments[1] = sourceValueType
+    sourceValueDictionary := typeof(IReadOnlyDictionary<string, string>).GetGenericTypeDefinition().MakeGenericType(sourceValueArguments)
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        sourceValueDictionary,
+        "GetEnumerator",
+        new Type[](0),
+        false
+    ).IsNotFound
+
+    sourceArrayArguments := new Type[](2)
+    sourceArrayArguments[0] = typeof(string)
+    sourceArrayArguments[1] = sourceReferenceType.MakeArrayType()
+    sourceArrayDictionary := typeof(IReadOnlyDictionary<string, string>).GetGenericTypeDefinition().MakeGenericType(sourceArrayArguments)
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        sourceArrayDictionary,
+        "GetEnumerator",
+        new Type[](0),
+        false
+    ).IsNotFound
+
+    sourceGenericDefinition := TypeOfCreateBuilder(
+        "Contoso.Compilation.GenericUnit",
+        "ColumnarReadOnlyDictionaryGenericEnumeratorAdmission",
+        1
+    )
+    sourceGenericArguments := new Type[](1)
+    sourceGenericArguments[0] = typeof(int)
+    sourceGenericDefinitionType: Type = sourceGenericDefinition
+    closedSourceGeneric := sourceGenericDefinitionType.MakeGenericType(sourceGenericArguments)
+    closedSourceArguments := new Type[](2)
+    closedSourceArguments[0] = typeof(string)
+    closedSourceArguments[1] = closedSourceGeneric
+    closedSourceDictionary := typeof(IReadOnlyDictionary<string, string>).GetGenericTypeDefinition().MakeGenericType(closedSourceArguments)
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        closedSourceDictionary,
+        "GetEnumerator",
+        new Type[](0),
+        false
+    ).IsNotFound
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        typeof(IReadOnlyDictionary<string, string>),
+        "GetEnumerator",
+        new Type[](0),
+        false
+    ).IsNotFound
+
+    unsupportedArguments := new Type[](1)
+    unsupportedArguments[0] = sourceReferenceType
+    unsupportedElement := EnumeratorProtocolRequiredType("System.Tuple`1").MakeGenericType(unsupportedArguments)
+    unsupportedEnumerator := EnumeratorProtocolClosed1(
+        "System.Collections.Generic.IEnumerator`1",
+        unsupportedElement
+    )
+    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(unsupportedEnumerator)
+    assert !ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(unsupportedElement)
+    assert !ColumnarTypeOfPlanner.IsSupportedEnumeratorType(unsupportedEnumerator)
+    assert !ColumnarTypeOfPlanner.IsSupportedType(unsupportedEnumerator)
+}
