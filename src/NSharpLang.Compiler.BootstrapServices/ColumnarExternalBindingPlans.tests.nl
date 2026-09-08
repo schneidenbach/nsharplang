@@ -320,6 +320,79 @@ test "constrained joins the exact type operand opcode surface" {
     )
 }
 
+test "indirect object load and store join the exact operand surfaces" {
+    names := new string[](2)
+    names[0] = "Ldobj"
+    names[1] = "Stobj"
+
+    arguments := new string[](2)
+    arguments[0] = "System.Reflection.Emit.OpCode"
+    arguments[1] = "System.Type"
+
+    i := 0
+    while i < names.Length {
+        name := names[i]
+        AssertSupportedOpcode(name)
+        assert ColumnarExternalBindingPlans.IsSupportedObjectModelOpCodeMemberName(name)
+        assert !ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName(name)
+        assert !ColumnarExternalBindingPlans.IsSupportedComputeOpCodeMemberName(name)
+
+        field := typeof(OpCodes).GetField(name)
+        assert field != null
+        assert field.get_DeclaringType() == typeof(OpCodes)
+        assert field.get_FieldType() == typeof(OpCode)
+
+        AssertVirtualCall(
+            "System.Reflection.Emit.ILGenerator",
+            "Emit",
+            arguments,
+            "System.Void"
+        )
+        i = i + 1
+    }
+
+    AssertSupportedOpcode("Stind_Ref")
+    assert ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName("Stind_Ref")
+    assert !ColumnarExternalBindingPlans.IsSupportedComputeOpCodeMemberName("Stind_Ref")
+    assert !ColumnarExternalBindingPlans.IsSupportedObjectModelOpCodeMemberName("Stind_Ref")
+
+    storeReferenceField := typeof(OpCodes).GetField("Stind_Ref")
+    assert storeReferenceField != null
+    assert storeReferenceField.get_DeclaringType() == typeof(OpCodes)
+    assert storeReferenceField.get_FieldType() == typeof(OpCode)
+
+    noOperandArguments := new string[](1)
+    noOperandArguments[0] = "System.Reflection.Emit.OpCode"
+    AssertVirtualCall(
+        "System.Reflection.Emit.ILGenerator",
+        "Emit",
+        noOperandArguments,
+        "System.Void"
+    )
+}
+
+test "body loop comparison branch joins the exact label operand surface" {
+    AssertSupportedOpcode("Bge")
+    assert !ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName("Bge")
+    assert ColumnarExternalBindingPlans.IsSupportedComputeOpCodeMemberName("Bge")
+    assert !ColumnarExternalBindingPlans.IsSupportedObjectModelOpCodeMemberName("Bge")
+
+    field := typeof(OpCodes).GetField("Bge")
+    assert field != null
+    assert field.get_DeclaringType() == typeof(OpCodes)
+    assert field.get_FieldType() == typeof(OpCode)
+
+    arguments := new string[](2)
+    arguments[0] = "System.Reflection.Emit.OpCode"
+    arguments[1] = "System.Reflection.Emit.Label"
+    AssertVirtualCall(
+        "System.Reflection.Emit.ILGenerator",
+        "Emit",
+        arguments,
+        "System.Void"
+    )
+}
+
 test "ldftn selects the exact opcode field and MethodInfo emit overload" {
     AssertSupportedOpcode("Ldftn")
     qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
