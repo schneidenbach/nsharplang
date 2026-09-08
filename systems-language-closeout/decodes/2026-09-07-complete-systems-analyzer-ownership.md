@@ -38,9 +38,13 @@ input paths fail after that list is reset. Baseline evidence is 2/2 focused and 
 containing native project. The existing systems corpus retains 123 canonical N# test blocks.
 
 Compiling the complete replacement exposed actual capabilities needed by this owner. The grouped
-N# prerequisite work covers source record-struct Dictionary keys, positional record default-zero
-construction without bypassing existing constructor selection, and the explicit generic
-Enumerable.ToDictionary call. Keep the BCL materialization call: its non-enumerated count and
+N# prerequisite work covers source record-struct Dictionary keys, typed enumeration of the existing
+KeyValuePair shell with a source-class value, and the explicit generic Enumerable.ToDictionary call.
+First test the existing N# explicit-generic static-call planner/catalog route for that call. The
+terminal C# generic-unresolved diagnostic alone does not prove this earlier N# route is unavailable.
+Move the complete existing Cast/OfType route and its helpers only if an actual dependency requires
+it; any surviving C# call must be mechanical, with argument planning owned by N#.
+Keep the BCL materialization call: its non-enumerated count and
 enumeration behavior are observable through the public input interface. Source probes and exact
 declines live under the evidence directory's `probes` and `record-key-seed` subdirectories.
 
@@ -50,3 +54,9 @@ same keys and iterator operations, and private list-count helpers preserve the o
 flag counts. Final emitted-IL and production verification remain required. Temporary discovery
 substitutions are recorded separately and must all disappear before owner acceptance. No new
 SDK seed has been published, and no selected-area integration gate or push is claimed.
+
+Review removed two unnecessary proposed prerequisites: the complete private DeclarationSite factory
+decisions move into their callers, so source-static out-record calls and default-zero record
+construction are not needed. The discarded private out value was not observable on failure; the
+valid branch retains the original property-read and construction order. Do not add compiler
+capabilities solely to satisfy an expanded probe that the production replacement no longer needs.
