@@ -214,10 +214,21 @@ No getter or broader external-property admission was added. A private SDK candid
 real assignment in the frozen complete proposed owner (SHA `0f31efcc85e7ebf4d49e722ab9509741d717c52831fec6cf794eafa9ee460650`),
 then declines at the later CompileToIlAssembly call. Receipt:
 `/private/tmp/nsharp-compilation-reference-resolver-owner-20260908/httpclient-timeout-prerequisite/final-receipt-r1.json`.
-This is focused prerequisite evidence, not accepted resolver ownership or SDK publication. Keep
-isolating the corrected whole source and group related actually proven prerequisites for required
-seed verification where feasible. A reduced owner retaining the C# type is diagnostic evidence,
-never production acceptance.
+The complete proposed owner subsequently emits after faithful N# spelling and cleanup-helper
+corrections; Timeout is the only new compiler capability required. The prerequisite seed at
+`277ea2991` is accepted: a fresh backend gate passed in 548 seconds (511 C# tests, 7,992 N#
+canonicals, 53 native projects, 12 throughput cells and 68 IL assemblies). The first gate's sole
+failure was stale audit rows for the accepted pipeline/visibility assertion deletions; exactly two
+rows shrank, with all 379 other rows and epoch facts preserved, and the fresh audit passed 18/18.
+Official setup and ordinary installed clean/restore/self-host passed 7,992/7,992 without overrides.
+Installed native families passed 47/196/76; unfiltered BSS 1,234 types/10,901 methods and Compiler
+5/58 pass IL verification. Both four-package feeds, ten Release payloads, twelve cache files and
+installed compiler payloads match; production contains no NSharpTests classes. SDK SHA256
+`f81c86c52824c5e03451e55913666c0520db6cd5ab4fe1d5a4eeb34e6dca4b71`.
+Evidence: `/private/tmp/nsharp-resolver-seed-20260908/installed-verification/final-receipt.json`
+(SHA `ed307a5b76a3a0f5677572dcdce1eeaf99ce43045db2747dbe5833888ae8178c`).
+This accepts the prerequisite seed and preceding pipeline/visibility integration, not complete
+resolver ownership: final canonical acceptance, production integration and push remain open.
 
 ## Connected follow-on: SDK reference assembly ownership
 
@@ -265,8 +276,8 @@ both new cases passed individually, CompilationBackendTests passed 21/21, and th
 columnar project passed 196/196 with no failures or skips. Evidence:
 `/private/tmp/nsharp-mfc-pipeline-canonical-gaps-20260908/root-review-r1.json`,
 `fixture-byte-identity-r2.json`, `dev-compilation-backend-r1.log`, and
-`native-columnar-full-r2.log` in that directory. This focused commit is not fresh integration-gate or
-push evidence; the next combined checkpoint remains required. Complete
+`native-columnar-full-r2.log` in that directory. The fresh combined checkpoint at `277ea2991`
+and installed seed verification above now cover this migration; push remains open. Complete
 project/NuGet and child-AOT assertions move with the selected reference resolver. The ambient Turkish
 culture formatting assertion is separately scoped presentation/runtime coverage, not compiler debt.
 
@@ -281,7 +292,8 @@ the two positive cases verify successful public IL compilation as well as clean 
 N# tests passed 6/6, CliCommandTests passed 52/52, and the exact six CLI cases passed 6/6. Original
 CLI envelope checks remain. Reviewed evidence:
 `/private/tmp/nsharp-mfc-visibility-canonicals-20260908/final-receipt.json` and
-`root-review-r1.json` in that directory. Combined integration verification and push remain open.
+`root-review-r1.json` in that directory. Combined integration and installed verification at
+`277ea2991` are accepted above; push remains open.
 
 The compiler-bearing diagnostic methods and necessary harness in LanguageServerDiagnosticsTests
 are now assigned as the next complete canonical area. Root individually reviewed the nine
