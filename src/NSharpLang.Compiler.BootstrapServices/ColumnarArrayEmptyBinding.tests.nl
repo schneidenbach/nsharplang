@@ -17,7 +17,7 @@ func ArrayEmptyBindingRejected(source: string, factSource: string, bindings: Col
     return DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
 }
 
-func ArrayEmptyBindingInvokePlan(plan: ColumnarCodePlan): object {
+func ArrayEmptyBindingInvokePlan(plan: ColumnarCodePlan, returnType: Type): object {
     constructorTypes := new Type[](3)
     constructorTypes[0] = typeof(string)
     constructorTypes[1] = typeof(Type)
@@ -29,7 +29,7 @@ func ArrayEmptyBindingInvokePlan(plan: ColumnarCodePlan): object {
 
     constructorArguments := new object[](3)
     ExecutorSetObject(constructorArguments, 0, "ArrayEmptyBindingProbe")
-    ExecutorSetObject(constructorArguments, 1, typeof(string[]))
+    ExecutorSetObject(constructorArguments, 1, returnType)
     ExecutorSetObject(constructorArguments, 2, new Type[](0))
     dynamicMethod := (DynamicMethod)constructorInfo.Invoke(constructorArguments)
     il := dynamicMethod.GetILGenerator()
@@ -38,7 +38,7 @@ func ArrayEmptyBindingInvokePlan(plan: ColumnarCodePlan): object {
     target: object? = null
     result := dynamicMethod.Invoke(target, new object[](0))
     if result == null {
-        throw new InvalidOperationException("Array.Empty<string>() returned null unexpectedly.")
+        throw new InvalidOperationException("Array.Empty<T>() returned null unexpectedly.")
     }
     return result
 }
@@ -102,8 +102,64 @@ test "direct call planner emits bare and qualified Array Empty string with the s
     assert shortMethod.GetGenericArguments()[0] == typeof(string)
     assert qualifiedMethod.GetGenericArguments()[0] == typeof(string)
 
-    shortResult := ArrayEmptyBindingInvokePlan(shortPlan)
-    qualifiedResult := ArrayEmptyBindingInvokePlan(qualifiedPlan)
+    shortResult := ArrayEmptyBindingInvokePlan(shortPlan, typeof(string[]))
+    qualifiedResult := ArrayEmptyBindingInvokePlan(qualifiedPlan, typeof(string[]))
+    assert Object.ReferenceEquals(shortResult, qualifiedResult)
+}
+
+test "explicit generic binding and direct planning pin the exact Array Empty Int32 singleton" {
+    noArguments := new string[](0)
+    shortExternalPlan := ArrayEmptyBindingPlan("Array", "System.Int32", noArguments)
+    qualifiedExternalPlan := ArrayEmptyBindingPlan("System.Array", "System.Int32", noArguments)
+
+    assert shortExternalPlan.IsSupported
+    assert qualifiedExternalPlan.IsSupported
+    assert shortExternalPlan.Kind == ColumnarExternalCallKind.Call
+    assert shortExternalPlan.DeclaringTypeName == "System.Array, System.Private.CoreLib"
+    assert shortExternalPlan.MemberName == "Empty"
+    assert shortExternalPlan.ParameterTypeNames.Length == 0
+    assert shortExternalPlan.TypeArgumentNames.Length == 1
+    assert shortExternalPlan.TypeArgumentNames[0] == "System.Int32, System.Private.CoreLib"
+    assert shortExternalPlan.ReturnTypeName == "System.Int32[], System.Private.CoreLib"
+    assert qualifiedExternalPlan.DeclaringTypeName == shortExternalPlan.DeclaringTypeName
+    assert qualifiedExternalPlan.TypeArgumentNames[0] == shortExternalPlan.TypeArgumentNames[0]
+    assert qualifiedExternalPlan.ReturnTypeName == shortExternalPlan.ReturnTypeName
+
+    selection := ColumnarRuntimeDirectCallSelection.Empty()
+    assert ColumnarRuntimeDirectCallResolver.TrySelect(shortExternalPlan, typeof(Array), true, out selection)
+    method := selection.Method
+    assert method != null
+    assert method.get_IsGenericMethod()
+    assert !method.get_IsGenericMethodDefinition()
+    methodArguments := method.GetGenericArguments()
+    assert methodArguments.Length == 1
+    assert methodArguments[0] == typeof(int)
+    assert selection.ParameterTypes.Length == 0
+    assert selection.ReturnType == typeof(int[])
+
+    shortTree := DirectCallParsedTree("Array.Empty<int>()")
+    ExternalStampScope(shortTree, "import System")
+    shortPlan := DirectCallPlan(shortTree, ColumnarRangePlannerEmptyBindings())
+
+    qualifiedTree := DirectCallParsedTree("System.Array.Empty<int>()")
+    ExternalStampScope(qualifiedTree, "import System")
+    qualifiedPlan := DirectCallPlan(qualifiedTree, ColumnarRangePlannerEmptyBindings())
+
+    assert shortPlan.ResultType == typeof(int[])
+    assert qualifiedPlan.ResultType == typeof(int[])
+    assert shortPlan.OperationCount == 1
+    assert qualifiedPlan.OperationCount == 1
+    assert shortPlan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    assert qualifiedPlan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    shortMethod := shortPlan.Methods[shortPlan.OperandIndices[0]]
+    qualifiedMethod := qualifiedPlan.Methods[qualifiedPlan.OperandIndices[0]]
+    assert shortMethod != null
+    assert qualifiedMethod != null
+    assert shortMethod.GetGenericArguments()[0] == typeof(int)
+    assert qualifiedMethod.GetGenericArguments()[0] == typeof(int)
+
+    shortResult := ArrayEmptyBindingInvokePlan(shortPlan, typeof(int[]))
+    qualifiedResult := ArrayEmptyBindingInvokePlan(qualifiedPlan, typeof(int[]))
     assert Object.ReferenceEquals(shortResult, qualifiedResult)
 }
 
@@ -115,14 +171,14 @@ test "Array Empty explicit generic ownership rejects unsupported shapes without 
     twoTypeArguments[0] = "System.String"
     twoTypeArguments[1] = "System.String"
 
-    assert !ArrayEmptyBindingPlan("Array", "System.Int32", noArguments).IsSupported
+    assert !ArrayEmptyBindingPlan("Array", "System.Boolean", noArguments).IsSupported
     assert !ArrayEmptyBindingPlan("OtherArray", "System.String", noArguments).IsSupported
     assert !ArrayEmptyBindingPlan("Array", "System.String", oneArgument).IsSupported
     assert !ColumnarExternalBindingPlans.GetExplicitGenericStaticCallPlan("Array", "Empty", twoTypeArguments, noArguments).IsSupported
 
     ownership := ColumnarDirectCallOwnership.Planned
     legacyWholeSubtreePlanning := true
-    _unsupportedType := ArrayEmptyBindingRejected("Array.Empty<int>()", "import System", ColumnarRangePlannerEmptyBindings(), out ownership, out legacyWholeSubtreePlanning)
+    _unsupportedType := ArrayEmptyBindingRejected("Array.Empty<bool>()", "import System", ColumnarRangePlannerEmptyBindings(), out ownership, out legacyWholeSubtreePlanning)
     assert ownership == ColumnarDirectCallOwnership.NotOwned
     assert !legacyWholeSubtreePlanning
 
