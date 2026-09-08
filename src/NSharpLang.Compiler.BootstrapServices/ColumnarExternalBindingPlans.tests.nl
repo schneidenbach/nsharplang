@@ -765,6 +765,56 @@ test "generic parameter interface constraints own the exact reflection emit sett
     ).IsSupported
 }
 
+test "body inferred lambdas own the exact MethodBuilder parameter setter signature" {
+    parameterTypes := new string[](1)
+    parameterTypes[0] = "System.Type[]"
+    AssertVirtualCall(
+        "System.Reflection.Emit.MethodBuilder",
+        "SetParameters",
+        parameterTypes,
+        "System.Void"
+    )
+
+    wrongParameterType := new string[](1)
+    wrongParameterType[0] = "System.Type"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.MethodBuilder",
+        "SetParameters",
+        wrongParameterType
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "SetParameters",
+        parameterTypes
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "MethodBuilder",
+        "SetParameters",
+        parameterTypes
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.MethodBuilder",
+        "setParameters",
+        parameterTypes
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.MethodBuilder",
+        "SetParameters",
+        new string[](0)
+    ).IsSupported
+
+    runtimeSignature := new Type[](1)
+    runtimeSignature[0] = typeof(Type[])
+    runtimeMethod := typeof(MethodBuilder).GetMethod("SetParameters", runtimeSignature)
+    assert runtimeMethod != null
+    assert runtimeMethod.get_DeclaringType() == typeof(MethodBuilder)
+    assert runtimeMethod.get_ReturnType() == ColumnarTypeOfPlanner.RequiredVoidType()
+    runtimeParameters := runtimeMethod.GetParameters()
+    assert runtimeParameters.Length == 1
+    assert runtimeParameters[0].get_ParameterType() == typeof(Type[])
+    assert runtimeParameters[0].IsDefined(typeof(ParamArrayAttribute), false)
+}
+
 test "generic parameter declaration retains the actual BCL return array identity" {
     signature := new Type[](1)
     signature[0] = typeof(string[])

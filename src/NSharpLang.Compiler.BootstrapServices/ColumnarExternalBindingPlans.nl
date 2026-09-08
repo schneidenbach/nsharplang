@@ -755,6 +755,14 @@ class ColumnarExternalBindingPlans {
             return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
         }
 
+        // A body-inferred lambda defines its MethodBuilder before its return type is known, then
+        // fixes the zero-parameter signature after emitting the body. SetParameters is declared
+        // with ParamArrayAttribute, so the ordinary fixed-arity resolver deliberately excludes it;
+        // the explicit Type[] form still names one exact CLR method and requires no expansion.
+        if receiver == "System.Reflection.Emit.MethodBuilder" && memberName == "SetParameters" && count == 1 && argumentTypeNames[0] == "System.Type[]" {
+            return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
+        }
+
         if receiver == "System.Reflection.Emit.LocalBuilder" && memberName == "get_LocalType" && count == 0 {
             return VirtualCall(receiver, memberName, Empty(), "System.Type")
         }
