@@ -50,6 +50,22 @@ integrates, verifies and pushes; Sol Max or Terra Max implements the complete bo
 
 Source audit: `/private/tmp/nsharp-multifile-assessment/current-boundary-20260908.md`.
 
+### Proven constructor-chain prerequisite (in progress)
+
+The complete proposed owner uses constructor delegation with `null` and nested static input-builder
+calls. Actual-source/prefix evidence in
+`/private/tmp/nsharp-multifile-owner-20260908/ctor-parse-probes-r1` shows simple/default/private
+constructors parse but the required delegated forms fail. `ParseConstructorChainInfoCore` currently
+accepts only restricted argument forms. Implement the connected N# parsing, materialization and
+emission support, preserving argument order and exceptions before instance initialization; do not
+move input building into constructor bodies to evade that ordering. Verify the actual owner forms
+and focused ordering/failure controls before integrating a seed.
+
+Goodall owns this prerequisite in a separate worktree while the ten-case canonical migration stays
+frozen. Hooke retains the complete owner and isolation of the remaining body parse failure. Astra
+reviews and groups any related proven prerequisites for required seed verification; no SDK
+publication is accepted merely because parsing succeeds.
+
 ## Final compiler audit
 
 Close `NSharpLang.Compiler` ownership.
@@ -58,6 +74,13 @@ Audit every tracked source file in `NSharpLang.Compiler` and verify that parser,
 AST, semantic analysis, systems policy, binding, lowering, IL generation,
 compiler reference/metadata resolution and canonical compiler tests each have exactly one N#
 production owner.
+
+Review mixed integration test files by assertion, not by filename. For example,
+`CheckCommandTests.cs` still asserts compiler diagnostic spans/messages, and
+`IlSdkToolchainTests.cs` checks emitted assembly-version metadata. Compare their exact source
+fixtures and assertions with existing N# coverage; migrate or retire superseded compiler assertions
+without expanding into separate CLI feature work. Opening evidence:
+`/private/tmp/nsharp-multifile-assessment/root-remaining-canonical-boundaries-20260908.json`.
 
 Delete every zero-consumer legacy C# owner and superseded C# assertion. Classify only genuine
 pre-existing mechanical ecosystem boundaries, proving that none contains product decisions and
