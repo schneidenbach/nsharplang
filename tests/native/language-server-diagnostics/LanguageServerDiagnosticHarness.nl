@@ -3,6 +3,8 @@ namespace NSharpLang.LanguageServerDiagnostics.Tests
 import System
 import System.Collections
 import System.Collections.Generic
+import System.IO
+import System.Reflection
 import NSharpLang.Compiler
 
 func LsdRequiredType(name: string): Type {
@@ -69,6 +71,63 @@ func LsdPropertyText(error: CompilerError, name: string): string {
     text := LsdRequiredProperty(error, name).ToString()
     if text == null {
         throw new InvalidOperationException("Required property text was null: " + name)
+    }
+    return text
+}
+
+func LsdFormatForTooling(error: CompilerError, includeCode: bool, includeLocation: bool): string {
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = typeof(bool)
+    parameterTypes[1] = typeof(bool)
+    method := error.GetType().GetMethod("FormatForTooling", parameterTypes)
+    if method == null {
+        throw new InvalidOperationException("CompilerError.FormatForTooling was not found.")
+    }
+    arguments := new object?[](2)
+    LsdPut(arguments, 0, includeCode)
+    LsdPut(arguments, 1, includeLocation)
+    result := method.Invoke(error, arguments)
+    if result == null {
+        throw new InvalidOperationException("CompilerError.FormatForTooling returned null.")
+    }
+    text := result.ToString()
+    if text == null {
+        throw new InvalidOperationException("CompilerError.FormatForTooling text was null.")
+    }
+    return text
+}
+
+func LsdTempRoot(prefix: string): string {
+    return Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"))
+}
+
+func LsdFileUri(path: string): string {
+    uriType := LsdRequiredType("System.Uri, System.Private.Uri")
+    constructors := uriType.GetConstructors()
+    constructor: ConstructorInfo? = null
+    matchingConstructors := 0
+    index := 0
+    while index < constructors.Length {
+        parameters := constructors[index].GetParameters()
+        if parameters.Length == 1 {
+            constructor = constructors[index]
+            matchingConstructors = matchingConstructors + 1
+        }
+        index = index + 1
+    }
+    if constructor == null || matchingConstructors != 1 {
+        throw new InvalidOperationException("Uri(string) constructor was not found.")
+    }
+    arguments := new object?[](1)
+    LsdPut(arguments, 0, path)
+    uri := constructor.Invoke(arguments)
+    if uri == null {
+        throw new InvalidOperationException("Uri construction returned null.")
+    }
+    value := LsdRequiredProperty(uri, "AbsoluteUri")
+    text := value.ToString()
+    if text == null {
+        throw new InvalidOperationException("File URI was null.")
     }
     return text
 }
