@@ -82,3 +82,19 @@ and formatter-clean method fragments are translation evidence only. Neither base
 nor operation-count parity proves that the replacement emitter works. Required next evidence is
 the compiled complete owner, all-method IL verification, candidate execution of the canonical and
 native suites, legacy-owner deletion, and the fresh integration checkpoint described above.
+
+The demonstrated `Array.Empty<byte>()`, `Array.Empty<Type>()` and `Array.Empty<Type[]>()` dependency
+is integrated in `dc02a272a`. Its N# binding/planning tests pass 12/12, the native Array.Empty family
+passes 4/4, and the three byte-identical source probes that failed on the installed SDK now compile
+and pass all-method IL verification with the private candidate. This is focused prerequisite
+acceptance, not SDK publication or emitter ownership acceptance. Evidence is under
+`/private/tmp/nsharp-columnar-il-emitter-owner-20260907/array-empty-byte-type-seed/`.
+
+A separate unfiltered check of all 10,529 BootstrapServices methods found two existing IL errors in
+`AnalyzerMetadataAssemblyResolver`'s constructor, reproduced against both the installed SDK and the
+private candidate. The emitted call targets `Object::.ctor` despite the external
+`MetadataAssemblyResolver` base. `ColumnarConstructorDeclarationPlanner.EmitCtorBaseChain` ignores
+the recorded external `ExactBaseType` when `BaseDef` is null. A bounded N# constructor-chain fix and
+canonical/native regressions are assigned alongside emitter integration. Do not accept these errors
+as a baseline exception or claim whole-assembly IL cleanliness before the repair is verified.
+See `root-external-base-constructor-finding.json` in the same evidence directory.
