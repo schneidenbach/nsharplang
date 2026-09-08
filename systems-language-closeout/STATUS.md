@@ -58,11 +58,14 @@ enumeration/disposal, type identity, partial mutation and failure ordering.
 **Active compiler-only area, complete SystemsAnalyzer class:** replace all 1,156 C# lines,
 including five nested state types, lifetime/cache state, declaration-site identity, recursive walks
 and effects, scope behavior and report construction. Preserve the accepted N# Systems* policies;
-remove the entire C# owner and route MultiFileCompiler directly to N#. Sol Max implements, Terra
-Max owns canonical coverage, Astra reviews/integrates. [Boundary](decodes/2026-09-07-complete-systems-analyzer-ownership.md),
+remove the entire C# owner and route MultiFileCompiler directly to N#. Sol Max implements; preserved
+canonical coverage and a second Sol Max review support Astra's integration. [Boundary](decodes/2026-09-07-complete-systems-analyzer-ownership.md),
 baseline `a207ee13b`, evidence `/private/tmp/nsharp-systems-analyzer-owner-20260907`. The previous
 turn is verified progress: complete Analyzer ownership, installed self-host and fresh gate accepted
-and pushed. No prior verification process remains active. Do not restart accepted migrations.
+and pushed. Collection prerequisites are integrated through `f7ef6b789`; their focused canonical
+and native checks pass. Combined private compiler/build-task builds pass; complete-owner emission
+is the next verification step. The C# owner remains on this branch until that replacement is proven.
+No selected-area integration gate, SDK publication or push is claimed. Do not restart accepted migrations.
 
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata

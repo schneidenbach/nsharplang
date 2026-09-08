@@ -15,8 +15,9 @@ not use finally; do not silently add cleanup on exceptions. Normalized duplicate
 still fail rather than overwrite entries. Keep existing AOT report fields without expanding into
 NativeAOT or runtime reimplementation.
 
-Sol Max owns the complete class replacement in an isolated worktree; Terra Max inventories canonical
-assertions and adds N# regressions only for uncovered behavior. Astra owns review, integration,
+Sol Max owns the complete class replacement in an isolated worktree. Canonical inventory and lifecycle
+regressions are preserved; after a Terra capacity failure, a second Sol Max worker completed the
+collection prerequisites and now reviews constructor/reset/report semantics. Astra owns review, integration,
 shared ratchets, gates, any necessary SDK publication and push. Compile the complete proposed source
 to prove blockers; implement necessary prerequisites in N#, grouping related capabilities. No new
 C# compiler behavior, tests, helpers, adapters or fallback implementations. Use focused dev/native
@@ -87,9 +88,15 @@ equality/hash, typed Current, and disposal. See `record-key-seed` receipts r41 a
 The merged prerequisite source also passes `./scripts/dev.sh Columnar`: 12/12 focused tests in 64s
 at `65307d718` (`root-dev-columnar-65307d718.log`). This is inner-loop evidence, not a product gate.
 
-Typed comparer construction remains unaccepted.
-An actual substituted constructor-parameter probe independently rejects both comparer type admission
-and argument flow (`reference-equality-canonical-prereq-r2.log`). One Sol Max worker owns the shared
-conversion file; the record-key worker owns
-the collection type/resolver changes. Combine their candidates privately to compile the complete
-frozen owner, including canonical tests, before publishing any seed.
+`f7ef6b789` integrates typed reference-comparer support (worker commit `3537ce3b4`). The actual
+substituted constructor-parameter probe established independent type-admission and argument-flow
+gaps. Both are fixed in N#: the canonical control passes 1/1 and actual typed HashSet/Dictionary
+runtime identity passes 1/1 (`reference-equality-canonical-prereq-r4-admission.log` and
+`reference-equality-native-r8-typed-explicit-project.log`). The production-only candidate SHA256 is
+`9f33c6cc76e7814e1b220d7b909eadf3ef5b0dc07cbf4afa72ab67689327e8a5`.
+
+All currently demonstrated collection prerequisites are committed. Combined private CLI/build-task
+builds pass; the owner worker is preparing a version-isolated private SDK to compile the complete
+frozen owner, including canonical tests. Whole-owner compilation, C# deletion in the integration
+branch, production/canonical verification, the fresh gate and push remain open. No live SDK seed
+publication is authorized by these prerequisite-only results.
