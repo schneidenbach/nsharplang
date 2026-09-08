@@ -29,3 +29,24 @@ migration remains accepted: fresh backend gate 481s, 574 C# / 7,928 canonical / 
 SHA256 `d43d021038063adf04322c9964cfec81d50a22593b903a5abf78541d15416430`. Frozen source,
 ratchet and production compiler payloads are retained. The compiler-wide objective stays open;
 CLI/editor and older SDK branches remain held in the separate branch backlog.
+
+## Execution evidence — ownership still open
+
+The two uncovered public lifecycle contracts are now canonical N# assertions at `843363b96`:
+an older report retains the live Functions list across Analyze calls, and normalized duplicate
+input paths fail after that list is reset. Baseline evidence is 2/2 focused and 24/24 for the
+containing native project. The existing systems corpus retains 123 canonical N# test blocks.
+
+Compiling the complete replacement exposed actual capabilities needed by this owner. The grouped
+N# prerequisite work covers source record-struct Dictionary keys, positional record default-zero
+construction without bypassing existing constructor selection, and the explicit generic
+Enumerable.ToDictionary call. Keep the BCL materialization call: its non-enumerated count and
+enumeration behavior are observable through the public input interface. Source probes and exact
+declines live under the evidence directory's `probes` and `record-key-seed` subdirectories.
+
+Supported N# source equivalents avoid other seed changes: a private static factory preserves the
+single shared readonly semantic-model map, explicit CLR accessor/interface calls preserve the
+same keys and iterator operations, and private list-count helpers preserve the ordered report
+flag counts. Final emitted-IL and production verification remain required. Temporary discovery
+substitutions are recorded separately and must all disappear before owner acceptance. No new
+SDK seed has been published, and no selected-area integration gate or push is claimed.
