@@ -94,7 +94,7 @@ Compiler-wide ownership remains open. **Active area: complete ColumnarIlEmitter*
 state and behavior with canonical assertions; delete the C# class. All 116 referenced compiler types
 already reside in N#, so no reverse assembly dependency blocks this owner. Sol Max implements;
 Astra reviews/integrates. [Execution contract](../tasks/015-remaining-emitter-decisions.md). Canonical scope
-includes eight native emitter lookup migrations and 52 active C# compiler-facing cases (45 backend,
+includes eight native emitter lookup migrations and 53 active C# compiler-facing cases (46 backend,
 five decline diagnostics, two conditional-compilation cases); a direct type-name-only audit missed
 them. Preserve all pipeline assertions in N#; leave CLI-command policy cases separately held.
 Move complete MultiFileCompiler afterward: its sole reverse dependency is the emitter. The emitter
