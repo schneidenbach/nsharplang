@@ -770,6 +770,14 @@ class ColumnarExternalBindingPlans {
             return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
         }
 
+        // Executable persistence exposes the IL stream and mapped-field data as two exact OUT
+        // BlobBuilder parameters, and returns the metadata builder. The ordinary fixed-arity
+        // resolver deliberately excludes by-ref parameters; this row keeps their order and exact
+        // element identity while selecting the sole runtime method used by ManagedPEBuilder.
+        if receiver == "System.Reflection.Emit.PersistedAssemblyBuilder" && memberName == "GenerateMetadata" && count == 2 && argumentTypeNames[0] == "System.Reflection.Metadata.BlobBuilder&" && argumentTypeNames[1] == "System.Reflection.Metadata.BlobBuilder&" {
+            return VirtualCall(receiver, memberName, argumentTypeNames, "System.Reflection.Metadata.Ecma335.MetadataBuilder")
+        }
+
         if receiver == "System.Reflection.Emit.LocalBuilder" && memberName == "get_LocalType" && count == 0 {
             return VirtualCall(receiver, memberName, Empty(), "System.Type")
         }
@@ -1215,6 +1223,12 @@ class ColumnarExternalBindingPlans {
         }
         if fullName == "System.Reflection.MetadataLoadContext" || fullName == "System.Reflection.PathAssemblyResolver" || fullName == "System.Reflection.MetadataAssemblyResolver" {
             return fullName + ", System.Reflection.MetadataLoadContext"
+        }
+        if fullName == "System.Reflection.Emit.PersistedAssemblyBuilder" {
+            return fullName + ", System.Reflection.Emit"
+        }
+        if fullName == "System.Reflection.Metadata.BlobBuilder&" || fullName == "System.Reflection.Metadata.Ecma335.MetadataBuilder" {
+            return fullName + ", System.Reflection.Metadata"
         }
         if fullName.StartsWith("YamlDotNet.", StringComparison.Ordinal) {
             return fullName + ", YamlDotNet"

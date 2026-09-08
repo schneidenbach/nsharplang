@@ -855,6 +855,68 @@ test "body inferred lambdas own the exact MethodBuilder parameter setter signatu
     assert runtimeParameters[0].IsDefined(typeof(ParamArrayAttribute), false)
 }
 
+test "executable serialization owns the exact persisted metadata projection signature" {
+    arguments := new string[](2)
+    arguments[0] = "System.Reflection.Metadata.BlobBuilder&"
+    arguments[1] = "System.Reflection.Metadata.BlobBuilder&"
+    plan := ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.PersistedAssemblyBuilder",
+        "GenerateMetadata",
+        arguments
+    )
+    assert plan.IsSupported
+    assert plan.Kind == ColumnarExternalCallKind.CallVirtual
+    assert plan.DeclaringTypeName == "System.Reflection.Emit.PersistedAssemblyBuilder, System.Reflection.Emit"
+    assert plan.MemberName == "GenerateMetadata"
+    assert plan.ParameterTypeNames.Length == 2
+    assert plan.ParameterTypeNames[0] == "System.Reflection.Metadata.BlobBuilder&, System.Reflection.Metadata"
+    assert plan.ParameterTypeNames[1] == "System.Reflection.Metadata.BlobBuilder&, System.Reflection.Metadata"
+    assert plan.ReturnTypeName == "System.Reflection.Metadata.Ecma335.MetadataBuilder, System.Reflection.Metadata"
+
+    wrongElement := new string[](2)
+    wrongElement[0] = "System.Reflection.Metadata.BlobBuilder"
+    wrongElement[1] = "System.Reflection.Metadata.BlobBuilder&"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.PersistedAssemblyBuilder",
+        "GenerateMetadata",
+        wrongElement
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.TypeBuilder",
+        "GenerateMetadata",
+        arguments
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Reflection.Emit.PersistedAssemblyBuilder",
+        "generateMetadata",
+        arguments
+    ).IsSupported
+
+    persistedType := Type.GetType("System.Reflection.Emit.PersistedAssemblyBuilder, System.Reflection.Emit")
+    blobType := Type.GetType("System.Reflection.Metadata.BlobBuilder, System.Reflection.Metadata")
+    metadataType := Type.GetType("System.Reflection.Metadata.Ecma335.MetadataBuilder, System.Reflection.Metadata")
+    if persistedType == null || blobType == null || metadataType == null {
+        throw new InvalidOperationException("Required executable metadata writer types were unavailable.")
+    }
+    blobByRefType := blobType.MakeByRefType()
+    runtimeSignature := new Type[](2)
+    runtimeSignature[0] = blobByRefType
+    runtimeSignature[1] = blobByRefType
+    runtimeMethod := persistedType.GetMethod("GenerateMetadata", runtimeSignature)
+    if runtimeMethod == null {
+        throw new InvalidOperationException("PersistedAssemblyBuilder.GenerateMetadata(out BlobBuilder, out BlobBuilder) was unavailable.")
+    }
+    runtimeParameters := runtimeMethod.GetParameters()
+    assert runtimeMethod.get_DeclaringType() == persistedType
+    assert !runtimeMethod.get_IsStatic()
+    assert runtimeMethod.get_ReturnType() == metadataType
+    assert runtimeParameters.Length == 2
+    assert runtimeParameters[0].get_ParameterType() == blobByRefType
+    assert runtimeParameters[1].get_ParameterType() == blobByRefType
+    assert runtimeParameters[0].get_IsOut()
+    assert runtimeParameters[1].get_IsOut()
+}
+
 test "generic parameter declaration retains the actual BCL return array identity" {
     signature := new Type[](1)
     signature[0] = typeof(string[])
