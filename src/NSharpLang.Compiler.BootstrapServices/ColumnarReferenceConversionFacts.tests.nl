@@ -86,6 +86,108 @@ test "emission reference conversions preserve rich type equivalence and every ex
     assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueCollection, wrongEnumerable)
 }
 
+test "read-only dictionary inherited enumerable conversion preserves the complete builder-bound pair" {
+    entry := SourceCallDefinition(
+        "ReferenceConversionReadOnlyDictionaryEntry",
+        true
+    )
+    otherEntry := SourceCallDefinition(
+        "ReferenceConversionReadOnlyDictionaryOtherEntry",
+        true
+    )
+    entryType: Type = entry.Builder
+    otherEntryType: Type = otherEntry.Builder
+    source := ReferenceConversionClosedType2(
+        ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition(),
+        typeof(string),
+        entryType
+    )
+    exactPair := ReferenceConversionClosedType2(
+        typeof(KeyValuePair<int, int>).GetGenericTypeDefinition(),
+        typeof(string),
+        entryType
+    )
+    exactEnumerable := ReferenceConversionClosedType(
+        typeof(IEnumerable<int>).GetGenericTypeDefinition(),
+        exactPair
+    )
+    wrongKeyPair := ReferenceConversionClosedType2(
+        typeof(KeyValuePair<int, int>).GetGenericTypeDefinition(),
+        typeof(int),
+        entryType
+    )
+    wrongKeyEnumerable := ReferenceConversionClosedType(
+        typeof(IEnumerable<int>).GetGenericTypeDefinition(),
+        wrongKeyPair
+    )
+    wrongValuePair := ReferenceConversionClosedType2(
+        typeof(KeyValuePair<int, int>).GetGenericTypeDefinition(),
+        typeof(string),
+        otherEntryType
+    )
+    wrongValueEnumerable := ReferenceConversionClosedType(
+        typeof(IEnumerable<int>).GetGenericTypeDefinition(),
+        wrongValuePair
+    )
+    wrongElementEnumerable := ReferenceConversionClosedType(
+        typeof(IEnumerable<int>).GetGenericTypeDefinition(),
+        entryType
+    )
+    wrongSource := ReferenceConversionClosedType(
+        typeof(IReadOnlyList<int>).GetGenericTypeDefinition(),
+        entryType
+    )
+
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        source,
+        exactEnumerable
+    )
+    assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        source,
+        exactEnumerable
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        source,
+        wrongKeyEnumerable
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        source,
+        wrongKeyEnumerable
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        source,
+        wrongValueEnumerable
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        source,
+        wrongValueEnumerable
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        source,
+        wrongElementEnumerable
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        source,
+        wrongElementEnumerable
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        wrongSource,
+        exactEnumerable
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        wrongSource,
+        exactEnumerable
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        exactEnumerable,
+        source
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        exactEnumerable,
+        source
+    )
+}
+
 test "structural reference facts classify exact source interface edges and boxing" {
     target := SourceCallInterfaceDefinition(
         "ReferenceConversionSourceTarget"

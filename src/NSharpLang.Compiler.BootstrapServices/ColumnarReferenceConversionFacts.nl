@@ -52,6 +52,15 @@ class ColumnarReferenceConversionFacts {
             if targetArguments.Length == 1 && sourceArguments.Length == 2 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], targetArguments[0]) && sourceDefinition == ColumnarTypeOfPlanner.RequiredDictionaryKeyCollectionDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
                 return true
             }
+            // IReadOnlyDictionary<TKey, TValue> inherits IEnumerable<KeyValuePair<TKey, TValue>>.
+            // Reflection cannot inspect that inherited interface when TValue is an unbaked source
+            // TypeBuilder, so preserve the complete nested key/value identity explicitly.
+            if sourceArguments.Length == 2 && targetArguments.Length == 1 && IsReadOnlyDictionaryEnumerableShell(sourceDefinition, targetDefinition, targetArguments[0]) {
+                pairArguments := targetArguments[0].GetGenericArguments()
+                if pairArguments.Length == 2 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], pairArguments[0]) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[1], pairArguments[1]) {
+                    return true
+                }
+            }
             if targetArguments.Length == 2 && sourceArguments.Length == 2 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], targetArguments[0]) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[1], targetArguments[1]) && ColumnarGenericCallBindingPlanner.IsReadOnlyDictionaryCollectionDefinition(targetDefinition) && ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(sourceDefinition) {
                 return true
             }
@@ -313,6 +322,17 @@ class ColumnarReferenceConversionFacts {
                 return true
             }
         }
+        // The inherited IReadOnlyDictionary<TKey, TValue> enumerator interface closes over a
+        // KeyValuePair containing both source arguments. Keep the strict validator's structural
+        // identity rule: neither key nor value may be replaced by an assignable near miss.
+        dictionarySourceDefinition := sourceType.GetGenericTypeDefinition()
+        enumerableTargetDefinition := targetType.GetGenericTypeDefinition()
+        if sourceArguments.Length == 2 && targetArguments.Length == 1 && IsReadOnlyDictionaryEnumerableShell(dictionarySourceDefinition, enumerableTargetDefinition, targetArguments[0]) {
+            pairArguments := targetArguments[0].GetGenericArguments()
+            if pairArguments.Length == 2 && ExactTypeShapeMatches(sourceArguments[0], pairArguments[0]) && ExactTypeShapeMatches(sourceArguments[1], pairArguments[1]) {
+                return true
+            }
+        }
         // The one two-argument upcast: Dictionary<K,V>/SortedDictionary<K,V> -> IReadOnlyDictionary<K,V>,
         // the two-argument mirror of List<T> -> IReadOnlyList<T> below. Both arguments must match exactly.
         if targetArguments.Length == 2 && sourceArguments.Length == 2 && (targetType.GetGenericTypeDefinition().FullName ?? "") == "System.Collections.Generic.IReadOnlyDictionary`2" && ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) && ExactTypeShapeMatches(sourceArguments[1], targetArguments[1]) {
@@ -346,6 +366,10 @@ class ColumnarReferenceConversionFacts {
         }
 
         return sourceDefinition == typeof(Stack<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())
+    }
+
+    static func IsReadOnlyDictionaryEnumerableShell(sourceDefinition: Type, targetDefinition: Type, targetElement: Type): bool {
+        return sourceDefinition == ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() && targetElement.get_IsGenericType() && !targetElement.get_IsGenericTypeDefinition() && targetElement.GetGenericTypeDefinition() == typeof(KeyValuePair<int, int>).GetGenericTypeDefinition()
     }
 
     // Runtime Type.IsAssignableFrom cannot inspect a TypeBuilderInstantiation whose generic
