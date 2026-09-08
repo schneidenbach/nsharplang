@@ -19,7 +19,7 @@ and push. Backend-only changes use the non-VS-Code gate at integration checkpoin
 IDE-enabled gate and visual verification when a change actually affects IDE behavior. Broader branch
 initiatives remain in [BRANCH-BACKLOG.md](BRANCH-BACKLOG.md).
 
-## Selected area: complete ColumnarProgramInputBuilder
+## Accepted area: complete ColumnarProgramInputBuilder
 
 At the accepted SystemsAnalyzer checkpoint `3c1b0f074`, replace all 17 methods in the 1,033-line C#
 ColumnarProgramInputBuilder class. This is the remaining production owner for token/declaration
@@ -42,6 +42,9 @@ before local-function validation and can expose a partial input on a later failu
 inputs without tests retain null Tests; the accepted multi-file merge retains its empty test list.
 Do not normalize these distinct states or add validation that changes failure ordering.
 
-This complete class remains open until sole production ownership, canonical coverage, required
-verification, review, commits and push pass. See the current compiler cursor in
+This complete class is integrated as c2379140a/7f747d76a. The fresh backend gate passes
+574 unit / 7,943 canonical / 53 native projects / 12 throughput / 68 IL assemblies; ordinary installed
+SDK probe15/15 and fresh self-host7,943/7,943 pass. The cross-assembly boundary and evidence are
+[recorded here](../systems-language-closeout/decodes/2026-09-07-complete-columnar-input-builder-ownership.md).
+Compiler-wide ownership remains open. See the current compiler cursor in
 [STATUS.md](../systems-language-closeout/STATUS.md).

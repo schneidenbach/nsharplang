@@ -82,7 +82,7 @@ Current measured route and boundaries are in [STATUS §1](../systems-language-cl
 1. After input-builder integration, `ColumnarIlEmitter.cs` remains 16,635 lines /
    15,817 nonblank and MultiFileCompiler 663/587. These complete production ownership areas
    remain in scope. ColumnarProgramInputBuilder is now entirely N#-owned; its fresh integration
-   gate and SDK acceptance remain pending in STATUS. Historical checkboxes do not establish
+   gate and installed SDK self-host acceptance are recorded in STATUS. Historical checkboxes do not establish
    compiler-wide ownership or canonical assertion completion.
 2. Analyzer.cs, SystemsAnalyzer.cs and TypeResolver.cs are deleted; their accepted N# owners and
    canonical evidence must be preserved. Task 023 writer implementation is conditional on a

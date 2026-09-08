@@ -8,7 +8,8 @@ only when they match product-path behavior.
 The active objective is solely N#-owned compiler-core behavior and canonical compiler assertions;
 see [the execution contract](../tasks/README.md) and [current cursor](../systems-language-closeout/STATUS.md).
 The complete Analyzer and SystemsAnalyzer are N#-owned in BootstrapServices; both C# classes are
-deleted and verified through installed SDK self-hosting. Remaining compiler C# is deletion debt:
+deleted and verified through installed SDK self-hosting. The complete ColumnarProgramInputBuilder
+is also N#-owned, with its C# class deleted and canonical/package/self-host verification accepted. Remaining compiler C# is deletion debt:
 MultiFileCompiler orchestration and the emitter must preserve accepted N#
 owners while removing their remaining C# state/decisions. Historical allowlist labels do not prove
 current compiler-wide completion. CLI/editor features and broader branch work stay separately

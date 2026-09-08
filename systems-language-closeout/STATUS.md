@@ -70,25 +70,30 @@ self-hosts and passes 7,940/7,940 canonical assertions with no overrides. Instal
 matches the reviewed source. [Boundary and acceptance](decodes/2026-09-07-complete-systems-analyzer-ownership.md),
 evidence `/private/tmp/nsharp-systems-analyzer-owner-20260907`.
 
-Compiler-wide ownership remains open. **Active area: complete ColumnarProgramInputBuilder**, baseline
-`3c1b0f074`, including all 17 methods for declaration materialization, node-table trimming, aggregation
-and decline ordering. Keep its accepted N# parser kernels/input models; delete the whole remaining
-1,033-line C# owner. [Execution contract](../tasks/016-parser-and-syntax-diagnostics.md). Astra reviews
-and integrates; Sol Max implements the complete class and canonical lookup migration in isolated
-worktrees. Do not restart accepted Analyzer/SystemsAnalyzer or implicitly resume held sibling branches.
+**Accepted compiler-only area, complete ColumnarProgramInputBuilder:** `c2379140a` and `7f747d76a`
+replace all 17 methods and migrate eight canonical lookups; all 1,033 C# lines are deleted. The
+existing MultiFileCompiler caller binds directly to N#. The public static entry and private constructor
+are the reviewed mechanical boundary; sixteen helpers remain private. Partial out state, declaration
+and allocation/copy order, sentinel trimming, and decline source-file cleanup are preserved.
+`2ea07788e` supplies the demonstrated Array.Empty<int> prerequisite; constructor visibility flows
+through the existing N# parser/input/declaration owners. No C# behavior, callback or fallback added.
+An invalid first-generation out-argument field store was rejected; a local alias retains assignment
+and failure timing and passes IL verification. Exactly one ratchet row retired, 380 other rows and
+all epochs unchanged; head `head-v1:c15834f9d1324493`, audit18/18.
 
-The full owner and canonical migration are integrated as `c2379140a` and `7f747d76a`;
-all 1,033 C# lines are deleted. The direct public static entry and private constructor are the
-reviewed mechanical cross-assembly boundary; all sixteen helper methods remain private.
-`2ea07788e` supplies the proven N# Array.Empty<int> prerequisite (9 canonical + 1 native control).
-Constructor visibility now flows entirely through N# (2 parser controls); the final production
-owner passes IL verification for all 18 methods. Focused native suites pass 126/126 and 39/39.
-An earlier invalid out-parameter field store was rejected and replaced with a local alias while
-preserving partial-output timing; the corrected compiler and owner pass selected IL verification.
-Exactly one ratchet row is retired, 380 other rows and all epochs unchanged;
-current head `head-v1:c15834f9d1324493`. Fresh integration gate, official SDK publication and push
-remain pending. No new live SDK has been published. Evidence and review:
+Fresh backend gate at `d3e6fb20` passes in 480s: 574 unit / 7,943 N# canonical / 53 native projects /
+12 throughput / 68 IL assemblies. Focused dev12, columnar126, reflection39, parser2 and owner IL18
+pass. Official setup and ordinary package probe15/15 pass; both feeds, ten Release payloads and
+twelve cache files match. SDK SHA256 `eae880bee83e67cd6613b544f4d77d28e80ca309339cb12884449a891a2ba979`.
+The installed SDK freshly self-hosts and passes 7,943/7,943 canonical tests without SDK-path overrides.
+[Boundary and acceptance](decodes/2026-09-07-complete-columnar-input-builder-ownership.md), evidence
 `/private/tmp/nsharp-columnar-input-builder-owner-20260907`.
+
+Compiler-wide ownership remains open. Remaining C# compiler owners are ColumnarIlEmitter and
+MultiFileCompiler. Assess the complete emitter before moving orchestration: MultiFileCompiler's
+sole reverse assembly dependency is the C# emitter; its other project/index/text/pipeline dependencies
+already reside in N#. Do not introduce a callback to conceal that dependency or restart accepted
+Analyzer/SystemsAnalyzer/input-builder migrations. Broader sibling tasks remain separately held.
 
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata
@@ -2787,7 +2792,7 @@ IDE-affecting and both ran the VS Code-enabled gate with the extension rebuilt a
 
 | slice id | commit(s) | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
-| Complete input materialization | `c2379140a`, `7f747d76a`, seed `2ea07788e` | Full 17-method ColumnarProgramInputBuilder replaces 1,033 C# lines; eight canonical lookups target N# directly | Preserve sentinel/copies, declaration order, partial out state and trace finally; private constructor requires N# visibility propagation; integration verification pending | native 126/126 +39/39, parser 2/2, owner IL18/18 |
+| Complete input materialization | `c2379140a`, `7f747d76a`, seed `2ea07788e` | Full 17-method ColumnarProgramInputBuilder replaces 1,033 C# lines; eight canonical lookups target N# directly | Preserve sentinel/copies, declaration order, partial out state and trace finally; private constructor requires N# visibility propagation; installed SDK self-host accepted | native126+39, parser2, owner IL18; gate574/7943, installed probe15/self-host7943 |
 | 016 note (gate-bar note) | no commit | none | Only the two production-touching stages (N+2 cutover, N+3 deletion) needed the IDE bar; Stages 1-8 added self-contained N# owner files plus native contracts with NO production/LSP wiring, so the non-VS-Code gate sufficed until cutover. | 2 IDE-bar runs; Stages 1-8 non-IDE |
 | Task 016 status (COMPLETE) | `9f2dd9572` (landed) | `Parser.cs` gone from production, LSP and every test; `ColumnarParserRecovery` is the sole parse + ordered-diagnostic authority | Completion criterion is the FILE being gone, not "a reviewed zero-policy host". The one residual — translating 2,021 rerouted C# parser assertions into native `.tests.nl` contracts — is BOOKKEEPING, moves no ownership, and does not gate the checkbox. | capability arc stages 0-17 closed; 432 native parity contracts at Stage 17; owner 6,855 lines then; contracts 1,217/1,217 at N+1c tranche 2 |
 | 016 stage N+3 (Parser.cs deletion arc) | `53e272711` (landed) | DELETED `src/NSharpLang.Compiler/Parser.cs` (−7,116) and `ErrorReporting.cs`'s `ParseResult` (−14); 53 parse sites in 20 test files rerouted to `ColumnarParserRecovery.ParseFileAst`; owner gained `FileParseAst.Success` | Rerouting 2,021 parser assertions beats deleting them: reroute makes each an EXECUTABLE proof obligation on the N# owner over a synthetic surface the 27,694-source corpus never reaches. Deleting on a mapping argument trades executable coverage for prose. | 7,130 C# deleted / 0 added; −7,264 C# / +53 N#; unit 3,193→3,193; contracts 1,554/1,554; audit 18/18; IL 78/78 byte-identical, PRODUCT_IL_DIFFS=0; full VS Code gate EXIT 0 13m48s, 105 steps, 36 VS Code tests |
