@@ -249,3 +249,21 @@ and all selected names against the emitted test inventory. The existing 53-test 
 baselines remain valid; pre-owner missing-type failures are negative routing evidence only.
 The exact candidate command and 87/87 acceptance condition are recorded in
 `/private/tmp/nsharp-columnar-il-emitter-tests-20260908/final-new-owner-selection-r1.json`.
+
+Core r26 is source-reviewed for assembly. The complete emitter composition is byte-identical to
+root's independent assembly (SHA-256
+`90bcfca785b204780885afbfdff3db98b7ab1a22b5447a36dedc403f3578eaba`), retaining the accepted
+body, expression-helper, calls/conversions and constructor/member-write groups. This full source
+initially returned false without a trace. A benign replacement class emits in the same project and
+candidate, and late diagnostic sentinels are reached, narrowing the failure to later emitter work.
+
+Source audit and actual compilation identify the untraced reference-constructor validation as the
+remaining failure at that checkpoint: six nonnullable fields relied on implicit CLR zero state.
+Spelling those initial assignments in N# advances to a located `new Label()` constructor-body
+failure. The exact Label default-construction prerequisite is being implemented in N#, using the
+existing initobj construction plan; no validator weakening or C# behavior is permitted. A temporary
+Label self-assignment is diagnostic-only and must be replaced before full-owner acceptance.
+Evidence is in `whole-expression-assembly-r1/root-complete-r1-review.json`,
+`silent-false-constructor-audit.json` and `root-explicit-zero-constructor-review.json` in the emitter
+evidence directory. Whole-emitter assembly emission, IL verification and canonical execution remain
+pending; no shared SDK publication or push is justified by these diagnostic runs.
