@@ -177,8 +177,13 @@ unsaved-buffer diagnostics and cross-file definition navigation are visually ver
 [Complete acceptance](../systems-language-closeout/decodes/2026-09-08-complete-multifile-compiler-ownership.md).
 The source-probe history above is retained evidence, not remaining prerequisite work.
 
-Move the entire `src/NSharpLang.Cli/CompilationReferenceResolver.cs` owner: 497 lines, 19 methods
-and its shared two-minute `HttpClient`. Its recursive project builds, package cache lifecycle,
+The entire `src/NSharpLang.Cli/CompilationReferenceResolver.cs` owner is deleted in `a641613ed`:
+497 lines, 19 original methods and its shared two-minute `HttpClient` move into the complete N# class.
+`3f880c86a` integrates seven direct and four command-level N# canonicals; root command tests pass
+48/48. Source/IL review and exact frozen fixtures are recorded in
+`/private/tmp/nsharp-compilation-reference-resolver-owner-20260908/final-owner-implementation-receipt-r2.json`
+and `reference-resolver-tests/final-receipt-r1.json` in that directory. The combined full gate,
+installed complete-owner verification and push remain pending. Its recursive project builds, package cache lifecycle,
 dependency mutation, I/O ordering and cleanup are compiler reference-resolution behavior.
 Existing N# kernels do not make that orchestration mechanical. The current dependency on
 MultiFileCompiler requires accepting that owner in BootstrapServices first.
@@ -248,8 +253,9 @@ mutation, identity and failure controls where the current predicate tests leave 
 
 Reviewed source boundary and hashes:
 `/private/tmp/nsharp-sdk-reference-ownership-assessment/current-boundary-20260908.md` and its
-`source-manifest-20260908.json`. The current resolver implementation remains first; this audit does
-not authorize speculative prerequisites or interrupt the selected owner.
+`source-manifest-20260908.json`. With resolver implementation and canonicals integrated, the complete
+task is delegated in an isolated worktree. Actual full N# source compilation, not hypothetical API
+limitations, determines prerequisites; the existing Cecil writer remains the implementation.
 
 ## Final compiler audit
 
@@ -296,7 +302,10 @@ CLI envelope checks remain. Reviewed evidence:
 `277ea2991` are accepted above; push remains open.
 
 The compiler-bearing diagnostic methods and necessary harness in LanguageServerDiagnosticsTests
-are now assigned as the next complete canonical area. Root individually reviewed the nine
+are an active complete canonical area. The first 53 methods are integrated in `451f20958`,
+`7f3c89d86` and `648113f2d`; their N# project passes 53/53 against the integrated resolver.
+Exact fixture and assertion reviews are under `/private/tmp/nsharp-lsp-diagnostic-canonicals-20260908`.
+Parser/recovery and remaining compiler diagnostic groups continue. Root individually reviewed the nine
 Converter_* methods: they use synthetic inputs to test LSP conversion/transport and stay separate.
 Inspect the remaining eighty-three candidate methods individually. Migrate direct compiler diagnostic/message/span assertions in
 LanguageServerDiagnosticsTests separately from its LSP range-conversion and transport assertions.

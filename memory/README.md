@@ -13,9 +13,10 @@ is also N#-owned, with its C# class deleted and canonical/package/self-host veri
 The complete ColumnarIlEmitter is N#-owned and its C# class is deleted, with canonical, installed
 SDK self-host and IDE verification accepted. Complete MultiFileCompiler ownership and its ten
 recovery canonicals are accepted at `27b1a8a1b`, including installed SDK self-host and real unsaved
-editor verification. Remaining compiler C# is deletion debt: recursive compiler reference resolution
-and the SDK reference-assembly scan/rewrite still contain state and decisions to migrate with their
-callers and helpers. Historical allowlist labels do not prove
+editor verification. Complete recursive compiler reference resolution is now N#-owned in the working
+branch, with its C# class deleted and seven direct plus four command-level N# canonicals integrated;
+its combined integration checkpoint remains pending. The SDK reference-assembly scan/rewrite still
+contains C# state and decisions to migrate with its callers and helpers. Historical allowlist labels do not prove
 current compiler-wide completion. CLI/editor features and broader branch work stay separately
 recorded; SDK/tooling changes are in scope only as demonstrated compiler migration dependencies.
 Do not preserve fallback emitters or expand `*DogfoodAdapter` layers into product architecture.

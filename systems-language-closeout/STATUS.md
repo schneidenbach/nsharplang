@@ -125,9 +125,19 @@ public/private metadata and unfiltered IL pass. Both feeds, ten Release payloads
 match SDK SHA `705b8c9625689e1ccd6e6326c3b427a1c41b73b530192fbb71caad8f066cfb17`.
 [Boundary and acceptance](decodes/2026-09-08-complete-multifile-compiler-ownership.md).
 
-Compiler-wide ownership remains open. **Next complete area: CompilationReferenceResolver**, the
-497-line owner of recursive project builds, package caching, reference mutation and failure cleanup.
-Move all methods/state and canonical compiler assertions; preserve query's no-build behavior.
+Compiler-wide ownership remains open. **Integrated, checkpoint pending: CompilationReferenceResolver**.
+`a641613ed` deletes the complete 497-line C# owner; `3f880c86a` integrates seven direct and four
+command-level N# canonicals. All thirteen production callers bind directly to N#, with two public
+entries, twenty-two private helpers and one private readonly HTTP client. Source/IL review preserves
+generic enumeration, disposal, cache insertion, mutation and failure order; query's no-build control
+is nonvacuous. Root focused command tests pass 48/48. The first 53 complete compiler diagnostic
+methods formerly in LanguageServerDiagnosticsTests are also integrated and pass 53/53 in N#.
+Their remaining compiler groups continue independently. The four reviewed ownership rows are updated;
+377 other rows and all epochs remain fixed, audit18/18, head `head-v1:4500562dd5b8322a`.
+The necessary Timeout SDK seed at `277ea2991` passed a fresh backend gate and installed self-host
+7,992/7,992; it does not establish the subsequent resolver checkpoint. That fresh combined gate,
+installed complete-owner verification and push remain required. **Next complete production area:
+EmitIlAssembly**, including its existing Cecil reference scan/rewrite and task state, is delegated.
 [Execution contract](../tasks/021-final-compiler-ownership-audit.md). Broader sibling tasks remain
 separately held. CodeIntelligenceService's project-loading/property-copy boundary is mechanical;
 completion, fix-command and output presentation policy remain separately scoped.
