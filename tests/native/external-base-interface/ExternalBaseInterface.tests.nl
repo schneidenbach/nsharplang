@@ -203,6 +203,40 @@ class WeatherTag: Attribute {
     Cleanup(compilation)
 }
 
+test "an external base without a parameterless constructor gives a modeled default-chain decline" {
+    compilation := CompileExternalBaseFixture(
+        """
+import System.Globalization
+
+class UnsupportedCulture: CultureInfo {
+}
+"""
+    )
+    assert !compilation.Succeeded, compilation.Diagnostics
+    assert compilation.Diagnostics.Contains(
+        "default constructor requires an accessible external base parameterless constructor"
+    ), compilation.Diagnostics
+    Cleanup(compilation)
+}
+
+test "an explicit constructor still requires an accessible implicit external base chain" {
+    compilation := CompileExternalBaseFixture(
+        """
+import System.Globalization
+
+class UnsupportedCulture: CultureInfo {
+    constructor(value: int) {
+    }
+}
+"""
+    )
+    assert !compilation.Succeeded, compilation.Diagnostics
+    assert compilation.Diagnostics.Contains(
+        "constructor requires an accessible base parameterless constructor"
+    ), compilation.Diagnostics
+    Cleanup(compilation)
+}
+
 test "source class implements an external runtime interface" {
     compilation := CompileExternalBaseFixture(
         """

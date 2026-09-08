@@ -118,7 +118,8 @@ class ColumnarBaseTypePlanner {
 
     // An external runtime class (for example ControllerBase) is a legitimate parent for a source
     // class. Value types, records, and multi-parent shapes reject; anything that is not an
-    // inheritable, verifiable, default-constructible external class is unresolvable.
+    // inheritable, verifiable external class is unresolvable. Constructor chaining is validated later,
+    // when the constructor planner knows whether this source type needs an implicit base call.
     func ApplyExternalBase(resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
         if !IsInheritableExternalClass(resolvedBaseType) {
             return ColumnarBaseTypeApplyOutcome.Unresolvable

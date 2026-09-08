@@ -334,6 +334,71 @@ func ConstructorDeclarationControlsChainResolution(
     return ConstructorDeclarationControlsResolutions(program, definitions)[0]
 }
 
+func ConstructorDeclarationControlsExternalBase(
+    name: string,
+    attributes: MethodAttributes,
+    parameterTypes: Type[]
+): Type {
+    builder := TypeOfCreateBuilder(
+        name,
+        "ColumnarConstructorDeclarationControls.External." + name,
+        0
+    )
+    constructorInfo := builder.DefineConstructor(
+        attributes,
+        CallingConventions.Standard,
+        parameterTypes
+    )
+    il := constructorInfo.GetILGenerator()
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(
+        OpCodes.Call,
+        ExecutorRequiredConstructor(typeof(object), Type.EmptyTypes)
+    )
+    il.Emit(OpCodes.Ret)
+    return IdentityBake(builder)
+}
+
+func ConstructorDeclarationControlsExternalDerived(
+    name: string,
+    baseType: Type
+): ColumnarStructDef {
+    definition := ConstructorDeclarationControlsDefinition(name, 0)
+    definition.RecordBase(null, baseType)
+    definition.Builder.SetParent(baseType)
+    return definition
+}
+
+func ConstructorDeclarationControlsReadInt32(values: int[], index: int): int {
+    return values[index] | (values[index + 1] << 8) | (values[index + 2] << 16) | (values[index + 3] << 24)
+}
+
+func ConstructorDeclarationControlsResolveMethodToken(
+    owner: MethodBase,
+    token: int
+): MethodBase {
+    parameterTypes := ConstructorDeclarationControlsOneType(typeof(int))
+    resolveMethod := ExecutorRequiredMethod(
+        typeof(Module),
+        "ResolveMethod",
+        parameterTypes
+    )
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, token)
+    value := TypeOfRequiredInvocation(
+        resolveMethod,
+        owner.get_Module(),
+        arguments
+    )
+    resolved := value as MethodBase
+    if resolved == null {
+        throw new InvalidOperationException(
+            "The constructor call token did not resolve to a method."
+        )
+    }
+    return resolved
+}
+
 test "constructor declaration owner retains source-order user jobs and depth-order default jobs" {
     user := ConstructorDeclarationControlsDefinition("ConstructorDeclarationJobsUser", 0)
     initialized := ConstructorDeclarationControlsDefinition("ConstructorDeclarationJobsInitialized", 0)
@@ -708,6 +773,176 @@ test "constructor declaration owner prioritizes parameterless definitions and fa
     assert ReferenceCoercionIlOffset(invalidChainIl) == 0
 }
 
+test "constructor declaration owner resolves only accessible external parameterless constructors" {
+    publicBase := ConstructorDeclarationControlsExternalBase(
+        "ConstructorDeclarationPublicExternalBase",
+        (MethodAttributes)6,
+        Type.EmptyTypes
+    )
+    familyBase := ConstructorDeclarationControlsExternalBase(
+        "ConstructorDeclarationFamilyExternalBase",
+        (MethodAttributes)4,
+        Type.EmptyTypes
+    )
+    familyOrAssemblyBase := ConstructorDeclarationControlsExternalBase(
+        "ConstructorDeclarationFamilyOrAssemblyExternalBase",
+        (MethodAttributes)5,
+        Type.EmptyTypes
+    )
+    privateBase := ConstructorDeclarationControlsExternalBase(
+        "ConstructorDeclarationPrivateExternalBase",
+        (MethodAttributes)1,
+        Type.EmptyTypes
+    )
+    assemblyBase := ConstructorDeclarationControlsExternalBase(
+        "ConstructorDeclarationAssemblyExternalBase",
+        (MethodAttributes)3,
+        Type.EmptyTypes
+    )
+    familyAndAssemblyBase := ConstructorDeclarationControlsExternalBase(
+        "ConstructorDeclarationFamilyAndAssemblyExternalBase",
+        (MethodAttributes)2,
+        Type.EmptyTypes
+    )
+    parameterizedBase := ConstructorDeclarationControlsExternalBase(
+        "ConstructorDeclarationParameterizedExternalBase",
+        (MethodAttributes)6,
+        ConstructorDeclarationControlsOneType(typeof(int))
+    )
+
+    publicConstructor := ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalParameterlessConstructor(publicBase)
+    familyConstructor := ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalParameterlessConstructor(familyBase)
+    familyOrAssemblyConstructor := ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalParameterlessConstructor(familyOrAssemblyBase)
+    assert publicConstructor != null
+    assert ((int)publicConstructor.get_Attributes() & 7) == 6
+    assert familyConstructor != null
+    assert ((int)familyConstructor.get_Attributes() & 7) == 4
+    assert familyOrAssemblyConstructor != null
+    assert ((int)familyOrAssemblyConstructor.get_Attributes() & 7) == 5
+    assert ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalParameterlessConstructor(privateBase) == null
+    assert ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalParameterlessConstructor(assemblyBase) == null
+    assert ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalParameterlessConstructor(familyAndAssemblyBase) == null
+    assert ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalParameterlessConstructor(parameterizedBase) == null
+}
+
+test "constructor declaration owner emits the exact external base call and declines inaccessible implicit chains before declaration" {
+    derived := ConstructorDeclarationControlsExternalDerived(
+        "ConstructorDeclarationAttributeDerived",
+        typeof(Attribute)
+    )
+    builder := derived.Builder.DefineConstructor(
+        MethodAttributes.Public,
+        CallingConventions.Standard,
+        Type.EmptyTypes
+    )
+    il := builder.GetILGenerator()
+    ColumnarConstructorDeclarationPlanner.EmitCtorBaseChain(
+        il,
+        derived,
+        ExecutorRequiredConstructor(typeof(object), Type.EmptyTypes)
+    )
+    il.Emit(OpCodes.Ret)
+    baked := IdentityBake(derived.Builder)
+    constructors := baked.GetConstructors()
+    assert constructors.Length == 1
+    emitted := constructors[0]
+    emittedIl := ConstructorDeclarationControlsReadIl(emitted)
+    assert emittedIl.Length == 7
+    assert emittedIl[0] == 2
+    assert emittedIl[1] == 40
+    assert emittedIl[6] == 42
+    baseCall := ConstructorDeclarationControlsResolveMethodToken(
+        emitted,
+        ConstructorDeclarationControlsReadInt32(emittedIl, 2)
+    )
+    assert baseCall.get_DeclaringType() == typeof(Attribute)
+    assert baseCall.GetParameters().Length == 0
+    assert ((int)baseCall.get_Attributes() & 7) == 4
+
+    privateBase := ConstructorDeclarationControlsExternalBase(
+        "ConstructorDeclarationDeclinePrivateExternalBase",
+        (MethodAttributes)1,
+        Type.EmptyTypes
+    )
+    explicitDefinition := ConstructorDeclarationControlsExternalDerived(
+        "ConstructorDeclarationDeclineExplicitDerived",
+        privateBase
+    )
+    unreadBody := ConstructorDeclarationControlsEmptyBody(
+        "UnreadExternalBaseParameter",
+        ConstructorDeclarationControlsOneText("neverRead"),
+        ConstructorDeclarationControlsEmptyTexts()
+    )
+    explicitConstructor := ConstructorDeclarationControlsConstructor(
+        unreadBody,
+        0,
+        ConstructorDeclarationControlsEmptyInts(),
+        ConstructorDeclarationControlsEmptyTexts(),
+        false
+    )
+    explicitConstructors := new List<ColumnarConstructorInput>()
+    explicitConstructors.Add(explicitConstructor)
+    explicitInputs := new List<ColumnarStructInput>()
+    explicitInputs.Add(
+        ConstructorDeclarationControlsInput(
+            explicitDefinition.DeclaredTypeName,
+            explicitConstructors
+        )
+    )
+    explicitDefinitions := new ColumnarStructDef[](1)
+    explicitDefinitions[0] = explicitDefinition
+    explicitProgram := ConstructorDeclarationControlsProgram("", explicitInputs)
+    explicitResult := ColumnarConstructorDeclarationPlanner.Declare(
+        explicitProgram,
+        explicitInputs,
+        explicitDefinitions,
+        ConstructorDeclarationControlsResolutions(
+            explicitProgram,
+            explicitDefinitions
+        ),
+        new int[](1)
+    )
+    assert !explicitResult.Succeeded
+    assert explicitResult.DeclineSite == "emit.ctor.implicit-base-chain"
+    assert explicitResult.DeclineMessage == "constructor requires an accessible base parameterless constructor"
+    assert explicitResult.DeclineMember == explicitDefinition.Builder.get_Name() + ".constructor"
+    assert explicitResult.ConstructorJobs.Count == 0
+    assert explicitDefinition.Constructors.Count == 0
+
+    parameterizedBase := ConstructorDeclarationControlsExternalBase(
+        "ConstructorDeclarationDeclineParameterizedExternalBase",
+        (MethodAttributes)6,
+        ConstructorDeclarationControlsOneType(typeof(int))
+    )
+    defaultDefinition := ConstructorDeclarationControlsExternalDerived(
+        "ConstructorDeclarationDeclineDefaultDerived",
+        parameterizedBase
+    )
+    defaultInputs := new List<ColumnarStructInput>()
+    defaultInputs.Add(
+        ConstructorDeclarationControlsInput(
+            defaultDefinition.DeclaredTypeName,
+            new List<ColumnarConstructorInput>()
+        )
+    )
+    defaultDefinitions := new ColumnarStructDef[](1)
+    defaultDefinitions[0] = defaultDefinition
+    defaultProgram := ConstructorDeclarationControlsProgram("", defaultInputs)
+    defaultResult := ColumnarConstructorDeclarationPlanner.Declare(
+        defaultProgram,
+        defaultInputs,
+        defaultDefinitions,
+        ConstructorDeclarationControlsResolutions(defaultProgram, defaultDefinitions),
+        new int[](1)
+    )
+    assert !defaultResult.Succeeded
+    assert defaultResult.DeclineSite == "emit.ctor.default-base-chain"
+    assert defaultResult.DeclineMessage == "default constructor requires an accessible external base parameterless constructor"
+    assert defaultResult.DeclineMember == defaultDefinition.Builder.get_Name()
+    assert defaultResult.DefaultConstructorJobs.Count == 0
+    assert defaultDefinition.DefaultCtor == null
+}
+
 test "constructor declaration owner excludes this and rebinds a closed generic base before chaining" {
     selfOwner := ConstructorDeclarationControlsDefinition("ConstructorDeclarationThisSelf", 0)
     self := ConstructorDeclarationControlsDefineUserConstructor(
@@ -886,7 +1121,7 @@ func ConstructorDeclarationControlsArgumentTypes(count: int): Type[] {
     return types
 }
 
-func ConstructorDeclarationControlsReadIl(method: MethodInfo): int[] {
+func ConstructorDeclarationControlsReadIl(method: MethodBase): int[] {
     noParameters := new Type[](0)
     getBody := ExecutorRequiredMethod(typeof(MethodBase), "GetMethodBody", noParameters)
     body := TypeOfRequiredInvocation(getBody, method, new object[](0))

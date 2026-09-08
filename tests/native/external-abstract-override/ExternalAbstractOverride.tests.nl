@@ -61,6 +61,109 @@ class ProbeError: Exception {
     }
 }
 
+func ExternalOverrideSetObject(values: object?[], index: int, value: object?) {
+    values[index] = value
+}
+
+func ExternalOverrideRequiredMethod(
+    owner: Type,
+    name: string,
+    parameterTypes: Type[]
+): MethodInfo {
+    method := owner.GetMethod(name, parameterTypes)
+    if method == null {
+        throw new InvalidOperationException(
+            "The external-base constructor witness could not find " + name + "."
+        )
+    }
+    return method
+}
+
+func ExternalOverrideReadConstructorIl(constructorInfo: ConstructorInfo): int[] {
+    noTypes := new Type[](0)
+    noArguments := new object?[](0)
+    getBody := ExternalOverrideRequiredMethod(
+        typeof(MethodBase),
+        "GetMethodBody",
+        noTypes
+    )
+    body := getBody.Invoke(constructorInfo, noArguments)
+    if body == null {
+        throw new InvalidOperationException(
+            "The external-base constructor witness emitted no method body."
+        )
+    }
+    getBytes := ExternalOverrideRequiredMethod(
+        body.GetType(),
+        "GetILAsByteArray",
+        noTypes
+    )
+    bytes := getBytes.Invoke(body, noArguments)
+    if bytes == null {
+        throw new InvalidOperationException(
+            "The external-base constructor witness exposed no IL bytes."
+        )
+    }
+    byteArrayType := bytes.GetType()
+    lengthMethod := ExternalOverrideRequiredMethod(
+        byteArrayType,
+        "get_Length",
+        noTypes
+    )
+    lengthValue := lengthMethod.Invoke(bytes, noArguments)
+    if lengthValue == null {
+        throw new InvalidOperationException(
+            "The external-base constructor witness exposed no IL length."
+        )
+    }
+    length := Convert.ToInt32(lengthValue)
+    indexTypes := new Type[](1)
+    indexTypes[0] = typeof(int)
+    getValue := ExternalOverrideRequiredMethod(
+        byteArrayType,
+        "GetValue",
+        indexTypes
+    )
+    arguments := new object?[](1)
+    values := new int[](length)
+    index := 0
+    while index < values.Length {
+        ExternalOverrideSetObject(arguments, 0, index)
+        byteValue := getValue.Invoke(bytes, arguments)
+        if byteValue == null {
+            throw new InvalidOperationException(
+                "The external-base constructor witness exposed a null IL byte."
+            )
+        }
+        values[index] = Convert.ToInt32(byteValue)
+        index += 1
+    }
+    return values
+}
+
+func ExternalOverrideResolveMethodToken(
+    constructorInfo: ConstructorInfo,
+    token: int
+): MethodBase {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(int)
+    resolve := ExternalOverrideRequiredMethod(
+        typeof(Module),
+        "ResolveMethod",
+        parameterTypes
+    )
+    arguments := new object?[](1)
+    ExternalOverrideSetObject(arguments, 0, token)
+    resolvedValue := resolve.Invoke(constructorInfo.get_Module(), arguments)
+    resolved := resolvedValue as MethodBase
+    if resolved == null {
+        throw new InvalidOperationException(
+            "The external-base constructor call token did not resolve."
+        )
+    }
+    return resolved
+}
+
 test "an override of a nuget-sourced abstract method is called through the base type" {
     corelibPath := typeof(object).get_Assembly().get_Location()
     directory := Path.GetDirectoryName(corelibPath) ?? ""
@@ -78,6 +181,22 @@ test "an override of a nuget-sourced abstract method is called through the base 
     coreName := core.GetName()
     assert coreName.get_Name() == "System.Private.CoreLib"
     assert resolver.Calls > 0
+}
+
+test "an implicit constructor calls the exact external direct base constructor" {
+    constructors := typeof(ProbeResolver).GetConstructors()
+    assert constructors.Length == 1
+    constructorInfo := constructors[0]
+    il := ExternalOverrideReadConstructorIl(constructorInfo)
+    assert il.Length > 6
+    assert il[0] == 2
+    assert il[1] == 40
+    token := il[2] | (il[3] << 8) | (il[4] << 16) | (il[5] << 24)
+    baseConstructor := ExternalOverrideResolveMethodToken(constructorInfo, token)
+    assert baseConstructor.get_Name() == ".ctor"
+    assert baseConstructor.get_DeclaringType() == typeof(MetadataAssemblyResolver)
+    assert baseConstructor.GetParameters().Length == 0
+    assert ((int)baseConstructor.get_Attributes() & 7) == 4
 }
 
 test "an override of a CoreLib abstract method is called through the base type" {

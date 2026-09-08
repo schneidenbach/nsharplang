@@ -153,6 +153,17 @@ class ColumnarConstructorDeclarationPlanner {
                                     defaultConstructorJobs
                                 )
                             }
+                            if definition.IsReference && ctor.ChainInitKind == 0 && definition.BaseDef == null && definition.ExactBaseType != null && ResolveAccessibleExternalParameterlessConstructor(definition.ExactBaseType) == null {
+                                return Declined(
+                                    "emit.ctor.implicit-base-chain",
+                                    "constructor requires an accessible base parameterless constructor",
+                                    BuilderName(definition) + ".constructor",
+                                    objectConstructor,
+                                    constructorJobs,
+                                    initializerJobs,
+                                    defaultConstructorJobs
+                                )
+                            }
 
                             parameterTypes := new Type[](ctor.Body.ParamNames.Length)
                             ordinals := new Dictionary<string, int>(StringComparer.Ordinal)
@@ -246,10 +257,9 @@ class ColumnarConstructorDeclarationPlanner {
                     if structInput.IsReference && !HasCallableConstructor(structInput) {
                         definition := structDefinitions[defaultIndex]
                         hasInlineInitializers := definition.InstanceInitializerPlan != null && definition.InstanceInitializerPlan.InlineOrdinals.Length > 0
-                        if definition.BaseDef == null && definition.InstanceInitializerMethod == null && !hasInlineInitializers {
-                            definition.DefaultCtor = definition.Builder.DefineDefaultConstructor(MethodAttributes.Public)
-                        } else {
-                            if definition.BaseDef != null && ResolveParameterlessCtor(definition.BaseDef) == null {
+                        implicitBaseConstructor := ResolveImplicitBaseConstructor(definition, objectConstructor)
+                        if implicitBaseConstructor == null {
+                            if definition.BaseDef != null {
                                 return Declined(
                                     "emit.ctor.default-base-chain",
                                     "default constructor requires a modeled base parameterless constructor",
@@ -260,6 +270,19 @@ class ColumnarConstructorDeclarationPlanner {
                                     defaultConstructorJobs
                                 )
                             }
+                            return Declined(
+                                "emit.ctor.default-base-chain",
+                                "default constructor requires an accessible external base parameterless constructor",
+                                BuilderName(definition),
+                                objectConstructor,
+                                constructorJobs,
+                                initializerJobs,
+                                defaultConstructorJobs
+                            )
+                        }
+                        if definition.BaseDef == null && definition.InstanceInitializerMethod == null && !hasInlineInitializers {
+                            definition.DefaultCtor = definition.Builder.DefineDefaultConstructor(MethodAttributes.Public)
+                        } else {
                             defaultBuilder := definition.Builder.DefineConstructor(
                                 MethodAttributes.Public,
                                 CallingConventions.Standard,
@@ -332,6 +355,38 @@ class ColumnarConstructorDeclarationPlanner {
         return false
     }
 
+    static func ResolveAccessibleExternalParameterlessConstructor(baseType: Type): ConstructorInfo? {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        constructors := baseType.GetConstructors(flags)
+        constructorIndex := 0
+        while constructorIndex < constructors.Length {
+            candidate := constructors[constructorIndex]
+            // The emitted source type is in another assembly. Public (6), Family (4), and
+            // FamORAssem (5) therefore permit a derived constructor call; Assembly (3),
+            // FamANDAssem (2), and Private (1) do not.
+            accessAttributes := (int)candidate.get_Attributes() & 7
+            if candidate.GetParameters().Length == 0 && (accessAttributes == 6 || accessAttributes == 4 || accessAttributes == 5) {
+                return candidate
+            }
+            constructorIndex += 1
+        }
+        return null
+    }
+
+    static func ResolveImplicitBaseConstructor(definition: ColumnarStructDef, objectConstructor: ConstructorInfo): ConstructorInfo? {
+        if definition.BaseDef != null {
+            baseParameterless := ResolveParameterlessCtor(definition.BaseDef)
+            if baseParameterless == null {
+                return null
+            }
+            return ResolveExactBaseConstructor(definition, baseParameterless)
+        }
+        if definition.ExactBaseType != null {
+            return ResolveAccessibleExternalParameterlessConstructor(definition.ExactBaseType)
+        }
+        return objectConstructor
+    }
+
     static func EmitCtorBaseChain(il: ILGenerator, definition: ColumnarStructDef, objectConstructor: ConstructorInfo) {
         if definition.BaseDef != null {
             baseParameterless := ResolveParameterlessCtor(definition.BaseDef)
@@ -340,10 +395,17 @@ class ColumnarConstructorDeclarationPlanner {
             }
             il.Emit(OpCodes.Ldarg_0)
             il.Emit(OpCodes.Call, ResolveExactBaseConstructor(definition, baseParameterless))
-        } else {
-            il.Emit(OpCodes.Ldarg_0)
-            il.Emit(OpCodes.Call, objectConstructor)
+            return
         }
+        baseConstructor: ConstructorInfo? = objectConstructor
+        if definition.ExactBaseType != null {
+            baseConstructor = ResolveAccessibleExternalParameterlessConstructor(definition.ExactBaseType)
+            if baseConstructor == null {
+                throw new InvalidOperationException("external base has no accessible parameterless constructor")
+            }
+        }
+        il.Emit(OpCodes.Ldarg_0)
+        il.Emit(OpCodes.Call, baseConstructor)
     }
 
     static func ResolveExactBaseConstructor(derived: ColumnarStructDef, openConstructor: ConstructorBuilder): ConstructorInfo {
