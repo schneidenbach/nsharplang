@@ -198,20 +198,26 @@ reference-resolution assertions. This does not expand the separate NativeAOT ini
 
 ### Proven resolver HTTP timeout prerequisite
 
-The complete proposed resolver fails parsing in full-source runs r1–r3; the checker identifies
-C# iterator spelling to correct before declaring an iterator capability gap. A separate reduction
+The initial complete proposed resolver failed parsing in full-source runs r1–r3; C# iterator
+spelling and nullable-array construction were corrected. The one-use iterator loop moved into its
+caller with the original ordered existence checks. A separate reduction
 from the actual private client initializer reaches `client.Timeout = TimeSpan.FromMinutes(2)` and
 fails emission. The faithful direct-setter variant also fails at
 `emit.call.instance-member-unmodeled: HttpClient.set_Timeout/1`, while FromMinutes resolves.
 Evidence: `/private/tmp/nsharp-compilation-reference-resolver-owner-20260908`, especially
 `reduction-field-r1.log` and `reduction-timeout-direct-setter-r1.log` with their proposed source.
 
-Implement exact genuine HttpClient.Timeout writable-property admission through the existing N#
-assignment emitter, preserving receiver/value order and runtime setter validation. Do not add a
-getter or broader external-property admission merely for test convenience. Add canonical execution,
-identity and failure controls in N#. Keep the complete resolver worker isolating the corrected
-whole source; group related actually proven prerequisites for required seed verification where
-feasible. A reduced owner retaining the C# type is diagnostic evidence, never production acceptance.
+Exact HttpClient.Timeout writable-property admission is integrated in `502a5de69`, entirely in N#.
+The canonical admission control passed 1/1 and the native reflection family passed 47/47, including
+receiver identity, receiver-before-value ordering and CLR setter failure/prior-value preservation.
+No getter or broader external-property admission was added. A private SDK candidate compiles the
+real assignment in the frozen complete proposed owner (SHA `0f31efcc85e7ebf4d49e722ab9509741d717c52831fec6cf794eafa9ee460650`),
+then declines at the later CompileToIlAssembly call. Receipt:
+`/private/tmp/nsharp-compilation-reference-resolver-owner-20260908/httpclient-timeout-prerequisite/final-receipt-r1.json`.
+This is focused prerequisite evidence, not accepted resolver ownership or SDK publication. Keep
+isolating the corrected whole source and group related actually proven prerequisites for required
+seed verification where feasible. A reduced owner retaining the C# type is diagnostic evidence,
+never production acceptance.
 
 ## Connected follow-on: SDK reference assembly ownership
 
@@ -272,6 +278,12 @@ aggregation on otherwise valid source. Preserve these exact fixtures in N# befor
 C# compiler clauses. The complete six-case visibility group is now assigned in an isolated worktree
 after integration of the two pipeline cases. Audit the remaining direct compiler diagnostic/message/span assertions in
 LanguageServerDiagnosticsTests separately from its LSP range-conversion and transport assertions.
+Source boundary review:
+`/private/tmp/nsharp-multifile-assessment/lsp-diagnostic-canonical-boundary-review-20260908.md`.
+Where a compiler assertion produces the diagnostic consumed by a range assertion, prefer moving
+the complete connected mixed method and required harness to N# rather than retaining duplicate
+compiler assertions or adding C# test selectors. Preserve exact fixtures; similar existing native
+analyzer cases can have different source bytes, locations and behavior.
 
 The audit's broader "compiler-service" label is not the active scope: JSON root-key/value envelopes,
 LintToJson formatting, fix serialization/application policy, and query/editor presentation belong in
