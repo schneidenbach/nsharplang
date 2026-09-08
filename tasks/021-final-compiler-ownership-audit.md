@@ -272,11 +272,21 @@ culture formatting assertion is separately scoped presentation/runtime coverage,
 
 The three-file CLI/fix audit is
 `/private/tmp/nsharp-multifile-assessment/cli-fix-csharp-assertion-boundary-20260908.md`.
-Its compiler-relevant gaps are the exact six-case package/namespace visibility group, the stronger
+Its compiler-relevant gaps include the exact six-case package/namespace visibility group, the stronger
 malformed-source diagnostic bound (`undefinedFromCli`, at most four), and strict-lint diagnostic
 aggregation on otherwise valid source. Preserve these exact fixtures in N# before deleting their
-C# compiler clauses. The complete six-case visibility group is now assigned in an isolated worktree
-after integration of the two pipeline cases. Audit the remaining direct compiler diagnostic/message/span assertions in
+C# compiler clauses. The complete six-case visibility group is integrated in `a7c508f73`: six N#
+cases replace seventeen C# compiler assertions. All twenty fixture writes are byte-identical;
+the two positive cases verify successful public IL compilation as well as clean analysis. Focused
+N# tests passed 6/6, CliCommandTests passed 52/52, and the exact six CLI cases passed 6/6. Original
+CLI envelope checks remain. Reviewed evidence:
+`/private/tmp/nsharp-mfc-visibility-canonicals-20260908/final-receipt.json` and
+`root-review-r1.json` in that directory. Combined integration verification and push remain open.
+
+The compiler-bearing diagnostic methods and necessary harness in LanguageServerDiagnosticsTests
+are now assigned as the next complete canonical area. Root individually reviewed the nine
+Converter_* methods: they use synthetic inputs to test LSP conversion/transport and stay separate.
+Inspect the remaining eighty-three candidate methods individually. Migrate direct compiler diagnostic/message/span assertions in
 LanguageServerDiagnosticsTests separately from its LSP range-conversion and transport assertions.
 Source boundary review:
 `/private/tmp/nsharp-multifile-assessment/lsp-diagnostic-canonical-boundary-review-20260908.md`.
