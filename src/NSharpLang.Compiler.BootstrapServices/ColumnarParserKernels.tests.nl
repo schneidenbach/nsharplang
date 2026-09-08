@@ -295,6 +295,51 @@ class ColumnarNestedStructDeclarationProbe {
     }
 }
 
+func ColumnarProgramDeclarationNullVisibilityStatus(source: string): int {
+    capacity := source.Length * 3 + 16
+    rawKinds := new int[](capacity)
+    rawStarts := new int[](capacity)
+    rawValueLengths := new int[](capacity)
+    tokenKinds := new int[](capacity)
+    tokenStarts := new int[](capacity)
+    tokenValueLengths := new int[](capacity)
+    tokenCounts := new int[](2)
+    tokenCount := TokenizeColumnarSourceInto(
+        source,
+        rawKinds,
+        rawStarts,
+        rawValueLengths,
+        tokenKinds,
+        tokenStarts,
+        tokenValueLengths,
+        tokenCounts
+    )
+
+    return ColumnarProgramDeclarationIndicesInto(
+        source,
+        rawKinds,
+        rawStarts,
+        rawValueLengths,
+        tokenCounts[0],
+        tokenKinds,
+        tokenStarts,
+        tokenValueLengths,
+        tokenCount,
+        new int[](capacity),
+        new int[](capacity),
+        new int[](capacity),
+        new int[](capacity),
+        new int[](capacity),
+        new int[](capacity),
+        new int[](capacity),
+        new int[](capacity),
+        new int[](capacity),
+        null,
+        new string[](capacity),
+        new int[](6)
+    )
+}
+
 // Runs the top-level declaration scan and captures the per-function async/generator facts. A `func*`
 // declaration sets GeneratorFlags[k] = 1 (parallel to AsyncFlags); an ordinary `func` leaves it 0.
 class ColumnarFunctionGeneratorScanProbe {
@@ -749,6 +794,45 @@ test "program declaration scanner appends nested lexical owner paths and declara
     assert probe.RecordFlags[4] == 0
     assert probe.VisibilityFlags[1] == 1
     assert probe.VisibilityFlags[2] == 0
+}
+
+test "program declaration scanner retains sealed beside visibility for every reference type shape" {
+    probe := new ColumnarNestedStructDeclarationProbe(
+        "struct PlainValue {}\nsealed record SealedRecord {}\nsealed class Outer<T> { private sealed class Inner<U> {} private sealed record Item {} class PlainNested {} struct NestedValue {} }\nclass PlainClass {}"
+    )
+
+    assert probe.ScanStatus >= 0
+    assert probe.Count == 8
+    // Top-level struct-like declarations are stored by kind: struct, record, then classes.
+    assert probe.ReferenceFlags[0] == 0
+    assert probe.VisibilityFlags[0] == 0
+    assert probe.ReferenceFlags[1] == 1
+    assert probe.RecordFlags[1] == 1
+    assert probe.VisibilityFlags[1] == 128
+    assert probe.ReferenceFlags[2] == 1
+    assert probe.RecordFlags[2] == 0
+    assert probe.VisibilityFlags[2] == 128
+    assert probe.ReferenceFlags[3] == 1
+    assert probe.VisibilityFlags[3] == 0
+
+    assert probe.EnclosingTypeNames[4] == "Outer"
+    assert probe.ReferenceFlags[4] == 1
+    assert probe.RecordFlags[4] == 0
+    assert probe.VisibilityFlags[4] == 130
+    assert probe.EnclosingTypeNames[5] == "Outer"
+    assert probe.ReferenceFlags[5] == 1
+    assert probe.RecordFlags[5] == 1
+    assert probe.VisibilityFlags[5] == 130
+    assert probe.EnclosingTypeNames[6] == "Outer"
+    assert probe.ReferenceFlags[6] == 1
+    assert probe.VisibilityFlags[6] == 0
+    assert probe.EnclosingTypeNames[7] == "Outer"
+    assert probe.ReferenceFlags[7] == 0
+    assert probe.VisibilityFlags[7] == 0
+}
+
+test "program declaration scanner reports its existing failure code for a null visibility column" {
+    assert ColumnarProgramDeclarationNullVisibilityStatus("class Plain {}") == -6
 }
 
 test "declaration scanner parses func* and records the generator fact parallel to async" {

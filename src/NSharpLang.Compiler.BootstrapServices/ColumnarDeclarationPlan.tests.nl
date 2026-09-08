@@ -144,6 +144,30 @@ func DeclarationPlanStructInput(name: string, isReference: bool): ColumnarStruct
     )
 }
 
+func DeclarationPlanModifiedStructInput(name: string, isReference: bool, isRecord: bool, enclosingTypeName: string, modifierFlags: int): ColumnarStructInput {
+    return new ColumnarStructInput(
+        name,
+        new string[](0),
+        new string[](0),
+        new List<ColumnarFunctionInput>(),
+        new List<ColumnarConstructorInput>(),
+        new List<ColumnarPropertyInput>(),
+        isReference,
+        null,
+        null,
+        null,
+        null,
+        isRecord,
+        null,
+        null,
+        0,
+        false,
+        false,
+        enclosingTypeName,
+        modifierFlags
+    )
+}
+
 func DeclarationPlanInterfaceInput(name: string): ColumnarInterfaceInput {
     return new ColumnarInterfaceInput(
         name,
@@ -163,12 +187,39 @@ test "the typedef rows publish the interface word and BOTH halves of the nested-
     // A TOP-LEVEL type ORs Public; a NESTED one ORs its own visibility word INSTEAD, never both.
     // Folding the two would flip the visibility of every nested type in the estate, so all four
     // combinations are pinned rather than described.
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, 0) == 1
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, 0) == 257
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, true, 2) == 2
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, true, 2) == 258
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, false, 0) == 1
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, false, 0) == 257
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, 2) == 2
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, true, 2) == 258
     // And a nested type never acquires Public by accident, whatever its visibility word.
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, true, 4) == 4
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, 4) == 4
+}
+
+test "the typedef rows preserve explicit sealed on top-level and nested reference classes and records" {
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanModifiedStructInput("SealedClass", true, false, "", 128))
+    structs.Add(DeclarationPlanModifiedStructInput("SealedRecord", true, true, "", 128))
+    structs.Add(DeclarationPlanModifiedStructInput("InnerClass", true, false, "SealedClass", 130))
+    structs.Add(DeclarationPlanModifiedStructInput("InnerRecord", true, true, "SealedClass", 130))
+    structs.Add(DeclarationPlanModifiedStructInput("PlainClass", true, false, "", 0))
+    structs.Add(DeclarationPlanModifiedStructInput("PlainStruct", false, false, "", 0))
+
+    rows := ColumnarDeclarationPlanner.BuildTypeDefs(
+        DeclarationPlanTypeDefProgram("namespace Demo\n", structs, new List<ColumnarInterfaceInput>())
+    )
+
+    assert structs[0].IsSealed
+    assert structs[1].IsSealed
+    assert structs[2].IsSealed
+    assert structs[3].IsSealed
+    assert !structs[4].IsSealed
+    assert !structs[5].IsSealed
+    assert rows.StructTypeAttributes[0] == 257
+    assert rows.StructTypeAttributes[1] == 257
+    assert rows.StructTypeAttributes[2] == 259
+    assert rows.StructTypeAttributes[3] == 259
+    assert rows.StructTypeAttributes[4] == 1
+    assert rows.StructTypeAttributes[5] == 257
 }
 
 test "the typedef rows resolve every declared type name and select its attribute word" {

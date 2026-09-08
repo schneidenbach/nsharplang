@@ -7190,6 +7190,32 @@ func ColumnarEnumDeclarationIndicesCore(tokens: ParserDeclarationKindStream, cou
     return outCount
 }
 
+// The declaration table already carries the source type's modifier word alongside its index. Keep
+// the visibility bits consumed by nested-type planning and the explicit `sealed` bit consumed by
+// reference-type planning. Other member modifiers have their own columns and must not leak into
+// this metadata word.
+func ColumnarStructDeclarationMetadataModifierFlagsAt(tokenKinds: int[], declarationIndex: int): int {
+    if declarationIndex < 0 || declarationIndex >= tokenKinds.Length {
+        return 0
+    }
+
+    declarationKind := tokenKinds[declarationIndex]
+    modifierIndex := declarationIndex - 1
+    if declarationKind == 9 && modifierIndex >= 0 && tokenKinds[modifierIndex] == 78 {
+        modifierIndex = modifierIndex - 1
+    }
+
+    flags := 0
+    while modifierIndex >= 0 && ParserDeclarationMemberModifierKind(tokenKinds[modifierIndex]) != 0 {
+        modifierFlag := ModifierFlag(tokenKinds[modifierIndex])
+        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 128 || modifierFlag == 32768 {
+            flags = flags | modifierFlag
+        }
+        modifierIndex = modifierIndex - 1
+    }
+    return flags
+}
+
 func ColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactTokenStarts: int[], compactTokenValueLengths: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outFuncGeneratorFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outStructVisibilityFlags: int[], outStructEnclosingTypeNames: string[], outResult: int[]): int {
     rawTokens := new ParserDeclarationTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
     compactTokens := new ParserDeclarationTokenTable(compactTokenKinds, compactTokenStarts, compactTokenValueLengths)
@@ -7199,6 +7225,17 @@ func ColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[],
     if declarationCount < 0 {
         return declarationCount
     }
+
+    topLevelStructCount := outResult[5]
+    if outStructIndices == null || outStructVisibilityFlags == null || topLevelStructCount < 0 || topLevelStructCount > outStructIndices.Length || topLevelStructCount > outStructVisibilityFlags.Length {
+        return -6
+    }
+    topLevelStructIndex := 0
+    while topLevelStructIndex < topLevelStructCount {
+        outStructVisibilityFlags[topLevelStructIndex] = ColumnarStructDeclarationMetadataModifierFlagsAt(compactTokenKinds, outStructIndices[topLevelStructIndex])
+        topLevelStructIndex = topLevelStructIndex + 1
+    }
+
     nestedCount := NestedColumnarStructDeclarationIndicesInto(source, compactTokenKinds, compactTokenStarts, compactTokenValueLengths, compactCount, outStructIndices, outStructReferenceFlags, outStructRecordFlags, outStructVisibilityFlags, outStructEnclosingTypeNames, outResult[5])
     if nestedCount < 0 {
         return -6
@@ -7261,19 +7298,7 @@ func NestedColumnarStructDeclarationIndicesInto(source: string, tokenKinds: int[
                     }
                     outStructReferenceFlags[outputIndex] = isReference ? 1 : 0
                     outStructRecordFlags[outputIndex] = isRecord ? 1 : 0
-                    visibilityFlags := 0
-                    modifierIndex := index - 1
-                    if kind == 9 && modifierIndex >= 0 && tokenKinds[modifierIndex] == 78 {
-                        modifierIndex = modifierIndex - 1
-                    }
-                    while modifierIndex >= 0 && ParserDeclarationMemberModifierKind(tokenKinds[modifierIndex]) != 0 {
-                        modifierFlag := ModifierFlag(tokenKinds[modifierIndex])
-                        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 32768 {
-                            visibilityFlags = visibilityFlags | modifierFlag
-                        }
-                        modifierIndex = modifierIndex - 1
-                    }
-                    outStructVisibilityFlags[outputIndex] = visibilityFlags
+                    outStructVisibilityFlags[outputIndex] = ColumnarStructDeclarationMetadataModifierFlagsAt(tokenKinds, index)
                     outEnclosingTypeNames[outputIndex] = enclosingName
                     outputCount = outputCount + 1
                 }

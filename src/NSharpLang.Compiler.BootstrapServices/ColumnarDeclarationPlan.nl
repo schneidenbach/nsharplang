@@ -1072,9 +1072,9 @@ class ColumnarDeclarationPlanner {
     // THE NESTED ASYMMETRY IS LOAD-BEARING AND IS REPRODUCED EXACTLY. A TOP-LEVEL type ORs `Public`;
     // a NESTED one ORs its own `NestedVisibilityAttributes` word INSTEAD -- never both. Folding the
     // two would flip the visibility of every nested type in the estate.
-    static func StructTypeAttributesFor(isReference: bool, isNested: bool, nestedVisibilityAttributes: int): int {
+    static func StructTypeAttributesFor(isReference: bool, isSealed: bool, isNested: bool, nestedVisibilityAttributes: int): int {
         bits := 0
-        if !isReference {
+        if !isReference || isSealed {
             bits = SealedTypeAttribute()
         }
 
@@ -1549,7 +1549,7 @@ class ColumnarDeclarationPlanner {
             } else {
                 structEnclosing[index] = ""
             }
-            structAttributes[index] = StructTypeAttributesFor(input.IsReference, isNested, input.NestedVisibilityAttributes)
+            structAttributes[index] = StructTypeAttributesFor(input.IsReference, input.IsSealed, isNested, input.NestedVisibilityAttributes)
             index = index + 1
         }
 

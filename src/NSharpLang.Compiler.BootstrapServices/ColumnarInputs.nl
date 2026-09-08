@@ -194,6 +194,7 @@ class ColumnarStructInput {
     Constructors: IReadOnlyList<ColumnarConstructorInput>
     Properties: IReadOnlyList<ColumnarPropertyInput>
     IsReference: bool
+    IsSealed: bool
     IsRefStruct: bool
     BaseNames: string[]
     FieldStaticFlags: bool[]
@@ -221,6 +222,7 @@ class ColumnarStructInput {
         Constructors = constructors
         Properties = properties
         IsReference = isReference
+        IsSealed = (visibilityModifierFlags & 128) != 0
         IsRefStruct = isRefStruct
         BaseNames = baseNames ?? new string[](0)
         FieldStaticFlags = fieldStaticFlags ?? new bool[](fieldNames.Length)
